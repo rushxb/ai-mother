@@ -1,10 +1,12 @@
 package com.yupi.yuaicodemother.ai.tools;
 
+import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -57,5 +59,21 @@ public class ToolManager {
      */
     public BaseTool[] getAllTools() {
         return tools;
+    }
+
+    /**
+     * Vue 项目生成阶段使用的轻量工具集。
+     * 生成过程中不暴露构建类工具，避免模型在中途重复触发耗时的 npm install / npm run build。
+     */
+    public BaseTool[] getToolsForCodeGen(CodeGenTypeEnum codeGenType) {
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
+            return tools;
+        }
+        return Arrays.stream(tools)
+                .filter(tool -> !"buildVueProject".equals(tool.getToolName()))
+                .filter(tool -> !"runProjectCheck".equals(tool.getToolName()))
+                .filter(tool -> !"manageDevServer".equals(tool.getToolName()))
+                .filter(tool -> !"diagnosePreviewRuntime".equals(tool.getToolName()))
+                .toArray(BaseTool[]::new);
     }
 }

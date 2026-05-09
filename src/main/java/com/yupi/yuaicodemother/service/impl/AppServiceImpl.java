@@ -65,6 +65,7 @@ import java.util.stream.Collectors;
 public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
 
     private static final long MAX_EDIT_FILE_SIZE = 1024 * 1024;
+    private static final int MAX_MODEL_CONTEXT_FILE_CHARS = 12000;
 
     private static final int MAX_FILE_TREE_DEPTH = 8;
 
@@ -121,6 +122,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         }
+        String enhancedMessage = buildEnhancedUserMessage(app, message);
         // 5. 在调用 AI 前，先保存用户消息到数据库中
         chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
         // 6. 设置监控上下文（用户 ID 和应用 ID）
@@ -131,7 +133,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                         .build()
         );
         // 7. 调用 AI 生成代码（流式）
-        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
+        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(enhancedMessage, codeGenTypeEnum, appId);
         // 8. 收集 AI 响应的内容，并且在完成后保存记录到对话历史
         return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum)
                 .doFinally(signalType -> {
@@ -433,6 +435,75 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         String extension = fileName.substring(dotIndex + 1).toLowerCase();
         return EDITABLE_EXTENSIONS.contains(extension);
+    }
+
+    private String buildEnhancedUserMessage(App app, String userMessage) {
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append(userMessage);
+        String projectContext = buildProjectContext(app);
+        if (StrUtil.isNotBlank(projectContext)) {
+            promptBuilder.append("\n\n")
+                    .append("【当前项目上下文】\n")
+                    .append("你正在当前应用的连续对话中工作。下面是这个应用当前已生成的代码和状态摘要。\n")
+                    .append("回答后续问题时，必须结合这些现有内容继续修改、恢复或说明，不能声称无法访问当前对话、当前项目、刚刚生成的页面，或无法还原上一版内容。\n")
+                    .append("如果用户要求“还原之前的内容”，优先基于下面的当前代码与历史语义进行恢复。\n\n")
+                    .append(projectContext);
+        }
+        return promptBuilder.toString();
+    }
+
+    private String buildProjectContext(App app) {
+        try {
+            File rootDir = getCodeRootDir(app);
+            CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+            if (codeGenTypeEnum == null) {
+                return "";
+            }
+            return switch (codeGenTypeEnum) {
+                case HTML -> readSingleFileContext(rootDir, "index.html");
+                case MULTI_FILE -> readMultiFileContext(rootDir, List.of("index.html", "style.css", "script.js"));
+                case VUE_PROJECT -> readMultiFileContext(rootDir, List.of("src/App.vue", "src/main.js", "src/main.ts", "index.html"));
+            };
+        } catch (Exception e) {
+            log.warn("构建项目上下文失败，appId: {}, error: {}", app.getId(), e.getMessage());
+            return "";
+        }
+    }
+
+    private String readSingleFileContext(File rootDir, String relativePath) {
+        File file = new File(rootDir, relativePath);
+        if (!file.exists() || !file.isFile()) {
+            return "";
+        }
+        String content = FileUtil.readString(file, StandardCharsets.UTF_8);
+        return "当前文件: " + relativePath + "\n```html\n" + truncateForModel(content) + "\n```";
+    }
+
+    private String readMultiFileContext(File rootDir, List<String> relativePaths) {
+        List<String> sections = new ArrayList<>();
+        for (String relativePath : relativePaths) {
+            File file = new File(rootDir, relativePath);
+            if (!file.exists() || !file.isFile()) {
+                continue;
+            }
+            String extension = FileUtil.extName(file);
+            String content = FileUtil.readString(file, StandardCharsets.UTF_8);
+            sections.add("当前文件: " + relativePath + "\n```" + extension + "\n" + truncateForModel(content) + "\n```");
+        }
+        return String.join("\n\n", sections);
+    }
+
+    private String truncateForModel(String content) {
+        if (content == null) {
+            return "";
+        }
+        if (content.length() <= MAX_MODEL_CONTEXT_FILE_CHARS) {
+            return content;
+        }
+        return content.substring(0, MAX_MODEL_CONTEXT_FILE_CHARS)
+                + "\n<!-- 文件内容过长，以上为截断后的前 "
+                + MAX_MODEL_CONTEXT_FILE_CHARS
+                + " 个字符 -->";
     }
 
     private void rebuildIfVueProject(App app, File rootDir) {

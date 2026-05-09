@@ -1,6 +1,9 @@
 package com.yupi.yuaicodemother.core.parser;
 
+import cn.hutool.core.util.StrUtil;
 import com.yupi.yuaicodemother.ai.model.MultiFileCodeResult;
+import com.yupi.yuaicodemother.exception.BusinessException;
+import com.yupi.yuaicodemother.exception.ErrorCode;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -23,8 +26,11 @@ public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
         String htmlCode = extractCodeByPattern(codeContent, HTML_CODE_PATTERN);
         String cssCode = extractCodeByPattern(codeContent, CSS_CODE_PATTERN);
         String jsCode = extractCodeByPattern(codeContent, JS_CODE_PATTERN);
+        if (StrUtil.isBlank(htmlCode)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "AI 返回内容不是有效的多文件页面代码");
+        }
         // 设置HTML代码
-        if (htmlCode != null && !htmlCode.trim().isEmpty()) {
+        if (!htmlCode.trim().isEmpty()) {
             result.setHtmlCode(htmlCode.trim());
         }
         // 设置CSS代码

@@ -2,11 +2,15 @@ package com.yupi.yuaicodemother.core;
 
 import com.yupi.yuaicodemother.ai.model.HtmlCodeResult;
 import com.yupi.yuaicodemother.ai.model.MultiFileCodeResult;
+import com.yupi.yuaicodemother.core.parser.HtmlCodeParser;
+import com.yupi.yuaicodemother.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class CodeParserTest {
+
+    private final HtmlCodeParser htmlCodeParser = new HtmlCodeParser();
 
     @Test
     void parseHtmlCode() {
@@ -28,6 +32,39 @@ class CodeParserTest {
         HtmlCodeResult result = CodeParser.parseHtmlCode(codeContent);
         assertNotNull(result);
         assertNotNull(result.getHtmlCode());
+    }
+
+    @Test
+    void parseHtmlCodeWithChineseContent() {
+        String codeContent = """
+                ```html
+                <!DOCTYPE html>
+                <html lang="zh-CN">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>系统配置展示页</title>
+                </head>
+                <body>
+                    <main>
+                        <h1>系统配置</h1>
+                        <p>这里展示中文内容，不应该被误判。</p>
+                    </main>
+                </body>
+                </html>
+                ```
+                """;
+        HtmlCodeResult result = htmlCodeParser.parseCode(codeContent);
+        assertNotNull(result);
+        assertTrue(result.getHtmlCode().contains("系统配置"));
+    }
+
+    @Test
+    void parsePlainTextAnswerShouldFailForHtml() {
+        String plainText = """
+                我无法查看或获取您的系统配置信息。
+                我是一个 AI 语言模型，运行在安全的服务器环境中，无法访问您的本地系统。
+                """;
+        assertThrows(BusinessException.class, () -> htmlCodeParser.parseCode(plainText));
     }
 
     @Test
@@ -63,5 +100,14 @@ class CodeParserTest {
         assertNotNull(result.getHtmlCode());
         assertNotNull(result.getCssCode());
         assertNotNull(result.getJsCode());
+    }
+
+    @Test
+    void parsePlainTextAnswerShouldFailForMultiFile() {
+        String plainText = """
+                很抱歉，我无法还原到之前的博客内容。
+                不过我可以重新帮您生成一个新的博客页面。
+                """;
+        assertThrows(BusinessException.class, () -> CodeParser.parseMultiFileCode(plainText));
     }
 }

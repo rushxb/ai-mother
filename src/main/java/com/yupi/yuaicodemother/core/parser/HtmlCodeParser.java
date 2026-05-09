@@ -1,6 +1,9 @@
 package com.yupi.yuaicodemother.core.parser;
 
+import cn.hutool.core.util.StrUtil;
 import com.yupi.yuaicodemother.ai.model.HtmlCodeResult;
+import com.yupi.yuaicodemother.exception.BusinessException;
+import com.yupi.yuaicodemother.exception.ErrorCode;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,18 +16,16 @@ import java.util.regex.Pattern;
 public class HtmlCodeParser implements CodeParser<HtmlCodeResult> {
 
     private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COMPLETE_HTML_PATTERN = Pattern.compile("(?is)(<!DOCTYPE\\s+html[^>]*>\\s*)?<html[\\s\\S]*?</html>");
 
     @Override
     public HtmlCodeResult parseCode(String codeContent) {
         HtmlCodeResult result = new HtmlCodeResult();
-        // 提取 HTML 代码
         String htmlCode = extractHtmlCode(codeContent);
-        if (htmlCode != null && !htmlCode.trim().isEmpty()) {
-            result.setHtmlCode(htmlCode.trim());
-        } else {
-            // 如果没有找到代码块，将整个内容作为HTML
-            result.setHtmlCode(codeContent.trim());
+        if (StrUtil.isBlank(htmlCode)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "AI 返回内容不是有效的 HTML 页面代码");
         }
+        result.setHtmlCode(htmlCode.trim());
         return result;
     }
 
@@ -37,8 +38,36 @@ public class HtmlCodeParser implements CodeParser<HtmlCodeResult> {
     private String extractHtmlCode(String content) {
         Matcher matcher = HTML_CODE_PATTERN.matcher(content);
         if (matcher.find()) {
-            return matcher.group(1);
+            String htmlCode = matcher.group(1);
+            if (isValidHtmlDocument(htmlCode)) {
+                return htmlCode;
+            }
+            return null;
+        }
+        String trimmedContent = StrUtil.trim(content);
+        if (isValidHtmlDocument(trimmedContent)) {
+            return trimmedContent;
+        }
+        Matcher fullHtmlMatcher = COMPLETE_HTML_PATTERN.matcher(content);
+        if (fullHtmlMatcher.find()) {
+            String htmlCode = fullHtmlMatcher.group();
+            if (isValidHtmlDocument(htmlCode)) {
+                return htmlCode;
+            }
         }
         return null;
+    }
+
+    private boolean isValidHtmlDocument(String content) {
+        if (StrUtil.isBlank(content)) {
+            return false;
+        }
+        String normalized = content.trim().toLowerCase();
+        boolean hasHtml = normalized.contains("<html");
+        boolean hasHead = normalized.contains("<head");
+        boolean hasBody = normalized.contains("<body");
+        boolean hasClosingHtml = normalized.contains("</html>");
+        boolean hasClosingBody = normalized.contains("</body>");
+        return hasHtml && hasHead && hasBody && hasClosingHtml && hasClosingBody;
     }
 }

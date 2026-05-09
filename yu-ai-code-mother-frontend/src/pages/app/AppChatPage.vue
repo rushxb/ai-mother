@@ -92,9 +92,9 @@
             <span class="section-kicker">Conversation</span>
             <h2>AI 对话</h2>
           </div>
-          <div class="generation-status" :class="{ active: isGenerating }">
+          <div class="generation-status" :class="{ active: isGenerating, failed: latestGenerationFailed }">
             <span class="status-dot"></span>
-            {{ isGenerating ? '生成中' : '就绪' }}
+            {{ generationStatusText }}
           </div>
         </div>
 
@@ -125,6 +125,31 @@
                 </div>
                 <div class="message-content">
                   <MarkdownRenderer v-if="message.content" :content="message.content" />
+                  <div
+                      v-if="message.buildResult"
+                      class="build-result-card"
+                      :class="`build-result-${message.buildResult.status}`"
+                  >
+                    <div class="build-result-main">
+                      <CheckCircleOutlined v-if="message.buildResult.status === 'success'" />
+                      <CloseCircleOutlined v-else />
+                      <div class="build-result-copy">
+                        <strong>{{ message.buildResult.status === 'success' ? '构建通过' : '构建失败' }}</strong>
+                        <span>{{ message.buildResult.summary }}</span>
+                      </div>
+                    </div>
+                    <a-tag class="build-stage-tag" :color="message.buildResult.status === 'success' ? 'success' : 'error'">
+                      {{ message.buildResult.stage }}
+                    </a-tag>
+                  </div>
+                  <div v-if="message.generationFailed && isOwner" class="message-retry-row">
+                    <a-button size="small" type="primary" ghost @click="retryLastGeneration">
+                      <template #icon>
+                        <RedoOutlined />
+                      </template>
+                      重试本轮生成
+                    </a-button>
+                  </div>
                   <div v-if="message.loading" class="loading-indicator">
                     <a-spin size="small" />
                     <span>AI 正在思考...</span>
@@ -489,6 +514,9 @@ import {
   SaveOutlined,
   CloudSyncOutlined,
   VerticalAlignBottomOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  RedoOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -510,6 +538,14 @@ interface Message {
   content: string
   loading?: boolean
   createTime?: string
+  buildResult?: BuildResultView
+  generationFailed?: boolean
+}
+
+interface BuildResultView {
+  status: 'success' | 'failed'
+  stage: string
+  summary: string
 }
 
 const messages = ref<Message[]>([])
@@ -526,6 +562,7 @@ const hasMoreHistory = ref(false)
 const lastCreateTime = ref<string>()
 const historyLoaded = ref(false)
 const refreshingGenerationState = ref(false)
+const lastGenerationPrompt = ref('')
 
 let generationPollingTimer: ReturnType<typeof window.setInterval> | null = null
 const AUTO_SCROLL_THRESHOLD = 96
@@ -615,6 +652,21 @@ const currentDeployUrl = computed(() => {
 
 const canOptimizePrompt = computed(() => {
   return Boolean(isOwner.value && userInput.value.trim() && !isGenerating.value && !isOptimizingPrompt.value)
+})
+
+const latestGenerationFailed = computed(() => {
+  const latestAiMessage = [...messages.value].reverse().find((currentMessage) => currentMessage.type === 'ai')
+  return Boolean(!isGenerating.value && latestAiMessage?.generationFailed)
+})
+
+const generationStatusText = computed(() => {
+  if (isGenerating.value) {
+    return '生成中'
+  }
+  if (latestGenerationFailed.value) {
+    return '需重试'
+  }
+  return '就绪'
 })
 
 const isFileDirty = computed(() => {
@@ -730,6 +782,32 @@ const findPendingAiMessageIndex = () => {
   return -1
 }
 
+const parseBuildResult = (content: string): BuildResultView | undefined => {
+  const resultMatch = content.match(/\[构建结果\]\s*(成功|失败)/)
+  if (!resultMatch) {
+    return undefined
+  }
+  const stageMatch = content.match(/阶段：([^\n\r]+)/)
+  const summaryMatch = content.match(/摘要：([^\n\r]+)/)
+  return {
+    status: resultMatch[1] === '成功' ? 'success' : 'failed',
+    stage: stageMatch?.[1]?.trim() || 'unknown',
+    summary: summaryMatch?.[1]?.trim() || (resultMatch[1] === '成功' ? '项目构建成功' : '项目构建失败'),
+  }
+}
+
+const decorateMessageWithBuildResult = (targetMessage: Message) => {
+  const buildResult = parseBuildResult(targetMessage.content)
+  if (!buildResult) {
+    return buildResult
+  }
+  targetMessage.buildResult = buildResult
+  if (buildResult.status === 'failed') {
+    targetMessage.generationFailed = true
+  }
+  return buildResult
+}
+
 const syncGeneratingMessageFromAppInfo = () => {
   const appGenerating = Boolean(appInfo.value?.isGenerating)
   if (!appGenerating) {
@@ -741,12 +819,15 @@ const syncGeneratingMessageFromAppInfo = () => {
   if (pendingAiMessageIndex >= 0) {
     messages.value[pendingAiMessageIndex].content = generatingMessage
     messages.value[pendingAiMessageIndex].loading = true
+    decorateMessageWithBuildResult(messages.value[pendingAiMessageIndex])
   } else {
-    messages.value.push({
+    const restoredMessage: Message = {
       type: 'ai',
       content: generatingMessage,
       loading: true,
-    })
+    }
+    decorateMessageWithBuildResult(restoredMessage)
+    messages.value.push(restoredMessage)
   }
   isGenerating.value = true
   nextTick(() => {
@@ -820,6 +901,14 @@ const refreshAfterGeneration = async () => {
   if (activeWorkspaceTab.value === 'files') {
     await loadCodeFiles()
   }
+}
+
+const retryLastGeneration = async () => {
+  if (!lastGenerationPrompt.value || isGenerating.value || !isOwner.value) {
+    return
+  }
+  userInput.value = lastGenerationPrompt.value
+  await sendMessage()
 }
 
 const pollGenerationState = async () => {
@@ -948,6 +1037,12 @@ const loadChatHistory = async (isLoadMore = false) => {
               content: chat.message || '',
               createTime: chat.createTime,
             }))
+            .map((historyMessage) => {
+              if (historyMessage.type === 'ai') {
+                decorateMessageWithBuildResult(historyMessage)
+              }
+              return historyMessage
+            })
             .reverse() // 反转数组，让老消息在前
         if (isLoadMore) {
           // 加载更多时，将历史消息添加到开头
@@ -1146,6 +1241,7 @@ const optimizeUserPrompt = async () => {
 const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   let eventSource: EventSource | null = null
   let streamCompleted = false
+  lastGenerationPrompt.value = userMessage
 
   try {
     const startRes = await chatToGenCode({
@@ -1187,6 +1283,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
           fullContent += content
           messages.value[aiMessageIndex].content = fullContent
           messages.value[aiMessageIndex].loading = false
+          const buildResult = decorateMessageWithBuildResult(messages.value[aiMessageIndex])
+          if (buildResult?.status === 'failed') {
+            message.error('项目构建失败，请根据诊断结果重试')
+          }
           void syncMessagesViewport(shouldStickToBottom)
         }
       } catch (error) {
@@ -1207,7 +1307,9 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       // 延迟更新预览，确保后端已完成处理
       setTimeout(async () => {
         await fetchAppInfo()
-        updatePreview()
+        if (!messages.value[aiMessageIndex]?.generationFailed) {
+          updatePreview()
+        }
         if (activeWorkspaceTab.value === 'files') {
           await loadCodeFiles()
         }
@@ -1224,8 +1326,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         // 显示具体的错误信息
         const errorMessage = errorData.message || '生成过程中出现错误'
-        messages.value[aiMessageIndex].content = `❌ ${errorMessage}`
+        messages.value[aiMessageIndex].content = `${messages.value[aiMessageIndex].content || ''}\n\n❌ ${errorMessage}`.trim()
         messages.value[aiMessageIndex].loading = false
+        messages.value[aiMessageIndex].generationFailed = true
+        decorateMessageWithBuildResult(messages.value[aiMessageIndex])
         message.error(errorMessage)
 
         streamCompleted = true
@@ -1240,6 +1344,12 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     // 处理错误
     eventSource.onerror = function () {
       if (streamCompleted || !isGenerating.value) return
+      if (messages.value[aiMessageIndex]?.generationFailed) {
+        streamCompleted = true
+        isGenerating.value = false
+        eventSource?.close()
+        return
+      }
       streamCompleted = true
       eventSource?.close()
       message.warning('实时连接已断开，正在同步生成状态')
@@ -1256,8 +1366,13 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 const handleError = (error: unknown, aiMessageIndex: number) => {
   console.error('生成代码失败：', error)
   stopGenerationPolling()
-  messages.value[aiMessageIndex].content = '抱歉，生成过程中出现了错误，请重试。'
+  const currentContent = messages.value[aiMessageIndex]?.content || ''
+  messages.value[aiMessageIndex].content = currentContent
+    ? `${currentContent}\n\n抱歉，生成过程中出现了错误，请重试。`
+    : '抱歉，生成过程中出现了错误，请重试。'
   messages.value[aiMessageIndex].loading = false
+  messages.value[aiMessageIndex].generationFailed = true
+  decorateMessageWithBuildResult(messages.value[aiMessageIndex])
   message.error('生成失败，请重试')
   isGenerating.value = false
 }
@@ -1917,6 +2032,11 @@ onUnmounted(() => {
   color: #1677ff;
 }
 
+.generation-status.failed {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -2063,6 +2183,83 @@ onUnmounted(() => {
   gap: 8px;
   min-height: 28px;
   color: #64748b;
+}
+
+.build-result-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.8);
+}
+
+.build-result-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.build-result-main :deep(.anticon) {
+  margin-top: 3px;
+  font-size: 18px;
+}
+
+.build-result-success {
+  border-color: rgba(22, 163, 74, 0.2);
+  background: rgba(240, 253, 244, 0.85);
+}
+
+.build-result-success .build-result-main :deep(.anticon) {
+  color: #16a34a;
+}
+
+.build-result-failed {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(254, 242, 242, 0.9);
+}
+
+.build-result-failed .build-result-main :deep(.anticon) {
+  color: #dc2626;
+}
+
+.build-result-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.build-result-copy strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.build-result-copy span {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.build-stage-tag {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 999px;
+}
+
+.message-retry-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.message-retry-row :deep(.ant-btn) {
+  border-radius: 999px;
 }
 
 .load-more-container {

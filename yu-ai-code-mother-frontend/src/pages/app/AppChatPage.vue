@@ -396,18 +396,39 @@
                 </div>
                 <p>网站文件生成完成后将在这里展示</p>
               </div>
-              <div v-else-if="isGenerating" class="preview-loading">
-                <a-spin size="large" />
-                <p>正在生成网站...</p>
+              <div v-if="isGenerating" class="preview-progress-overlay" :class="{ 'has-preview': Boolean(previewUrl) }">
+                <div class="preview-progress-panel">
+                  <div class="preview-progress-head">
+                    <a-spin size="small" />
+                    <div>
+                      <strong>{{ generationStatusText }}</strong>
+                      <span>{{ generationStageDescription }}</span>
+                    </div>
+                  </div>
+                  <div class="generation-steps">
+                    <span
+                        v-for="step in generationSteps"
+                        :key="step.key"
+                        class="generation-step"
+                        :class="{ active: generationStepIndex === step.index, done: generationStepIndex > step.index }"
+                    >
+                      {{ step.label }}
+                    </span>
+                  </div>
+                </div>
               </div>
               <iframe
-                  v-else
+                  v-if="previewUrl"
                   :key="previewRefreshKey"
                   :src="previewUrl"
                   class="preview-iframe"
                   frameborder="0"
                   @load="onIframeLoad"
               ></iframe>
+              <div v-else-if="isGenerating" class="preview-loading">
+                <a-spin size="large" />
+                <p>{{ generationStageDescription }}</p>
+              </div>
             </div>
           </a-tab-pane>
           <a-tab-pane key="files">
@@ -654,6 +675,13 @@ const previewUrl = ref('')
 const previewReady = ref(false)
 const previewRefreshKey = ref(0)
 const activeWorkspaceTab = ref<'preview' | 'files'>('preview')
+const generationPhase = ref<'idle' | 'codegen' | 'build' | 'repair' | 'done' | 'failed'>('idle')
+
+const generationSteps = [
+  { key: 'codegen', label: '生成代码', index: 0 },
+  { key: 'build', label: '构建校验', index: 1 },
+  { key: 'preview', label: '预览就绪', index: 2 },
+]
 
 interface FileTreeNode {
   title: string
@@ -751,6 +779,12 @@ const generationStatusText = computed(() => {
   if (stoppingGeneration.value) {
     return '停止中'
   }
+  if (generationPhase.value === 'build') {
+    return '构建校验中'
+  }
+  if (generationPhase.value === 'repair') {
+    return '自动修复中'
+  }
   if (isGenerating.value) {
     return '生成中'
   }
@@ -758,6 +792,36 @@ const generationStatusText = computed(() => {
     return '需重试'
   }
   return '就绪'
+})
+
+const generationStepIndex = computed(() => {
+  if (generationPhase.value === 'build') {
+    return 1
+  }
+  if (generationPhase.value === 'done') {
+    return 2
+  }
+  return 0
+})
+
+const generationStageDescription = computed(() => {
+  const stage = appInfo.value?.generatingStage || generationPhase.value
+  if (stoppingGeneration.value) {
+    return '正在终止本次生成'
+  }
+  if (stage === 'build' || generationPhase.value === 'build') {
+    return '代码已写入，正在后台执行依赖安装和构建校验'
+  }
+  if (stage === 'repair' || generationPhase.value === 'repair') {
+    return '构建未通过，正在尝试最小范围修复'
+  }
+  if (stage === 'update') {
+    return '正在基于现有项目改修，旧版预览会保留'
+  }
+  if (stage === 'create') {
+    return '正在创建项目文件，生成后会立即进入构建校验'
+  }
+  return '正在处理生成任务'
 })
 
 const isFileDirty = computed(() => {
@@ -904,6 +968,7 @@ const markCurrentGenerationStopped = () => {
       generatingStage: undefined,
     }
   }
+  generationPhase.value = 'idle'
   isGenerating.value = false
   stoppingGeneration.value = false
   stopGenerationPolling()
@@ -1101,8 +1166,16 @@ const syncGeneratingMessageFromAppInfo = () => {
   if (!appGenerating) {
     isGenerating.value = false
     stoppingGeneration.value = false
+    if (generationPhase.value !== 'failed') {
+      generationPhase.value = 'idle'
+    }
     return false
   }
+  generationPhase.value = appInfo.value?.generatingStage === 'build'
+    ? 'build'
+    : appInfo.value?.generatingStage === 'repair'
+      ? 'repair'
+      : 'codegen'
   const generatingMessage = appInfo.value?.generatingMessage || ''
   const pendingAiMessageIndex = findPendingAiMessageIndex()
   if (pendingAiMessageIndex >= 0) {
@@ -1185,12 +1258,16 @@ const fetchAppStateOnly = async () => {
 const refreshAfterGeneration = async () => {
   isGenerating.value = false
   stoppingGeneration.value = false
+  generationPhase.value = latestGenerationFailed.value ? 'failed' : 'done'
   await loadChatHistory()
   if (messages.value.length >= 2) {
     updatePreview()
   }
   if (activeWorkspaceTab.value === 'files') {
     await loadCodeFiles()
+  }
+  if (!latestGenerationFailed.value) {
+    activeWorkspaceTab.value = 'preview'
   }
 }
 
@@ -1465,6 +1542,7 @@ const sendInitialMessage = async (prompt: string) => {
 
   // 开始生成
   isGenerating.value = true
+  generationPhase.value = 'codegen'
   activeWorkspaceTab.value = 'files'
   if (!fileTreeData.value.length) {
     void loadCodeFiles()
@@ -1530,6 +1608,7 @@ const sendMessage = async () => {
 
   // 开始生成
   isGenerating.value = true
+  generationPhase.value = 'codegen'
   activeWorkspaceTab.value = 'files'
   if (!fileTreeData.value.length) {
     void loadCodeFiles()
@@ -1645,23 +1724,41 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       void handleFileOperationStreamEvent(streamEvent)
       if (streamEvent.type === 'build_result') {
         const success = Boolean(streamEvent.data?.success)
+        const stage = String(streamEvent.data?.stage || 'unknown')
+        if (stage === 'codegen_done') {
+          generationPhase.value = 'build'
+          if (appInfo.value) {
+            appInfo.value = {
+              ...appInfo.value,
+              isGenerating: 1,
+              generatingStage: 'build',
+              generatingMessage: String(streamEvent.data?.summary || '代码已生成，后台正在执行构建校验'),
+            }
+          }
+          startGenerationPolling()
+          messages.value[aiMessageIndex].generationFailed = false
+          messages.value[aiMessageIndex].loading = true
+        }
         messages.value[aiMessageIndex].buildResult = {
           status: success ? 'success' : 'failed',
-          stage: String(streamEvent.data?.stage || 'unknown'),
+          stage,
           summary: String(streamEvent.data?.summary || (success ? '项目构建成功' : '项目构建失败')),
           report: String(streamEvent.data?.report || ''),
         }
         messages.value[aiMessageIndex].generationFailed = !success
         if (!success) {
+          generationPhase.value = 'failed'
           message.error('项目构建失败，系统将尝试自动修复')
         }
         return
       }
       if (streamEvent.type === 'repair_start') {
+        generationPhase.value = 'repair'
         message.info(`自动修复第 ${streamEvent.data?.round || 1} 轮开始`)
         return
       }
       if (streamEvent.type === 'generation_error') {
+        generationPhase.value = 'failed'
         messages.value[aiMessageIndex].generationFailed = true
         messages.value[aiMessageIndex].loading = false
         const errorMessage = String(streamEvent.data?.message || streamEvent.text || '生成失败')
@@ -1723,7 +1820,14 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       // 延迟更新预览，确保后端已完成处理
       setTimeout(async () => {
         await fetchAppInfo()
+        if (appInfo.value?.isGenerating) {
+          isGenerating.value = true
+          startGenerationPolling()
+          syncGeneratingMessageFromAppInfo()
+          return
+        }
         if (!messages.value[aiMessageIndex]?.generationFailed) {
+          generationPhase.value = 'done'
           updatePreview()
           activeWorkspaceTab.value = 'preview'
         }
@@ -1749,6 +1853,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
           messages.value[aiMessageIndex].thinkingCollapsed = true
         }
         messages.value[aiMessageIndex].generationFailed = true
+        generationPhase.value = 'failed'
         decorateMessageWithBuildResult(messages.value[aiMessageIndex])
         message.error(errorMessage)
 
@@ -1777,6 +1882,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         streamCompleted = true
         isGenerating.value = false
         stoppingGeneration.value = false
+        generationPhase.value = 'failed'
         stopStreamingFilePreview(true)
         eventSource?.close()
         if (activeEventSource === eventSource) {
@@ -1809,6 +1915,7 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   console.error('生成代码失败：', error)
   stopGenerationPolling()
   stopStreamingFilePreview(true)
+  generationPhase.value = 'failed'
   const currentContent = messages.value[aiMessageIndex]?.content || ''
   messages.value[aiMessageIndex].content = currentContent
     ? `${currentContent}\n\n抱歉，生成过程中出现了错误，请重试。`
@@ -2050,10 +2157,6 @@ const handleFileSelect = async (selectedKeys: Array<string | number>) => {
 }
 
 const handleWorkspaceTabChange = async (activeKey: string | number) => {
-  if (activeKey === 'preview' && isGenerating.value) {
-    activeWorkspaceTab.value = 'files'
-    return
-  }
   if (activeKey === 'files' && !fileTreeData.value.length) {
     await loadCodeFiles()
   }
@@ -3392,6 +3495,81 @@ onUnmounted(() => {
 
 .preview-loading p {
   margin-top: 16px;
+}
+
+.preview-progress-overlay {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  right: 18px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.preview-progress-overlay.has-preview {
+  right: auto;
+  max-width: min(520px, calc(100% - 36px));
+}
+
+.preview-progress-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.preview-progress-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.preview-progress-head strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.preview-progress-head span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.generation-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.generation-step {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(241, 245, 249, 0.92);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.generation-step.active {
+  background: rgba(219, 234, 254, 0.96);
+  color: #1d4ed8;
+}
+
+.generation-step.done {
+  background: rgba(220, 252, 231, 0.94);
+  color: #15803d;
 }
 
 .preview-iframe {

@@ -6,12 +6,10 @@ import com.yupi.yuaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.yupi.yuaicodemother.ai.model.HtmlCodeResult;
 import com.yupi.yuaicodemother.ai.model.MultiFileCodeResult;
 import com.yupi.yuaicodemother.ai.model.message.AiResponseMessage;
-import com.yupi.yuaicodemother.ai.model.message.BuildResultMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolExecutedMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolRequestMessage;
 import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
-import com.yupi.yuaicodemother.core.builder.VueProjectBuilder;
 import com.yupi.yuaicodemother.core.parser.CodeParserExecutor;
 import com.yupi.yuaicodemother.core.saver.CodeFileSaverExecutor;
 import com.yupi.yuaicodemother.exception.BusinessException;
@@ -27,6 +25,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
+import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -38,9 +37,6 @@ public class AiCodeGeneratorFacade {
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
-
-    @Resource
-    private VueProjectBuilder vueProjectBuilder;
 
     /**
      * 统一入口：根据类型生成并保存代码
@@ -182,26 +178,13 @@ public class AiCodeGeneratorFacade {
                         if (sink.isCancelled() || isCancelled(cancelChecker)) {
                             return;
                         }
-                        // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
-                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
-                        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
-                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
-                            sink.complete();
-                            return;
-                        }
-                        BuildResultMessage buildResultMessage = new BuildResultMessage(buildResult);
-                        sink.next(GenerationStreamEvent.buildResult(buildResult.toDiagnosticReport(), java.util.Map.of(
-                                "success", buildResult.success(),
-                                "stage", buildResult.stage(),
-                                "projectPath", buildResult.projectPath(),
-                                "summary", buildResult.summary(),
-                                "report", buildResult.toDiagnosticReport()
+                        sink.next(GenerationStreamEvent.buildResult("代码生成完成，后台正在校验项目构建", Map.of(
+                                "success", true,
+                                "stage", "codegen_done",
+                                "projectPath", AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId,
+                                "summary", "代码已生成，后台正在执行构建校验",
+                                "report", "代码已生成，后台正在执行构建校验"
                         )));
-                        if (!buildResult.success()) {
-                            log.warn("Vue 项目生成后自动构建失败，appId: {}, summary: {}", appId, buildResult.summary());
-                            sink.error(new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()));
-                            return;
-                        }
                         sink.complete();
                     })
                     .onError((Throwable error) -> {

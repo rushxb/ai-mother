@@ -1,5 +1,12 @@
 const ABSOLUTE_URL_PATTERN = /^[a-z][a-z\d+\-.]*:\/\//i
 
+const getPreferredProtocol = () => {
+  if (typeof window !== 'undefined' && window.location?.protocol) {
+    return window.location.protocol
+  }
+  return 'https:'
+}
+
 export const normalizeImageUrl = (url?: string) => {
   const value = url?.trim()
   if (!value) {
@@ -9,10 +16,10 @@ export const normalizeImageUrl = (url?: string) => {
     return value
   }
   if (value.startsWith('//')) {
-    return `http:${value}`
+    return `${getPreferredProtocol()}${value}`
   }
   if (value.startsWith('/')) {
     return value
   }
-  return `http://${value}`
+  return `${getPreferredProtocol()}//${value}`
 }

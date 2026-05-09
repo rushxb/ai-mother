@@ -43,6 +43,16 @@ public interface AppConstant {
     String GENERATING_STAGE_UPDATE = "update";
 
     /**
+     * 后台构建阶段
+     */
+    String GENERATING_STAGE_BUILD = "build";
+
+    /**
+     * 后台自动修复阶段
+     */
+    String GENERATING_STAGE_REPAIR = "repair";
+
+    /**
      * 应用生成目录
      */
     String CODE_OUTPUT_ROOT_DIR = resolveRuntimePath("code.output-root-dir", TMP_ROOT_DIR + "/code_output");

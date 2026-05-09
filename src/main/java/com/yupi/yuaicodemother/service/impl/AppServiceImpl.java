@@ -75,7 +75,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private static final int MAX_GENERATION_SNAPSHOT_CHARS = 20000;
     private static final long GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS = 1000;
     private static final int MAX_GENERATION_REPLAY_EVENTS = 500;
-    private static final int MAX_AUTO_REPAIR_ROUNDS = 2;
+    private static final int MAX_AUTO_REPAIR_ROUNDS = 1;
     private static final int MAX_PROJECT_INDEX_FILES = 80;
     private static final int MAX_FILE_TREE_DEPTH = 8;
     private static final int FALLBACK_APP_NAME_LENGTH = 12;
@@ -460,15 +460,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     markGenerationFinished(appId);
                     session.emitStopped();
                     session.complete();
+                    activeGenerationSessions.remove(appId, session);
                     return;
                 }
-                markGenerationFinished(appId);
-                session.complete();
+                if (preparation.targetType() == CodeGenTypeEnum.VUE_PROJECT) {
+                    startBackgroundBuild(appId, loginUser, preparation, session);
+                } else {
+                    markGenerationFinished(appId);
+                    session.complete();
+                    activeGenerationSessions.remove(appId, session);
+                }
             } catch (GenerationStoppedException e) {
                 log.info("应用生成任务已停止，appId: {}", appId);
                 markGenerationFinished(appId);
                 session.emitStopped();
                 session.complete();
+                activeGenerationSessions.remove(appId, session);
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
@@ -478,11 +485,109 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                         "message", StrUtil.blankToDefault(e.getMessage(), "生成失败")
                 )));
                 session.complete();
+                activeGenerationSessions.remove(appId, session);
             } finally {
-                activeGenerationSessions.remove(appId);
                 MonitorContextHolder.clearContext();
             }
         });
+    }
+
+    private void startBackgroundBuild(Long appId,
+                                      User loginUser,
+                                      GenerationPreparation preparation,
+                                      GenerationSession session) {
+        markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "代码已生成，正在后台构建校验...");
+        Thread.startVirtualThread(() -> {
+            MonitorContextHolder.setContext(
+                    MonitorContext.builder()
+                            .userId(loginUser.getId().toString())
+                            .appId(appId.toString())
+                            .build()
+            );
+            try {
+                runBackgroundBuildWithAutoRepair(appId, loginUser, preparation, session);
+            } catch (Exception e) {
+                log.error("后台构建校验失败，appId: {}", appId, e);
+                rollbackCodeGenTypeIfNeeded(appId, preparation);
+                session.emit(GenerationStreamEvent.generationError(e.getMessage(), Map.of(
+                        "category", classifyGenerationError(e.getMessage()),
+                        "message", StrUtil.blankToDefault(e.getMessage(), "后台构建校验失败")
+                )));
+            } finally {
+                markGenerationFinished(appId);
+                session.complete();
+                activeGenerationSessions.remove(appId, session);
+                MonitorContextHolder.clearContext();
+            }
+        });
+    }
+
+    private void runBackgroundBuildWithAutoRepair(Long appId,
+                                                  User loginUser,
+                                                  GenerationPreparation preparation,
+                                                  GenerationSession session) {
+        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + CodeGenTypeEnum.VUE_PROJECT.getValue() + "_" + appId;
+        StringBuilder generatedContent = new StringBuilder();
+        long[] lastSnapshotUpdateAt = {0L};
+        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+        if (session.isCancelled()) {
+            return;
+        }
+        session.emit(GenerationStreamEvent.buildResult(buildResult.toDiagnosticReport(), Map.of(
+                "success", buildResult.success(),
+                "stage", buildResult.stage(),
+                "projectPath", buildResult.projectPath(),
+                "summary", buildResult.summary(),
+                "report", buildResult.toDiagnosticReport()
+        )));
+        if (buildResult.success()) {
+            return;
+        }
+        if (MAX_AUTO_REPAIR_ROUNDS <= 0) {
+            rollbackCodeGenTypeIfNeeded(appId, preparation);
+            session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
+                    "category", classifyGenerationError(buildResult.toFailureSummary()),
+                    "message", buildResult.toFailureSummary()
+            )));
+            return;
+        }
+        for (int round = 1; round <= MAX_AUTO_REPAIR_ROUNDS; round++) {
+            session.throwIfCancelled();
+            markGenerationStage(appId, AppConstant.GENERATING_STAGE_REPAIR, "构建未通过，正在自动修复...");
+            session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
+                    "round", round,
+                    "maxRounds", MAX_AUTO_REPAIR_ROUNDS
+            )));
+            executeGenerationRound(
+                    appId,
+                    loginUser,
+                    preparation.targetType(),
+                    buildAutoRepairPrompt(new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()), round),
+                    session,
+                    generatedContent,
+                    lastSnapshotUpdateAt
+            );
+            markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "自动修复完成，正在重新构建校验...");
+            buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+            if (session.isCancelled()) {
+                return;
+            }
+            session.emit(GenerationStreamEvent.buildResult(buildResult.toDiagnosticReport(), Map.of(
+                    "success", buildResult.success(),
+                    "stage", buildResult.stage(),
+                    "projectPath", buildResult.projectPath(),
+                    "summary", buildResult.summary(),
+                    "report", buildResult.toDiagnosticReport()
+            )));
+            if (buildResult.success()) {
+                return;
+            }
+        }
+        rollbackCodeGenTypeIfNeeded(appId, preparation);
+        session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
+                "category", classifyGenerationError(buildResult.toFailureSummary()),
+                "message", buildResult.toFailureSummary()
+        )));
     }
 
     private void runGenerationWithAutoRepair(Long appId,
@@ -610,6 +715,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     private CodeGenTypeEnum routeCodeGenTypeForMessage(App app, String userMessage, CodeGenTypeEnum currentType) {
+        if (!shouldRouteCodeGenType(app, userMessage, currentType)) {
+            return currentType;
+        }
         try {
             AiCodeGenTypeRoutingService routingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
             String routingPrompt = buildRoutingPrompt(app, userMessage, currentType);
@@ -619,6 +727,30 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             log.warn("生成前重新路由失败，沿用当前模式，appId: {}", app.getId(), e);
             return currentType;
         }
+    }
+
+    private boolean shouldRouteCodeGenType(App app, String userMessage, CodeGenTypeEnum currentType) {
+        if (currentType == CodeGenTypeEnum.VUE_PROJECT) {
+            return false;
+        }
+        if (StrUtil.isBlank(userMessage)) {
+            return false;
+        }
+        boolean hasGeneratedCode;
+        try {
+            getCodeRootDir(app);
+            hasGeneratedCode = true;
+        } catch (BusinessException e) {
+            hasGeneratedCode = false;
+        }
+        if (!hasGeneratedCode) {
+            return true;
+        }
+        String normalized = userMessage.toLowerCase();
+        return List.of(
+                "vue", "组件", "路由", "router", "多页面", "页面跳转", "后台管理", "管理系统",
+                "登录", "注册", "接口", "api", "状态管理", "pinia", "复杂", "工程"
+        ).stream().anyMatch(normalized::contains);
     }
 
     private String buildRoutingPrompt(App app, String userMessage, CodeGenTypeEnum currentType) {
@@ -660,6 +792,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         updateApp.setId(appId);
         updateApp.setIsGenerating(1);
         updateApp.setGeneratingMessage("");
+        updateApp.setGeneratingStage(generatingStage);
+        this.updateById(updateApp);
+    }
+
+    private void markGenerationStage(Long appId, String generatingStage, String generatingMessage) {
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setIsGenerating(1);
+        updateApp.setGeneratingMessage(generatingMessage);
         updateApp.setGeneratingStage(generatingStage);
         this.updateById(updateApp);
     }

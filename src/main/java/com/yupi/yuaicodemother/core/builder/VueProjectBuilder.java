@@ -6,6 +6,8 @@ import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -19,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 public class VueProjectBuilder {
 
     private static final int MAX_LOG_CHARS = 12000;
+    private static final String INSTALL_STAMP_FILE = ".ai-code-install.stamp";
 
     /**
      * 异步构建 Vue 项目
@@ -65,8 +68,8 @@ public class VueProjectBuilder {
             return BuildResult.invalid(projectPath, "项目目录中没有 package.json 文件");
         }
         log.info("开始构建 Vue 项目：{}", projectPath);
-        // 执行 npm install
-        CommandResult installResult = executeNpmInstall(projectDir);
+        // 依赖文件未变化时跳过 npm install，避免每轮生成重复等待安装
+        CommandResult installResult = installDependenciesIfNeeded(projectDir);
         if (!installResult.success()) {
             log.error("npm install 执行失败：{}", projectPath);
             return BuildResult.installFailed(projectPath, installResult);
@@ -85,6 +88,49 @@ public class VueProjectBuilder {
         }
         log.info("Vue 项目构建成功，dist 目录：{}", projectPath);
         return BuildResult.success(projectPath, installResult, buildResult);
+    }
+
+    private CommandResult installDependenciesIfNeeded(File projectDir) {
+        try {
+            String dependencyFingerprint = buildDependencyFingerprint(projectDir);
+            File nodeModulesDir = new File(projectDir, "node_modules");
+            File stampFile = new File(projectDir, INSTALL_STAMP_FILE);
+            if (nodeModulesDir.exists() && stampFile.exists()) {
+                String installedFingerprint = Files.readString(stampFile.toPath(), StandardCharsets.UTF_8).trim();
+                if (dependencyFingerprint.equals(installedFingerprint)) {
+                    log.info("依赖未变化，跳过 npm install: {}", projectDir.getAbsolutePath());
+                    return CommandResult.skipped("npm install --no-audit --no-fund", "依赖未变化，已跳过 npm install");
+                }
+            }
+            CommandResult installResult = executeNpmInstall(projectDir);
+            if (installResult.success()) {
+                Files.writeString(stampFile.toPath(), dependencyFingerprint, StandardCharsets.UTF_8);
+            }
+            return installResult;
+        } catch (Exception e) {
+            log.warn("依赖缓存判断失败，将执行 npm install: {}", e.getMessage());
+            return executeNpmInstall(projectDir);
+        }
+    }
+
+    private String buildDependencyFingerprint(File projectDir) throws Exception {
+        StringBuilder builder = new StringBuilder();
+        appendFileFingerprint(builder, projectDir.toPath().resolve("package.json"));
+        appendFileFingerprint(builder, projectDir.toPath().resolve("package-lock.json"));
+        appendFileFingerprint(builder, projectDir.toPath().resolve("pnpm-lock.yaml"));
+        appendFileFingerprint(builder, projectDir.toPath().resolve("yarn.lock"));
+        return Integer.toHexString(builder.toString().hashCode());
+    }
+
+    private void appendFileFingerprint(StringBuilder builder, Path filePath) throws Exception {
+        if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+            return;
+        }
+        builder.append(filePath.getFileName()).append(':')
+                .append(Files.size(filePath)).append(':')
+                .append(Files.getLastModifiedTime(filePath).toMillis()).append(':')
+                .append(Files.readString(filePath, StandardCharsets.UTF_8).hashCode())
+                .append('\n');
     }
 
     /**
@@ -199,6 +245,10 @@ public class VueProjectBuilder {
 
         private static CommandResult success(String command, int exitCode, String output) {
             return new CommandResult(command, true, exitCode, false, output, null);
+        }
+
+        private static CommandResult skipped(String command, String output) {
+            return new CommandResult(command, true, 0, false, output, null);
         }
 
         private static CommandResult failed(String command, int exitCode, String output) {

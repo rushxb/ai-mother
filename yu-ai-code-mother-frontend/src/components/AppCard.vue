@@ -91,6 +91,18 @@ const statusMeta = computed(() => {
   if (!props.app.isGenerating) {
     return null
   }
+  if (props.app.generatingStage === 'build') {
+    return {
+      label: '构建中',
+      variant: 'build',
+    }
+  }
+  if (props.app.generatingStage === 'repair') {
+    return {
+      label: '修复中',
+      variant: 'repair',
+    }
+  }
   if (props.app.generatingStage === 'update') {
     return {
       label: '改修中',
@@ -195,6 +207,16 @@ const handleCopy = () => {
 .generation-badge--update {
   color: #3f627b;
   background: rgba(241, 246, 250, 0.82);
+}
+
+.generation-badge--build {
+  color: #1d4ed8;
+  background: rgba(239, 246, 255, 0.9);
+}
+
+.generation-badge--repair {
+  color: #b45309;
+  background: rgba(255, 251, 235, 0.92);
 }
 
 .app-preview img {

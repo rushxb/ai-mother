@@ -142,6 +142,12 @@ const router = useRouter()
 
 const getAppCover = (cover?: string) => normalizeImageUrl(cover) || DEFAULT_APP_COVER
 const getGenerationStateText = (app: API.AppVO) => {
+  if (app.generatingStage === 'build') {
+    return '构建中'
+  }
+  if (app.generatingStage === 'repair') {
+    return '修复中'
+  }
   if (app.generatingStage === 'update') {
     return '改修中'
   }
@@ -149,6 +155,12 @@ const getGenerationStateText = (app: API.AppVO) => {
 }
 
 const getGenerationStateClass = (app: API.AppVO) => {
+  if (app.generatingStage === 'build') {
+    return 'is-build'
+  }
+  if (app.generatingStage === 'repair') {
+    return 'is-repair'
+  }
   return app.generatingStage === 'update' ? 'is-update' : 'is-create'
 }
 
@@ -508,6 +520,16 @@ const deleteApp = async (id: number | undefined) => {
 .generation-state-chip.is-update {
   background: rgba(243, 247, 250, 0.88);
   color: #406279;
+}
+
+.generation-state-chip.is-build {
+  background: rgba(239, 246, 255, 0.9);
+  color: #1d4ed8;
+}
+
+.generation-state-chip.is-repair {
+  background: rgba(255, 251, 235, 0.92);
+  color: #b45309;
 }
 
 .generation-state-chip__dot {

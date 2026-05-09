@@ -53,6 +53,11 @@ public interface AppConstant {
     String GENERATING_STAGE_REPAIR = "repair";
 
     /**
+     * 智能体编排阶段
+     */
+    String GENERATING_STAGE_AGENT = "agent";
+
+    /**
      * 应用生成目录
      */
     String CODE_OUTPUT_ROOT_DIR = resolveRuntimePath("code.output-root-dir", TMP_ROOT_DIR + "/code_output");

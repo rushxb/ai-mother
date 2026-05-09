@@ -166,6 +166,9 @@ public class JsonMessageStreamHandler {
                 event.setText(output);
                 return event;
             }
+            case GenerationStreamEvent.AGENT_EVENT -> {
+                return event;
+            }
             case GenerationStreamEvent.REPAIR_START, GenerationStreamEvent.GENERATION_ERROR -> {
                 chatHistoryStringBuilder.append(event.getText());
                 return event;

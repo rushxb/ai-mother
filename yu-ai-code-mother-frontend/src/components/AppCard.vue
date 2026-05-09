@@ -103,6 +103,12 @@ const statusMeta = computed(() => {
       variant: 'repair',
     }
   }
+  if (props.app.generatingStage === 'agent') {
+    return {
+      label: '编排中',
+      variant: 'agent',
+    }
+  }
   if (props.app.generatingStage === 'update') {
     return {
       label: '改修中',
@@ -217,6 +223,11 @@ const handleCopy = () => {
 .generation-badge--repair {
   color: #b45309;
   background: rgba(255, 251, 235, 0.92);
+}
+
+.generation-badge--agent {
+  color: #4f46e5;
+  background: rgba(238, 242, 255, 0.92);
 }
 
 .app-preview img {

@@ -148,6 +148,9 @@ const getGenerationStateText = (app: API.AppVO) => {
   if (app.generatingStage === 'repair') {
     return '修复中'
   }
+  if (app.generatingStage === 'agent') {
+    return '编排中'
+  }
   if (app.generatingStage === 'update') {
     return '改修中'
   }
@@ -160,6 +163,9 @@ const getGenerationStateClass = (app: API.AppVO) => {
   }
   if (app.generatingStage === 'repair') {
     return 'is-repair'
+  }
+  if (app.generatingStage === 'agent') {
+    return 'is-agent'
   }
   return app.generatingStage === 'update' ? 'is-update' : 'is-create'
 }
@@ -530,6 +536,11 @@ const deleteApp = async (id: number | undefined) => {
 .generation-state-chip.is-repair {
   background: rgba(255, 251, 235, 0.92);
   color: #b45309;
+}
+
+.generation-state-chip.is-agent {
+  background: rgba(238, 242, 255, 0.92);
+  color: #4f46e5;
 }
 
 .generation-state-chip__dot {

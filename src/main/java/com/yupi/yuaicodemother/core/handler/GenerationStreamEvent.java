@@ -22,6 +22,7 @@ public class GenerationStreamEvent {
     public static final String TOOL_CALL = "tool_call";
     public static final String TOOL_RESULT = "tool_result";
     public static final String BUILD_RESULT = "build_result";
+    public static final String AGENT_EVENT = "agent_event";
     public static final String GENERATION_ERROR = "generation_error";
     public static final String REPAIR_START = "repair_start";
     public static final String GENERATION_STOPPED = "generation_stopped";
@@ -71,6 +72,14 @@ public class GenerationStreamEvent {
     public static GenerationStreamEvent buildResult(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(BUILD_RESULT)
+                .text(StrUtil.blankToDefault(text, ""))
+                .data(data)
+                .build();
+    }
+
+    public static GenerationStreamEvent agentEvent(String text, Map<String, Object> data) {
+        return GenerationStreamEvent.builder()
+                .type(AGENT_EVENT)
                 .text(StrUtil.blankToDefault(text, ""))
                 .data(data)
                 .build();

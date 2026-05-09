@@ -33,6 +33,9 @@ import com.yupi.yuaicodemother.model.vo.AppVO;
 import com.yupi.yuaicodemother.model.vo.UserVO;
 import com.yupi.yuaicodemother.monitor.MonitorContext;
 import com.yupi.yuaicodemother.monitor.MonitorContextHolder;
+import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationResult;
+import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
 import com.yupi.yuaicodemother.service.AppService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
 import com.yupi.yuaicodemother.service.ScreenshotService;
@@ -119,6 +122,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Resource
     private AppNameGeneratorService appNameGeneratorService;
 
+    @Resource
+    private GenerationOrchestrator generationOrchestrator;
+
     private final Map<Long, Object> generationLocks = new ConcurrentHashMap<>();
     private final Map<Long, GenerationSession> activeGenerationSessions = new ConcurrentHashMap<>();
 
@@ -146,6 +152,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 switchAppCodeGenType(appId, preparation.targetType());
             }
             markGenerationStarted(appId, preparation.generatingStage());
+            updateGenerationPhase(appId, AppConstant.GENERATING_STAGE_AGENT, "智能体正在分析需求并规划生成策略...");
             session = new GenerationSession();
             activeGenerationSessions.put(appId, session);
         }
@@ -455,6 +462,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                             .build()
             );
             try {
+                preparation.events().forEach(session::emit);
+                markGenerationStage(appId, preparation.generatingStage(), "智能体编排完成，正在生成项目代码...");
                 runGenerationWithAutoRepair(appId, loginUser, preparation, session, generatedContent, lastSnapshotUpdateAt);
                 if (session.isCancelled()) {
                     markGenerationFinished(appId);
@@ -707,20 +716,31 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(currentType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         String generatingStage = determineGeneratingStage(app);
-        CodeGenTypeEnum routedType = routeCodeGenTypeForMessage(app, userMessage, currentType);
-        CodeGenTypeEnum targetType = CodeGenTypeEnum.max(currentType, routedType);
-        boolean upgradeRequired = currentType.canUpgradeTo(targetType);
-        String enhancedMessage = buildEnhancedUserMessage(app, userMessage, currentType, targetType);
-        return new GenerationPreparation(currentType, targetType, upgradeRequired, generatingStage, enhancedMessage);
+        boolean hasGeneratedCode = hasGeneratedCode(app);
+        GenerationOrchestrationResult orchestrationResult = generationOrchestrator.prepare(
+                new GenerationOrchestrationRequest(
+                        app,
+                        userMessage,
+                        currentType,
+                        generatingStage,
+                        hasGeneratedCode,
+                        () -> buildProjectContext(app),
+                        routingPrompt -> routeCodeGenTypeForPrompt(app, routingPrompt, currentType)
+                )
+        );
+        return new GenerationPreparation(
+                orchestrationResult.originalType(),
+                orchestrationResult.targetType(),
+                orchestrationResult.upgradeRequired(),
+                orchestrationResult.generatingStage(),
+                orchestrationResult.enhancedMessage(),
+                orchestrationResult.events()
+        );
     }
 
-    private CodeGenTypeEnum routeCodeGenTypeForMessage(App app, String userMessage, CodeGenTypeEnum currentType) {
-        if (!shouldRouteCodeGenType(app, userMessage, currentType)) {
-            return currentType;
-        }
+    private CodeGenTypeEnum routeCodeGenTypeForPrompt(App app, String routingPrompt, CodeGenTypeEnum currentType) {
         try {
             AiCodeGenTypeRoutingService routingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
-            String routingPrompt = buildRoutingPrompt(app, userMessage, currentType);
             CodeGenTypeEnum routedType = routingService.routeCodeGenType(routingPrompt);
             return routedType == null ? currentType : routedType;
         } catch (Exception e) {
@@ -729,62 +749,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
     }
 
-    private boolean shouldRouteCodeGenType(App app, String userMessage, CodeGenTypeEnum currentType) {
-        if (currentType == CodeGenTypeEnum.VUE_PROJECT) {
-            return false;
-        }
-        if (StrUtil.isBlank(userMessage)) {
-            return false;
-        }
-        boolean hasGeneratedCode;
-        try {
-            getCodeRootDir(app);
-            hasGeneratedCode = true;
-        } catch (BusinessException e) {
-            hasGeneratedCode = false;
-        }
-        if (!hasGeneratedCode) {
-            return true;
-        }
-        String normalized = userMessage.toLowerCase();
-        return List.of(
-                "vue", "组件", "路由", "router", "多页面", "页面跳转", "后台管理", "管理系统",
-                "登录", "注册", "接口", "api", "状态管理", "pinia", "复杂", "工程"
-        ).stream().anyMatch(normalized::contains);
-    }
-
-    private String buildRoutingPrompt(App app, String userMessage, CodeGenTypeEnum currentType) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("当前应用模式：")
-                .append(currentType.getValue())
-                .append("（")
-                .append(currentType.getText())
-                .append("）\n");
-        builder.append("用户这次的新需求：\n")
-                .append(userMessage);
-        String projectContext = buildProjectContext(app);
-        if (StrUtil.isNotBlank(projectContext)) {
-            builder.append("\n\n")
-                    .append(AppConstant.PROJECT_CONTEXT_MARKER)
-                    .append("\n")
-                    .append(projectContext);
-        }
-        builder.append("\n\n请判断：为了满足这次需求，是否需要升级到更复杂的代码模式。");
-        return builder.toString();
-    }
-
     private String determineGeneratingStage(App app) {
         if (app == null || app.getId() == null) {
             return AppConstant.GENERATING_STAGE_CREATE;
         }
-        boolean hasGeneratedCode;
+        return hasGeneratedCode(app) ? AppConstant.GENERATING_STAGE_UPDATE : AppConstant.GENERATING_STAGE_CREATE;
+    }
+
+    private boolean hasGeneratedCode(App app) {
         try {
             getCodeRootDir(app);
-            hasGeneratedCode = true;
+            return true;
         } catch (BusinessException e) {
-            hasGeneratedCode = false;
+            return false;
         }
-        return hasGeneratedCode ? AppConstant.GENERATING_STAGE_UPDATE : AppConstant.GENERATING_STAGE_CREATE;
     }
 
     private void markGenerationStarted(Long appId, String generatingStage) {
@@ -803,6 +781,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         updateApp.setGeneratingMessage(generatingMessage);
         updateApp.setGeneratingStage(generatingStage);
         this.updateById(updateApp);
+    }
+
+    private void updateGenerationPhase(Long appId, String generatingStage, String generatingMessage) {
+        markGenerationStage(appId, generatingStage, generatingMessage);
     }
 
     private void updateGenerationSnapshot(Long appId, String generatingMessage) {
@@ -1094,7 +1076,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                                          CodeGenTypeEnum targetType,
                                          boolean upgradeRequired,
                                          String generatingStage,
-                                         String enhancedMessage) {
+                                         String enhancedMessage,
+                                         List<GenerationStreamEvent> events) {
     }
 
     private void rebuildIfVueProject(App app, File rootDir) {

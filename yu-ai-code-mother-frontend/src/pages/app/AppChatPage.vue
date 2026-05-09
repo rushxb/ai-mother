@@ -174,6 +174,20 @@
                       </button>
                     </template>
                   </template>
+                  <div v-if="message.agentEvents?.length" class="agent-timeline">
+                    <div
+                        v-for="agentEvent in message.agentEvents"
+                        :key="`${agentEvent.stage}-${agentEvent.agent}`"
+                        class="agent-timeline-item"
+                        :class="`agent-timeline-item-${agentEvent.status}`"
+                    >
+                      <span class="agent-timeline-dot"></span>
+                      <div class="agent-timeline-copy">
+                        <strong>{{ agentEvent.agent }}</strong>
+                        <span>{{ agentEvent.summary }}</span>
+                      </div>
+                    </div>
+                  </div>
                   <div
                       v-if="message.buildResult"
                       class="build-result-card"
@@ -620,6 +634,7 @@ interface Message {
   thinkingCollapsed?: boolean
   createTime?: string
   buildResult?: BuildResultView
+  agentEvents?: AgentEventView[]
   generationFailed?: boolean
 }
 
@@ -634,6 +649,13 @@ interface GenerationStreamEvent {
   type: string
   text?: string
   data?: Record<string, any>
+}
+
+interface AgentEventView {
+  agent: string
+  stage: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  summary: string
 }
 
 type AiMessageSegment =
@@ -676,6 +698,7 @@ const previewReady = ref(false)
 const previewRefreshKey = ref(0)
 const activeWorkspaceTab = ref<'preview' | 'files'>('preview')
 const generationPhase = ref<'idle' | 'codegen' | 'build' | 'repair' | 'done' | 'failed'>('idle')
+const currentAgentStageText = ref('')
 
 const generationSteps = [
   { key: 'codegen', label: '生成代码', index: 0 },
@@ -779,6 +802,9 @@ const generationStatusText = computed(() => {
   if (stoppingGeneration.value) {
     return '停止中'
   }
+  if (currentAgentStageText.value && generationPhase.value === 'codegen') {
+    return currentAgentStageText.value
+  }
   if (generationPhase.value === 'build') {
     return '构建校验中'
   }
@@ -809,11 +835,17 @@ const generationStageDescription = computed(() => {
   if (stoppingGeneration.value) {
     return '正在终止本次生成'
   }
+  if (currentAgentStageText.value && generationPhase.value === 'codegen') {
+    return '智能体正在并行拆解需求、准备上下文并规划生成策略'
+  }
   if (stage === 'build' || generationPhase.value === 'build') {
     return '代码已写入，正在后台执行依赖安装和构建校验'
   }
   if (stage === 'repair' || generationPhase.value === 'repair') {
     return '构建未通过，正在尝试最小范围修复'
+  }
+  if (stage === 'agent') {
+    return '智能体正在并行拆解需求、准备上下文并规划生成策略'
   }
   if (stage === 'update') {
     return '正在基于现有项目改修，旧版预览会保留'
@@ -971,6 +1003,7 @@ const markCurrentGenerationStopped = () => {
   generationPhase.value = 'idle'
   isGenerating.value = false
   stoppingGeneration.value = false
+  currentAgentStageText.value = ''
   stopGenerationPolling()
   stopStreamingFilePreview(true)
   closeActiveEventSource()
@@ -1000,6 +1033,31 @@ const parseGenerationStreamEvent = (event: MessageEvent): GenerationStreamEvent 
     console.error('解析生成事件失败:', error, event.data)
     return undefined
   }
+}
+
+const normalizeAgentStatus = (status: unknown): AgentEventView['status'] => {
+  if (status === 'pending' || status === 'running' || status === 'done' || status === 'failed') {
+    return status
+  }
+  return 'running'
+}
+
+const upsertAgentEvent = (targetMessage: Message, streamEvent: GenerationStreamEvent) => {
+  const data = streamEvent.data || {}
+  const agentEvent: AgentEventView = {
+    agent: String(data.agent || '智能体'),
+    stage: String(data.stage || 'planning'),
+    status: normalizeAgentStatus(data.status),
+    summary: String(data.summary || streamEvent.text || '正在处理'),
+  }
+  const events = targetMessage.agentEvents ? [...targetMessage.agentEvents] : []
+  const existingIndex = events.findIndex((item) => item.stage === agentEvent.stage && item.agent === agentEvent.agent)
+  if (existingIndex >= 0) {
+    events.splice(existingIndex, 1, agentEvent)
+  } else {
+    events.push(agentEvent)
+  }
+  targetMessage.agentEvents = events
 }
 
 const getGenerationErrorDisplay = (category?: string, rawMessage?: string) => {
@@ -1166,6 +1224,7 @@ const syncGeneratingMessageFromAppInfo = () => {
   if (!appGenerating) {
     isGenerating.value = false
     stoppingGeneration.value = false
+    currentAgentStageText.value = ''
     if (generationPhase.value !== 'failed') {
       generationPhase.value = 'idle'
     }
@@ -1176,6 +1235,9 @@ const syncGeneratingMessageFromAppInfo = () => {
     : appInfo.value?.generatingStage === 'repair'
       ? 'repair'
       : 'codegen'
+  if (generationPhase.value !== 'codegen') {
+    currentAgentStageText.value = ''
+  }
   const generatingMessage = appInfo.value?.generatingMessage || ''
   const pendingAiMessageIndex = findPendingAiMessageIndex()
   if (pendingAiMessageIndex >= 0) {
@@ -1258,6 +1320,7 @@ const fetchAppStateOnly = async () => {
 const refreshAfterGeneration = async () => {
   isGenerating.value = false
   stoppingGeneration.value = false
+  currentAgentStageText.value = ''
   generationPhase.value = latestGenerationFailed.value ? 'failed' : 'done'
   await loadChatHistory()
   if (messages.value.length >= 2) {
@@ -1710,7 +1773,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       void syncMessagesViewport(shouldStickToBottom)
     }
 
-    const handleGenerationEvent = (event: MessageEvent) => {
+const handleGenerationEvent = (event: MessageEvent) => {
       if (streamCompleted) return
       const streamEvent = parseGenerationStreamEvent(event)
       if (!streamEvent) {
@@ -1722,11 +1785,20 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         appendGeneratedText(streamEvent.text)
       }
       void handleFileOperationStreamEvent(streamEvent)
+      if (streamEvent.type === 'agent_event') {
+        upsertAgentEvent(messages.value[aiMessageIndex], streamEvent)
+        generationPhase.value = 'codegen'
+        const agentName = String(streamEvent.data?.agent || '智能体')
+        currentAgentStageText.value = `${agentName}处理中`
+        messages.value[aiMessageIndex].loading = true
+        return
+      }
       if (streamEvent.type === 'build_result') {
         const success = Boolean(streamEvent.data?.success)
         const stage = String(streamEvent.data?.stage || 'unknown')
         if (stage === 'codegen_done') {
           generationPhase.value = 'build'
+          currentAgentStageText.value = ''
           if (appInfo.value) {
             appInfo.value = {
               ...appInfo.value,
@@ -1754,11 +1826,13 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       }
       if (streamEvent.type === 'repair_start') {
         generationPhase.value = 'repair'
+        currentAgentStageText.value = ''
         message.info(`自动修复第 ${streamEvent.data?.round || 1} 轮开始`)
         return
       }
       if (streamEvent.type === 'generation_error') {
         generationPhase.value = 'failed'
+        currentAgentStageText.value = ''
         messages.value[aiMessageIndex].generationFailed = true
         messages.value[aiMessageIndex].loading = false
         const errorMessage = String(streamEvent.data?.message || streamEvent.text || '生成失败')
@@ -1777,6 +1851,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     eventSource.addEventListener('ai_thinking_delta', handleGenerationEvent)
     eventSource.addEventListener('tool_call', handleGenerationEvent)
     eventSource.addEventListener('tool_result', handleGenerationEvent)
+    eventSource.addEventListener('agent_event', handleGenerationEvent)
     eventSource.addEventListener('build_result', handleGenerationEvent)
     eventSource.addEventListener('repair_start', handleGenerationEvent)
     eventSource.addEventListener('generation_error', handleGenerationEvent)
@@ -3168,6 +3243,68 @@ onUnmounted(() => {
   color: #1677ff;
   font-size: 12px;
   font-weight: 600;
+}
+
+.agent-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  background: linear-gradient(180deg, rgba(246, 248, 255, 0.92), rgba(241, 245, 249, 0.86));
+}
+
+.agent-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.agent-timeline-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.12);
+  flex: none;
+}
+
+.agent-timeline-item-running .agent-timeline-dot {
+  background: #4f46e5;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.agent-timeline-item-done .agent-timeline-dot {
+  background: #0f766e;
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+}
+
+.agent-timeline-item-failed .agent-timeline-dot {
+  background: #dc2626;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.12);
+}
+
+.agent-timeline-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-timeline-copy strong {
+  color: #0f172a;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.agent-timeline-copy span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .message-avatar {

@@ -6,6 +6,18 @@ package com.yupi.yuaicodemother.constant;
 public interface AppConstant {
 
     /**
+     * 应用基础目录
+     * 可通过 JVM 参数覆盖：-Dcode.base-dir=/root/ai-code
+     */
+    String APP_BASE_DIR = resolveRuntimePath("code.base-dir", System.getProperty("user.dir"));
+
+    /**
+     * 临时文件根目录
+     * 可通过 JVM 参数覆盖：-Dcode.tmp-root-dir=/root/ai-code/tmp
+     */
+    String TMP_ROOT_DIR = resolveRuntimePath("code.tmp-root-dir", APP_BASE_DIR + "/tmp");
+
+    /**
      * 追加到模型输入中的项目上下文标记
      */
     String PROJECT_CONTEXT_MARKER = "【当前项目上下文】";
@@ -33,20 +45,33 @@ public interface AppConstant {
     /**
      * 应用生成目录
      */
-    String CODE_OUTPUT_ROOT_DIR = System.getProperty("user.dir") + "/tmp/code_output";
+    String CODE_OUTPUT_ROOT_DIR = resolveRuntimePath("code.output-root-dir", TMP_ROOT_DIR + "/code_output");
 
     /**
      * 应用部署目录
      */
-    String CODE_DEPLOY_ROOT_DIR = System.getProperty("user.dir") + "/tmp/code_deploy";
+    String CODE_DEPLOY_ROOT_DIR = resolveRuntimePath("code.deploy-root-dir", TMP_ROOT_DIR + "/code_deploy");
 
     /**
      * 应用代码快照目录
      */
-    String CODE_SNAPSHOT_ROOT_DIR = System.getProperty("user.dir") + "/tmp/code_snapshot";
+    String CODE_SNAPSHOT_ROOT_DIR = resolveRuntimePath("code.snapshot-root-dir", TMP_ROOT_DIR + "/code_snapshot");
+
+    /**
+     * 截图临时目录
+     */
+    String SCREENSHOT_ROOT_DIR = resolveRuntimePath("code.screenshot-root-dir", TMP_ROOT_DIR + "/screenshots");
 
     /**
      * 应用部署域名
      */
     String CODE_DEPLOY_HOST = "http://localhost:8088";
+
+    static String resolveRuntimePath(String key, String defaultValue) {
+        String overrideValue = System.getProperty(key);
+        if (overrideValue == null || overrideValue.isBlank()) {
+            return defaultValue;
+        }
+        return overrideValue.trim();
+    }
 }

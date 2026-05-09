@@ -4,6 +4,7 @@ import cn.hutool.core.img.ImgUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.exception.BusinessException;
 import com.yupi.yuaicodemother.exception.ErrorCode;
 import io.github.bonigarcia.wdm.WebDriverManager;
@@ -58,7 +59,8 @@ public class WebScreenshotUtils {
         }
         // 创建临时目录
         try {
-            String rootPath = System.getProperty("user.dir") + "/tmp/screenshots/" + UUID.randomUUID().toString().substring(0, 8);
+            String rootPath = AppConstant.SCREENSHOT_ROOT_DIR + File.separator
+                    + UUID.randomUUID().toString().substring(0, 8);
             FileUtil.mkdir(rootPath);
             // 图片后缀
             final String IMAGE_SUFFIX = ".png";

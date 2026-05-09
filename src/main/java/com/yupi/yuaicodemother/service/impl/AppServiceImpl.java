@@ -287,8 +287,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(!targetFile.exists() || !targetFile.isFile(), ErrorCode.NOT_FOUND_ERROR, "文件不存在");
         ThrowUtils.throwIf(shouldHideFile(targetFile), ErrorCode.NO_AUTH_ERROR, "禁止修改该文件");
         ThrowUtils.throwIf(!isEditableFile(targetFile), ErrorCode.OPERATION_ERROR, "该文件类型不支持在线编辑");
+        String originalContent = FileUtil.readString(targetFile, StandardCharsets.UTF_8);
         FileUtil.writeString(content, targetFile, StandardCharsets.UTF_8);
-        rebuildIfVueProject(app, rootDir);
+        try {
+            rebuildIfVueProject(app, rootDir);
+        } catch (BusinessException e) {
+            rollbackSavedFile(app, rootDir, targetFile, originalContent);
+            throw new BusinessException(e.getCode(), "保存失败，代码未通过编译，已自动回退到上一次可用版本");
+        } catch (Exception e) {
+            rollbackSavedFile(app, rootDir, targetFile, originalContent);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "保存失败，代码未通过编译，已自动回退到上一次可用版本");
+        }
         return true;
     }
 
@@ -433,6 +442,16 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         boolean buildSuccess = vueProjectBuilder.buildProject(rootDir.getAbsolutePath());
         ThrowUtils.throwIf(!buildSuccess, ErrorCode.SYSTEM_ERROR, "文件已保存，但 Vue 项目构建失败，请检查代码");
+    }
+
+    private void rollbackSavedFile(App app, File rootDir, File targetFile, String originalContent) {
+        try {
+            FileUtil.writeString(originalContent, targetFile, StandardCharsets.UTF_8);
+            rebuildIfVueProject(app, rootDir);
+        } catch (Exception e) {
+            log.error("保存失败后回滚文件异常，appId: {}, file: {}", app.getId(), targetFile.getAbsolutePath(), e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "保存失败且自动回退异常，请联系管理员处理");
+        }
     }
 
     /**

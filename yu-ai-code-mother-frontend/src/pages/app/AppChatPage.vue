@@ -326,7 +326,21 @@
                       default-expand-all
                       block-node
                       @select="handleFileSelect"
-                  />
+                  >
+                    <template #title="node">
+                      <span class="file-tree-title">
+                        <FolderOpenOutlined v-if="node.directory" class="file-tree-folder-icon" />
+                        <span
+                            v-else
+                            class="file-type-icon"
+                            :class="`file-type-icon-${node.iconType || 'file'}`"
+                        >
+                          {{ node.iconLabel || 'TXT' }}
+                        </span>
+                        <span class="file-tree-name">{{ node.title }}</span>
+                      </span>
+                    </template>
+                  </a-tree>
                 </div>
                 <div v-else class="file-empty-state">
                   生成代码后可在这里查看文件
@@ -358,7 +372,11 @@
                         v-model="fileContent"
                         ref="codeEditorTextareaRef"
                         class="code-editor"
+                        wrap="off"
                         spellcheck="false"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
                         :disabled="savingFile"
                         @scroll="syncCodeEditorScroll"
                     />
@@ -392,7 +410,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
 import { useLoginUserStore } from '@/stores/loginUser'
@@ -474,6 +492,9 @@ interface FileTreeNode {
   key: string
   isLeaf: boolean
   selectable: boolean
+  directory: boolean
+  iconType: string
+  iconLabel: string
   children?: FileTreeNode[]
   raw: API.AppCodeFileTreeVO
 }
@@ -574,6 +595,37 @@ const codeLanguageAliasMap: Record<string, string> = {
   xml: 'xml',
   yml: 'yaml',
   yaml: 'yaml',
+}
+
+const fileIconMetaMap: Record<string, { type: string; label: string }> = {
+  html: { type: 'html', label: 'HTML' },
+  htm: { type: 'html', label: 'HTML' },
+  css: { type: 'css', label: 'CSS' },
+  scss: { type: 'css', label: 'SCSS' },
+  less: { type: 'css', label: 'LESS' },
+  js: { type: 'js', label: 'JS' },
+  mjs: { type: 'js', label: 'JS' },
+  cjs: { type: 'js', label: 'JS' },
+  jsx: { type: 'jsx', label: 'JSX' },
+  ts: { type: 'ts', label: 'TS' },
+  tsx: { type: 'tsx', label: 'TSX' },
+  vue: { type: 'vue', label: 'VUE' },
+  json: { type: 'json', label: '{}' },
+  md: { type: 'md', label: 'MD' },
+  markdown: { type: 'md', label: 'MD' },
+  svg: { type: 'svg', label: 'SVG' },
+  png: { type: 'image', label: 'IMG' },
+  jpg: { type: 'image', label: 'IMG' },
+  jpeg: { type: 'image', label: 'IMG' },
+  gif: { type: 'image', label: 'IMG' },
+  webp: { type: 'image', label: 'IMG' },
+  ico: { type: 'image', label: 'ICO' },
+  xml: { type: 'xml', label: 'XML' },
+  yml: { type: 'yaml', label: 'YML' },
+  yaml: { type: 'yaml', label: 'YML' },
+  txt: { type: 'text', label: 'TXT' },
+  env: { type: 'env', label: 'ENV' },
+  lock: { type: 'lock', label: 'LOCK' },
 }
 
 const selectedFileLanguage = computed(() => {
@@ -949,14 +1001,33 @@ const updatePreview = () => {
   }
 }
 
+const getFileExtension = (fileName: string) => {
+  const normalizedName = fileName.split('/').pop()?.toLowerCase() || ''
+  const dotIndex = normalizedName.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex === normalizedName.length - 1) {
+    return normalizedName
+  }
+  return normalizedName.slice(dotIndex + 1)
+}
+
+const getFileIconMeta = (fileName: string) => {
+  const extension = getFileExtension(fileName)
+  return fileIconMetaMap[extension] || { type: 'file', label: extension.slice(0, 3).toUpperCase() || 'TXT' }
+}
+
 const mapFileTreeNodes = (nodes: API.AppCodeFileTreeVO[] = []): FileTreeNode[] => {
   return nodes.map((node) => {
     const isDirectory = Boolean(node.directory)
+    const fileName = node.name || node.path || ''
+    const iconMeta = isDirectory ? { type: 'folder', label: '' } : getFileIconMeta(fileName)
     return {
-      title: node.name || node.path || '',
+      title: fileName,
       key: node.path || node.name || '',
       isLeaf: !isDirectory,
       selectable: !isDirectory,
+      directory: isDirectory,
+      iconType: iconMeta.type,
+      iconLabel: iconMeta.label,
       children: isDirectory ? mapFileTreeNodes(node.children || []) : undefined,
       raw: node,
     }
@@ -1054,6 +1125,33 @@ const syncCodeEditorScroll = () => {
   codeHighlightRef.value.scrollLeft = textarea.scrollLeft
 }
 
+const showCompileRollbackConfirm = (errorMessage: string) => {
+  Modal.confirm({
+    title: '代码未通过编译',
+    content: `${errorMessage || '本次保存未生效，服务端文件和预览已保持在上一次可用版本。'} 是否将编辑器内容回退到上一次保存的版本？`,
+    okText: '确认回退',
+    cancelText: '继续编辑',
+    onOk: () => {
+      fileContent.value = savedFileContent.value
+      refreshPreview()
+      nextTick(() => {
+        getCodeEditorTextareaElement()?.focus()
+      })
+      message.success('已回退到上一次保存的版本')
+    },
+    onCancel: () => {
+      nextTick(() => {
+        getCodeEditorTextareaElement()?.focus()
+      })
+      message.info('已保留当前编辑内容，可继续修改后再次保存')
+    },
+  })
+}
+
+const isCompileFailureMessage = (errorMessage: string) => {
+  return errorMessage.includes('编译') || errorMessage.includes('构建') || errorMessage.includes('回退')
+}
+
 const saveCurrentFile = async () => {
   if (!canSaveFile.value) {
     return
@@ -1071,7 +1169,12 @@ const saveCurrentFile = async () => {
       message.success('文件已保存，网页预览已刷新')
       return
     }
-    message.error('保存失败：' + (res.data.message || '请重试'))
+    const errorMessage = res.data.message || '保存失败，请检查代码后重试'
+    if (isCompileFailureMessage(errorMessage)) {
+      showCompileRollbackConfirm(errorMessage)
+    } else {
+      message.error('保存失败：' + errorMessage)
+    }
   } catch (error) {
     console.error('保存文件失败：', error)
     message.error('保存失败，请重试')
@@ -1864,6 +1967,16 @@ onUnmounted(() => {
   background: transparent;
 }
 
+:deep(.code-file-tree .ant-tree-switcher) {
+  flex: none;
+}
+
+:deep(.code-file-tree .ant-tree-node-content-wrapper) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 :deep(.code-file-tree .ant-tree-node-content-wrapper) {
   min-width: 0;
   overflow: hidden;
@@ -1873,6 +1986,86 @@ onUnmounted(() => {
 
 :deep(.code-file-tree .ant-tree-title) {
   font-size: 13px;
+}
+
+.file-tree-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-tree-folder-icon {
+  color: #f59e0b;
+  font-size: 10px;
+  flex: none;
+}
+
+.file-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 4px;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  flex: none;
+}
+
+.file-type-icon-html,
+.file-type-icon-xml {
+  background: #f97316;
+}
+
+.file-type-icon-css,
+.file-type-icon-scss {
+  background: #ec4899;
+}
+
+.file-type-icon-js,
+.file-type-icon-jsx {
+  background: #facc15;
+  color: #1f2937;
+}
+
+.file-type-icon-ts,
+.file-type-icon-tsx {
+  background: #2563eb;
+}
+
+.file-type-icon-vue {
+  background: #10b981;
+}
+
+.file-type-icon-json {
+  background: #7c3aed;
+}
+
+.file-type-icon-md {
+  background: #0f766e;
+}
+
+.file-type-icon-image {
+  background: #0ea5e9;
+}
+
+.file-type-icon-yaml,
+.file-type-icon-text,
+.file-type-icon-env,
+.file-type-icon-lock,
+.file-type-icon-file {
+  background: #64748b;
+}
+
+.file-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-editor-panel {
@@ -1945,6 +2138,7 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background: #ffffff;
+  --code-editor-font: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
 }
 
 .code-highlight-layer {
@@ -1957,20 +2151,32 @@ onUnmounted(() => {
   pointer-events: none;
   background: #ffffff;
   color: #0f172a;
-  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  font-family: var(--code-editor-font);
   font-size: 13px;
+  font-weight: 400;
+  font-style: normal;
   line-height: 1.7;
+  letter-spacing: 0;
   white-space: pre;
   word-break: normal;
+  overflow-wrap: normal;
+  word-wrap: normal;
   tab-size: 2;
 }
 
 .code-highlight-layer code {
   display: block;
   min-height: 100%;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
+  padding: 0;
+  overflow: visible;
+  font: inherit;
+  letter-spacing: inherit;
+  background: transparent;
+}
+
+.code-highlight-layer :deep(*) {
+  font: inherit !important;
+  letter-spacing: inherit !important;
 }
 
 .code-editor {
@@ -1987,12 +2193,18 @@ onUnmounted(() => {
   background: transparent;
   color: transparent;
   caret-color: #0f172a;
-  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  font-family: var(--code-editor-font) !important;
   font-size: 13px;
+  font-weight: 400;
+  font-style: normal;
   line-height: 1.7;
+  letter-spacing: 0;
   tab-size: 2;
   white-space: pre;
   word-break: normal;
+  overflow-wrap: normal;
+  word-wrap: normal;
+  box-sizing: border-box;
   outline: none;
 }
 

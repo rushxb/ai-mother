@@ -46,9 +46,10 @@ public class JsonMessageStreamHandler {
         StringBuilder chatHistoryStringBuilder = new StringBuilder();
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
         Set<String> seenToolIds = new HashSet<>();
+        Map<String, StringBuilder> toolArgumentBuffers = new java.util.HashMap<>();
         return originFlux
                 .<GenerationStreamEvent>handle((event, sink) -> {
-                    GenerationStreamEvent handledEvent = handleStreamEvent(event, chatHistoryStringBuilder, seenToolIds);
+                    GenerationStreamEvent handledEvent = handleStreamEvent(event, chatHistoryStringBuilder, seenToolIds, toolArgumentBuffers);
                     if (handledEvent != null && (StrUtil.isNotBlank(handledEvent.getText()) || handledEvent.getData() != null)) {
                         sink.next(handledEvent);
                     }
@@ -68,7 +69,10 @@ public class JsonMessageStreamHandler {
     /**
      * 解析并收集 TokenStream 数据
      */
-    private GenerationStreamEvent handleStreamEvent(GenerationStreamEvent event, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
+    private GenerationStreamEvent handleStreamEvent(GenerationStreamEvent event,
+                                                    StringBuilder chatHistoryStringBuilder,
+                                                    Set<String> seenToolIds,
+                                                    Map<String, StringBuilder> toolArgumentBuffers) {
         if (event == null || StrUtil.isBlank(event.getType())) {
             return null;
         }
@@ -81,9 +85,11 @@ public class JsonMessageStreamHandler {
                 return event;
             }
             case GenerationStreamEvent.TOOL_CALL -> {
-                String toolId = event.getData() == null ? null : String.valueOf(event.getData().get("requestId"));
-                String toolName = event.getData() == null ? null : String.valueOf(event.getData().get("toolName"));
-                String arguments = event.getData() == null ? "" : String.valueOf(event.getData().get("arguments"));
+                String toolId = event.getData() == null ? null : stringValue(event.getData().get("requestId"));
+                String toolName = event.getData() == null ? null : stringValue(event.getData().get("toolName"));
+                String argumentsChunk = event.getData() == null ? "" : StrUtil.blankToDefault(stringValue(event.getData().get("arguments")), "");
+                String toolIndex = event.getData() == null ? null : stringValue(event.getData().get("toolIndex"));
+                String arguments = appendToolArguments(toolArgumentBuffers, toolId, toolName, toolIndex, argumentsChunk);
                 BaseTool tool = toolManager.getTool(toolName);
                 boolean registered = tool != null;
                 // 检查是否是第一次看到这个工具 ID
@@ -190,6 +196,34 @@ public class JsonMessageStreamHandler {
         return data;
     }
 
+    private String appendToolArguments(Map<String, StringBuilder> toolArgumentBuffers,
+                                       String toolId,
+                                       String toolName,
+                                       String toolIndex,
+                                       String argumentsChunk) {
+        String chunk = StrUtil.blankToDefault(argumentsChunk, "");
+        String bufferKey = "";
+        if (StrUtil.isNotBlank(toolName) && StrUtil.isNotBlank(toolIndex)) {
+            bufferKey = toolName + "#" + toolIndex;
+        }
+        if (StrUtil.isBlank(bufferKey)) {
+            bufferKey = StrUtil.blankToDefault(toolId, "");
+        }
+        if (StrUtil.isBlank(bufferKey)) {
+            bufferKey = toolName;
+        }
+        if (StrUtil.isBlank(bufferKey)) {
+            return chunk;
+        }
+        StringBuilder buffer = toolArgumentBuffers.computeIfAbsent(bufferKey, key -> new StringBuilder());
+        buffer.append(chunk);
+        return buffer.toString();
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
     private void appendFileOperationData(Map<String, Object> data, String arguments) {
         if (StrUtil.isBlank(arguments)) {
             return;
@@ -226,20 +260,27 @@ public class JsonMessageStreamHandler {
     }
 
     private void appendPartialFileOperationData(Map<String, Object> data, String arguments) {
-        putPartialJsonStringValue(data, arguments, "relativeFilePath", "filePath");
+        putCompletedJsonStringValue(data, arguments, "relativeFilePath", "filePath");
         putPartialJsonStringValue(data, arguments, "content", "content");
         putPartialJsonStringValue(data, arguments, "oldContent", "oldContent");
         putPartialJsonStringValue(data, arguments, "newContent", "newContent");
     }
 
-    private void putPartialJsonStringValue(Map<String, Object> data, String arguments, String sourceKey, String targetKey) {
-        String value = extractPartialJsonStringValue(arguments, sourceKey);
+    private void putCompletedJsonStringValue(Map<String, Object> data, String arguments, String sourceKey, String targetKey) {
+        String value = extractJsonStringValue(arguments, sourceKey, false);
         if (value != null) {
             data.put(targetKey, value);
         }
     }
 
-    private String extractPartialJsonStringValue(String jsonText, String key) {
+    private void putPartialJsonStringValue(Map<String, Object> data, String arguments, String sourceKey, String targetKey) {
+        String value = extractJsonStringValue(arguments, sourceKey, true);
+        if (value != null) {
+            data.put(targetKey, value);
+        }
+    }
+
+    private String extractJsonStringValue(String jsonText, String key, boolean allowUnclosedValue) {
         String keyPattern = "\"" + key + "\"";
         int keyIndex = jsonText.indexOf(keyPattern);
         if (keyIndex < 0) {
@@ -271,7 +312,7 @@ public class JsonMessageStreamHandler {
             }
             valueBuilder.append(currentChar);
         }
-        return valueBuilder.toString();
+        return allowUnclosedValue ? valueBuilder.toString() : null;
     }
 
     private char decodeEscapedJsonChar(char escapedChar) {

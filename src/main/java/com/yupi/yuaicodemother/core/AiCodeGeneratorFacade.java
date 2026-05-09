@@ -159,7 +159,8 @@ public class AiCodeGeneratorFacade {
                         sink.next(GenerationStreamEvent.toolCall(toolRequestMessage.getName(), java.util.Map.of(
                                 "toolName", toolRequestMessage.getName(),
                                 "arguments", toolRequestMessage.getArguments(),
-                                "requestId", toolRequestMessage.getId()
+                                "requestId", toolRequestMessage.getId(),
+                                "toolIndex", index
                         )));
                     })
                     .onToolExecuted((ToolExecution toolExecution) -> {

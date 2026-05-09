@@ -86,6 +86,21 @@ export async function chatToGenCode(
   })
 }
 
+/** 停止应用对话生成 POST /app/chat/gen/code/stop */
+export async function stopChatToGenCode(
+  body: API.stopChatToGenCodeParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/app/chat/gen/code/stop', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
 /** 优化提示词 POST /app/optimize/prompt */
 export async function optimizePrompt(
   body: API.PromptOptimizeRequest,

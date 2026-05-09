@@ -248,12 +248,14 @@
               <a-button
                   class="send-button"
                   type="primary"
-                  @click="sendMessage"
-                  :loading="isGenerating"
+                  :danger="isGenerating"
+                  @click="handleSendButtonClick"
+                  :loading="stoppingGeneration"
                   :disabled="!isOwner || isOptimizingPrompt"
               >
                 <template #icon>
-                  <SendOutlined />
+                  <StopOutlined v-if="isGenerating" />
+                  <SendOutlined v-else />
                 </template>
               </a-button>
             </div>
@@ -421,7 +423,9 @@
                       <span class="editor-file-name">{{ selectedFileName }}</span>
                       <span class="editor-file-path">{{ selectedFilePath }}</span>
                     </div>
-                    <span class="editor-status">{{ editorStatusText }}</span>
+                    <span class="editor-status" :class="{ streaming: isStreamingFilePreview }">
+                      {{ editorStatusText }}
+                    </span>
                   </div>
                   <div v-if="loadingFileContent" class="editor-loading">
                     <a-spin />
@@ -438,7 +442,7 @@
                         autocomplete="off"
                         autocorrect="off"
                         autocapitalize="off"
-                        :disabled="savingFile"
+                        :disabled="savingFile || isStreamingFilePreview"
                         @scroll="syncCodeEditorScroll"
                     />
                   </div>
@@ -477,6 +481,7 @@ import 'highlight.js/styles/github.css'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
   chatToGenCode,
+  stopChatToGenCode,
   getAppVoById,
   deployApp as deployAppApi,
   deleteApp as deleteAppApi,
@@ -517,6 +522,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   RedoOutlined,
+  StopOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -546,11 +552,19 @@ interface BuildResultView {
   status: 'success' | 'failed'
   stage: string
   summary: string
+  report?: string
+}
+
+interface GenerationStreamEvent {
+  type: string
+  text?: string
+  data?: Record<string, any>
 }
 
 const messages = ref<Message[]>([])
 const userInput = ref('')
 const isGenerating = ref(false)
+const stoppingGeneration = ref(false)
 const isOptimizingPrompt = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const isNearBottom = ref(true)
@@ -565,6 +579,7 @@ const refreshingGenerationState = ref(false)
 const lastGenerationPrompt = ref('')
 
 let generationPollingTimer: ReturnType<typeof window.setInterval> | null = null
+let activeEventSource: EventSource | null = null
 const AUTO_SCROLL_THRESHOLD = 96
 const SCROLL_BUTTON_THRESHOLD = 180
 
@@ -597,6 +612,11 @@ const fileContent = ref('')
 const savedFileContent = ref('')
 const codeEditorTextareaRef = ref()
 const codeHighlightRef = ref<HTMLElement>()
+const isStreamingFilePreview = ref(false)
+const streamingFilePath = ref('')
+const streamingFileFinalContent = ref('')
+const streamingFileDisplayContent = ref('')
+let streamingFileTimer: ReturnType<typeof window.setInterval> | null = null
 
 // 部署相关
 const deploying = ref(false)
@@ -660,6 +680,9 @@ const latestGenerationFailed = computed(() => {
 })
 
 const generationStatusText = computed(() => {
+  if (stoppingGeneration.value) {
+    return '停止中'
+  }
   if (isGenerating.value) {
     return '生成中'
   }
@@ -678,6 +701,9 @@ const canSaveFile = computed(() => {
 })
 
 const editorStatusText = computed(() => {
+  if (isStreamingFilePreview.value) {
+    return 'AI 正在写入'
+  }
   if (savingFile.value) {
     return '保存中'
   }
@@ -782,6 +808,35 @@ const findPendingAiMessageIndex = () => {
   return -1
 }
 
+const closeActiveEventSource = () => {
+  activeEventSource?.close()
+  activeEventSource = null
+}
+
+const markCurrentGenerationStopped = () => {
+  const pendingAiMessageIndex = findPendingAiMessageIndex()
+  if (pendingAiMessageIndex >= 0) {
+    const targetMessage = messages.value[pendingAiMessageIndex]
+    targetMessage.loading = false
+    if (!targetMessage.content.includes('[系统] 已停止本次生成')) {
+      targetMessage.content = `${targetMessage.content || ''}\n\n[系统] 已停止本次生成`.trim()
+    }
+  }
+  if (appInfo.value) {
+    appInfo.value = {
+      ...appInfo.value,
+      isGenerating: 0,
+      generatingMessage: '',
+      generatingStage: undefined,
+    }
+  }
+  isGenerating.value = false
+  stoppingGeneration.value = false
+  stopGenerationPolling()
+  stopStreamingFilePreview(true)
+  closeActiveEventSource()
+}
+
 const parseBuildResult = (content: string): BuildResultView | undefined => {
   const resultMatch = content.match(/\[构建结果\]\s*(成功|失败)/)
   if (!resultMatch) {
@@ -793,6 +848,50 @@ const parseBuildResult = (content: string): BuildResultView | undefined => {
     status: resultMatch[1] === '成功' ? 'success' : 'failed',
     stage: stageMatch?.[1]?.trim() || 'unknown',
     summary: summaryMatch?.[1]?.trim() || (resultMatch[1] === '成功' ? '项目构建成功' : '项目构建失败'),
+  }
+}
+
+const parseGenerationStreamEvent = (event: MessageEvent): GenerationStreamEvent | undefined => {
+  if (!event.data) {
+    return undefined
+  }
+  try {
+    return JSON.parse(event.data) as GenerationStreamEvent
+  } catch (error) {
+    console.error('解析生成事件失败:', error, event.data)
+    return undefined
+  }
+}
+
+const getGenerationErrorDisplay = (category?: string, rawMessage?: string) => {
+  const normalizedCategory = String(category || 'runtime')
+  const fallbackMessage = rawMessage || '生成失败'
+  switch (normalizedCategory) {
+    case 'dependency':
+      return {
+        toast: '依赖或脚本配置异常，请检查构建诊断',
+        detail: `依赖问题：${fallbackMessage}`,
+      }
+    case 'build':
+      return {
+        toast: '项目构建失败，请查看构建结果并重试',
+        detail: `构建问题：${fallbackMessage}`,
+      }
+    case 'routing':
+      return {
+        toast: '路由或预览配置异常，请检查项目结构',
+        detail: `路由问题：${fallbackMessage}`,
+      }
+    case 'permission':
+      return {
+        toast: '操作权限受限，请调整后重试',
+        detail: `权限问题：${fallbackMessage}`,
+      }
+    default:
+      return {
+        toast: fallbackMessage,
+        detail: `运行问题：${fallbackMessage}`,
+      }
   }
 }
 
@@ -812,6 +911,7 @@ const syncGeneratingMessageFromAppInfo = () => {
   const appGenerating = Boolean(appInfo.value?.isGenerating)
   if (!appGenerating) {
     isGenerating.value = false
+    stoppingGeneration.value = false
     return false
   }
   const generatingMessage = appInfo.value?.generatingMessage || ''
@@ -894,6 +994,7 @@ const fetchAppStateOnly = async () => {
 
 const refreshAfterGeneration = async () => {
   isGenerating.value = false
+  stoppingGeneration.value = false
   await loadChatHistory()
   if (messages.value.length >= 2) {
     updatePreview()
@@ -909,6 +1010,36 @@ const retryLastGeneration = async () => {
   }
   userInput.value = lastGenerationPrompt.value
   await sendMessage()
+}
+
+const stopCurrentGeneration = async () => {
+  if (!appId.value || !isGenerating.value || stoppingGeneration.value || !isOwner.value) {
+    return
+  }
+  stoppingGeneration.value = true
+  try {
+    const res = await stopChatToGenCode({
+      appId: appId.value,
+    })
+    if (res.data.code !== 0) {
+      throw new Error(res.data.message || '停止生成失败')
+    }
+    markCurrentGenerationStopped()
+    message.success('已停止生成')
+    await fetchAppStateOnly()
+  } catch (error) {
+    console.error('停止生成失败：', error)
+    stoppingGeneration.value = false
+    message.error(error instanceof Error ? error.message : '停止生成失败，请重试')
+  }
+}
+
+const handleSendButtonClick = () => {
+  if (isGenerating.value) {
+    void stopCurrentGeneration()
+    return
+  }
+  void sendMessage()
 }
 
 const pollGenerationState = async () => {
@@ -1142,6 +1273,10 @@ const sendInitialMessage = async (prompt: string) => {
 
   // 开始生成
   isGenerating.value = true
+  activeWorkspaceTab.value = 'files'
+  if (!fileTreeData.value.length) {
+    void loadCodeFiles()
+  }
   if (appInfo.value) {
     appInfo.value = {
       ...appInfo.value,
@@ -1201,6 +1336,10 @@ const sendMessage = async () => {
 
   // 开始生成
   isGenerating.value = true
+  activeWorkspaceTab.value = 'files'
+  if (!fileTreeData.value.length) {
+    void loadCodeFiles()
+  }
   if (appInfo.value) {
     appInfo.value = {
       ...appInfo.value,
@@ -1265,30 +1404,82 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     eventSource = new EventSource(url, {
       withCredentials: true,
     })
+    activeEventSource = eventSource
 
     let fullContent = ''
 
-    // 处理接收到的消息
+    const appendGeneratedText = (text: string | undefined) => {
+      if (!text || streamCompleted) {
+        return
+      }
+      const shouldStickToBottom = isNearBottom.value
+      fullContent += text
+      messages.value[aiMessageIndex].content = fullContent
+      messages.value[aiMessageIndex].loading = false
+      void syncMessagesViewport(shouldStickToBottom)
+    }
+
+    const handleGenerationEvent = (event: MessageEvent) => {
+      if (streamCompleted) return
+      const streamEvent = parseGenerationStreamEvent(event)
+      if (!streamEvent) {
+        return
+      }
+      appendGeneratedText(streamEvent.text)
+      void handleFileOperationStreamEvent(streamEvent)
+      if (streamEvent.type === 'build_result') {
+        const success = Boolean(streamEvent.data?.success)
+        messages.value[aiMessageIndex].buildResult = {
+          status: success ? 'success' : 'failed',
+          stage: String(streamEvent.data?.stage || 'unknown'),
+          summary: String(streamEvent.data?.summary || (success ? '项目构建成功' : '项目构建失败')),
+          report: String(streamEvent.data?.report || ''),
+        }
+        messages.value[aiMessageIndex].generationFailed = !success
+        if (!success) {
+          message.error('项目构建失败，系统将尝试自动修复')
+        }
+        return
+      }
+      if (streamEvent.type === 'repair_start') {
+        message.info(`自动修复第 ${streamEvent.data?.round || 1} 轮开始`)
+        return
+      }
+      if (streamEvent.type === 'generation_error') {
+        messages.value[aiMessageIndex].generationFailed = true
+        messages.value[aiMessageIndex].loading = false
+        const errorMessage = String(streamEvent.data?.message || streamEvent.text || '生成失败')
+        const errorDisplay = getGenerationErrorDisplay(String(streamEvent.data?.category || ''), errorMessage)
+        messages.value[aiMessageIndex].content = `${messages.value[aiMessageIndex].content || ''}\n\n❌ ${errorDisplay.detail}`.trim()
+        message.error(errorDisplay.toast)
+        return
+      }
+      if (streamEvent.type === 'generation_stopped') {
+        markCurrentGenerationStopped()
+        message.info('本次生成已停止')
+      }
+    }
+
+    eventSource.addEventListener('ai_delta', handleGenerationEvent)
+    eventSource.addEventListener('tool_call', handleGenerationEvent)
+    eventSource.addEventListener('tool_result', handleGenerationEvent)
+    eventSource.addEventListener('build_result', handleGenerationEvent)
+    eventSource.addEventListener('repair_start', handleGenerationEvent)
+    eventSource.addEventListener('generation_error', handleGenerationEvent)
+    eventSource.addEventListener('generation_stopped', handleGenerationEvent)
+
+    // 兼容旧协议
     eventSource.onmessage = function (event) {
       if (streamCompleted) return
-
+      const streamEvent = parseGenerationStreamEvent(event)
+      if (streamEvent?.type) {
+        handleGenerationEvent(event)
+        return
+      }
       try {
-        // 解析JSON包装的数据
         const parsed = JSON.parse(event.data)
-        const content = parsed.d
-
-        // 拼接内容
-        if (content !== undefined && content !== null) {
-          const shouldStickToBottom = isNearBottom.value
-          fullContent += content
-          messages.value[aiMessageIndex].content = fullContent
-          messages.value[aiMessageIndex].loading = false
-          const buildResult = decorateMessageWithBuildResult(messages.value[aiMessageIndex])
-          if (buildResult?.status === 'failed') {
-            message.error('项目构建失败，请根据诊断结果重试')
-          }
-          void syncMessagesViewport(shouldStickToBottom)
-        }
+        appendGeneratedText(parsed.d)
+        decorateMessageWithBuildResult(messages.value[aiMessageIndex])
       } catch (error) {
         console.error('解析消息失败:', error)
         handleError(error, aiMessageIndex)
@@ -1302,17 +1493,21 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       streamCompleted = true
       stopGenerationPolling()
       isGenerating.value = false
+      stoppingGeneration.value = false
       eventSource?.close()
+      if (activeEventSource === eventSource) {
+        activeEventSource = null
+      }
 
       // 延迟更新预览，确保后端已完成处理
       setTimeout(async () => {
         await fetchAppInfo()
         if (!messages.value[aiMessageIndex]?.generationFailed) {
           updatePreview()
+          activeWorkspaceTab.value = 'preview'
         }
-        if (activeWorkspaceTab.value === 'files') {
-          await loadCodeFiles()
-        }
+        await loadCodeFiles()
+        stopStreamingFilePreview(true)
       }, 1000)
     })
 
@@ -1334,7 +1529,12 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         streamCompleted = true
         isGenerating.value = false
+        stoppingGeneration.value = false
+        stopStreamingFilePreview(true)
         eventSource?.close()
+        if (activeEventSource === eventSource) {
+          activeEventSource = null
+        }
       } catch (parseError) {
         console.error('解析错误事件失败:', parseError, '原始数据:', event.data)
         handleError(new Error('服务器返回错误'), aiMessageIndex)
@@ -1347,11 +1547,20 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       if (messages.value[aiMessageIndex]?.generationFailed) {
         streamCompleted = true
         isGenerating.value = false
+        stoppingGeneration.value = false
+        stopStreamingFilePreview(true)
         eventSource?.close()
+        if (activeEventSource === eventSource) {
+          activeEventSource = null
+        }
         return
       }
       streamCompleted = true
+      stopStreamingFilePreview(true)
       eventSource?.close()
+      if (activeEventSource === eventSource) {
+        activeEventSource = null
+      }
       message.warning('实时连接已断开，正在同步生成状态')
       startGenerationPolling()
       void pollGenerationState()
@@ -1359,6 +1568,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   } catch (error) {
     console.error('创建 EventSource 失败：', error)
     handleError(error, aiMessageIndex)
+  } finally {
+    if (activeEventSource === eventSource && streamCompleted) {
+      activeEventSource = null
+    }
   }
 }
 
@@ -1366,6 +1579,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 const handleError = (error: unknown, aiMessageIndex: number) => {
   console.error('生成代码失败：', error)
   stopGenerationPolling()
+  stopStreamingFilePreview(true)
   const currentContent = messages.value[aiMessageIndex]?.content || ''
   messages.value[aiMessageIndex].content = currentContent
     ? `${currentContent}\n\n抱歉，生成过程中出现了错误，请重试。`
@@ -1375,6 +1589,8 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   decorateMessageWithBuildResult(messages.value[aiMessageIndex])
   message.error('生成失败，请重试')
   isGenerating.value = false
+  stoppingGeneration.value = false
+  closeActiveEventSource()
 }
 
 const appendPreviewCacheBuster = (url: string) => {
@@ -1464,6 +1680,9 @@ const loadFileContent = async (filePath: string) => {
   if (!appId.value || !filePath) {
     return
   }
+  if (isStreamingFilePreview.value && streamingFilePath.value === filePath) {
+    return
+  }
   loadingFileContent.value = true
   try {
     const res = await getAppCodeFileContent({
@@ -1492,6 +1711,10 @@ const handleFileSelect = async (selectedKeys: Array<string | number>) => {
   if (!filePath || filePath === selectedFilePath.value) {
     return
   }
+  if (isStreamingFilePreview.value) {
+    message.warning('AI 正在流式写入当前文件，请等待生成完成')
+    return
+  }
   if (isFileDirty.value) {
     message.warning('当前文件有未保存修改，请先保存后再切换')
     return
@@ -1500,6 +1723,10 @@ const handleFileSelect = async (selectedKeys: Array<string | number>) => {
 }
 
 const handleWorkspaceTabChange = async (activeKey: string | number) => {
+  if (activeKey === 'preview' && isGenerating.value) {
+    activeWorkspaceTab.value = 'files'
+    return
+  }
   if (activeKey === 'files' && !fileTreeData.value.length) {
     await loadCodeFiles()
   }
@@ -1527,6 +1754,174 @@ const syncCodeEditorScroll = () => {
   }
   codeHighlightRef.value.scrollTop = textarea.scrollTop
   codeHighlightRef.value.scrollLeft = textarea.scrollLeft
+}
+
+const syncCodeEditorToBottom = async () => {
+  await nextTick()
+  const textarea = getCodeEditorTextareaElement()
+  if (!textarea) {
+    return
+  }
+  textarea.scrollTop = textarea.scrollHeight
+  syncCodeEditorScroll()
+}
+
+const syncCodeEditorToCharIndex = async (charIndex: number) => {
+  await nextTick()
+  const textarea = getCodeEditorTextareaElement()
+  if (!textarea) {
+    return
+  }
+  const textBeforeCursor = fileContent.value.slice(0, Math.max(charIndex, 0))
+  const lineIndex = textBeforeCursor.split('\n').length - 1
+  const lineHeight = Number.parseFloat(window.getComputedStyle(textarea).lineHeight) || 22
+  const targetTop = Math.max(lineIndex * lineHeight - textarea.clientHeight * 0.45, 0)
+  textarea.scrollTop = targetTop
+  syncCodeEditorScroll()
+}
+
+const stopStreamingFilePreview = (keepCurrentContent = false) => {
+  if (streamingFileTimer !== null) {
+    window.clearInterval(streamingFileTimer)
+    streamingFileTimer = null
+  }
+  isStreamingFilePreview.value = false
+  streamingFilePath.value = ''
+  streamingFileFinalContent.value = ''
+  streamingFileDisplayContent.value = ''
+  if (!keepCurrentContent) {
+    return
+  }
+  savedFileContent.value = fileContent.value
+}
+
+const startStreamingFilePreview = async (filePath: string, targetContent: string, initialContent = '') => {
+  if (!filePath) {
+    return
+  }
+  if (isFileDirty.value && selectedFilePath.value && selectedFilePath.value !== filePath) {
+    return
+  }
+  if (!fileTreeData.value.length) {
+    await loadCodeFiles()
+  }
+  activeWorkspaceTab.value = 'files'
+  await nextTick()
+  const fileName = filePath.split('/').pop() || filePath
+  selectedFilePath.value = filePath
+  selectedFileName.value = fileName
+  loadingFileContent.value = false
+  isStreamingFilePreview.value = true
+  streamingFilePath.value = filePath
+  streamingFileFinalContent.value = targetContent || ''
+  streamingFileDisplayContent.value = initialContent
+  fileContent.value = initialContent
+  savedFileContent.value = initialContent
+
+  if (streamingFileTimer !== null) {
+    window.clearInterval(streamingFileTimer)
+    streamingFileTimer = null
+  }
+
+  const tick = () => {
+    if (!isStreamingFilePreview.value || streamingFilePath.value !== filePath) {
+      return
+    }
+    const target = streamingFileFinalContent.value
+    if (streamingFileDisplayContent.value === target) {
+      if (streamingFileTimer !== null) {
+        window.clearInterval(streamingFileTimer)
+        streamingFileTimer = null
+      }
+      return
+    }
+    const remaining = target.length - streamingFileDisplayContent.value.length
+    const chunkSize = Math.max(1, Math.min(remaining, Math.ceil(remaining / 24)))
+    streamingFileDisplayContent.value += target.slice(
+      streamingFileDisplayContent.value.length,
+      streamingFileDisplayContent.value.length + chunkSize,
+    )
+    fileContent.value = streamingFileDisplayContent.value
+    void syncCodeEditorToCharIndex(streamingFileDisplayContent.value.length)
+  }
+
+  tick()
+  streamingFileTimer = window.setInterval(tick, 24)
+}
+
+const findCommonPrefixLength = (left: string, right: string) => {
+  const maxLength = Math.min(left.length, right.length)
+  let index = 0
+  while (index < maxLength && left[index] === right[index]) {
+    index += 1
+  }
+  return index
+}
+
+const buildModifiedFilePreview = (currentContent: string, oldContent: string, newContent: string) => {
+  if (!oldContent || !currentContent.includes(oldContent)) {
+    return {
+      initialContent: '',
+      targetContent: currentContent,
+    }
+  }
+  const targetContent = currentContent.replace(oldContent, newContent)
+  const prefixLength = findCommonPrefixLength(currentContent, targetContent)
+  return {
+    initialContent: targetContent.slice(0, prefixLength),
+    targetContent,
+  }
+}
+
+const getStringFromEventData = (data: Record<string, any> | undefined, key: string) => {
+  const value = data?.[key]
+  return typeof value === 'string' ? value : ''
+}
+
+const handleFileOperationStreamEvent = async (streamEvent: GenerationStreamEvent) => {
+  const filePath = getStringFromEventData(streamEvent.data, 'filePath')
+  if (!filePath) {
+    return
+  }
+  const toolName = getStringFromEventData(streamEvent.data, 'toolName')
+  if (!['writeFile', 'modifyFile'].includes(toolName)) {
+    return
+  }
+  const generatedContent = getStringFromEventData(streamEvent.data, 'content')
+  if (toolName === 'writeFile' && generatedContent) {
+    await startStreamingFilePreview(filePath, generatedContent)
+    return
+  }
+  if (streamEvent.type === 'tool_call') {
+    activeWorkspaceTab.value = 'files'
+    await loadFileContent(filePath)
+    await syncCodeEditorToBottom()
+    return
+  }
+  if (streamEvent.type !== 'tool_result') {
+    return
+  }
+  try {
+    const res = await getAppCodeFileContent({
+      appId: appId.value as unknown as number,
+      filePath,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      const file = res.data.data
+      if (toolName === 'modifyFile') {
+        const oldContent = getStringFromEventData(streamEvent.data, 'oldContent')
+        const newContent = getStringFromEventData(streamEvent.data, 'newContent')
+        const currentBaseContent =
+          selectedFilePath.value === filePath ? fileContent.value || savedFileContent.value : savedFileContent.value
+        const preview = buildModifiedFilePreview(currentBaseContent, oldContent, newContent)
+        await startStreamingFilePreview(file.path || filePath, preview.targetContent || file.content || '', preview.initialContent)
+        return
+      }
+      await startStreamingFilePreview(file.path || filePath, file.content || '')
+    }
+  } catch (error) {
+    console.error('同步 AI 写入文件内容失败：', error)
+  }
 }
 
 const showCompileRollbackConfirm = (errorMessage: string) => {
@@ -1812,6 +2207,8 @@ onMounted(() => {
 // 清理资源
 onUnmounted(() => {
   stopGenerationPolling()
+  stopStreamingFilePreview()
+  closeActiveEventSource()
   window.removeEventListener('message', handleIframeMessage)
 })
 </script>
@@ -2725,6 +3122,10 @@ onUnmounted(() => {
   flex: none;
   color: #64748b;
   font-size: 12px;
+}
+
+.editor-status.streaming {
+  color: #1677ff;
 }
 
 .editor-loading {

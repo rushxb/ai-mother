@@ -31,9 +31,9 @@ public class StreamHandlerExecutor {
      * @param codeGenType        代码生成类型
      * @return 处理后的流
      */
-    public Flux<String> doExecute(Flux<String> originFlux,
-                                  ChatHistoryService chatHistoryService,
-                                  long appId, User loginUser, CodeGenTypeEnum codeGenType) {
+    public Flux<GenerationStreamEvent> doExecute(Flux<GenerationStreamEvent> originFlux,
+                                                 ChatHistoryService chatHistoryService,
+                                                 long appId, User loginUser, CodeGenTypeEnum codeGenType) {
         return switch (codeGenType) {
             case VUE_PROJECT -> // 使用注入的组件实例
                     jsonMessageStreamHandler.handle(originFlux, chatHistoryService, appId, loginUser);

@@ -2,6 +2,7 @@ package com.yupi.yuaicodemother.langgraph4j.node;
 
 import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.core.AiCodeGeneratorFacade;
+import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
 import com.yupi.yuaicodemother.langgraph4j.model.QualityResult;
 import com.yupi.yuaicodemother.langgraph4j.state.WorkflowContext;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
@@ -34,7 +35,7 @@ public class CodeGeneratorNode {
             // 先使用固定的 appId (后续再整合到业务中)
             Long appId = 0L;
             // 调用流式代码生成
-            Flux<String> codeStream = codeGeneratorFacade.generateAndSaveCodeStream(userMessage, generationType, appId);
+            Flux<GenerationStreamEvent> codeStream = codeGeneratorFacade.generateAndSaveCodeStream(userMessage, generationType, appId);
             // 同步等待流式输出完成
             codeStream.blockLast(Duration.ofMinutes(10)); // 最多等待 10 分钟
             // 根据类型设置生成目录

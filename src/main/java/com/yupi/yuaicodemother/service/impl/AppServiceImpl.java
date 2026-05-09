@@ -14,6 +14,7 @@ import com.yupi.yuaicodemother.ai.PromptOptimizerService;
 import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.core.AiCodeGeneratorFacade;
 import com.yupi.yuaicodemother.core.builder.VueProjectBuilder;
+import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
 import com.yupi.yuaicodemother.core.handler.StreamHandlerExecutor;
 import com.yupi.yuaicodemother.exception.BusinessException;
 import com.yupi.yuaicodemother.exception.ErrorCode;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -72,6 +74,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private static final int MAX_GENERATION_SNAPSHOT_CHARS = 20000;
     private static final long GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS = 1000;
     private static final int MAX_GENERATION_REPLAY_EVENTS = 500;
+    private static final int MAX_AUTO_REPAIR_ROUNDS = 2;
+    private static final int MAX_PROJECT_INDEX_FILES = 80;
     private static final int MAX_FILE_TREE_DEPTH = 8;
     private static final int FALLBACK_APP_NAME_LENGTH = 12;
     private static final int MAX_APP_NAME_LENGTH = 16;
@@ -118,7 +122,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private final Map<Long, GenerationSession> activeGenerationSessions = new ConcurrentHashMap<>();
 
     @Override
-    public Flux<String> chatToGenCode(Long appId, String message, User loginUser) {
+    public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
         App app = this.getById(appId);
@@ -149,11 +153,23 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     @Override
-    public Flux<String> getGenerationStream(Long appId, User loginUser) {
+    public Flux<GenerationStreamEvent> getGenerationStream(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
         GenerationSession session = activeGenerationSessions.get(app.getId());
         ThrowUtils.throwIf(session == null, ErrorCode.OPERATION_ERROR, "当前应用没有进行中的生成任务");
         return session.asFlux();
+    }
+
+    @Override
+    public void stopGeneration(Long appId, User loginUser) {
+        App app = getOwnedApp(appId, loginUser);
+        GenerationSession session = activeGenerationSessions.get(app.getId());
+        ThrowUtils.throwIf(session == null || !session.isActive(), ErrorCode.OPERATION_ERROR, "当前应用没有进行中的生成任务");
+        session.cancel();
+        markGenerationFinished(app.getId());
+        session.emitStopped();
+        session.complete();
+        activeGenerationSessions.remove(app.getId(), session);
     }
 
     @Override
@@ -430,30 +446,131 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                             .build()
             );
             try {
-                Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(
-                        preparation.enhancedMessage(),
-                        preparation.targetType(),
-                        appId
-                );
-                streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, preparation.targetType())
-                        .doOnNext(chunk -> {
-                            appendGenerationSnapshotChunk(generatedContent, chunk);
-                            updateGenerationSnapshotIfDue(appId, generatedContent, lastSnapshotUpdateAt);
-                            session.emit(chunk);
-                        })
-                        .blockLast();
+                runGenerationWithAutoRepair(appId, loginUser, preparation, session, generatedContent, lastSnapshotUpdateAt);
+                if (session.isCancelled()) {
+                    markGenerationFinished(appId);
+                    session.emitStopped();
+                    session.complete();
+                    return;
+                }
                 markGenerationFinished(appId);
+                session.complete();
+            } catch (GenerationStoppedException e) {
+                log.info("应用生成任务已停止，appId: {}", appId);
+                markGenerationFinished(appId);
+                session.emitStopped();
                 session.complete();
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
                 markGenerationFinished(appId);
-                session.error(e);
+                session.emit(GenerationStreamEvent.generationError(e.getMessage(), Map.of(
+                        "category", classifyGenerationError(e.getMessage()),
+                        "message", StrUtil.blankToDefault(e.getMessage(), "生成失败")
+                )));
+                session.complete();
             } finally {
                 activeGenerationSessions.remove(appId);
                 MonitorContextHolder.clearContext();
             }
         });
+    }
+
+    private void runGenerationWithAutoRepair(Long appId,
+                                             User loginUser,
+                                             GenerationPreparation preparation,
+                                             GenerationSession session,
+                                             StringBuilder generatedContent,
+                                             long[] lastSnapshotUpdateAt) {
+        String currentPrompt = preparation.enhancedMessage();
+        Exception lastError = null;
+        for (int round = 0; round <= MAX_AUTO_REPAIR_ROUNDS; round++) {
+            session.throwIfCancelled();
+            if (round > 0) {
+                session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
+                        "round", round,
+                        "maxRounds", MAX_AUTO_REPAIR_ROUNDS
+                )));
+            }
+            try {
+                executeGenerationRound(appId, loginUser, preparation.targetType(), currentPrompt, session, generatedContent, lastSnapshotUpdateAt);
+                return;
+            } catch (Exception e) {
+                lastError = e;
+                String category = classifyGenerationError(e.getMessage());
+                log.warn("应用生成轮次失败，appId: {}, round: {}, category: {}, error: {}",
+                        appId, round, category, e.getMessage());
+                if (round >= MAX_AUTO_REPAIR_ROUNDS || preparation.targetType() != CodeGenTypeEnum.VUE_PROJECT) {
+                    break;
+                }
+                currentPrompt = buildAutoRepairPrompt(e, round + 1);
+            }
+        }
+        throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                lastError == null ? "生成失败" : StrUtil.blankToDefault(lastError.getMessage(), "生成失败"));
+    }
+
+    private void executeGenerationRound(Long appId,
+                                        User loginUser,
+                                        CodeGenTypeEnum codeGenType,
+                                        String prompt,
+                                        GenerationSession session,
+                                        StringBuilder generatedContent,
+                                        long[] lastSnapshotUpdateAt) {
+        Flux<GenerationStreamEvent> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(
+                prompt, codeGenType, appId, session::isCancelled);
+        streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenType)
+                .takeUntilOther(session.cancelSignal())
+                .doOnNext(event -> {
+                    session.throwIfCancelled();
+                    appendGenerationSnapshotChunk(generatedContent, event.getText());
+                    updateGenerationSnapshotIfDue(appId, generatedContent, lastSnapshotUpdateAt);
+                    session.emit(event);
+                })
+                .doOnComplete(session::throwIfCancelled)
+                .blockLast();
+    }
+
+    private String buildAutoRepairPrompt(Exception exception, int repairRound) {
+        String errorMessage = StrUtil.blankToDefault(exception.getMessage(), "构建失败");
+        return """
+                【自动修复任务】
+                上一次 Vue 项目生成后未通过本地构建。请基于当前项目文件直接修复，不要重建整个项目。
+
+                修复轮次：%d
+                错误分类：%s
+                错误摘要：
+                %s
+
+                必须遵守：
+                1. 先使用项目搜索、目录读取或批量读取文件工具定位问题。
+                2. 如果涉及依赖、scripts 或 package.json，先使用依赖问题分析工具，再用依赖与脚本管理工具处理。
+                3. 只修改必要文件，避免无关重构。
+                4. 修复后必须调用本地构建诊断工具验证。
+                """.formatted(repairRound, classifyGenerationError(errorMessage), errorMessage);
+    }
+
+    private String classifyGenerationError(String errorMessage) {
+        if (StrUtil.isBlank(errorMessage)) {
+            return "unknown";
+        }
+        String normalized = errorMessage.toLowerCase();
+        if (normalized.contains("npm install") || normalized.contains("缺少模块") || normalized.contains("dependency")
+                || normalized.contains("module not found") || normalized.contains("failed to resolve import")) {
+            return "dependency";
+        }
+        if (normalized.contains("npm run build") || normalized.contains("syntax") || normalized.contains("编译")
+                || normalized.contains("vite") || normalized.contains("vue")) {
+            return "build";
+        }
+        if (normalized.contains("router") || normalized.contains("404") || normalized.contains("history")) {
+            return "routing";
+        }
+        if (normalized.contains("permission") || normalized.contains("权限") || normalized.contains("illegal")
+                || normalized.contains("非法路径")) {
+            return "permission";
+        }
+        return "runtime";
     }
 
     private void resetResidualGenerationState(App app) {
@@ -723,15 +840,68 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             if (codeGenTypeEnum == null) {
                 return "";
             }
-            return switch (codeGenTypeEnum) {
+            String projectIndex = buildProjectIndex(rootDir);
+            String keyFiles = switch (codeGenTypeEnum) {
                 case HTML -> readSingleFileContext(rootDir, "index.html");
                 case MULTI_FILE -> readMultiFileContext(rootDir, List.of("index.html", "style.css", "script.js"));
                 case VUE_PROJECT -> readMultiFileContext(rootDir, List.of("src/App.vue", "src/main.js", "src/main.ts", "index.html"));
             };
+            if (StrUtil.isBlank(projectIndex)) {
+                return keyFiles;
+            }
+            if (StrUtil.isBlank(keyFiles)) {
+                return projectIndex;
+            }
+            return projectIndex + "\n\n" + keyFiles;
         } catch (Exception e) {
             log.warn("构建项目上下文失败，appId: {}, error: {}", app.getId(), e.getMessage());
             return "";
         }
+    }
+
+    private String buildProjectIndex(File rootDir) {
+        List<String> indexedFiles = new ArrayList<>();
+        try {
+            FileUtil.walkFiles(rootDir, file -> {
+                if (indexedFiles.size() >= MAX_PROJECT_INDEX_FILES) {
+                    return;
+                }
+                if (shouldHideFile(file)) {
+                    return;
+                }
+                String relativePath = normalizeRelativePath(rootDir, file);
+                if (file.isDirectory()) {
+                    return;
+                }
+                String extension = FileUtil.extName(file).toLowerCase();
+                if (isIndexableProjectFile(relativePath, extension)) {
+                    indexedFiles.add(relativePath);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("构建项目索引失败: {}", e.getMessage());
+        }
+        if (indexedFiles.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append("项目索引:\n");
+        indexedFiles.stream()
+                .sorted()
+                .limit(MAX_PROJECT_INDEX_FILES)
+                .forEach(path -> builder.append("- ").append(path).append('\n'));
+        return builder.toString().trim();
+    }
+
+    private boolean isIndexableProjectFile(String relativePath, String extension) {
+        if (StrUtil.isBlank(relativePath)) {
+            return false;
+        }
+        if (relativePath.startsWith("src/") || relativePath.startsWith("public/")) {
+            return Set.of("vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md").contains(extension);
+        }
+        return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html", "tsconfig.json", "tsconfig.app.json")
+                .contains(relativePath);
     }
 
     private String readSingleFileContext(File rootDir, String relativePath) {
@@ -819,23 +989,68 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private static final class GenerationSession {
 
-        private final Sinks.Many<String> sink = Sinks.many().replay().limit(MAX_GENERATION_REPLAY_EVENTS);
+        private final Sinks.Many<GenerationStreamEvent> sink = Sinks.many().replay().limit(MAX_GENERATION_REPLAY_EVENTS);
+        private final Sinks.Empty<Void> cancelSink = Sinks.empty();
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+        private final AtomicBoolean completed = new AtomicBoolean(false);
 
-        private Flux<String> asFlux() {
+        private Flux<GenerationStreamEvent> asFlux() {
             return sink.asFlux();
         }
 
-        private void emit(String chunk) {
-            sink.tryEmitNext(chunk);
+        private void emit(GenerationStreamEvent event) {
+            if (completed.get()) {
+                return;
+            }
+            sink.tryEmitNext(event);
         }
 
         private void complete() {
+            if (!completed.compareAndSet(false, true)) {
+                return;
+            }
             sink.tryEmitComplete();
         }
 
         private void error(Throwable throwable) {
+            if (!completed.compareAndSet(false, true)) {
+                return;
+            }
             sink.tryEmitError(throwable);
         }
+
+        private void cancel() {
+            if (cancelled.compareAndSet(false, true)) {
+                cancelSink.tryEmitEmpty();
+            }
+        }
+
+        private boolean isCancelled() {
+            return cancelled.get();
+        }
+
+        private boolean isActive() {
+            return !completed.get() && !cancelled.get();
+        }
+
+        private Flux<Void> cancelSignal() {
+            return cancelSink.asMono().flux();
+        }
+
+        private void throwIfCancelled() {
+            if (isCancelled()) {
+                throw new GenerationStoppedException();
+            }
+        }
+
+        private void emitStopped() {
+            emit(GenerationStreamEvent.generationStopped("\n\n[系统] 已停止本次生成\n\n", Map.of(
+                    "message", "已停止本次生成"
+            )));
+        }
+    }
+
+    private static final class GenerationStoppedException extends RuntimeException {
     }
 
     @Override

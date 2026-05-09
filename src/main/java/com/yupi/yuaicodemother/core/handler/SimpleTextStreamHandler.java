@@ -24,15 +24,15 @@ public class SimpleTextStreamHandler {
      * @param loginUser          登录用户
      * @return 处理后的流
      */
-    public Flux<String> handle(Flux<String> originFlux,
-                               ChatHistoryService chatHistoryService,
-                               long appId, User loginUser) {
+    public Flux<GenerationStreamEvent> handle(Flux<GenerationStreamEvent> originFlux,
+                                              ChatHistoryService chatHistoryService,
+                                              long appId, User loginUser) {
         StringBuilder aiResponseBuilder = new StringBuilder();
         return originFlux
-                .map(chunk -> {
+                .map(event -> {
                     // 收集AI响应内容
-                    aiResponseBuilder.append(chunk);
-                    return chunk;
+                    aiResponseBuilder.append(event.getText());
+                    return event;
                 })
                 .doOnComplete(() -> {
                     // 流式响应完成后，添加AI消息到对话历史

@@ -11,6 +11,7 @@ import com.yupi.yuaicodemother.common.DeleteRequest;
 import com.yupi.yuaicodemother.common.ResultUtils;
 import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.constant.UserConstant;
+import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
 import com.yupi.yuaicodemother.exception.BusinessException;
 import com.yupi.yuaicodemother.exception.ErrorCode;
 import com.yupi.yuaicodemother.exception.ThrowUtils;
@@ -38,7 +39,6 @@ import reactor.core.publisher.Mono;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 应用 控制层。
@@ -91,18 +91,28 @@ public class AppController {
         return ResultUtils.success(true);
     }
 
+    @PostMapping("/chat/gen/code/stop")
+    public BaseResponse<Boolean> stopChatToGenCode(@RequestBody AppStopRequest appStopRequest,
+                                                   HttpServletRequest request) {
+        ThrowUtils.throwIf(appStopRequest == null, ErrorCode.PARAMS_ERROR);
+        Long appId = appStopRequest.getAppId();
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
+        User loginUser = userService.getLoginUser(request);
+        appService.stopGeneration(appId, loginUser);
+        return ResultUtils.success(true);
+    }
+
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> subscribeChatToGenCode(@RequestParam Long appId,
                                                                 HttpServletRequest request) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
         User loginUser = userService.getLoginUser(request);
-        Flux<String> contentFlux = appService.getGenerationStream(appId, loginUser);
+        Flux<GenerationStreamEvent> contentFlux = appService.getGenerationStream(appId, loginUser);
         return contentFlux
-                .map(chunk -> {
-                    Map<String, String> wrapper = Map.of("d", chunk);
-                    String jsonData = JSONUtil.toJsonStr(wrapper);
+                .map(event -> {
                     return ServerSentEvent.<String>builder()
-                            .data(jsonData)
+                            .event(event.getType())
+                            .data(JSONUtil.toJsonStr(event))
                             .build();
                 })
                 .concatWith(Mono.just(

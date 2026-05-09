@@ -10,6 +10,7 @@ import com.yupi.yuaicodemother.ai.model.message.BuildResultMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolExecutedMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolRequestMessage;
 import com.yupi.yuaicodemother.constant.AppConstant;
+import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
 import com.yupi.yuaicodemother.core.builder.VueProjectBuilder;
 import com.yupi.yuaicodemother.core.parser.CodeParserExecutor;
 import com.yupi.yuaicodemother.core.saver.CodeFileSaverExecutor;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
+import java.util.function.BooleanSupplier;
 
 /**
  * AI 代码生成门面类，组合代码生成和保存功能
@@ -77,7 +79,23 @@ public class AiCodeGeneratorFacade {
      * @param appId           应用 ID
      * @return 保存的目录
      */
-    public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
+    public Flux<GenerationStreamEvent> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
+        return generateAndSaveCodeStream(userMessage, codeGenTypeEnum, appId, () -> false);
+    }
+
+    /**
+     * 统一入口：根据类型生成并保存代码（流式）
+     *
+     * @param userMessage     用户提示词
+     * @param codeGenTypeEnum 生成类型
+     * @param appId           应用 ID
+     * @param cancelChecker   取消检查器
+     * @return 保存的目录
+     */
+    public Flux<GenerationStreamEvent> generateAndSaveCodeStream(String userMessage,
+                                                                 CodeGenTypeEnum codeGenTypeEnum,
+                                                                 Long appId,
+                                                                 BooleanSupplier cancelChecker) {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成类型不能为空");
         }
@@ -86,15 +104,15 @@ public class AiCodeGeneratorFacade {
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 Flux<String> codeStream = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);
-                yield processCodeStream(codeStream, CodeGenTypeEnum.HTML, appId);
+                yield processCodeStream(codeStream, CodeGenTypeEnum.HTML, appId, cancelChecker);
             }
             case MULTI_FILE -> {
                 Flux<String> codeStream = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
-                yield processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
+                yield processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId, cancelChecker);
             }
             case VUE_PROJECT -> {
                 TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                yield processTokenStream(tokenStream, appId);
+                yield processTokenStream(tokenStream, appId, cancelChecker);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -110,26 +128,57 @@ public class AiCodeGeneratorFacade {
      * @param appId       应用 ID
      * @return Flux<String> 流式响应
      */
-    private Flux<String> processTokenStream(TokenStream tokenStream, Long appId) {
+    private Flux<GenerationStreamEvent> processTokenStream(TokenStream tokenStream, Long appId, BooleanSupplier cancelChecker) {
         return Flux.create(sink -> {
             tokenStream.onPartialResponse((String partialResponse) -> {
+                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
+                            return;
+                        }
                         AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
-                        sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+                        sink.next(GenerationStreamEvent.aiDelta(partialResponse));
                     })
                     .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
+                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
+                            return;
+                        }
                         ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
-                        sink.next(JSONUtil.toJsonStr(toolRequestMessage));
+                        sink.next(GenerationStreamEvent.toolCall(toolRequestMessage.getName(), java.util.Map.of(
+                                "toolName", toolRequestMessage.getName(),
+                                "arguments", toolRequestMessage.getArguments(),
+                                "requestId", toolRequestMessage.getId()
+                        )));
                     })
                     .onToolExecuted((ToolExecution toolExecution) -> {
+                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
+                            return;
+                        }
                         ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
-                        sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
+                        sink.next(GenerationStreamEvent.toolResult(toolExecution.result(), java.util.Map.of(
+                                "toolName", toolExecutedMessage.getName(),
+                                "arguments", toolExecutedMessage.getArguments(),
+                                "result", toolExecution.result(),
+                                "requestId", toolExecutedMessage.getId()
+                        )));
                     })
                     .onCompleteResponse((ChatResponse response) -> {
+                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
+                            return;
+                        }
                         // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
                         VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
+                            sink.complete();
+                            return;
+                        }
                         BuildResultMessage buildResultMessage = new BuildResultMessage(buildResult);
-                        sink.next(JSONUtil.toJsonStr(buildResultMessage));
+                        sink.next(GenerationStreamEvent.buildResult(buildResult.toDiagnosticReport(), java.util.Map.of(
+                                "success", buildResult.success(),
+                                "stage", buildResult.stage(),
+                                "projectPath", buildResult.projectPath(),
+                                "summary", buildResult.summary(),
+                                "report", buildResult.toDiagnosticReport()
+                        )));
                         if (!buildResult.success()) {
                             log.warn("Vue 项目生成后自动构建失败，appId: {}, summary: {}", appId, buildResult.summary());
                             sink.error(new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()));
@@ -138,6 +187,9 @@ public class AiCodeGeneratorFacade {
                         sink.complete();
                     })
                     .onError((Throwable error) -> {
+                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
+                            return;
+                        }
                         log.error("Vue 项目流式生成失败，appId: {}", appId, error);
                         sink.error(error);
                     })
@@ -153,13 +205,20 @@ public class AiCodeGeneratorFacade {
      * @param appId       应用 ID
      * @return 流式响应
      */
-    private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenType, Long appId) {
+    private Flux<GenerationStreamEvent> processCodeStream(Flux<String> codeStream,
+                                                          CodeGenTypeEnum codeGenType,
+                                                          Long appId,
+                                                          BooleanSupplier cancelChecker) {
         // 字符串拼接器，用于当流式返回所有的代码之后，再保存代码
         StringBuilder codeBuilder = new StringBuilder();
         return codeStream.doOnNext(chunk -> {
+            throwIfCancelled(cancelChecker);
             // 实时收集代码片段
             codeBuilder.append(chunk);
         }).doOnComplete(() -> {
+            if (isCancelled(cancelChecker)) {
+                return;
+            }
             // 流式返回完成后，保存代码
             try {
                 String completeCode = codeBuilder.toString();
@@ -172,6 +231,19 @@ public class AiCodeGeneratorFacade {
                 log.error("保存失败: {}", e.getMessage());
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "保存失败: " + e.getMessage());
             }
+        }).map(chunk -> {
+            throwIfCancelled(cancelChecker);
+            return GenerationStreamEvent.aiDelta(chunk);
         });
+    }
+
+    private void throwIfCancelled(BooleanSupplier cancelChecker) {
+        if (isCancelled(cancelChecker)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成已停止");
+        }
+    }
+
+    private boolean isCancelled(BooleanSupplier cancelChecker) {
+        return cancelChecker != null && cancelChecker.getAsBoolean();
     }
 }

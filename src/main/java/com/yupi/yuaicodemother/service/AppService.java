@@ -10,6 +10,7 @@ import com.yupi.yuaicodemother.model.entity.User;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileContentVO;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileTreeVO;
 import com.yupi.yuaicodemother.model.vo.AppVO;
+import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -29,7 +30,7 @@ public interface AppService extends IService<App> {
      * @param loginUser 登录用户
      * @return
      */
-    Flux<String> chatToGenCode(Long appId, String message, User loginUser);
+    Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser);
 
     /**
      * 订阅当前应用的生成流
@@ -38,7 +39,15 @@ public interface AppService extends IService<App> {
      * @param loginUser 登录用户
      * @return 生成流
      */
-    Flux<String> getGenerationStream(Long appId, User loginUser);
+    Flux<GenerationStreamEvent> getGenerationStream(Long appId, User loginUser);
+
+    /**
+     * 停止当前应用的生成任务
+     *
+     * @param appId 应用 ID
+     * @param loginUser 登录用户
+     */
+    void stopGeneration(Long appId, User loginUser);
 
     /**
      * 优化用户提示词

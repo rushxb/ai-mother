@@ -183,6 +183,10 @@ declare namespace API {
     message: string
   }
 
+  type stopChatToGenCodeParams = {
+    appId: string | number
+  }
+
   type DeleteRequest = {
     id?: string | number
   }

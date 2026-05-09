@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -38,19 +39,19 @@ public class JsonMessageStreamHandler {
      * @param loginUser          登录用户
      * @return 处理后的流
      */
-    public Flux<String> handle(Flux<String> originFlux,
-                               ChatHistoryService chatHistoryService,
-                               long appId, User loginUser) {
+    public Flux<GenerationStreamEvent> handle(Flux<GenerationStreamEvent> originFlux,
+                                              ChatHistoryService chatHistoryService,
+                                              long appId, User loginUser) {
         // 收集数据用于生成后端记忆格式
         StringBuilder chatHistoryStringBuilder = new StringBuilder();
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
         Set<String> seenToolIds = new HashSet<>();
         return originFlux
-                .map(chunk -> {
+                .map(event -> {
                     // 解析每个 JSON 消息块
-                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
+                    return handleStreamEvent(event, chatHistoryStringBuilder, seenToolIds);
                 })
-                .filter(StrUtil::isNotEmpty) // 过滤空字串
+                .filter(event -> event != null && (StrUtil.isNotBlank(event.getText()) || event.getData() != null))
                 .doOnComplete(() -> {
                     // 流式响应完成后，添加 AI 消息到对话历史
                     String aiResponse = chatHistoryStringBuilder.toString();
@@ -66,26 +67,18 @@ public class JsonMessageStreamHandler {
     /**
      * 解析并收集 TokenStream 数据
      */
-    private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
-        // 解析 JSON
-        StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
-        StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
-        if (typeEnum == null) {
-            log.warn("收到未知流消息类型: {}", streamMessage.getType());
-            return "";
+    private GenerationStreamEvent handleStreamEvent(GenerationStreamEvent event, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
+        if (event == null || StrUtil.isBlank(event.getType())) {
+            return null;
         }
-        switch (typeEnum) {
-            case AI_RESPONSE -> {
-                AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
-                String data = aiMessage.getData();
-                // 直接拼接响应
-                chatHistoryStringBuilder.append(data);
-                return data;
+        switch (event.getType()) {
+            case GenerationStreamEvent.AI_DELTA -> {
+                chatHistoryStringBuilder.append(event.getText());
+                return event;
             }
-            case TOOL_REQUEST -> {
-                ToolRequestMessage toolRequestMessage = JSONUtil.toBean(chunk, ToolRequestMessage.class);
-                String toolId = toolRequestMessage.getId();
-                String toolName = toolRequestMessage.getName();
+            case GenerationStreamEvent.TOOL_CALL -> {
+                String toolId = event.getData() == null ? null : String.valueOf(event.getData().get("requestId"));
+                String toolName = event.getData() == null ? null : String.valueOf(event.getData().get("toolName"));
                 // 检查是否是第一次看到这个工具 ID
                 if (toolId != null && !seenToolIds.contains(toolId)) {
                     // 第一次调用这个工具，记录 ID 并完整返回工具信息
@@ -94,39 +87,60 @@ public class JsonMessageStreamHandler {
                     BaseTool tool = toolManager.getTool(toolName);
                     if (tool == null) {
                         log.warn("收到未注册的工具请求: {}", toolName);
-                        return String.format("\n\n[选择工具] %s（未注册工具）\n\n", toolName);
+                        String output = String.format("\n\n[选择工具] %s（未注册工具）\n\n", toolName);
+                        return GenerationStreamEvent.toolCall(output, Map.of(
+                                "toolName", toolName,
+                                "registered", false
+                        ));
                     }
                     // 返回格式化的工具调用信息
-                    return tool.generateToolRequestResponse();
+                    String output = tool.generateToolRequestResponse();
+                    return GenerationStreamEvent.toolCall(output, buildToolEventData(
+                            toolName,
+                            true,
+                            event.getData() == null ? "" : String.valueOf(event.getData().get("arguments")),
+                            ""
+                    ));
                 } else {
                     // 不是第一次调用这个工具，直接返回空
-                    return "";
+                    return null;
                 }
             }
-            case TOOL_EXECUTED -> {
-                ToolExecutedMessage toolExecutedMessage = JSONUtil.toBean(chunk, ToolExecutedMessage.class);
-                JSONObject jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
+            case GenerationStreamEvent.TOOL_RESULT -> {
+                String arguments = event.getData() == null ? "" : String.valueOf(event.getData().get("arguments"));
+                JSONObject jsonObject = StrUtil.isBlank(arguments) ? new JSONObject() : JSONUtil.parseObj(arguments);
                 // 根据工具名称获取工具实例
-                String toolName = toolExecutedMessage.getName();
+                String toolName = event.getData() == null ? null : String.valueOf(event.getData().get("toolName"));
                 BaseTool tool = toolManager.getTool(toolName);
                 if (tool == null) {
                     log.warn("收到未注册的工具执行结果: {}", toolName);
                     String fallbackResult = String.format("[工具调用] %s\n%s",
                             toolName,
-                            StrUtil.blankToDefault(toolExecutedMessage.getResult(), "(无结果)"));
+                            StrUtil.blankToDefault(event.getText(), "(无结果)"));
                     String output = String.format("\n\n%s\n\n", fallbackResult);
                     chatHistoryStringBuilder.append(output);
-                    return output;
+                    return GenerationStreamEvent.toolResult(output, Map.of(
+                            "toolName", toolName,
+                            "registered", false,
+                            "result", StrUtil.blankToDefault(event.getText(), "")
+                    ));
                 }
-                String result = tool.generateToolExecutedResult(jsonObject, toolExecutedMessage.getResult());
+                String result = tool.generateToolExecutedResult(jsonObject, event.getText());
                 // 输出前端和要持久化的内容
                 String output = String.format("\n\n%s\n\n", result);
                 chatHistoryStringBuilder.append(output);
-                return output;
+                return GenerationStreamEvent.toolResult(output, buildToolEventData(
+                        toolName,
+                        true,
+                        arguments,
+                        StrUtil.blankToDefault(event.getText(), "")
+                ));
             }
-            case BUILD_RESULT -> {
-                BuildResultMessage buildResultMessage = JSONUtil.toBean(chunk, BuildResultMessage.class);
-                String resultText = Boolean.TRUE.equals(buildResultMessage.getSuccess()) ? "成功" : "失败";
+            case GenerationStreamEvent.BUILD_RESULT -> {
+                boolean success = event.getData() != null && Boolean.TRUE.equals(event.getData().get("success"));
+                String resultText = success ? "成功" : "失败";
+                String stage = event.getData() == null ? "unknown" : String.valueOf(event.getData().get("stage"));
+                String summary = event.getData() == null ? "(无摘要)" : String.valueOf(event.getData().get("summary"));
                 String output = String.format("""
                         
                         [构建结果] %s
@@ -134,15 +148,58 @@ public class JsonMessageStreamHandler {
                         摘要：%s
                         """,
                         resultText,
-                        StrUtil.blankToDefault(buildResultMessage.getStage(), "unknown"),
-                        StrUtil.blankToDefault(buildResultMessage.getSummary(), "(无摘要)"));
+                        stage,
+                        summary);
                 chatHistoryStringBuilder.append(output);
-                return output;
+                event.setText(output);
+                return event;
+            }
+            case GenerationStreamEvent.REPAIR_START, GenerationStreamEvent.GENERATION_ERROR -> {
+                chatHistoryStringBuilder.append(event.getText());
+                return event;
             }
             default -> {
-                log.error("不支持的消息类型: {}", typeEnum);
-                return "";
+                log.error("不支持的消息类型: {}", event.getType());
+                return null;
             }
         }
     }
-} 
+
+    private Map<String, Object> buildToolEventData(String toolName, boolean registered, String arguments, String result) {
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("toolName", toolName);
+        data.put("registered", registered);
+        data.put("arguments", StrUtil.blankToDefault(arguments, ""));
+        data.put("result", StrUtil.blankToDefault(result, ""));
+        appendFileOperationData(data, arguments);
+        return data;
+    }
+
+    private void appendFileOperationData(Map<String, Object> data, String arguments) {
+        if (StrUtil.isBlank(arguments)) {
+            return;
+        }
+        try {
+            JSONObject jsonObject = JSONUtil.parseObj(arguments);
+            String filePath = jsonObject.getStr("relativeFilePath");
+            if (StrUtil.isBlank(filePath)) {
+                return;
+            }
+            data.put("filePath", filePath);
+            String content = jsonObject.getStr("content");
+            if (content != null) {
+                data.put("content", content);
+            }
+            String oldContent = jsonObject.getStr("oldContent");
+            if (oldContent != null) {
+                data.put("oldContent", oldContent);
+            }
+            String newContent = jsonObject.getStr("newContent");
+            if (newContent != null) {
+                data.put("newContent", newContent);
+            }
+        } catch (Exception e) {
+            log.debug("解析文件工具参数失败: {}", e.getMessage());
+        }
+    }
+}

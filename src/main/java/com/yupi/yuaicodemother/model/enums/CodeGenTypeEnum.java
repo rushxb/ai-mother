@@ -9,16 +9,18 @@ import lombok.Getter;
 @Getter
 public enum CodeGenTypeEnum {
 
-    HTML("原生 HTML 模式", "html"),
-    MULTI_FILE("原生多文件模式", "multi_file"),
-    VUE_PROJECT("Vue 工程模式", "vue_project");
+    HTML("原生 HTML 模式", "html", 1),
+    MULTI_FILE("原生多文件模式", "multi_file", 2),
+    VUE_PROJECT("Vue 工程模式", "vue_project", 3);
 
     private final String text;
     private final String value;
+    private final int level;
 
-    CodeGenTypeEnum(String text, String value) {
+    CodeGenTypeEnum(String text, String value, int level) {
         this.text = text;
         this.value = value;
+        this.level = level;
     }
 
     /**
@@ -37,5 +39,32 @@ public enum CodeGenTypeEnum {
             }
         }
         return null;
+    }
+
+    /**
+     * 是否需要从当前类型升级到目标类型
+     *
+     * @param targetType 目标类型
+     * @return 是否升级
+     */
+    public boolean canUpgradeTo(CodeGenTypeEnum targetType) {
+        return targetType != null && targetType.level > this.level;
+    }
+
+    /**
+     * 选择两个类型中承载能力更强的一个，避免后续对话把项目降级回简单模式
+     *
+     * @param left  类型1
+     * @param right 类型2
+     * @return 更强的代码生成类型
+     */
+    public static CodeGenTypeEnum max(CodeGenTypeEnum left, CodeGenTypeEnum right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return left.level >= right.level ? left : right;
     }
 }

@@ -49,7 +49,7 @@
             ghost
             @click="downloadCode"
             :loading="downloading"
-            :disabled="!isOwner"
+            :disabled="!isOwner || isGenerating"
         >
           <template #icon>
             <DownloadOutlined />
@@ -73,7 +73,7 @@
             type="primary"
             @click="deployApp"
             :loading="deploying"
-            :disabled="!isOwner"
+            :disabled="!isOwner || isGenerating"
         >
           <template #icon>
             <CloudUploadOutlined />
@@ -283,7 +283,7 @@
                 ghost
                 @click="syncDeployment"
                 :loading="syncingDeploy"
-                :disabled="!isOwner || !hasDeployed"
+                :disabled="!isOwner || !hasDeployed || isGenerating"
             >
               <template #icon>
                 <CloudSyncOutlined />

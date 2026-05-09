@@ -128,18 +128,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         }
-        String enhancedMessage = buildEnhancedUserMessage(app, message);
-        String generatingStage = determineGeneratingStage(app);
+        GenerationPreparation preparation = prepareGeneration(app, message);
         GenerationSession session;
         synchronized (getGenerationLock(appId)) {
             ThrowUtils.throwIf(activeGenerationSessions.containsKey(appId), ErrorCode.OPERATION_ERROR, "当前应用正在生成中，请稍后再试");
             resetResidualGenerationState(this.getById(appId));
             chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
-            markGenerationStarted(appId, generatingStage);
+            if (preparation.upgradeRequired()) {
+                switchAppCodeGenType(appId, preparation.targetType());
+            }
+            markGenerationStarted(appId, preparation.generatingStage());
             session = new GenerationSession();
             activeGenerationSessions.put(appId, session);
         }
-        startGenerationTask(appId, enhancedMessage, loginUser, codeGenTypeEnum, session);
+        startGenerationTask(appId, loginUser, preparation, session);
         return session.asFlux();
     }
 
@@ -412,9 +414,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     private void startGenerationTask(Long appId,
-                                     String enhancedMessage,
                                      User loginUser,
-                                     CodeGenTypeEnum codeGenTypeEnum,
+                                     GenerationPreparation preparation,
                                      GenerationSession session) {
         Thread.startVirtualThread(() -> {
             StringBuilder generatedContent = new StringBuilder();
@@ -425,8 +426,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                             .build()
             );
             try {
-                Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(enhancedMessage, codeGenTypeEnum, appId);
-                streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum)
+                Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(
+                        preparation.enhancedMessage(),
+                        preparation.targetType(),
+                        appId
+                );
+                streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, preparation.targetType())
                         .doOnNext(chunk -> {
                             generatedContent.append(chunk);
                             updateGenerationSnapshot(appId, generatedContent.toString());
@@ -437,6 +442,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 session.complete();
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
+                rollbackCodeGenTypeIfNeeded(appId, preparation);
                 markGenerationFinished(appId);
                 session.error(e);
             } finally {
@@ -460,6 +466,49 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private Object getGenerationLock(Long appId) {
         return generationLocks.computeIfAbsent(appId, key -> new Object());
+    }
+
+    private GenerationPreparation prepareGeneration(App app, String userMessage) {
+        CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        ThrowUtils.throwIf(currentType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
+        String generatingStage = determineGeneratingStage(app);
+        CodeGenTypeEnum routedType = routeCodeGenTypeForMessage(app, userMessage, currentType);
+        CodeGenTypeEnum targetType = CodeGenTypeEnum.max(currentType, routedType);
+        boolean upgradeRequired = currentType.canUpgradeTo(targetType);
+        String enhancedMessage = buildEnhancedUserMessage(app, userMessage, currentType, targetType);
+        return new GenerationPreparation(currentType, targetType, upgradeRequired, generatingStage, enhancedMessage);
+    }
+
+    private CodeGenTypeEnum routeCodeGenTypeForMessage(App app, String userMessage, CodeGenTypeEnum currentType) {
+        try {
+            AiCodeGenTypeRoutingService routingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
+            String routingPrompt = buildRoutingPrompt(app, userMessage, currentType);
+            CodeGenTypeEnum routedType = routingService.routeCodeGenType(routingPrompt);
+            return routedType == null ? currentType : routedType;
+        } catch (Exception e) {
+            log.warn("生成前重新路由失败，沿用当前模式，appId: {}", app.getId(), e);
+            return currentType;
+        }
+    }
+
+    private String buildRoutingPrompt(App app, String userMessage, CodeGenTypeEnum currentType) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("当前应用模式：")
+                .append(currentType.getValue())
+                .append("（")
+                .append(currentType.getText())
+                .append("）\n");
+        builder.append("用户这次的新需求：\n")
+                .append(userMessage);
+        String projectContext = buildProjectContext(app);
+        if (StrUtil.isNotBlank(projectContext)) {
+            builder.append("\n\n")
+                    .append(AppConstant.PROJECT_CONTEXT_MARKER)
+                    .append("\n")
+                    .append(projectContext);
+        }
+        builder.append("\n\n请判断：为了满足这次需求，是否需要升级到更复杂的代码模式。");
+        return builder.toString();
     }
 
     private String determineGeneratingStage(App app) {
@@ -500,6 +549,45 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         updateApp.setGeneratingMessage("");
         updateApp.setGeneratingStage(null);
         this.updateById(updateApp);
+    }
+
+    private void switchAppCodeGenType(Long appId, CodeGenTypeEnum targetType) {
+        if (targetType == null) {
+            return;
+        }
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setCodeGenType(targetType.getValue());
+        this.updateById(updateApp);
+    }
+
+    private void rollbackCodeGenTypeIfNeeded(Long appId, GenerationPreparation preparation) {
+        if (preparation == null || !preparation.upgradeRequired()) {
+            return;
+        }
+        cleanupCodeDir(appId, preparation.targetType());
+        switchAppCodeGenType(appId, preparation.originalType());
+    }
+
+    private void cleanupCodeDir(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        if (appId == null || appId <= 0 || codeGenTypeEnum == null) {
+            return;
+        }
+        File codeDir = new File(AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenTypeEnum.getValue() + "_" + appId);
+        if (!codeDir.exists()) {
+            return;
+        }
+        try {
+            File canonicalRoot = new File(AppConstant.CODE_OUTPUT_ROOT_DIR).getCanonicalFile();
+            File canonicalDir = codeDir.getCanonicalFile();
+            if (!canonicalDir.toPath().startsWith(canonicalRoot.toPath())) {
+                log.warn("跳过清理非法代码目录，appId: {}, dir: {}", appId, canonicalDir.getAbsolutePath());
+                return;
+            }
+            FileUtil.del(canonicalDir);
+        } catch (Exception e) {
+            log.warn("清理升级失败目录时发生异常，appId: {}, type: {}", appId, codeGenTypeEnum.getValue(), e);
+        }
     }
 
     private File getCodeRootDir(App app) {
@@ -577,9 +665,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         return EDITABLE_EXTENSIONS.contains(extension);
     }
 
-    private String buildEnhancedUserMessage(App app, String userMessage) {
+    private String buildEnhancedUserMessage(App app,
+                                            String userMessage,
+                                            CodeGenTypeEnum currentType,
+                                            CodeGenTypeEnum targetType) {
         StringBuilder promptBuilder = new StringBuilder();
         promptBuilder.append(userMessage);
+        if (currentType != null && targetType != null && currentType.canUpgradeTo(targetType)) {
+            promptBuilder.append("\n\n")
+                    .append("【模式升级要求】\n")
+                    .append("当前应用原本使用 ")
+                    .append(currentType.getText())
+                    .append("，但这次需求复杂度已经升级，请将项目整体升级为 ")
+                    .append(targetType.getText())
+                    .append("。\n")
+                    .append("必须保留并迁移已有页面能力、样式意图和业务内容，输出结果要以新模式可继续迭代的工程结构为准。");
+        }
         String projectContext = buildProjectContext(app);
         if (StrUtil.isNotBlank(projectContext)) {
             promptBuilder.append("\n\n")
@@ -643,6 +744,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 + "\n<!-- 文件内容过长，以上为截断后的前 "
                 + MAX_MODEL_CONTEXT_FILE_CHARS
                 + " 个字符 -->";
+    }
+
+    private record GenerationPreparation(CodeGenTypeEnum originalType,
+                                         CodeGenTypeEnum targetType,
+                                         boolean upgradeRequired,
+                                         String generatingStage,
+                                         String enhancedMessage) {
     }
 
     private void rebuildIfVueProject(App app, File rootDir) {
@@ -766,8 +874,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 .eq("deployKey", deployKey)
                 .eq("priority", priority)
                 .eq("userId", userId)
-                .orderBy(sortField, "ascend".equals(sortOrder));
-    }
+                .orderBy(sortField, "ascend".equals(sortOrder));    }
 
     /**
      * 删除应用时，关联删除对话历史

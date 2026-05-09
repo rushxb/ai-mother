@@ -412,9 +412,10 @@
                       class="code-file-tree"
                       :tree-data="fileTreeData"
                       :selected-keys="selectedFilePath ? [selectedFilePath] : []"
-                      default-expand-all
+                      :expanded-keys="expandedFileTreeKeys"
                       block-node
                       @select="handleFileSelect"
+                      @expand="handleFileTreeExpand"
                   >
                     <template #title="node">
                       <span class="file-tree-title">
@@ -644,6 +645,7 @@ const loadingFileContent = ref(false)
 const savingFile = ref(false)
 const syncingDeploy = ref(false)
 const fileTreeData = ref<FileTreeNode[]>([])
+const expandedFileTreeKeys = ref<Array<string | number>>([])
 const selectedFilePath = ref('')
 const selectedFileName = ref('')
 const fileContent = ref('')
@@ -1834,6 +1836,38 @@ const createFileTreeNode = (path: string, name: string, directory: boolean): Fil
   }
 }
 
+const collectDirectoryKeys = (nodes: FileTreeNode[]) => {
+  const keys: Array<string | number> = []
+  const walk = (treeNodes: FileTreeNode[]) => {
+    treeNodes.forEach((node) => {
+      if (!node.directory) {
+        return
+      }
+      keys.push(node.key)
+      if (node.children?.length) {
+        walk(node.children)
+      }
+    })
+  }
+  walk(nodes)
+  return keys
+}
+
+const expandDirectoriesForFilePath = (filePath: string) => {
+  const normalizedPath = normalizeFilePath(filePath)
+  const segments = normalizedPath.split('/').filter(Boolean)
+  if (segments.length <= 1) {
+    return
+  }
+  const nextExpandedKeys = new Set(expandedFileTreeKeys.value)
+  let currentPath = ''
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    currentPath = currentPath ? `${currentPath}/${segments[index]}` : segments[index]
+    nextExpandedKeys.add(currentPath)
+  }
+  expandedFileTreeKeys.value = Array.from(nextExpandedKeys)
+}
+
 const ensureFileTreePath = (filePath: string) => {
   const normalizedPath = normalizeFilePath(filePath)
   const segments = normalizedPath.split('/').filter(Boolean)
@@ -1864,6 +1898,7 @@ const ensureFileTreePath = (filePath: string) => {
   })
 
   fileTreeData.value = nextTree
+  expandDirectoriesForFilePath(normalizedPath)
 }
 
 const loadCodeFiles = async () => {
@@ -1877,6 +1912,7 @@ const loadCodeFiles = async () => {
     })
     if (res.data.code === 0 && res.data.data) {
       fileTreeData.value = mapFileTreeNodes(res.data.data)
+      expandedFileTreeKeys.value = collectDirectoryKeys(fileTreeData.value)
       if (selectedFilePath.value) {
         ensureFileTreePath(selectedFilePath.value)
       }
@@ -1889,6 +1925,10 @@ const loadCodeFiles = async () => {
   } finally {
     loadingFiles.value = false
   }
+}
+
+const handleFileTreeExpand = (expandedKeys: Array<string | number>) => {
+  expandedFileTreeKeys.value = expandedKeys
 }
 
 const loadFileContent = async (filePath: string) => {

@@ -1654,6 +1654,62 @@ const mapFileTreeNodes = (nodes: API.AppCodeFileTreeVO[] = []): FileTreeNode[] =
   })
 }
 
+const normalizeFilePath = (filePath: string) => {
+  return filePath.replace(/\\/g, '/').replace(/^\/+/, '')
+}
+
+const createFileTreeNode = (path: string, name: string, directory: boolean): FileTreeNode => {
+  const iconMeta = directory ? { type: 'folder', label: '' } : getFileIconMeta(name)
+  return {
+    title: name,
+    key: path,
+    isLeaf: !directory,
+    selectable: !directory,
+    directory,
+    iconType: iconMeta.type,
+    iconLabel: iconMeta.label,
+    children: directory ? [] : undefined,
+    raw: {
+      name,
+      path,
+      directory,
+      children: directory ? [] : undefined,
+    },
+  }
+}
+
+const ensureFileTreePath = (filePath: string) => {
+  const normalizedPath = normalizeFilePath(filePath)
+  const segments = normalizedPath.split('/').filter(Boolean)
+  if (!segments.length) {
+    return
+  }
+
+  const nextTree = [...fileTreeData.value]
+  let currentLevel = nextTree
+  let currentPath = ''
+
+  segments.forEach((segment, index) => {
+    currentPath = currentPath ? `${currentPath}/${segment}` : segment
+    const isFile = index === segments.length - 1
+    let currentNode = currentLevel.find((node) => node.key === currentPath)
+
+    if (!currentNode) {
+      currentNode = createFileTreeNode(currentPath, segment, !isFile)
+      currentLevel.push(currentNode)
+    }
+
+    if (!isFile) {
+      if (!currentNode.children) {
+        currentNode.children = []
+      }
+      currentLevel = currentNode.children
+    }
+  })
+
+  fileTreeData.value = nextTree
+}
+
 const loadCodeFiles = async () => {
   if (!appId.value || !isOwner.value || loadingFiles.value) {
     return
@@ -1665,6 +1721,9 @@ const loadCodeFiles = async () => {
     })
     if (res.data.code === 0 && res.data.data) {
       fileTreeData.value = mapFileTreeNodes(res.data.data)
+      if (selectedFilePath.value) {
+        ensureFileTreePath(selectedFilePath.value)
+      }
       return
     }
     message.error('加载文件失败：' + (res.data.message || '请重试'))
@@ -1799,20 +1858,30 @@ const startStreamingFilePreview = async (filePath: string, targetContent: string
   if (!filePath) {
     return
   }
-  if (isFileDirty.value && selectedFilePath.value && selectedFilePath.value !== filePath) {
+  const normalizedFilePath = normalizeFilePath(filePath)
+  if (
+    isFileDirty.value &&
+    selectedFilePath.value &&
+    normalizeFilePath(selectedFilePath.value) !== normalizedFilePath &&
+    !isStreamingFilePreview.value
+  ) {
     return
+  }
+  if (isStreamingFilePreview.value) {
+    savedFileContent.value = fileContent.value
   }
   if (!fileTreeData.value.length) {
     await loadCodeFiles()
   }
+  ensureFileTreePath(normalizedFilePath)
   activeWorkspaceTab.value = 'files'
   await nextTick()
-  const fileName = filePath.split('/').pop() || filePath
-  selectedFilePath.value = filePath
+  const fileName = normalizedFilePath.split('/').pop() || normalizedFilePath
+  selectedFilePath.value = normalizedFilePath
   selectedFileName.value = fileName
   loadingFileContent.value = false
   isStreamingFilePreview.value = true
-  streamingFilePath.value = filePath
+  streamingFilePath.value = normalizedFilePath
   streamingFileFinalContent.value = targetContent || ''
   streamingFileDisplayContent.value = initialContent
   fileContent.value = initialContent
@@ -1824,7 +1893,7 @@ const startStreamingFilePreview = async (filePath: string, targetContent: string
   }
 
   const tick = () => {
-    if (!isStreamingFilePreview.value || streamingFilePath.value !== filePath) {
+    if (!isStreamingFilePreview.value || streamingFilePath.value !== normalizedFilePath) {
       return
     }
     const target = streamingFileFinalContent.value
@@ -1883,6 +1952,7 @@ const handleFileOperationStreamEvent = async (streamEvent: GenerationStreamEvent
   if (!filePath) {
     return
   }
+  ensureFileTreePath(filePath)
   const toolName = getStringFromEventData(streamEvent.data, 'toolName')
   if (!['writeFile', 'modifyFile'].includes(toolName)) {
     return

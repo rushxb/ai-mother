@@ -2,7 +2,7 @@ package com.yupi.yuaicodemother.ai.tools;
 
 import cn.hutool.core.util.StrUtil;
 
-import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
@@ -21,16 +21,30 @@ final class NpmCommandSupport {
     static CommandResult runCommand(Path workingDir, int timeoutSeconds, String... commandParts) {
         String commandText = String.join(" ", commandParts);
         try {
-            Process process = new ProcessBuilder(commandParts)
+            ProcessBuilder processBuilder = new ProcessBuilder(commandParts)
                     .directory(workingDir.toFile())
-                    .redirectErrorStream(true)
-                    .start();
+                    .redirectErrorStream(true);
+            processBuilder.environment().put("NO_UPDATE_NOTIFIER", "1");
+            processBuilder.environment().put("NPM_CONFIG_AUDIT", "false");
+            processBuilder.environment().put("NPM_CONFIG_FUND", "false");
+            Process process = processBuilder.start();
+            ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream();
+            Thread outputReader = Thread.startVirtualThread(() -> {
+                try {
+                    process.getInputStream().transferTo(outputBuffer);
+                } catch (Exception ignored) {
+                }
+            });
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-            String output = readOutput(process.getInputStream());
             if (!finished) {
                 process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+                outputReader.join(TimeUnit.SECONDS.toMillis(5));
+                String output = readOutput(outputBuffer);
                 return new CommandResult(false, commandText, null, true, output, "命令执行超时（" + timeoutSeconds + "秒）");
             }
+            outputReader.join(TimeUnit.SECONDS.toMillis(5));
+            String output = readOutput(outputBuffer);
             return new CommandResult(process.exitValue() == 0, commandText, process.exitValue(), false, output, null);
         } catch (Exception e) {
             return new CommandResult(false, commandText, null, false, "", e.getMessage());
@@ -45,8 +59,8 @@ final class NpmCommandSupport {
         return System.getProperty("os.name").toLowerCase().contains("windows");
     }
 
-    private static String readOutput(InputStream inputStream) throws Exception {
-        String output = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+    private static String readOutput(ByteArrayOutputStream outputBuffer) {
+        String output = new String(outputBuffer.toByteArray(), StandardCharsets.UTF_8);
         if (StrUtil.isBlank(output)) {
             return "";
         }

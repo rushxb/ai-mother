@@ -4,10 +4,10 @@ import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -92,8 +92,7 @@ public class VueProjectBuilder {
      */
     private CommandResult executeNpmInstall(File projectDir) {
         log.info("执行 npm install...");
-        String command = String.format("%s install", buildCommand("npm"));
-        return executeCommand(projectDir, command, 300); // 5分钟超时
+        return executeCommand(projectDir, 300, buildCommand("npm"), "install", "--no-audit", "--no-fund"); // 5分钟超时
     }
 
     /**
@@ -101,8 +100,7 @@ public class VueProjectBuilder {
      */
     private CommandResult executeNpmBuild(File projectDir) {
         log.info("执行 npm run build...");
-        String command = String.format("%s run build", buildCommand("npm"));
-        return executeCommand(projectDir, command, 180); // 3分钟超时
+        return executeCommand(projectDir, 180, buildCommand("npm"), "run", "build"); // 3分钟超时
     }
 
     /**
@@ -135,21 +133,37 @@ public class VueProjectBuilder {
      * @param timeoutSeconds 超时时间（秒）
      * @return 是否执行成功
      */
-    private CommandResult executeCommand(File workingDir, String command, int timeoutSeconds) {
+    private CommandResult executeCommand(File workingDir, int timeoutSeconds, String... commandParts) {
+        String command = String.join(" ", commandParts);
         try {
             log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), command);
-            Process process = new ProcessBuilder(command.split("\\s+"))
+            ProcessBuilder processBuilder = new ProcessBuilder(commandParts)
                     .directory(workingDir)
-                    .redirectErrorStream(true)
-                    .start();
+                    .redirectErrorStream(true);
+            processBuilder.environment().put("NO_UPDATE_NOTIFIER", "1");
+            processBuilder.environment().put("NPM_CONFIG_AUDIT", "false");
+            processBuilder.environment().put("NPM_CONFIG_FUND", "false");
+            Process process = processBuilder.start();
+            ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream();
+            Thread outputReader = Thread.startVirtualThread(() -> {
+                try {
+                    process.getInputStream().transferTo(outputBuffer);
+                } catch (Exception e) {
+                    log.warn("读取命令输出失败: {}", command, e);
+                }
+            });
             // 等待进程完成，设置超时
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-            String output = readProcessOutput(process);
             if (!finished) {
                 log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
                 process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+                outputReader.join(TimeUnit.SECONDS.toMillis(5));
+                String output = readProcessOutput(outputBuffer);
                 return CommandResult.timeout(command, timeoutSeconds, output);
             }
+            outputReader.join(TimeUnit.SECONDS.toMillis(5));
+            String output = readProcessOutput(outputBuffer);
             int exitCode = process.exitValue();
             if (exitCode == 0) {
                 log.info("命令执行成功: {}", command);
@@ -159,16 +173,14 @@ public class VueProjectBuilder {
                 return CommandResult.failed(command, exitCode, output);
             }
         } catch (Exception e) {
-            log.error("执行命令失败: {}, 错误信息: {}", command, e.getMessage());
+            log.error("执行命令失败: {}, 错误信息: {}", Arrays.toString(commandParts), e.getMessage());
             return CommandResult.exception(command, e.getMessage());
         }
     }
 
-    private String readProcessOutput(Process process) throws IOException {
-        try (InputStream inputStream = process.getInputStream()) {
-            String output = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-            return truncateLog(output);
-        }
+    private String readProcessOutput(ByteArrayOutputStream outputBuffer) {
+        String output = new String(outputBuffer.toByteArray(), StandardCharsets.UTF_8);
+        return truncateLog(output);
     }
 
     private String truncateLog(String content) {

@@ -14,8 +14,13 @@ final class ToolPathSupport {
     }
 
     static Path resolveProjectRoot(Long appId) {
+        if (appId == null || appId <= 0) {
+            throw new IllegalArgumentException("应用 ID 无效，无法定位项目工作区");
+        }
         String projectDirName = "vue_project_" + appId;
-        return Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName).normalize();
+        return Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName)
+                .toAbsolutePath()
+                .normalize();
     }
 
     static Path resolvePath(String relativePath, Long appId) {
@@ -30,7 +35,9 @@ final class ToolPathSupport {
     }
 
     static void ensureWithinProject(Path projectRoot, Path targetPath) {
-        if (!targetPath.startsWith(projectRoot)) {
+        Path normalizedRoot = projectRoot.toAbsolutePath().normalize();
+        Path normalizedTarget = targetPath.toAbsolutePath().normalize();
+        if (!normalizedTarget.startsWith(normalizedRoot)) {
             throw new IllegalArgumentException("非法路径，超出当前项目目录范围");
         }
     }

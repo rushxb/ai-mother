@@ -6,6 +6,7 @@ import com.yupi.yuaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.yupi.yuaicodemother.ai.model.HtmlCodeResult;
 import com.yupi.yuaicodemother.ai.model.MultiFileCodeResult;
 import com.yupi.yuaicodemother.ai.model.message.AiResponseMessage;
+import com.yupi.yuaicodemother.ai.model.message.BuildResultMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolExecutedMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolRequestMessage;
 import com.yupi.yuaicodemother.constant.AppConstant;
@@ -127,13 +128,17 @@ public class AiCodeGeneratorFacade {
                         // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
                         VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+                        BuildResultMessage buildResultMessage = new BuildResultMessage(buildResult);
+                        sink.next(JSONUtil.toJsonStr(buildResultMessage));
                         if (!buildResult.success()) {
                             log.warn("Vue 项目生成后自动构建失败，appId: {}, summary: {}", appId, buildResult.summary());
+                            sink.error(new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()));
+                            return;
                         }
                         sink.complete();
                     })
                     .onError((Throwable error) -> {
-                        error.printStackTrace();
+                        log.error("Vue 项目流式生成失败，appId: {}", appId, error);
                         sink.error(error);
                     })
                     .start();
@@ -165,6 +170,7 @@ public class AiCodeGeneratorFacade {
                 log.info("保存成功，目录为：{}", saveDir.getAbsolutePath());
             } catch (Exception e) {
                 log.error("保存失败: {}", e.getMessage());
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "保存失败: " + e.getMessage());
             }
         });
     }

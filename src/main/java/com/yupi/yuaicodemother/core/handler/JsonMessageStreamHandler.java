@@ -58,7 +58,7 @@ public class JsonMessageStreamHandler {
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
-                    String errorMessage = "AI回复失败: " + error.getMessage();
+                    String errorMessage = chatHistoryStringBuilder + "\n\nAI回复失败: " + error.getMessage();
                     chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
                 });
     }
@@ -70,6 +70,10 @@ public class JsonMessageStreamHandler {
         // 解析 JSON
         StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
         StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
+        if (typeEnum == null) {
+            log.warn("收到未知流消息类型: {}", streamMessage.getType());
+            return "";
+        }
         switch (typeEnum) {
             case AI_RESPONSE -> {
                 AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
@@ -117,6 +121,21 @@ public class JsonMessageStreamHandler {
                 String result = tool.generateToolExecutedResult(jsonObject, toolExecutedMessage.getResult());
                 // 输出前端和要持久化的内容
                 String output = String.format("\n\n%s\n\n", result);
+                chatHistoryStringBuilder.append(output);
+                return output;
+            }
+            case BUILD_RESULT -> {
+                BuildResultMessage buildResultMessage = JSONUtil.toBean(chunk, BuildResultMessage.class);
+                String resultText = Boolean.TRUE.equals(buildResultMessage.getSuccess()) ? "成功" : "失败";
+                String output = String.format("""
+                        
+                        [构建结果] %s
+                        阶段：%s
+                        摘要：%s
+                        """,
+                        resultText,
+                        StrUtil.blankToDefault(buildResultMessage.getStage(), "unknown"),
+                        StrUtil.blankToDefault(buildResultMessage.getSummary(), "(无摘要)"));
                 chatHistoryStringBuilder.append(output);
                 return output;
             }

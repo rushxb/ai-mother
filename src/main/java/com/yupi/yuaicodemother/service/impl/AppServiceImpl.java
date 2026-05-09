@@ -69,6 +69,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private static final long MAX_EDIT_FILE_SIZE = 1024 * 1024;
     private static final int MAX_MODEL_CONTEXT_FILE_CHARS = 12000;
+    private static final int MAX_GENERATION_SNAPSHOT_CHARS = 20000;
+    private static final long GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS = 1000;
+    private static final int MAX_GENERATION_REPLAY_EVENTS = 500;
     private static final int MAX_FILE_TREE_DEPTH = 8;
     private static final int FALLBACK_APP_NAME_LENGTH = 12;
     private static final int MAX_APP_NAME_LENGTH = 16;
@@ -419,6 +422,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                                      GenerationSession session) {
         Thread.startVirtualThread(() -> {
             StringBuilder generatedContent = new StringBuilder();
+            long[] lastSnapshotUpdateAt = {0L};
             MonitorContextHolder.setContext(
                     MonitorContext.builder()
                             .userId(loginUser.getId().toString())
@@ -433,8 +437,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 );
                 streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, preparation.targetType())
                         .doOnNext(chunk -> {
-                            generatedContent.append(chunk);
-                            updateGenerationSnapshot(appId, generatedContent.toString());
+                            appendGenerationSnapshotChunk(generatedContent, chunk);
+                            updateGenerationSnapshotIfDue(appId, generatedContent, lastSnapshotUpdateAt);
                             session.emit(chunk);
                         })
                         .blockLast();
@@ -540,6 +544,26 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         updateApp.setIsGenerating(1);
         updateApp.setGeneratingMessage(generatingMessage);
         this.updateById(updateApp);
+    }
+
+    private void updateGenerationSnapshotIfDue(Long appId, StringBuilder generatedContent, long[] lastSnapshotUpdateAt) {
+        long now = System.currentTimeMillis();
+        if (now - lastSnapshotUpdateAt[0] < GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS) {
+            return;
+        }
+        lastSnapshotUpdateAt[0] = now;
+        updateGenerationSnapshot(appId, generatedContent.toString());
+    }
+
+    private void appendGenerationSnapshotChunk(StringBuilder generatedContent, String chunk) {
+        if (chunk == null || chunk.isEmpty()) {
+            return;
+        }
+        generatedContent.append(chunk);
+        int overflowChars = generatedContent.length() - MAX_GENERATION_SNAPSHOT_CHARS;
+        if (overflowChars > 0) {
+            generatedContent.delete(0, overflowChars);
+        }
     }
 
     private void markGenerationFinished(Long appId) {
@@ -795,7 +819,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private static final class GenerationSession {
 
-        private final Sinks.Many<String> sink = Sinks.many().replay().all();
+        private final Sinks.Many<String> sink = Sinks.many().replay().limit(MAX_GENERATION_REPLAY_EVENTS);
 
         private Flux<String> asFlux() {
             return sink.asFlux();

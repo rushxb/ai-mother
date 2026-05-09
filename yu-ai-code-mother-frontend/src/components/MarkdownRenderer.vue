@@ -18,9 +18,10 @@ const props = defineProps<Props>()
 
 // 配置 markdown-it 实例
 const md: MarkdownIt = new MarkdownIt({
-  html: true,
+  html: false,
   linkify: true,
   typographer: true,
+  breaks: true,
   highlight: function (str: string, lang: string): string {
     if (lang && hljs.getLanguage(lang)) {
       try {
@@ -40,7 +41,7 @@ const md: MarkdownIt = new MarkdownIt({
 
 // 计算渲染后的 Markdown
 const renderedMarkdown = computed(() => {
-  return md.render(props.content)
+  return md.render(props.content || '')
 })
 </script>
 
@@ -49,6 +50,14 @@ const renderedMarkdown = computed(() => {
   line-height: 1.6;
   color: #333;
   word-wrap: break-word;
+}
+
+.markdown-content :deep(*:first-child) {
+  margin-top: 0;
+}
+
+.markdown-content :deep(*:last-child) {
+  margin-bottom: 0;
 }
 
 /* 全局样式，影响 v-html 内容 */

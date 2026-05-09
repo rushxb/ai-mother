@@ -124,7 +124,33 @@
                   <a-avatar :src="aiAvatar" />
                 </div>
                 <div class="message-content">
-                  <MarkdownRenderer v-if="message.content" :content="message.content" />
+                  <template v-if="message.content">
+                    <template v-for="(segment, segmentIndex) in getAiMessageSegments(message)" :key="`${index}-${segmentIndex}`">
+                      <MarkdownRenderer
+                          v-if="segment.type === 'markdown'"
+                          :content="segment.content"
+                      />
+                      <button
+                          v-else
+                          type="button"
+                          class="tool-call-file-card"
+                          :class="{ active: isToolCallFileActive(segment.filePath) }"
+                          @click="openToolCallFile(segment.filePath)"
+                      >
+                        <span
+                            class="file-type-icon"
+                            :class="`file-type-icon-${getToolCallFileIcon(segment.filePath).type}`"
+                        >
+                          {{ getToolCallFileIcon(segment.filePath).label }}
+                        </span>
+                        <span class="tool-call-file-main">
+                          <span class="tool-call-file-label">{{ segment.label }}</span>
+                          <span class="tool-call-file-path">{{ segment.filePath }}</span>
+                        </span>
+                        <span class="tool-call-file-action">查看文件</span>
+                      </button>
+                    </template>
+                  </template>
                   <div
                       v-if="message.buildResult"
                       class="build-result-card"
@@ -561,6 +587,18 @@ interface GenerationStreamEvent {
   data?: Record<string, any>
 }
 
+type AiMessageSegment =
+  | {
+      type: 'markdown'
+      content: string
+    }
+  | {
+      type: 'tool-file'
+      content: string
+      filePath: string
+      label: string
+    }
+
 const messages = ref<Message[]>([])
 const userInput = ref('')
 const isGenerating = ref(false)
@@ -784,6 +822,8 @@ const highlightedFileContent = computed(() => {
   return hljs.highlightAuto(content).value
 })
 
+const toolCallBlockPattern = /(?:^|\n)\s*\[工具调用\][^\n]*(?:\n(?!\s*\[(?:工具调用|工具结果|构建结果)\])[\s\S]*?```[\s\S]*?```|(?:\n(?!\s*\[(?:工具调用|工具结果|构建结果)\])[^\n]*){0,3})/g
+
 // 应用详情相关
 const appDetailVisible = ref(false)
 
@@ -906,6 +946,108 @@ const decorateMessageWithBuildResult = (targetMessage: Message) => {
     targetMessage.generationFailed = true
   }
   return buildResult
+}
+
+const extractToolCallFilePath = (toolCallContent: string) => {
+  const filePathMatch = toolCallContent.match(/["'`]?(?:filePath|文件路径|path)["'`]?\s*[:：=]\s*["'`]?([^\s"'`,，。)]+)/i)
+  return normalizeFilePath(filePathMatch?.[1] || '')
+}
+
+const getToolCallLabel = (toolCallContent: string) => {
+  const toolNameMatch = toolCallContent.match(/["'`]?(?:toolName|工具|操作)["'`]?\s*[:：=]\s*["'`]?([^\s"'`,，。)]+)/i)
+  const toolName = toolNameMatch?.[1] || ''
+  if (toolName === 'modifyFile') {
+    return '修改文件'
+  }
+  if (toolName === 'writeFile') {
+    return '写入文件'
+  }
+  return '工具调用'
+}
+
+const getAiMessageSegments = (message: Message): AiMessageSegment[] => {
+  const content = message.content || ''
+  if (message.type !== 'ai' || !content.includes('[工具调用]')) {
+    return content ? [{ type: 'markdown', content }] : []
+  }
+
+  const segments: AiMessageSegment[] = []
+  let lastIndex = 0
+  for (const match of content.matchAll(toolCallBlockPattern)) {
+    const matchText = match[0] || ''
+    const matchIndex = match.index ?? 0
+    const markdownBefore = content.slice(lastIndex, matchIndex)
+    if (markdownBefore.trim()) {
+      segments.push({
+        type: 'markdown',
+        content: markdownBefore,
+      })
+    }
+
+    const filePath = extractToolCallFilePath(matchText)
+    if (filePath) {
+      segments.push({
+        type: 'tool-file',
+        content: matchText,
+        filePath,
+        label: getToolCallLabel(matchText),
+      })
+    }
+
+    lastIndex = matchIndex + matchText.length
+  }
+
+  const markdownAfter = content.slice(lastIndex)
+  if (markdownAfter.trim()) {
+    segments.push({
+      type: 'markdown',
+      content: markdownAfter,
+    })
+  }
+
+  return segments.length ? segments : [{ type: 'markdown', content }]
+}
+
+const getToolCallFileIcon = (filePath: string) => {
+  return getFileIconMeta(filePath)
+}
+
+const isToolCallFileActive = (filePath: string) => {
+  return Boolean(filePath && normalizeFilePath(selectedFilePath.value) === normalizeFilePath(filePath))
+}
+
+const openToolCallFile = async (filePath: string) => {
+  const normalizedFilePath = normalizeFilePath(filePath)
+  if (!normalizedFilePath) {
+    return
+  }
+  if (!isOwner.value) {
+    message.warning('仅应用创建者可以查看代码文件')
+    return
+  }
+  if (
+    isStreamingFilePreview.value &&
+    streamingFilePath.value &&
+    streamingFilePath.value !== normalizedFilePath
+  ) {
+    message.warning('AI 正在流式写入当前文件，请等待生成完成')
+    return
+  }
+  if (
+    isFileDirty.value &&
+    selectedFilePath.value &&
+    normalizeFilePath(selectedFilePath.value) !== normalizedFilePath
+  ) {
+    message.warning('当前文件有未保存修改，请先保存后再切换')
+    return
+  }
+
+  activeWorkspaceTab.value = 'files'
+  if (!fileTreeData.value.length) {
+    await loadCodeFiles()
+  }
+  ensureFileTreePath(normalizedFilePath)
+  await loadFileContent(normalizedFilePath)
 }
 
 const syncGeneratingMessageFromAppInfo = () => {
@@ -2668,6 +2810,71 @@ onUnmounted(() => {
   border: 1px solid rgba(226, 232, 240, 0.9);
   border-top-left-radius: 8px;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.ai-message .message-content > :deep(.markdown-content + .markdown-content) {
+  margin-top: 10px;
+}
+
+.tool-call-file-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.82);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.tool-call-file-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(22, 119, 255, 0.26);
+  background: rgba(240, 247, 255, 0.92);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+}
+
+.tool-call-file-card.active {
+  border-color: rgba(22, 119, 255, 0.32);
+  background: rgba(240, 247, 255, 0.96);
+}
+
+.tool-call-file-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-call-file-label {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tool-call-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.tool-call-file-action {
+  flex: none;
+  color: #1677ff;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .message-avatar {

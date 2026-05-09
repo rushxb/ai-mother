@@ -317,7 +317,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Override
     public List<AppCodeFileTreeVO> listAppCodeFiles(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
-        File rootDir = getCodeRootDir(app);
+        File rootDir;
+        try {
+            rootDir = getCodeRootDir(app);
+        } catch (BusinessException e) {
+            if (e.getCode() == ErrorCode.NOT_FOUND_ERROR.getCode()) {
+                return new ArrayList<>();
+            }
+            throw e;
+        }
         File[] files = rootDir.listFiles(file -> !shouldHideFile(file));
         if (files == null) {
             return new ArrayList<>();

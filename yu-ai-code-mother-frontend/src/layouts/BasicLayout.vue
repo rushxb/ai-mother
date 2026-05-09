@@ -1,13 +1,13 @@
 <template>
-  <a-layout class="basic-layout" :class="{ 'fullscreen-layout': isFullscreenPage }">
+  <a-layout class="basic-layout" :class="{ 'chat-page-layout': isChatPage }">
     <!-- 顶部导航栏 -->
     <GlobalHeader />
     <!-- 主要内容区域 -->
-    <a-layout-content class="main-content" :class="{ 'fullscreen-content': isFullscreenPage }">
+    <a-layout-content class="main-content">
       <router-view />
     </a-layout-content>
     <!-- 底部版权信息 -->
-    <GlobalFooter v-if="showFooter" />
+    <GlobalFooter v-if="!isAuthPage && !isChatPage" />
   </a-layout>
 </template>
 
@@ -19,8 +19,7 @@ import GlobalFooter from '@/components/GlobalFooter.vue'
 
 const route = useRoute()
 const isAuthPage = computed(() => route.path === '/user/login' || route.path === '/user/register')
-const isFullscreenPage = computed(() => route.path.startsWith('/app/chat/'))
-const showFooter = computed(() => !isAuthPage.value && !isFullscreenPage.value)
+const isChatPage = computed(() => route.path.startsWith('/app/chat/'))
 </script>
 
 <style scoped>
@@ -29,8 +28,9 @@ const showFooter = computed(() => !isAuthPage.value && !isFullscreenPage.value)
   min-height: 100vh;
 }
 
-.fullscreen-layout {
+.basic-layout.chat-page-layout {
   height: 100vh;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -43,7 +43,7 @@ const showFooter = computed(() => !isAuthPage.value && !isFullscreenPage.value)
   min-height: 0;
 }
 
-.fullscreen-content {
+.chat-page-layout .main-content {
   overflow: hidden;
 }
 </style>

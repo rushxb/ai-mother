@@ -1,0 +1,10 @@
+services:
+  ai-code-nginx:
+    image: nginx:latest
+    container_name: ai-code-nginx
+    ports:
+      - "8088:80"
+    volumes:
+      - ./tmp/code_deploy:/usr/share/nginx/html:ro
+      - ./Dnginxconf/default.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped

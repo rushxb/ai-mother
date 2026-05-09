@@ -99,38 +99,51 @@
         </div>
 
         <!-- 消息区域 -->
-        <div class="messages-container" ref="messagesContainer">
-          <!-- 加载更多按钮 -->
-          <div v-if="hasMoreHistory" class="load-more-container">
-            <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
-              加载更多历史消息
-            </a-button>
-          </div>
-          <div
-              v-for="(message, index) in messages"
-              :key="index"
-              class="message-item"
-              :class="`message-item-${message.type}`"
-          >
-            <div v-if="message.type === 'user'" class="user-message">
-              <div class="message-content">{{ message.content }}</div>
-              <div class="message-avatar">
-                <a-avatar :src="loginUserAvatar" />
-              </div>
+        <div class="messages-panel">
+          <div class="messages-container" ref="messagesContainer" @scroll="handleMessagesScroll">
+            <!-- 加载更多按钮 -->
+            <div v-if="hasMoreHistory" class="load-more-container">
+              <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
+                加载更多历史消息
+              </a-button>
             </div>
-            <div v-else class="ai-message">
-              <div class="message-avatar">
-                <a-avatar :src="aiAvatar" />
+            <div
+                v-for="(message, index) in messages"
+                :key="index"
+                class="message-item"
+                :class="`message-item-${message.type}`"
+            >
+              <div v-if="message.type === 'user'" class="user-message">
+                <div class="message-content">{{ message.content }}</div>
+                <div class="message-avatar">
+                  <a-avatar :src="loginUserAvatar" />
+                </div>
               </div>
-              <div class="message-content">
-                <MarkdownRenderer v-if="message.content" :content="message.content" />
-                <div v-if="message.loading" class="loading-indicator">
-                  <a-spin size="small" />
-                  <span>AI 正在思考...</span>
+              <div v-else class="ai-message">
+                <div class="message-avatar">
+                  <a-avatar :src="aiAvatar" />
+                </div>
+                <div class="message-content">
+                  <MarkdownRenderer v-if="message.content" :content="message.content" />
+                  <div v-if="message.loading" class="loading-indicator">
+                    <a-spin size="small" />
+                    <span>AI 正在思考...</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+          <Transition name="scroll-bottom-fade">
+            <button
+                v-if="showScrollToBottom"
+                type="button"
+                class="scroll-to-bottom"
+                @click="scrollMessagesToBottom"
+            >
+              <VerticalAlignBottomOutlined />
+              <span>回到底部</span>
+            </button>
+          </Transition>
         </div>
 
         <!-- 选中元素信息展示 -->
@@ -475,6 +488,7 @@ import {
   ReloadOutlined,
   SaveOutlined,
   CloudSyncOutlined,
+  VerticalAlignBottomOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -503,6 +517,8 @@ const userInput = ref('')
 const isGenerating = ref(false)
 const isOptimizingPrompt = ref(false)
 const messagesContainer = ref<HTMLElement>()
+const isNearBottom = ref(true)
+const showScrollToBottom = ref(false)
 
 // 对话历史相关
 const loadingHistory = ref(false)
@@ -512,6 +528,8 @@ const historyLoaded = ref(false)
 const refreshingGenerationState = ref(false)
 
 let generationPollingTimer: ReturnType<typeof window.setInterval> | null = null
+const AUTO_SCROLL_THRESHOLD = 96
+const SCROLL_BUTTON_THRESHOLD = 180
 
 // 预览相关
 const previewUrl = ref('')
@@ -732,9 +750,56 @@ const syncGeneratingMessageFromAppInfo = () => {
   }
   isGenerating.value = true
   nextTick(() => {
-    scrollToBottom()
+    void syncMessagesViewport()
   })
   return true
+}
+
+const getDistanceFromBottom = () => {
+  const container = messagesContainer.value
+  if (!container) {
+    return 0
+  }
+  return Math.max(container.scrollHeight - container.scrollTop - container.clientHeight, 0)
+}
+
+const updateMessageScrollState = () => {
+  const distance = getDistanceFromBottom()
+  isNearBottom.value = distance <= AUTO_SCROLL_THRESHOLD
+  showScrollToBottom.value = distance > SCROLL_BUTTON_THRESHOLD
+}
+
+const handleMessagesScroll = () => {
+  updateMessageScrollState()
+}
+
+const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+  const container = messagesContainer.value
+  if (!container) {
+    return
+  }
+  container.scrollTo({
+    top: container.scrollHeight,
+    behavior,
+  })
+  isNearBottom.value = true
+  showScrollToBottom.value = false
+  window.requestAnimationFrame(() => {
+    updateMessageScrollState()
+  })
+}
+
+const scrollMessagesToBottom = () => {
+  scrollToBottom('smooth')
+}
+
+const syncMessagesViewport = async (shouldStickToBottom = isNearBottom.value) => {
+  await nextTick()
+  if (shouldStickToBottom) {
+    scrollToBottom('auto')
+    return
+  }
+  updateMessageScrollState()
 }
 
 const fetchAppStateOnly = async () => {
@@ -861,6 +926,8 @@ const saveAppName = async () => {
 const loadChatHistory = async (isLoadMore = false) => {
   if (!appId.value || loadingHistory.value) return
   loadingHistory.value = true
+  const previousScrollHeight = isLoadMore ? messagesContainer.value?.scrollHeight ?? 0 : 0
+  const previousScrollTop = isLoadMore ? messagesContainer.value?.scrollTop ?? 0 : 0
   try {
     const params: API.listAppChatHistoryParams = {
       appId: appId.value,
@@ -897,6 +964,15 @@ const loadChatHistory = async (isLoadMore = false) => {
         hasMoreHistory.value = false
       }
       historyLoaded.value = true
+      await nextTick()
+      if (isLoadMore && messagesContainer.value) {
+        const container = messagesContainer.value
+        const scrollOffset = container.scrollHeight - previousScrollHeight
+        container.scrollTop = previousScrollTop + scrollOffset
+        updateMessageScrollState()
+      } else {
+        scrollToBottom('auto')
+      }
     }
   } catch (error) {
     console.error('加载对话历史失败：', error)
@@ -967,7 +1043,7 @@ const sendInitialMessage = async (prompt: string) => {
   })
 
   await nextTick()
-  scrollToBottom()
+  scrollToBottom('smooth')
 
   // 开始生成
   isGenerating.value = true
@@ -1026,7 +1102,7 @@ const sendMessage = async () => {
   })
 
   await nextTick()
-  scrollToBottom()
+  scrollToBottom('smooth')
 
   // 开始生成
   isGenerating.value = true
@@ -1107,10 +1183,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         // 拼接内容
         if (content !== undefined && content !== null) {
+          const shouldStickToBottom = isNearBottom.value
           fullContent += content
           messages.value[aiMessageIndex].content = fullContent
           messages.value[aiMessageIndex].loading = false
-          scrollToBottom()
+          void syncMessagesViewport(shouldStickToBottom)
         }
       } catch (error) {
         console.error('解析消息失败:', error)
@@ -1434,14 +1511,6 @@ const syncDeployment = async () => {
   }
 }
 
-// 滚动到底部
-const scrollToBottom = () => {
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-  }
-}
-
-// 下载代码
 const downloadCode = async () => {
   if (isGenerating.value) {
     message.warning('AI 执行过程中暂不支持下载代码')
@@ -1620,6 +1689,9 @@ onMounted(() => {
 
   // 监听 iframe 消息
   window.addEventListener('message', handleIframeMessage)
+  nextTick(() => {
+    updateMessageScrollState()
+  })
 })
 
 // 清理资源
@@ -1857,11 +1929,70 @@ onUnmounted(() => {
   animation: pulse 1.6s ease-in-out infinite;
 }
 
-.messages-container {
+.messages-panel {
+  position: relative;
   flex: 1;
-  padding: 18px 24px 12px;
+  min-height: 0;
+}
+
+.messages-container {
+  height: 100%;
+  padding: 18px 24px 80px;
   overflow-y: auto;
   scroll-behavior: smooth;
+}
+
+.scroll-to-bottom {
+  position: absolute;
+  right: 24px;
+  bottom: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow:
+    0 14px 28px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  cursor: pointer;
+  transition:
+    transform 0.24s ease,
+    box-shadow 0.24s ease,
+    opacity 0.24s ease,
+    background 0.24s ease;
+}
+
+.scroll-to-bottom:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 18px 34px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.scroll-to-bottom:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.26);
+  outline-offset: 3px;
+}
+
+.scroll-bottom-fade-enter-active,
+.scroll-bottom-fade-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.scroll-bottom-fade-enter-from,
+.scroll-bottom-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
 .message-item {
@@ -2686,6 +2817,13 @@ onUnmounted(() => {
 
   .messages-container {
     padding-top: 12px;
+  }
+
+  .scroll-to-bottom {
+    right: 16px;
+    bottom: 14px;
+    height: 36px;
+    padding: 0 12px;
   }
 }
 </style>

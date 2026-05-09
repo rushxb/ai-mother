@@ -97,4 +97,17 @@ public class ReadMultipleFilesTool extends BaseTool {
         Object filePaths = arguments.get("relativeFilePaths");
         return String.format("[工具调用] %s %s", getDisplayName(), filePaths);
     }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
+        return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);
+    }
+
+    private String summarizeResult(String toolResult, int maxChars) {
+        if (StrUtil.isBlank(toolResult)) {
+            return "";
+        }
+        String normalized = toolResult.replace("\r", " ").replace("\n", " ").trim();
+        return StrUtil.sub(normalized, 0, Math.min(normalized.length(), maxChars));
+    }
 }

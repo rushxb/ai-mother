@@ -88,6 +88,10 @@ public class JsonMessageStreamHandler {
                     seenToolIds.add(toolId);
                     // 根据工具名称获取工具实例
                     BaseTool tool = toolManager.getTool(toolName);
+                    if (tool == null) {
+                        log.warn("收到未注册的工具请求: {}", toolName);
+                        return String.format("\n\n[选择工具] %s（未注册工具）\n\n", toolName);
+                    }
                     // 返回格式化的工具调用信息
                     return tool.generateToolRequestResponse();
                 } else {
@@ -101,6 +105,15 @@ public class JsonMessageStreamHandler {
                 // 根据工具名称获取工具实例
                 String toolName = toolExecutedMessage.getName();
                 BaseTool tool = toolManager.getTool(toolName);
+                if (tool == null) {
+                    log.warn("收到未注册的工具执行结果: {}", toolName);
+                    String fallbackResult = String.format("[工具调用] %s\n%s",
+                            toolName,
+                            StrUtil.blankToDefault(toolExecutedMessage.getResult(), "(无结果)"));
+                    String output = String.format("\n\n%s\n\n", fallbackResult);
+                    chatHistoryStringBuilder.append(output);
+                    return output;
+                }
                 String result = tool.generateToolExecutedResult(jsonObject, toolExecutedMessage.getResult());
                 // 输出前端和要持久化的内容
                 String output = String.format("\n\n%s\n\n", result);

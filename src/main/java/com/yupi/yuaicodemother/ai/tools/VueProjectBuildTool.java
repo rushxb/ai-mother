@@ -10,9 +10,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
 /**
  * Vue 项目本地构建诊断工具
  */
@@ -36,16 +33,7 @@ public class VueProjectBuildTool extends BaseTool {
     }
 
     private String resolveProjectPath(String relativeProjectPath, Long appId) {
-        String projectDirName = "vue_project_" + appId;
-        Path projectRoot = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName);
-        if (relativeProjectPath == null || relativeProjectPath.isBlank()) {
-            return projectRoot.toString();
-        }
-        Path path = Paths.get(relativeProjectPath);
-        if (path.isAbsolute()) {
-            return path.normalize().toString();
-        }
-        return projectRoot.resolve(relativeProjectPath).normalize().toString();
+        return ToolPathSupport.resolvePath(relativeProjectPath, appId).toString();
     }
 
     @Override

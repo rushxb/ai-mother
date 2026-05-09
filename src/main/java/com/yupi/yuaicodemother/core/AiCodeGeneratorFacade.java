@@ -126,7 +126,10 @@ public class AiCodeGeneratorFacade {
                     .onCompleteResponse((ChatResponse response) -> {
                         // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
-                        vueProjectBuilder.buildProject(projectPath);
+                        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+                        if (!buildResult.success()) {
+                            log.warn("Vue 项目生成后自动构建失败，appId: {}, summary: {}", appId, buildResult.summary());
+                        }
                         sink.complete();
                     })
                     .onError((Throwable error) -> {

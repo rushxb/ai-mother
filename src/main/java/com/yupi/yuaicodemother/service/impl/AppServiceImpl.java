@@ -544,6 +544,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + CodeGenTypeEnum.VUE_PROJECT.getValue() + "_" + appId;
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
+        GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
+                GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
+        if (!workspaceState.canAutoRepair()) {
+            emitMissingProjectCodeError(appId, preparation, session, workspaceState);
+            rollbackCodeGenTypeIfNeeded(appId, preparation);
+            return;
+        }
         VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
         if (session.isCancelled()) {
             return;
@@ -555,12 +562,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 "summary", buildResult.summary(),
                 "report", buildResult.toDiagnosticReport(),
                 "taskId", preparation.taskId(),
-                "qualityGate", preparation.qualityGateLevel()
+                "qualityGate", preparation.qualityGateLevel(),
+                "willAutoRepair", !buildResult.success() && workspaceState.canAutoRepair() && MAX_AUTO_REPAIR_ROUNDS > 0
         )));
         if (buildResult.success()) {
             return;
         }
-        if (MAX_AUTO_REPAIR_ROUNDS <= 0) {
+        if (MAX_AUTO_REPAIR_ROUNDS <= 0 || !workspaceState.canAutoRepair()) {
             rollbackCodeGenTypeIfNeeded(appId, preparation);
             session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
                     "category", classifyGenerationError(buildResult.toFailureSummary()),
@@ -572,6 +580,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         for (int round = 1; round <= MAX_AUTO_REPAIR_ROUNDS; round++) {
             session.throwIfCancelled();
+            workspaceState = GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
+            if (!workspaceState.canAutoRepair()) {
+                emitMissingProjectCodeError(appId, preparation, session, workspaceState);
+                rollbackCodeGenTypeIfNeeded(appId, preparation);
+                return;
+            }
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_REPAIR, "构建未通过，正在自动修复...");
             session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                     "round", round,
@@ -641,6 +655,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 String category = classifyGenerationError(e.getMessage());
                 log.warn("应用生成轮次失败，appId: {}, round: {}, category: {}, error: {}",
                         appId, round, category, e.getMessage());
+                if (e instanceof MissingGeneratedProjectException) {
+                    break;
+                }
                 if (round >= MAX_AUTO_REPAIR_ROUNDS || preparation.targetType() != CodeGenTypeEnum.VUE_PROJECT) {
                     break;
                 }
@@ -670,6 +687,46 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 })
                 .doOnComplete(session::throwIfCancelled)
                 .blockLast();
+        verifyGeneratedProjectReady(appId, codeGenType);
+    }
+
+    private void verifyGeneratedProjectReady(Long appId, CodeGenTypeEnum codeGenType) {
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
+            return;
+        }
+        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenType.getValue() + "_" + appId;
+        GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
+                GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
+        if (!workspaceState.canAutoRepair()) {
+            throw new MissingGeneratedProjectException(workspaceState);
+        }
+    }
+
+    private void emitMissingProjectCodeError(Long appId,
+                                             GenerationPreparation preparation,
+                                             GenerationSession session,
+                                             GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
+        String message = buildMissingProjectCodeMessage(workspaceState);
+        log.warn("生成结束但未发现有效项目代码，appId: {}, projectPath: {}, fileCount: {}, meaningfulFileCount: {}, keyFiles: {}",
+                appId,
+                workspaceState.rootPath(),
+                workspaceState.fileCount(),
+                workspaceState.meaningfulFileCount(),
+                workspaceState.detectedKeyFiles());
+        session.emit(GenerationStreamEvent.generationError(message, Map.of(
+                "category", "codegen_empty",
+                "message", message,
+                "projectPath", workspaceState.rootPath().toString(),
+                "fileCount", workspaceState.fileCount(),
+                "meaningfulFileCount", workspaceState.meaningfulFileCount(),
+                "taskId", preparation.taskId(),
+                "recoverable", true
+        )));
+    }
+
+    private String buildMissingProjectCodeMessage(GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
+        return workspaceState.missingProjectSummary()
+                + "。请重试生成；如果持续出现，请检查模型工具调用是否成功写入 package.json、index.html、src/main.* 等文件。";
     }
 
     private String buildAutoRepairPrompt(Exception exception, int repairRound) {
@@ -696,6 +753,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             return "unknown";
         }
         String normalized = errorMessage.toLowerCase();
+        if (normalized.contains("未产出项目") || normalized.contains("未产出有效项目文件")
+                || normalized.contains("missing generated project")) {
+            return "codegen_empty";
+        }
         if (normalized.contains("npm install") || normalized.contains("缺少模块") || normalized.contains("dependency")
                 || normalized.contains("module not found") || normalized.contains("failed to resolve import")) {
             return "dependency";
@@ -1107,6 +1168,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         private String qualityGateLevel() {
             return qualityGateResult == null ? "unknown" : qualityGateResult.level();
+        }
+    }
+
+    private final class MissingGeneratedProjectException extends BusinessException {
+
+        private MissingGeneratedProjectException(GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
+            super(ErrorCode.SYSTEM_ERROR, buildMissingProjectCodeMessage(workspaceState));
         }
     }
 

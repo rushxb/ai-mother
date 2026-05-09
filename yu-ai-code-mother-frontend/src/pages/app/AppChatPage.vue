@@ -1098,6 +1098,11 @@ const getGenerationErrorDisplay = (category?: string, rawMessage?: string) => {
   const normalizedCategory = String(category || 'runtime')
   const fallbackMessage = rawMessage || '生成失败'
   switch (normalizedCategory) {
+    case 'codegen_empty':
+      return {
+        toast: '生成结束但没有产出项目代码，请重试',
+        detail: `代码生成问题：${fallbackMessage}`,
+      }
     case 'dependency':
       return {
         toast: '依赖或脚本配置异常，请检查构建诊断',
@@ -1853,8 +1858,13 @@ const handleGenerationEvent = (event: MessageEvent) => {
         }
         messages.value[aiMessageIndex].generationFailed = !success
         if (!success) {
-          generationPhase.value = 'failed'
-          message.error('项目构建失败，系统将尝试自动修复')
+          if (streamEvent.data?.willAutoRepair) {
+            generationPhase.value = 'repair'
+            message.error('项目构建失败，系统将尝试自动修复')
+          } else {
+            generationPhase.value = 'failed'
+            message.error('项目构建失败，请查看诊断结果')
+          }
         }
         return
       }

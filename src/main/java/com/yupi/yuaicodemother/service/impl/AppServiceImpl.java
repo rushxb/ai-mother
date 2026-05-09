@@ -637,12 +637,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                                              long[] lastSnapshotUpdateAt) {
         String currentPrompt = preparation.enhancedMessage();
         Exception lastError = null;
-        for (int round = 0; round <= MAX_AUTO_REPAIR_ROUNDS; round++) {
+        int maxGenerationRepairRounds = GenerationRepairPolicy.allowAutoRepair(
+                preparation.generatingStage(),
+                preparation.targetType(),
+                MAX_AUTO_REPAIR_ROUNDS
+        ) ? MAX_AUTO_REPAIR_ROUNDS : 0;
+        for (int round = 0; round <= maxGenerationRepairRounds; round++) {
             session.throwIfCancelled();
             if (round > 0) {
                 session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                         "round", round,
-                        "maxRounds", MAX_AUTO_REPAIR_ROUNDS,
+                        "maxRounds", maxGenerationRepairRounds,
                         "taskId", preparation.taskId(),
                         "agent", "BuildFix"
                 )));
@@ -658,7 +663,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 if (e instanceof MissingGeneratedProjectException) {
                     break;
                 }
-                if (round >= MAX_AUTO_REPAIR_ROUNDS || preparation.targetType() != CodeGenTypeEnum.VUE_PROJECT) {
+                if (round >= maxGenerationRepairRounds) {
                     break;
                 }
                 currentPrompt = buildAutoRepairPrompt(e, round + 1);

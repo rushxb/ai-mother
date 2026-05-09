@@ -177,14 +177,22 @@
                   <div v-if="message.agentEvents?.length" class="agent-timeline">
                     <div
                         v-for="agentEvent in message.agentEvents"
-                        :key="`${agentEvent.stage}-${agentEvent.agent}`"
+                        :key="`${agentEvent.dagNode || agentEvent.stage}-${agentEvent.agent}-${agentEvent.status}`"
                         class="agent-timeline-item"
                         :class="`agent-timeline-item-${agentEvent.status}`"
                     >
                       <span class="agent-timeline-dot"></span>
                       <div class="agent-timeline-copy">
-                        <strong>{{ agentEvent.agent }}</strong>
+                        <div class="agent-timeline-title">
+                          <strong>{{ agentEvent.agent }}</strong>
+                          <span v-if="agentEvent.dagNode" class="agent-node-chip">{{ agentEvent.dagNode }}</span>
+                          <span v-if="agentEvent.durationMs" class="agent-duration">{{ formatDuration(agentEvent.durationMs) }}</span>
+                        </div>
                         <span>{{ agentEvent.summary }}</span>
+                        <div v-if="agentEvent.qualityGate || agentEvent.recoverable" class="agent-timeline-meta">
+                          <span v-if="agentEvent.qualityGate">门禁：{{ agentEvent.qualityGate }}</span>
+                          <span v-if="agentEvent.recoverable">可恢复</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -656,6 +664,11 @@ interface AgentEventView {
   stage: string
   status: 'pending' | 'running' | 'done' | 'failed'
   summary: string
+  dagNode?: string
+  durationMs?: number
+  taskId?: string
+  qualityGate?: string
+  recoverable?: boolean
 }
 
 type AiMessageSegment =
@@ -1042,16 +1055,37 @@ const normalizeAgentStatus = (status: unknown): AgentEventView['status'] => {
   return 'running'
 }
 
+const formatDuration = (durationMs?: number) => {
+  if (!durationMs || durationMs <= 0) {
+    return ''
+  }
+  if (durationMs < 1000) {
+    return `${durationMs}ms`
+  }
+  return `${(durationMs / 1000).toFixed(1)}s`
+}
+
 const upsertAgentEvent = (targetMessage: Message, streamEvent: GenerationStreamEvent) => {
   const data = streamEvent.data || {}
+  const durationMs = Number(data.durationMs || 0)
   const agentEvent: AgentEventView = {
     agent: String(data.agent || '智能体'),
     stage: String(data.stage || 'planning'),
     status: normalizeAgentStatus(data.status),
     summary: String(data.summary || streamEvent.text || '正在处理'),
+    dagNode: data.dagNode ? String(data.dagNode) : undefined,
+    durationMs: Number.isFinite(durationMs) && durationMs > 0 ? durationMs : undefined,
+    taskId: data.taskId ? String(data.taskId) : undefined,
+    qualityGate: data.qualityGate ? String(data.qualityGate) : undefined,
+    recoverable: Boolean(data.recoverable),
   }
   const events = targetMessage.agentEvents ? [...targetMessage.agentEvents] : []
-  const existingIndex = events.findIndex((item) => item.stage === agentEvent.stage && item.agent === agentEvent.agent)
+  const existingIndex = events.findIndex((item) => {
+    if (agentEvent.dagNode && item.dagNode) {
+      return item.dagNode === agentEvent.dagNode && item.status === agentEvent.status
+    }
+    return item.stage === agentEvent.stage && item.agent === agentEvent.agent && item.status === agentEvent.status
+  })
   if (existingIndex >= 0) {
     events.splice(existingIndex, 1, agentEvent)
   } else {
@@ -3292,19 +3326,63 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
-.agent-timeline-copy strong {
+.agent-timeline-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-timeline-title strong {
   color: #0f172a;
   font-size: 13px;
   line-height: 1.4;
+}
+
+.agent-node-chip,
+.agent-duration {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.agent-duration {
+  background: rgba(20, 184, 166, 0.1);
+  color: #0f766e;
 }
 
 .agent-timeline-copy span {
   color: #64748b;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.agent-timeline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-timeline-meta span {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(22, 119, 255, 0.08);
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .message-avatar {

@@ -73,6 +73,11 @@ public interface AppConstant {
     String CODE_SNAPSHOT_ROOT_DIR = resolveRuntimePath("code.snapshot-root-dir", TMP_ROOT_DIR + "/code_snapshot");
 
     /**
+     * 生成编排任务快照目录
+     */
+    String ORCHESTRATION_TASK_ROOT_DIR = resolveRuntimePath("code.orchestration-task-root-dir", TMP_ROOT_DIR + "/orchestration_tasks");
+
+    /**
      * 截图临时目录
      */
     String SCREENSHOT_ROOT_DIR = resolveRuntimePath("code.screenshot-root-dir", TMP_ROOT_DIR + "/screenshots");

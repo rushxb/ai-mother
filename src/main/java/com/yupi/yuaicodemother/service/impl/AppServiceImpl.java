@@ -36,6 +36,8 @@ import com.yupi.yuaicodemother.monitor.MonitorContextHolder;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationResult;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
+import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
+import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
 import com.yupi.yuaicodemother.service.AppService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
 import com.yupi.yuaicodemother.service.ScreenshotService;
@@ -491,7 +493,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 markGenerationFinished(appId);
                 session.emit(GenerationStreamEvent.generationError(e.getMessage(), Map.of(
                         "category", classifyGenerationError(e.getMessage()),
-                        "message", StrUtil.blankToDefault(e.getMessage(), "生成失败")
+                        "message", StrUtil.blankToDefault(e.getMessage(), "生成失败"),
+                        "taskId", preparation.taskId(),
+                        "recoverable", true
                 )));
                 session.complete();
                 activeGenerationSessions.remove(appId, session);
@@ -520,7 +524,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
                 session.emit(GenerationStreamEvent.generationError(e.getMessage(), Map.of(
                         "category", classifyGenerationError(e.getMessage()),
-                        "message", StrUtil.blankToDefault(e.getMessage(), "后台构建校验失败")
+                        "message", StrUtil.blankToDefault(e.getMessage(), "后台构建校验失败"),
+                        "taskId", preparation.taskId(),
+                        "recoverable", true
                 )));
             } finally {
                 markGenerationFinished(appId);
@@ -547,7 +553,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 "stage", buildResult.stage(),
                 "projectPath", buildResult.projectPath(),
                 "summary", buildResult.summary(),
-                "report", buildResult.toDiagnosticReport()
+                "report", buildResult.toDiagnosticReport(),
+                "taskId", preparation.taskId(),
+                "qualityGate", preparation.qualityGateLevel()
         )));
         if (buildResult.success()) {
             return;
@@ -556,7 +564,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             rollbackCodeGenTypeIfNeeded(appId, preparation);
             session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
                     "category", classifyGenerationError(buildResult.toFailureSummary()),
-                    "message", buildResult.toFailureSummary()
+                    "message", buildResult.toFailureSummary(),
+                    "taskId", preparation.taskId(),
+                    "recoverable", true
             )));
             return;
         }
@@ -565,7 +575,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_REPAIR, "构建未通过，正在自动修复...");
             session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                     "round", round,
-                    "maxRounds", MAX_AUTO_REPAIR_ROUNDS
+                    "maxRounds", MAX_AUTO_REPAIR_ROUNDS,
+                    "taskId", preparation.taskId(),
+                    "agent", "BuildFix"
             )));
             executeGenerationRound(
                     appId,
@@ -586,7 +598,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     "stage", buildResult.stage(),
                     "projectPath", buildResult.projectPath(),
                     "summary", buildResult.summary(),
-                    "report", buildResult.toDiagnosticReport()
+                    "report", buildResult.toDiagnosticReport(),
+                    "taskId", preparation.taskId(),
+                    "qualityGate", preparation.qualityGateLevel()
             )));
             if (buildResult.success()) {
                 return;
@@ -595,7 +609,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         rollbackCodeGenTypeIfNeeded(appId, preparation);
         session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
                 "category", classifyGenerationError(buildResult.toFailureSummary()),
-                "message", buildResult.toFailureSummary()
+                "message", buildResult.toFailureSummary(),
+                "taskId", preparation.taskId(),
+                "recoverable", true
         )));
     }
 
@@ -612,7 +628,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             if (round > 0) {
                 session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                         "round", round,
-                        "maxRounds", MAX_AUTO_REPAIR_ROUNDS
+                        "maxRounds", MAX_AUTO_REPAIR_ROUNDS,
+                        "taskId", preparation.taskId(),
+                        "agent", "BuildFix"
                 )));
             }
             try {
@@ -734,7 +752,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 orchestrationResult.upgradeRequired(),
                 orchestrationResult.generatingStage(),
                 orchestrationResult.enhancedMessage(),
-                orchestrationResult.events()
+                orchestrationResult.events(),
+                orchestrationResult.artifacts(),
+                orchestrationResult.qualityGateResult(),
+                orchestrationResult.timings(),
+                orchestrationResult.taskId()
         );
     }
 
@@ -1077,7 +1099,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                                          boolean upgradeRequired,
                                          String generatingStage,
                                          String enhancedMessage,
-                                         List<GenerationStreamEvent> events) {
+                                         List<GenerationStreamEvent> events,
+                                         Map<String, GenerationArtifact> artifacts,
+                                         QualityGateResult qualityGateResult,
+                                         Map<String, Long> timings,
+                                         String taskId) {
+
+        private String qualityGateLevel() {
+            return qualityGateResult == null ? "unknown" : qualityGateResult.level();
+        }
     }
 
     private void rebuildIfVueProject(App app, File rootDir) {

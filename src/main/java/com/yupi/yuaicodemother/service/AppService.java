@@ -3,9 +3,12 @@ package com.yupi.yuaicodemother.service;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.yupi.yuaicodemother.model.dto.app.AppAddRequest;
+import com.yupi.yuaicodemother.model.dto.app.AppCodeFileSaveRequest;
 import com.yupi.yuaicodemother.model.dto.app.AppQueryRequest;
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.entity.User;
+import com.yupi.yuaicodemother.model.vo.AppCodeFileContentVO;
+import com.yupi.yuaicodemother.model.vo.AppCodeFileTreeVO;
 import com.yupi.yuaicodemother.model.vo.AppVO;
 import reactor.core.publisher.Flux;
 
@@ -34,7 +37,7 @@ public interface AppService extends IService<App> {
      * @param prompt 原始提示词
      * @return 优化后的提示词
      */
-    String optimizePrompt(String prompt);
+    String optimizePrompt(String prompt, User loginUser);
 
     /**
      * 创建应用
@@ -53,6 +56,43 @@ public interface AppService extends IService<App> {
      * @return 可访问的部署地址
      */
     String deployApp(Long appId, User loginUser);
+
+    /**
+     * 获取应用代码文件树
+     *
+     * @param appId 应用 ID
+     * @param loginUser 登录用户
+     * @return 文件树
+     */
+    List<AppCodeFileTreeVO> listAppCodeFiles(Long appId, User loginUser);
+
+    /**
+     * 获取应用代码文件内容
+     *
+     * @param appId 应用 ID
+     * @param filePath 文件相对路径
+     * @param loginUser 登录用户
+     * @return 文件内容
+     */
+    AppCodeFileContentVO getAppCodeFileContent(Long appId, String filePath, User loginUser);
+
+    /**
+     * 保存应用代码文件
+     *
+     * @param saveRequest 保存请求
+     * @param loginUser 登录用户
+     * @return 是否保存成功
+     */
+    Boolean saveAppCodeFile(AppCodeFileSaveRequest saveRequest, User loginUser);
+
+    /**
+     * 同步应用部署内容
+     *
+     * @param appId 应用 ID
+     * @param loginUser 登录用户
+     * @return 部署地址
+     */
+    String syncAppDeployment(Long appId, User loginUser);
 
     /**
      * 复制应用到当前用户，包含生成代码和对话历史，但不复制部署信息

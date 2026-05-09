@@ -137,6 +137,64 @@ export async function deployApp(body: API.AppDeployRequest, options?: { [key: st
   })
 }
 
+/** 获取应用代码文件树 GET /app/code/files */
+export async function listAppCodeFiles(
+  params: API.listAppCodeFilesParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseListAppCodeFileTreeVO>('/app/code/files', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
+/** 获取应用代码文件内容 GET /app/code/file */
+export async function getAppCodeFileContent(
+  params: API.getAppCodeFileContentParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseAppCodeFileContentVO>('/app/code/file', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
+/** 保存应用代码文件 POST /app/code/file/save */
+export async function saveAppCodeFile(
+  body: API.AppCodeFileSaveRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/app/code/file/save', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** 同步当前生成代码到部署目录 POST /app/deploy/sync */
+export async function syncAppDeployment(
+  body: API.AppDeployRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseString>('/app/deploy/sync', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 GET /app/download/${param0} */
 export async function downloadAppCode(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)

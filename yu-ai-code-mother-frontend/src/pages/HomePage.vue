@@ -293,18 +293,36 @@ onUnmounted(() => {
               :rows="5"
               :maxlength="1000"
               class="prompt-input"
+              :disabled="creating || optimizingPrompt"
             />
             <div class="input-footer">
               <span>{{ userPrompt.length }}/1000</span>
-              <a-button
-                type="primary"
-                size="large"
-                class="create-button"
-                :loading="creating"
-                @click="createApp"
-              >
-                开始生成
-              </a-button>
+              <div class="input-tools">
+                <a-tooltip title="优化提示词" placement="top">
+                  <a-button
+                    size="large"
+                    class="optimize-button"
+                    :loading="optimizingPrompt"
+                    :disabled="!userPrompt.trim() || creating"
+                    @click="optimizeUserPrompt"
+                  >
+                    <template #icon>
+                      <BulbOutlined />
+                    </template>
+                    优化
+                  </a-button>
+                </a-tooltip>
+                <a-button
+                  type="primary"
+                  size="large"
+                  class="create-button"
+                  :loading="creating"
+                  :disabled="optimizingPrompt"
+                  @click="createApp"
+                >
+                  开始生成
+                </a-button>
+              </div>
             </div>
           </div>
         </div>
@@ -671,6 +689,29 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
+.input-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+:deep(.optimize-button.ant-btn) {
+  height: 46px;
+  border-radius: 999px;
+  padding-inline: 18px;
+  color: var(--accent-strong);
+  border-color: rgba(47, 128, 255, 0.2);
+  background: rgba(47, 128, 255, 0.08);
+  font-weight: 600;
+}
+
+:deep(.optimize-button.ant-btn:hover),
+:deep(.optimize-button.ant-btn:focus) {
+  color: var(--accent-strong);
+  border-color: rgba(47, 128, 255, 0.34);
+  background: rgba(47, 128, 255, 0.12);
+}
+
 :deep(.create-button.ant-btn) {
   min-width: 128px;
   height: 46px;
@@ -864,6 +905,21 @@ onUnmounted(() => {
   .app-grid,
   .featured-grid {
     grid-template-columns: 1fr;
+  }
+
+  .input-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .input-tools {
+    width: 100%;
+  }
+
+  :deep(.optimize-button.ant-btn),
+  :deep(.create-button.ant-btn) {
+    flex: 1;
+    min-width: 0;
   }
 }
 </style>

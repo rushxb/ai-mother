@@ -18,6 +18,28 @@ declare namespace API {
     appId?: number
   }
 
+  type AppCodeFileSaveRequest = {
+    appId?: number
+    filePath?: string
+    content?: string
+  }
+
+  type AppCodeFileTreeVO = {
+    name?: string
+    path?: string
+    directory?: boolean
+    size?: number
+    children?: AppCodeFileTreeVO[]
+  }
+
+  type AppCodeFileContentVO = {
+    path?: string
+    name?: string
+    content?: string
+    size?: number
+    editable?: boolean
+  }
+
   type AppQueryRequest = {
     pageNum?: number
     pageSize?: number
@@ -56,6 +78,18 @@ declare namespace API {
   type BaseResponseAppVO = {
     code?: number
     data?: AppVO
+    message?: string
+  }
+
+  type BaseResponseAppCodeFileContentVO = {
+    code?: number
+    data?: AppCodeFileContentVO
+    message?: string
+  }
+
+  type BaseResponseListAppCodeFileTreeVO = {
+    code?: number
+    data?: AppCodeFileTreeVO[]
     message?: string
   }
 
@@ -160,6 +194,15 @@ declare namespace API {
 
   type getAppVOByIdParams = {
     id: number
+  }
+
+  type getAppCodeFileContentParams = {
+    appId: number
+    filePath: string
+  }
+
+  type listAppCodeFilesParams = {
+    appId: number
   }
 
   type getUserByIdParams = {

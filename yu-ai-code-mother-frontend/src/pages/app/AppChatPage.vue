@@ -199,7 +199,7 @@
           </div>
         </div>
       </div>
-      <!-- 右侧网页展示区域 -->
+      <!-- 右侧网页展示 / 文件编辑区域 -->
       <div class="preview-section" :class="{ 'is-editing': isEditMode }">
         <div class="preview-header">
           <div class="preview-title">
@@ -208,11 +208,11 @@
               <span></span>
               <span></span>
             </div>
-            <h3>生成后的网页展示</h3>
+            <h3>{{ activeWorkspaceTab === 'preview' ? '生成后的网页展示' : '生成文件内容' }}</h3>
           </div>
           <div class="preview-actions">
             <a-button
-                v-if="isOwner && previewUrl"
+                v-if="activeWorkspaceTab === 'preview' && isOwner && previewUrl"
                 type="link"
                 :danger="isEditMode"
                 @click="toggleEditMode"
@@ -224,33 +224,150 @@
               </template>
               {{ isEditMode ? '退出编辑' : '编辑模式' }}
             </a-button>
-            <a-button v-if="previewUrl" type="link" @click="openInNewTab">
+            <a-button v-if="activeWorkspaceTab === 'preview' && previewUrl" type="link" @click="openInNewTab">
               <template #icon>
                 <ExportOutlined />
               </template>
               新窗口打开
             </a-button>
+            <a-button
+                v-if="activeWorkspaceTab === 'files'"
+                type="link"
+                @click="loadCodeFiles"
+                :loading="loadingFiles"
+                :disabled="!isOwner"
+            >
+              <template #icon>
+                <ReloadOutlined />
+              </template>
+              刷新文件
+            </a-button>
+            <a-button
+                v-if="activeWorkspaceTab === 'files'"
+                type="link"
+                @click="saveCurrentFile"
+                :loading="savingFile"
+                :disabled="!canSaveFile"
+            >
+              <template #icon>
+                <SaveOutlined />
+              </template>
+              保存
+            </a-button>
+            <a-button
+                v-if="activeWorkspaceTab === 'files'"
+                type="primary"
+                ghost
+                @click="syncDeployment"
+                :loading="syncingDeploy"
+                :disabled="!isOwner || !hasDeployed"
+            >
+              <template #icon>
+                <CloudSyncOutlined />
+              </template>
+              同步
+            </a-button>
           </div>
         </div>
-        <div class="preview-content">
-          <div v-if="!previewUrl && !isGenerating" class="preview-placeholder">
-            <div class="placeholder-icon">
-              <GlobalOutlined />
+        <a-tabs v-model:activeKey="activeWorkspaceTab" class="workspace-tabs" @change="handleWorkspaceTabChange">
+          <a-tab-pane key="preview">
+            <template #tab>
+              <span class="workspace-tab-label">
+                <GlobalOutlined />
+                网页预览
+              </span>
+            </template>
+            <div class="preview-content">
+              <div v-if="!previewUrl && !isGenerating" class="preview-placeholder">
+                <div class="placeholder-icon">
+                  <GlobalOutlined />
+                </div>
+                <p>网站文件生成完成后将在这里展示</p>
+              </div>
+              <div v-else-if="isGenerating" class="preview-loading">
+                <a-spin size="large" />
+                <p>正在生成网站...</p>
+              </div>
+              <iframe
+                  v-else
+                  :key="previewRefreshKey"
+                  :src="previewUrl"
+                  class="preview-iframe"
+                  frameborder="0"
+                  @load="onIframeLoad"
+              ></iframe>
             </div>
-            <p>网站文件生成完成后将在这里展示</p>
-          </div>
-          <div v-else-if="isGenerating" class="preview-loading">
-            <a-spin size="large" />
-            <p>正在生成网站...</p>
-          </div>
-          <iframe
-              v-else
-              :src="previewUrl"
-              class="preview-iframe"
-              frameborder="0"
-              @load="onIframeLoad"
-          ></iframe>
-        </div>
+          </a-tab-pane>
+          <a-tab-pane key="files">
+            <template #tab>
+              <span class="workspace-tab-label">
+                <FolderOpenOutlined />
+                文件编辑
+              </span>
+            </template>
+            <div class="file-workspace">
+              <aside class="file-sidebar">
+                <div class="file-sidebar-header">
+                  <span>文件资源管理器</span>
+                  <a-tag v-if="isFileDirty" color="warning">未保存</a-tag>
+                </div>
+                <div v-if="!isOwner" class="file-empty-state">
+                  仅应用创建者可以编辑文件
+                </div>
+                <div v-else-if="loadingFiles" class="file-loading">
+                  <a-spin size="small" />
+                  <span>正在加载文件...</span>
+                </div>
+                <div v-else-if="fileTreeData.length" class="file-tree-scroll">
+                  <a-tree
+                      class="code-file-tree"
+                      :tree-data="fileTreeData"
+                      :selected-keys="selectedFilePath ? [selectedFilePath] : []"
+                      default-expand-all
+                      block-node
+                      @select="handleFileSelect"
+                  />
+                </div>
+                <div v-else class="file-empty-state">
+                  生成代码后可在这里查看文件
+                </div>
+              </aside>
+              <section class="file-editor-panel">
+                <div v-if="!selectedFilePath" class="editor-placeholder">
+                  <div class="placeholder-icon">
+                    <FileTextOutlined />
+                  </div>
+                  <p>从左侧选择文件进行预览和编辑</p>
+                </div>
+                <div v-else class="editor-shell">
+                  <div class="editor-titlebar">
+                    <div class="editor-file-meta">
+                      <FileTextOutlined />
+                      <span class="editor-file-name">{{ selectedFileName }}</span>
+                      <span class="editor-file-path">{{ selectedFilePath }}</span>
+                    </div>
+                    <span class="editor-status">{{ editorStatusText }}</span>
+                  </div>
+                  <div v-if="loadingFileContent" class="editor-loading">
+                    <a-spin />
+                    <span>正在读取文件...</span>
+                  </div>
+                  <div v-else class="code-editor-shell">
+                    <pre class="code-highlight-layer" ref="codeHighlightRef" aria-hidden="true"><code v-html="highlightedFileContent"></code></pre>
+                    <textarea
+                        v-model="fileContent"
+                        ref="codeEditorTextareaRef"
+                        class="code-editor"
+                        spellcheck="false"
+                        :disabled="savingFile"
+                        @scroll="syncCodeEditorScroll"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+          </a-tab-pane>
+        </a-tabs>
       </div>
     </div>
 
@@ -276,12 +393,18 @@
 import { ref, onMounted, nextTick, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/github.css'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
   getAppVoById,
   deployApp as deployAppApi,
   deleteApp as deleteAppApi,
   optimizePrompt,
+  listAppCodeFiles,
+  getAppCodeFileContent,
+  saveAppCodeFile,
+  syncAppDeployment,
 } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
@@ -304,6 +427,11 @@ import {
   EditOutlined,
   GlobalOutlined,
   BulbOutlined,
+  FolderOpenOutlined,
+  FileTextOutlined,
+  ReloadOutlined,
+  SaveOutlined,
+  CloudSyncOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -338,6 +466,29 @@ const historyLoaded = ref(false)
 // 预览相关
 const previewUrl = ref('')
 const previewReady = ref(false)
+const previewRefreshKey = ref(0)
+const activeWorkspaceTab = ref<'preview' | 'files'>('preview')
+
+interface FileTreeNode {
+  title: string
+  key: string
+  isLeaf: boolean
+  selectable: boolean
+  children?: FileTreeNode[]
+  raw: API.AppCodeFileTreeVO
+}
+
+const loadingFiles = ref(false)
+const loadingFileContent = ref(false)
+const savingFile = ref(false)
+const syncingDeploy = ref(false)
+const fileTreeData = ref<FileTreeNode[]>([])
+const selectedFilePath = ref('')
+const selectedFileName = ref('')
+const fileContent = ref('')
+const savedFileContent = ref('')
+const codeEditorTextareaRef = ref()
+const codeHighlightRef = ref<HTMLElement>()
 
 // 部署相关
 const deploying = ref(false)
@@ -355,6 +506,10 @@ const visualEditor = new VisualEditor({
     selectedElementInfo.value = elementInfo
   },
 })
+
+const handleIframeMessage = (event: MessageEvent) => {
+  visualEditor.handleIframeMessage(event)
+}
 
 // 权限相关
 const isOwner = computed(() => {
@@ -381,6 +536,63 @@ const currentDeployUrl = computed(() => {
 
 const canOptimizePrompt = computed(() => {
   return Boolean(isOwner.value && userInput.value.trim() && !isGenerating.value && !isOptimizingPrompt.value)
+})
+
+const isFileDirty = computed(() => {
+  return selectedFilePath.value && fileContent.value !== savedFileContent.value
+})
+
+const canSaveFile = computed(() => {
+  return Boolean(isOwner.value && selectedFilePath.value && isFileDirty.value && !savingFile.value && !loadingFileContent.value)
+})
+
+const editorStatusText = computed(() => {
+  if (savingFile.value) {
+    return '保存中'
+  }
+  if (loadingFileContent.value) {
+    return '读取中'
+  }
+  if (isFileDirty.value) {
+    return '有未保存修改'
+  }
+  return selectedFilePath.value ? '已保存' : ''
+})
+
+const codeLanguageAliasMap: Record<string, string> = {
+  html: 'xml',
+  vue: 'xml',
+  svg: 'xml',
+  js: 'javascript',
+  jsx: 'javascript',
+  ts: 'typescript',
+  tsx: 'typescript',
+  css: 'css',
+  json: 'json',
+  md: 'markdown',
+  markdown: 'markdown',
+  xml: 'xml',
+  yml: 'yaml',
+  yaml: 'yaml',
+}
+
+const selectedFileLanguage = computed(() => {
+  const filePath = selectedFilePath.value || selectedFileName.value
+  const extension = filePath.split('.').pop()?.toLowerCase() || ''
+  return codeLanguageAliasMap[extension] || extension
+})
+
+const highlightedFileContent = computed(() => {
+  const content = fileContent.value || ' '
+  const language = selectedFileLanguage.value
+  if (language && hljs.getLanguage(language)) {
+    try {
+      return hljs.highlight(content, { language, ignoreIllegals: true }).value
+    } catch {
+      // 使用自动识别兜底
+    }
+  }
+  return hljs.highlightAuto(content).value
 })
 
 // 应用详情相关
@@ -645,6 +857,9 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       setTimeout(async () => {
         await fetchAppInfo()
         updatePreview()
+        if (activeWorkspaceTab.value === 'files') {
+          await loadCodeFiles()
+        }
       }, 1000)
     })
 
@@ -683,6 +898,9 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         setTimeout(async () => {
           await fetchAppInfo()
           updatePreview()
+          if (activeWorkspaceTab.value === 'files') {
+            await loadCodeFiles()
+          }
         }, 1000)
       } else {
         handleError(new Error('SSE连接错误'), aiMessageIndex)
@@ -703,6 +921,24 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   isGenerating.value = false
 }
 
+const appendPreviewCacheBuster = (url: string) => {
+  if (!url) {
+    return ''
+  }
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}t=${Date.now()}`
+}
+
+const refreshPreview = () => {
+  if (!appId.value) {
+    return
+  }
+  const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
+  previewUrl.value = appendPreviewCacheBuster(getStaticPreviewUrl(codeGenType, appId.value))
+  previewReady.value = false
+  previewRefreshKey.value += 1
+}
+
 // 更新预览
 const updatePreview = () => {
   if (appId.value) {
@@ -710,6 +946,172 @@ const updatePreview = () => {
     const newPreviewUrl = getStaticPreviewUrl(codeGenType, appId.value)
     previewUrl.value = newPreviewUrl
     previewReady.value = true
+  }
+}
+
+const mapFileTreeNodes = (nodes: API.AppCodeFileTreeVO[] = []): FileTreeNode[] => {
+  return nodes.map((node) => {
+    const isDirectory = Boolean(node.directory)
+    return {
+      title: node.name || node.path || '',
+      key: node.path || node.name || '',
+      isLeaf: !isDirectory,
+      selectable: !isDirectory,
+      children: isDirectory ? mapFileTreeNodes(node.children || []) : undefined,
+      raw: node,
+    }
+  })
+}
+
+const loadCodeFiles = async () => {
+  if (!appId.value || !isOwner.value || loadingFiles.value) {
+    return
+  }
+  loadingFiles.value = true
+  try {
+    const res = await listAppCodeFiles({
+      appId: appId.value as unknown as number,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      fileTreeData.value = mapFileTreeNodes(res.data.data)
+      return
+    }
+    message.error('加载文件失败：' + (res.data.message || '请重试'))
+  } catch (error) {
+    console.error('加载文件失败：', error)
+    message.error('加载文件失败，请重试')
+  } finally {
+    loadingFiles.value = false
+  }
+}
+
+const loadFileContent = async (filePath: string) => {
+  if (!appId.value || !filePath) {
+    return
+  }
+  loadingFileContent.value = true
+  try {
+    const res = await getAppCodeFileContent({
+      appId: appId.value as unknown as number,
+      filePath,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      const file = res.data.data
+      selectedFilePath.value = file.path || filePath
+      selectedFileName.value = file.name || filePath.split('/').pop() || filePath
+      fileContent.value = file.content || ''
+      savedFileContent.value = file.content || ''
+      return
+    }
+    message.error('读取文件失败：' + (res.data.message || '请重试'))
+  } catch (error) {
+    console.error('读取文件失败：', error)
+    message.error('读取文件失败，请重试')
+  } finally {
+    loadingFileContent.value = false
+  }
+}
+
+const handleFileSelect = async (selectedKeys: Array<string | number>) => {
+  const filePath = String(selectedKeys[0] || '')
+  if (!filePath || filePath === selectedFilePath.value) {
+    return
+  }
+  if (isFileDirty.value) {
+    message.warning('当前文件有未保存修改，请先保存后再切换')
+    return
+  }
+  await loadFileContent(filePath)
+}
+
+const handleWorkspaceTabChange = async (activeKey: string | number) => {
+  if (activeKey === 'files' && !fileTreeData.value.length) {
+    await loadCodeFiles()
+  }
+  if (activeKey === 'preview' && isEditMode.value) {
+    isEditMode.value = false
+    visualEditor.disableEditMode()
+  }
+}
+
+const getCodeEditorTextareaElement = () => {
+  const editorRef = codeEditorTextareaRef.value
+  if (!editorRef) {
+    return null
+  }
+  if (editorRef instanceof HTMLTextAreaElement) {
+    return editorRef
+  }
+  return editorRef.$el?.querySelector('textarea') || null
+}
+
+const syncCodeEditorScroll = () => {
+  const textarea = getCodeEditorTextareaElement()
+  if (!textarea || !codeHighlightRef.value) {
+    return
+  }
+  codeHighlightRef.value.scrollTop = textarea.scrollTop
+  codeHighlightRef.value.scrollLeft = textarea.scrollLeft
+}
+
+const saveCurrentFile = async () => {
+  if (!canSaveFile.value) {
+    return
+  }
+  savingFile.value = true
+  try {
+    const res = await saveAppCodeFile({
+      appId: appId.value as unknown as number,
+      filePath: selectedFilePath.value,
+      content: fileContent.value,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      savedFileContent.value = fileContent.value
+      refreshPreview()
+      message.success('文件已保存，网页预览已刷新')
+      return
+    }
+    message.error('保存失败：' + (res.data.message || '请重试'))
+  } catch (error) {
+    console.error('保存文件失败：', error)
+    message.error('保存失败，请重试')
+  } finally {
+    savingFile.value = false
+  }
+}
+
+const syncDeployment = async () => {
+  if (!appId.value || !hasDeployed.value || !isOwner.value) {
+    return
+  }
+  if (isFileDirty.value) {
+    message.warning('请先保存当前文件后再同步')
+    return
+  }
+  syncingDeploy.value = true
+  try {
+    const res = await syncAppDeployment({
+      appId: appId.value as unknown as number,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      deployUrl.value = res.data.data
+      const deployKey = extractDeployKey(res.data.data)
+      if (appInfo.value && deployKey) {
+        appInfo.value = {
+          ...appInfo.value,
+          deployKey,
+          deployedTime: new Date().toISOString(),
+        }
+      }
+      message.success('已同步到部署站点')
+      return
+    }
+    message.error('同步失败：' + (res.data.message || '请重试'))
+  } catch (error) {
+    console.error('同步部署失败：', error)
+    message.error('同步失败，请重试')
+  } finally {
+    syncingDeploy.value = false
   }
 }
 
@@ -890,14 +1292,12 @@ onMounted(() => {
   fetchAppInfo()
 
   // 监听 iframe 消息
-  window.addEventListener('message', (event) => {
-    visualEditor.handleIframeMessage(event)
-  })
+  window.addEventListener('message', handleIframeMessage)
 })
 
 // 清理资源
 onUnmounted(() => {
-  // EventSource 会在组件卸载时自动清理
+  window.removeEventListener('message', handleIframeMessage)
 })
 </script>
 
@@ -1305,8 +1705,51 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+.workspace-tabs {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+:deep(.workspace-tabs .ant-tabs-nav) {
+  margin: 0;
+  padding: 0 22px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+:deep(.workspace-tabs .ant-tabs-content-holder),
+:deep(.workspace-tabs .ant-tabs-content),
+:deep(.workspace-tabs .ant-tabs-tabpane) {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+:deep(.workspace-tabs .ant-tabs-content-holder),
+:deep(.workspace-tabs .ant-tabs-content) {
+  display: flex;
+  overflow: hidden;
+}
+
+:deep(.workspace-tabs .ant-tabs-tabpane) {
+  overflow: hidden;
+}
+
+:deep(.workspace-tabs .ant-tabs-tabpane-active) {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .preview-content {
   flex: 1;
+  height: 100%;
   position: relative;
   overflow: hidden;
   background:
@@ -1355,6 +1798,210 @@ onUnmounted(() => {
   height: 100%;
   border: none;
   background: #fff;
+}
+
+.file-workspace {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  background: #f8fafc;
+}
+
+.file-sidebar {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.file-sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 14px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.file-loading,
+.file-empty-state,
+.editor-placeholder,
+.editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.file-loading,
+.file-empty-state {
+  flex: 1;
+  padding: 18px;
+  text-align: center;
+}
+
+.file-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px 8px;
+}
+
+.code-file-tree {
+  min-width: max-content;
+  background: transparent;
+}
+
+:deep(.code-file-tree .ant-tree-node-content-wrapper) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 8px;
+}
+
+:deep(.code-file-tree .ant-tree-title) {
+  font-size: 13px;
+}
+
+.file-editor-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: #ffffff;
+}
+
+.editor-placeholder {
+  flex: 1;
+  flex-direction: column;
+}
+
+.editor-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-titlebar {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.editor-file-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-file-name {
+  flex: none;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.editor-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.editor-status {
+  flex: none;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.editor-loading {
+  flex: 1;
+}
+
+.code-editor-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.code-highlight-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  pointer-events: none;
+  background: #ffffff;
+  color: #0f172a;
+  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  word-break: normal;
+  tab-size: 2;
+}
+
+.code-highlight-layer code {
+  display: block;
+  min-height: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.code-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  padding: 16px;
+  overflow: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: #0f172a;
+  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  tab-size: 2;
+  white-space: pre;
+  word-break: normal;
+  outline: none;
+}
+
+.code-editor:focus {
+  box-shadow: none;
+}
+
+.code-editor::selection {
+  background: rgba(59, 130, 246, 0.35);
 }
 
 .selected-element-alert {
@@ -1521,9 +2168,23 @@ onUnmounted(() => {
     width: 100%;
   }
 
+  .preview-actions {
+    gap: 4px;
+  }
+
   .toolbar-button {
     flex: 1 1 auto;
     justify-content: center;
+  }
+
+  .file-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: 220px minmax(0, 1fr);
+  }
+
+  .file-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
   }
 
   .input-container {

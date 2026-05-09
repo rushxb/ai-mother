@@ -18,12 +18,15 @@ import com.yupi.yuaicodemother.exception.BusinessException;
 import com.yupi.yuaicodemother.exception.ErrorCode;
 import com.yupi.yuaicodemother.exception.ThrowUtils;
 import com.yupi.yuaicodemother.model.dto.app.AppAddRequest;
+import com.yupi.yuaicodemother.model.dto.app.AppCodeFileSaveRequest;
 import com.yupi.yuaicodemother.model.dto.app.AppQueryRequest;
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.mapper.AppMapper;
 import com.yupi.yuaicodemother.model.entity.User;
 import com.yupi.yuaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
+import com.yupi.yuaicodemother.model.vo.AppCodeFileContentVO;
+import com.yupi.yuaicodemother.model.vo.AppCodeFileTreeVO;
 import com.yupi.yuaicodemother.model.vo.AppVO;
 import com.yupi.yuaicodemother.model.vo.UserVO;
 import com.yupi.yuaicodemother.monitor.MonitorContext;
@@ -41,8 +44,12 @@ import reactor.core.publisher.Flux;
 
 import java.io.File;
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,6 +63,18 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
+
+    private static final long MAX_EDIT_FILE_SIZE = 1024 * 1024;
+
+    private static final int MAX_FILE_TREE_DEPTH = 8;
+
+    private static final Set<String> HIDDEN_FILE_NAMES = Set.of(
+            ".git", ".idea", "node_modules", "dist", "target", ".DS_Store"
+    );
+
+    private static final Set<String> EDITABLE_EXTENSIONS = Set.of(
+            "html", "css", "js", "ts", "jsx", "tsx", "vue", "json", "md", "txt", "xml", "svg", "yml", "yaml"
+    );
 
     @Value("${code.deploy-host:http://localhost:8088}")
     private String deployHost;
@@ -122,12 +141,23 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     @Override
-    public String optimizePrompt(String prompt) {
+    public String optimizePrompt(String prompt, User loginUser) {
         ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
         ThrowUtils.throwIf(prompt.length() > 1000, ErrorCode.PARAMS_ERROR, "提示词不能超过 1000 字");
-        String optimizedPrompt = promptOptimizerService.optimizePrompt(prompt);
-        ThrowUtils.throwIf(StrUtil.isBlank(optimizedPrompt), ErrorCode.OPERATION_ERROR, "提示词优化失败");
-        return optimizedPrompt.trim();
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
+        MonitorContextHolder.setContext(
+                MonitorContext.builder()
+                        .userId(loginUser.getId().toString())
+                        .appId("prompt_optimize")
+                        .build()
+        );
+        try {
+            String optimizedPrompt = promptOptimizerService.optimizePrompt(prompt);
+            ThrowUtils.throwIf(StrUtil.isBlank(optimizedPrompt), ErrorCode.OPERATION_ERROR, "提示词优化失败");
+            return optimizedPrompt.trim();
+        } finally {
+            MonitorContextHolder.clearContext();
+        }
     }
 
     @Override
@@ -212,6 +242,64 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     @Override
+    public List<AppCodeFileTreeVO> listAppCodeFiles(Long appId, User loginUser) {
+        App app = getOwnedApp(appId, loginUser);
+        File rootDir = getCodeRootDir(app);
+        File[] files = rootDir.listFiles(file -> !shouldHideFile(file));
+        if (files == null) {
+            return new ArrayList<>();
+        }
+        return Arrays.stream(files)
+                .sorted(fileComparator())
+                .map(file -> buildFileTreeNode(rootDir, file, 1))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public AppCodeFileContentVO getAppCodeFileContent(Long appId, String filePath, User loginUser) {
+        App app = getOwnedApp(appId, loginUser);
+        File rootDir = getCodeRootDir(app);
+        File targetFile = resolveCodeFile(rootDir, filePath);
+        ThrowUtils.throwIf(!targetFile.exists() || !targetFile.isFile(), ErrorCode.NOT_FOUND_ERROR, "文件不存在");
+        ThrowUtils.throwIf(shouldHideFile(targetFile), ErrorCode.NO_AUTH_ERROR, "禁止访问该文件");
+        ThrowUtils.throwIf(targetFile.length() > MAX_EDIT_FILE_SIZE, ErrorCode.OPERATION_ERROR, "文件过大，不支持在线编辑");
+        boolean editable = isEditableFile(targetFile);
+        ThrowUtils.throwIf(!editable, ErrorCode.OPERATION_ERROR, "该文件类型不支持在线预览编辑");
+        AppCodeFileContentVO contentVO = new AppCodeFileContentVO();
+        contentVO.setPath(normalizeRelativePath(rootDir, targetFile));
+        contentVO.setName(targetFile.getName());
+        contentVO.setContent(FileUtil.readString(targetFile, StandardCharsets.UTF_8));
+        contentVO.setSize(targetFile.length());
+        contentVO.setEditable(true);
+        return contentVO;
+    }
+
+    @Override
+    public Boolean saveAppCodeFile(AppCodeFileSaveRequest saveRequest, User loginUser) {
+        ThrowUtils.throwIf(saveRequest == null, ErrorCode.PARAMS_ERROR);
+        App app = getOwnedApp(saveRequest.getAppId(), loginUser);
+        File rootDir = getCodeRootDir(app);
+        String content = saveRequest.getContent();
+        ThrowUtils.throwIf(content == null, ErrorCode.PARAMS_ERROR, "文件内容不能为空");
+        ThrowUtils.throwIf(content.getBytes(StandardCharsets.UTF_8).length > MAX_EDIT_FILE_SIZE,
+                ErrorCode.OPERATION_ERROR, "文件内容过大，不支持在线保存");
+        File targetFile = resolveCodeFile(rootDir, saveRequest.getFilePath());
+        ThrowUtils.throwIf(!targetFile.exists() || !targetFile.isFile(), ErrorCode.NOT_FOUND_ERROR, "文件不存在");
+        ThrowUtils.throwIf(shouldHideFile(targetFile), ErrorCode.NO_AUTH_ERROR, "禁止修改该文件");
+        ThrowUtils.throwIf(!isEditableFile(targetFile), ErrorCode.OPERATION_ERROR, "该文件类型不支持在线编辑");
+        FileUtil.writeString(content, targetFile, StandardCharsets.UTF_8);
+        rebuildIfVueProject(app, rootDir);
+        return true;
+    }
+
+    @Override
+    public String syncAppDeployment(Long appId, User loginUser) {
+        App app = getOwnedApp(appId, loginUser);
+        ThrowUtils.throwIf(StrUtil.isBlank(app.getDeployKey()), ErrorCode.OPERATION_ERROR, "应用尚未部署，请先部署后再同步");
+        return deployApp(appId, loginUser);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Long copyApp(Long sourceAppId, User loginUser) {
         ThrowUtils.throwIf(sourceAppId == null || sourceAppId <= 0, ErrorCode.PARAMS_ERROR, "源应用 ID 错误");
@@ -250,6 +338,101 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "复制应用代码失败：" + e.getMessage());
         }
+    }
+
+    private App getOwnedApp(Long appId, User loginUser) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
+        App app = this.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用代码");
+        }
+        return app;
+    }
+
+    private File getCodeRootDir(App app) {
+        String sourceDirName = app.getCodeGenType() + "_" + app.getId();
+        File rootDir = new File(AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName);
+        ThrowUtils.throwIf(!rootDir.exists() || !rootDir.isDirectory(),
+                ErrorCode.NOT_FOUND_ERROR, "应用代码不存在，请先生成代码");
+        return rootDir;
+    }
+
+    private File resolveCodeFile(File rootDir, String filePath) {
+        ThrowUtils.throwIf(StrUtil.isBlank(filePath), ErrorCode.PARAMS_ERROR, "文件路径不能为空");
+        try {
+            String normalizedInputPath = filePath.replace("\\", "/");
+            for (String pathPart : normalizedInputPath.split("/")) {
+                ThrowUtils.throwIf(HIDDEN_FILE_NAMES.contains(pathPart), ErrorCode.NO_AUTH_ERROR, "禁止访问该文件");
+            }
+            Path rootPath = rootDir.getCanonicalFile().toPath();
+            Path targetPath = rootPath.resolve(normalizedInputPath.replace("/", File.separator)).normalize();
+            ThrowUtils.throwIf(!targetPath.startsWith(rootPath), ErrorCode.NO_AUTH_ERROR, "非法文件路径");
+            return targetPath.toFile();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件路径解析失败");
+        }
+    }
+
+    private AppCodeFileTreeVO buildFileTreeNode(File rootDir, File file, int depth) {
+        AppCodeFileTreeVO node = new AppCodeFileTreeVO();
+        node.setName(file.getName());
+        node.setPath(normalizeRelativePath(rootDir, file));
+        node.setDirectory(file.isDirectory());
+        node.setSize(file.isFile() ? file.length() : 0L);
+        if (file.isDirectory() && depth < MAX_FILE_TREE_DEPTH) {
+            File[] children = file.listFiles(child -> !shouldHideFile(child));
+            if (children != null) {
+                List<AppCodeFileTreeVO> childNodes = Arrays.stream(children)
+                        .sorted(fileComparator())
+                        .map(child -> buildFileTreeNode(rootDir, child, depth + 1))
+                        .collect(Collectors.toList());
+                node.setChildren(childNodes);
+            }
+        }
+        return node;
+    }
+
+    private Comparator<File> fileComparator() {
+        return Comparator
+                .comparing(File::isFile)
+                .thenComparing(file -> file.getName().toLowerCase());
+    }
+
+    private String normalizeRelativePath(File rootDir, File file) {
+        try {
+            Path rootPath = rootDir.getCanonicalFile().toPath();
+            Path filePath = file.getCanonicalFile().toPath();
+            return rootPath.relativize(filePath).toString().replace(File.separator, "/");
+        } catch (Exception e) {
+            return file.getName();
+        }
+    }
+
+    private boolean shouldHideFile(File file) {
+        return HIDDEN_FILE_NAMES.contains(file.getName());
+    }
+
+    private boolean isEditableFile(File file) {
+        String fileName = file.getName();
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == fileName.length() - 1) {
+            return false;
+        }
+        String extension = fileName.substring(dotIndex + 1).toLowerCase();
+        return EDITABLE_EXTENSIONS.contains(extension);
+    }
+
+    private void rebuildIfVueProject(App app, File rootDir) {
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        if (codeGenTypeEnum != CodeGenTypeEnum.VUE_PROJECT) {
+            return;
+        }
+        boolean buildSuccess = vueProjectBuilder.buildProject(rootDir.getAbsolutePath());
+        ThrowUtils.throwIf(!buildSuccess, ErrorCode.SYSTEM_ERROR, "文件已保存，但 Vue 项目构建失败，请检查代码");
     }
 
     /**

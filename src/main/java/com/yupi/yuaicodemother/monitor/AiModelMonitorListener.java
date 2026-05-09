@@ -32,6 +32,9 @@ public class AiModelMonitorListener implements ChatModelListener {
         requestContext.attributes().put(REQUEST_START_TIME_KEY, Instant.now());
         // 从监控上下文中获取信息
         MonitorContext monitorContext = MonitorContextHolder.getContext();
+        if (monitorContext == null) {
+            monitorContext = defaultMonitorContext();
+        }
         String userId = monitorContext.getUserId();
         String appId = monitorContext.getAppId();
         requestContext.attributes().put(MONITOR_CONTEXT_KEY, monitorContext);
@@ -47,6 +50,9 @@ public class AiModelMonitorListener implements ChatModelListener {
         Map<Object, Object> attributes = responseContext.attributes();
         // 从监控上下文中获取信息
         MonitorContext context = (MonitorContext) attributes.get(MONITOR_CONTEXT_KEY);
+        if (context == null) {
+            context = defaultMonitorContext();
+        }
         String userId = context.getUserId();
         String appId = context.getAppId();
         // 获取模型名称
@@ -62,7 +68,14 @@ public class AiModelMonitorListener implements ChatModelListener {
     @Override
     public void onError(ChatModelErrorContext errorContext) {
         // 从监控上下文中获取信息
-        MonitorContext context = MonitorContextHolder.getContext();
+        Map<Object, Object> attributes = errorContext.attributes();
+        MonitorContext context = (MonitorContext) attributes.get(MONITOR_CONTEXT_KEY);
+        if (context == null) {
+            context = MonitorContextHolder.getContext();
+        }
+        if (context == null) {
+            context = defaultMonitorContext();
+        }
         String userId = context.getUserId();
         String appId = context.getAppId();
         // 获取模型名称和错误类型
@@ -72,7 +85,6 @@ public class AiModelMonitorListener implements ChatModelListener {
         aiModelMetricsCollector.recordRequest(userId, appId, modelName, "error");
         aiModelMetricsCollector.recordError(userId, appId, modelName, errorMessage);
         // 记录响应时间（即使是错误响应）
-        Map<Object, Object> attributes = errorContext.attributes();
         recordResponseTime(attributes, userId, appId, modelName);
     }
 
@@ -81,8 +93,21 @@ public class AiModelMonitorListener implements ChatModelListener {
      */
     private void recordResponseTime(Map<Object, Object> attributes, String userId, String appId, String modelName) {
         Instant startTime = (Instant) attributes.get(REQUEST_START_TIME_KEY);
+        if (startTime == null) {
+            return;
+        }
         Duration responseTime = Duration.between(startTime, Instant.now());
         aiModelMetricsCollector.recordResponseTime(userId, appId, modelName, responseTime);
+    }
+
+    /**
+     * 没有业务上下文的 AI 调用使用默认监控标签，避免监控逻辑影响主流程。
+     */
+    private MonitorContext defaultMonitorContext() {
+        return MonitorContext.builder()
+                .userId("anonymous")
+                .appId("none")
+                .build();
     }
 
     /**

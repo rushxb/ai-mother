@@ -16,6 +16,8 @@ import com.yupi.yuaicodemother.exception.ErrorCode;
 import com.yupi.yuaicodemother.exception.ThrowUtils;
 import com.yupi.yuaicodemother.model.dto.app.*;
 import com.yupi.yuaicodemother.model.entity.User;
+import com.yupi.yuaicodemother.model.vo.AppCodeFileContentVO;
+import com.yupi.yuaicodemother.model.vo.AppCodeFileTreeVO;
 import com.yupi.yuaicodemother.model.vo.AppVO;
 import com.yupi.yuaicodemother.ratelimter.annotation.RateLimit;
 import com.yupi.yuaicodemother.ratelimter.enums.RateLimitType;
@@ -68,10 +70,10 @@ public class AppController {
     public BaseResponse<String> optimizePrompt(@RequestBody PromptOptimizeRequest promptOptimizeRequest,
                                                HttpServletRequest request) {
         ThrowUtils.throwIf(promptOptimizeRequest == null, ErrorCode.PARAMS_ERROR);
-        userService.getLoginUser(request);
+        User loginUser = userService.getLoginUser(request);
         String prompt = promptOptimizeRequest.getPrompt();
         ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
-        String result = appService.optimizePrompt(prompt);
+        String result = appService.optimizePrompt(prompt, loginUser);
         return ResultUtils.success(result);
     }
 
@@ -124,6 +126,72 @@ public class AppController {
         // 调用服务部署应用
         String deployUrl = appService.deployApp(appId, loginUser);
         // 返回部署 URL
+        return ResultUtils.success(deployUrl);
+    }
+
+    /**
+     * 获取应用代码文件树
+     *
+     * @param appId   应用 ID
+     * @param request 请求
+     * @return 文件树
+     */
+    @GetMapping("/code/files")
+    public BaseResponse<List<AppCodeFileTreeVO>> listAppCodeFiles(@RequestParam Long appId,
+                                                                  HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(appService.listAppCodeFiles(appId, loginUser));
+    }
+
+    /**
+     * 获取应用代码文件内容
+     *
+     * @param appId    应用 ID
+     * @param filePath 文件相对路径
+     * @param request  请求
+     * @return 文件内容
+     */
+    @GetMapping("/code/file")
+    public BaseResponse<AppCodeFileContentVO> getAppCodeFileContent(@RequestParam Long appId,
+                                                                    @RequestParam String filePath,
+                                                                    HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        ThrowUtils.throwIf(StrUtil.isBlank(filePath), ErrorCode.PARAMS_ERROR, "文件路径不能为空");
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(appService.getAppCodeFileContent(appId, filePath, loginUser));
+    }
+
+    /**
+     * 保存应用代码文件
+     *
+     * @param saveRequest 保存请求
+     * @param request     请求
+     * @return 保存结果
+     */
+    @PostMapping("/code/file/save")
+    public BaseResponse<Boolean> saveAppCodeFile(@RequestBody AppCodeFileSaveRequest saveRequest,
+                                                 HttpServletRequest request) {
+        ThrowUtils.throwIf(saveRequest == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(appService.saveAppCodeFile(saveRequest, loginUser));
+    }
+
+    /**
+     * 同步当前生成代码到已部署应用
+     *
+     * @param appDeployRequest 同步请求
+     * @param request          请求
+     * @return 部署 URL
+     */
+    @PostMapping("/deploy/sync")
+    public BaseResponse<String> syncAppDeployment(@RequestBody AppDeployRequest appDeployRequest,
+                                                  HttpServletRequest request) {
+        ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);
+        Long appId = appDeployRequest.getAppId();
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        User loginUser = userService.getLoginUser(request);
+        String deployUrl = appService.syncAppDeployment(appId, loginUser);
         return ResultUtils.success(deployUrl);
     }
 

@@ -1406,11 +1406,13 @@ onUnmounted(() => {
 
 <style scoped>
 #appChatPage {
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   padding: 20px;
   gap: 16px;
+  overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 28%),
     linear-gradient(180deg, #fcfdff 0%, #f5f8fc 100%);
@@ -2315,8 +2317,8 @@ onUnmounted(() => {
 
 @media (max-width: 1024px) {
   #appChatPage {
-    height: auto;
-    min-height: 100vh;
+    height: 100%;
+    min-height: 0;
   }
 
   .header-bar {
@@ -2330,8 +2332,8 @@ onUnmounted(() => {
 
   .chat-section,
   .preview-section {
-    flex: none;
-    min-height: 480px;
+    flex: 1 1 0;
+    min-height: 0;
   }
 }
 

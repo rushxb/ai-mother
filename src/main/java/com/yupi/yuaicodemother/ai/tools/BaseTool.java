@@ -38,4 +38,15 @@ public abstract class BaseTool {
      * @return 格式化的工具执行结果
      */
     public abstract String generateToolExecutedResult(JSONObject arguments);
+
+    /**
+     * 生成工具执行结果格式（包含工具真实返回结果）
+     *
+     * @param arguments  工具执行参数
+     * @param toolResult 工具真实执行结果
+     * @return 格式化的工具执行结果
+     */
+    public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
+        return generateToolExecutedResult(arguments);
+    }
 } 

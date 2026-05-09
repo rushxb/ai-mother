@@ -66,4 +66,17 @@ public class VueProjectBuildTool extends BaseTool {
         }
         return String.format("[工具调用] %s %s", getDisplayName(), relativeProjectPath);
     }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
+        return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);
+    }
+
+    private String summarizeResult(String toolResult, int maxChars) {
+        if (toolResult == null || toolResult.isBlank()) {
+            return "";
+        }
+        String normalized = toolResult.replace("\r", " ").replace("\n", " ").trim();
+        return normalized.substring(0, Math.min(normalized.length(), maxChars));
+    }
 }

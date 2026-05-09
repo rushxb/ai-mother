@@ -197,4 +197,17 @@ public class PackageManagerTool extends BaseTool {
         String target = StrUtil.isNotBlank(packageName) ? packageName : scriptName;
         return String.format("[工具调用] %s %s %s", getDisplayName(), action, StrUtil.blankToDefault(target, ""));
     }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
+        return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 280);
+    }
+
+    private String summarizeResult(String toolResult, int maxChars) {
+        if (StrUtil.isBlank(toolResult)) {
+            return "";
+        }
+        String normalized = toolResult.replace("\r", " ").replace("\n", " ").trim();
+        return StrUtil.sub(normalized, 0, Math.min(normalized.length(), maxChars));
+    }
 }

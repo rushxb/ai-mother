@@ -11,10 +11,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * 文件目录读取工具
@@ -58,23 +60,34 @@ public class FileDirReadTool extends BaseTool {
             }
             StringBuilder structure = new StringBuilder();
             structure.append("项目目录结构:\n");
-            // 使用 Hutool 递归获取所有文件
-            List<File> allFiles = FileUtil.loopFiles(targetDir, file -> !shouldIgnore(file.getName()));
-            // 按路径深度和名称排序显示
-            allFiles.stream()
-                    .sorted((f1, f2) -> {
-                        int depth1 = getRelativeDepth(targetDir, f1);
-                        int depth2 = getRelativeDepth(targetDir, f2);
-                        if (depth1 != depth2) {
-                            return Integer.compare(depth1, depth2);
-                        }
-                        return f1.getPath().compareTo(f2.getPath());
-                    })
-                    .forEach(file -> {
-                        int depth = getRelativeDepth(targetDir, file);
-                        String indent = "  ".repeat(depth);
-                        structure.append(indent).append(file.getName());
-                    });
+            try (Stream<Path> pathStream = Files.walk(targetDir.toPath())) {
+                List<File> allFiles = pathStream
+                        .filter(walkPath -> !walkPath.equals(targetDir.toPath()))
+                        .map(Path::toFile)
+                        .filter(file -> !shouldIgnorePath(file.toPath()))
+                        .sorted((f1, f2) -> {
+                            int depth1 = getRelativeDepth(targetDir, f1);
+                            int depth2 = getRelativeDepth(targetDir, f2);
+                            if (depth1 != depth2) {
+                                return Integer.compare(depth1, depth2);
+                            }
+                            if (f1.isDirectory() != f2.isDirectory()) {
+                                return f1.isDirectory() ? -1 : 1;
+                            }
+                            return f1.getPath().compareTo(f2.getPath());
+                        })
+                        .toList();
+                allFiles.forEach(file -> {
+                    int depth = getRelativeDepth(targetDir, file);
+                    String indent = "  ".repeat(depth);
+                    structure.append(indent)
+                            .append(file.getName());
+                    if (file.isDirectory()) {
+                        structure.append("/");
+                    }
+                    structure.append("\n");
+                });
+            }
             return structure.toString();
         } catch (Exception e) {
             String errorMessage = "读取目录结构失败: " + relativeDirPath + ", 错误: " + e.getMessage();
@@ -103,6 +116,15 @@ public class FileDirReadTool extends BaseTool {
 
         // 检查文件扩展名
         return IGNORED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
+    }
+
+    private boolean shouldIgnorePath(Path path) {
+        for (Path part : path) {
+            if (shouldIgnore(part.toString())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

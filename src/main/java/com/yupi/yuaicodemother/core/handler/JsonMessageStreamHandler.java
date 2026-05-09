@@ -101,7 +101,7 @@ public class JsonMessageStreamHandler {
                 // 根据工具名称获取工具实例
                 String toolName = toolExecutedMessage.getName();
                 BaseTool tool = toolManager.getTool(toolName);
-                String result = tool.generateToolExecutedResult(jsonObject);
+                String result = tool.generateToolExecutedResult(jsonObject, toolExecutedMessage.getResult());
                 // 输出前端和要持久化的内容
                 String output = String.format("\n\n%s\n\n", result);
                 chatHistoryStringBuilder.append(output);

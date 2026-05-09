@@ -1399,6 +1399,10 @@ const syncDeployment = async () => {
   if (!appId.value || !hasDeployed.value || !isOwner.value) {
     return
   }
+  if (isGenerating.value) {
+    message.warning('AI 执行过程中暂不支持同步部署')
+    return
+  }
   if (isFileDirty.value) {
     message.warning('请先保存当前文件后再同步')
     return
@@ -1406,7 +1410,7 @@ const syncDeployment = async () => {
   syncingDeploy.value = true
   try {
     const res = await syncAppDeployment({
-      appId: appId.value as unknown as number,
+      appId: appId.value,
     })
     if (res.data.code === 0 && res.data.data) {
       deployUrl.value = res.data.data
@@ -1439,6 +1443,10 @@ const scrollToBottom = () => {
 
 // 下载代码
 const downloadCode = async () => {
+  if (isGenerating.value) {
+    message.warning('AI 执行过程中暂不支持下载代码')
+    return
+  }
   if (!appId.value) {
     message.error('应用ID不存在')
     return
@@ -1477,6 +1485,10 @@ const downloadCode = async () => {
 
 // 部署应用
 const deployApp = async () => {
+  if (isGenerating.value) {
+    message.warning('AI 执行过程中暂不支持部署')
+    return
+  }
   if (!appId.value) {
     message.error('应用ID不存在')
     return
@@ -1485,7 +1497,7 @@ const deployApp = async () => {
   deploying.value = true
   try {
     const res = await deployAppApi({
-      appId: appId.value as unknown as number,
+      appId: appId.value,
     })
 
     if (res.data.code === 0 && res.data.data) {

@@ -617,6 +617,7 @@ const streamingFilePath = ref('')
 const streamingFileFinalContent = ref('')
 const streamingFileDisplayContent = ref('')
 let streamingFileTimer: ReturnType<typeof window.setInterval> | null = null
+const loadedFileContentCache = new Map<string, string>()
 
 // 部署相关
 const deploying = ref(false)
@@ -1754,6 +1755,7 @@ const loadFileContent = async (filePath: string) => {
       selectedFileName.value = file.name || filePath.split('/').pop() || filePath
       fileContent.value = file.content || ''
       savedFileContent.value = file.content || ''
+      loadedFileContentCache.set(normalizeFilePath(selectedFilePath.value), file.content || '')
       return
     }
     message.error('读取文件失败：' + (res.data.message || '请重试'))
@@ -1854,6 +1856,34 @@ const stopStreamingFilePreview = (keepCurrentContent = false) => {
   savedFileContent.value = fileContent.value
 }
 
+const ensureStreamingFileTimer = (filePath: string) => {
+  const normalizedFilePath = normalizeFilePath(filePath)
+  if (streamingFileTimer !== null) {
+    return
+  }
+
+  const tick = () => {
+    if (!isStreamingFilePreview.value || streamingFilePath.value !== normalizedFilePath) {
+      return
+    }
+    const target = streamingFileFinalContent.value
+    if (streamingFileDisplayContent.value === target) {
+      return
+    }
+    const remaining = target.length - streamingFileDisplayContent.value.length
+    const chunkSize = Math.max(1, Math.min(remaining, Math.ceil(remaining / 12)))
+    streamingFileDisplayContent.value += target.slice(
+      streamingFileDisplayContent.value.length,
+      streamingFileDisplayContent.value.length + chunkSize,
+    )
+    fileContent.value = streamingFileDisplayContent.value
+    void syncCodeEditorToCharIndex(streamingFileDisplayContent.value.length)
+  }
+
+  tick()
+  streamingFileTimer = window.setInterval(tick, 24)
+}
+
 const startStreamingFilePreview = async (filePath: string, targetContent: string, initialContent = '') => {
   if (!filePath) {
     return
@@ -1865,6 +1895,11 @@ const startStreamingFilePreview = async (filePath: string, targetContent: string
     normalizeFilePath(selectedFilePath.value) !== normalizedFilePath &&
     !isStreamingFilePreview.value
   ) {
+    return
+  }
+  if (isStreamingFilePreview.value && streamingFilePath.value === normalizedFilePath) {
+    streamingFileFinalContent.value = targetContent || ''
+    ensureStreamingFileTimer(normalizedFilePath)
     return
   }
   if (isStreamingFilePreview.value) {
@@ -1892,30 +1927,7 @@ const startStreamingFilePreview = async (filePath: string, targetContent: string
     streamingFileTimer = null
   }
 
-  const tick = () => {
-    if (!isStreamingFilePreview.value || streamingFilePath.value !== normalizedFilePath) {
-      return
-    }
-    const target = streamingFileFinalContent.value
-    if (streamingFileDisplayContent.value === target) {
-      if (streamingFileTimer !== null) {
-        window.clearInterval(streamingFileTimer)
-        streamingFileTimer = null
-      }
-      return
-    }
-    const remaining = target.length - streamingFileDisplayContent.value.length
-    const chunkSize = Math.max(1, Math.min(remaining, Math.ceil(remaining / 24)))
-    streamingFileDisplayContent.value += target.slice(
-      streamingFileDisplayContent.value.length,
-      streamingFileDisplayContent.value.length + chunkSize,
-    )
-    fileContent.value = streamingFileDisplayContent.value
-    void syncCodeEditorToCharIndex(streamingFileDisplayContent.value.length)
-  }
-
-  tick()
-  streamingFileTimer = window.setInterval(tick, 24)
+  ensureStreamingFileTimer(normalizedFilePath)
 }
 
 const findCommonPrefixLength = (left: string, right: string) => {
@@ -1947,22 +1959,47 @@ const getStringFromEventData = (data: Record<string, any> | undefined, key: stri
   return typeof value === 'string' ? value : ''
 }
 
+const getLoadedFileContent = (filePath: string) => {
+  const normalizedFilePath = normalizeFilePath(filePath)
+  if (normalizeFilePath(selectedFilePath.value) === normalizedFilePath) {
+    return savedFileContent.value || fileContent.value
+  }
+  return loadedFileContentCache.get(normalizedFilePath) || ''
+}
+
 const handleFileOperationStreamEvent = async (streamEvent: GenerationStreamEvent) => {
   const filePath = getStringFromEventData(streamEvent.data, 'filePath')
   if (!filePath) {
     return
   }
   ensureFileTreePath(filePath)
+  const normalizedFilePath = normalizeFilePath(filePath)
   const toolName = getStringFromEventData(streamEvent.data, 'toolName')
   if (!['writeFile', 'modifyFile'].includes(toolName)) {
     return
   }
   const generatedContent = getStringFromEventData(streamEvent.data, 'content')
-  if (toolName === 'writeFile' && generatedContent) {
+  if (toolName === 'writeFile' && (streamEvent.type === 'tool_call' || generatedContent)) {
+    if (!generatedContent && streamingFilePath.value !== normalizedFilePath) {
+      activeWorkspaceTab.value = 'files'
+      return
+    }
     await startStreamingFilePreview(filePath, generatedContent)
     return
   }
   if (streamEvent.type === 'tool_call') {
+    if (toolName === 'modifyFile') {
+      const oldContent = getStringFromEventData(streamEvent.data, 'oldContent')
+      const newContent = getStringFromEventData(streamEvent.data, 'newContent')
+      if (!loadedFileContentCache.has(normalizedFilePath) && normalizeFilePath(selectedFilePath.value) !== normalizedFilePath) {
+        await loadFileContent(filePath)
+      }
+      if (newContent || streamingFilePath.value === normalizedFilePath) {
+        const preview = buildModifiedFilePreview(getLoadedFileContent(filePath), oldContent, newContent)
+        await startStreamingFilePreview(filePath, preview.targetContent, preview.initialContent)
+      }
+      return
+    }
     activeWorkspaceTab.value = 'files'
     await loadFileContent(filePath)
     await syncCodeEditorToBottom()
@@ -1981,9 +2018,7 @@ const handleFileOperationStreamEvent = async (streamEvent: GenerationStreamEvent
       if (toolName === 'modifyFile') {
         const oldContent = getStringFromEventData(streamEvent.data, 'oldContent')
         const newContent = getStringFromEventData(streamEvent.data, 'newContent')
-        const currentBaseContent =
-          selectedFilePath.value === filePath ? fileContent.value || savedFileContent.value : savedFileContent.value
-        const preview = buildModifiedFilePreview(currentBaseContent, oldContent, newContent)
+        const preview = buildModifiedFilePreview(getLoadedFileContent(filePath) || file.content || '', oldContent, newContent)
         await startStreamingFilePreview(file.path || filePath, preview.targetContent || file.content || '', preview.initialContent)
         return
       }

@@ -80,18 +80,21 @@ public class JsonMessageStreamHandler {
             case GenerationStreamEvent.TOOL_CALL -> {
                 String toolId = event.getData() == null ? null : String.valueOf(event.getData().get("requestId"));
                 String toolName = event.getData() == null ? null : String.valueOf(event.getData().get("toolName"));
+                String arguments = event.getData() == null ? "" : String.valueOf(event.getData().get("arguments"));
+                BaseTool tool = toolManager.getTool(toolName);
+                boolean registered = tool != null;
                 // 检查是否是第一次看到这个工具 ID
                 if (toolId != null && !seenToolIds.contains(toolId)) {
                     // 第一次调用这个工具，记录 ID 并完整返回工具信息
                     seenToolIds.add(toolId);
-                    // 根据工具名称获取工具实例
-                    BaseTool tool = toolManager.getTool(toolName);
                     if (tool == null) {
                         log.warn("收到未注册的工具请求: {}", toolName);
                         String output = String.format("\n\n[选择工具] %s（未注册工具）\n\n", toolName);
-                        return GenerationStreamEvent.toolCall(output, Map.of(
-                                "toolName", toolName,
-                                "registered", false
+                        return GenerationStreamEvent.toolCall(output, buildToolEventData(
+                                toolName,
+                                false,
+                                arguments,
+                                ""
                         ));
                     }
                     // 返回格式化的工具调用信息
@@ -99,12 +102,17 @@ public class JsonMessageStreamHandler {
                     return GenerationStreamEvent.toolCall(output, buildToolEventData(
                             toolName,
                             true,
-                            event.getData() == null ? "" : String.valueOf(event.getData().get("arguments")),
+                            arguments,
                             ""
                     ));
                 } else {
-                    // 不是第一次调用这个工具，直接返回空
-                    return null;
+                    // 同一个工具调用的后续增量参数继续透传，供前端做更贴近 SSE 的文件预览
+                    return GenerationStreamEvent.toolCall("", buildToolEventData(
+                            toolName,
+                            registered,
+                            arguments,
+                            ""
+                    ));
                 }
             }
             case GenerationStreamEvent.TOOL_RESULT -> {
@@ -180,27 +188,94 @@ public class JsonMessageStreamHandler {
         if (StrUtil.isBlank(arguments)) {
             return;
         }
+        boolean parsed = false;
         try {
             JSONObject jsonObject = JSONUtil.parseObj(arguments);
             String filePath = jsonObject.getStr("relativeFilePath");
-            if (StrUtil.isBlank(filePath)) {
-                return;
+            if (StrUtil.isNotBlank(filePath)) {
+                data.put("filePath", filePath);
+                parsed = true;
             }
-            data.put("filePath", filePath);
             String content = jsonObject.getStr("content");
             if (content != null) {
                 data.put("content", content);
+                parsed = true;
             }
             String oldContent = jsonObject.getStr("oldContent");
             if (oldContent != null) {
                 data.put("oldContent", oldContent);
+                parsed = true;
             }
             String newContent = jsonObject.getStr("newContent");
             if (newContent != null) {
                 data.put("newContent", newContent);
+                parsed = true;
             }
         } catch (Exception e) {
             log.debug("解析文件工具参数失败: {}", e.getMessage());
         }
+        if (!parsed) {
+            appendPartialFileOperationData(data, arguments);
+        }
+    }
+
+    private void appendPartialFileOperationData(Map<String, Object> data, String arguments) {
+        putPartialJsonStringValue(data, arguments, "relativeFilePath", "filePath");
+        putPartialJsonStringValue(data, arguments, "content", "content");
+        putPartialJsonStringValue(data, arguments, "oldContent", "oldContent");
+        putPartialJsonStringValue(data, arguments, "newContent", "newContent");
+    }
+
+    private void putPartialJsonStringValue(Map<String, Object> data, String arguments, String sourceKey, String targetKey) {
+        String value = extractPartialJsonStringValue(arguments, sourceKey);
+        if (value != null) {
+            data.put(targetKey, value);
+        }
+    }
+
+    private String extractPartialJsonStringValue(String jsonText, String key) {
+        String keyPattern = "\"" + key + "\"";
+        int keyIndex = jsonText.indexOf(keyPattern);
+        if (keyIndex < 0) {
+            return null;
+        }
+        int colonIndex = jsonText.indexOf(':', keyIndex + keyPattern.length());
+        if (colonIndex < 0) {
+            return null;
+        }
+        int quoteIndex = jsonText.indexOf('"', colonIndex + 1);
+        if (quoteIndex < 0) {
+            return null;
+        }
+        StringBuilder valueBuilder = new StringBuilder();
+        boolean escaping = false;
+        for (int index = quoteIndex + 1; index < jsonText.length(); index++) {
+            char currentChar = jsonText.charAt(index);
+            if (escaping) {
+                valueBuilder.append(decodeEscapedJsonChar(currentChar));
+                escaping = false;
+                continue;
+            }
+            if (currentChar == '\\') {
+                escaping = true;
+                continue;
+            }
+            if (currentChar == '"') {
+                return valueBuilder.toString();
+            }
+            valueBuilder.append(currentChar);
+        }
+        return valueBuilder.toString();
+    }
+
+    private char decodeEscapedJsonChar(char escapedChar) {
+        return switch (escapedChar) {
+            case 'n' -> '\n';
+            case 'r' -> '\r';
+            case 't' -> '\t';
+            case 'b' -> '\b';
+            case 'f' -> '\f';
+            default -> escapedChar;
+        };
     }
 }

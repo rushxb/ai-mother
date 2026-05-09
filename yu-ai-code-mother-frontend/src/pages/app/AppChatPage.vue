@@ -949,8 +949,15 @@ const decorateMessageWithBuildResult = (targetMessage: Message) => {
 }
 
 const extractToolCallFilePath = (toolCallContent: string) => {
-  const filePathMatch = toolCallContent.match(/["'`]?(?:filePath|文件路径|path)["'`]?\s*[:：=]\s*["'`]?([^\s"'`,，。)]+)/i)
-  return normalizeFilePath(filePathMatch?.[1] || '')
+  const filePathMatch = toolCallContent.match(/["'`]?(?:relativeFilePath|filePath|文件路径|path)["'`]?\s*[:：=]\s*["'`]?([^\s"'`,，。)]+)/i)
+  if (filePathMatch?.[1]) {
+    return normalizeFilePath(filePathMatch[1])
+  }
+
+  const firstLine = toolCallContent.match(/\[工具调用\]\s*([^\n\r]+)/)?.[1]?.trim() || ''
+  const displayNamePathMatch = firstLine.match(/^(?:写入文件|修改文件|读取文件|删除文件|读取目录|构建项目)\s+(.+)$/)
+  const filePath = displayNamePathMatch?.[1]?.trim().split(/\s+/)[0] || ''
+  return normalizeFilePath(filePath)
 }
 
 const getToolCallLabel = (toolCallContent: string) => {
@@ -962,7 +969,8 @@ const getToolCallLabel = (toolCallContent: string) => {
   if (toolName === 'writeFile') {
     return '写入文件'
   }
-  return '工具调用'
+  const displayName = toolCallContent.match(/\[工具调用\]\s*([^\s\n\r]+)/)?.[1]
+  return displayName || '工具调用'
 }
 
 const getAiMessageSegments = (message: Message): AiMessageSegment[] => {
@@ -991,6 +999,11 @@ const getAiMessageSegments = (message: Message): AiMessageSegment[] => {
         content: matchText,
         filePath,
         label: getToolCallLabel(matchText),
+      })
+    } else if (matchText.trim()) {
+      segments.push({
+        type: 'markdown',
+        content: matchText,
       })
     }
 

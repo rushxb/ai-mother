@@ -1,5 +1,6 @@
 package com.yupi.yuaicodemother.ai.guardrail;
 
+import com.yupi.yuaicodemother.constant.AppConstant;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.guardrail.InputGuardrail;
 import dev.langchain4j.guardrail.InputGuardrailResult;
@@ -30,7 +31,7 @@ public class PromptSafetyInputGuardrail implements InputGuardrail {
 
     @Override
     public InputGuardrailResult validate(UserMessage userMessage) {
-        String input = userMessage.singleText();
+        String input = extractOriginalUserInput(userMessage.singleText());
         // 检查输入长度
         if (input.length() > 1000) {
             return fatal("输入内容过长，不要超过 1000 字");
@@ -53,5 +54,16 @@ public class PromptSafetyInputGuardrail implements InputGuardrail {
             }
         }
         return success();
+    }
+
+    private String extractOriginalUserInput(String input) {
+        if (input == null) {
+            return "";
+        }
+        int contextMarkerIndex = input.indexOf(AppConstant.PROJECT_CONTEXT_MARKER);
+        if (contextMarkerIndex < 0) {
+            return input;
+        }
+        return input.substring(0, contextMarkerIndex).trim();
     }
 } 

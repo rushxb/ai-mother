@@ -38,6 +38,9 @@ create table app
     codeGenType  varchar(64)                        null comment '代码生成类型（枚举）',
     deployKey    varchar(64)                        null comment '部署标识',
     deployedTime datetime                           null comment '部署时间',
+    isGenerating tinyint  default 0                 not null comment '是否正在生成',
+    generatingMessage mediumtext                    null comment '当前生成中的 AI 响应快照',
+    generatingStage varchar(32)                     null comment '当前生成阶段：create / update',
     priority     int      default 0                 not null comment '优先级',
     userId       bigint                             not null comment '创建用户id',
     editTime     datetime default CURRENT_TIMESTAMP not null comment '编辑时间',
@@ -48,6 +51,11 @@ create table app
     INDEX idx_appName (appName),         -- 提升基于应用名称的查询性能
     INDEX idx_userId (userId)            -- 提升基于用户 ID 的查询性能
 ) comment '应用' collate = utf8mb4_unicode_ci;
+
+-- 已有库升级可执行以下语句
+alter table app add column if not exists isGenerating tinyint default 0 not null comment '是否正在生成';
+alter table app add column if not exists generatingMessage mediumtext null comment '当前生成中的 AI 响应快照';
+alter table app add column if not exists generatingStage varchar(32) null comment '当前生成阶段：create / update';
 
 -- 对话历史表
 create table chat_history

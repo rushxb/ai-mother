@@ -47,6 +47,21 @@ public class AppVO implements Serializable {
     private LocalDateTime deployedTime;
 
     /**
+     * 是否正在生成
+     */
+    private Integer isGenerating;
+
+    /**
+     * 当前生成中的 AI 响应快照
+     */
+    private String generatingMessage;
+
+    /**
+     * 当前生成阶段：create / update
+     */
+    private String generatingStage;
+
+    /**
      * 优先级
      */
     private Integer priority;

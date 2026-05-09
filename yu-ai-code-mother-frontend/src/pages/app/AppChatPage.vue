@@ -10,7 +10,30 @@
               {{ formatCodeGenType(appInfo.codeGenType) }}
             </a-tag>
           </div>
-          <h1 class="app-name">{{ appInfo?.appName || '网站生成器' }}</h1>
+          <div class="app-name-shell" :class="{ editable: canEditAppName, editing: isEditingAppName }">
+            <a-input
+                v-if="isEditingAppName"
+                ref="appNameInputRef"
+                v-model:value="appNameDraft"
+                class="app-name-input"
+                :maxlength="50"
+                :bordered="false"
+                :disabled="savingAppName"
+                placeholder="请输入应用名称"
+                @pressEnter="saveAppName"
+                @blur="saveAppName"
+                @keydown.esc="cancelAppNameEdit"
+            />
+            <h1
+                v-else
+                class="app-name"
+                :class="{ clickable: canEditAppName }"
+                @click="startEditAppName"
+            >
+              {{ appDisplayName }}
+            </h1>
+            <span v-if="canEditAppName && !isEditingAppName" class="app-name-tip">点击修改</span>
+          </div>
         </div>
       </div>
       <div class="header-right">
@@ -415,6 +438,7 @@ import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
+  chatToGenCode,
   getAppVoById,
   deployApp as deployAppApi,
   deleteApp as deleteAppApi,
@@ -423,6 +447,7 @@ import {
   getAppCodeFileContent,
   saveAppCodeFile,
   syncAppDeployment,
+  updateApp,
 } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
@@ -460,6 +485,10 @@ const loginUserAvatar = computed(() => loginUserStore.loginUser.userAvatar || DE
 // 应用信息
 const appInfo = ref<API.AppVO>()
 const appId = ref<any>()
+const isEditingAppName = ref(false)
+const appNameDraft = ref('')
+const savingAppName = ref(false)
+const appNameInputRef = ref()
 
 // 对话相关
 interface Message {
@@ -480,6 +509,9 @@ const loadingHistory = ref(false)
 const hasMoreHistory = ref(false)
 const lastCreateTime = ref<string>()
 const historyLoaded = ref(false)
+const refreshingGenerationState = ref(false)
+
+let generationPollingTimer: ReturnType<typeof window.setInterval> | null = null
 
 // 预览相关
 const previewUrl = ref('')
@@ -543,6 +575,14 @@ const isAdmin = computed(() => {
 
 const hasDeployed = computed(() => {
   return Boolean(appInfo.value?.deployKey || deployUrl.value)
+})
+
+const canEditAppName = computed(() => {
+  return Boolean(isOwner.value && appInfo.value?.id)
+})
+
+const appDisplayName = computed(() => {
+  return appInfo.value?.appName?.trim() || '网站生成器'
 })
 
 const currentDeployUrl = computed(() => {
@@ -655,6 +695,168 @@ const showAppDetail = () => {
   appDetailVisible.value = true
 }
 
+const stopGenerationPolling = () => {
+  if (generationPollingTimer !== null) {
+    window.clearInterval(generationPollingTimer)
+    generationPollingTimer = null
+  }
+}
+
+const findPendingAiMessageIndex = () => {
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const currentMessage = messages.value[index]
+    if (currentMessage.type === 'ai' && currentMessage.loading) {
+      return index
+    }
+  }
+  return -1
+}
+
+const syncGeneratingMessageFromAppInfo = () => {
+  const appGenerating = Boolean(appInfo.value?.isGenerating)
+  if (!appGenerating) {
+    isGenerating.value = false
+    return false
+  }
+  const generatingMessage = appInfo.value?.generatingMessage || ''
+  const pendingAiMessageIndex = findPendingAiMessageIndex()
+  if (pendingAiMessageIndex >= 0) {
+    messages.value[pendingAiMessageIndex].content = generatingMessage
+    messages.value[pendingAiMessageIndex].loading = true
+  } else {
+    messages.value.push({
+      type: 'ai',
+      content: generatingMessage,
+      loading: true,
+    })
+  }
+  isGenerating.value = true
+  nextTick(() => {
+    scrollToBottom()
+  })
+  return true
+}
+
+const fetchAppStateOnly = async () => {
+  const res = await getAppVoById({ id: appId.value })
+  if (res.data.code !== 0 || !res.data.data) {
+    throw new Error(res.data.message || '获取应用信息失败')
+  }
+  appInfo.value = res.data.data
+  return res.data.data
+}
+
+const refreshAfterGeneration = async () => {
+  isGenerating.value = false
+  await loadChatHistory()
+  if (messages.value.length >= 2) {
+    updatePreview()
+  }
+  if (activeWorkspaceTab.value === 'files') {
+    await loadCodeFiles()
+  }
+}
+
+const pollGenerationState = async () => {
+  if (!appId.value || refreshingGenerationState.value) {
+    return
+  }
+  refreshingGenerationState.value = true
+  try {
+    const wasGenerating = Boolean(appInfo.value?.isGenerating)
+    const latestAppInfo = await fetchAppStateOnly()
+    if (latestAppInfo.isGenerating) {
+      syncGeneratingMessageFromAppInfo()
+      return
+    }
+    if (wasGenerating) {
+      stopGenerationPolling()
+      await refreshAfterGeneration()
+    }
+  } catch (error) {
+    console.error('同步生成状态失败：', error)
+  } finally {
+    refreshingGenerationState.value = false
+  }
+}
+
+const startGenerationPolling = () => {
+  if (generationPollingTimer !== null) {
+    return
+  }
+  generationPollingTimer = window.setInterval(() => {
+    void pollGenerationState()
+  }, 1500)
+}
+
+const focusAppNameInput = async () => {
+  await nextTick()
+  appNameInputRef.value?.focus?.()
+  appNameInputRef.value?.input?.select?.()
+}
+
+const startEditAppName = async () => {
+  if (!canEditAppName.value || isEditingAppName.value) {
+    return
+  }
+  appNameDraft.value = appInfo.value?.appName?.trim() || ''
+  isEditingAppName.value = true
+  await focusAppNameInput()
+}
+
+const cancelAppNameEdit = () => {
+  if (savingAppName.value) {
+    return
+  }
+  appNameDraft.value = appInfo.value?.appName?.trim() || ''
+  isEditingAppName.value = false
+}
+
+const saveAppName = async () => {
+  if (!isEditingAppName.value || savingAppName.value || !appInfo.value?.id) {
+    return
+  }
+  const nextAppName = appNameDraft.value.trim()
+  if (!nextAppName) {
+    message.warning('应用名称不能为空')
+    await focusAppNameInput()
+    return
+  }
+  if (nextAppName.length > 50) {
+    message.warning('应用名称不能超过 50 个字符')
+    await focusAppNameInput()
+    return
+  }
+  if (nextAppName === (appInfo.value.appName?.trim() || '')) {
+    isEditingAppName.value = false
+    return
+  }
+
+  savingAppName.value = true
+  try {
+    const res = await updateApp({
+      id: appInfo.value.id,
+      appName: nextAppName,
+    })
+    if (res.data.code === 0) {
+      appInfo.value = {
+        ...appInfo.value,
+        appName: nextAppName,
+      }
+      isEditingAppName.value = false
+      return
+    }
+    message.error(res.data.message || '应用名称保存失败')
+  } catch (error) {
+    console.error('保存应用名称失败：', error)
+    message.error('应用名称保存失败')
+  } finally {
+    savingAppName.value = false
+  }
+
+  await focusAppNameInput()
+}
+
 // 加载对话历史
 const loadChatHistory = async (isLoadMore = false) => {
   if (!appId.value || loadingHistory.value) return
@@ -721,29 +923,24 @@ const fetchAppInfo = async () => {
   appId.value = id
 
   try {
-    const res = await getAppVoById({ id: id as unknown as number })
-    if (res.data.code === 0 && res.data.data) {
-      appInfo.value = res.data.data
-
-      // 先加载对话历史
-      await loadChatHistory()
-      // 如果有至少2条对话记录，展示对应的网站
-      if (messages.value.length >= 2) {
-        updatePreview()
-      }
-      // 检查是否需要自动发送初始提示词
-      // 只有在是自己的应用且没有对话历史时才自动发送
-      if (
-          appInfo.value.initPrompt &&
-          isOwner.value &&
-          messages.value.length === 0 &&
-          historyLoaded.value
-      ) {
-        await sendInitialMessage(appInfo.value.initPrompt)
-      }
-    } else {
-      message.error('获取应用信息失败')
-      router.push('/')
+    const latestAppInfo = await fetchAppStateOnly()
+    await loadChatHistory()
+    if (messages.value.length >= 2) {
+      updatePreview()
+    }
+    const restoredGeneratingState = syncGeneratingMessageFromAppInfo()
+    if (restoredGeneratingState) {
+      startGenerationPolling()
+      return
+    }
+    stopGenerationPolling()
+    if (
+      latestAppInfo.initPrompt &&
+      isOwner.value &&
+      messages.value.length === 0 &&
+      historyLoaded.value
+    ) {
+      await sendInitialMessage(latestAppInfo.initPrompt)
     }
   } catch (error) {
     console.error('获取应用信息失败：', error)
@@ -754,6 +951,7 @@ const fetchAppInfo = async () => {
 
 // 发送初始消息
 const sendInitialMessage = async (prompt: string) => {
+  stopGenerationPolling()
   // 添加用户消息
   messages.value.push({
     type: 'user',
@@ -773,6 +971,14 @@ const sendInitialMessage = async (prompt: string) => {
 
   // 开始生成
   isGenerating.value = true
+  if (appInfo.value) {
+    appInfo.value = {
+      ...appInfo.value,
+      isGenerating: 1,
+      generatingMessage: '',
+      generatingStage: 'create',
+    }
+  }
   await generateCode(prompt, aiMessageIndex)
 }
 
@@ -781,6 +987,7 @@ const sendMessage = async () => {
   if (!userInput.value.trim() || isGenerating.value) {
     return
   }
+  stopGenerationPolling()
 
   let message = userInput.value.trim()
   // 如果有选中的元素，将元素信息添加到提示词中
@@ -823,6 +1030,14 @@ const sendMessage = async () => {
 
   // 开始生成
   isGenerating.value = true
+  if (appInfo.value) {
+    appInfo.value = {
+      ...appInfo.value,
+      isGenerating: 1,
+      generatingMessage: '',
+      generatingStage: 'update',
+    }
+  }
   await generateCode(message, aiMessageIndex)
 }
 
@@ -857,13 +1072,19 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   let streamCompleted = false
 
   try {
+    const startRes = await chatToGenCode({
+      appId: appId.value,
+      message: userMessage,
+    })
+    if (startRes.data.code !== 0) {
+      throw new Error(startRes.data.message || '启动生成失败')
+    }
+
     // 获取 axios 配置的 baseURL
     const baseURL = request.defaults.baseURL || API_BASE_URL
 
-    // 构建URL参数
     const params = new URLSearchParams({
       appId: appId.value || '',
-      message: userMessage,
     })
 
     const url = `${baseURL}/app/chat/gen/code?${params}`
@@ -902,6 +1123,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       if (streamCompleted) return
 
       streamCompleted = true
+      stopGenerationPolling()
       isGenerating.value = false
       eventSource?.close()
 
@@ -941,22 +1163,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     // 处理错误
     eventSource.onerror = function () {
       if (streamCompleted || !isGenerating.value) return
-      // 检查是否是正常的连接关闭
-      if (eventSource?.readyState === EventSource.CONNECTING) {
-        streamCompleted = true
-        isGenerating.value = false
-        eventSource?.close()
-
-        setTimeout(async () => {
-          await fetchAppInfo()
-          updatePreview()
-          if (activeWorkspaceTab.value === 'files') {
-            await loadCodeFiles()
-          }
-        }, 1000)
-      } else {
-        handleError(new Error('SSE连接错误'), aiMessageIndex)
-      }
+      streamCompleted = true
+      eventSource?.close()
+      message.warning('实时连接已断开，正在同步生成状态')
+      startGenerationPolling()
+      void pollGenerationState()
     }
   } catch (error) {
     console.error('创建 EventSource 失败：', error)
@@ -967,6 +1178,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 // 错误处理函数
 const handleError = (error: unknown, aiMessageIndex: number) => {
   console.error('生成代码失败：', error)
+  stopGenerationPolling()
   messages.value[aiMessageIndex].content = '抱歉，生成过程中出现了错误，请重试。'
   messages.value[aiMessageIndex].loading = false
   message.error('生成失败，请重试')
@@ -1400,6 +1612,7 @@ onMounted(() => {
 
 // 清理资源
 onUnmounted(() => {
+  stopGenerationPolling()
   window.removeEventListener('message', handleIframeMessage)
 })
 </script>
@@ -1473,12 +1686,55 @@ onUnmounted(() => {
   padding-inline: 10px;
 }
 
+.app-name-shell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  max-width: min(100%, 560px);
+}
+
+.app-name-shell.editable {
+  cursor: text;
+}
+
 .app-name {
   margin: 0;
   font-size: 28px;
   line-height: 1.1;
   font-weight: 700;
   color: #0f172a;
+}
+
+.app-name.clickable {
+  cursor: text;
+  transition: color 0.2s ease;
+}
+
+.app-name.clickable:hover {
+  color: #1677ff;
+}
+
+.app-name-input {
+  min-width: 240px;
+  max-width: 100%;
+}
+
+.app-name-input :deep(.ant-input) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.app-name-tip {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .header-right {

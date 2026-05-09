@@ -5,6 +5,8 @@ import com.yupi.yuaicodemother.common.BaseResponse;
 import com.yupi.yuaicodemother.common.ResultUtils;
 import com.yupi.yuaicodemother.exception.BusinessException;
 import com.yupi.yuaicodemother.exception.ErrorCode;
+import dev.langchain4j.guardrail.GuardrailException;
+import dev.langchain4j.guardrail.InputGuardrailException;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -21,6 +23,19 @@ import java.util.Map;
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(GuardrailException.class)
+    public BaseResponse<?> guardrailExceptionHandler(GuardrailException e) {
+        log.warn("GuardrailException: {}", e.getMessage());
+        String readableMessage = extractGuardrailMessage(e.getMessage());
+        int errorCode = e instanceof InputGuardrailException
+                ? ErrorCode.PARAMS_ERROR.getCode()
+                : ErrorCode.OPERATION_ERROR.getCode();
+        if (handleSseError(errorCode, readableMessage)) {
+            return null;
+        }
+        return ResultUtils.error(errorCode, readableMessage);
+    }
 
     @ExceptionHandler(BusinessException.class)
     public BaseResponse<?> businessExceptionHandler(BusinessException e) {
@@ -60,8 +75,10 @@ public class GlobalExceptionHandler {
         // 判断是否是SSE请求（通过Accept头或URL路径）
         String accept = request.getHeader("Accept");
         String uri = request.getRequestURI();
-        if ((accept != null && accept.contains("text/event-stream")) ||
-                uri.contains("/chat/gen/code")) {
+        boolean isSseRequest = accept != null && accept.contains("text/event-stream");
+        boolean isChatStreamRequest = "GET".equalsIgnoreCase(request.getMethod())
+                && uri.contains("/chat/gen/code");
+        if (isSseRequest || isChatStreamRequest) {
             try {
                 // 设置SSE响应头
                 response.setContentType("text/event-stream");
@@ -91,5 +108,20 @@ public class GlobalExceptionHandler {
             }
         }
         return false;
+    }
+
+    private String extractGuardrailMessage(String rawMessage) {
+        if (rawMessage == null || rawMessage.isBlank()) {
+            return "请求被安全规则拦截，请修改后重试";
+        }
+        String marker = "failed with this message:";
+        int markerIndex = rawMessage.indexOf(marker);
+        if (markerIndex >= 0) {
+            String readableMessage = rawMessage.substring(markerIndex + marker.length()).trim();
+            if (!readableMessage.isBlank()) {
+                return readableMessage;
+            }
+        }
+        return rawMessage;
     }
 }

@@ -77,18 +77,26 @@ public class AppController {
         return ResultUtils.success(result);
     }
 
-    @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping("/chat/gen/code")
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
-    public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
-                                                       @RequestParam String message,
-                                                       HttpServletRequest request) {
-        // 参数校验
+    public BaseResponse<Boolean> startChatToGenCode(@RequestBody AppChatRequest appChatRequest,
+                                                    HttpServletRequest request) {
+        ThrowUtils.throwIf(appChatRequest == null, ErrorCode.PARAMS_ERROR);
+        Long appId = appChatRequest.getAppId();
+        String message = appChatRequest.getMessage();
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
-        // 获取当前登录用户
         User loginUser = userService.getLoginUser(request);
-        // 调用服务生成代码（SSE 流式返回）
-        Flux<String> contentFlux = appService.chatToGenCode(appId, message, loginUser);
+        appService.chatToGenCode(appId, message, loginUser);
+        return ResultUtils.success(true);
+    }
+
+    @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> subscribeChatToGenCode(@RequestParam Long appId,
+                                                                HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
+        User loginUser = userService.getLoginUser(request);
+        Flux<String> contentFlux = appService.getGenerationStream(appId, loginUser);
         return contentFlux
                 .map(chunk -> {
                     Map<String, String> wrapper = Map.of("d", chunk);
@@ -274,6 +282,9 @@ public class AppController {
         if (appUpdateRequest == null || appUpdateRequest.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+        String appName = StrUtil.trim(appUpdateRequest.getAppName());
+        ThrowUtils.throwIf(StrUtil.isBlank(appName), ErrorCode.PARAMS_ERROR, "应用名称不能为空");
+        ThrowUtils.throwIf(appName.length() > 50, ErrorCode.PARAMS_ERROR, "应用名称不能超过 50 个字符");
         User loginUser = userService.getLoginUser(request);
         long id = appUpdateRequest.getId();
         // 判断是否存在
@@ -285,7 +296,7 @@ public class AppController {
         }
         App app = new App();
         app.setId(id);
-        app.setAppName(appUpdateRequest.getAppName());
+        app.setAppName(appName);
         // 设置编辑时间
         app.setEditTime(LocalDateTime.now());
         boolean result = appService.updateById(app);

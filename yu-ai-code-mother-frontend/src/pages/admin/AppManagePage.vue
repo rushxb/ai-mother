@@ -79,6 +79,13 @@
           <template v-else-if="column.dataIndex === 'codeGenType'">
             <a-tag class="soft-tag" color="blue">{{ formatCodeGenType(record.codeGenType) }}</a-tag>
           </template>
+          <template v-else-if="column.dataIndex === 'generationState'">
+            <div v-if="record.isGenerating" class="generation-state-chip" :class="getGenerationStateClass(record)">
+              <span class="generation-state-chip__dot"></span>
+              <span>{{ getGenerationStateText(record) }}</span>
+            </div>
+            <span v-else class="generation-state-idle">空闲</span>
+          </template>
           <template v-else-if="column.dataIndex === 'priority'">
             <a-tag v-if="record.priority === 99" color="gold" class="soft-tag">精选</a-tag>
             <span v-else class="priority-text">{{ record.priority || 0 }}</span>
@@ -134,6 +141,16 @@ import { normalizeImageUrl } from '@/utils/url'
 const router = useRouter()
 
 const getAppCover = (cover?: string) => normalizeImageUrl(cover) || DEFAULT_APP_COVER
+const getGenerationStateText = (app: API.AppVO) => {
+  if (app.generatingStage === 'update') {
+    return '改修中'
+  }
+  return '创建中'
+}
+
+const getGenerationStateClass = (app: API.AppVO) => {
+  return app.generatingStage === 'update' ? 'is-update' : 'is-create'
+}
 
 const columns = [
   {
@@ -161,6 +178,11 @@ const columns = [
     title: '生成类型',
     dataIndex: 'codeGenType',
     width: 100,
+  },
+  {
+    title: '进度',
+    dataIndex: 'generationState',
+    width: 110,
   },
   {
     title: '优先级',
@@ -469,6 +491,38 @@ const deleteApp = async (id: number | undefined) => {
   border-radius: 999px;
 }
 
+.generation-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.82);
+  color: #526579;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.generation-state-chip.is-update {
+  background: rgba(243, 247, 250, 0.88);
+  color: #406279;
+}
+
+.generation-state-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.8;
+  animation: statePulse 1.9s ease-in-out infinite;
+}
+
+.generation-state-idle {
+  color: #9aa5b1;
+}
+
 :deep(.ant-table-tbody > tr > td) {
   vertical-align: middle;
 }
@@ -486,6 +540,18 @@ const deleteApp = async (id: number | undefined) => {
 
 :deep(.ant-form-item) {
   margin-bottom: 0;
+}
+
+@keyframes statePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.58;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
 }
 
 @media (max-width: 768px) {

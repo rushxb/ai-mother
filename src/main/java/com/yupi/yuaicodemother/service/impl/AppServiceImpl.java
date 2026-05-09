@@ -9,6 +9,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.yupi.yuaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.yupi.yuaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
+import com.yupi.yuaicodemother.ai.AppNameGeneratorService;
 import com.yupi.yuaicodemother.ai.PromptOptimizerService;
 import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.core.AiCodeGeneratorFacade;
@@ -41,6 +42,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
 import java.io.File;
 import java.io.Serializable;
@@ -53,6 +55,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -66,8 +69,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private static final long MAX_EDIT_FILE_SIZE = 1024 * 1024;
     private static final int MAX_MODEL_CONTEXT_FILE_CHARS = 12000;
-
     private static final int MAX_FILE_TREE_DEPTH = 8;
+    private static final int FALLBACK_APP_NAME_LENGTH = 12;
+    private static final int MAX_APP_NAME_LENGTH = 16;
 
     private static final Set<String> HIDDEN_FILE_NAMES = Set.of(
             ".git", ".idea", "node_modules", "dist", "target", ".DS_Store"
@@ -104,42 +108,47 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Resource
     private PromptOptimizerService promptOptimizerService;
 
+    @Resource
+    private AppNameGeneratorService appNameGeneratorService;
+
+    private final Map<Long, Object> generationLocks = new ConcurrentHashMap<>();
+    private final Map<Long, GenerationSession> activeGenerationSessions = new ConcurrentHashMap<>();
+
     @Override
     public Flux<String> chatToGenCode(Long appId, String message, User loginUser) {
-        // 1. 参数校验
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
-        // 2. 查询应用信息
         App app = this.getById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
-        // 3. 权限校验，仅本人可以和自己的应用对话
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用");
         }
-        // 4. 获取应用的代码生成类型
         String codeGenType = app.getCodeGenType();
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         }
         String enhancedMessage = buildEnhancedUserMessage(app, message);
-        // 5. 在调用 AI 前，先保存用户消息到数据库中
-        chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
-        // 6. 设置监控上下文（用户 ID 和应用 ID）
-        MonitorContextHolder.setContext(
-                MonitorContext.builder()
-                        .userId(loginUser.getId().toString())
-                        .appId(appId.toString())
-                        .build()
-        );
-        // 7. 调用 AI 生成代码（流式）
-        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(enhancedMessage, codeGenTypeEnum, appId);
-        // 8. 收集 AI 响应的内容，并且在完成后保存记录到对话历史
-        return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum)
-                .doFinally(signalType -> {
-                    // 流结束时清理（无论成功/失败/取消）
-                    MonitorContextHolder.clearContext();
-                });
+        String generatingStage = determineGeneratingStage(app);
+        GenerationSession session;
+        synchronized (getGenerationLock(appId)) {
+            ThrowUtils.throwIf(activeGenerationSessions.containsKey(appId), ErrorCode.OPERATION_ERROR, "当前应用正在生成中，请稍后再试");
+            resetResidualGenerationState(this.getById(appId));
+            chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+            markGenerationStarted(appId, generatingStage);
+            session = new GenerationSession();
+            activeGenerationSessions.put(appId, session);
+        }
+        startGenerationTask(appId, enhancedMessage, loginUser, codeGenTypeEnum, session);
+        return session.asFlux();
+    }
+
+    @Override
+    public Flux<String> getGenerationStream(Long appId, User loginUser) {
+        App app = getOwnedApp(appId, loginUser);
+        GenerationSession session = activeGenerationSessions.get(app.getId());
+        ThrowUtils.throwIf(session == null, ErrorCode.OPERATION_ERROR, "当前应用没有进行中的生成任务");
+        return session.asFlux();
     }
 
     @Override
@@ -171,8 +180,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         App app = new App();
         BeanUtil.copyProperties(appAddRequest, app);
         app.setUserId(loginUser.getId());
-        // 应用名称暂时为 initPrompt 前 12 位
-        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        app.setAppName(generateAppName(initPrompt));
         // 使用 AI 智能选择代码生成类型（多例模式）
         AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
         CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
@@ -182,6 +190,47 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         log.info("应用创建成功，ID: {}, 类型: {}", app.getId(), selectedCodeGenType.getValue());
         return app.getId();
+    }
+
+    private String generateAppName(String initPrompt) {
+        try {
+            String generatedName = appNameGeneratorService.generateAppName(initPrompt);
+            String normalizedName = normalizeAppName(generatedName);
+            if (StrUtil.isNotBlank(normalizedName)) {
+                return normalizedName;
+            }
+        } catch (Exception e) {
+            log.warn("AI 生成应用标题失败，使用兜底标题，prompt={}", StrUtil.sub(initPrompt, 0, 60), e);
+        }
+        return fallbackAppName(initPrompt);
+    }
+
+    private String normalizeAppName(String appName) {
+        if (StrUtil.isBlank(appName)) {
+            return null;
+        }
+        String normalized = StrUtil.trim(appName)
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .replaceAll("^(标题|应用名|应用名称)\\s*[:：]\\s*", "")
+                .replaceAll("\\s+", " ")
+                .replaceAll("^[\"'“”‘’《》【】\\s]+", "")
+                .replaceAll("[\"'“”‘’《》【】\\s]+$", "");
+        if (StrUtil.isBlank(normalized)) {
+            return null;
+        }
+        return StrUtil.sub(normalized, 0, Math.min(normalized.length(), MAX_APP_NAME_LENGTH));
+    }
+
+    private String fallbackAppName(String initPrompt) {
+        String normalizedPrompt = StrUtil.trim(initPrompt)
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .replaceAll("\\s+", " ");
+        if (StrUtil.isBlank(normalizedPrompt)) {
+            return "未命名应用";
+        }
+        return StrUtil.sub(normalizedPrompt, 0, Math.min(normalizedPrompt.length(), FALLBACK_APP_NAME_LENGTH));
     }
 
     @Override
@@ -362,6 +411,97 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         return app;
     }
 
+    private void startGenerationTask(Long appId,
+                                     String enhancedMessage,
+                                     User loginUser,
+                                     CodeGenTypeEnum codeGenTypeEnum,
+                                     GenerationSession session) {
+        Thread.startVirtualThread(() -> {
+            StringBuilder generatedContent = new StringBuilder();
+            MonitorContextHolder.setContext(
+                    MonitorContext.builder()
+                            .userId(loginUser.getId().toString())
+                            .appId(appId.toString())
+                            .build()
+            );
+            try {
+                Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(enhancedMessage, codeGenTypeEnum, appId);
+                streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum)
+                        .doOnNext(chunk -> {
+                            generatedContent.append(chunk);
+                            updateGenerationSnapshot(appId, generatedContent.toString());
+                            session.emit(chunk);
+                        })
+                        .blockLast();
+                markGenerationFinished(appId);
+                session.complete();
+            } catch (Exception e) {
+                log.error("应用生成任务执行失败，appId: {}", appId, e);
+                markGenerationFinished(appId);
+                session.error(e);
+            } finally {
+                activeGenerationSessions.remove(appId);
+                MonitorContextHolder.clearContext();
+            }
+        });
+    }
+
+    private void resetResidualGenerationState(App app) {
+        if (app == null) {
+            return;
+        }
+        if (app.getIsGenerating() != null && app.getIsGenerating() == 1) {
+            log.warn("检测到残留的生成状态，已自动重置，appId: {}", app.getId());
+            markGenerationFinished(app.getId());
+            app.setIsGenerating(0);
+            app.setGeneratingMessage("");
+        }
+    }
+
+    private Object getGenerationLock(Long appId) {
+        return generationLocks.computeIfAbsent(appId, key -> new Object());
+    }
+
+    private String determineGeneratingStage(App app) {
+        if (app == null || app.getId() == null) {
+            return AppConstant.GENERATING_STAGE_CREATE;
+        }
+        boolean hasGeneratedCode;
+        try {
+            getCodeRootDir(app);
+            hasGeneratedCode = true;
+        } catch (BusinessException e) {
+            hasGeneratedCode = false;
+        }
+        return hasGeneratedCode ? AppConstant.GENERATING_STAGE_UPDATE : AppConstant.GENERATING_STAGE_CREATE;
+    }
+
+    private void markGenerationStarted(Long appId, String generatingStage) {
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setIsGenerating(1);
+        updateApp.setGeneratingMessage("");
+        updateApp.setGeneratingStage(generatingStage);
+        this.updateById(updateApp);
+    }
+
+    private void updateGenerationSnapshot(Long appId, String generatingMessage) {
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setIsGenerating(1);
+        updateApp.setGeneratingMessage(generatingMessage);
+        this.updateById(updateApp);
+    }
+
+    private void markGenerationFinished(Long appId) {
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setIsGenerating(0);
+        updateApp.setGeneratingMessage("");
+        updateApp.setGeneratingStage(null);
+        this.updateById(updateApp);
+    }
+
     private File getCodeRootDir(App app) {
         String sourceDirName = app.getCodeGenType() + "_" + app.getId();
         File rootDir = new File(AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName);
@@ -443,10 +583,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         String projectContext = buildProjectContext(app);
         if (StrUtil.isNotBlank(projectContext)) {
             promptBuilder.append("\n\n")
-                    .append("【当前项目上下文】\n")
-                    .append("你正在当前应用的连续对话中工作。下面是这个应用当前已生成的代码和状态摘要。\n")
-                    .append("回答后续问题时，必须结合这些现有内容继续修改、恢复或说明，不能声称无法访问当前对话、当前项目、刚刚生成的页面，或无法还原上一版内容。\n")
-                    .append("如果用户要求“还原之前的内容”，优先基于下面的当前代码与历史语义进行恢复。\n\n")
+                    .append(AppConstant.PROJECT_CONTEXT_MARKER)
+                    .append("\n")
+                    .append("这是当前应用已生成的代码摘要。后续回答必须基于这些现有内容继续修改、恢复或说明，不能声称无法访问当前项目或无法还原上一版内容。\n\n")
                     .append(projectContext);
         }
         return promptBuilder.toString();
@@ -544,6 +683,27 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             boolean updated = this.updateById(updateApp);
             ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
         });
+    }
+
+    private static final class GenerationSession {
+
+        private final Sinks.Many<String> sink = Sinks.many().replay().all();
+
+        private Flux<String> asFlux() {
+            return sink.asFlux();
+        }
+
+        private void emit(String chunk) {
+            sink.tryEmitNext(chunk);
+        }
+
+        private void complete() {
+            sink.tryEmitComplete();
+        }
+
+        private void error(Throwable throwable) {
+            sink.tryEmitError(throwable);
+        }
     }
 
     @Override

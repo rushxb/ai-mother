@@ -2,6 +2,10 @@
   <div class="app-card" :class="{ 'app-card--featured': featured }">
     <div class="app-preview">
       <img :src="appCover" :alt="app.appName || '应用封面'" />
+      <div v-if="statusMeta" class="generation-badge" :class="`generation-badge--${statusMeta.variant}`">
+        <span class="generation-badge__dot"></span>
+        <span>{{ statusMeta.label }}</span>
+      </div>
       <div class="app-overlay">
         <a-space>
           <a-button
@@ -83,6 +87,21 @@ const emit = defineEmits<Emits>()
 
 const appCover = computed(() => normalizeImageUrl(props.app.cover) || DEFAULT_APP_COVER)
 const userAvatar = computed(() => props.app.user?.userAvatar || DEFAULT_USER_AVATAR)
+const statusMeta = computed(() => {
+  if (!props.app.isGenerating) {
+    return null
+  }
+  if (props.app.generatingStage === 'update') {
+    return {
+      label: '改修中',
+      variant: 'update',
+    }
+  }
+  return {
+    label: '创建中',
+    variant: 'create',
+  }
+})
 
 const handleViewChat = () => {
   emit('view-chat', props.app.id)
@@ -135,6 +154,47 @@ const handleCopy = () => {
   justify-content: center;
   overflow: hidden;
   position: relative;
+}
+
+.generation-badge {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  background: rgba(246, 249, 253, 0.76);
+  backdrop-filter: blur(16px);
+  color: #42576f;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.64);
+}
+
+.generation-badge__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.78;
+  animation: generationPulse 1.9s ease-in-out infinite;
+}
+
+.generation-badge--create {
+  color: #53687f;
+  background: rgba(248, 250, 252, 0.8);
+}
+
+.generation-badge--update {
+  color: #3f627b;
+  background: rgba(241, 246, 250, 0.82);
 }
 
 .app-preview img {
@@ -226,6 +286,18 @@ const handleCopy = () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@keyframes generationPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.62;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
 }
 
 </style>

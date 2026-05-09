@@ -73,6 +73,24 @@ public class App implements Serializable {
     private LocalDateTime deployedTime;
 
     /**
+     * 是否正在生成
+     */
+    @Column("isGenerating")
+    private Integer isGenerating;
+
+    /**
+     * 当前生成中的 AI 响应快照
+     */
+    @Column("generatingMessage")
+    private String generatingMessage;
+
+    /**
+     * 当前生成阶段：create / update
+     */
+    @Column("generatingStage")
+    private String generatingStage;
+
+    /**
      * 优先级
      */
     private Integer priority;

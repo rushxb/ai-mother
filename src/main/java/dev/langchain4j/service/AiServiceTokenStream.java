@@ -10,6 +10,7 @@ import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.internal.ResponseHandle;
 import dev.langchain4j.model.output.TokenUsage;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.service.tool.ToolExecution;
@@ -50,6 +51,7 @@ public class AiServiceTokenStream implements TokenStream {
     private int onToolExecutedInvoked;
     private int onErrorInvoked;
     private int ignoreErrorsInvoked;
+    private volatile ResponseHandle responseHandle;
 
     /**
      * Creates a new instance of {@link AiServiceTokenStream} with the given parameters.
@@ -125,6 +127,11 @@ public class AiServiceTokenStream implements TokenStream {
 
     @Override
     public void start() {
+        startWithHandle();
+    }
+
+    @Override
+    public ResponseHandle startWithHandle() {
         validateConfiguration();
 
         ChatRequest chatRequest = ChatRequest.builder()
@@ -137,6 +144,7 @@ public class AiServiceTokenStream implements TokenStream {
                 .chatRequest(chatRequest)
                 .build();
 
+        TokenStreamResponseHandle aggregateHandle = new TokenStreamResponseHandle();
         var handler = new AiServiceStreamingResponseHandler(
                 chatExecutor,
                 context,
@@ -152,13 +160,21 @@ public class AiServiceTokenStream implements TokenStream {
                 toolSpecifications,
                 toolExecutors,
                 commonGuardrailParams,
-                methodKey);
+                methodKey,
+                aggregateHandle);
 
         if (contentsHandler != null && retrievedContents != null) {
             contentsHandler.accept(retrievedContents);
         }
 
-        context.streamingChatModel.chat(chatRequest, handler);
+        ResponseHandle handle = context.streamingChatModel.chatWithHandle(chatRequest, handler);
+        aggregateHandle.updateDelegate(handle);
+        this.responseHandle = aggregateHandle;
+        return aggregateHandle;
+    }
+
+    ResponseHandle responseHandle() {
+        return responseHandle;
     }
 
     private void validateConfiguration() {

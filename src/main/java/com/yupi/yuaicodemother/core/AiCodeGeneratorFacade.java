@@ -18,6 +18,7 @@ import com.yupi.yuaicodemother.exception.BusinessException;
 import com.yupi.yuaicodemother.exception.ErrorCode;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.internal.ResponseHandle;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
@@ -96,6 +97,14 @@ public class AiCodeGeneratorFacade {
                                                                  CodeGenTypeEnum codeGenTypeEnum,
                                                                  Long appId,
                                                                  BooleanSupplier cancelChecker) {
+        return generateAndSaveCodeStream(userMessage, codeGenTypeEnum, appId, cancelChecker, handle -> {});
+    }
+
+    public Flux<GenerationStreamEvent> generateAndSaveCodeStream(String userMessage,
+                                                                 CodeGenTypeEnum codeGenTypeEnum,
+                                                                 Long appId,
+                                                                 BooleanSupplier cancelChecker,
+                                                                 java.util.function.Consumer<ResponseHandle> handleConsumer) {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成类型不能为空");
         }
@@ -112,7 +121,7 @@ public class AiCodeGeneratorFacade {
             }
             case VUE_PROJECT -> {
                 TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                yield processTokenStream(tokenStream, appId, cancelChecker);
+                yield processTokenStream(tokenStream, appId, cancelChecker, handleConsumer);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -128,9 +137,12 @@ public class AiCodeGeneratorFacade {
      * @param appId       应用 ID
      * @return Flux<String> 流式响应
      */
-    private Flux<GenerationStreamEvent> processTokenStream(TokenStream tokenStream, Long appId, BooleanSupplier cancelChecker) {
+    private Flux<GenerationStreamEvent> processTokenStream(TokenStream tokenStream,
+                                                           Long appId,
+                                                           BooleanSupplier cancelChecker,
+                                                           java.util.function.Consumer<ResponseHandle> handleConsumer) {
         return Flux.create(sink -> {
-            tokenStream.onPartialResponse((String partialResponse) -> {
+            TokenStream configuredStream = tokenStream.onPartialResponse((String partialResponse) -> {
                         if (sink.isCancelled() || isCancelled(cancelChecker)) {
                             return;
                         }
@@ -193,7 +205,9 @@ public class AiCodeGeneratorFacade {
                         log.error("Vue 项目流式生成失败，appId: {}", appId, error);
                         sink.error(error);
                     })
-                    .start();
+                    ;
+            ResponseHandle handle = configuredStream.startWithHandle();
+            handleConsumer.accept(handle);
         });
     }
 

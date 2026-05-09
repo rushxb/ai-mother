@@ -58,6 +58,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -518,7 +519,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                                         StringBuilder generatedContent,
                                         long[] lastSnapshotUpdateAt) {
         Flux<GenerationStreamEvent> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(
-                prompt, codeGenType, appId, session::isCancelled);
+                prompt, codeGenType, appId, session::isCancelled, session::setResponseHandle);
         streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenType)
                 .takeUntilOther(session.cancelSignal())
                 .doOnNext(event -> {
@@ -993,6 +994,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         private final Sinks.Empty<Void> cancelSink = Sinks.empty();
         private final AtomicBoolean cancelled = new AtomicBoolean(false);
         private final AtomicBoolean completed = new AtomicBoolean(false);
+        private final AtomicReference<dev.langchain4j.model.openai.internal.ResponseHandle> responseHandleRef = new AtomicReference<>();
 
         private Flux<GenerationStreamEvent> asFlux() {
             return sink.asFlux();
@@ -1021,6 +1023,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         private void cancel() {
             if (cancelled.compareAndSet(false, true)) {
+                dev.langchain4j.model.openai.internal.ResponseHandle handle = responseHandleRef.get();
+                if (handle != null) {
+                    handle.cancel();
+                }
                 cancelSink.tryEmitEmpty();
             }
         }
@@ -1035,6 +1041,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         private Flux<Void> cancelSignal() {
             return cancelSink.asMono().flux();
+        }
+
+        private void setResponseHandle(dev.langchain4j.model.openai.internal.ResponseHandle responseHandle) {
+            responseHandleRef.set(responseHandle);
+            if (cancelled.get() && responseHandle != null) {
+                responseHandle.cancel();
+            }
         }
 
         private void throwIfCancelled() {

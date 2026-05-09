@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.DefaultChatRequestParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.openai.internal.ResponseHandle;
 
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,14 @@ public interface StreamingChatModel {
      * @param handler     a {@link StreamingChatResponseHandler} that will handle streaming response from the LLM
      */
     default void chat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+        chatWithHandle(chatRequest, handler);
+    }
+
+    /**
+     * Same as {@link #chat(ChatRequest, StreamingChatResponseHandler)}, but returns a handle for cancelling
+     * the active streaming request when the underlying model supports it.
+     */
+    default ResponseHandle chatWithHandle(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
 
         ChatRequest finalChatRequest = ChatRequest.builder()
                 .messages(chatRequest.messages())
@@ -74,10 +83,14 @@ public interface StreamingChatModel {
         };
 
         onRequest(finalChatRequest, provider(), attributes, listeners);
-        doChat(finalChatRequest, observingHandler);
+        return doChatWithHandle(finalChatRequest, observingHandler);
     }
 
     default void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+        doChatWithHandle(chatRequest, handler);
+    }
+
+    default ResponseHandle doChatWithHandle(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
         throw new RuntimeException("Not implemented");
     }
 

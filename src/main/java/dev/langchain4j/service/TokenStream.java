@@ -2,6 +2,7 @@ package dev.langchain4j.service;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.internal.ResponseHandle;
 import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.service.tool.ToolExecution;
@@ -80,4 +81,12 @@ public interface TokenStream {
      * Will send a request to LLM and start response streaming.
      */
     void start();
+
+    /**
+     * Starts stream processing and returns a handle that can cancel the active network request when supported.
+     */
+    default ResponseHandle startWithHandle() {
+        start();
+        return new ResponseHandle();
+    }
 }

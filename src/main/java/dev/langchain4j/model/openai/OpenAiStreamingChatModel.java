@@ -14,6 +14,7 @@ import dev.langchain4j.model.chat.request.DefaultChatRequestParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.internal.OpenAiClient;
+import dev.langchain4j.model.openai.internal.ResponseHandle;
 import dev.langchain4j.model.openai.internal.chat.*;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 import dev.langchain4j.model.openai.spi.OpenAiStreamingChatModelBuilderFactory;
@@ -107,6 +108,11 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
     @Override
     public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+        doChatWithHandle(chatRequest, handler);
+    }
+
+    @Override
+    public ResponseHandle doChatWithHandle(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
 
         OpenAiChatRequestParameters parameters = (OpenAiChatRequestParameters) chatRequest.parameters();
         validate(parameters);
@@ -123,7 +129,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         OpenAiStreamingResponseBuilder openAiResponseBuilder = new OpenAiStreamingResponseBuilder();
         ToolExecutionRequestBuilder toolBuilder = new ToolExecutionRequestBuilder();
 
-        client.chatCompletion(openAiRequest)
+        return client.chatCompletion(openAiRequest)
                 .onPartialResponse(partialResponse -> {
                     openAiResponseBuilder.append(partialResponse);
                     handle(partialResponse, toolBuilder, handler);

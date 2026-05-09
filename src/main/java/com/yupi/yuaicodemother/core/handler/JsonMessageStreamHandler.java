@@ -47,11 +47,12 @@ public class JsonMessageStreamHandler {
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
         Set<String> seenToolIds = new HashSet<>();
         return originFlux
-                .map(event -> {
-                    // 解析每个 JSON 消息块
-                    return handleStreamEvent(event, chatHistoryStringBuilder, seenToolIds);
+                .<GenerationStreamEvent>handle((event, sink) -> {
+                    GenerationStreamEvent handledEvent = handleStreamEvent(event, chatHistoryStringBuilder, seenToolIds);
+                    if (handledEvent != null && (StrUtil.isNotBlank(handledEvent.getText()) || handledEvent.getData() != null)) {
+                        sink.next(handledEvent);
+                    }
                 })
-                .filter(event -> event != null && (StrUtil.isNotBlank(event.getText()) || event.getData() != null))
                 .doOnComplete(() -> {
                     // 流式响应完成后，添加 AI 消息到对话历史
                     String aiResponse = chatHistoryStringBuilder.toString();

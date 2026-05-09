@@ -13,6 +13,7 @@ import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.openai.internal.ResponseHandle;
 import dev.langchain4j.model.output.TokenUsage;
 import dev.langchain4j.service.tool.ToolExecution;
 import dev.langchain4j.service.tool.ToolExecutor;
@@ -41,6 +42,7 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
     private final Object memoryId;
     private final GuardrailRequestParams commonGuardrailParams;
     private final Object methodKey;
+    private final TokenStreamResponseHandle responseHandle;
 
     private final Consumer<String> partialResponseHandler;
     private final BiConsumer<Integer, ToolExecutionRequest> partialToolExecutionRequestHandler;
@@ -73,7 +75,8 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
             List<ToolSpecification> toolSpecifications,
             Map<String, ToolExecutor> toolExecutors,
             GuardrailRequestParams commonGuardrailParams,
-            Object methodKey) {
+            Object methodKey,
+            TokenStreamResponseHandle responseHandle) {
         this.chatExecutor = ensureNotNull(chatExecutor, "chatExecutor");
         this.context = ensureNotNull(context, "context");
         this.memoryId = ensureNotNull(memoryId, "memoryId");
@@ -89,6 +92,7 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
         this.temporaryMemory = temporaryMemory;
         this.tokenUsage = ensureNotNull(tokenUsage, "tokenUsage");
         this.commonGuardrailParams = commonGuardrailParams;
+        this.responseHandle = ensureNotNull(responseHandle, "responseHandle");
 
         this.toolSpecifications = copy(toolSpecifications);
         this.toolExecutors = copy(toolExecutors);
@@ -97,6 +101,9 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
 
     @Override
     public void onPartialResponse(String partialResponse) {
+        if (responseHandle.isCancelled()) {
+            return;
+        }
         // If we're using output guardrails, then buffer the partial response until the guardrails have completed
         if (hasOutputGuardrails) {
             responseBuffer.add(partialResponse);
@@ -107,20 +114,32 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
 
     @Override
     public void onPartialToolExecutionRequest(int index, ToolExecutionRequest partialToolExecutionRequest) {
+        if (responseHandle.isCancelled()) {
+            return;
+        }
         // If we're using output guardrails, then buffer the partial response until the guardrails have completed
         partialToolExecutionRequestHandler.accept(index, partialToolExecutionRequest);
     }
 
     @Override
     public void onCompleteResponse(ChatResponse completeResponse) {
+        if (responseHandle.isCancelled()) {
+            return;
+        }
         AiMessage aiMessage = completeResponse.aiMessage();
         addToMemory(aiMessage);
 
         if (aiMessage.hasToolExecutionRequests()) {
             for (ToolExecutionRequest toolExecutionRequest : aiMessage.toolExecutionRequests()) {
+                if (responseHandle.isCancelled()) {
+                    return;
+                }
                 String toolName = toolExecutionRequest.name();
                 ToolExecutor toolExecutor = toolExecutors.get(toolName);
                 String toolExecutionResult = toolExecutor.execute(toolExecutionRequest, memoryId);
+                if (responseHandle.isCancelled()) {
+                    return;
+                }
                 ToolExecutionResultMessage toolExecutionResultMessage =
                         ToolExecutionResultMessage.from(toolExecutionRequest, toolExecutionResult);
                 addToMemory(toolExecutionResultMessage);
@@ -154,9 +173,11 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
                     toolSpecifications,
                     toolExecutors,
                     commonGuardrailParams,
-                    methodKey);
+                    methodKey,
+                    responseHandle);
 
-            context.streamingChatModel.chat(chatRequest, handler);
+            ResponseHandle nextHandle = context.streamingChatModel.chatWithHandle(chatRequest, handler);
+            responseHandle.updateDelegate(nextHandle);
         } else {
             if (completeResponseHandler != null) {
                 ChatResponse finalChatResponse = ChatResponse.builder()
@@ -217,6 +238,9 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
 
     @Override
     public void onError(Throwable error) {
+        if (responseHandle.isCancelled()) {
+            return;
+        }
         if (errorHandler != null) {
             try {
                 errorHandler.accept(error);

@@ -18,6 +18,7 @@ import java.util.Map;
 public class GenerationStreamEvent {
 
     public static final String AI_DELTA = "ai_delta";
+    public static final String AI_THINKING_DELTA = "ai_thinking_delta";
     public static final String TOOL_CALL = "tool_call";
     public static final String TOOL_RESULT = "tool_result";
     public static final String BUILD_RESULT = "build_result";
@@ -40,6 +41,13 @@ public class GenerationStreamEvent {
     public static GenerationStreamEvent aiDelta(String text) {
         return GenerationStreamEvent.builder()
                 .type(AI_DELTA)
+                .text(StrUtil.blankToDefault(text, ""))
+                .build();
+    }
+
+    public static GenerationStreamEvent aiThinkingDelta(String text) {
+        return GenerationStreamEvent.builder()
+                .type(AI_THINKING_DELTA)
                 .text(StrUtil.blankToDefault(text, ""))
                 .build();
     }

@@ -38,6 +38,7 @@ public class AiServiceTokenStream implements TokenStream {
     private final Object methodKey;
 
     private Consumer<String> partialResponseHandler;
+    private Consumer<String> partialThinkingHandler;
     private Consumer<List<Content>> contentsHandler;
     private Consumer<ToolExecution> toolExecutionHandler;
     private Consumer<ChatResponse> completeResponseHandler;
@@ -75,6 +76,12 @@ public class AiServiceTokenStream implements TokenStream {
     public TokenStream onPartialResponse(Consumer<String> partialResponseHandler) {
         this.partialResponseHandler = partialResponseHandler;
         this.onPartialResponseInvoked++;
+        return this;
+    }
+
+    @Override
+    public TokenStream onPartialThinking(Consumer<String> partialThinkingHandler) {
+        this.partialThinkingHandler = partialThinkingHandler;
         return this;
     }
 
@@ -150,6 +157,7 @@ public class AiServiceTokenStream implements TokenStream {
                 context,
                 memoryId,
                 partialResponseHandler,
+                partialThinkingHandler,
                 partialToolExecutionRequestHandler,
                 completeToolExecutionRequestHandler,
                 toolExecutionHandler,

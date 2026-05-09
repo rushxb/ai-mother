@@ -28,6 +28,8 @@ public interface TokenStream {
      */
     TokenStream onPartialResponse(Consumer<String> partialResponseHandler);
 
+    TokenStream onPartialThinking(Consumer<String> partialThinkingHandler);
+
     TokenStream onPartialToolExecutionRequest(BiConsumer<Integer, ToolExecutionRequest> toolExecutionRequestHandler);
 
     TokenStream onCompleteToolExecutionRequest(BiConsumer<Integer, ToolExecutionRequest> completedHandler);

@@ -49,6 +49,7 @@ public class StreamingChatModelConfig {
                 .modelName(modelName)
                 .maxTokens(maxTokens)
                 .temperature(temperature)
+                .disableThinkingForDeepSeekV4(true)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
                 .listeners(List.of(aiModelMonitorListener))

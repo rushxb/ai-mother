@@ -124,6 +124,29 @@
                   <a-avatar :src="aiAvatar" />
                 </div>
                 <div class="message-content">
+                  <div
+                      v-if="message.thinkingContent"
+                      class="thinking-block"
+                      :class="{ collapsed: message.thinkingCollapsed }"
+                  >
+                    <button
+                        type="button"
+                        class="thinking-header"
+                        @click="message.thinkingCollapsed = !message.thinkingCollapsed"
+                    >
+                      <span class="thinking-status">
+                        <span
+                            class="thinking-dot"
+                            :class="{ active: message.thinkingActive && !message.thinkingCollapsed }"
+                        ></span>
+                        {{ message.thinkingActive ? 'AI 正在思考' : '已完成思考' }}
+                      </span>
+                      <DownOutlined class="thinking-toggle" />
+                    </button>
+                    <div v-show="!message.thinkingCollapsed" class="thinking-content">
+                      {{ message.thinkingContent }}
+                    </div>
+                  </div>
                   <template v-if="message.content">
                     <template v-for="(segment, segmentIndex) in getAiMessageSegments(message)" :key="`${index}-${segmentIndex}`">
                       <MarkdownRenderer
@@ -550,6 +573,7 @@ import {
   CloseCircleOutlined,
   RedoOutlined,
   StopOutlined,
+  DownOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -570,6 +594,9 @@ interface Message {
   type: 'user' | 'ai'
   content: string
   loading?: boolean
+  thinkingContent?: string
+  thinkingActive?: boolean
+  thinkingCollapsed?: boolean
   createTime?: string
   buildResult?: BuildResultView
   generationFailed?: boolean
@@ -861,6 +888,10 @@ const markCurrentGenerationStopped = () => {
   if (pendingAiMessageIndex >= 0) {
     const targetMessage = messages.value[pendingAiMessageIndex]
     targetMessage.loading = false
+    targetMessage.thinkingActive = false
+    if (targetMessage.thinkingContent) {
+      targetMessage.thinkingCollapsed = true
+    }
     if (!targetMessage.content.includes('[系统] 已停止本次生成')) {
       targetMessage.content = `${targetMessage.content || ''}\n\n[系统] 已停止本次生成`.trim()
     }
@@ -1083,6 +1114,7 @@ const syncGeneratingMessageFromAppInfo = () => {
       type: 'ai',
       content: generatingMessage,
       loading: true,
+      thinkingCollapsed: true,
     }
     decorateMessageWithBuildResult(restoredMessage)
     messages.value.push(restoredMessage)
@@ -1424,6 +1456,8 @@ const sendInitialMessage = async (prompt: string) => {
     type: 'ai',
     content: '',
     loading: true,
+    thinkingActive: true,
+    thinkingCollapsed: false,
   })
 
   await nextTick()
@@ -1487,6 +1521,8 @@ const sendMessage = async () => {
     type: 'ai',
     content: '',
     loading: true,
+    thinkingActive: true,
+    thinkingCollapsed: false,
   })
 
   await nextTick()
@@ -1566,14 +1602,32 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
     let fullContent = ''
 
+    const appendThinkingText = (text: string | undefined) => {
+      if (!text || streamCompleted) {
+        return
+      }
+      const shouldStickToBottom = isNearBottom.value
+      const targetMessage = messages.value[aiMessageIndex]
+      targetMessage.thinkingContent = `${targetMessage.thinkingContent || ''}${text}`
+      targetMessage.thinkingActive = true
+      targetMessage.thinkingCollapsed = false
+      targetMessage.loading = false
+      void syncMessagesViewport(shouldStickToBottom)
+    }
+
     const appendGeneratedText = (text: string | undefined) => {
       if (!text || streamCompleted) {
         return
       }
       const shouldStickToBottom = isNearBottom.value
       fullContent += text
-      messages.value[aiMessageIndex].content = fullContent
-      messages.value[aiMessageIndex].loading = false
+      const targetMessage = messages.value[aiMessageIndex]
+      targetMessage.content = fullContent
+      targetMessage.loading = false
+      if (targetMessage.thinkingContent) {
+        targetMessage.thinkingActive = false
+        targetMessage.thinkingCollapsed = true
+      }
       void syncMessagesViewport(shouldStickToBottom)
     }
 
@@ -1583,7 +1637,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       if (!streamEvent) {
         return
       }
-      appendGeneratedText(streamEvent.text)
+      if (streamEvent.type === 'ai_thinking_delta') {
+        appendThinkingText(streamEvent.text)
+      } else {
+        appendGeneratedText(streamEvent.text)
+      }
       void handleFileOperationStreamEvent(streamEvent)
       if (streamEvent.type === 'build_result') {
         const success = Boolean(streamEvent.data?.success)
@@ -1619,6 +1677,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     }
 
     eventSource.addEventListener('ai_delta', handleGenerationEvent)
+    eventSource.addEventListener('ai_thinking_delta', handleGenerationEvent)
     eventSource.addEventListener('tool_call', handleGenerationEvent)
     eventSource.addEventListener('tool_result', handleGenerationEvent)
     eventSource.addEventListener('build_result', handleGenerationEvent)
@@ -1652,6 +1711,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       stopGenerationPolling()
       isGenerating.value = false
       stoppingGeneration.value = false
+      if (messages.value[aiMessageIndex]?.thinkingContent) {
+        messages.value[aiMessageIndex].thinkingActive = false
+        messages.value[aiMessageIndex].thinkingCollapsed = true
+      }
       eventSource?.close()
       if (activeEventSource === eventSource) {
         activeEventSource = null
@@ -1681,6 +1744,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         const errorMessage = errorData.message || '生成过程中出现错误'
         messages.value[aiMessageIndex].content = `${messages.value[aiMessageIndex].content || ''}\n\n❌ ${errorMessage}`.trim()
         messages.value[aiMessageIndex].loading = false
+        messages.value[aiMessageIndex].thinkingActive = false
+        if (messages.value[aiMessageIndex].thinkingContent) {
+          messages.value[aiMessageIndex].thinkingCollapsed = true
+        }
         messages.value[aiMessageIndex].generationFailed = true
         decorateMessageWithBuildResult(messages.value[aiMessageIndex])
         message.error(errorMessage)
@@ -1688,6 +1755,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         streamCompleted = true
         isGenerating.value = false
         stoppingGeneration.value = false
+        messages.value[aiMessageIndex].thinkingActive = false
+        if (messages.value[aiMessageIndex].thinkingContent) {
+          messages.value[aiMessageIndex].thinkingCollapsed = true
+        }
         stopStreamingFilePreview(true)
         eventSource?.close()
         if (activeEventSource === eventSource) {
@@ -2867,6 +2938,72 @@ onUnmounted(() => {
 
 .ai-message .message-content > :deep(.markdown-content + .markdown-content) {
   margin-top: 10px;
+}
+
+.thinking-block {
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.88);
+}
+
+.thinking-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.thinking-status {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thinking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.thinking-dot.active {
+  background: #1677ff;
+  box-shadow: 0 0 0 5px rgba(22, 119, 255, 0.1);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.thinking-toggle {
+  flex: none;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+
+.thinking-block.collapsed .thinking-toggle {
+  transform: rotate(-90deg);
+}
+
+.thinking-content {
+  max-height: 220px;
+  overflow: auto;
+  padding: 0 12px 12px 27px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .tool-call-file-card {

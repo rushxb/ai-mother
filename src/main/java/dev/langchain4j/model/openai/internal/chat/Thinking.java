@@ -23,6 +23,10 @@ public final class Thinking {
         return new Thinking("disabled");
     }
 
+    public static Thinking enabled() {
+        return new Thinking("enabled");
+    }
+
     @Override
     public boolean equals(Object another) {
         if (this == another) {

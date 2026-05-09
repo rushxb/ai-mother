@@ -41,6 +41,8 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
     private final OpenAiChatRequestParameters defaultRequestParameters;
     private final Boolean strictJsonSchema;
     private final Boolean strictTools;
+    private final Boolean enableThinkingForDeepSeekV4;
+    private final Boolean disableThinkingForDeepSeekV4;
     private final List<ChatModelListener> listeners;
 
     public OpenAiStreamingChatModel(OpenAiStreamingChatModelBuilder builder) {
@@ -98,6 +100,8 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .build();
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
+        this.enableThinkingForDeepSeekV4 = builder.enableThinkingForDeepSeekV4;
+        this.disableThinkingForDeepSeekV4 = builder.disableThinkingForDeepSeekV4;
         this.listeners = copy(builder.listeners);
     }
 
@@ -120,7 +124,8 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         ChatCompletionRequest openAiRequest =
                 toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema)
                         .stream(true)
-                        .disableThinkingForDeepSeekV4(true)
+                        .enableThinkingForDeepSeekV4(enableThinkingForDeepSeekV4)
+                        .disableThinkingForDeepSeekV4(disableThinkingForDeepSeekV4)
                         .streamOptions(StreamOptions.builder()
                                 .includeUsage(true)
                                 .build())
@@ -176,6 +181,15 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         Delta delta = chatCompletionChoice.delta();
         if (delta == null) {
             return;
+        }
+
+        String reasoningContent = delta.reasoningContent();
+        if (!isNullOrEmpty(reasoningContent)) {
+            try {
+                handler.onPartialThinking(reasoningContent);
+            } catch (Exception e) {
+                withLoggingExceptions(() -> handler.onError(e));
+            }
         }
 
         String content = delta.content();
@@ -262,6 +276,8 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         private Integer seed;
         private String user;
         private Boolean strictTools;
+        private Boolean enableThinkingForDeepSeekV4;
+        private Boolean disableThinkingForDeepSeekV4;
         private Boolean parallelToolCalls;
         private Boolean store;
         private Map<String, String> metadata;
@@ -384,6 +400,16 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
         public OpenAiStreamingChatModelBuilder strictTools(Boolean strictTools) {
             this.strictTools = strictTools;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder enableThinkingForDeepSeekV4(Boolean enableThinkingForDeepSeekV4) {
+            this.enableThinkingForDeepSeekV4 = enableThinkingForDeepSeekV4;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder disableThinkingForDeepSeekV4(Boolean disableThinkingForDeepSeekV4) {
+            this.disableThinkingForDeepSeekV4 = disableThinkingForDeepSeekV4;
             return this;
         }
 

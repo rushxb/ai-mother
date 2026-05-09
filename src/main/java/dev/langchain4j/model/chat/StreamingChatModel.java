@@ -60,6 +60,11 @@ public interface StreamingChatModel {
             }
 
             @Override
+            public void onPartialThinking(String partialThinking) {
+                handler.onPartialThinking(partialThinking);
+            }
+
+            @Override
             public void onPartialToolExecutionRequest(int index, ToolExecutionRequest partialToolExecutionRequest) {
                 handler.onPartialToolExecutionRequest(index, partialToolExecutionRequest);
             }

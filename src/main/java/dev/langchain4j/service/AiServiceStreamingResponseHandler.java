@@ -45,6 +45,7 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
     private final TokenStreamResponseHandle responseHandle;
 
     private final Consumer<String> partialResponseHandler;
+    private final Consumer<String> partialThinkingHandler;
     private final BiConsumer<Integer, ToolExecutionRequest> partialToolExecutionRequestHandler;
     private final BiConsumer<Integer, ToolExecutionRequest> completeToolExecutionRequestHandler;
     private final Consumer<ToolExecution> toolExecutionHandler;
@@ -65,6 +66,7 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
             AiServiceContext context,
             Object memoryId,
             Consumer<String> partialResponseHandler,
+            Consumer<String> partialThinkingHandler,
             BiConsumer<Integer, ToolExecutionRequest> partialToolExecutionRequestHandler,
             BiConsumer<Integer, ToolExecutionRequest> completeToolExecutionRequestHandler,
             Consumer<ToolExecution> toolExecutionHandler,
@@ -83,6 +85,7 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
         this.methodKey = methodKey;
 
         this.partialResponseHandler = ensureNotNull(partialResponseHandler, "partialResponseHandler");
+        this.partialThinkingHandler = partialThinkingHandler;
         this.partialToolExecutionRequestHandler = partialToolExecutionRequestHandler;
         this.completeToolExecutionRequestHandler = completeToolExecutionRequestHandler;
         this.completeResponseHandler = completeResponseHandler;
@@ -110,6 +113,14 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
         } else {
             partialResponseHandler.accept(partialResponse);
         }
+    }
+
+    @Override
+    public void onPartialThinking(String partialThinking) {
+        if (responseHandle.isCancelled() || partialThinkingHandler == null) {
+            return;
+        }
+        partialThinkingHandler.accept(partialThinking);
     }
 
     @Override
@@ -163,6 +174,7 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
                     context,
                     memoryId,
                     partialResponseHandler,
+                    partialThinkingHandler,
                     partialToolExecutionRequestHandler,
                     completeToolExecutionRequestHandler,
                     toolExecutionHandler,

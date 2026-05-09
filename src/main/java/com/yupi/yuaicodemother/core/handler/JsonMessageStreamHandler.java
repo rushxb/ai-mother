@@ -77,6 +77,9 @@ public class JsonMessageStreamHandler {
                 chatHistoryStringBuilder.append(event.getText());
                 return event;
             }
+            case GenerationStreamEvent.AI_THINKING_DELTA -> {
+                return event;
+            }
             case GenerationStreamEvent.TOOL_CALL -> {
                 String toolId = event.getData() == null ? null : String.valueOf(event.getData().get("requestId"));
                 String toolName = event.getData() == null ? null : String.valueOf(event.getData().get("toolName"));

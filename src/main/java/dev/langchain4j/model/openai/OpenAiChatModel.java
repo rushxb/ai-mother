@@ -51,6 +51,8 @@ public class OpenAiChatModel implements ChatModel {
     private final Set<Capability> supportedCapabilities;
     private final Boolean strictJsonSchema;
     private final Boolean strictTools;
+    private final Boolean enableThinkingForDeepSeekV4;
+    private final Boolean disableThinkingForDeepSeekV4;
 
     private final List<ChatModelListener> listeners;
 
@@ -111,6 +113,8 @@ public class OpenAiChatModel implements ChatModel {
         this.supportedCapabilities = copy(builder.supportedCapabilities);
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
+        this.enableThinkingForDeepSeekV4 = builder.enableThinkingForDeepSeekV4;
+        this.disableThinkingForDeepSeekV4 = builder.disableThinkingForDeepSeekV4;
         this.listeners = copy(builder.listeners);
     }
 
@@ -136,7 +140,8 @@ public class OpenAiChatModel implements ChatModel {
 
         ChatCompletionRequest openAiRequest =
                 toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema)
-                        .disableThinkingForDeepSeekV4(true)
+                        .enableThinkingForDeepSeekV4(enableThinkingForDeepSeekV4)
+                        .disableThinkingForDeepSeekV4(disableThinkingForDeepSeekV4)
                         .build();
 
         ChatCompletionResponse openAiResponse = withRetryMappingExceptions(() ->
@@ -199,6 +204,8 @@ public class OpenAiChatModel implements ChatModel {
         private Integer seed;
         private String user;
         private Boolean strictTools;
+        private Boolean enableThinkingForDeepSeekV4;
+        private Boolean disableThinkingForDeepSeekV4;
         private Boolean parallelToolCalls;
         private Boolean store;
         private Map<String, String> metadata;
@@ -331,6 +338,16 @@ public class OpenAiChatModel implements ChatModel {
 
         public OpenAiChatModelBuilder strictTools(Boolean strictTools) {
             this.strictTools = strictTools;
+            return this;
+        }
+
+        public OpenAiChatModelBuilder enableThinkingForDeepSeekV4(Boolean enableThinkingForDeepSeekV4) {
+            this.enableThinkingForDeepSeekV4 = enableThinkingForDeepSeekV4;
+            return this;
+        }
+
+        public OpenAiChatModelBuilder disableThinkingForDeepSeekV4(Boolean disableThinkingForDeepSeekV4) {
+            this.disableThinkingForDeepSeekV4 = disableThinkingForDeepSeekV4;
             return this;
         }
 

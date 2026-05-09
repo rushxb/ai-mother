@@ -42,6 +42,7 @@ public class RoutingAiModelConfig {
                 .baseUrl(baseUrl)
                 .maxTokens(maxTokens)
                 .temperature(temperature)
+                .disableThinkingForDeepSeekV4(true)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
                 .build();

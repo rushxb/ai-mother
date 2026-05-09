@@ -149,6 +149,12 @@ public class AiCodeGeneratorFacade {
                         AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
                         sink.next(GenerationStreamEvent.aiDelta(partialResponse));
                     })
+                    .onPartialThinking((String partialThinking) -> {
+                        if (sink.isCancelled() || isCancelled(cancelChecker)) {
+                            return;
+                        }
+                        sink.next(GenerationStreamEvent.aiThinkingDelta(partialThinking));
+                    })
                     .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
                         if (sink.isCancelled() || isCancelled(cancelChecker)) {
                             return;

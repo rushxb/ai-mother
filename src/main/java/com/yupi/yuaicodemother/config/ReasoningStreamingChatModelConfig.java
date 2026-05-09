@@ -46,6 +46,7 @@ public class ReasoningStreamingChatModelConfig {
                 .modelName(modelName)
                 .maxTokens(maxTokens)
                 .temperature(temperature)
+                .enableThinkingForDeepSeekV4(true)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
                 .listeners(List.of(aiModelMonitorListener))

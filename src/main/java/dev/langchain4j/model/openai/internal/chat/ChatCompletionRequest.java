@@ -112,6 +112,11 @@ public final class ChatCompletionRequest {
         if (builder.thinking != null) {
             return builder.thinking;
         }
+        if (Boolean.TRUE.equals(builder.enableThinkingForDeepSeekV4)
+                && builder.model != null
+                && builder.model.toLowerCase().startsWith("deepseek-v4-")) {
+            return Thinking.enabled();
+        }
         if (Boolean.TRUE.equals(builder.disableThinkingForDeepSeekV4)
                 && builder.model != null
                 && builder.model.toLowerCase().startsWith("deepseek-v4-")) {
@@ -359,6 +364,7 @@ public final class ChatCompletionRequest {
         private String reasoningEffort;
         private String serviceTier;
         private Thinking thinking;
+        private Boolean enableThinkingForDeepSeekV4;
         private Boolean disableThinkingForDeepSeekV4;
         @Deprecated
         private List<Function> functions;
@@ -588,6 +594,11 @@ public final class ChatCompletionRequest {
 
         public Builder thinking(Thinking thinking) {
             this.thinking = thinking;
+            return this;
+        }
+
+        public Builder enableThinkingForDeepSeekV4(Boolean enableThinkingForDeepSeekV4) {
+            this.enableThinkingForDeepSeekV4 = enableThinkingForDeepSeekV4;
             return this;
         }
 

@@ -3,15 +3,17 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
-import { addApp, copyApp, listMyAppVoByPage, listGoodAppVoByPage } from '@/api/appController'
+import { addApp, copyApp, listMyAppVoByPage, listGoodAppVoByPage, optimizePrompt } from '@/api/appController'
 import { getDeployUrl } from '@/config/env'
 import AppCard from '@/components/AppCard.vue'
+import { BulbOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
 
 const userPrompt = ref('')
 const creating = ref(false)
+const optimizingPrompt = ref(false)
 
 const myApps = ref<API.AppVO[]>([])
 const myAppsPage = reactive({
@@ -61,7 +63,8 @@ const setPrompt = (prompt: string) => {
 }
 
 const createApp = async () => {
-  if (!userPrompt.value.trim()) {
+  const prompt = userPrompt.value.trim()
+  if (!prompt) {
     message.warning('请输入应用描述')
     return
   }
@@ -75,7 +78,7 @@ const createApp = async () => {
   creating.value = true
   try {
     const res = await addApp({
-      initPrompt: userPrompt.value.trim(),
+      initPrompt: prompt,
     })
 
     if (res.data.code === 0 && res.data.data) {
@@ -90,6 +93,37 @@ const createApp = async () => {
     message.error('创建失败，请重试')
   } finally {
     creating.value = false
+  }
+}
+
+const optimizeUserPrompt = async () => {
+  const prompt = userPrompt.value.trim()
+  if (!prompt || creating.value || optimizingPrompt.value) {
+    return
+  }
+
+  if (!loginUserStore.loginUser.id) {
+    message.warning('请先登录')
+    await router.push('/user/login')
+    return
+  }
+
+  optimizingPrompt.value = true
+  try {
+    const res = await optimizePrompt({
+      prompt,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      userPrompt.value = res.data.data
+      message.success('提示词已优化')
+      return
+    }
+    message.error('优化失败：' + (res.data.message || '请重试'))
+  } catch (error) {
+    console.error('优化提示词失败：', error)
+    message.error('优化失败，请重试')
+  } finally {
+    optimizingPrompt.value = false
   }
 }
 

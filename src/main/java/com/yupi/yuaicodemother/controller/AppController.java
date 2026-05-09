@@ -56,6 +56,25 @@ public class AppController {
     @Resource
     private ProjectDownloadService projectDownloadService;
 
+    /**
+     * 优化提示词
+     *
+     * @param promptOptimizeRequest 提示词优化请求
+     * @param request               请求
+     * @return 优化后的提示词
+     */
+    @PostMapping("/optimize/prompt")
+    @RateLimit(limitType = RateLimitType.USER, rate = 10, rateInterval = 60, message = "提示词优化请求过于频繁，请稍后再试")
+    public BaseResponse<String> optimizePrompt(@RequestBody PromptOptimizeRequest promptOptimizeRequest,
+                                               HttpServletRequest request) {
+        ThrowUtils.throwIf(promptOptimizeRequest == null, ErrorCode.PARAMS_ERROR);
+        userService.getLoginUser(request);
+        String prompt = promptOptimizeRequest.getPrompt();
+        ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        String result = appService.optimizePrompt(prompt);
+        return ResultUtils.success(result);
+    }
+
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,

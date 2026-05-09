@@ -158,7 +158,7 @@
                   :rows="4"
                   :maxlength="1000"
                   @keydown.enter.prevent="sendMessage"
-                  :disabled="isGenerating || !isOwner"
+                  :disabled="isGenerating || isOptimizingPrompt || !isOwner"
               />
             </a-tooltip>
             <a-textarea
@@ -168,15 +168,28 @@
                 :rows="4"
                 :maxlength="1000"
                 @keydown.enter.prevent="sendMessage"
-                :disabled="isGenerating"
+                :disabled="isGenerating || isOptimizingPrompt"
             />
             <div class="input-actions">
+              <a-tooltip title="优化提示词" placement="top">
+                <a-button
+                    class="optimize-button"
+                    @click="optimizeUserPrompt"
+                    :loading="isOptimizingPrompt"
+                    :disabled="!canOptimizePrompt"
+                >
+                  <template #icon>
+                    <BulbOutlined />
+                  </template>
+                  优化
+                </a-button>
+              </a-tooltip>
               <a-button
                   class="send-button"
                   type="primary"
                   @click="sendMessage"
                   :loading="isGenerating"
-                  :disabled="!isOwner"
+                  :disabled="!isOwner || isOptimizingPrompt"
               >
                 <template #icon>
                   <SendOutlined />
@@ -268,6 +281,7 @@ import {
   getAppVoById,
   deployApp as deployAppApi,
   deleteApp as deleteAppApi,
+  optimizePrompt,
 } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
@@ -289,6 +303,7 @@ import {
   DownloadOutlined,
   EditOutlined,
   GlobalOutlined,
+  BulbOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -311,6 +326,7 @@ interface Message {
 const messages = ref<Message[]>([])
 const userInput = ref('')
 const isGenerating = ref(false)
+const isOptimizingPrompt = ref(false)
 const messagesContainer = ref<HTMLElement>()
 
 // 对话历史相关
@@ -361,6 +377,10 @@ const currentDeployUrl = computed(() => {
     return getDeployUrl(appInfo.value.deployKey)
   }
   return ''
+})
+
+const canOptimizePrompt = computed(() => {
+  return Boolean(isOwner.value && userInput.value.trim() && !isGenerating.value && !isOptimizingPrompt.value)
 })
 
 // 应用详情相关
@@ -540,6 +560,31 @@ const sendMessage = async () => {
   // 开始生成
   isGenerating.value = true
   await generateCode(message, aiMessageIndex)
+}
+
+const optimizeUserPrompt = async () => {
+  const prompt = userInput.value.trim()
+  if (!prompt || isGenerating.value || isOptimizingPrompt.value || !isOwner.value) {
+    return
+  }
+
+  isOptimizingPrompt.value = true
+  try {
+    const res = await optimizePrompt({
+      prompt,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      userInput.value = res.data.data
+      message.success('提示词已优化')
+      return
+    }
+    message.error('优化失败：' + (res.data.message || '请重试'))
+  } catch (error) {
+    console.error('优化提示词失败：', error)
+    message.error('优化失败，请重试')
+  } finally {
+    isOptimizingPrompt.value = false
+  }
 }
 
 // 生成代码 - 使用 EventSource 处理流式响应
@@ -1138,7 +1183,7 @@ onUnmounted(() => {
 }
 
 :deep(.input-wrapper .ant-input) {
-  padding: 14px 72px 14px 16px;
+  padding: 14px 132px 14px 16px;
   border: 0;
   background: transparent;
   color: #0f172a;
@@ -1160,6 +1205,20 @@ onUnmounted(() => {
   position: absolute;
   right: 14px;
   bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.optimize-button {
+  height: 44px;
+  border-radius: 14px;
+  padding-inline: 14px;
+  color: #1677ff;
+  border-color: rgba(22, 119, 255, 0.18);
+  background: rgba(22, 119, 255, 0.06);
+  font-weight: 600;
+  box-shadow: none;
 }
 
 .send-button {

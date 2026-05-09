@@ -86,6 +86,21 @@ export async function chatToGenCode(
   })
 }
 
+/** 优化提示词 POST /app/optimize/prompt */
+export async function optimizePrompt(
+  body: API.PromptOptimizeRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseString>('/app/optimize/prompt', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 POST /app/copy */
 export async function copyApp(body: API.AppCopyRequest, options?: { [key: string]: any }) {
   return request<API.BaseResponseLong>('/app/copy', {

@@ -101,6 +101,10 @@ declare namespace API {
     message?: string
   }
 
+  type PromptOptimizeRequest = {
+    prompt?: string
+  }
+
   type BaseResponseUser = {
     code?: number
     data?: User

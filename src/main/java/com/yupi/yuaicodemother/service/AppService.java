@@ -29,6 +29,14 @@ public interface AppService extends IService<App> {
     Flux<String> chatToGenCode(Long appId, String message, User loginUser);
 
     /**
+     * 优化用户提示词
+     *
+     * @param prompt 原始提示词
+     * @return 优化后的提示词
+     */
+    String optimizePrompt(String prompt);
+
+    /**
      * 创建应用
      *
      * @param appAddRequest

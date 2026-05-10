@@ -289,7 +289,7 @@
                   :placeholder="getInputPlaceholder()"
                   :rows="4"
                   :maxlength="1000"
-                  @keydown.enter.prevent="sendMessage"
+                  @keydown.enter.prevent="sendMessage()"
                   :disabled="isGenerating || isOptimizingPrompt || !isOwner"
               />
             </a-tooltip>
@@ -299,7 +299,7 @@
                 :placeholder="getInputPlaceholder()"
                 :rows="4"
                 :maxlength="1000"
-                @keydown.enter.prevent="sendMessage"
+                @keydown.enter.prevent="sendMessage()"
                 :disabled="isGenerating || isOptimizingPrompt"
             />
             <div class="input-actions">
@@ -342,7 +342,7 @@
               <span></span>
               <span></span>
             </div>
-            <h3>{{ activeWorkspaceTab === 'preview' ? '生成后的网页展示' : '生成文件内容' }}</h3>
+            <h3>{{ workspaceTitle }}</h3>
           </div>
           <div class="preview-actions">
             <a-button
@@ -543,6 +543,20 @@
               </section>
             </div>
           </a-tab-pane>
+          <a-tab-pane key="database">
+            <template #tab>
+              <span class="workspace-tab-label">
+                <DatabaseOutlined />
+                数据库服务
+              </span>
+            </template>
+            <DatabaseWorkspace
+                :app="appInfo"
+                :is-owner="isOwner"
+                :is-generating="isGenerating"
+                @enabled="handleDatabaseEnabled"
+            />
+          </a-tab-pane>
         </a-tabs>
       </div>
     </div>
@@ -592,6 +606,7 @@ import request from '@/request'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import AppDetailModal from '@/components/AppDetailModal.vue'
 import DeploySuccessModal from '@/components/DeploySuccessModal.vue'
+import DatabaseWorkspace from '@/components/app/DatabaseWorkspace.vue'
 import aiAvatar from '@/assets/aiAvatar.png'
 import { API_BASE_URL, getDeployUrl, getStaticPreviewUrl } from '@/config/env'
 import { VisualEditor, type ElementInfo } from '@/utils/visualEditor'
@@ -617,6 +632,7 @@ import {
   RedoOutlined,
   StopOutlined,
   DownOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -709,7 +725,9 @@ const SCROLL_BUTTON_THRESHOLD = 180
 const previewUrl = ref('')
 const previewReady = ref(false)
 const previewRefreshKey = ref(0)
-const activeWorkspaceTab = ref<'preview' | 'files'>('preview')
+type WorkspaceTabKey = 'preview' | 'files' | 'database'
+
+const activeWorkspaceTab = ref<WorkspaceTabKey>('preview')
 const generationPhase = ref<'idle' | 'codegen' | 'build' | 'repair' | 'done' | 'failed'>('idle')
 const currentAgentStageText = ref('')
 
@@ -800,6 +818,15 @@ const currentDeployUrl = computed(() => {
     return getDeployUrl(appInfo.value.deployKey)
   }
   return ''
+})
+
+const workspaceTitle = computed(() => {
+  const titleMap: Record<WorkspaceTabKey, string> = {
+    preview: '生成后的网页展示',
+    files: '生成文件内容',
+    database: '数据库服务',
+  }
+  return titleMap[activeWorkspaceTab.value]
 })
 
 const canOptimizePrompt = computed(() => {
@@ -938,8 +965,34 @@ const fileIconMetaMap: Record<string, { type: string; label: string }> = {
   yaml: { type: 'yaml', label: 'YML' },
   txt: { type: 'text', label: 'TXT' },
   env: { type: 'env', label: 'ENV' },
+  sql: { type: 'sql', label: 'SQL' },
+  go: { type: 'go', label: 'GO' },
+  mod: { type: 'go', label: 'MOD' },
+  sum: { type: 'go', label: 'SUM' },
   lock: { type: 'lock', label: 'LOCK' },
 }
+
+const frontendEditableExtensions = new Set([
+  'html',
+  'css',
+  'scss',
+  'less',
+  'js',
+  'mjs',
+  'cjs',
+  'ts',
+  'jsx',
+  'tsx',
+  'vue',
+  'json',
+  'md',
+  'markdown',
+  'txt',
+  'xml',
+  'svg',
+  'yml',
+  'yaml',
+])
 
 const selectedFileLanguage = computed(() => {
   const filePath = selectedFilePath.value || selectedFileName.value
@@ -1098,6 +1151,11 @@ const getGenerationErrorDisplay = (category?: string, rawMessage?: string) => {
   const normalizedCategory = String(category || 'runtime')
   const fallbackMessage = rawMessage || '生成失败'
   switch (normalizedCategory) {
+    case 'model_quota':
+      return {
+        toast: 'AI 模型服务额度不足，请检查账户余额',
+        detail: `模型服务问题：${fallbackMessage}`,
+      }
     case 'codegen_empty':
       return {
         toast: '生成结束但没有产出项目代码，请重试',
@@ -1661,13 +1719,14 @@ const sendInitialMessage = async (prompt: string) => {
 }
 
 // 发送消息
-const sendMessage = async () => {
-  if (!userInput.value.trim() || isGenerating.value) {
+const sendMessage = async (presetMessage?: string) => {
+  const rawMessage = presetMessage ?? userInput.value
+  if (!rawMessage.trim() || isGenerating.value) {
     return
   }
   stopGenerationPolling()
 
-  let message = userInput.value.trim()
+  let message = rawMessage.trim()
   // 如果有选中的元素，将元素信息添加到提示词中
   if (selectedElementInfo.value) {
     let elementContext = `\n\n选中元素信息：`
@@ -1680,7 +1739,9 @@ const sendMessage = async () => {
     }
     message += elementContext
   }
-  userInput.value = ''
+  if (!presetMessage) {
+    userInput.value = ''
+  }
   // 添加用户消息（包含元素信息）
   messages.value.push({
     type: 'user',
@@ -1724,6 +1785,17 @@ const sendMessage = async () => {
     }
   }
   await generateCode(message, aiMessageIndex)
+}
+
+const handleDatabaseEnabled = async (resource: API.AppDatabaseResourceVO) => {
+  if (appInfo.value) {
+    appInfo.value = {
+      ...appInfo.value,
+      databaseResource: resource,
+    }
+  }
+  activeWorkspaceTab.value = 'database'
+  await sendMessage('请帮我接入 Database')
 }
 
 const optimizeUserPrompt = async () => {
@@ -2090,6 +2162,10 @@ const getFileIconMeta = (fileName: string) => {
   return fileIconMetaMap[extension] || { type: 'file', label: extension.slice(0, 3).toUpperCase() || 'TXT' }
 }
 
+const isFrontendEditableFile = (fileName: string) => {
+  return frontendEditableExtensions.has(getFileExtension(fileName))
+}
+
 const mapFileTreeNodes = (nodes: API.AppCodeFileTreeVO[] = []): FileTreeNode[] => {
   return nodes.map((node) => {
     const isDirectory = Boolean(node.directory)
@@ -2099,7 +2175,7 @@ const mapFileTreeNodes = (nodes: API.AppCodeFileTreeVO[] = []): FileTreeNode[] =
       title: fileName,
       key: node.path || node.name || '',
       isLeaf: !isDirectory,
-      selectable: !isDirectory,
+      selectable: !isDirectory && isFrontendEditableFile(fileName),
       directory: isDirectory,
       iconType: iconMeta.type,
       iconLabel: iconMeta.label,
@@ -2119,7 +2195,7 @@ const createFileTreeNode = (path: string, name: string, directory: boolean): Fil
     title: name,
     key: path,
     isLeaf: !directory,
-    selectable: !directory,
+    selectable: !directory && isFrontendEditableFile(name),
     directory,
     iconType: iconMeta.type,
     iconLabel: iconMeta.label,
@@ -2230,6 +2306,10 @@ const handleFileTreeExpand = (expandedKeys: Array<string | number>) => {
 
 const loadFileContent = async (filePath: string) => {
   if (!appId.value || !filePath) {
+    return
+  }
+  if (!isFrontendEditableFile(filePath)) {
+    message.info('文件树已展示该文件，但当前编辑器仅支持前端文件')
     return
   }
   if (isStreamingFilePreview.value && streamingFilePath.value === filePath) {
@@ -2463,6 +2543,12 @@ const handleFileOperationStreamEvent = async (streamEvent: GenerationStreamEvent
   ensureFileTreePath(filePath)
   const normalizedFilePath = normalizeFilePath(filePath)
   const toolName = getStringFromEventData(streamEvent.data, 'toolName')
+  if (!isFrontendEditableFile(normalizedFilePath)) {
+    if (['writeFile', 'modifyFile'].includes(toolName)) {
+      await nextTick()
+    }
+    return
+  }
   if (!['writeFile', 'modifyFile'].includes(toolName)) {
     return
   }
@@ -3960,6 +4046,14 @@ onUnmounted(() => {
 .file-type-icon-lock,
 .file-type-icon-file {
   background: #64748b;
+}
+
+.file-type-icon-sql {
+  background: #334155;
+}
+
+.file-type-icon-go {
+  background: #0891b2;
 }
 
 .file-tree-name {

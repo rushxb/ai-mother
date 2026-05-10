@@ -18,6 +18,26 @@ declare namespace API {
     appId?: string | number
   }
 
+  type AppDatabaseEnableRequest = {
+    appId?: string | number
+  }
+
+  type AppDatabaseResourceVO = {
+    id?: string | number
+    appId?: string | number
+    resourceId?: string
+    resourceName?: string
+    databaseUrl?: string
+    dbEngine?: string
+    backendRuntime?: string
+    sqlExecutionPolicy?: string
+    status?: string
+    lastUsedTime?: string
+    createTime?: string
+    updateTime?: string
+    enabled?: boolean
+  }
+
   type AppCodeFileSaveRequest = {
     appId?: string | number
     filePath?: string
@@ -71,6 +91,7 @@ declare namespace API {
     isGenerating?: number
     generatingMessage?: string
     generatingStage?: string
+    databaseResource?: AppDatabaseResourceVO
     priority?: number
     userId?: string | number
     createTime?: string
@@ -87,6 +108,12 @@ declare namespace API {
   type BaseResponseAppCodeFileContentVO = {
     code?: number
     data?: AppCodeFileContentVO
+    message?: string
+  }
+
+  type BaseResponseAppDatabaseResourceVO = {
+    code?: number
+    data?: AppDatabaseResourceVO
     message?: string
   }
 

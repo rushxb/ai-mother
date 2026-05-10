@@ -62,6 +62,11 @@ public class AppVO implements Serializable {
     private String generatingStage;
 
     /**
+     * Database 资源
+     */
+    private AppDatabaseResourceVO databaseResource;
+
+    /**
      * 优先级
      */
     private Integer priority;

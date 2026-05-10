@@ -14,6 +14,7 @@ import com.yupi.yuaicodemother.ai.PromptOptimizerService;
 import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.core.AiCodeGeneratorFacade;
 import com.yupi.yuaicodemother.core.builder.VueProjectBuilder;
+import com.yupi.yuaicodemother.core.error.GenerationErrorClassifier;
 import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
 import com.yupi.yuaicodemother.core.handler.StreamHandlerExecutor;
 import com.yupi.yuaicodemother.exception.BusinessException;
@@ -29,6 +30,7 @@ import com.yupi.yuaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileContentVO;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileTreeVO;
+import com.yupi.yuaicodemother.model.vo.AppDatabaseResourceVO;
 import com.yupi.yuaicodemother.model.vo.AppVO;
 import com.yupi.yuaicodemother.model.vo.UserVO;
 import com.yupi.yuaicodemother.monitor.MonitorContext;
@@ -39,6 +41,7 @@ import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
 import com.yupi.yuaicodemother.service.AppService;
+import com.yupi.yuaicodemother.service.AppDatabaseResourceService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
 import com.yupi.yuaicodemother.service.ScreenshotService;
 import com.yupi.yuaicodemother.service.UserService;
@@ -127,6 +130,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Resource
     private GenerationOrchestrator generationOrchestrator;
 
+    @Resource
+    private AppDatabaseResourceService appDatabaseResourceService;
+
     private final Map<Long, Object> generationLocks = new ConcurrentHashMap<>();
     private final Map<Long, GenerationSession> activeGenerationSessions = new ConcurrentHashMap<>();
 
@@ -143,6 +149,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
+        }
+        if (appDatabaseResourceService.shouldEnableForPrompt(message)) {
+            appDatabaseResourceService.enableDatabase(app);
         }
         GenerationPreparation preparation = prepareGeneration(app, message);
         GenerationSession session;
@@ -399,6 +408,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     @Override
+    public AppDatabaseResourceVO enableDatabase(Long appId, User loginUser) {
+        App app = getOwnedApp(appId, loginUser);
+        return appDatabaseResourceService.getResourceVO(appDatabaseResourceService.enableDatabase(app));
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Long copyApp(Long sourceAppId, User loginUser) {
         ThrowUtils.throwIf(sourceAppId == null || sourceAppId <= 0, ErrorCode.PARAMS_ERROR, "源应用 ID 错误");
@@ -489,13 +504,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 activeGenerationSessions.remove(appId, session);
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
+                GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
                 markGenerationFinished(appId);
-                session.emit(GenerationStreamEvent.generationError(e.getMessage(), Map.of(
-                        "category", classifyGenerationError(e.getMessage()),
-                        "message", StrUtil.blankToDefault(e.getMessage(), "生成失败"),
+                session.emit(GenerationStreamEvent.generationError(generationError.message(), Map.of(
+                        "category", generationError.category(),
+                        "message", generationError.message(),
                         "taskId", preparation.taskId(),
-                        "recoverable", true
+                        "recoverable", generationError.recoverable()
                 )));
                 session.complete();
                 activeGenerationSessions.remove(appId, session);
@@ -521,12 +537,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 runBackgroundBuildWithAutoRepair(appId, loginUser, preparation, session);
             } catch (Exception e) {
                 log.error("后台构建校验失败，appId: {}", appId, e);
+                GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
-                session.emit(GenerationStreamEvent.generationError(e.getMessage(), Map.of(
-                        "category", classifyGenerationError(e.getMessage()),
-                        "message", StrUtil.blankToDefault(e.getMessage(), "后台构建校验失败"),
+                session.emit(GenerationStreamEvent.generationError(generationError.message(), Map.of(
+                        "category", generationError.category(),
+                        "message", generationError.message(),
                         "taskId", preparation.taskId(),
-                        "recoverable", true
+                        "recoverable", generationError.recoverable()
                 )));
             } finally {
                 markGenerationFinished(appId);
@@ -570,11 +587,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         if (MAX_AUTO_REPAIR_ROUNDS <= 0 || !workspaceState.canAutoRepair()) {
             rollbackCodeGenTypeIfNeeded(appId, preparation);
+            GenerationErrorClassifier.GenerationError generationError =
+                    classifyGenerationError(buildResult.toFailureSummary());
             session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
-                    "category", classifyGenerationError(buildResult.toFailureSummary()),
+                    "category", generationError.category(),
                     "message", buildResult.toFailureSummary(),
                     "taskId", preparation.taskId(),
-                    "recoverable", true
+                    "recoverable", generationError.recoverable()
             )));
             return;
         }
@@ -621,11 +640,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             }
         }
         rollbackCodeGenTypeIfNeeded(appId, preparation);
+        GenerationErrorClassifier.GenerationError generationError =
+                classifyGenerationError(buildResult.toFailureSummary());
         session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
-                "category", classifyGenerationError(buildResult.toFailureSummary()),
+                "category", generationError.category(),
                 "message", buildResult.toFailureSummary(),
                 "taskId", preparation.taskId(),
-                "recoverable", true
+                "recoverable", generationError.recoverable()
         )));
     }
 
@@ -657,10 +678,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 return;
             } catch (Exception e) {
                 lastError = e;
-                String category = classifyGenerationError(e.getMessage());
+                GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 log.warn("应用生成轮次失败，appId: {}, round: {}, category: {}, error: {}",
-                        appId, round, category, e.getMessage());
-                if (e instanceof MissingGeneratedProjectException) {
+                        appId, round, generationError.category(), e.getMessage());
+                if (e instanceof MissingGeneratedProjectException || !generationError.recoverable()) {
                     break;
                 }
                 if (round >= maxGenerationRepairRounds) {
@@ -750,34 +771,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 2. 如果涉及依赖、scripts 或 package.json，先使用依赖问题分析工具，再用依赖与脚本管理工具处理。
                 3. 只修改必要文件，避免无关重构。
                 4. 修复后必须调用本地构建诊断工具验证。
-                """.formatted(repairRound, classifyGenerationError(errorMessage), errorMessage);
+                """.formatted(repairRound, classifyGenerationError(errorMessage).category(), errorMessage);
     }
 
-    private String classifyGenerationError(String errorMessage) {
-        if (StrUtil.isBlank(errorMessage)) {
-            return "unknown";
-        }
-        String normalized = errorMessage.toLowerCase();
-        if (normalized.contains("未产出项目") || normalized.contains("未产出有效项目文件")
-                || normalized.contains("missing generated project")) {
-            return "codegen_empty";
-        }
-        if (normalized.contains("npm install") || normalized.contains("缺少模块") || normalized.contains("dependency")
-                || normalized.contains("module not found") || normalized.contains("failed to resolve import")) {
-            return "dependency";
-        }
-        if (normalized.contains("npm run build") || normalized.contains("syntax") || normalized.contains("编译")
-                || normalized.contains("vite") || normalized.contains("vue")) {
-            return "build";
-        }
-        if (normalized.contains("router") || normalized.contains("404") || normalized.contains("history")) {
-            return "routing";
-        }
-        if (normalized.contains("permission") || normalized.contains("权限") || normalized.contains("illegal")
-                || normalized.contains("非法路径")) {
-            return "permission";
-        }
-        return "runtime";
+    private GenerationErrorClassifier.GenerationError classifyGenerationError(Throwable throwable) {
+        return GenerationErrorClassifier.classify(throwable);
+    }
+
+    private GenerationErrorClassifier.GenerationError classifyGenerationError(String errorMessage) {
+        return GenerationErrorClassifier.classify(errorMessage);
     }
 
     private void resetResidualGenerationState(App app) {
@@ -799,12 +801,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private GenerationPreparation prepareGeneration(App app, String userMessage) {
         CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(currentType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
+        String generationMessage = appDatabaseResourceService.appendGenerationInstructionIfEnabled(app, userMessage);
         String generatingStage = determineGeneratingStage(app);
         boolean hasGeneratedCode = hasGeneratedCode(app);
         GenerationOrchestrationResult orchestrationResult = generationOrchestrator.prepare(
                 new GenerationOrchestrationRequest(
                         app,
-                        userMessage,
+                        generationMessage,
                         currentType,
                         generatingStage,
                         hasGeneratedCode,
@@ -1308,6 +1311,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         AppVO appVO = new AppVO();
         BeanUtil.copyProperties(app, appVO);
+        appVO.setDatabaseResource(appDatabaseResourceService.getResourceVO(appDatabaseResourceService.getByAppId(app.getId())));
         // 关联查询用户信息
         Long userId = app.getUserId();
         if (userId != null) {

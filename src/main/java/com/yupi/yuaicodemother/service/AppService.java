@@ -9,6 +9,7 @@ import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.entity.User;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileContentVO;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileTreeVO;
+import com.yupi.yuaicodemother.model.vo.AppDatabaseResourceVO;
 import com.yupi.yuaicodemother.model.vo.AppVO;
 import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
 import reactor.core.publisher.Flux;
@@ -111,6 +112,15 @@ public interface AppService extends IService<App> {
      * @return 部署地址
      */
     String syncAppDeployment(Long appId, User loginUser);
+
+    /**
+     * 启用应用 Database 服务。
+     *
+     * @param appId 应用 ID
+     * @param loginUser 登录用户
+     * @return Database 资源信息
+     */
+    AppDatabaseResourceVO enableDatabase(Long appId, User loginUser);
 
     /**
      * 复制应用到当前用户，包含生成代码和对话历史，但不复制部署信息

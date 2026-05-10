@@ -19,6 +19,7 @@ import com.yupi.yuaicodemother.model.dto.app.*;
 import com.yupi.yuaicodemother.model.entity.User;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileContentVO;
 import com.yupi.yuaicodemother.model.vo.AppCodeFileTreeVO;
+import com.yupi.yuaicodemother.model.vo.AppDatabaseResourceVO;
 import com.yupi.yuaicodemother.model.vo.AppVO;
 import com.yupi.yuaicodemother.ratelimter.annotation.RateLimit;
 import com.yupi.yuaicodemother.ratelimter.enums.RateLimitType;
@@ -100,6 +101,23 @@ public class AppController {
         User loginUser = userService.getLoginUser(request);
         appService.stopGeneration(appId, loginUser);
         return ResultUtils.success(true);
+    }
+
+    /**
+     * 启用应用 Database 服务。
+     *
+     * @param enableRequest 启用请求
+     * @param request       请求
+     * @return Database 资源
+     */
+    @PostMapping("/database/enable")
+    public BaseResponse<AppDatabaseResourceVO> enableDatabase(@RequestBody AppDatabaseEnableRequest enableRequest,
+                                                              HttpServletRequest request) {
+        ThrowUtils.throwIf(enableRequest == null, ErrorCode.PARAMS_ERROR);
+        Long appId = enableRequest.getAppId();
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(appService.enableDatabase(appId, loginUser));
     }
 
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

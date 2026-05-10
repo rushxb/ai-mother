@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import com.yupi.yuaicodemother.ai.model.message.*;
 import com.yupi.yuaicodemother.ai.tools.BaseTool;
 import com.yupi.yuaicodemother.ai.tools.ToolManager;
+import com.yupi.yuaicodemother.core.error.GenerationErrorClassifier;
 import com.yupi.yuaicodemother.model.entity.User;
 import com.yupi.yuaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
@@ -61,7 +62,9 @@ public class JsonMessageStreamHandler {
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
-                    String errorMessage = chatHistoryStringBuilder + "\n\nAI回复失败: " + error.getMessage();
+                    GenerationErrorClassifier.GenerationError generationError =
+                            GenerationErrorClassifier.classify(error);
+                    String errorMessage = chatHistoryStringBuilder + "\n\nAI回复失败: " + generationError.message();
                     chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
                 });
     }

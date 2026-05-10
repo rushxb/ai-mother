@@ -101,6 +101,21 @@ export async function stopChatToGenCode(
   })
 }
 
+/** 启用应用 Database 服务 POST /app/database/enable */
+export async function enableAppDatabase(
+  body: API.AppDatabaseEnableRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseAppDatabaseResourceVO>('/app/database/enable', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
 /** 优化提示词 POST /app/optimize/prompt */
 export async function optimizePrompt(
   body: API.PromptOptimizeRequest,

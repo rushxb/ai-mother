@@ -1,38 +1,118 @@
 <template>
   <div class="preview-section" :class="{ 'is-editing': isEditMode }">
-    <WorkspaceHeader
-        :active-workspace-tab="activeWorkspaceTab"
-        :can-save-file="canSaveFile"
-        :deploying="deploying"
-        :downloading="downloading"
-        :has-deployed="hasDeployed"
-        :is-edit-mode="isEditMode"
-        :is-generating="isGenerating"
-        :is-owner="isOwner"
-        :loading-files="loadingFiles"
-        :preview-url="previewUrl"
-        :syncing-deploy="syncingDeploy"
-        :workspace-title="workspaceTitle"
-        @deploy-app="$emit('deployApp')"
-        @download-code="$emit('downloadCode')"
-        @load-code-files="$emit('loadCodeFiles')"
-        @open-deployed-site="$emit('openDeployedSite')"
-        @open-in-new-tab="$emit('openInNewTab')"
-        @save-current-file="$emit('saveCurrentFile')"
-        @show-app-detail="$emit('showAppDetail')"
-        @sync-deployment="$emit('syncDeployment')"
-        @toggle-edit-mode="$emit('toggleEditMode')"
-    />
     <a-tabs
         :active-key="activeWorkspaceTab"
         class="workspace-tabs"
         @change="$emit('update:activeWorkspaceTab', $event as WorkspaceTabKey)"
     >
+      <template #rightExtra>
+        <div class="workspace-tabs-actions">
+          <ChatToolbarButton type="text" @click="$emit('showAppDetail')">
+            <template #icon>
+              <InfoCircleOutlined />
+            </template>
+            应用详情
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              type="text"
+              :loading="downloading"
+              :disabled="!isOwner || isGenerating"
+              @click="$emit('downloadCode')"
+          >
+            <template #icon>
+              <DownloadOutlined />
+            </template>
+            下载代码
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              v-if="hasDeployed"
+              class="deploy-button"
+              type="text"
+              @click="$emit('openDeployedSite')"
+          >
+            <template #icon>
+              <ExportOutlined />
+            </template>
+            查看作品
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              v-else
+              class="deploy-button"
+              type="text"
+              :loading="deploying"
+              :disabled="!isOwner || isGenerating"
+              @click="$emit('deployApp')"
+          >
+            <template #icon>
+              <CloudUploadOutlined />
+            </template>
+            部署
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              v-if="activeWorkspaceTab === 'preview' && isOwner && previewUrl"
+              type="text"
+              :danger="isEditMode"
+              :class="{ 'edit-mode-active': isEditMode }"
+              @click="$emit('toggleEditMode')"
+          >
+            <template #icon>
+              <EditOutlined />
+            </template>
+            {{ isEditMode ? '退出编辑' : '编辑模式' }}
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              v-if="activeWorkspaceTab === 'preview' && previewUrl"
+              type="text"
+              @click="$emit('openInNewTab')"
+          >
+            <template #icon>
+              <ExportOutlined />
+            </template>
+            新窗口打开
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              v-if="activeWorkspaceTab === 'files'"
+              type="text"
+              :loading="loadingFiles"
+              :disabled="!isOwner"
+              @click="$emit('loadCodeFiles')"
+          >
+            <template #icon>
+              <ReloadOutlined />
+            </template>
+            刷新文件
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              v-if="activeWorkspaceTab === 'files'"
+              type="text"
+              :disabled="!canSaveFile"
+              @click="$emit('saveCurrentFile')"
+          >
+            <template #icon>
+              <SaveOutlined />
+            </template>
+            保存
+          </ChatToolbarButton>
+          <ChatToolbarButton
+              v-if="activeWorkspaceTab === 'files'"
+              class="deploy-button"
+              type="text"
+              :loading="syncingDeploy"
+              :disabled="!isOwner || !hasDeployed || isGenerating"
+              @click="$emit('syncDeployment')"
+          >
+            <template #icon>
+              <CloudSyncOutlined />
+            </template>
+            同步
+          </ChatToolbarButton>
+        </div>
+      </template>
       <a-tab-pane key="preview">
         <template #tab>
           <span class="workspace-tab-label">
             <GlobalOutlined />
-            网页预览
+            <span class="workspace-tab-text">网页预览</span>
           </span>
         </template>
         <div class="preview-content">
@@ -81,7 +161,7 @@
         <template #tab>
           <span class="workspace-tab-label">
             <FolderOpenOutlined />
-            文件编辑
+            <span class="workspace-tab-text">文件编辑</span>
           </span>
         </template>
         <div class="file-workspace">
@@ -171,7 +251,7 @@
         <template #tab>
           <span class="workspace-tab-label">
             <DatabaseOutlined />
-            数据库服务
+            <span class="workspace-tab-text">数据库服务</span>
           </span>
         </template>
         <DatabaseWorkspace
@@ -186,9 +266,22 @@
 </template>
 
 <script setup lang="ts">
-import { GlobalOutlined, FolderOpenOutlined, FileTextOutlined, DatabaseOutlined } from '@ant-design/icons-vue'
+import {
+  CloudSyncOutlined,
+  CloudUploadOutlined,
+  DatabaseOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  ExportOutlined,
+  FileTextOutlined,
+  FolderOpenOutlined,
+  GlobalOutlined,
+  InfoCircleOutlined,
+  ReloadOutlined,
+  SaveOutlined,
+} from '@ant-design/icons-vue'
 import DatabaseWorkspace from '@/components/app/DatabaseWorkspace.vue'
-import WorkspaceHeader from './WorkspaceHeader.vue'
+import ChatToolbarButton from './ChatToolbarButton.vue'
 import type { FileTreeNode, WorkspaceTabKey } from './types'
 
 defineProps<{
@@ -220,7 +313,6 @@ defineProps<{
   selectedFilePath: string
   savingFile: boolean
   syncingDeploy: boolean
-  workspaceTitle: string
 }>()
 
 defineEmits<{
@@ -268,6 +360,17 @@ defineEmits<{
   margin: 0;
   padding: 0 22px;
   background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+:deep(.workspace-tabs .ant-tabs-nav-wrap) {
+  min-width: 0;
+}
+
+:deep(.workspace-tabs .ant-tabs-extra-content) {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
 }
 
 :deep(.workspace-tabs .ant-tabs-content-holder),
@@ -296,7 +399,36 @@ defineEmits<{
 .workspace-tab-label {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
+}
+
+.workspace-tab-text {
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transform: translateX(-4px);
+  transition:
+    max-width 0.24s ease,
+    margin-left 0.24s ease,
+    opacity 0.2s ease,
+    transform 0.24s ease;
+}
+
+:deep(.workspace-tabs .ant-tabs-tab:hover .workspace-tab-text),
+:deep(.workspace-tabs .ant-tabs-tab:focus-visible .workspace-tab-text) {
+  max-width: 96px;
+  margin-left: 8px;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.workspace-tabs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .preview-content {
@@ -742,6 +874,33 @@ defineEmits<{
 }
 
 @media (max-width: 768px) {
+  :deep(.workspace-tabs .ant-tabs-nav) {
+    padding: 0 16px;
+  }
+
+  :deep(.workspace-tabs .ant-tabs-nav) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  :deep(.workspace-tabs .ant-tabs-extra-content) {
+    margin-left: 0;
+  }
+
+  .workspace-tabs-actions {
+    justify-content: flex-start;
+  }
+
+  .workspace-tab-text {
+    max-width: 120px;
+    margin-left: 8px;
+    opacity: 1;
+    transform: translateX(0);
+  }
+
   .file-workspace {
     grid-template-columns: 1fr;
     grid-template-rows: 220px minmax(0, 1fr);

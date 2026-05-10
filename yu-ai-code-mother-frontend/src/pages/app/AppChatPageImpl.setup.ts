@@ -215,15 +215,6 @@ const currentDeployUrl = computed(() => {
   return ''
 })
 
-const workspaceTitle = computed(() => {
-  const titleMap: Record<WorkspaceTabKey, string> = {
-    preview: '生成后的网页展示',
-    files: '生成文件内容',
-    database: '数据库服务',
-  }
-  return titleMap[activeWorkspaceTab.value]
-})
-
 const canOptimizePrompt = computed(() => {
   return Boolean(isOwner.value && userInput.value.trim() && !isGenerating.value && !isOptimizingPrompt.value)
 })
@@ -1986,7 +1977,6 @@ onUnmounted(() => {
     toggleEditMode,
     updateAppNameDraft,
     userInput,
-    workspaceTitle,
   }
   },
 })

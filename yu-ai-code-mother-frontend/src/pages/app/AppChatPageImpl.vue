@@ -105,7 +105,6 @@
           :selected-file-path="selectedFilePath"
           :saving-file="savingFile"
           :syncing-deploy="syncingDeploy"
-          :workspace-title="workspaceTitle"
           @deploy-app="deployApp"
           @database-enabled="handleDatabaseEnabled"
           @download-code="downloadCode"

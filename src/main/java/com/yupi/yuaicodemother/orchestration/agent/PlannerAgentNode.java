@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 /**
  * Planner：需求拆解与路由策略。
@@ -28,18 +29,27 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
     public AgentNodeResult execute(GenerationAgentContext context) {
         String userMessage = StrUtil.blankToDefault(context.getRequest().userMessage(), "");
         boolean complex = support.isComplexRequest(userMessage);
+        boolean patchFirst = context.getRequest().hasGeneratedCode();
         CodeGenTypeEnum routedType = routeTargetType(context, complex);
         context.setTargetType(CodeGenTypeEnum.max(context.getRequest().currentType(), routedType));
         context.setUpgradeRequired(context.getRequest().currentType().canUpgradeTo(context.getTargetType()));
+        boolean requiresBuild = requiresBuildValidation(context, userMessage);
+        String generationMode = patchFirst ? "patch_first_update" : "full_generation";
+        String validationMode = requiresBuild ? "build_validation" : "review_only";
         List<String> goals = List.of(
                 "保留现有项目能力并尽量复用结构",
                 complex ? "按模块拆分生成任务，允许并行处理" : "采用单模块增量生成策略",
-                "生成后必须经过 Review 与 BuildFix 门禁"
+                requiresBuild ? "生成后必须经过 Review 与 BuildFix 门禁" : "生成后经过 Review 门禁，默认跳过构建修复链路"
         );
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("complex", complex);
         payload.put("targetType", context.getTargetType().getValue());
         payload.put("upgradeRequired", context.isUpgradeRequired());
+        payload.put("patchFirst", patchFirst);
+        payload.put("requiresBuild", requiresBuild);
+        payload.put("validationMode", validationMode);
+        payload.put("generationMode", generationMode);
+        payload.put("orchestrationMode", requiresBuild ? "heavy" : "light");
         payload.put("goals", goals);
         GenerationArtifact artifact = GenerationArtifact.of("requirements", "Planner", "需求与目标", payload);
         return AgentNodeResult.of(
@@ -48,9 +58,26 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                 Map.of(
                         "complex", complex,
                         "targetType", context.getTargetType().getValue(),
-                        "upgradeRequired", context.isUpgradeRequired()
+                        "upgradeRequired", context.isUpgradeRequired(),
+                        "patchFirst", patchFirst,
+                        "requiresBuild", requiresBuild,
+                        "validationMode", validationMode,
+                        "generationMode", generationMode
                 )
         );
+    }
+
+    private boolean requiresBuildValidation(GenerationAgentContext context, String userMessage) {
+        if (context.getTargetType() != CodeGenTypeEnum.VUE_PROJECT) {
+            return false;
+        }
+        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
+        if (!context.getRequest().hasGeneratedCode() || context.isUpgradeRequired()) {
+            return true;
+        }
+        return List.of("build", "构建", "打包", "编译", "测试", "lint", "校验", "发布", "npm", "vite", "工程化", "vue工程")
+                .stream()
+                .anyMatch(normalized::contains);
     }
 
     private CodeGenTypeEnum routeTargetType(GenerationAgentContext context, boolean complex) {

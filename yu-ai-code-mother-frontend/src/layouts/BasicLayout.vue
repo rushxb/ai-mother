@@ -1,7 +1,7 @@
 <template>
   <a-layout class="basic-layout" :class="{ 'chat-page-layout': isChatPage }">
     <!-- 顶部导航栏 -->
-    <GlobalHeader />
+    <GlobalHeader v-if="!isChatPage" />
     <!-- 主要内容区域 -->
     <a-layout-content class="main-content">
       <router-view />

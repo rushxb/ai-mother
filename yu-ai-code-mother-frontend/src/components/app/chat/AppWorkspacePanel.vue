@@ -1,0 +1,755 @@
+<template>
+  <div class="preview-section" :class="{ 'is-editing': isEditMode }">
+    <WorkspaceHeader
+        :active-workspace-tab="activeWorkspaceTab"
+        :can-save-file="canSaveFile"
+        :deploying="deploying"
+        :downloading="downloading"
+        :has-deployed="hasDeployed"
+        :is-edit-mode="isEditMode"
+        :is-generating="isGenerating"
+        :is-owner="isOwner"
+        :loading-files="loadingFiles"
+        :preview-url="previewUrl"
+        :syncing-deploy="syncingDeploy"
+        :workspace-title="workspaceTitle"
+        @deploy-app="$emit('deployApp')"
+        @download-code="$emit('downloadCode')"
+        @load-code-files="$emit('loadCodeFiles')"
+        @open-deployed-site="$emit('openDeployedSite')"
+        @open-in-new-tab="$emit('openInNewTab')"
+        @save-current-file="$emit('saveCurrentFile')"
+        @show-app-detail="$emit('showAppDetail')"
+        @sync-deployment="$emit('syncDeployment')"
+        @toggle-edit-mode="$emit('toggleEditMode')"
+    />
+    <a-tabs
+        :active-key="activeWorkspaceTab"
+        class="workspace-tabs"
+        @change="$emit('update:activeWorkspaceTab', $event as WorkspaceTabKey)"
+    >
+      <a-tab-pane key="preview">
+        <template #tab>
+          <span class="workspace-tab-label">
+            <GlobalOutlined />
+            网页预览
+          </span>
+        </template>
+        <div class="preview-content">
+          <div v-if="!previewUrl && !isGenerating" class="preview-placeholder">
+            <div class="placeholder-icon">
+              <GlobalOutlined />
+            </div>
+            <p>网站文件生成完成后将在这里展示</p>
+          </div>
+          <div v-if="isGenerating" class="preview-progress-overlay" :class="{ 'has-preview': Boolean(previewUrl) }">
+            <div class="preview-progress-panel">
+              <div class="preview-progress-head">
+                <a-spin size="small" />
+                <div>
+                  <strong>{{ generationStatusText }}</strong>
+                  <span>{{ generationStageDescription }}</span>
+                </div>
+              </div>
+              <div class="generation-steps">
+                <span
+                    v-for="step in generationSteps"
+                    :key="step.key"
+                    class="generation-step"
+                    :class="{ active: generationStepIndex === step.index, done: generationStepIndex > step.index }"
+                >
+                  {{ step.label }}
+                </span>
+              </div>
+            </div>
+          </div>
+          <iframe
+              v-if="previewUrl"
+              :key="previewRefreshKey"
+              :src="previewUrl"
+              class="preview-iframe"
+              frameborder="0"
+              @load="$emit('iframeLoad')"
+          ></iframe>
+          <div v-else-if="isGenerating" class="preview-loading">
+            <a-spin size="large" />
+            <p>{{ generationStageDescription }}</p>
+          </div>
+        </div>
+      </a-tab-pane>
+      <a-tab-pane key="files">
+        <template #tab>
+          <span class="workspace-tab-label">
+            <FolderOpenOutlined />
+            文件编辑
+          </span>
+        </template>
+        <div class="file-workspace">
+          <aside class="file-sidebar">
+            <div class="file-sidebar-header">
+              <span>文件资源管理器</span>
+              <a-tag v-if="isFileDirty" color="warning">未保存</a-tag>
+            </div>
+            <div v-if="!isOwner" class="file-empty-state">
+              仅应用创建者可以编辑文件
+            </div>
+            <div v-else-if="loadingFiles" class="file-loading">
+              <a-spin size="small" />
+              <span>正在加载文件...</span>
+            </div>
+            <div v-else-if="fileTreeData.length" class="file-tree-scroll">
+              <a-tree
+                  class="code-file-tree"
+                  :tree-data="fileTreeData"
+                  :selected-keys="selectedFilePath ? [selectedFilePath] : []"
+                  :expanded-keys="expandedFileTreeKeys"
+                  block-node
+                  @select="$emit('handleFileSelect', $event)"
+                  @expand="$emit('handleFileTreeExpand', $event)"
+              >
+                <template #title="node">
+                  <span class="file-tree-title">
+                    <FolderOpenOutlined v-if="node.directory" class="file-tree-folder-icon" />
+                    <span
+                        v-else
+                        class="file-type-icon"
+                        :class="`file-type-icon-${node.iconType || 'file'}`"
+                    >
+                      {{ node.iconLabel || 'TXT' }}
+                    </span>
+                    <span class="file-tree-name">{{ node.title }}</span>
+                  </span>
+                </template>
+              </a-tree>
+            </div>
+            <div v-else class="file-empty-state">
+              生成代码后可在这里查看文件
+            </div>
+          </aside>
+          <section class="file-editor-panel">
+            <div v-if="!selectedFilePath" class="editor-placeholder">
+              <div class="placeholder-icon">
+                <FileTextOutlined />
+              </div>
+              <p>从左侧选择文件进行预览和编辑</p>
+            </div>
+            <div v-else class="editor-shell">
+              <div class="editor-titlebar">
+                <div class="editor-file-meta">
+                  <FileTextOutlined />
+                  <span class="editor-file-name">{{ selectedFileName }}</span>
+                  <span class="editor-file-path">{{ selectedFilePath }}</span>
+                </div>
+                <span class="editor-status" :class="{ streaming: isStreamingFilePreview }">
+                  {{ editorStatusText }}
+                </span>
+              </div>
+              <div v-if="loadingFileContent" class="editor-loading">
+                <a-spin />
+                <span>正在读取文件...</span>
+              </div>
+              <div v-else class="code-editor-shell">
+                <pre class="code-highlight-layer" aria-hidden="true"><code v-html="highlightedFileContent"></code></pre>
+                <textarea
+                    :value="fileContent"
+                    class="code-editor"
+                    wrap="off"
+                    spellcheck="false"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    :disabled="savingFile || isStreamingFilePreview"
+                    @input="$emit('update:fileContent', ($event.target as HTMLTextAreaElement).value)"
+                    @scroll="$emit('syncCodeEditorScroll')"
+                />
+              </div>
+            </div>
+          </section>
+        </div>
+      </a-tab-pane>
+      <a-tab-pane key="database">
+        <template #tab>
+          <span class="workspace-tab-label">
+            <DatabaseOutlined />
+            数据库服务
+          </span>
+        </template>
+        <DatabaseWorkspace
+            :app="appInfo"
+            :is-owner="isOwner"
+            :is-generating="isGenerating"
+            @enabled="$emit('databaseEnabled', $event)"
+        />
+      </a-tab-pane>
+    </a-tabs>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { GlobalOutlined, FolderOpenOutlined, FileTextOutlined, DatabaseOutlined } from '@ant-design/icons-vue'
+import DatabaseWorkspace from '@/components/app/DatabaseWorkspace.vue'
+import WorkspaceHeader from './WorkspaceHeader.vue'
+import type { FileTreeNode, WorkspaceTabKey } from './types'
+
+defineProps<{
+  activeWorkspaceTab: WorkspaceTabKey
+  appInfo?: API.AppVO
+  canSaveFile: boolean
+  deploying: boolean
+  downloading: boolean
+  editorStatusText: string
+  expandedFileTreeKeys: Array<string | number>
+  fileContent: string
+  fileTreeData: FileTreeNode[]
+  generationStageDescription: string
+  generationStatusText: string
+  generationStepIndex: number
+  generationSteps: Array<{ key: string; label: string; index: number }>
+  hasDeployed: boolean
+  highlightedFileContent: string
+  isEditMode: boolean
+  isFileDirty: boolean
+  isGenerating: boolean
+  isOwner: boolean
+  isStreamingFilePreview: boolean
+  loadingFileContent: boolean
+  loadingFiles: boolean
+  previewRefreshKey: number
+  previewUrl: string
+  selectedFileName: string
+  selectedFilePath: string
+  savingFile: boolean
+  syncingDeploy: boolean
+  workspaceTitle: string
+}>()
+
+defineEmits<{
+  deployApp: []
+  databaseEnabled: [resource: API.AppDatabaseResourceVO]
+  downloadCode: []
+  handleFileSelect: [selectedKeys: Array<string | number>]
+  handleFileTreeExpand: [expandedKeys: Array<string | number>]
+  iframeLoad: []
+  loadCodeFiles: []
+  openDeployedSite: []
+  openInNewTab: []
+  saveCurrentFile: []
+  showAppDetail: []
+  syncCodeEditorScroll: []
+  syncDeployment: []
+  toggleEditMode: []
+  'update:activeWorkspaceTab': [value: WorkspaceTabKey]
+  'update:fileContent': [value: string]
+}>()
+</script>
+
+<style scoped>
+.preview-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.preview-section.is-editing {
+  box-shadow: inset 0 0 0 1px rgba(22, 119, 255, 0.18);
+}
+
+.workspace-tabs {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+:deep(.workspace-tabs .ant-tabs-nav) {
+  margin: 0;
+  padding: 0 22px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+:deep(.workspace-tabs .ant-tabs-content-holder),
+:deep(.workspace-tabs .ant-tabs-content),
+:deep(.workspace-tabs .ant-tabs-tabpane) {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+:deep(.workspace-tabs .ant-tabs-content-holder),
+:deep(.workspace-tabs .ant-tabs-content) {
+  display: flex;
+  overflow: hidden;
+}
+
+:deep(.workspace-tabs .ant-tabs-tabpane) {
+  overflow: hidden;
+}
+
+:deep(.workspace-tabs .ant-tabs-tabpane-active) {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(241, 245, 249, 0.56) 100%);
+}
+
+.preview-placeholder,
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #64748b;
+  text-align: center;
+}
+
+.placeholder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+  font-size: 30px;
+}
+
+.preview-loading p {
+  margin-top: 16px;
+}
+
+.preview-progress-overlay {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  right: 18px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.preview-progress-overlay.has-preview {
+  right: auto;
+  max-width: min(520px, calc(100% - 36px));
+}
+
+.preview-progress-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.preview-progress-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.preview-progress-head strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.preview-progress-head span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.generation-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.generation-step {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(241, 245, 249, 0.92);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.generation-step.active {
+  background: rgba(219, 234, 254, 0.96);
+  color: #1d4ed8;
+}
+
+.generation-step.done {
+  background: rgba(220, 252, 231, 0.94);
+  color: #15803d;
+}
+
+.preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+.file-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  background: #f8fafc;
+}
+
+.file-sidebar {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.file-sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 14px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.file-loading,
+.file-empty-state,
+.editor-placeholder,
+.editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.file-loading,
+.file-empty-state {
+  flex: 1;
+  padding: 18px;
+  text-align: center;
+}
+
+.file-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px 8px;
+}
+
+.code-file-tree {
+  min-width: max-content;
+  background: transparent;
+}
+
+:deep(.code-file-tree .ant-tree-switcher) {
+  flex: none;
+}
+
+:deep(.code-file-tree .ant-tree-node-content-wrapper) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 8px;
+}
+
+:deep(.code-file-tree .ant-tree-title) {
+  font-size: 13px;
+}
+
+.file-tree-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-tree-folder-icon {
+  color: #f59e0b;
+  font-size: 10px;
+  flex: none;
+}
+
+.file-type-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.file-type-icon-html,
+.file-type-icon-xml {
+  background: #f97316;
+}
+
+.file-type-icon-css,
+.file-type-icon-scss {
+  background: #ec4899;
+}
+
+.file-type-icon-js,
+.file-type-icon-jsx {
+  background: #facc15;
+  color: #1f2937;
+}
+
+.file-type-icon-ts,
+.file-type-icon-tsx {
+  background: #2563eb;
+}
+
+.file-type-icon-vue {
+  background: #10b981;
+}
+
+.file-type-icon-json {
+  background: #7c3aed;
+}
+
+.file-type-icon-md {
+  background: #0f766e;
+}
+
+.file-type-icon-image {
+  background: #0ea5e9;
+}
+
+.file-type-icon-yaml,
+.file-type-icon-text,
+.file-type-icon-env,
+.file-type-icon-lock,
+.file-type-icon-file {
+  background: #64748b;
+}
+
+.file-type-icon-sql {
+  background: #334155;
+}
+
+.file-type-icon-go {
+  background: #0891b2;
+}
+
+.file-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-editor-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: #fff;
+}
+
+.editor-placeholder {
+  flex: 1;
+  flex-direction: column;
+}
+
+.editor-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-titlebar {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.editor-file-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-file-name {
+  flex: none;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.editor-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.editor-status {
+  flex: none;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.editor-status.streaming {
+  color: #1677ff;
+}
+
+.editor-loading {
+  flex: 1;
+}
+
+.code-editor-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+  --code-editor-font: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+}
+
+.code-highlight-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  pointer-events: none;
+  background: #fff;
+  color: #0f172a;
+  font-family: var(--code-editor-font);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  word-wrap: normal;
+  tab-size: 2;
+}
+
+.code-highlight-layer code {
+  display: block;
+  min-height: 100%;
+  padding: 0;
+  overflow: visible;
+  font: inherit;
+  background: transparent;
+}
+
+.code-highlight-layer :deep(*) {
+  font: inherit !important;
+  letter-spacing: inherit !important;
+}
+
+.code-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  padding: 16px;
+  overflow: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: #0f172a;
+  font-family: var(--code-editor-font) !important;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  word-wrap: normal;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.code-editor:focus {
+  box-shadow: none;
+}
+
+.code-editor::selection {
+  background: rgba(59, 130, 246, 0.35);
+}
+
+@media (max-width: 1024px) {
+  .main-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(280px, 0.95fr) minmax(320px, 1.05fr);
+  }
+
+  .chat-section {
+    border-right: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  }
+}
+
+@media (max-width: 768px) {
+  .file-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: 220px minmax(0, 1fr);
+  }
+
+  .file-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  }
+}
+</style>

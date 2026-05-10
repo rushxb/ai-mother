@@ -2,6 +2,7 @@ package com.yupi.yuaicodemother.orchestration.agent;
 
 import cn.hutool.core.util.StrUtil;
 import com.yupi.yuaicodemother.constant.AppConstant;
+import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
@@ -24,22 +25,44 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
 
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        String projectContext = String.valueOf(context.getArtifactValue("context_summary", "projectContext"));
+        String projectContext = stringArtifactValue(context, "context_summary", "projectContext", "");
         @SuppressWarnings("unchecked")
         List<String> modules = (List<String>) context.getArtifactValue("architecture_plan", "modules");
         @SuppressWarnings("unchecked")
         List<String> goals = (List<String>) context.getArtifactValue("requirements", "goals");
+        @SuppressWarnings("unchecked")
+        List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
+        boolean patchFirst = Boolean.TRUE.equals(context.getArtifactValue("requirements", "patchFirst"));
+        boolean requiresBuild = Boolean.TRUE.equals(context.getArtifactValue("requirements", "requiresBuild"));
+        String validationMode = stringArtifactValue(context, "requirements", "validationMode", requiresBuild ? "build_validation" : "review_only");
+        String generationMode = stringArtifactValue(context, "requirements", "generationMode",
+                patchFirst ? "patch_first_update" : "full_generation");
         String prompt = buildExecutionPrompt(context, projectContext, modules, goals);
+        ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("enhancedPrompt", prompt);
         payload.put("modulePlan", modules == null ? List.of() : modules);
         payload.put("parallelModuleCount", modules == null ? 0 : modules.size());
         payload.put("executionMode", modules != null && modules.size() > 1 ? "parallel_module_generation" : "single_path_generation");
+        payload.put("patchFirst", patchFirst);
+        payload.put("requiresBuild", requiresBuild);
+        payload.put("validationMode", validationMode);
+        payload.put("generationMode", generationMode);
+        payload.put("artifactMode", patchFirst ? "patch_plan" : "generation_plan");
+        payload.put("changePlan", changePlan.toPayload());
+        GenerationArtifact changePlanArtifact = GenerationArtifact.of("change_plan", "Code", "变更计划", changePlan.toPayload());
         GenerationArtifact artifact = GenerationArtifact.of("generation_spec", "Code", "生成规范", payload);
         return AgentNodeResult.of(
                 modules != null && modules.size() > 1 ? "已生成模块级执行规范，代码生成器可按模块并行思维执行" : "已生成统一执行规范",
-                List.of(artifact),
-                Map.of("parallelModuleCount", modules == null ? 0 : modules.size())
+                List.of(changePlanArtifact, artifact),
+                Map.of(
+                        "parallelModuleCount", modules == null ? 0 : modules.size(),
+                        "patchFirst", patchFirst,
+                        "requiresBuild", requiresBuild,
+                        "validationMode", validationMode,
+                        "generationMode", generationMode,
+                        "changeScope", changePlan.changeScope()
+                )
         );
     }
 
@@ -47,6 +70,11 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                                         String projectContext,
                                         List<String> modules,
                                         List<String> goals) {
+        boolean patchFirst = Boolean.TRUE.equals(context.getArtifactValue("requirements", "patchFirst"));
+        boolean requiresBuild = Boolean.TRUE.equals(context.getArtifactValue("requirements", "requiresBuild"));
+        String validationMode = stringArtifactValue(context, "requirements", "validationMode", requiresBuild ? "build_validation" : "review_only");
+        String generationMode = stringArtifactValue(context, "requirements", "generationMode",
+                patchFirst ? "patch_first_update" : "full_generation");
         List<String> lines = new ArrayList<>();
         lines.add(context.getRequest().userMessage());
         if (context.isUpgradeRequired()) {
@@ -59,34 +87,105 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         if (StrUtil.isNotBlank(projectContext)) {
             lines.add("");
             lines.add(AppConstant.PROJECT_CONTEXT_MARKER);
-            lines.add("这是当前项目代码摘要。后续必须基于现有内容继续修改，不能忽略既有实现。");
+            lines.add("基于当前项目继续修改，不要重建无关内容。");
             lines.add("");
             lines.add(projectContext);
         }
         lines.add("");
-        lines.add("【多智能体执行规范】");
-        if (goals != null) {
+        lines.add("【执行规范】mode=" + generationMode + ", patchFirst=" + patchFirst
+                + ", validation=" + validationMode + ", build=" + requiresBuild);
+        if (patchFirst) {
+            lines.add("patchFirst: 先给计划型 artifact，再输出最小 patch；只改必要文件。");
+            lines.add("patchFirst: 必须遵守 changePlan 的文件边界与回滚策略。");
+        }
+        lines.add("【架构】modules=" + formatModulesForPrompt(modules));
+        lines.add("【ChangePlan】" + "scope=" + buildChangeScope(modules, patchFirst)
+                + ", validate=" + validationMode
+                + ", rollback=" + (requiresBuild ? "snapshot_or_manual_retry" : "manual_retry")
+                + ", modify=" + formatFileListForPrompt(context.getArtifactValue("context_summary", "selectedFiles"))
+                + ", add=[]"
+                + ", delete=[]"
+                + ", impacted=" + formatModulesForPrompt(modules));
+        lines.add("【质量】最小闭环，复用现有结构，避免无关重构。");
+        lines.add(requiresBuild
+                ? "【门禁】需要 Review + BuildFix。"
+                : "【门禁】仅 Review，默认跳过 BuildFix。");
+        if (goals != null && !goals.isEmpty()) {
             for (int i = 0; i < goals.size(); i++) {
                 lines.add((i + 1) + ". " + goals.get(i));
             }
         }
-        lines.add("");
-        lines.add("【架构拆分】");
-        if (modules != null && !modules.isEmpty()) {
-            for (String module : modules) {
-                lines.add("- 模块: " + module);
-            }
-            if (modules.size() > 1) {
-                lines.add("- 以上模块需采用并行思维处理，先统一共享约束，再分别产出代码。");
-            }
-        } else {
-            lines.add("- 单模块执行");
-        }
-        lines.add("");
-        lines.add("【质量要求】");
-        lines.add("1. 复用现有依赖、目录、页面与组件边界。");
-        lines.add("2. 只做满足需求所需的最小闭环改动。");
-        lines.add("3. 代码输出后要能通过 Review 与 BuildFix 阶段。");
         return String.join("\n", lines);
+    }
+
+    private ChangePlan buildChangePlan(List<String> modules,
+                                       List<String> selectedFiles,
+                                       boolean patchFirst,
+                                       String validationMode,
+                                       boolean requiresBuild) {
+        List<String> normalizedModules = modules == null ? List.of() : modules.stream()
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .toList();
+        List<String> normalizedSelectedFiles = normalizeSelectedFiles(selectedFiles);
+        return new ChangePlan(
+                "v1",
+                buildChangeScope(normalizedModules, patchFirst),
+                List.of(),
+                patchFirst ? normalizedSelectedFiles : List.of(),
+                List.of(),
+                normalizedModules,
+                validationMode,
+                requiresBuild ? "rollback_to_last_stable_snapshot_or_manual_retry" : "manual_retry_without_snapshot"
+        );
+    }
+
+    private String buildChangeScope(List<String> modules, boolean patchFirst) {
+        if (!patchFirst) {
+            return "project_bootstrap";
+        }
+        if (modules != null && modules.size() > 1) {
+            return "cross_module_patch";
+        }
+        return "single_module_patch";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String formatFileListForPrompt(Object selectedFilesObj) {
+        if (!(selectedFilesObj instanceof List<?> selectedFiles)) {
+            return "[]";
+        }
+        List<String> normalizedSelectedFiles = normalizeSelectedFiles((List<String>) selectedFiles);
+        return normalizedSelectedFiles.isEmpty() ? "[]" : normalizedSelectedFiles.toString();
+    }
+
+    private String formatModulesForPrompt(List<String> modules) {
+        if (modules == null || modules.isEmpty()) {
+            return "[core-app]";
+        }
+        return modules.stream().filter(StrUtil::isNotBlank).distinct().toList().toString();
+    }
+
+    private List<String> normalizeSelectedFiles(List<String> selectedFiles) {
+        if (selectedFiles == null || selectedFiles.isEmpty()) {
+            return List.of();
+        }
+        return selectedFiles.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(path -> path.replace("\\", "/"))
+                .filter(path -> !path.contains(".."))
+                .distinct()
+                .toList();
+    }
+
+    private String stringArtifactValue(GenerationAgentContext context,
+                                       String artifactKey,
+                                       String payloadKey,
+                                       String defaultValue) {
+        Object value = context.getArtifactValue(artifactKey, payloadKey);
+        if (value == null || StrUtil.isBlank(String.valueOf(value))) {
+            return defaultValue;
+        }
+        return String.valueOf(value);
     }
 }

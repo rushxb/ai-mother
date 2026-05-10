@@ -67,6 +67,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -140,20 +142,38 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        App app = getGenerationApp(appId, loginUser);
+        enableDatabaseForGenerationIfNeeded(app, message);
+        GenerationPreparation preparation = prepareGeneration(app, message);
+        GenerationSession session = openGenerationSession(appId, message, loginUser, preparation);
+        startGenerationTask(appId, loginUser, preparation, session);
+        return session.asFlux();
+    }
+
+    private App getGenerationApp(Long appId, User loginUser) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         App app = this.getById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用");
         }
-        String codeGenType = app.getCodeGenType();
-        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         }
+        return app;
+    }
+
+    private void enableDatabaseForGenerationIfNeeded(App app, String message) {
         if (appDatabaseResourceService.shouldEnableForPrompt(message)) {
             appDatabaseResourceService.enableDatabase(app);
         }
-        GenerationPreparation preparation = prepareGeneration(app, message);
+    }
+
+    private GenerationSession openGenerationSession(Long appId,
+                                                    String message,
+                                                    User loginUser,
+                                                    GenerationPreparation preparation) {
         GenerationSession session;
         synchronized (getGenerationLock(appId)) {
             ThrowUtils.throwIf(activeGenerationSessions.containsKey(appId), ErrorCode.OPERATION_ERROR, "当前应用正在生成中，请稍后再试");
@@ -167,8 +187,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             session = new GenerationSession();
             activeGenerationSessions.put(appId, session);
         }
-        startGenerationTask(appId, loginUser, preparation, session);
-        return session.asFlux();
+        return session;
     }
 
     @Override
@@ -489,7 +508,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     activeGenerationSessions.remove(appId, session);
                     return;
                 }
-                if (preparation.targetType() == CodeGenTypeEnum.VUE_PROJECT) {
+                if (preparation.requiresBuildValidation()) {
                     startBackgroundBuild(appId, loginUser, preparation, session);
                 } else {
                     markGenerationFinished(appId);
@@ -662,7 +681,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 preparation.generatingStage(),
                 preparation.targetType(),
                 MAX_AUTO_REPAIR_ROUNDS
-        ) ? MAX_AUTO_REPAIR_ROUNDS : 0;
+        ) && preparation.requiresBuildValidation() ? MAX_AUTO_REPAIR_ROUNDS : 0;
         for (int round = 0; round <= maxGenerationRepairRounds; round++) {
             session.throwIfCancelled();
             if (round > 0) {
@@ -799,20 +818,47 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     private GenerationPreparation prepareGeneration(App app, String userMessage) {
+        GenerationIntent intent = recognizeGenerationIntent(app, userMessage);
+        GenerationContextAssembly contextAssembly = assembleGenerationContext(intent);
+        GenerationRoutingPlan routingPlan = routeGeneration(intent, contextAssembly);
+        return buildGenerationPreparation(intent, routingPlan);
+    }
+
+    private GenerationIntent recognizeGenerationIntent(App app, String userMessage) {
         CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(currentType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
-        String generationMessage = appDatabaseResourceService.appendGenerationInstructionIfEnabled(app, userMessage);
-        String generatingStage = determineGeneratingStage(app);
-        boolean hasGeneratedCode = hasGeneratedCode(app);
+        return new GenerationIntent(
+                app,
+                currentType,
+                appDatabaseResourceService.appendGenerationInstructionIfEnabled(app, userMessage),
+                determineGeneratingStage(app),
+                hasGeneratedCode(app)
+        );
+    }
+
+    private GenerationContextAssembly assembleGenerationContext(GenerationIntent intent) {
+        return new GenerationContextAssembly(
+                createProjectContextSupplier(intent.app())
+        );
+    }
+
+    private GenerationRoutingPlan routeGeneration(GenerationIntent intent, GenerationContextAssembly contextAssembly) {
+        return new GenerationRoutingPlan(
+                createRoutingFunction(intent.app(), intent.currentType()),
+                contextAssembly
+        );
+    }
+
+    private GenerationPreparation buildGenerationPreparation(GenerationIntent intent, GenerationRoutingPlan routingPlan) {
         GenerationOrchestrationResult orchestrationResult = generationOrchestrator.prepare(
                 new GenerationOrchestrationRequest(
-                        app,
-                        generationMessage,
-                        currentType,
-                        generatingStage,
-                        hasGeneratedCode,
-                        () -> buildProjectContext(app),
-                        routingPrompt -> routeCodeGenTypeForPrompt(app, routingPrompt, currentType)
+                        intent.app(),
+                        intent.generationMessage(),
+                        intent.currentType(),
+                        intent.generatingStage(),
+                        intent.hasGeneratedCode(),
+                        routingPlan.contextAssembly().projectContextSupplier(),
+                        routingPlan.routingFunction()
                 )
         );
         return new GenerationPreparation(
@@ -838,6 +884,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             log.warn("生成前重新路由失败，沿用当前模式，appId: {}", app.getId(), e);
             return currentType;
         }
+    }
+
+    private Supplier<String> createProjectContextSupplier(App app) {
+        return () -> buildProjectContext(app);
+    }
+
+    private Function<String, CodeGenTypeEnum> createRoutingFunction(App app, CodeGenTypeEnum currentType) {
+        Map<String, CodeGenTypeEnum> routingCache = new ConcurrentHashMap<>();
+        return routingPrompt -> routingCache.computeIfAbsent(
+                routingPrompt,
+                key -> routeCodeGenTypeForPrompt(app, key, currentType)
+        );
     }
 
     private String determineGeneratingStage(App app) {
@@ -1163,6 +1221,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 + " 个字符 -->";
     }
 
+    private record GenerationIntent(App app,
+                                    CodeGenTypeEnum currentType,
+                                    String generationMessage,
+                                    String generatingStage,
+                                    boolean hasGeneratedCode) {
+    }
+
+    private record GenerationContextAssembly(Supplier<String> projectContextSupplier) {
+    }
+
+    private record GenerationRoutingPlan(Function<String, CodeGenTypeEnum> routingFunction,
+                                         GenerationContextAssembly contextAssembly) {
+    }
+
     private record GenerationPreparation(CodeGenTypeEnum originalType,
                                          CodeGenTypeEnum targetType,
                                          boolean upgradeRequired,
@@ -1176,6 +1248,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         private String qualityGateLevel() {
             return qualityGateResult == null ? "unknown" : qualityGateResult.level();
+        }
+
+        private boolean requiresBuildValidation() {
+            if (targetType != CodeGenTypeEnum.VUE_PROJECT) {
+                return false;
+            }
+            GenerationArtifact generationSpec = artifacts == null ? null : artifacts.get("generation_spec");
+            if (generationSpec == null || generationSpec.payload() == null) {
+                return true;
+            }
+            Object requiresBuild = generationSpec.payload().get("requiresBuild");
+            return requiresBuild == null || Boolean.TRUE.equals(requiresBuild);
         }
     }
 

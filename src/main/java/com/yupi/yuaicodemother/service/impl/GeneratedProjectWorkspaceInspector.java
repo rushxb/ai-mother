@@ -20,7 +20,7 @@ final class GeneratedProjectWorkspaceInspector {
     );
 
     private static final Set<String> IGNORED_FILE_NAMES = Set.of(
-            ".ds_store", ".ai-code-install.stamp"
+            ".ds_store", ".ai-code-install.stamp", ".ai-code-critical.stamp", ".ai-code-presentation.stamp"
     );
 
     private static final Set<String> KEY_PROJECT_FILES = Set.of(

@@ -1,16 +1,24 @@
 package com.yupi.yuaicodemother.core.builder;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -22,6 +30,12 @@ public class VueProjectBuilder {
 
     private static final int MAX_LOG_CHARS = 12000;
     private static final String INSTALL_STAMP_FILE = ".ai-code-install.stamp";
+    private static final String CRITICAL_STAMP_FILE = ".ai-code-critical.stamp";
+    private static final String PRESENTATION_STAMP_FILE = ".ai-code-presentation.stamp";
+    private static final int LIGHT_VALIDATE_TIMEOUT_SECONDS = 90;
+    private static final int INSTALL_TIMEOUT_SECONDS = 300;
+    private static final int LIGHT_BUILD_TIMEOUT_SECONDS = 180;
+    private static final int FULL_BUILD_TIMEOUT_SECONDS = 240;
 
     /**
      * 异步构建 Vue 项目
@@ -61,50 +75,106 @@ public class VueProjectBuilder {
             log.error("项目目录不存在：{}", projectPath);
             return BuildResult.invalid(projectPath, "项目目录不存在");
         }
-        // 检查是否有 package.json 文件
         File packageJsonFile = new File(projectDir, "package.json");
         if (!packageJsonFile.exists()) {
             log.error("项目目录中没有 package.json 文件：{}", projectPath);
             return BuildResult.invalid(projectPath, "项目目录中没有 package.json 文件");
         }
+
         log.info("开始构建 Vue 项目：{}", projectPath);
-        // 依赖文件未变化时跳过 npm install，避免每轮生成重复等待安装
-        CommandResult installResult = installDependenciesIfNeeded(projectDir);
+
+        JSONObject packageJson;
+        try {
+            packageJson = JSONUtil.parseObj(Files.readString(packageJsonFile.toPath(), StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            log.error("package.json 解析失败：{}", e.getMessage(), e);
+            return BuildResult.invalid(projectPath, "package.json 解析失败");
+        }
+
+        ProjectSnapshot currentSnapshot;
+        try {
+            currentSnapshot = captureProjectSnapshot(projectDir, packageJson);
+        } catch (Exception e) {
+            log.error("项目指纹计算失败：{}", e.getMessage(), e);
+            return BuildResult.invalid(projectPath, "项目指纹计算失败");
+        }
+
+        ProjectState persistedState = readPersistedState(projectDir);
+        ProjectScripts scripts = readProjectScripts(packageJson);
+        boolean nodeModulesExists = isDirectory(new File(projectDir, "node_modules"));
+        boolean distExists = isDirectory(new File(projectDir, "dist"));
+        boolean dependencyCached = nodeModulesExists
+                && currentSnapshot.dependencyFingerprint().equals(persistedState.dependencyFingerprint());
+        boolean criticalUnchanged = currentSnapshot.criticalFingerprint().equals(persistedState.criticalFingerprint());
+        boolean presentationUnchanged = currentSnapshot.presentationFingerprint().equals(persistedState.presentationFingerprint());
+
+        log.info("Vue 验证计划：dependencyCached={}, criticalUnchanged={}, presentationUnchanged={}, distExists={}, lightValidate={}, lightBuild={}",
+                dependencyCached, criticalUnchanged, presentationUnchanged, distExists, scripts.supportsLightValidation(),
+                scripts.supportsLightBuild());
+
+        if (dependencyCached && criticalUnchanged && presentationUnchanged && distExists) {
+            log.info("依赖和源码均未变化，复用现有 dist: {}", projectPath);
+            CommandResult installResult = CommandResult.skipped("npm install --no-audit --no-fund", "依赖和源码未变化，已跳过 npm install");
+            CommandResult buildResult = CommandResult.skipped("reuse dist", "依赖和源码未变化，复用现有 dist");
+            return BuildResult.reused(projectPath, installResult, buildResult);
+        }
+
+        CommandResult installResult = installDependenciesIfNeeded(projectDir, currentSnapshot.dependencyFingerprint());
         if (!installResult.success()) {
             log.error("npm install 执行失败：{}", projectPath);
             return BuildResult.installFailed(projectPath, installResult);
         }
-        // 执行 npm run build
-        CommandResult buildResult = executeNpmBuild(projectDir);
+
+        boolean useLightBuild = dependencyCached && criticalUnchanged && !presentationUnchanged
+                && distExists && scripts.supportsLightBuild();
+        if (useLightBuild) {
+            CommandResult validateResult = executeLightValidation(projectDir, scripts);
+            if (!validateResult.success()) {
+                log.error("轻量校验执行失败：{}", projectPath);
+                return BuildResult.lightValidateFailed(projectPath, installResult, validateResult);
+            }
+            CommandResult buildResult = executeLightBuild(projectDir, scripts);
+            if (!buildResult.success()) {
+                log.error("轻量构建执行失败：{}", projectPath);
+                return BuildResult.lightBuildFailed(projectPath, installResult, buildResult);
+            }
+            if (!isDirectory(new File(projectDir, "dist"))) {
+                log.error("轻量构建完成但 dist 目录未生成：{}", projectPath);
+                return BuildResult.distMissing(projectPath, installResult, buildResult);
+            }
+            persistProjectState(projectDir, currentSnapshot);
+            log.info("Vue 项目轻量构建成功，dist 目录：{}", projectPath);
+            return BuildResult.lightSuccess(projectPath, installResult, buildResult);
+        }
+
+        CommandResult buildResult = executeFullBuild(projectDir, scripts);
         if (!buildResult.success()) {
             log.error("npm run build 执行失败：{}", projectPath);
             return BuildResult.buildFailed(projectPath, installResult, buildResult);
         }
-        // 验证 dist 目录是否生成
-        File distDir = new File(projectDir, "dist");
-        if (!distDir.exists() || !distDir.isDirectory()) {
+        if (!isDirectory(new File(projectDir, "dist"))) {
             log.error("构建完成但 dist 目录未生成：{}", projectPath);
             return BuildResult.distMissing(projectPath, installResult, buildResult);
         }
+        persistProjectState(projectDir, currentSnapshot);
         log.info("Vue 项目构建成功，dist 目录：{}", projectPath);
         return BuildResult.success(projectPath, installResult, buildResult);
     }
 
-    private CommandResult installDependenciesIfNeeded(File projectDir) {
+    private CommandResult installDependenciesIfNeeded(File projectDir, String currentDependencyFingerprint) {
         try {
-            String dependencyFingerprint = buildDependencyFingerprint(projectDir);
             File nodeModulesDir = new File(projectDir, "node_modules");
             File stampFile = new File(projectDir, INSTALL_STAMP_FILE);
             if (nodeModulesDir.exists() && stampFile.exists()) {
-                String installedFingerprint = Files.readString(stampFile.toPath(), StandardCharsets.UTF_8).trim();
-                if (dependencyFingerprint.equals(installedFingerprint)) {
+                String installedFingerprint = readStamp(stampFile);
+                if (currentDependencyFingerprint.equals(installedFingerprint)) {
                     log.info("依赖未变化，跳过 npm install: {}", projectDir.getAbsolutePath());
                     return CommandResult.skipped("npm install --no-audit --no-fund", "依赖未变化，已跳过 npm install");
                 }
             }
             CommandResult installResult = executeNpmInstall(projectDir);
             if (installResult.success()) {
-                Files.writeString(stampFile.toPath(), dependencyFingerprint, StandardCharsets.UTF_8);
+                writeStamp(stampFile, currentDependencyFingerprint);
             }
             return installResult;
         } catch (Exception e) {
@@ -113,48 +183,126 @@ public class VueProjectBuilder {
         }
     }
 
-    private String buildDependencyFingerprint(File projectDir) throws Exception {
-        StringBuilder builder = new StringBuilder();
-        appendFileFingerprint(builder, projectDir.toPath().resolve("package.json"));
-        appendFileFingerprint(builder, projectDir.toPath().resolve("package-lock.json"));
-        appendFileFingerprint(builder, projectDir.toPath().resolve("pnpm-lock.yaml"));
-        appendFileFingerprint(builder, projectDir.toPath().resolve("yarn.lock"));
-        return Integer.toHexString(builder.toString().hashCode());
+    private ProjectSnapshot captureProjectSnapshot(File projectDir, JSONObject packageJson) throws Exception {
+        List<String> dependencyEntries = new ArrayList<>();
+        List<String> criticalEntries = new ArrayList<>();
+        List<String> presentationEntries = new ArrayList<>();
+
+        appendPackageDependencyFingerprint(dependencyEntries, packageJson);
+        appendPackageScriptFingerprint(criticalEntries, packageJson);
+
+        Path rootPath = projectDir.toPath();
+        Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (!dir.equals(rootPath) && shouldSkipDirectory(rootPath.relativize(dir))) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws java.io.IOException {
+                Path relativePath = rootPath.relativize(file);
+                String normalized = normalizePath(relativePath);
+                if (isInternalStateFile(normalized) || normalized.equals("package.json")) {
+                    return FileVisitResult.CONTINUE;
+                }
+                if (isDependencyLockFile(normalized)) {
+                    appendFileFingerprint(dependencyEntries, relativePath, file);
+                    return FileVisitResult.CONTINUE;
+                }
+                if (isPresentationFile(normalized)) {
+                    appendFileFingerprint(presentationEntries, relativePath, file);
+                    return FileVisitResult.CONTINUE;
+                }
+                if (isCriticalFile(normalized)) {
+                    appendFileFingerprint(criticalEntries, relativePath, file);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+
+        return new ProjectSnapshot(
+                hashEntries(dependencyEntries),
+                hashEntries(criticalEntries),
+                hashEntries(presentationEntries)
+        );
     }
 
-    private void appendFileFingerprint(StringBuilder builder, Path filePath) throws Exception {
+    private void appendPackageDependencyFingerprint(List<String> entries, JSONObject packageJson) {
+        appendJsonSectionFingerprint(entries, "dependencies", packageJson.getJSONObject("dependencies"));
+        appendJsonSectionFingerprint(entries, "devDependencies", packageJson.getJSONObject("devDependencies"));
+        appendJsonSectionFingerprint(entries, "peerDependencies", packageJson.getJSONObject("peerDependencies"));
+        appendJsonSectionFingerprint(entries, "optionalDependencies", packageJson.getJSONObject("optionalDependencies"));
+        appendJsonSectionFingerprint(entries, "overrides", packageJson.getJSONObject("overrides"));
+        appendJsonSectionFingerprint(entries, "resolutions", packageJson.getJSONObject("resolutions"));
+    }
+
+    private void appendPackageScriptFingerprint(List<String> entries, JSONObject packageJson) {
+        appendJsonSectionFingerprint(entries, "scripts", packageJson.getJSONObject("scripts"));
+        appendStringFingerprint(entries, "packageManager", packageJson.getStr("packageManager"));
+    }
+
+    private void appendJsonSectionFingerprint(List<String> entries, String sectionName, JSONObject section) {
+        if (section == null || section.isEmpty()) {
+            entries.add(sectionName + ":{}");
+            return;
+        }
+        List<String> keys = new ArrayList<>(section.keySet());
+        Collections.sort(keys);
+        StringBuilder builder = new StringBuilder(sectionName).append('{');
+        for (String key : keys) {
+            builder.append(key).append('=').append(StrUtil.nullToEmpty(section.getStr(key))).append(';');
+        }
+        builder.append('}');
+        entries.add(builder.toString());
+    }
+
+    private void appendStringFingerprint(List<String> entries, String key, String value) {
+        entries.add(key + ':' + StrUtil.nullToEmpty(value));
+    }
+
+    private void appendFileFingerprint(List<String> entries, Path relativePath, Path filePath) throws java.io.IOException {
         if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
             return;
         }
-        builder.append(filePath.getFileName()).append(':')
-                .append(Files.size(filePath)).append(':')
-                .append(Files.getLastModifiedTime(filePath).toMillis()).append(':')
-                .append(Files.readString(filePath, StandardCharsets.UTF_8).hashCode())
-                .append('\n');
+        byte[] content = Files.readAllBytes(filePath);
+        entries.add(normalizePath(relativePath) + ':' + content.length + ':' + Arrays.hashCode(content));
     }
 
-    /**
-     * 执行 npm install 命令
-     */
     private CommandResult executeNpmInstall(File projectDir) {
         log.info("执行 npm install...");
-        return executeCommand(projectDir, 300, buildCommand("npm"), "install", "--no-audit", "--no-fund"); // 5分钟超时
+        return executeCommand(projectDir, INSTALL_TIMEOUT_SECONDS, buildCommand("npm"), "install", "--no-audit", "--no-fund");
     }
 
-    /**
-     * 执行 npm run build 命令
-     */
-    private CommandResult executeNpmBuild(File projectDir) {
-        log.info("执行 npm run build...");
-        return executeCommand(projectDir, 180, buildCommand("npm"), "run", "build"); // 3分钟超时
+    private CommandResult executeLightValidation(File projectDir, ProjectScripts scripts) {
+        String script = scripts.lightValidationScript();
+        if (script == null) {
+            return CommandResult.skipped("light validation", "package.json 中未找到轻量校验脚本");
+        }
+        log.info("执行轻量校验: npm run {}", script);
+        return executeCommand(projectDir, LIGHT_VALIDATE_TIMEOUT_SECONDS, buildCommand("npm"), "run", script);
     }
 
-    /**
-     * 根据操作系统构造命令
-     *
-     * @param baseCommand
-     * @return
-     */
+    private CommandResult executeLightBuild(File projectDir, ProjectScripts scripts) {
+        String script = scripts.lightBuildScript();
+        if (script == null) {
+            return CommandResult.exception("npm run build", "package.json 中未找到可用的轻量构建脚本");
+        }
+        log.info("执行轻量构建: npm run {}", script);
+        return executeCommand(projectDir, LIGHT_BUILD_TIMEOUT_SECONDS, buildCommand("npm"), "run", script);
+    }
+
+    private CommandResult executeFullBuild(File projectDir, ProjectScripts scripts) {
+        String script = scripts.fullBuildScript();
+        if (script == null) {
+            return CommandResult.exception("npm run build", "package.json 中未找到可用的构建脚本");
+        }
+        log.info("执行全量构建: npm run {}", script);
+        return executeCommand(projectDir, FULL_BUILD_TIMEOUT_SECONDS, buildCommand("npm"), "run", script);
+    }
+
     private String buildCommand(String baseCommand) {
         if (isWindows()) {
             return baseCommand + ".cmd";
@@ -162,23 +310,10 @@ public class VueProjectBuilder {
         return baseCommand;
     }
 
-    /**
-     * 操作系统检测
-     *
-     * @return
-     */
     private boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("windows");
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
     }
 
-    /**
-     * 执行命令
-     *
-     * @param workingDir     工作目录
-     * @param command        命令字符串
-     * @param timeoutSeconds 超时时间（秒）
-     * @return 是否执行成功
-     */
     private CommandResult executeCommand(File workingDir, int timeoutSeconds, String... commandParts) {
         String command = String.join(" ", commandParts);
         try {
@@ -198,7 +333,6 @@ public class VueProjectBuilder {
                     log.warn("读取命令输出失败: {}", command, e);
                 }
             });
-            // 等待进程完成，设置超时
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
@@ -214,10 +348,9 @@ public class VueProjectBuilder {
             if (exitCode == 0) {
                 log.info("命令执行成功: {}", command);
                 return CommandResult.success(command, exitCode, output);
-            } else {
-                log.error("命令执行失败，退出码: {}", exitCode);
-                return CommandResult.failed(command, exitCode, output);
             }
+            log.error("命令执行失败，退出码: {}", exitCode);
+            return CommandResult.failed(command, exitCode, output);
         } catch (Exception e) {
             log.error("执行命令失败: {}, 错误信息: {}", Arrays.toString(commandParts), e.getMessage());
             return CommandResult.exception(command, e.getMessage());
@@ -238,6 +371,204 @@ public class VueProjectBuilder {
             return normalized;
         }
         return normalized.substring(normalized.length() - MAX_LOG_CHARS);
+    }
+
+    private ProjectState readPersistedState(File projectDir) {
+        return new ProjectState(
+                readStamp(new File(projectDir, INSTALL_STAMP_FILE)),
+                readStamp(new File(projectDir, CRITICAL_STAMP_FILE)),
+                readStamp(new File(projectDir, PRESENTATION_STAMP_FILE))
+        );
+    }
+
+    private void persistProjectState(File projectDir, ProjectSnapshot snapshot) {
+        try {
+            writeStamp(new File(projectDir, INSTALL_STAMP_FILE), snapshot.dependencyFingerprint());
+            writeStamp(new File(projectDir, CRITICAL_STAMP_FILE), snapshot.criticalFingerprint());
+            writeStamp(new File(projectDir, PRESENTATION_STAMP_FILE), snapshot.presentationFingerprint());
+        } catch (Exception e) {
+            log.warn("写入构建指纹失败: {}", e.getMessage());
+        }
+    }
+
+    private String readStamp(File stampFile) {
+        try {
+            if (!stampFile.exists()) {
+                return "";
+            }
+            return Files.readString(stampFile.toPath(), StandardCharsets.UTF_8).trim();
+        } catch (Exception e) {
+            log.debug("读取指纹文件失败: {}, {}", stampFile.getAbsolutePath(), e.getMessage());
+            return "";
+        }
+    }
+
+    private void writeStamp(File stampFile, String fingerprint) throws Exception {
+        Files.writeString(stampFile.toPath(), fingerprint, StandardCharsets.UTF_8);
+    }
+
+    private boolean isDirectory(File file) {
+        return file.exists() && file.isDirectory();
+    }
+
+    private String normalizePath(Path relativePath) {
+        return relativePath.toString().replace(File.separatorChar, '/');
+    }
+
+    private boolean shouldSkipDirectory(Path relativePath) {
+        String normalized = normalizePath(relativePath).toLowerCase(Locale.ROOT);
+        return isDirectoryToken(normalized, "node_modules")
+                || isDirectoryToken(normalized, "dist")
+                || isDirectoryToken(normalized, "coverage")
+                || isDirectoryToken(normalized, "target")
+                || isDirectoryToken(normalized, "build")
+                || isDirectoryToken(normalized, "out")
+                || isDirectoryToken(normalized, ".git")
+                || isDirectoryToken(normalized, ".idea")
+                || isDirectoryToken(normalized, ".vscode")
+                || isDirectoryToken(normalized, ".cache")
+                || isDirectoryToken(normalized, ".turbo");
+    }
+
+    private boolean isDirectoryToken(String normalizedPath, String token) {
+        return normalizedPath.equals(token)
+                || normalizedPath.startsWith(token + "/")
+                || normalizedPath.contains("/" + token + "/");
+    }
+
+    private boolean isInternalStateFile(String normalizedPath) {
+        return normalizedPath.equals(INSTALL_STAMP_FILE)
+                || normalizedPath.equals(CRITICAL_STAMP_FILE)
+                || normalizedPath.equals(PRESENTATION_STAMP_FILE);
+    }
+
+    private boolean isDependencyLockFile(String normalizedPath) {
+        return normalizedPath.equals("package-lock.json")
+                || normalizedPath.equals("pnpm-lock.yaml")
+                || normalizedPath.equals("yarn.lock");
+    }
+
+    private boolean isPresentationFile(String normalizedPath) {
+        return normalizedPath.equals("index.html")
+                || normalizedPath.startsWith("public/")
+                || normalizedPath.endsWith(".vue")
+                || normalizedPath.endsWith(".css")
+                || normalizedPath.endsWith(".scss")
+                || normalizedPath.endsWith(".less")
+                || normalizedPath.endsWith(".sass")
+                || normalizedPath.endsWith(".styl")
+                || normalizedPath.endsWith(".html")
+                || normalizedPath.endsWith(".svg")
+                || normalizedPath.endsWith(".png")
+                || normalizedPath.endsWith(".jpg")
+                || normalizedPath.endsWith(".jpeg")
+                || normalizedPath.endsWith(".gif")
+                || normalizedPath.endsWith(".webp")
+                || normalizedPath.endsWith(".ico")
+                || normalizedPath.endsWith(".avif")
+                || normalizedPath.endsWith(".bmp");
+    }
+
+    private boolean isCriticalFile(String normalizedPath) {
+        if (isDependencyLockFile(normalizedPath) || isPresentationFile(normalizedPath)) {
+            return false;
+        }
+        if (normalizedPath.startsWith("vite.config.")
+                || normalizedPath.startsWith("vue.config.")
+                || normalizedPath.startsWith("tsconfig")
+                || normalizedPath.startsWith("eslint.config.")
+                || normalizedPath.startsWith(".eslintrc")
+                || normalizedPath.startsWith("prettier.config.")
+                || normalizedPath.startsWith(".prettierrc")
+                || normalizedPath.startsWith("postcss.config.")
+                || normalizedPath.startsWith("tailwind.config.")
+                || normalizedPath.startsWith(".env")) {
+            return true;
+        }
+        if (!normalizedPath.startsWith("src/")) {
+            return false;
+        }
+        return normalizedPath.endsWith(".js")
+                || normalizedPath.endsWith(".mjs")
+                || normalizedPath.endsWith(".cjs")
+                || normalizedPath.endsWith(".ts")
+                || normalizedPath.endsWith(".mts")
+                || normalizedPath.endsWith(".cts")
+                || normalizedPath.endsWith(".jsx")
+                || normalizedPath.endsWith(".tsx")
+                || normalizedPath.endsWith(".d.ts")
+                || normalizedPath.endsWith(".json");
+    }
+
+    private String hashEntries(List<String> entries) {
+        Collections.sort(entries);
+        return Integer.toHexString(String.join("\n", entries).hashCode());
+    }
+
+    private record ProjectSnapshot(String dependencyFingerprint, String criticalFingerprint,
+                                   String presentationFingerprint) {
+    }
+
+    private record ProjectState(String dependencyFingerprint, String criticalFingerprint,
+                                String presentationFingerprint) {
+    }
+
+    private record ProjectScripts(boolean hasBuild, boolean hasPureBuild, boolean hasBuildOnly,
+                                  boolean hasTypeCheck, boolean hasTypecheck, boolean hasCheck) {
+
+        boolean supportsLightValidation() {
+            return hasTypeCheck || hasTypecheck || hasCheck;
+        }
+
+        boolean supportsLightBuild() {
+            return hasPureBuild || hasBuildOnly;
+        }
+
+        String lightValidationScript() {
+            if (hasTypeCheck) {
+                return "type-check";
+            }
+            if (hasTypecheck) {
+                return "typecheck";
+            }
+            if (hasCheck) {
+                return "check";
+            }
+            return null;
+        }
+
+        String lightBuildScript() {
+            if (hasPureBuild) {
+                return "pure-build";
+            }
+            if (hasBuildOnly) {
+                return "build-only";
+            }
+            return null;
+        }
+
+        String fullBuildScript() {
+            if (hasBuild) {
+                return "build";
+            }
+            return lightBuildScript();
+        }
+    }
+
+    private ProjectScripts readProjectScripts(JSONObject packageJson) {
+        JSONObject scripts = packageJson.getJSONObject("scripts");
+        return new ProjectScripts(
+                hasScript(scripts, "build"),
+                hasScript(scripts, "pure-build"),
+                hasScript(scripts, "build-only"),
+                hasScript(scripts, "type-check"),
+                hasScript(scripts, "typecheck"),
+                hasScript(scripts, "check")
+        );
+    }
+
+    private boolean hasScript(JSONObject scripts, String name) {
+        return scripts != null && scripts.containsKey(name);
     }
 
     public record CommandResult(String command, boolean success, Integer exitCode, boolean timeout, String output,
@@ -294,12 +625,26 @@ public class VueProjectBuilder {
         }
 
         private static BuildResult installFailed(String projectPath, CommandResult installResult) {
-            return new BuildResult(false, "install", projectPath, "npm install 失败", installResult, null);
+            return new BuildResult(false, "install", projectPath,
+                    commandSummary(installResult, "安装失败"), installResult, null);
+        }
+
+        private static BuildResult lightBuildFailed(String projectPath, CommandResult installResult,
+                                                    CommandResult buildResult) {
+            return new BuildResult(false, "build-light", projectPath,
+                    commandSummary(buildResult, "轻量构建失败"), installResult, buildResult);
+        }
+
+        private static BuildResult lightValidateFailed(String projectPath, CommandResult installResult,
+                                                       CommandResult validateResult) {
+            return new BuildResult(false, "validate-light", projectPath,
+                    commandSummary(validateResult, "轻量校验失败"), installResult, validateResult);
         }
 
         private static BuildResult buildFailed(String projectPath, CommandResult installResult,
                                                CommandResult buildResult) {
-            return new BuildResult(false, "build", projectPath, "npm run build 失败", installResult, buildResult);
+            return new BuildResult(false, "build", projectPath,
+                    commandSummary(buildResult, "全量构建失败"), installResult, buildResult);
         }
 
         private static BuildResult distMissing(String projectPath, CommandResult installResult,
@@ -312,12 +657,32 @@ public class VueProjectBuilder {
             return new BuildResult(true, "done", projectPath, "Vue 项目构建成功", installResult, buildResult);
         }
 
+        private static BuildResult lightSuccess(String projectPath, CommandResult installResult,
+                                                CommandResult buildResult) {
+            return new BuildResult(true, "light-done", projectPath, "轻量构建通过并刷新 dist", installResult, buildResult);
+        }
+
+        private static BuildResult reused(String projectPath, CommandResult installResult,
+                                          CommandResult buildResult) {
+            return new BuildResult(true, "reuse", projectPath, "依赖和源码未变化，复用现有 dist", installResult, buildResult);
+        }
+
+        private static String commandSummary(CommandResult result, String fallback) {
+            if (result == null || StrUtil.isBlank(result.command())) {
+                return fallback;
+            }
+            return result.command() + " " + fallback;
+        }
+
         public String toDiagnosticReport() {
             StringBuilder builder = new StringBuilder();
             builder.append("项目路径: ").append(projectPath).append('\n');
             builder.append("构建结果: ").append(success ? "成功" : "失败").append('\n');
             builder.append("失败阶段: ").append(stage).append('\n');
             builder.append("摘要: ").append(summary).append('\n');
+            builder.append("验证层级: ").append(validationTier()).append('\n');
+            builder.append("修复优先级: ").append(repairPriority()).append('\n');
+            builder.append("执行路径: ").append(executionPath()).append('\n');
             if (installResult != null) {
                 builder.append("\n[安装阶段]\n")
                         .append(installResult.toDiagnosticBlock())
@@ -335,7 +700,9 @@ public class VueProjectBuilder {
             List<String> parts = List.of(
                     "Vue 项目构建失败",
                     "阶段: " + stage,
-                    "摘要: " + summary
+                    "验证层级: " + validationTier(),
+                    "摘要: " + summary,
+                    "修复优先级: " + repairPriority()
             );
             StringBuilder builder = new StringBuilder(String.join("，", parts));
             if (buildResult != null) {
@@ -346,6 +713,40 @@ public class VueProjectBuilder {
             return builder.toString();
         }
 
+        public String validationTier() {
+            return switch (stage) {
+                case "reuse" -> "复用";
+                case "light-done", "build-light", "validate-light" -> "轻量";
+                case "done", "build" -> "全量";
+                case "install" -> "安装";
+                case "dist" -> "产物检查";
+                default -> "准备";
+            };
+        }
+
+        public String repairPriority() {
+            return switch (stage) {
+                case "install", "validate-light", "build-light", "build" -> "高";
+                case "dist", "prepare" -> "中";
+                default -> "低";
+            };
+        }
+
+        public String executionPath() {
+            return switch (stage) {
+                case "reuse" -> "复用现有 dist，跳过安装和构建";
+                case "light-done" -> "跳过安装，执行轻量校验和轻量构建";
+                case "validate-light" -> "轻量校验失败";
+                case "build-light" -> "轻量构建失败";
+                case "done" -> "执行全量安装和构建";
+                case "build" -> "全量构建失败";
+                case "install" -> "依赖安装失败";
+                case "dist" -> "构建完成后校验 dist";
+                case "prepare" -> "准备阶段";
+                default -> stage;
+            };
+        }
+
         private String extractSingleLine(String output) {
             if (StrUtil.isBlank(output)) {
                 return "无";
@@ -354,5 +755,4 @@ public class VueProjectBuilder {
             return StrUtil.sub(normalized, 0, Math.min(normalized.length(), 300));
         }
     }
-
 }

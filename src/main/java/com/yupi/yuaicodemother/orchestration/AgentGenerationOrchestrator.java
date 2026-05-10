@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 /**
  * 第二阶段 DAG 多智能体编排器。
@@ -51,16 +52,10 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
                 request.userMessage()
         );
         GenerationAgentContext context = new GenerationAgentContext(request, task);
-        List<GenerationAgentNode> nodes = List.of(
-                plannerAgentNode,
-                contextAgentNode,
-                architectAgentNode,
-                codeAgentNode,
-                reviewAgentNode,
-                buildFixAgentNode
-        );
+        boolean heavyPath = requiresHeavyPath(request);
+        List<GenerationAgentNode> nodes = selectNodes(heavyPath);
         List<GenerationStreamEvent> events = new ArrayList<>();
-        events.add(orchestrationStartEvent(task.getTaskId()));
+        events.add(orchestrationStartEvent(task.getTaskId(), heavyPath));
         events.addAll(dagRunner.run(nodes, context));
         QualityGateResult gateResult = context.getQualityGateResult();
         if (gateResult != null && !gateResult.passed()) {
@@ -69,7 +64,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         }
         String enhancedMessage = extractEnhancedPrompt(context.getArtifacts());
         CodeGenTypeEnum targetType = context.getTargetType() == null ? request.currentType() : context.getTargetType();
-        events.add(orchestrationReadyEvent(task.getTaskId(), context));
+        events.add(orchestrationReadyEvent(task.getTaskId(), context, heavyPath));
         return new GenerationOrchestrationResult(
                 request.currentType(),
                 targetType,
@@ -84,6 +79,58 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         );
     }
 
+    private List<GenerationAgentNode> selectNodes(boolean heavyPath) {
+        List<GenerationAgentNode> nodes = new ArrayList<>();
+        nodes.add(plannerAgentNode);
+        nodes.add(contextAgentNode);
+        nodes.add(architectAgentNode);
+        nodes.add(codeAgentNode);
+        nodes.add(reviewAgentNode);
+        if (heavyPath) {
+            nodes.add(buildFixAgentNode);
+        }
+        return List.copyOf(nodes);
+    }
+
+    private boolean requiresHeavyPath(GenerationOrchestrationRequest request) {
+        String normalizedMessage = StrUtil.blankToDefault(request.userMessage(), "").toLowerCase(Locale.ROOT);
+        if (!request.hasGeneratedCode() && request.currentType() == CodeGenTypeEnum.VUE_PROJECT) {
+            return true;
+        }
+        boolean complexSignal = containsAny(normalizedMessage,
+                "vue", "组件", "路由", "router", "后台", "管理系统", "登录", "注册",
+                "api", "接口", "状态管理", "pinia", "图表", "表单", "多页面", "工作台", "dashboard");
+        if (!request.hasGeneratedCode() && complexSignal) {
+            return true;
+        }
+        if (containsAny(normalizedMessage,
+                "build", "构建", "打包", "编译", "测试", "lint", "校验", "发布", "npm", "vite", "工程化", "vue工程")) {
+            return true;
+        }
+        boolean plannerWillRoute = request.currentType() != CodeGenTypeEnum.HTML || complexSignal;
+        if (plannerWillRoute && request.currentType() != CodeGenTypeEnum.VUE_PROJECT && request.routingFunction() != null) {
+            try {
+                String routingPrompt = "请根据以下需求判断最适合的生成模式：\n" + request.userMessage();
+                CodeGenTypeEnum routedType = request.routingFunction().apply(routingPrompt);
+                return routedType == CodeGenTypeEnum.VUE_PROJECT && request.currentType() != CodeGenTypeEnum.VUE_PROJECT;
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+    private boolean containsAny(String value, String... keywords) {
+        if (StrUtil.isBlank(value)) {
+            return false;
+        }
+        for (String keyword : keywords) {
+            if (value.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private String extractEnhancedPrompt(Map<String, GenerationArtifact> artifacts) {
         GenerationArtifact generationSpec = artifacts.get("generation_spec");
         if (generationSpec == null) {
@@ -96,31 +143,33 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return String.valueOf(prompt);
     }
 
-    private GenerationStreamEvent orchestrationStartEvent(String taskId) {
-        return GenerationStreamEvent.agentEvent("", Map.of(
-                "agent", "Orchestrator",
-                "stage", "dag",
-                "status", "running",
-                "summary", "DAG 多智能体编排启动",
-                "taskId", taskId,
-                "dagNode", "orchestrator",
-                "durationMs", 0
-        ));
+    private GenerationStreamEvent orchestrationStartEvent(String taskId, boolean heavyPath) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "dag");
+        data.put("status", "running");
+        data.put("summary", heavyPath ? "DAG 重型编排启动" : "DAG 轻量编排启动");
+        data.put("taskId", taskId);
+        data.put("dagNode", "orchestrator");
+        data.put("durationMs", 0);
+        data.put("orchestrationMode", heavyPath ? "heavy" : "light");
+        return GenerationStreamEvent.agentEvent("", data);
     }
 
-    private GenerationStreamEvent orchestrationReadyEvent(String taskId, GenerationAgentContext context) {
+    private GenerationStreamEvent orchestrationReadyEvent(String taskId, GenerationAgentContext context, boolean heavyPath) {
         long totalDuration = context.getTimings().values().stream().mapToLong(Long::longValue).sum();
-        return GenerationStreamEvent.agentEvent("", Map.of(
-                "agent", "Orchestrator",
-                "stage", "dag",
-                "status", "done",
-                "summary", "DAG 编排完成，准备进入代码生成",
-                "taskId", taskId,
-                "dagNode", "orchestrator",
-                "durationMs", totalDuration,
-                "targetType", context.getTargetType().getValue(),
-                "artifactCount", context.getArtifacts().size(),
-                "qualityGate", context.getQualityGateResult() == null ? "unknown" : context.getQualityGateResult().level()
-        ));
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "dag");
+        data.put("status", "done");
+        data.put("summary", heavyPath ? "DAG 重型编排完成，准备进入代码生成" : "DAG 轻量编排完成，准备进入代码生成");
+        data.put("taskId", taskId);
+        data.put("dagNode", "orchestrator");
+        data.put("durationMs", totalDuration);
+        data.put("targetType", context.getTargetType().getValue());
+        data.put("artifactCount", context.getArtifacts().size());
+        data.put("qualityGate", context.getQualityGateResult() == null ? "unknown" : context.getQualityGateResult().level());
+        data.put("orchestrationMode", heavyPath ? "heavy" : "light");
+        return GenerationStreamEvent.agentEvent("", data);
     }
 }

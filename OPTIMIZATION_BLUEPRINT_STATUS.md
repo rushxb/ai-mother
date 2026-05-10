@@ -189,6 +189,22 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationRollbackRestoreServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 18`, `Failures: 0`, `Errors: 0`
 
+### 3.16 Patch-first 实际落盘结果闭环
+
+- 仍不引入外部 Git 服务或 Go workspace kernel；本阶段基于本地 `diff_summary` 对齐 `change_plan`，先完成 Java 单体内的可观测闭环
+- 新增 `PatchResult` 标准 artifact，输出 `status/appId/taskId/plannedAddFiles/plannedModifyFiles/plannedDeleteFiles/actualAddedFiles/actualModifiedFiles/actualDeletedFiles/unplannedFiles/missingPlannedFiles/matchedFileCount/reason`
+- 新增 `GenerationPatchResultService`，在生成成功并产出 `diff_summary` 后，对比计划文件范围和真实落盘 diff：
+  - `applied`：实际新增 / 修改 / 删除文件与 `change_plan` 对齐
+  - `drifted`：存在计划外变更或计划内文件未落盘
+  - `skipped`：缺少 `change_plan`、缺少有效 `diff_summary`，或当前是新建项目全量生成
+- `AppServiceImpl` 已在成功链路发送 `stage=patch` 的 `agent_event`，并把 `patch_result` 写回本次 `GenerationPreparation.artifacts()`
+- `generation_error` payload 会在已有 `patch_result` 时一并携带，方便前端或后续回滚逻辑判断失败前实际落盘是否偏离计划
+- `GenerationOrchestrationMetricsCollector` 新增 `generation_orchestration_patch_result_total`，按 `status/reason` 记录 patch-first 实际落盘结果
+- 新增 `GenerationPatchResultServiceTest` 覆盖对齐、计划外变更、计划内未落盘和 diff 跳过场景
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationPatchResultServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 22`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -208,7 +224,7 @@
 - 验证等级
 - 回滚策略
 
-当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验、生成前本地 `rollback_point` artifact、生成后本地 `diff_summary` artifact，以及失败后的 opt-in 本地快照恢复。尚未把真实 patch 应用结果纳入闭环。
+当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验、生成前本地 `rollback_point` artifact、生成后本地 `diff_summary` artifact、失败后的 opt-in 本地快照恢复，以及基于真实落盘 diff 的 `patch_result` 结果闭环。尚未实现独立补丁执行器，当前仍由现有代码生成器直接写入文件，`patch_result` 负责校验实际结果是否偏离计划。
 
 ### 4.3 语义索引 MVP
 
@@ -231,7 +247,7 @@
 
 ### 4.5 指标闭环
 
-当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数。
+当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数、patch-first 实际落盘结果次数。
 
 仍未闭环的部分：
 
@@ -270,6 +286,6 @@
 - 这些优化已经把系统从“整仓重写 + 全量 build”推向“意图驱动 + 最小 patch + 分层校验 + 标准化变更计划”
 - 路由判定、heavy path 和 BuildFix 门禁现在也已经单点化，减少了 Planner 与编排器之间的语义漂移
 - 编排层指标已经接入 Micrometer，后续可以直接基于 Prometheus / Grafana 观察上下文规模、节点耗时、门禁结果和回滚计划分布
-- 后续最值钱的工作仍然是 `测试 + 指标 + Recipe + 回滚联动 + 真正的文件 diff/patch 执行`
+- 后续最值钱的工作仍然是 `测试 + 指标 + Recipe + 回滚联动 + 独立补丁执行器`
 
 注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成

@@ -41,7 +41,9 @@ import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationResult;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
 import com.yupi.yuaicodemother.orchestration.artifact.DiffSummary;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
+import com.yupi.yuaicodemother.orchestration.artifact.PatchResult;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
+import com.yupi.yuaicodemother.orchestration.patch.GenerationPatchResultService;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.yupi.yuaicodemother.service.AppService;
@@ -145,6 +147,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     @Resource
     private GenerationRollbackRestoreService generationRollbackRestoreService;
+
+    @Resource
+    private GenerationPatchResultService generationPatchResultService;
 
     @Resource
     private GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
@@ -776,6 +781,38 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 generationDiffSummaryService.renderText(summary),
                 buildDiffSummaryEventData(preparation, diffSummary)
         ));
+        emitPatchResultIfAvailable(appId, preparation, session, diffSummary);
+    }
+
+    private void emitPatchResultIfAvailable(Long appId,
+                                            GenerationPreparation preparation,
+                                            GenerationSession session,
+                                            GenerationArtifact diffSummary) {
+        if (session.isCancelled()) {
+            return;
+        }
+        PatchResult patchResult = generationPatchResultService.evaluate(
+                appId,
+                preparation.taskId(),
+                preparation.artifact("change_plan"),
+                diffSummary
+        );
+        GenerationArtifact patchResultArtifact = GenerationArtifact.of(
+                "patch_result",
+                "Orchestrator",
+                "Patch 实际落盘结果",
+                patchResult.toPayload()
+        );
+        preparation.putArtifact(patchResultArtifact);
+        generationOrchestrationMetricsCollector.recordPatchResult(
+                "agent",
+                patchResult.status(),
+                patchResult.reason()
+        );
+        session.emit(GenerationStreamEvent.agentEvent(
+                generationPatchResultService.renderText(patchResult),
+                buildPatchResultEventData(preparation, patchResultArtifact)
+        ));
     }
 
     private Map<String, Object> buildDiffSummaryEventData(GenerationPreparation preparation,
@@ -789,6 +826,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 : "生成后差异摘要已跳过");
         data.put("taskId", preparation.taskId());
         data.put("artifact", diffSummary.payload());
+        return data;
+    }
+
+    private Map<String, Object> buildPatchResultEventData(GenerationPreparation preparation,
+                                                          GenerationArtifact patchResult) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "patch");
+        data.put("status", patchResult.payload().get("status"));
+        data.put("summary", "applied".equals(String.valueOf(patchResult.payload().get("status")))
+                ? "Patch 实际落盘结果已对齐"
+                : "Patch 实际落盘结果存在偏差或已跳过");
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", patchResult.payload());
         return data;
     }
 
@@ -910,6 +961,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         GenerationArtifact diffSummary = preparation.artifacts() == null ? null : preparation.artifacts().get("diff_summary");
         if (diffSummary != null) {
             data.put("diff_summary", diffSummary.payload());
+        }
+        GenerationArtifact patchResult = preparation.artifacts() == null ? null : preparation.artifacts().get("patch_result");
+        if (patchResult != null) {
+            data.put("patch_result", patchResult.payload());
         }
         GenerationArtifact rollbackRestore = preparation.artifacts() == null ? null : preparation.artifacts().get("rollback_restore");
         if (rollbackRestore != null) {

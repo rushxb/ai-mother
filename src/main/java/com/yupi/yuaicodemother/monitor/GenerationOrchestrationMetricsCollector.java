@@ -30,6 +30,7 @@ public class GenerationOrchestrationMetricsCollector {
     private final ConcurrentMap<String, Counter> qualityGateCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> rollbackPlanCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> rollbackRestoreCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> patchResultCounters = new ConcurrentHashMap<>();
 
     public void recordRun(String orchestrationMode, String status) {
         String mode = normalize(orchestrationMode);
@@ -173,6 +174,22 @@ public class GenerationOrchestrationMetricsCollector {
         Counter counter = rollbackRestoreCounters.computeIfAbsent(key, unused ->
                 Counter.builder("generation_orchestration_rollback_restore_total")
                         .description("代码生成失败后本地快照恢复次数")
+                        .tag("orchestration_mode", mode)
+                        .tag("status", normalizedStatus)
+                        .tag("reason", normalizedReason)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    public void recordPatchResult(String orchestrationMode, String status, String reason) {
+        String mode = normalize(orchestrationMode);
+        String normalizedStatus = normalize(status);
+        String normalizedReason = normalize(reason);
+        String key = String.join(":", mode, normalizedStatus, normalizedReason);
+        Counter counter = patchResultCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_orchestration_patch_result_total")
+                        .description("代码生成 patch-first 实际落盘结果次数")
                         .tag("orchestration_mode", mode)
                         .tag("status", normalizedStatus)
                         .tag("reason", normalizedReason)

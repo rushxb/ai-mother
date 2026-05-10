@@ -172,6 +172,23 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationDiffSummaryServiceTest,GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 15`, `Failures: 0`, `Errors: 0`
 
+### 3.15 失败后 opt-in 本地快照回滚
+
+- 仍不要求外部 Git 服务；本阶段只基于本地 `CODE_SNAPSHOT_ROOT_DIR` 执行受控恢复
+- 新增 `RollbackRestore` 标准 artifact，输出 `status/appId/taskId/rollbackStrategy/snapshotPath/projectPath/backupPath/restoredFileCount/reason`
+- 新增 `GenerationRollbackRestoreService`，失败后只有满足以下条件才自动覆盖恢复：
+  - `change_plan.rollbackStrategy` 明确要求 snapshot / stable rollback，且不是 `without_snapshot`
+  - `rollback_point.status=created`
+  - `snapshotPath` 位于本地快照根目录内，`projectPath` 位于代码输出根目录内
+- 恢复前会把当前失败现场备份为 `failed_generation_<taskId>_<time>`，并沿用源码目录忽略规则过滤 `.git`、`node_modules`、`dist`、`target` 等目录
+- `AppServiceImpl` 已在生成失败、后台构建失败、空项目失败、自动修复最终失败等分支先尝试回滚，再发送最终 `generation_error`
+- `generation_error` payload 现在会在存在 `rollback_restore` artifact 时一并携带恢复结果；同时发送 `stage=rollback` 的 `agent_event`
+- `GenerationOrchestrationMetricsCollector` 新增 `generation_orchestration_rollback_restore_total`，按 `status/reason` 记录真实回滚尝试结果
+- 新增 `GenerationRollbackRestoreServiceTest` 覆盖 opt-in 恢复、手动策略跳过、回滚点未创建跳过，以及失败现场备份保留
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationRollbackRestoreServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 18`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -191,7 +208,7 @@
 - 验证等级
 - 回滚策略
 
-当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验、生成前本地 `rollback_point` artifact 和生成后本地 `diff_summary` artifact；尚未把真实 patch 应用结果和失败自动回滚联动成自动闭环。
+当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验、生成前本地 `rollback_point` artifact、生成后本地 `diff_summary` artifact，以及失败后的 opt-in 本地快照恢复。尚未把真实 patch 应用结果纳入闭环。
 
 ### 4.3 语义索引 MVP
 
@@ -210,18 +227,17 @@
 - 失败自动回滚到稳定版本
 - 结果直接输出 commit id / rollback point
 
-当前已将本地快照提升为生成主流程里的标准 `rollback_point` artifact，并在服务层 `generation_error` 事件中透出回滚点元数据；生成成功后也会基于本地快照输出标准 `diff_summary` artifact。尚未接入自动 commit、失败时自动覆盖回滚；短期内不要求外部 Git 服务，后续如需 commit id 再优先抽象本地 Git CLI 适配层。
+当前已将本地快照提升为生成主流程里的标准 `rollback_point` artifact，并在服务层 `generation_error` 事件中透出回滚点元数据；生成成功后会基于本地快照输出标准 `diff_summary` artifact，生成失败后也会在策略 opt-in 时恢复到本地快照。尚未接入自动 commit；短期内不要求外部 Git 服务，后续如需 commit id 再优先抽象本地 Git CLI 适配层。
 
 ### 4.5 指标闭环
 
-当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数。
+当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数。
 
 仍未闭环的部分：
 
 - 单次生成 token 与编排任务关联
 - 真实改修成功率
 - 自动修复次数
-- 真实回滚次数
 - 用户平均等待时间
 - Grafana 面板和告警规则按新指标更新
 

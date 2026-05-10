@@ -35,6 +35,7 @@ import com.yupi.yuaicodemother.model.vo.AppVO;
 import com.yupi.yuaicodemother.model.vo.UserVO;
 import com.yupi.yuaicodemother.monitor.MonitorContext;
 import com.yupi.yuaicodemother.monitor.MonitorContextHolder;
+import com.yupi.yuaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationResult;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
@@ -42,6 +43,7 @@ import com.yupi.yuaicodemother.orchestration.artifact.DiffSummary;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
+import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.yupi.yuaicodemother.service.AppService;
 import com.yupi.yuaicodemother.service.AppDatabaseResourceService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
@@ -140,6 +142,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     @Resource
     private GenerationDiffSummaryService generationDiffSummaryService;
+
+    @Resource
+    private GenerationRollbackRestoreService generationRollbackRestoreService;
+
+    @Resource
+    private GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
 
     private final Map<Long, Object> generationLocks = new ConcurrentHashMap<>();
     private final Map<Long, GenerationSession> activeGenerationSessions = new ConcurrentHashMap<>();
@@ -531,6 +539,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
+                emitRollbackRestoreIfAllowed(appId, preparation, session);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
                 markGenerationFinished(appId);
                 session.emit(GenerationStreamEvent.generationError(
@@ -565,6 +574,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             } catch (Exception e) {
                 log.error("后台构建校验失败，appId: {}", appId, e);
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
+                emitRollbackRestoreIfAllowed(appId, preparation, session);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
                 session.emit(GenerationStreamEvent.generationError(
                         generationError.message(),
@@ -589,6 +599,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
         if (!workspaceState.canAutoRepair()) {
+            emitRollbackRestoreIfAllowed(appId, preparation, session);
             emitMissingProjectCodeError(appId, preparation, session, workspaceState);
             rollbackCodeGenTypeIfNeeded(appId, preparation);
             return false;
@@ -611,6 +622,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             return true;
         }
         if (MAX_AUTO_REPAIR_ROUNDS <= 0 || !workspaceState.canAutoRepair()) {
+            emitRollbackRestoreIfAllowed(appId, preparation, session);
             rollbackCodeGenTypeIfNeeded(appId, preparation);
             GenerationErrorClassifier.GenerationError generationError =
                     classifyGenerationError(buildResult.toFailureSummary());
@@ -624,6 +636,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             session.throwIfCancelled();
             workspaceState = GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
             if (!workspaceState.canAutoRepair()) {
+                emitRollbackRestoreIfAllowed(appId, preparation, session);
                 emitMissingProjectCodeError(appId, preparation, session, workspaceState);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
                 return false;
@@ -662,6 +675,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 return true;
             }
         }
+        emitRollbackRestoreIfAllowed(appId, preparation, session);
         rollbackCodeGenTypeIfNeeded(appId, preparation);
         GenerationErrorClassifier.GenerationError generationError =
                 classifyGenerationError(buildResult.toFailureSummary());
@@ -778,6 +792,51 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         return data;
     }
 
+    private void emitRollbackRestoreIfAllowed(Long appId,
+                                              GenerationPreparation preparation,
+                                              GenerationSession session) {
+        if (session.isCancelled() || preparation.artifact("rollback_restore") != null) {
+            return;
+        }
+        GenerationArtifact rollbackRestore = generationRollbackRestoreService.restoreIfAllowed(
+                appId,
+                preparation.taskId(),
+                preparation.artifact("change_plan"),
+                preparation.artifact("rollback_point")
+        );
+        preparation.putArtifact(rollbackRestore);
+        Object status = rollbackRestore.payload().get("status");
+        Object reason = rollbackRestore.payload().get("reason");
+        generationOrchestrationMetricsCollector.recordRollbackRestore("agent", String.valueOf(status), String.valueOf(reason));
+        session.emit(GenerationStreamEvent.agentEvent(
+                buildRollbackRestoreMessage(rollbackRestore),
+                buildRollbackRestoreEventData(preparation, rollbackRestore)
+        ));
+    }
+
+    private String buildRollbackRestoreMessage(GenerationArtifact rollbackRestore) {
+        Object status = rollbackRestore.payload().get("status");
+        if ("restored".equals(String.valueOf(status))) {
+            return "生成失败，已从本地回滚点恢复项目文件。";
+        }
+        if ("failed".equals(String.valueOf(status))) {
+            return "生成失败，尝试从本地回滚点恢复项目文件未成功。";
+        }
+        return "生成失败，当前回滚策略未执行自动恢复。";
+    }
+
+    private Map<String, Object> buildRollbackRestoreEventData(GenerationPreparation preparation,
+                                                              GenerationArtifact rollbackRestore) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "rollback");
+        data.put("status", rollbackRestore.payload().get("status"));
+        data.put("summary", buildRollbackRestoreMessage(rollbackRestore));
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", rollbackRestore.payload());
+        return data;
+    }
+
     private void verifyGeneratedProjectReady(Long appId, CodeGenTypeEnum codeGenType) {
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
             return;
@@ -851,6 +910,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         GenerationArtifact diffSummary = preparation.artifacts() == null ? null : preparation.artifacts().get("diff_summary");
         if (diffSummary != null) {
             data.put("diff_summary", diffSummary.payload());
+        }
+        GenerationArtifact rollbackRestore = preparation.artifacts() == null ? null : preparation.artifacts().get("rollback_restore");
+        if (rollbackRestore != null) {
+            data.put("rollback_restore", rollbackRestore.payload());
         }
         return data;
     }

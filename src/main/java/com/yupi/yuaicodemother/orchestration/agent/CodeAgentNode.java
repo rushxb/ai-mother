@@ -169,15 +169,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     }
 
     private List<String> normalizeSelectedFiles(List<String> selectedFiles) {
-        if (selectedFiles == null || selectedFiles.isEmpty()) {
-            return List.of();
-        }
-        return selectedFiles.stream()
-                .filter(StrUtil::isNotBlank)
-                .map(path -> path.replace("\\", "/"))
-                .filter(path -> !path.contains(".."))
-                .distinct()
-                .toList();
+        return ChangePlan.normalizeFilePaths(selectedFiles);
     }
 
 }

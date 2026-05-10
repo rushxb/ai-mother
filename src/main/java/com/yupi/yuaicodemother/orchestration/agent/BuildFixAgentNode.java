@@ -1,5 +1,6 @@
 package com.yupi.yuaicodemother.orchestration.agent;
 
+import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
@@ -27,19 +28,27 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
                 requiresBuild ? "build_validation" : "review_only");
         String generationMode = artifactStringValue(context, "generation_spec", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
-        String rollbackStrategy = artifactStringValue(context, "change_plan", "rollbackStrategy",
-                requiresBuild ? "rollback_to_last_stable_snapshot_or_manual_retry" : "manual_retry_without_snapshot");
+        ChangePlan changePlan = context.getArtifact("change_plan")
+                .map(GenerationArtifact::payload)
+                .map(ChangePlan::fromPayload)
+                .orElse(null);
+        String rollbackStrategy = changePlan == null
+                ? (requiresBuild ? "rollback_to_last_stable_snapshot_or_manual_retry" : "manual_retry_without_snapshot")
+                : changePlan.rollbackStrategy();
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("requiresBuild", requiresBuild);
         payload.put("repairRounds", requiresBuild ? 1 : 0);
-        payload.put("rollbackOnFailure", true);
+        payload.put("rollbackOnFailure", requiresBuild || (changePlan != null && changePlan.requiresSnapshotRollback()));
         payload.put("recoverable", true);
         payload.put("patchFirst", patchFirst);
         payload.put("validationMode", validationMode);
         payload.put("generationMode", generationMode);
         payload.put("enabled", requiresBuild);
         payload.put("rollbackStrategy", rollbackStrategy);
-        payload.put("impactedModules", context.getArtifactValue("change_plan", "impactedModules"));
+        payload.put("impactedModules", changePlan == null ? List.of() : changePlan.impactedModules());
+        payload.put("fileChangeCount", changePlan == null
+                ? 0
+                : changePlan.addFiles().size() + changePlan.modifyFiles().size() + changePlan.deleteFiles().size());
         GenerationArtifact artifact = GenerationArtifact.of("buildfix_plan", "BuildFix", "构建修复策略", payload);
         return AgentNodeResult.of(
                 requiresBuild ? "已配置构建校验、自动修复和失败回退策略" : "当前模式无需 BuildFix，仅保留失败回退策略",

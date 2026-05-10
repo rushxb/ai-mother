@@ -2,6 +2,7 @@ package com.yupi.yuaicodemother.orchestration.agent;
 
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
+import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
 import org.springframework.stereotype.Component;
@@ -34,7 +35,11 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
                 requiresBuild ? "build_validation" : "review_only");
         String generationMode = artifactStringValue(context, "generation_spec", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
-        boolean hasChangePlan = context.getArtifact("change_plan").isPresent();
+        ChangePlan changePlan = context.getArtifact("change_plan")
+                .map(GenerationArtifact::payload)
+                .map(ChangePlan::fromPayload)
+                .orElse(null);
+        boolean hasChangePlan = changePlan != null;
         if (prompt.isBlank()) {
             blockers.add("生成规范为空，无法进入代码生成");
         } else {
@@ -43,7 +48,10 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         if (patchFirst && !hasChangePlan) {
             blockers.add("缺少标准化变更计划，无法执行 patch-first 生成");
         } else if (hasChangePlan) {
-            passes.add("变更计划已生成");
+            blockers.addAll(changePlan.validateForPatchFirst(requiresBuild, validationMode));
+            if (blockers.isEmpty()) {
+                passes.add("变更计划已生成并通过契约校验");
+            }
         }
         if (patchFirst) {
             passes.add("已启用 patch-first 计划型生成");

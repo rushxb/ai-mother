@@ -126,6 +126,19 @@
   - `.\mvnw.cmd -Dtest=AgentGenerationOrchestratorTest,GenerationRoutingSupportTest,CodeAgentNodeTest,ReviewAgentNodeTest,GenerationAgentSupportTest -Dmaven.resources.skip=true -DskipTests=false test`
   - `Tests run: 13`, `Failures: 0`, `Errors: 0`
 
+### 3.11 ChangePlan 契约校验闭环
+
+- `ChangePlan` 已从简单 payload record 增强为标准契约对象，支持 `fromPayload(...)` 恢复、路径归一化、脏路径过滤、模块名去重和 payload round-trip
+- `ChangePlan` 已集中校验 `schemaVersion`、文件变更范围、`validationLevel` 与生成规范一致性，以及构建校验场景的快照 / 稳定版本回滚策略
+- `ReviewAgentNode` 现在不再只判断 `change_plan` 是否存在，而是会校验契约内容；无效的 patch-first 计划会被质量门禁阻断
+- `BuildFixAgentNode` 现在通过标准 `ChangePlan` 消费 `rollbackStrategy`、`impactedModules` 和文件变更数量，避免重复解析松散 artifact
+- `CodeAgentNode` 复用 `ChangePlan.normalizeFilePaths(...)`，让精选文件和变更计划使用同一套路径安全规则
+- 修正了 `manual_retry_without_snapshot` 被误判为快照回滚策略的问题
+- 新增 `ChangePlanTest`、`BuildFixAgentNodeTest`，并扩展 `ReviewAgentNodeTest` 覆盖无效 ChangePlan 阻断
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=ChangePlanTest,CodeAgentNodeTest,ReviewAgentNodeTest,BuildFixAgentNodeTest,AgentGenerationOrchestratorTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 12`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -145,7 +158,7 @@
 - 验证等级
 - 回滚策略
 
-当前已落地基础 `change_plan` 契约，但还没有把真实的文件 diff、补丁应用结果和回滚点联动成自动闭环。
+当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化和 Review 门禁校验；尚未把真实的文件 diff、补丁应用结果和回滚点联动成自动闭环。
 
 ### 4.3 语义索引 MVP
 

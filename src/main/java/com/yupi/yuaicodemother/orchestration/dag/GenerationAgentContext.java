@@ -20,6 +20,7 @@ public class GenerationAgentContext {
 
     private final GenerationOrchestrationRequest request;
     private final GenerationOrchestrationTask task;
+    private final boolean heavyPath;
     private final Map<String, GenerationArtifact> artifacts = new LinkedHashMap<>();
     private final Map<String, Long> timings = new LinkedHashMap<>();
 
@@ -32,10 +33,17 @@ public class GenerationAgentContext {
     @Setter
     private QualityGateResult qualityGateResult;
 
-    public GenerationAgentContext(GenerationOrchestrationRequest request, GenerationOrchestrationTask task) {
+    public GenerationAgentContext(GenerationOrchestrationRequest request,
+                                  GenerationOrchestrationTask task,
+                                  boolean heavyPath) {
         this.request = request;
         this.task = task;
+        this.heavyPath = heavyPath;
         this.targetType = request.currentType();
+    }
+
+    public String getOrchestrationMode() {
+        return heavyPath ? "heavy" : "light";
     }
 
     public synchronized void putArtifacts(Collection<GenerationArtifact> newArtifacts) {

@@ -108,6 +108,24 @@
 - `AgentGenerationOrchestrator` 的 heavy path 估计与路由函数保持一致，并通过路由缓存避免同一 prompt 重复判路由
 - `GeneratedProjectWorkspaceInspector` 现在忽略更多内部 stamp 文件，避免空工作区被误判成可自动修复
 
+### 3.9 路由判定与门禁单点化
+
+- 新增 `GenerationRoutingSupport`，`PlannerAgentNode` 与 `AgentGenerationOrchestrator` 共用同一套目标路由、build 门禁和 heavy path 判定
+- build 关键词现在会直接驱动 heavy path 与 BuildFix 启用，避免“只进入重型 DAG、但门禁仍然关闭”的不一致
+- `BaseGenerationAgentNode` 提供了共享的 artifact 读取辅助方法，`Code / Review / BuildFix` 三个节点去掉了重复默认值处理
+- 新增 `GenerationRoutingSupportTest`，补齐路由与重型链路判定的回归校验
+
+### 3.10 生成编排指标闭环第一阶段
+
+- 新增 `GenerationOrchestrationMetricsCollector`，复用 Micrometer / Prometheus 体系记录生成编排指标
+- `AgentGenerationOrchestrator` 已记录编排启动、成功、失败、质量门禁失败、总耗时、上下文规模、精选文件数、索引文件数、patch-first、BuildFix 启用、质量门禁结果和回滚策略计划
+- `GenerationDagRunner` 已记录各 DAG 节点的执行耗时和失败耗时，指标按 `orchestration_mode`、`dag_node`、`stage`、`status` 区分
+- `GenerationAgentContext` 现在携带轻 / 重链路模式，避免指标侧重复推断路由
+- 新增 `AgentGenerationOrchestratorTest.shouldRecordOrchestrationMetrics`，覆盖核心指标落库到 `MeterRegistry`
+- 最新验证结果：
+  - `.\mvnw.cmd -Dtest=AgentGenerationOrchestratorTest,GenerationRoutingSupportTest,CodeAgentNodeTest,ReviewAgentNodeTest,GenerationAgentSupportTest -Dmaven.resources.skip=true -DskipTests=false test`
+  - `Tests run: 13`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -150,15 +168,16 @@
 
 ### 4.5 指标闭环
 
-- 平均上下文大小
-- 单次生成 token
-- 计划阶段耗时
-- 编码阶段耗时
-- 校验阶段耗时
-- 改修成功率
+当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数。
+
+仍未闭环的部分：
+
+- 单次生成 token 与编排任务关联
+- 真实改修成功率
 - 自动修复次数
-- 回滚次数
+- 真实回滚次数
 - 用户平均等待时间
+- Grafana 面板和告警规则按新指标更新
 
 ### 4.6 Go Workspace Kernel
 
@@ -176,7 +195,7 @@
 建议按“先固化当前收益，再扩展知识和执行面”的顺序推进：
 
 1. 补齐核心回归测试，优先覆盖轻 / 重链路、Vue 构建分层、回滚兜底
-2. 建立指标埋点，先把上下文、耗时、成功率、回滚率量化出来
+2. 建立指标埋点，先把上下文、耗时、成功率、回滚率量化出来（编排层基础指标已完成，成功率 / 真实回滚率待接执行闭环）
 3. 定义并落地 `ChangePlan`
 4. 把快照 / 回滚接入生成主流程的失败兜底
 5. 做第一批高频 recipe
@@ -187,4 +206,8 @@
 
 - 本轮已落地的核心收益是：prompt 优化入口、改修分流、上下文减重、patch-first 元数据、分层构建验证
 - 这些优化已经把系统从“整仓重写 + 全量 build”推向“意图驱动 + 最小 patch + 分层校验 + 标准化变更计划”
+- 路由判定、heavy path 和 BuildFix 门禁现在也已经单点化，减少了 Planner 与编排器之间的语义漂移
+- 编排层指标已经接入 Micrometer，后续可以直接基于 Prometheus / Grafana 观察上下文规模、节点耗时、门禁结果和回滚计划分布
 - 后续最值钱的工作仍然是 `测试 + 指标 + Recipe + 回滚联动 + 真正的文件 diff/patch 执行`
+
+注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则，每次完成工作后，都要更新该文件内任务状态和文件内容

@@ -114,7 +114,7 @@ public class AppDatabaseResourceServiceImpl
     private String buildDatabaseInstruction(AppDatabaseResource resource) {
         return """
                 【Database 服务接入要求】
-                当前应用已启用 NoCode Database 服务，本轮生成必须接入 Database。
+                当前应用已启用 Rsh Database 服务，本轮生成必须接入 Database。
                 1. 后端服务技术选型固定为 Go + SqlLite，并放在独立 backend 目录下。
                 2. 前端仍以现有 Vue 项目为主，通过 HTTP API 调用后端，不要把数据库读写逻辑硬编码在前端。
                 3. Database URL：%s。

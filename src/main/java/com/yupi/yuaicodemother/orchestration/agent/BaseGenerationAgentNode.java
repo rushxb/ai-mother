@@ -1,5 +1,6 @@
 package com.yupi.yuaicodemother.orchestration.agent;
 
+import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentNode;
 
 import java.util.List;
@@ -39,5 +40,22 @@ public abstract class BaseGenerationAgentNode implements GenerationAgentNode {
     @Override
     public List<String> dependencies() {
         return dependencies;
+    }
+
+    protected String artifactStringValue(GenerationAgentContext context,
+                                         String artifactKey,
+                                         String payloadKey,
+                                         String defaultValue) {
+        Object value = context.getArtifactValue(artifactKey, payloadKey);
+        if (value == null || String.valueOf(value).isBlank()) {
+            return defaultValue;
+        }
+        return String.valueOf(value);
+    }
+
+    protected boolean artifactBooleanValue(GenerationAgentContext context,
+                                           String artifactKey,
+                                           String payloadKey) {
+        return Boolean.TRUE.equals(context.getArtifactValue(artifactKey, payloadKey));
     }
 }

@@ -28,11 +28,11 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         List<String> passes = new ArrayList<>();
         Object promptObj = context.getArtifactValue("generation_spec", "enhancedPrompt");
         String prompt = promptObj == null ? "" : String.valueOf(promptObj);
-        boolean patchFirst = Boolean.TRUE.equals(context.getArtifactValue("generation_spec", "patchFirst"));
-        boolean requiresBuild = Boolean.TRUE.equals(context.getArtifactValue("generation_spec", "requiresBuild"));
-        String validationMode = stringArtifactValue(context, "generation_spec", "validationMode",
+        boolean patchFirst = artifactBooleanValue(context, "generation_spec", "patchFirst");
+        boolean requiresBuild = artifactBooleanValue(context, "generation_spec", "requiresBuild");
+        String validationMode = artifactStringValue(context, "generation_spec", "validationMode",
                 requiresBuild ? "build_validation" : "review_only");
-        String generationMode = stringArtifactValue(context, "generation_spec", "generationMode",
+        String generationMode = artifactStringValue(context, "generation_spec", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
         boolean hasChangePlan = context.getArtifact("change_plan").isPresent();
         if (prompt.isBlank()) {
@@ -74,16 +74,5 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
                 List.of(artifact),
                 payload
         );
-    }
-
-    private String stringArtifactValue(GenerationAgentContext context,
-                                       String artifactKey,
-                                       String payloadKey,
-                                       String defaultValue) {
-        Object value = context.getArtifactValue(artifactKey, payloadKey);
-        if (value == null || String.valueOf(value).isBlank()) {
-            return defaultValue;
-        }
-        return String.valueOf(value);
     }
 }

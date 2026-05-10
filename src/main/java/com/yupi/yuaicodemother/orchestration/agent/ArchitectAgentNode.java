@@ -4,7 +4,6 @@ import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
 import org.springframework.stereotype.Component;
-import cn.hutool.core.util.StrUtil;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,7 +24,7 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
 
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        String projectContext = stringArtifactValue(context, "context_summary", "projectContext", "");
+        String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");
         List<String> modules = support.inferModules(context.getRequest().userMessage(), projectContext);
         List<String> constraints = List.of(
                 "优先复用已有目录和依赖",
@@ -43,16 +42,5 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
                 List.of(artifact),
                 Map.of("moduleCount", modules.size(), "parallelizable", modules.size() > 1)
         );
-    }
-
-    private String stringArtifactValue(GenerationAgentContext context,
-                                       String artifactKey,
-                                       String payloadKey,
-                                       String defaultValue) {
-        Object value = context.getArtifactValue(artifactKey, payloadKey);
-        if (value == null || StrUtil.isBlank(String.valueOf(value))) {
-            return defaultValue;
-        }
-        return String.valueOf(value);
     }
 }

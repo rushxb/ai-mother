@@ -21,13 +21,13 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
 
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        boolean requiresBuild = Boolean.TRUE.equals(context.getArtifactValue("generation_spec", "requiresBuild"));
-        boolean patchFirst = Boolean.TRUE.equals(context.getArtifactValue("generation_spec", "patchFirst"));
-        String validationMode = stringArtifactValue(context, "generation_spec", "validationMode",
+        boolean requiresBuild = artifactBooleanValue(context, "generation_spec", "requiresBuild");
+        boolean patchFirst = artifactBooleanValue(context, "generation_spec", "patchFirst");
+        String validationMode = artifactStringValue(context, "generation_spec", "validationMode",
                 requiresBuild ? "build_validation" : "review_only");
-        String generationMode = stringArtifactValue(context, "generation_spec", "generationMode",
+        String generationMode = artifactStringValue(context, "generation_spec", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
-        String rollbackStrategy = stringArtifactValue(context, "change_plan", "rollbackStrategy",
+        String rollbackStrategy = artifactStringValue(context, "change_plan", "rollbackStrategy",
                 requiresBuild ? "rollback_to_last_stable_snapshot_or_manual_retry" : "manual_retry_without_snapshot");
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("requiresBuild", requiresBuild);
@@ -46,16 +46,5 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
                 List.of(artifact),
                 payload
         );
-    }
-
-    private String stringArtifactValue(GenerationAgentContext context,
-                                       String artifactKey,
-                                       String payloadKey,
-                                       String defaultValue) {
-        Object value = context.getArtifactValue(artifactKey, payloadKey);
-        if (value == null || String.valueOf(value).isBlank()) {
-            return defaultValue;
-        }
-        return String.valueOf(value);
     }
 }

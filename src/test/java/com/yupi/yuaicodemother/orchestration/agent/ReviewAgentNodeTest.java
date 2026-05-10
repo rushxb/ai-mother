@@ -85,6 +85,6 @@ class ReviewAgentNodeTest {
         );
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-1");
-        return new GenerationAgentContext(request, task);
+        return new GenerationAgentContext(request, task, true);
     }
 }

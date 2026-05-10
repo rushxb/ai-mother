@@ -2,16 +2,19 @@ package com.yupi.yuaicodemother.orchestration;
 
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
+import com.yupi.yuaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.yupi.yuaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.CodeAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.ContextAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.GenerationAgentSupport;
+import com.yupi.yuaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.yupi.yuaicodemother.orchestration.agent.PlannerAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.ReviewAgentNode;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationDagRunner;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -34,18 +37,9 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-heavy");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore);
         GenerationAgentSupport support = new GenerationAgentSupport();
-        AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
-                dagRunner,
-                taskStore,
-                new PlannerAgentNode(support),
-                new ContextAgentNode(support),
-                new ArchitectAgentNode(support),
-                new CodeAgentNode(),
-                new ReviewAgentNode(),
-                new BuildFixAgentNode()
-        );
+        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
         App app = new App();
         app.setId(1L);
@@ -78,18 +72,9 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-upgrade");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore);
         GenerationAgentSupport support = new GenerationAgentSupport();
-        AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
-                dagRunner,
-                taskStore,
-                new PlannerAgentNode(support),
-                new ContextAgentNode(support),
-                new ArchitectAgentNode(support),
-                new CodeAgentNode(),
-                new ReviewAgentNode(),
-                new BuildFixAgentNode()
-        );
+        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
         App app = new App();
         app.setId(1L);
@@ -110,5 +95,126 @@ class AgentGenerationOrchestratorTest {
 
         assertEquals(CodeGenTypeEnum.VUE_PROJECT, result.targetType());
         assertTrue(result.artifacts().containsKey("buildfix_plan"));
+    }
+
+    @Test
+    void shouldEnableBuildFixForBuildIntensiveHtmlRequest() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-build");
+        when(taskStore.create(anyLong(), anyString())).thenReturn(task);
+
+        GenerationAgentSupport support = new GenerationAgentSupport();
+        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
+
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+
+        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                app,
+                "请补充打包和构建校验",
+                CodeGenTypeEnum.HTML,
+                "update",
+                false,
+                null,
+                null
+        );
+
+        GenerationOrchestrationResult result = orchestrator.prepare(request);
+
+        assertTrue(result.artifacts().containsKey("buildfix_plan"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> buildfixPlan = result.artifacts().get("buildfix_plan").payload();
+        assertEquals(Boolean.TRUE, buildfixPlan.get("enabled"));
+    }
+
+    @Test
+    void shouldRecordOrchestrationMetrics() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-metrics");
+        when(taskStore.create(anyLong(), anyString())).thenReturn(task);
+
+        GenerationAgentSupport support = new GenerationAgentSupport();
+        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        GenerationOrchestrationMetricsCollector metricsCollector = new GenerationOrchestrationMetricsCollector(meterRegistry);
+        GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore, metricsCollector);
+        AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
+                dagRunner,
+                taskStore,
+                new PlannerAgentNode(support, routingSupport),
+                new ContextAgentNode(support),
+                new ArchitectAgentNode(support),
+                new CodeAgentNode(),
+                new ReviewAgentNode(),
+                new BuildFixAgentNode(),
+                routingSupport,
+                metricsCollector
+        );
+
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+
+        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                app,
+                "修改登录表单样式",
+                CodeGenTypeEnum.HTML,
+                "update",
+                true,
+                null,
+                null
+        );
+
+        String orchestrationMode = routingSupport.shouldUseHeavyPath(request) ? "heavy" : "light";
+        orchestrator.prepare(request);
+
+        assertEquals(1.0, meterRegistry.counter(
+                "generation_orchestration_runs_total",
+                "orchestration_mode", orchestrationMode,
+                "status", "started"
+        ).count());
+        assertEquals(1.0, meterRegistry.counter(
+                "generation_orchestration_runs_total",
+                "orchestration_mode", orchestrationMode,
+                "status", "success"
+        ).count());
+        assertEquals(1, meterRegistry.find("generation_orchestration_node_duration_seconds")
+                .tag("dag_node", "planner")
+                .tag("status", "done")
+                .timer()
+                .count());
+        assertEquals(1.0, meterRegistry.counter(
+                "generation_orchestration_patch_first_total",
+                "orchestration_mode", orchestrationMode,
+                "enabled", "true"
+        ).count());
+        assertEquals(1, meterRegistry.find("generation_orchestration_context_chars")
+                .tag("orchestration_mode", orchestrationMode)
+                .summary()
+                .count());
+    }
+
+    private AgentGenerationOrchestrator buildOrchestrator(GenerationOrchestrationTaskStore taskStore,
+                                                          GenerationAgentSupport support,
+                                                          GenerationRoutingSupport routingSupport) {
+        GenerationOrchestrationMetricsCollector metricsCollector =
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
+        GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore, metricsCollector);
+        return new AgentGenerationOrchestrator(
+                dagRunner,
+                taskStore,
+                new PlannerAgentNode(support, routingSupport),
+                new ContextAgentNode(support),
+                new ArchitectAgentNode(support),
+                new CodeAgentNode(),
+                new ReviewAgentNode(),
+                new BuildFixAgentNode(),
+                routingSupport,
+                metricsCollector
+        );
     }
 }

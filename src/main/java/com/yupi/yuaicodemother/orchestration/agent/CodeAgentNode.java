@@ -25,17 +25,18 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
 
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        String projectContext = stringArtifactValue(context, "context_summary", "projectContext", "");
+        String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");
         @SuppressWarnings("unchecked")
         List<String> modules = (List<String>) context.getArtifactValue("architecture_plan", "modules");
         @SuppressWarnings("unchecked")
         List<String> goals = (List<String>) context.getArtifactValue("requirements", "goals");
         @SuppressWarnings("unchecked")
         List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
-        boolean patchFirst = Boolean.TRUE.equals(context.getArtifactValue("requirements", "patchFirst"));
-        boolean requiresBuild = Boolean.TRUE.equals(context.getArtifactValue("requirements", "requiresBuild"));
-        String validationMode = stringArtifactValue(context, "requirements", "validationMode", requiresBuild ? "build_validation" : "review_only");
-        String generationMode = stringArtifactValue(context, "requirements", "generationMode",
+        boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
+        boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
+        String validationMode = artifactStringValue(context, "requirements", "validationMode",
+                requiresBuild ? "build_validation" : "review_only");
+        String generationMode = artifactStringValue(context, "requirements", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
         String prompt = buildExecutionPrompt(context, projectContext, modules, goals);
         ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
@@ -70,10 +71,11 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                                         String projectContext,
                                         List<String> modules,
                                         List<String> goals) {
-        boolean patchFirst = Boolean.TRUE.equals(context.getArtifactValue("requirements", "patchFirst"));
-        boolean requiresBuild = Boolean.TRUE.equals(context.getArtifactValue("requirements", "requiresBuild"));
-        String validationMode = stringArtifactValue(context, "requirements", "validationMode", requiresBuild ? "build_validation" : "review_only");
-        String generationMode = stringArtifactValue(context, "requirements", "generationMode",
+        boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
+        boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
+        String validationMode = artifactStringValue(context, "requirements", "validationMode",
+                requiresBuild ? "build_validation" : "review_only");
+        String generationMode = artifactStringValue(context, "requirements", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
         List<String> lines = new ArrayList<>();
         lines.add(context.getRequest().userMessage());
@@ -178,14 +180,4 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                 .toList();
     }
 
-    private String stringArtifactValue(GenerationAgentContext context,
-                                       String artifactKey,
-                                       String payloadKey,
-                                       String defaultValue) {
-        Object value = context.getArtifactValue(artifactKey, payloadKey);
-        if (value == null || StrUtil.isBlank(String.valueOf(value))) {
-            return defaultValue;
-        }
-        return String.valueOf(value);
-    }
 }

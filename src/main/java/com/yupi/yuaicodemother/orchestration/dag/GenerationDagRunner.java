@@ -1,6 +1,7 @@
 package com.yupi.yuaicodemother.orchestration.dag;
 
 import com.yupi.yuaicodemother.core.handler.GenerationStreamEvent;
+import com.yupi.yuaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +25,7 @@ import java.util.concurrent.Executors;
 public class GenerationDagRunner {
 
     private final GenerationOrchestrationTaskStore taskStore;
+    private final GenerationOrchestrationMetricsCollector metricsCollector;
 
     public List<GenerationStreamEvent> run(List<GenerationAgentNode> nodes, GenerationAgentContext context) {
         Map<String, GenerationAgentNode> nodeMap = new LinkedHashMap<>();
@@ -59,6 +61,13 @@ public class GenerationDagRunner {
                     context.putArtifacts(execution.result().artifacts());
                     context.recordTiming(execution.node().key(), execution.durationMs());
                     context.getTask().getTimings().put(execution.node().key(), execution.durationMs());
+                    metricsCollector.recordNodeDuration(
+                            context.getOrchestrationMode(),
+                            execution.node().key(),
+                            execution.node().stage(),
+                            "done",
+                            Duration.ofMillis(execution.durationMs())
+                    );
                     execution.result().artifacts().forEach(artifact ->
                             context.getTask().getArtifacts().put(artifact.key(), artifact));
                     GenerationStreamEvent doneEvent = buildEvent(
@@ -97,6 +106,13 @@ public class GenerationDagRunner {
             GenerationStreamEvent failedEvent = buildEvent(context, node, "failed", e.getMessage(), null, durationMs);
             context.getTask().getEvents().add(failedEvent);
             context.getTask().getNodeStatuses().put(node.key(), "failed");
+            metricsCollector.recordNodeDuration(
+                    context.getOrchestrationMode(),
+                    node.key(),
+                    node.stage(),
+                    "failed",
+                    Duration.ofMillis(durationMs)
+            );
             taskStore.save(context.getTask());
             throw e;
         }

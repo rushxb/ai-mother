@@ -2,8 +2,8 @@
   <div class="database-workspace">
     <section v-if="!databaseEnabled" class="database-guide">
       <div class="database-guide-hero">
-        <span class="database-kicker">NoCode Database</span>
-        <h2>启用 NoCode Database 服务</h2>
+        <span class="database-kicker">Rush Database</span>
+        <h2>启用 Rush Database 服务</h2>
         <p>一站式托管后端数据服务，开箱即用地为 AI 生成项目补齐数据、文件、用户与外部连接能力。</p>
       </div>
 

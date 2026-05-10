@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Locale;
 
 /**
  * Planner：需求拆解与路由策略。
@@ -19,10 +18,12 @@ import java.util.Locale;
 public class PlannerAgentNode extends BaseGenerationAgentNode {
 
     private final GenerationAgentSupport support;
+    private final GenerationRoutingSupport routingSupport;
 
-    public PlannerAgentNode(GenerationAgentSupport support) {
+    public PlannerAgentNode(GenerationAgentSupport support, GenerationRoutingSupport routingSupport) {
         super("planner", "Planner", "planning", List.of());
         this.support = support;
+        this.routingSupport = routingSupport;
     }
 
     @Override
@@ -30,10 +31,10 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         String userMessage = StrUtil.blankToDefault(context.getRequest().userMessage(), "");
         boolean complex = support.isComplexRequest(userMessage);
         boolean patchFirst = context.getRequest().hasGeneratedCode();
-        CodeGenTypeEnum routedType = routeTargetType(context, complex);
+        CodeGenTypeEnum routedType = routingSupport.routeTargetType(context.getRequest(), complex);
         context.setTargetType(CodeGenTypeEnum.max(context.getRequest().currentType(), routedType));
         context.setUpgradeRequired(context.getRequest().currentType().canUpgradeTo(context.getTargetType()));
-        boolean requiresBuild = requiresBuildValidation(context, userMessage);
+        boolean requiresBuild = routingSupport.requiresBuildValidation(context.getRequest(), context.getTargetType());
         String generationMode = patchFirst ? "patch_first_update" : "full_generation";
         String validationMode = requiresBuild ? "build_validation" : "review_only";
         List<String> goals = List.of(
@@ -65,39 +66,5 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                         "generationMode", generationMode
                 )
         );
-    }
-
-    private boolean requiresBuildValidation(GenerationAgentContext context, String userMessage) {
-        if (context.getTargetType() != CodeGenTypeEnum.VUE_PROJECT) {
-            return false;
-        }
-        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
-        if (!context.getRequest().hasGeneratedCode() || context.isUpgradeRequired()) {
-            return true;
-        }
-        return List.of("build", "构建", "打包", "编译", "测试", "lint", "校验", "发布", "npm", "vite", "工程化", "vue工程")
-                .stream()
-                .anyMatch(normalized::contains);
-    }
-
-    private CodeGenTypeEnum routeTargetType(GenerationAgentContext context, boolean complex) {
-        if (!complex && context.getRequest().currentType() == CodeGenTypeEnum.HTML) {
-            return CodeGenTypeEnum.HTML;
-        }
-        if (context.getRequest().currentType() == CodeGenTypeEnum.VUE_PROJECT) {
-            return CodeGenTypeEnum.VUE_PROJECT;
-        }
-        if (context.getRequest().routingFunction() == null) {
-            return complex ? CodeGenTypeEnum.VUE_PROJECT : context.getRequest().currentType();
-        }
-        try {
-            String routingPrompt = "请根据以下需求判断最适合的生成模式：\n" + context.getRequest().userMessage();
-            CodeGenTypeEnum routedType = context.getRequest().routingFunction().apply(routingPrompt);
-            if (routedType != null) {
-                return routedType;
-            }
-        } catch (Exception ignored) {
-        }
-        return complex ? CodeGenTypeEnum.VUE_PROJECT : context.getRequest().currentType();
     }
 }

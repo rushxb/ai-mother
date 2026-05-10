@@ -177,11 +177,12 @@ const updateAppNameDraft = (value: string) => {
 const getMessagesContainer = () => messagesPanelRef.value?.getContainer?.() || null
 
 const goBack = () => {
-  if (window.history.length > 1) {
-    router.back()
+  const previousRoute = router.options.history.state?.back
+  if (typeof previousRoute === 'string' && previousRoute) {
+    router.replace(previousRoute)
     return
   }
-  router.push('/')
+  router.replace('/')
 }
 
 // 权限相关

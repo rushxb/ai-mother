@@ -205,6 +205,20 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationPatchResultServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 22`, `Failures: 0`, `Errors: 0`
 
+### 3.17 独立补丁执行器 MVP
+
+- 新增 `PatchApplyResult` 标准 artifact，输出 `schemaVersion/provider/status/appId/taskId/projectPath/plannedOperationCount/appliedOperationCount/rejectedOperationCount/appliedFiles/rejectedOperations/reason`
+- 新增 `PatchOperation` 结构化补丁操作，覆盖 `add / modify / replace / delete`
+- 新增 `GenerationPatchApplyService`，在落盘前统一校验：
+  - 路径必须位于项目根目录内
+  - 操作必须落在 `change_plan` 声明范围内
+  - 变更计划缺失、空操作、越界路径、计划外操作都会直接拒绝，不产生半写入
+- `FileWriteTool`、`FileModifyTool`、`FileDeleteTool` 已收口到同一补丁执行路径，避免各工具各自维护写文件逻辑
+- 新增 `GenerationPatchApplyServiceTest`，覆盖成功落盘、计划外拒绝、非法路径拒绝、空计划跳过和 artifact 输入场景
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationPatchApplyServiceTest,GenerationPatchResultServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 18`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -224,7 +238,7 @@
 - 验证等级
 - 回滚策略
 
-当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验、生成前本地 `rollback_point` artifact、生成后本地 `diff_summary` artifact、失败后的 opt-in 本地快照恢复，以及基于真实落盘 diff 的 `patch_result` 结果闭环。尚未实现独立补丁执行器，当前仍由现有代码生成器直接写入文件，`patch_result` 负责校验实际结果是否偏离计划。
+当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验、生成前本地 `rollback_point` artifact、生成后本地 `diff_summary` artifact、失败后的 opt-in 本地快照恢复，以及基于真实落盘 diff 的 `patch_result` 结果闭环。已补上独立补丁执行器 MVP，并把基础文件工具收口到统一落盘路径；后续仍可继续扩展更细粒度的内容级 patch 和批量事务能力。
 
 ### 4.3 语义索引 MVP
 
@@ -266,7 +280,7 @@
 - 补丁执行器
 - 统一进程管理
 
-目前系统仍以 Java 单体控制逻辑为主。
+目前系统仍以 Java 单体控制逻辑为主；不过文件级补丁执行器已经先在 Java 内收口，后续若拆 Go kernel，可以直接承接这层契约。
 
 ## 5. 建议的后续工作顺序
 

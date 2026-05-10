@@ -5,12 +5,15 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
+import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
+import com.yupi.yuaicodemother.orchestration.artifact.PatchApplyResult;
+import com.yupi.yuaicodemother.orchestration.patch.GenerationPatchApplyService;
+import com.yupi.yuaicodemother.orchestration.patch.PatchOperation;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.util.List;
 
 /**
  * 文件修改工具
@@ -19,6 +22,12 @@ import java.nio.file.StandardOpenOption;
 @Slf4j
 @Component
 public class FileModifyTool extends BaseTool {
+
+    private final GenerationPatchApplyService generationPatchApplyService;
+
+    public FileModifyTool(GenerationPatchApplyService generationPatchApplyService) {
+        this.generationPatchApplyService = generationPatchApplyService;
+    }
 
     @Tool("修改文件内容，用新内容替换指定的旧内容")
     public String modifyFile(
@@ -31,24 +40,29 @@ public class FileModifyTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            Path path = ToolPathSupport.resolvePath(relativeFilePath, appId);
+            String normalizedPath = ToolPathSupport.normalizeRelativePath(relativeFilePath);
+            Path path = ToolPathSupport.resolvePath(normalizedPath, appId);
             if (!Files.exists(path) || !Files.isRegularFile(path)) {
-                return "错误：文件不存在或不是文件 - " + relativeFilePath;
+                return "错误：文件不存在或不是文件 - " + normalizedPath;
             }
-            String originalContent = Files.readString(path);
-            if (!originalContent.contains(oldContent)) {
-                return "警告：文件中未找到要替换的内容，文件未修改 - " + relativeFilePath;
+            if (!Files.readString(path).contains(oldContent)) {
+                return "警告：文件中未找到要替换的内容，文件未修改 - " + normalizedPath;
             }
-            String modifiedContent = originalContent.replace(oldContent, newContent);
-            if (originalContent.equals(modifiedContent)) {
-                return "信息：替换后文件内容未发生变化 - " + relativeFilePath;
+            PatchApplyResult result = generationPatchApplyService.apply(
+                    appId,
+                    "tool-modify-file",
+                    ToolPathSupport.resolveProjectRoot(appId),
+                    new ChangePlan("v1", "single_file_patch", List.of(), List.of(normalizedPath), List.of(), List.of("workspace"), "review_only", "manual_retry_without_snapshot"),
+                    List.of(PatchOperation.replace(normalizedPath, oldContent, newContent))
+            );
+            if ("applied".equals(result.status())) {
+                log.info("成功修改文件: {}", path.toAbsolutePath());
+                return "文件修改成功: " + normalizedPath;
             }
-            Files.writeString(path, modifiedContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            log.info("成功修改文件: {}", path.toAbsolutePath());
-            return "文件修改成功: " + relativeFilePath;
+            return "修改文件失败: " + normalizedPath + ", 原因: " + result.reason();
         } catch (IllegalArgumentException e) {
             return "修改文件失败: " + e.getMessage();
-        } catch (IOException e) {
+        } catch (Exception e) {
             String errorMessage = "修改文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
             return errorMessage;

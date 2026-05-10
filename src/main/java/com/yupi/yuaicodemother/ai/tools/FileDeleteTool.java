@@ -5,11 +5,15 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
+import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
+import com.yupi.yuaicodemother.orchestration.artifact.PatchApplyResult;
+import com.yupi.yuaicodemother.orchestration.patch.GenerationPatchApplyService;
+import com.yupi.yuaicodemother.orchestration.patch.PatchOperation;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * 文件删除工具
@@ -19,6 +23,12 @@ import java.nio.file.Path;
 @Component
 public class FileDeleteTool extends BaseTool {
 
+    private final GenerationPatchApplyService generationPatchApplyService;
+
+    public FileDeleteTool(GenerationPatchApplyService generationPatchApplyService) {
+        this.generationPatchApplyService = generationPatchApplyService;
+    }
+
     @Tool("删除指定路径的文件")
     public String deleteFile(
             @P("文件的相对路径")
@@ -26,24 +36,34 @@ public class FileDeleteTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            Path path = ToolPathSupport.resolvePath(relativeFilePath, appId);
+            String normalizedPath = ToolPathSupport.normalizeRelativePath(relativeFilePath);
+            Path path = ToolPathSupport.resolvePath(normalizedPath, appId);
             if (!Files.exists(path)) {
-                return "警告：文件不存在，无需删除 - " + relativeFilePath;
+                return "警告：文件不存在，无需删除 - " + normalizedPath;
             }
             if (!Files.isRegularFile(path)) {
-                return "错误：指定路径不是文件，无法删除 - " + relativeFilePath;
+                return "错误：指定路径不是文件，无法删除 - " + normalizedPath;
             }
             // 安全检查：避免删除重要文件
             String fileName = path.getFileName().toString();
             if (isImportantFile(fileName)) {
                 return "错误：不允许删除重要文件 - " + fileName;
             }
-            Files.delete(path);
-            log.info("成功删除文件: {}", path.toAbsolutePath());
-            return "文件删除成功: " + relativeFilePath;
+            PatchApplyResult result = generationPatchApplyService.apply(
+                    appId,
+                    "tool-delete-file",
+                    ToolPathSupport.resolveProjectRoot(appId),
+                    new ChangePlan("v1", "single_file_patch", List.of(), List.of(), List.of(normalizedPath), List.of("workspace"), "review_only", "manual_retry_without_snapshot"),
+                    List.of(PatchOperation.delete(normalizedPath))
+            );
+            if ("applied".equals(result.status())) {
+                log.info("成功删除文件: {}", path.toAbsolutePath());
+                return "文件删除成功: " + normalizedPath;
+            }
+            return "删除文件失败: " + normalizedPath + ", 原因: " + result.reason();
         } catch (IllegalArgumentException e) {
             return "删除文件失败: " + e.getMessage();
-        } catch (IOException e) {
+        } catch (Exception e) {
             String errorMessage = "删除文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
             return errorMessage;

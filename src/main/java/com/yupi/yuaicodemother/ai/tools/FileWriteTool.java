@@ -6,12 +6,14 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
+import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
+import com.yupi.yuaicodemother.orchestration.artifact.PatchApplyResult;
+import com.yupi.yuaicodemother.orchestration.patch.GenerationPatchApplyService;
+import com.yupi.yuaicodemother.orchestration.patch.PatchOperation;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.util.List;
 
 /**
  * 文件写入工具
@@ -20,6 +22,12 @@ import java.nio.file.StandardOpenOption;
 @Slf4j
 @Component
 public class FileWriteTool extends BaseTool {
+
+    private final GenerationPatchApplyService generationPatchApplyService;
+
+    public FileWriteTool(GenerationPatchApplyService generationPatchApplyService) {
+        this.generationPatchApplyService = generationPatchApplyService;
+    }
 
     @Tool("写入文件到指定路径")
     public String writeFile(
@@ -30,22 +38,34 @@ public class FileWriteTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            Path path = ToolPathSupport.resolvePath(relativeFilePath, appId);
-            // 创建父目录（如果不存在）
-            Path parentDir = path.getParent();
-            if (parentDir != null) {
-                Files.createDirectories(parentDir);
+            String normalizedPath = ToolPathSupport.normalizeRelativePath(relativeFilePath);
+            Path projectRoot = ToolPathSupport.resolveProjectRoot(appId);
+            PatchApplyResult result;
+            if (ToolPathSupport.resolvePath(normalizedPath, appId).toFile().exists()) {
+                result = generationPatchApplyService.apply(
+                        appId,
+                        "tool-write-file",
+                        projectRoot,
+                        new ChangePlan("v1", "single_file_patch", List.of(), List.of(normalizedPath), List.of(), List.of("workspace"), "review_only", "manual_retry_without_snapshot"),
+                        List.of(PatchOperation.modify(normalizedPath, content))
+                );
+            } else {
+                result = generationPatchApplyService.apply(
+                        appId,
+                        "tool-write-file",
+                        projectRoot,
+                        new ChangePlan("v1", "single_file_patch", List.of(normalizedPath), List.of(), List.of(), List.of("workspace"), "review_only", "manual_retry_without_snapshot"),
+                        List.of(PatchOperation.add(normalizedPath, content))
+                );
             }
-            // 写入文件内容
-            Files.write(path, content.getBytes(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
-            log.info("成功写入文件: {}", path.toAbsolutePath());
-            // 注意要返回相对路径，不能让 AI 把文件绝对路径返回给用户
-            return "文件写入成功: " + relativeFilePath;
+            if ("applied".equals(result.status())) {
+                log.info("成功写入文件: {}", ToolPathSupport.resolvePath(normalizedPath, appId).toAbsolutePath());
+                return "文件写入成功: " + normalizedPath;
+            }
+            return "文件写入失败: " + normalizedPath + ", 原因: " + result.reason();
         } catch (IllegalArgumentException e) {
             return "文件写入失败: " + e.getMessage();
-        } catch (IOException e) {
+        } catch (Exception e) {
             String errorMessage = "文件写入失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
             return errorMessage;

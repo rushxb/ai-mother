@@ -34,6 +34,17 @@ final class ToolPathSupport {
         return resolvedPath;
     }
 
+    static String normalizeRelativePath(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            throw new IllegalArgumentException("文件路径不能为空");
+        }
+        String normalizedPath = relativePath.replace("\\", "/").trim();
+        if (normalizedPath.startsWith("/") || normalizedPath.contains("..")) {
+            throw new IllegalArgumentException("非法路径，超出当前项目目录范围");
+        }
+        return normalizedPath;
+    }
+
     static void ensureWithinProject(Path projectRoot, Path targetPath) {
         Path normalizedRoot = projectRoot.toAbsolutePath().normalize();
         Path normalizedTarget = targetPath.toAbsolutePath().normalize();

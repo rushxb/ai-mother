@@ -20,6 +20,7 @@ import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentNode;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationDagRunner;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
+import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackPointService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -48,6 +49,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private final BuildFixAgentNode buildFixAgentNode;
     private final GenerationRoutingSupport routingSupport;
     private final GenerationOrchestrationMetricsCollector metricsCollector;
+    private final GenerationRollbackPointService rollbackPointService;
 
     @Override
     public GenerationOrchestrationResult prepare(GenerationOrchestrationRequest request) {
@@ -77,8 +79,9 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR,
                         "质量门禁未通过：" + String.join("；", gateResult.blockers()));
             }
-            String enhancedMessage = extractEnhancedPrompt(context.getArtifacts());
             CodeGenTypeEnum targetType = context.getTargetType() == null ? request.currentType() : context.getTargetType();
+            attachRollbackPoint(request, context, targetType);
+            String enhancedMessage = extractEnhancedPrompt(context.getArtifacts());
             events.add(orchestrationReadyEvent(task.getTaskId(), context, heavyPath));
             metricsCollector.recordRun(orchestrationMode, "success");
             metricsCollector.recordTotalDuration(
@@ -124,6 +127,19 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
             nodes.add(buildFixAgentNode);
         }
         return List.copyOf(nodes);
+    }
+
+    private void attachRollbackPoint(GenerationOrchestrationRequest request,
+                                     GenerationAgentContext context,
+                                     CodeGenTypeEnum targetType) {
+        GenerationArtifact artifact = rollbackPointService.prepareRollbackPoint(
+                request,
+                targetType,
+                context.getTask().getTaskId()
+        );
+        context.putArtifacts(List.of(artifact));
+        context.getTask().getArtifacts().put(artifact.key(), artifact);
+        taskStore.save(context.getTask());
     }
 
     private String extractEnhancedPrompt(Map<String, GenerationArtifact> artifacts) {

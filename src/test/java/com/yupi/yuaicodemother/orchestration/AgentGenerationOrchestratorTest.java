@@ -3,6 +3,7 @@ package com.yupi.yuaicodemother.orchestration;
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.yupi.yuaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.CodeAgentNode;
@@ -14,9 +15,12 @@ import com.yupi.yuaicodemother.orchestration.agent.ReviewAgentNode;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationDagRunner;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
+import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackPointService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import cn.hutool.core.io.FileUtil;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -60,6 +64,10 @@ class AgentGenerationOrchestratorTest {
 
         assertEquals(CodeGenTypeEnum.VUE_PROJECT, result.targetType());
         assertTrue(result.artifacts().containsKey("buildfix_plan"));
+        assertTrue(result.artifacts().containsKey("rollback_point"));
+        GenerationArtifact rollbackPoint = result.artifacts().get("rollback_point");
+        assertEquals("skipped", rollbackPoint.payload().get("status"));
+        assertEquals("no_existing_generated_code", rollbackPoint.payload().get("reason"));
         @SuppressWarnings("unchecked")
         Map<String, Object> buildfixPlan = result.artifacts().get("buildfix_plan").payload();
         assertEquals(Boolean.TRUE, buildfixPlan.get("enabled"));
@@ -142,6 +150,7 @@ class AgentGenerationOrchestratorTest {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         GenerationOrchestrationMetricsCollector metricsCollector = new GenerationOrchestrationMetricsCollector(meterRegistry);
         GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore, metricsCollector);
+        GenerationRollbackPointService rollbackPointService = testRollbackPointService("metrics");
         AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
                 dagRunner,
                 taskStore,
@@ -152,7 +161,8 @@ class AgentGenerationOrchestratorTest {
                 new ReviewAgentNode(),
                 new BuildFixAgentNode(),
                 routingSupport,
-                metricsCollector
+                metricsCollector,
+                rollbackPointService
         );
 
         App app = new App();
@@ -204,6 +214,7 @@ class AgentGenerationOrchestratorTest {
         GenerationOrchestrationMetricsCollector metricsCollector =
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
         GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore, metricsCollector);
+        GenerationRollbackPointService rollbackPointService = testRollbackPointService("shared");
         return new AgentGenerationOrchestrator(
                 dagRunner,
                 taskStore,
@@ -214,7 +225,14 @@ class AgentGenerationOrchestratorTest {
                 new ReviewAgentNode(),
                 new BuildFixAgentNode(),
                 routingSupport,
-                metricsCollector
+                metricsCollector,
+                rollbackPointService
         );
+    }
+
+    private GenerationRollbackPointService testRollbackPointService(String caseName) {
+        Path root = Path.of("target", "test-workspaces", "rollback-orchestrator", caseName);
+        FileUtil.del(root.toFile());
+        return new GenerationRollbackPointService(root.resolve("code_output"), root.resolve("code_snapshot"));
     }
 }

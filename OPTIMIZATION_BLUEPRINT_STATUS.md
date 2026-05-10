@@ -139,6 +139,18 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=ChangePlanTest,CodeAgentNodeTest,ReviewAgentNodeTest,BuildFixAgentNodeTest,AgentGenerationOrchestratorTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 12`, `Failures: 0`, `Errors: 0`
 
+### 3.12 生成前本地回滚点
+
+- 当前阶段不要求引入外部 Git 服务或远端代码托管组件；先复用本地工作区和 `CODE_SNAPSHOT_ROOT_DIR` 建立标准回滚点
+- 新增 `RollbackPoint` 标准 artifact，统一输出 `provider/status/appId/taskId/snapshotName/snapshotPath/projectPath/sourceType/targetType/fileCount/reason`
+- 新增 `GenerationRollbackPointService`，在进入真实代码生成前复制已有生成目录到本地快照目录，并忽略 `.git`、`node_modules`、`dist`、`target` 等非源码目录
+- `AgentGenerationOrchestrator` 现在会在质量门禁通过后附加 `rollback_point` artifact；新建应用或缺失旧代码时会输出 `skipped` 状态和原因，不阻断生成
+- 修正快照忽略规则为基于项目内相对路径判断，避免仓库上级路径包含 `target` 时误过滤整个项目
+- 新增 `GenerationRollbackPointServiceTest`，并扩展 `AgentGenerationOrchestratorTest` 覆盖回滚点 artifact 输出
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 13`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -158,7 +170,7 @@
 - 验证等级
 - 回滚策略
 
-当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化和 Review 门禁校验；尚未把真实的文件 diff、补丁应用结果和回滚点联动成自动闭环。
+当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验和生成前本地 `rollback_point` artifact；尚未把真实的文件 diff、补丁应用结果和失败自动回滚联动成自动闭环。
 
 ### 4.3 语义索引 MVP
 
@@ -177,7 +189,7 @@
 - 失败自动回滚到稳定版本
 - 结果直接输出 commit id / rollback point
 
-仓库内已有手工快照 / diff 工具，但还没有进入生成主流程。
+当前已将本地快照提升为生成主流程里的标准 `rollback_point` artifact。尚未接入自动 commit、真实生成后 diff 汇总、失败时自动覆盖回滚；短期内不要求外部 Git 服务，后续如需 commit id 再优先抽象本地 Git CLI 适配层。
 
 ### 4.5 指标闭环
 

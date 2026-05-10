@@ -61,6 +61,31 @@ class JsonMessageStreamHandlerTest {
         assertEquals("{\n", events.get(1).getData().get("content"));
     }
 
+    @Test
+    void handleToolCallShouldSeparateFilesWithSameToolIndexByRequestId() {
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler();
+        ReflectionTestUtils.setField(handler, "toolManager", mock(ToolManager.class));
+        Flux<GenerationStreamEvent> originFlux = Flux.just(
+                toolCall("req-package", "{\"relativeFilePath\":\"package.json\",\"content\":\"{}\"}"),
+                toolCall("req-i18n", "{\"relativeFilePath\":\"src/utils/i18n.js\",\"content\":\"export"),
+                toolCall("req-i18n", " const locale = 'zh-CN'\"}")
+        );
+        User loginUser = new User();
+        loginUser.setId(1L);
+
+        List<GenerationStreamEvent> events = handler.handle(originFlux, mock(ChatHistoryService.class), 1L, loginUser)
+                .collectList()
+                .block();
+
+        assertEquals(3, events.size());
+        assertEquals("package.json", events.get(0).getData().get("filePath"));
+        assertEquals("{}", events.get(0).getData().get("content"));
+        assertEquals("src/utils/i18n.js", events.get(1).getData().get("filePath"));
+        assertEquals("export", events.get(1).getData().get("content"));
+        assertEquals("src/utils/i18n.js", events.get(2).getData().get("filePath"));
+        assertEquals("export const locale = 'zh-CN'", events.get(2).getData().get("content"));
+    }
+
     private GenerationStreamEvent toolCall(String requestId, String arguments) {
         return GenerationStreamEvent.toolCall("", Map.of(
                 "toolName", "writeFile",

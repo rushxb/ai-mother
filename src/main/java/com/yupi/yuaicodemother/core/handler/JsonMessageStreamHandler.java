@@ -125,10 +125,12 @@ public class JsonMessageStreamHandler {
                 }
             }
             case GenerationStreamEvent.TOOL_RESULT -> {
+                String toolId = event.getData() == null ? null : stringValue(event.getData().get("requestId"));
+                String toolName = event.getData() == null ? null : stringValue(event.getData().get("toolName"));
                 String arguments = event.getData() == null ? "" : String.valueOf(event.getData().get("arguments"));
+                clearToolArguments(toolArgumentBuffers, toolId, toolName, null);
                 JSONObject jsonObject = StrUtil.isBlank(arguments) ? new JSONObject() : JSONUtil.parseObj(arguments);
                 // 根据工具名称获取工具实例
-                String toolName = event.getData() == null ? null : String.valueOf(event.getData().get("toolName"));
                 BaseTool tool = toolManager.getTool(toolName);
                 if (tool == null) {
                     log.warn("收到未注册的工具执行结果: {}", toolName);
@@ -202,22 +204,34 @@ public class JsonMessageStreamHandler {
                                        String toolIndex,
                                        String argumentsChunk) {
         String chunk = StrUtil.blankToDefault(argumentsChunk, "");
-        String bufferKey = "";
-        if (StrUtil.isNotBlank(toolName) && StrUtil.isNotBlank(toolIndex)) {
-            bufferKey = toolName + "#" + toolIndex;
-        }
-        if (StrUtil.isBlank(bufferKey)) {
-            bufferKey = StrUtil.blankToDefault(toolId, "");
-        }
-        if (StrUtil.isBlank(bufferKey)) {
-            bufferKey = toolName;
-        }
+        String bufferKey = resolveToolBufferKey(toolId, toolName, toolIndex);
         if (StrUtil.isBlank(bufferKey)) {
             return chunk;
         }
         StringBuilder buffer = toolArgumentBuffers.computeIfAbsent(bufferKey, key -> new StringBuilder());
         buffer.append(chunk);
         return buffer.toString();
+    }
+
+    private void clearToolArguments(Map<String, StringBuilder> toolArgumentBuffers,
+                                    String toolId,
+                                    String toolName,
+                                    String toolIndex) {
+        String bufferKey = resolveToolBufferKey(toolId, toolName, toolIndex);
+        if (StrUtil.isBlank(bufferKey)) {
+            return;
+        }
+        toolArgumentBuffers.remove(bufferKey);
+    }
+
+    private String resolveToolBufferKey(String toolId, String toolName, String toolIndex) {
+        if (StrUtil.isNotBlank(toolId)) {
+            return toolId;
+        }
+        if (StrUtil.isNotBlank(toolName) && StrUtil.isNotBlank(toolIndex)) {
+            return toolName + "#" + toolIndex;
+        }
+        return toolName;
     }
 
     private String stringValue(Object value) {

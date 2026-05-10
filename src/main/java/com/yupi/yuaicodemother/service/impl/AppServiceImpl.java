@@ -38,8 +38,10 @@ import com.yupi.yuaicodemother.monitor.MonitorContextHolder;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationResult;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
+import com.yupi.yuaicodemother.orchestration.artifact.DiffSummary;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
+import com.yupi.yuaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.yupi.yuaicodemother.service.AppService;
 import com.yupi.yuaicodemother.service.AppDatabaseResourceService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
@@ -61,6 +63,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -134,6 +137,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     @Resource
     private AppDatabaseResourceService appDatabaseResourceService;
+
+    @Resource
+    private GenerationDiffSummaryService generationDiffSummaryService;
 
     private final Map<Long, Object> generationLocks = new ConcurrentHashMap<>();
     private final Map<Long, GenerationSession> activeGenerationSessions = new ConcurrentHashMap<>();
@@ -511,6 +517,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 if (preparation.requiresBuildValidation()) {
                     startBackgroundBuild(appId, loginUser, preparation, session);
                 } else {
+                    emitDiffSummaryIfAvailable(appId, preparation, session);
                     markGenerationFinished(appId);
                     session.complete();
                     activeGenerationSessions.remove(appId, session);
@@ -526,12 +533,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
                 markGenerationFinished(appId);
-                session.emit(GenerationStreamEvent.generationError(generationError.message(), Map.of(
-                        "category", generationError.category(),
-                        "message", generationError.message(),
-                        "taskId", preparation.taskId(),
-                        "recoverable", generationError.recoverable()
-                )));
+                session.emit(GenerationStreamEvent.generationError(
+                        generationError.message(),
+                        buildGenerationErrorData(preparation, generationError)
+                ));
                 session.complete();
                 activeGenerationSessions.remove(appId, session);
             } finally {
@@ -553,17 +558,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                             .build()
             );
             try {
-                runBackgroundBuildWithAutoRepair(appId, loginUser, preparation, session);
+                boolean buildSucceeded = runBackgroundBuildWithAutoRepair(appId, loginUser, preparation, session);
+                if (buildSucceeded) {
+                    emitDiffSummaryIfAvailable(appId, preparation, session);
+                }
             } catch (Exception e) {
                 log.error("后台构建校验失败，appId: {}", appId, e);
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
-                session.emit(GenerationStreamEvent.generationError(generationError.message(), Map.of(
-                        "category", generationError.category(),
-                        "message", generationError.message(),
-                        "taskId", preparation.taskId(),
-                        "recoverable", generationError.recoverable()
-                )));
+                session.emit(GenerationStreamEvent.generationError(
+                        generationError.message(),
+                        buildGenerationErrorData(preparation, generationError)
+                ));
             } finally {
                 markGenerationFinished(appId);
                 session.complete();
@@ -573,10 +579,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         });
     }
 
-    private void runBackgroundBuildWithAutoRepair(Long appId,
-                                                  User loginUser,
-                                                  GenerationPreparation preparation,
-                                                  GenerationSession session) {
+    private boolean runBackgroundBuildWithAutoRepair(Long appId,
+                                                     User loginUser,
+                                                     GenerationPreparation preparation,
+                                                     GenerationSession session) {
         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + CodeGenTypeEnum.VUE_PROJECT.getValue() + "_" + appId;
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
@@ -585,11 +591,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (!workspaceState.canAutoRepair()) {
             emitMissingProjectCodeError(appId, preparation, session, workspaceState);
             rollbackCodeGenTypeIfNeeded(appId, preparation);
-            return;
+            return false;
         }
         VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
         if (session.isCancelled()) {
-            return;
+            return false;
         }
         session.emit(GenerationStreamEvent.buildResult(buildResult.toDiagnosticReport(), Map.of(
                 "success", buildResult.success(),
@@ -602,19 +608,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 "willAutoRepair", !buildResult.success() && workspaceState.canAutoRepair() && MAX_AUTO_REPAIR_ROUNDS > 0
         )));
         if (buildResult.success()) {
-            return;
+            return true;
         }
         if (MAX_AUTO_REPAIR_ROUNDS <= 0 || !workspaceState.canAutoRepair()) {
             rollbackCodeGenTypeIfNeeded(appId, preparation);
             GenerationErrorClassifier.GenerationError generationError =
                     classifyGenerationError(buildResult.toFailureSummary());
-            session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
-                    "category", generationError.category(),
-                    "message", buildResult.toFailureSummary(),
-                    "taskId", preparation.taskId(),
-                    "recoverable", generationError.recoverable()
-            )));
-            return;
+            session.emit(GenerationStreamEvent.generationError(
+                    buildResult.toFailureSummary(),
+                    buildGenerationErrorData(preparation, generationError, buildResult.toFailureSummary())
+            ));
+            return false;
         }
         for (int round = 1; round <= MAX_AUTO_REPAIR_ROUNDS; round++) {
             session.throwIfCancelled();
@@ -622,7 +626,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             if (!workspaceState.canAutoRepair()) {
                 emitMissingProjectCodeError(appId, preparation, session, workspaceState);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
-                return;
+                return false;
             }
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_REPAIR, "构建未通过，正在自动修复...");
             session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
@@ -643,7 +647,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "自动修复完成，正在重新构建校验...");
             buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
             if (session.isCancelled()) {
-                return;
+                return false;
             }
             session.emit(GenerationStreamEvent.buildResult(buildResult.toDiagnosticReport(), Map.of(
                     "success", buildResult.success(),
@@ -655,18 +659,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     "qualityGate", preparation.qualityGateLevel()
             )));
             if (buildResult.success()) {
-                return;
+                return true;
             }
         }
         rollbackCodeGenTypeIfNeeded(appId, preparation);
         GenerationErrorClassifier.GenerationError generationError =
                 classifyGenerationError(buildResult.toFailureSummary());
-        session.emit(GenerationStreamEvent.generationError(buildResult.toFailureSummary(), Map.of(
-                "category", generationError.category(),
-                "message", buildResult.toFailureSummary(),
-                "taskId", preparation.taskId(),
-                "recoverable", generationError.recoverable()
-        )));
+        session.emit(GenerationStreamEvent.generationError(
+                buildResult.toFailureSummary(),
+                buildGenerationErrorData(preparation, generationError, buildResult.toFailureSummary())
+        ));
+        return false;
     }
 
     private void runGenerationWithAutoRepair(Long appId,
@@ -735,6 +738,46 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         verifyGeneratedProjectReady(appId, codeGenType);
     }
 
+    private void emitDiffSummaryIfAvailable(Long appId,
+                                            GenerationPreparation preparation,
+                                            GenerationSession session) {
+        if (session.isCancelled()) {
+            return;
+        }
+        GenerationArtifact rollbackPoint = preparation.artifact("rollback_point");
+        DiffSummary summary = generationDiffSummaryService.summarize(
+                appId,
+                preparation.targetType(),
+                preparation.taskId(),
+                rollbackPoint
+        );
+        GenerationArtifact diffSummary = GenerationArtifact.of(
+                "diff_summary",
+                "Orchestrator",
+                "生成后差异摘要",
+                summary.toPayload()
+        );
+        preparation.putArtifact(diffSummary);
+        session.emit(GenerationStreamEvent.agentEvent(
+                generationDiffSummaryService.renderText(summary),
+                buildDiffSummaryEventData(preparation, diffSummary)
+        ));
+    }
+
+    private Map<String, Object> buildDiffSummaryEventData(GenerationPreparation preparation,
+                                                          GenerationArtifact diffSummary) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "diff");
+        data.put("status", diffSummary.payload().get("status"));
+        data.put("summary", "created".equals(String.valueOf(diffSummary.payload().get("status")))
+                ? "生成后差异摘要已生成"
+                : "生成后差异摘要已跳过");
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", diffSummary.payload());
+        return data;
+    }
+
     private void verifyGeneratedProjectReady(Long appId, CodeGenTypeEnum codeGenType) {
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
             return;
@@ -758,15 +801,58 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 workspaceState.fileCount(),
                 workspaceState.meaningfulFileCount(),
                 workspaceState.detectedKeyFiles());
-        session.emit(GenerationStreamEvent.generationError(message, Map.of(
-                "category", "codegen_empty",
-                "message", message,
-                "projectPath", workspaceState.rootPath().toString(),
-                "fileCount", workspaceState.fileCount(),
-                "meaningfulFileCount", workspaceState.meaningfulFileCount(),
-                "taskId", preparation.taskId(),
-                "recoverable", true
+        session.emit(GenerationStreamEvent.generationError(message, buildGenerationErrorData(
+                preparation,
+                "codegen_empty",
+                message,
+                true,
+                Map.of(
+                        "projectPath", workspaceState.rootPath().toString(),
+                        "fileCount", workspaceState.fileCount(),
+                        "meaningfulFileCount", workspaceState.meaningfulFileCount()
+                )
         )));
+    }
+
+    private Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
+                                                         GenerationErrorClassifier.GenerationError generationError) {
+        return buildGenerationErrorData(preparation, generationError, generationError.message());
+    }
+
+    private Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
+                                                         GenerationErrorClassifier.GenerationError generationError,
+                                                         String message) {
+        return buildGenerationErrorData(
+                preparation,
+                generationError.category(),
+                message,
+                generationError.recoverable(),
+                Map.of()
+        );
+    }
+
+    private Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
+                                                         String category,
+                                                         String message,
+                                                         boolean recoverable,
+                                                         Map<String, Object> extraData) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("category", category);
+        data.put("message", message);
+        data.put("taskId", preparation.taskId());
+        data.put("recoverable", recoverable);
+        if (extraData != null) {
+            data.putAll(extraData);
+        }
+        GenerationArtifact rollbackPoint = preparation.artifacts() == null ? null : preparation.artifacts().get("rollback_point");
+        if (rollbackPoint != null) {
+            data.put("rollback_point", rollbackPoint.payload());
+        }
+        GenerationArtifact diffSummary = preparation.artifacts() == null ? null : preparation.artifacts().get("diff_summary");
+        if (diffSummary != null) {
+            data.put("diff_summary", diffSummary.payload());
+        }
+        return data;
     }
 
     private String buildMissingProjectCodeMessage(GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
@@ -1260,6 +1346,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             }
             Object requiresBuild = generationSpec.payload().get("requiresBuild");
             return requiresBuild == null || Boolean.TRUE.equals(requiresBuild);
+        }
+
+        private GenerationArtifact artifact(String key) {
+            return artifacts == null ? null : artifacts.get(key);
+        }
+
+        private void putArtifact(GenerationArtifact artifact) {
+            if (artifacts == null || artifact == null) {
+                return;
+            }
+            artifacts.put(artifact.key(), artifact);
         }
     }
 

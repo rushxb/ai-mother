@@ -1,24 +1,20 @@
 package com.yupi.yuaicodemother.ai.tools;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.yupi.yuaicodemother.constant.AppConstant;
+import com.yupi.yuaicodemother.orchestration.artifact.DiffSummary;
+import com.yupi.yuaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
 
 /**
  * 变更摘要工具
@@ -27,10 +23,12 @@ import java.util.TreeSet;
 @Component
 public class DiffSummaryTool extends BaseTool {
 
-    private static final int MAX_FILES = 40;
-    private static final Set<String> TEXT_EXTENSIONS = Set.of(
-            "vue", "js", "ts", "jsx", "tsx", "json", "css", "scss", "less", "html", "md", "txt", "yml", "yaml"
-    );
+    private final GenerationDiffSummaryService generationDiffSummaryService;
+
+    @Autowired
+    public DiffSummaryTool(GenerationDiffSummaryService generationDiffSummaryService) {
+        this.generationDiffSummaryService = generationDiffSummaryService;
+    }
 
     @Tool("比较当前项目与快照之间的差异，或者比较两个快照之间的差异，输出新增、修改、删除文件摘要。")
     public String summarizeDiff(
@@ -94,113 +92,12 @@ public class DiffSummaryTool extends BaseTool {
         if (!Files.exists(rightRoot) || !Files.isDirectory(rightRoot)) {
             return "错误：对比目录不存在 - " + rightName;
         }
-        List<Path> leftFiles = ProjectWorkspaceSupport.listProjectFiles(leftRoot);
-        List<Path> rightFiles = ProjectWorkspaceSupport.listProjectFiles(rightRoot);
-        Set<String> allPaths = new TreeSet<>();
-        leftFiles.forEach(path -> allPaths.add(path.toString().replace(File.separator, "/")));
-        rightFiles.forEach(path -> allPaths.add(path.toString().replace(File.separator, "/")));
-        List<String> added = new ArrayList<>();
-        List<String> deleted = new ArrayList<>();
-        List<String> modified = new ArrayList<>();
-        List<String> modifiedDetails = new ArrayList<>();
-        for (String relativePath : allPaths) {
-            Path leftFile = leftRoot.resolve(relativePath);
-            Path rightFile = rightRoot.resolve(relativePath);
-            boolean leftExists = Files.exists(leftFile);
-            boolean rightExists = Files.exists(rightFile);
-            if (!leftExists && rightExists) {
-                added.add(relativePath);
-                continue;
-            }
-            if (leftExists && !rightExists) {
-                deleted.add(relativePath);
-                continue;
-            }
-            if (!sameFileContent(leftFile, rightFile)) {
-                modified.add(relativePath);
-                if (modifiedDetails.size() < MAX_FILES) {
-                    modifiedDetails.add(buildModifiedDetail(relativePath, leftFile, rightFile));
-                }
-            }
+        DiffSummary summary = generationDiffSummaryService.summarizePaths(null, "", leftRoot, rightRoot);
+        if (!"created".equals(summary.status())) {
+            return "错误：差异摘要生成失败 - " + summary.reason();
         }
-        return buildSummaryText(leftName, rightName, added, deleted, modified, modifiedDetails);
-    }
-
-    private boolean sameFileContent(Path leftFile, Path rightFile) throws Exception {
-        return FileUtil.contentEquals(leftFile.toFile(), rightFile.toFile());
-    }
-
-    private String buildModifiedDetail(String relativePath, Path leftFile, Path rightFile) {
-        String extension = FileUtil.extName(relativePath).toLowerCase();
-        if (!TEXT_EXTENSIONS.contains(extension)) {
-            return relativePath + " | 内容已变更";
-        }
-        List<String> beforeLines = FileUtil.readLines(leftFile.toFile(), StandardCharsets.UTF_8);
-        List<String> afterLines = FileUtil.readLines(rightFile.toFile(), StandardCharsets.UTF_8);
-        int prefix = commonPrefix(beforeLines, afterLines);
-        int suffix = commonSuffix(beforeLines, afterLines, prefix);
-        int removed = beforeLines.size() - prefix - suffix;
-        int added = afterLines.size() - prefix - suffix;
-        String beforePreview = previewLine(beforeLines, prefix);
-        String afterPreview = previewLine(afterLines, prefix);
-        return relativePath
-                + " | 约 -" + Math.max(removed, 0)
-                + " / +" + Math.max(added, 0)
-                + " | 变更前: " + beforePreview
-                + " | 变更后: " + afterPreview;
-    }
-
-    private int commonPrefix(List<String> left, List<String> right) {
-        int max = Math.min(left.size(), right.size());
-        int index = 0;
-        while (index < max && left.get(index).equals(right.get(index))) {
-            index++;
-        }
-        return index;
-    }
-
-    private int commonSuffix(List<String> left, List<String> right, int prefix) {
-        int leftIndex = left.size() - 1;
-        int rightIndex = right.size() - 1;
-        int count = 0;
-        while (leftIndex >= prefix && rightIndex >= prefix && left.get(leftIndex).equals(right.get(rightIndex))) {
-            count++;
-            leftIndex--;
-            rightIndex--;
-        }
-        return count;
-    }
-
-    private String previewLine(List<String> lines, int index) {
-        if (lines.isEmpty()) {
-            return "(空)";
-        }
-        int safeIndex = Math.min(index, lines.size() - 1);
-        return StrUtil.sub(lines.get(safeIndex).trim(), 0, 120);
-    }
-
-    private String buildSummaryText(String leftName, String rightName, List<String> added, List<String> deleted,
-                                    List<String> modified, List<String> modifiedDetails) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("差异对比: ").append(leftName).append(" -> ").append(rightName).append('\n');
-        builder.append("新增文件: ").append(added.size()).append('\n');
-        builder.append("删除文件: ").append(deleted.size()).append('\n');
-        builder.append("修改文件: ").append(modified.size()).append('\n');
-        appendSection(builder, "新增", added);
-        appendSection(builder, "删除", deleted);
-        appendSection(builder, "修改", modifiedDetails.isEmpty() ? modified : modifiedDetails);
-        return builder.toString().trim();
-    }
-
-    private void appendSection(StringBuilder builder, String title, List<String> items) {
-        if (items.isEmpty()) {
-            return;
-        }
-        builder.append('\n').append('[').append(title).append("]\n");
-        items.stream().limit(MAX_FILES).forEach(item -> builder.append("- ").append(item).append('\n'));
-        if (items.size() > MAX_FILES) {
-            builder.append("- ... 共 ").append(items.size()).append(" 项\n");
-        }
+        String rendered = generationDiffSummaryService.renderText(summary);
+        return rendered.replaceFirst("生成后差异摘要", "差异对比: " + leftName + " -> " + rightName);
     }
 
     private Path resolveLatestSnapshot(Path snapshotRoot) throws Exception {

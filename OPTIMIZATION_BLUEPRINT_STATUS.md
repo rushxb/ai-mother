@@ -151,6 +151,27 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 13`, `Failures: 0`, `Errors: 0`
 
+### 3.13 失败事件携带回滚点元数据
+
+- `AppServiceImpl` 已把生成失败、后台构建失败、构建校验失败、空项目失败等分支收敛到统一的错误事件 payload 构建逻辑
+- `generation_error` 事件现在会在存在 `rollback_point` artifact 时附带完整回滚点 payload，前端和后续自动回滚逻辑无需再反查编排任务
+- 当前仍保持非破坏性策略：只暴露可回滚元数据，不在失败分支自动覆盖项目文件
+- 这一步补齐了“生成前快照已创建，但失败事件不可见”的链路缺口，为后续 opt-in 自动回滚和真实回滚率指标做准备
+
+### 3.14 生成后本地 Diff 摘要
+
+- 新增 `DiffSummary` 标准 artifact，输出 `status/appId/taskId/basePath/currentPath/addedCount/modifiedCount/deletedCount/addedFiles/modifiedFiles/deletedFiles/modifiedDetails`
+- 新增 `GenerationDiffSummaryService`，基于生成前 `rollback_point` 对比当前项目目录，生成非破坏性的结构化 diff 摘要
+- `AppServiceImpl` 现在会在最终生成成功时发送 `stage=diff` 的 `agent_event`，并把 `diff_summary` 写回本次 `GenerationPreparation.artifacts()`
+- 后台构建链路已区分最终成功 / 失败，只有构建和自动修复最终成功时才发送最终 diff 摘要，避免失败后误报成功摘要
+- `generation_error` payload 会在已有 `diff_summary` 时一并携带，便于前端或后续回滚逻辑定位“失败前最后一次已知变更”
+- `DiffSummaryTool` 已改为复用同一套 diff 服务，避免工具侧和服务侧各维护一套差异判断逻辑
+- 当前仍不执行补丁应用或自动回滚，只做可观测、可追踪的 diff 元数据闭环
+- 新增 `GenerationDiffSummaryServiceTest` 覆盖新增 / 修改 / 删除统计和忽略目录逻辑
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationDiffSummaryServiceTest,GenerationRollbackPointServiceTest,AgentGenerationOrchestratorTest,BuildFixAgentNodeTest,ReviewAgentNodeTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 15`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -170,7 +191,7 @@
 - 验证等级
 - 回滚策略
 
-当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验和生成前本地 `rollback_point` artifact；尚未把真实的文件 diff、补丁应用结果和失败自动回滚联动成自动闭环。
+当前已落地标准 `change_plan` 契约、payload 恢复、路径归一化、Review 门禁校验、生成前本地 `rollback_point` artifact 和生成后本地 `diff_summary` artifact；尚未把真实 patch 应用结果和失败自动回滚联动成自动闭环。
 
 ### 4.3 语义索引 MVP
 
@@ -189,7 +210,7 @@
 - 失败自动回滚到稳定版本
 - 结果直接输出 commit id / rollback point
 
-当前已将本地快照提升为生成主流程里的标准 `rollback_point` artifact。尚未接入自动 commit、真实生成后 diff 汇总、失败时自动覆盖回滚；短期内不要求外部 Git 服务，后续如需 commit id 再优先抽象本地 Git CLI 适配层。
+当前已将本地快照提升为生成主流程里的标准 `rollback_point` artifact，并在服务层 `generation_error` 事件中透出回滚点元数据；生成成功后也会基于本地快照输出标准 `diff_summary` artifact。尚未接入自动 commit、失败时自动覆盖回滚；短期内不要求外部 Git 服务，后续如需 commit id 再优先抽象本地 Git CLI 适配层。
 
 ### 4.5 指标闭环
 

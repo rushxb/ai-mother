@@ -92,6 +92,16 @@ public class GenerationOrchestrationMetricsCollector {
                                       int selectedFileCount,
                                       int indexedFileCount,
                                       int contextChars) {
+        recordContextSnapshot(orchestrationMode, contextMode, selectedFileCount, indexedFileCount, 0, 0, contextChars);
+    }
+
+    public void recordContextSnapshot(String orchestrationMode,
+                                      String contextMode,
+                                      int selectedFileCount,
+                                      int indexedFileCount,
+                                      int indexedSymbolCount,
+                                      int indexHitCount,
+                                      int contextChars) {
         String mode = normalize(orchestrationMode);
         String normalizedContextMode = normalize(contextMode);
         recordSummary("generation_orchestration_selected_files",
@@ -104,6 +114,16 @@ public class GenerationOrchestrationMetricsCollector {
                 mode,
                 normalizedContextMode,
                 Math.max(0, indexedFileCount));
+        recordSummary("generation_orchestration_indexed_symbols",
+                "代码生成单次索引符号数",
+                mode,
+                normalizedContextMode,
+                Math.max(0, indexedSymbolCount));
+        recordSummary("generation_orchestration_index_hits",
+                "代码生成单次索引命中数",
+                mode,
+                normalizedContextMode,
+                Math.max(0, indexHitCount));
         recordSummary("generation_orchestration_context_chars",
                 "代码生成单次上下文字符数",
                 mode,

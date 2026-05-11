@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -32,19 +33,29 @@ import java.util.regex.Pattern;
 @Component
 public class WorkspaceSemanticIndexService {
 
-    private static final String SCHEMA_VERSION = "v1";
+    private static final String SCHEMA_VERSION = "v2";
     private static final String INDEX_DIRECTORY_NAME = ".ai-code-index";
     private static final String INDEX_FILE_NAME = "semantic-index.json";
     private static final int MAX_INDEXED_CONTENT_CHARS = 6000;
     private static final int MAX_TERMS_PER_FILE = 40;
+    private static final int MAX_SYMBOLS_PER_FILE = 80;
     private static final int MAX_SEARCH_RESULTS = 20;
     private static final Set<String> INDEXABLE_EXTENSIONS = Set.of(
             "vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg",
             "md", "html", "go", "sql", "java", "xml", "yml", "yaml", "txt"
     );
     private static final Pattern TERM_PATTERN = Pattern.compile("[\\p{L}\\p{N}_-]{2,}");
+    private static final List<Pattern> SYMBOL_PATTERNS = List.of(
+            Pattern.compile("\\b(?:export\\s+default\\s+)?(?:export\\s+)?(?:async\\s+)?(?:function|class|interface|type|enum|const|let|var)\\s+([A-Za-z_$][\\w$-]*)"),
+            Pattern.compile("\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$-]*)\\s*=\\s*(?:async\\s*)?\\([^\\n)]*\\)\\s*=>"),
+            Pattern.compile("\\b(?:public|protected|private|static|final|synchronized|abstract|default|\\s)+[\\w<>\\[\\], ?]+\\s+([A-Za-z_$][\\w$]*)\\s*\\([^;{}]*\\)\\s*(?:throws\\s+[\\w.,\\s]+)?\\{"),
+            Pattern.compile("\\b(?:class|interface|enum|record)\\s+([A-Za-z_$][\\w$]*)"),
+            Pattern.compile("\\b(?:func|type)\\s+(?:\\([^)]*\\)\\s*)?([A-Za-z_][\\w]*)"),
+            Pattern.compile("\\bname\\s*:\\s*['\"]([A-Za-z_$][\\w$-]*)['\"]")
+    );
 
     private final ConcurrentMap<String, CachedIndex> cache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Object> rebuildLocks = new ConcurrentHashMap<>();
 
     public WorkspaceSemanticIndex loadOrBuild(Path rootDir) {
         Path normalizedRoot = normalizeRoot(rootDir);
@@ -57,19 +68,40 @@ public class WorkspaceSemanticIndexService {
 
         Path indexFile = resolveIndexFile(normalizedRoot);
         WorkspaceSemanticIndex loaded = readIndex(indexFile);
-        if (loaded != null && signature.equals(loaded.workspaceSignature())) {
+        if (loaded != null && SCHEMA_VERSION.equals(loaded.schemaVersion()) && signature.equals(loaded.workspaceSignature())) {
             cache.put(cacheKey, new CachedIndex(signature, loaded));
             return loaded;
         }
 
-        WorkspaceSemanticIndex rebuilt = buildIndex(normalizedRoot, signature);
-        writeIndex(indexFile, rebuilt);
-        cache.put(cacheKey, new CachedIndex(signature, rebuilt));
-        return rebuilt;
+        Object lock = rebuildLocks.computeIfAbsent(cacheKey, unused -> new Object());
+        synchronized (lock) {
+            CachedIndex refreshedCache = cache.get(cacheKey);
+            if (refreshedCache != null && signature.equals(refreshedCache.signature())) {
+                return refreshedCache.index();
+            }
+            WorkspaceSemanticIndex refreshedLoaded = readIndex(indexFile);
+            if (refreshedLoaded != null
+                    && SCHEMA_VERSION.equals(refreshedLoaded.schemaVersion())
+                    && signature.equals(refreshedLoaded.workspaceSignature())) {
+                cache.put(cacheKey, new CachedIndex(signature, refreshedLoaded));
+                return refreshedLoaded;
+            }
+            WorkspaceSemanticIndex rebuilt = buildIndex(normalizedRoot, signature);
+            writeIndex(indexFile, rebuilt);
+            cache.put(cacheKey, new CachedIndex(signature, rebuilt));
+            return rebuilt;
+        }
     }
 
     public int countIndexableFiles(Path rootDir) {
         return loadOrBuild(rootDir).indexedFileCount();
+    }
+
+    public int countIndexedSymbols(Path rootDir) {
+        return loadOrBuild(rootDir).entries().stream()
+                .map(WorkspaceSemanticIndexEntry::symbols)
+                .mapToInt(symbols -> symbols == null ? 0 : symbols.size())
+                .sum();
     }
 
     public List<String> suggestFiles(Path rootDir, String query, int limit) {
@@ -84,6 +116,30 @@ public class WorkspaceSemanticIndexService {
         }
         String query = String.join(" ", keywords);
         return suggestFiles(rootDir, query, limit);
+    }
+
+    public List<WorkspaceSemanticSearchHit> describeFiles(Path rootDir, List<String> relativePaths) {
+        if (rootDir == null || CollUtil.isEmpty(relativePaths)) {
+            return List.of();
+        }
+        WorkspaceSemanticIndex index = loadOrBuild(rootDir);
+        Set<String> normalizedPaths = relativePaths.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(path -> path.replace("\\", "/"))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return index.entries().stream()
+                .filter(entry -> normalizedPaths.contains(entry.relativePath()))
+                .map(entry -> new WorkspaceSemanticSearchHit(
+                        entry.relativePath(),
+                        entry.fileName(),
+                        "selected_file",
+                        0,
+                        buildPreview(entry),
+                        "semantic_index",
+                        List.of(),
+                        entry.symbols() == null ? List.of() : entry.symbols().stream().limit(8).toList()
+                ))
+                .toList();
     }
 
     public List<WorkspaceSemanticSearchHit> search(Path rootDir, String query, Set<String> extensionFilter, int limit) {
@@ -106,7 +162,10 @@ public class WorkspaceSemanticIndexService {
                         scored.fileName(),
                         scored.matchType(),
                         scored.score(),
-                        scored.preview()
+                        scored.preview(),
+                        scored.recallSource(),
+                        scored.matchedTerms(),
+                        scored.matchedSymbols()
                 ))
                 .toList();
     }
@@ -153,16 +212,19 @@ public class WorkspaceSemanticIndexService {
         String fileName = absolutePath.getFileName().toString();
         String extension = normalizeExtension(FileUtil.extName(fileName));
         String contentExcerpt = "";
+        List<String> symbols = List.of();
         if (size <= 512 * 1024) {
             try {
                 String content = FileUtil.readString(absolutePath.toFile(), StandardCharsets.UTF_8);
                 contentExcerpt = truncate(normalizeContent(content));
+                symbols = extractSymbols(content, fileName);
             } catch (Exception e) {
                 log.debug("读取索引内容失败，path: {}", absolutePath, e);
             }
         }
-        List<String> terms = extractTerms(relativePath + "\n" + fileName + "\n" + contentExcerpt);
-        String searchableText = normalize(relativePath + "\n" + fileName + "\n" + contentExcerpt + "\n" + String.join(" ", terms));
+        List<String> terms = extractTerms(relativePath + "\n" + fileName + "\n" + contentExcerpt + "\n" + String.join(" ", symbols));
+        String searchableText = normalize(relativePath + "\n" + fileName + "\n" + contentExcerpt + "\n"
+                + String.join(" ", terms) + "\n" + String.join(" ", symbols));
         return new WorkspaceSemanticIndexEntry(
                 relativePath,
                 fileName,
@@ -171,7 +233,8 @@ public class WorkspaceSemanticIndexService {
                 lastModified,
                 searchableText,
                 contentExcerpt,
-                List.copyOf(terms)
+                List.copyOf(terms),
+                List.copyOf(symbols)
         );
     }
 
@@ -180,41 +243,85 @@ public class WorkspaceSemanticIndexService {
         String relativePath = normalize(entry.relativePath());
         String fileName = normalize(entry.fileName());
         String searchableText = normalize(entry.searchableText());
+        List<String> symbols = entry.symbols() == null ? List.of() : entry.symbols();
+        String normalizedSymbols = normalize(String.join(" ", symbols));
+        LinkedHashSet<String> matchedTerms = new LinkedHashSet<>();
+        LinkedHashSet<String> matchedSymbols = new LinkedHashSet<>();
 
-        String matchType = "symbol";
+        String matchType = "content";
         if (relativePath.contains(query)) {
             score += 120;
             matchType = "path";
+            matchedTerms.add(query);
         }
         if (fileName.contains(query)) {
             score += 100;
             matchType = "file_name";
+            matchedTerms.add(query);
+        }
+        if (!normalizedSymbols.isBlank() && normalizedSymbols.contains(query)) {
+            score += 140;
+            matchType = "symbol";
+            matchedTerms.add(query);
         }
         if (!entry.contentExcerpt().isBlank() && entry.contentExcerpt().toLowerCase(Locale.ROOT).contains(query)) {
             score += 80;
-            if (!"path".equals(matchType) && !"file_name".equals(matchType)) {
+            if (!"path".equals(matchType) && !"file_name".equals(matchType) && !"symbol".equals(matchType)) {
                 matchType = "content";
             }
+            matchedTerms.add(query);
         }
         for (String term : queryTerms) {
             if (relativePath.contains(term)) {
                 score += 25;
+                matchedTerms.add(term);
             }
             if (fileName.contains(term)) {
                 score += 20;
+                matchedTerms.add(term);
             }
             if (searchableText.contains(term)) {
                 score += 10;
+                matchedTerms.add(term);
             }
             if (entry.terms().contains(term)) {
                 score += 15;
+                matchedTerms.add(term);
+            }
+            List<String> symbolMatches = symbols.stream()
+                    .filter(symbol -> normalize(symbol).contains(term))
+                    .limit(5)
+                    .toList();
+            if (!symbolMatches.isEmpty()) {
+                score += 35 * symbolMatches.size();
+                matchType = "symbol";
+                matchedTerms.add(term);
+                matchedSymbols.addAll(symbolMatches);
             }
         }
         String preview = StrUtil.blankToDefault(entry.contentExcerpt(), entry.relativePath());
-        if (preview.length() > 260) {
-            preview = preview.substring(0, 260).trim() + "...";
+        preview = limitPreview(preview);
+        return new ScoredHit(
+                entry.relativePath(),
+                entry.fileName(),
+                matchType,
+                score,
+                preview,
+                "semantic_index",
+                List.copyOf(matchedTerms),
+                List.copyOf(matchedSymbols)
+        );
+    }
+
+    private String buildPreview(WorkspaceSemanticIndexEntry entry) {
+        return limitPreview(StrUtil.blankToDefault(entry.contentExcerpt(), entry.relativePath()));
+    }
+
+    private String limitPreview(String preview) {
+        if (preview != null && preview.length() > 260) {
+            return preview.substring(0, 260).trim() + "...";
         }
-        return new ScoredHit(entry.relativePath(), entry.fileName(), matchType, score, preview);
+        return StrUtil.blankToDefault(preview, "");
     }
 
     private void writeIndex(Path indexFile, WorkspaceSemanticIndex index) {
@@ -222,6 +329,8 @@ public class WorkspaceSemanticIndexService {
             Files.createDirectories(indexFile.getParent());
             JSONObject payload = toJson(index);
             FileUtil.writeString(payload.toStringPretty(), indexFile.toFile(), StandardCharsets.UTF_8);
+        } catch (AccessDeniedException e) {
+            log.debug("工作区索引目录不可写，跳过持久化，indexFile: {}", indexFile, e);
         } catch (Exception e) {
             log.warn("写入工作区语义索引失败，indexFile: {}", indexFile, e);
         }
@@ -261,6 +370,7 @@ public class WorkspaceSemanticIndexService {
             item.set("searchableText", entry.searchableText());
             item.set("contentExcerpt", entry.contentExcerpt());
             item.set("terms", new JSONArray(entry.terms()));
+            item.set("symbols", new JSONArray(entry.symbols()));
             entries.add(item);
         }
         payload.set("entries", entries);
@@ -283,7 +393,8 @@ public class WorkspaceSemanticIndexService {
                         entryObject.getLong("lastModified", 0L),
                         entryObject.getStr("searchableText"),
                         entryObject.getStr("contentExcerpt"),
-                        readStringList(entryObject.getJSONArray("terms"))
+                        readStringList(entryObject.getJSONArray("terms")),
+                        readStringList(entryObject.getJSONArray("symbols"))
                 ));
             }
         }
@@ -405,6 +516,27 @@ public class WorkspaceSemanticIndexService {
         return List.copyOf(terms);
     }
 
+    private List<String> extractSymbols(String content, String fileName) {
+        LinkedHashSet<String> symbols = new LinkedHashSet<>();
+        String mainName = FileUtil.mainName(StrUtil.blankToDefault(fileName, ""));
+        if (StrUtil.isNotBlank(mainName) && !"index".equalsIgnoreCase(mainName)) {
+            symbols.add(mainName);
+        }
+        if (StrUtil.isBlank(content)) {
+            return List.copyOf(symbols);
+        }
+        for (Pattern pattern : SYMBOL_PATTERNS) {
+            java.util.regex.Matcher matcher = pattern.matcher(content);
+            while (matcher.find() && symbols.size() < MAX_SYMBOLS_PER_FILE) {
+                String symbol = matcher.group(1);
+                if (StrUtil.isNotBlank(symbol)) {
+                    symbols.add(symbol.trim());
+                }
+            }
+        }
+        return List.copyOf(symbols);
+    }
+
     private Set<String> normalizeExtensions(Set<String> extensionFilter) {
         if (extensionFilter == null || extensionFilter.isEmpty()) {
             return Set.of();
@@ -421,6 +553,13 @@ public class WorkspaceSemanticIndexService {
     private record CachedIndex(String signature, WorkspaceSemanticIndex index) {
     }
 
-    private record ScoredHit(String relativePath, String fileName, String matchType, int score, String preview) {
+    private record ScoredHit(String relativePath,
+                             String fileName,
+                             String matchType,
+                             int score,
+                             String preview,
+                             String recallSource,
+                             List<String> matchedTerms,
+                             List<String> matchedSymbols) {
     }
 }

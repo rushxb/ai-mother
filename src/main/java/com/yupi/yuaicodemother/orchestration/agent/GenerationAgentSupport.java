@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.yupi.yuaicodemother.orchestration.index.WorkspaceSemanticIndexService;
+import com.yupi.yuaicodemother.orchestration.index.WorkspaceSemanticSearchHit;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipe;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,12 +14,15 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static com.yupi.yuaicodemother.constant.AppConstant.CODE_OUTPUT_ROOT_DIR;
 
 /**
  * 多智能体节点共享的辅助逻辑。
@@ -105,13 +109,32 @@ public class GenerationAgentSupport {
         return buildProjectContextPackage(app, codeGenTypeEnum, "", rootDir).projectContext();
     }
 
+    public File resolveWorkspaceRoot(App app) {
+        if (app == null || app.getId() == null || StrUtil.isBlank(app.getCodeGenType())) {
+            return null;
+        }
+        File rootDir = new File(CODE_OUTPUT_ROOT_DIR + File.separator + app.getCodeGenType() + "_" + app.getId());
+        if (!rootDir.exists() || !rootDir.isDirectory()) {
+            return null;
+        }
+        return rootDir;
+    }
+
+    public List<Map<String, Object>> collectIndexRecallPayloads(App app, String userMessage, int limit) {
+        File rootDir = resolveWorkspaceRoot(app);
+        if (rootDir == null) {
+            return List.of();
+        }
+        return collectIndexRecallPayloads(rootDir, buildSearchScope(app, userMessage), limit, List.of());
+    }
+
     public ProjectContextPackage buildProjectContextPackage(App app,
                                                             CodeGenTypeEnum codeGenTypeEnum,
                                                             String userMessage,
                                                             File rootDir) {
         String intent = inferIntent(userMessage);
         if (rootDir == null || !rootDir.exists() || !rootDir.isDirectory()) {
-            return new ProjectContextPackage(intent, List.of(), 0, "empty", "");
+            return new ProjectContextPackage(intent, List.of(), 0, 0, List.of(), "empty", "");
         }
         CodeGenTypeEnum resolvedType = codeGenTypeEnum == null ? CodeGenTypeEnum.getEnumByValue(app == null ? null : app.getCodeGenType()) : codeGenTypeEnum;
         if (resolvedType == null) {
@@ -119,11 +142,27 @@ public class GenerationAgentSupport {
         }
         List<String> selectedFiles = normalizeSelectedFiles(selectContextFiles(app, resolvedType, userMessage, rootDir));
         int indexedFileCount = semanticIndexService.countIndexableFiles(rootDir.toPath());
+        int indexedSymbolCount = semanticIndexService.countIndexedSymbols(rootDir.toPath());
+        List<Map<String, Object>> indexHits = collectIndexRecallPayloads(
+                rootDir,
+                buildSearchScope(app, userMessage),
+                MAX_SELECTED_CONTEXT_FILES,
+                selectedFiles
+        );
         String contextMode = selectedFiles.isEmpty()
                 ? "reuse_index"
                 : "general".equals(intent) ? "type_key_files" : "intent_selected_files";
-        String projectContext = buildStructuredContext(resolvedType, intent, selectedFiles, indexedFileCount, contextMode, rootDir);
-        return new ProjectContextPackage(intent, selectedFiles, indexedFileCount, contextMode, projectContext);
+        String projectContext = buildStructuredContext(
+                resolvedType,
+                intent,
+                selectedFiles,
+                indexedFileCount,
+                indexedSymbolCount,
+                indexHits,
+                contextMode,
+                rootDir
+        );
+        return new ProjectContextPackage(intent, selectedFiles, indexedFileCount, indexedSymbolCount, indexHits, contextMode, projectContext);
     }
 
     public List<String> selectContextFiles(App app, CodeGenTypeEnum codeGenTypeEnum, File rootDir) {
@@ -246,6 +285,8 @@ public class GenerationAgentSupport {
                                           String intent,
                                           List<String> selectedFiles,
                                           int indexedFileCount,
+                                          int indexedSymbolCount,
+                                          List<Map<String, Object>> indexHits,
                                           String contextMode,
                                           File rootDir) {
         List<String> safeSelectedFiles = selectedFiles == null ? List.of() : selectedFiles;
@@ -253,8 +294,10 @@ public class GenerationAgentSupport {
         builder.append("上下文模式: ").append(contextMode).append('\n');
         builder.append("意图: ").append(intent).append('\n');
         builder.append("选中文件: ").append(safeSelectedFiles.size()).append(" / ").append(indexedFileCount).append('\n');
+        builder.append("索引符号: ").append(indexedSymbolCount).append('\n');
         builder.append("生成类型: ").append(codeGenTypeEnum.getValue()).append('\n');
         builder.append('\n');
+        appendIndexHits(builder, indexHits);
         if (safeSelectedFiles.isEmpty()) {
             builder.append("未选中可复用文件，保留项目级摘要供模型参考。");
         } else {
@@ -277,6 +320,83 @@ public class GenerationAgentSupport {
         }
         return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html",
                 "tsconfig.json", "tsconfig.app.json").contains(normalized);
+    }
+
+    private List<Map<String, Object>> collectIndexRecallPayloads(File rootDir,
+                                                                 String query,
+                                                                 int limit,
+                                                                 List<String> selectedFiles) {
+        if (rootDir == null || StrUtil.isBlank(query)) {
+            return List.of();
+        }
+        Set<String> selectedFileSet = selectedFiles == null ? Set.of() : selectedFiles.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(path -> path.replace("\\", "/"))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return semanticIndexService.search(rootDir.toPath(), query, Set.of(), limit).stream()
+                .filter(hit -> selectedFileSet.isEmpty() || selectedFileSet.contains(hit.relativePath()))
+                .map(this::toIndexHitPayload)
+                .collect(Collectors.collectingAndThen(Collectors.toList(), hits -> mergeSelectedFileHits(rootDir, selectedFiles, hits)))
+                .stream()
+                .limit(limit)
+                .toList();
+    }
+
+    private List<Map<String, Object>> mergeSelectedFileHits(File rootDir,
+                                                            List<String> selectedFiles,
+                                                            List<Map<String, Object>> hits) {
+        if (selectedFiles == null || selectedFiles.isEmpty()) {
+            return hits;
+        }
+        LinkedHashMap<String, Map<String, Object>> merged = new LinkedHashMap<>();
+        for (Map<String, Object> hit : hits) {
+            merged.put(String.valueOf(hit.get("relativePath")), hit);
+        }
+        List<String> missingSelectedFiles = selectedFiles.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(path -> path.replace("\\", "/"))
+                .filter(path -> !merged.containsKey(path))
+                .toList();
+        if (!missingSelectedFiles.isEmpty()) {
+            semanticIndexService.describeFiles(rootDir.toPath(), missingSelectedFiles).stream()
+                    .map(this::toIndexHitPayload)
+                    .forEach(hit -> merged.putIfAbsent(String.valueOf(hit.get("relativePath")), hit));
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private Map<String, Object> toIndexHitPayload(WorkspaceSemanticSearchHit hit) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("relativePath", hit.relativePath());
+        payload.put("fileName", hit.fileName());
+        payload.put("matchType", hit.matchType());
+        payload.put("score", hit.score());
+        payload.put("recallSource", hit.recallSource());
+        payload.put("matchedTerms", hit.matchedTerms());
+        payload.put("matchedSymbols", hit.matchedSymbols());
+        return payload;
+    }
+
+    private void appendIndexHits(StringBuilder builder, List<Map<String, Object>> indexHits) {
+        if (indexHits == null || indexHits.isEmpty()) {
+            return;
+        }
+        builder.append("索引命中:\n");
+        for (Map<String, Object> hit : indexHits.stream().limit(3).toList()) {
+            builder.append("- ")
+                    .append(hit.get("relativePath"))
+                    .append(" [")
+                    .append(hit.get("matchType"))
+                    .append(", score=")
+                    .append(hit.get("score"))
+                    .append("]");
+            Object matchedSymbols = hit.get("matchedSymbols");
+            if (matchedSymbols instanceof List<?> symbols && !symbols.isEmpty()) {
+                builder.append(" symbols=").append(symbols.stream().limit(5).toList());
+            }
+            builder.append('\n');
+        }
+        builder.append('\n');
     }
 
     private String readSelectedFileContext(File rootDir, List<String> relativePaths) {
@@ -356,6 +476,8 @@ public class GenerationAgentSupport {
             String intent,
             List<String> selectedFiles,
             int indexedFileCount,
+            int indexedSymbolCount,
+            List<Map<String, Object>> indexHits,
             String contextMode,
             String projectContext
     ) {

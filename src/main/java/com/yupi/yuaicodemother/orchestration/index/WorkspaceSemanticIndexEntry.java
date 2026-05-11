@@ -13,6 +13,7 @@ public record WorkspaceSemanticIndexEntry(
         long lastModified,
         String searchableText,
         String contentExcerpt,
-        List<String> terms
+        List<String> terms,
+        List<String> symbols
 ) {
 }

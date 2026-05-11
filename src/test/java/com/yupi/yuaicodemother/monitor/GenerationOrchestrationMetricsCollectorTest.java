@@ -18,6 +18,7 @@ class GenerationOrchestrationMetricsCollectorTest {
         collector.recordPatchApply("local_patch_executor", "applied", "");
         collector.recordAutoRepair("heavy", "build", "started");
         collector.recordUserWaitDuration("heavy", "vue_project", "success", Duration.ofSeconds(3));
+        collector.recordContextSnapshot("heavy", "intent_selected_files", 2, 8, 12, 2, 1200);
 
         assertEquals(1, meterRegistry.find("generation_orchestration_patch_apply_total")
                 .tag("provider", "local_patch_executor")
@@ -37,5 +38,15 @@ class GenerationOrchestrationMetricsCollectorTest {
                 .tag("status", "success")
                 .timer()
                 .count());
+        assertEquals(1, meterRegistry.find("generation_orchestration_indexed_symbols")
+                .tag("orchestration_mode", "heavy")
+                .tag("context_mode", "intent_selected_files")
+                .summary()
+                .count());
+        assertEquals(2, meterRegistry.find("generation_orchestration_index_hits")
+                .tag("orchestration_mode", "heavy")
+                .tag("context_mode", "intent_selected_files")
+                .summary()
+                .totalAmount(), 0.001);
     }
 }

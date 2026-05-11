@@ -20,18 +20,31 @@ class WorkspaceSemanticIndexServiceTest {
     void shouldPersistAndSearchWorkspaceIndex() throws Exception {
         Path tempDir = createTempWorkspace();
         try {
-            write(tempDir, "src/views/Login.vue", "<template>login token form</template>");
+            write(tempDir, "src/views/Login.vue", """
+                    <template>login token form</template>
+                    <script setup>
+                    export function issueLoginToken() {}
+                    </script>
+                    """);
             write(tempDir, "src/components/UserTable.vue", "<template>用户列表分页</template>");
             write(tempDir, "node_modules/ignored/index.js", "login should be ignored");
 
             WorkspaceSemanticIndex index = service.loadOrBuild(tempDir);
             List<WorkspaceSemanticSearchHit> hits = service.search(tempDir, "login token", Set.of("vue"), 10);
+            List<WorkspaceSemanticSearchHit> symbolHits = service.search(tempDir, "issueLoginToken", Set.of("vue"), 10);
 
             assertEquals(2, index.indexedFileCount());
             assertTrue(Files.exists(tempDir.resolve(".ai-code-index/semantic-index.json")));
+            assertTrue(service.countIndexedSymbols(tempDir) > 0);
+            assertTrue(index.entries().stream()
+                    .flatMap(entry -> entry.symbols().stream())
+                    .anyMatch("issueLoginToken"::equals));
             assertFalse(hits.isEmpty());
             assertEquals("src/views/Login.vue", hits.get(0).relativePath());
             assertTrue(hits.get(0).score() > 0);
+            assertFalse(symbolHits.isEmpty());
+            assertEquals("symbol", symbolHits.get(0).matchType());
+            assertTrue(symbolHits.get(0).matchedSymbols().contains("issueLoginToken"));
         } finally {
             cleanup(tempDir);
         }

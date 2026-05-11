@@ -263,6 +263,21 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=WorkspaceSemanticIndexServiceTest,GenerationAgentSupportTest,GenerationRecipeLibraryTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 9`, `Failures: 0`, `Errors: 0`
 
+### 3.21 Java 内语义索引完整收口
+
+- 已将索引 schema 升级到 `v2`，索引条目新增 `symbols`，可从 Vue / JS / TS / Java / Go 等源码中轻量提取函数、类、接口、类型、常量、组件名等符号
+- `WorkspaceSemanticSearchHit` 已补齐 `recallSource`、`matchedTerms`、`matchedSymbols`，搜索命中现在能区分 path / file_name / content / symbol / selected_file，并返回可解释的召回依据
+- `WorkspaceSemanticIndexService` 新增 `countIndexedSymbols` 与 `describeFiles`，支持上下文链路统计符号规模，并为通过意图 hint 选中的文件补齐索引元数据
+- 索引构建增加同工作区重建锁，避免 Planner / Context 并行首次召回时重复构建和并发写入；索引目录不可写时会降级为内存索引，不影响当前召回链路
+- `GenerationAgentSupport` 已把索引命中摘要写入项目上下文文本和 `ProjectContextPackage.indexHits`，并透传 `indexedSymbolCount`
+- `PlannerAgentNode` 已在 `requirements` artifact 中输出 `contextRecallSource`、`contextRecallQuery`、`indexHits`；`ContextAgentNode` 已在 `context_summary` artifact 中输出 `indexedSymbolCount` 与 `indexHits`
+- `ProjectSearchTool` 的结果已展示召回来源、匹配词和匹配符号，工具搜索和编排上下文共用同一套索引解释模型
+- `GenerationOrchestrationMetricsCollector` 与 `AgentGenerationOrchestrator` 已新增单次 `indexed_symbols` 和 `index_hits` 指标，语义索引命中量进入编排可观测闭环
+- 本需求点已完成 Java 单体内的“持久化文件索引 + 轻量符号索引 + 索引驱动召回 + artifact 透传 + 指标闭环 + 工具搜索解释性输出”，不再遗留独立的索引后续项
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=WorkspaceSemanticIndexServiceTest,GenerationAgentSupportTest,GenerationOrchestrationMetricsCollectorTest,AgentGenerationOrchestratorTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 12`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -286,11 +301,12 @@
 - 已完成：
   - 文件索引持久化
   - 以索引代替当前上下文精选和项目搜索的整树扫描
-- 后续可继续扩展：
   - 符号级索引
-  - 结合 `ripgrep + FTS5 + tree-sitter` 的更强语义检索
+  - 索引命中元数据透传到 Planner / Context artifact
+  - 索引符号数与命中数进入 Micrometer 指标
+  - 项目搜索工具输出召回来源、匹配词和匹配符号
 
-当前已从“纯轻量扫描 + 关键词匹配”升级为“轻量持久化索引 + 索引驱动召回”阶段。
+当前已从“纯轻量扫描 + 关键词匹配”升级为“轻量持久化索引 + 轻量符号索引 + 索引驱动召回 + 可解释命中元数据 + 指标闭环”阶段。Java 单体内索引需求点已收口完成；`ripgrep / FTS5 / tree-sitter` 可归入未来 Go Workspace Kernel 的实现选型，不作为本轮语义索引的未完成项。
 
 ### 4.4 Git / Snapshot 一等公民方案
 
@@ -304,7 +320,7 @@
 
 ### 4.5 指标闭环
 
-当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数、patch-first 实际落盘结果次数。
+当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、索引符号数、索引命中数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数、patch-first 实际落盘结果次数。
 
 本阶段已继续补齐：
 
@@ -336,8 +352,7 @@
 3. 定义并落地 `ChangePlan`
 4. 把快照 / 回滚接入生成主流程的失败兜底
 5. 做第一批高频 recipe
-6. 扩展 Java 内语义索引到符号级检索与更强召回
-7. 最后再拆 Go workspace kernel
+6. 最后再拆 Go workspace kernel
 
 ## 6. 当前状态总结
 
@@ -345,7 +360,7 @@
 - 这些优化已经把系统从“整仓重写 + 全量 build”推向“意图驱动 + 最小 patch + 分层校验 + 标准化变更计划”
 - 路由判定、heavy path 和 BuildFix 门禁现在也已经单点化，减少了 Planner 与编排器之间的语义漂移
 - 编排层指标已经接入 Micrometer，Prometheus / Grafana 现在可观察上下文规模、节点耗时、门禁结果、回滚计划、补丁执行、真实改修对齐率、自动修复和用户等待时间
-- 后续最值钱的工作仍然是 `测试 + Recipe 扩展 + 语义索引深化 + 回滚联动 + 更细粒度补丁执行`
+- 后续最值钱的工作仍然是 `测试 + Recipe 扩展 + 回滚联动 + 更细粒度补丁执行 + Go workspace kernel`
 
 注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则(可以接受现有代码重构，但需要保证不影响现有代码功能)，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成。
-注：继续完成本优化项时，尽可能一次性把某个点都进行优化，不要落下“后续再做”的后续工作残留
+注：继续完成本优化项时，尽可能一次性把某个点都进行优化，不要落下“后续再做”的后续工作残留，不要留下拓展内容

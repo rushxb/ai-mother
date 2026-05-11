@@ -192,11 +192,21 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         String contextMode = artifactString(context, "context_summary", "contextMode");
         int selectedFileCount = artifactListSize(context, "context_summary", "selectedFiles");
         int indexedFileCount = artifactInt(context, "context_summary", "indexedFileCount");
+        int indexedSymbolCount = artifactInt(context, "context_summary", "indexedSymbolCount");
+        int indexHitCount = artifactListSize(context, "context_summary", "indexHits");
         int contextChars = artifactString(context, "context_summary", "projectContext").length();
         metricsCollector.recordPatchFirstPlan(orchestrationMode, patchFirst);
         metricsCollector.recordBuildFixPlan(orchestrationMode, buildFixEnabled);
         metricsCollector.recordRollbackPlan(orchestrationMode, rollbackStrategy);
-        metricsCollector.recordContextSnapshot(orchestrationMode, contextMode, selectedFileCount, indexedFileCount, contextChars);
+        metricsCollector.recordContextSnapshot(
+                orchestrationMode,
+                contextMode,
+                selectedFileCount,
+                indexedFileCount,
+                indexedSymbolCount,
+                indexHitCount,
+                contextChars
+        );
         if (gateResult != null) {
             metricsCollector.recordQualityGate(orchestrationMode, gateResult.passed(), gateResult.level());
         }

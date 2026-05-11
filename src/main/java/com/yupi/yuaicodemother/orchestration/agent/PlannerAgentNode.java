@@ -1,6 +1,7 @@
 package com.yupi.yuaicodemother.orchestration.agent;
 
 import cn.hutool.core.util.StrUtil;
+import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
@@ -39,6 +40,10 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         String generationMode = patchFirst ? "patch_first_update" : "full_generation";
         String validationMode = requiresBuild ? "build_validation" : "review_only";
         List<GenerationRecipe> matchedRecipes = support.matchRecipes(userMessage, "");
+        App app = context.getRequest().app();
+        List<Map<String, Object>> indexHits = patchFirst
+                ? support.collectIndexRecallPayloads(app, userMessage, 3)
+                : List.of();
         List<String> goals = List.of(
                 "保留现有项目能力并尽量复用结构",
                 complex ? "按模块拆分生成任务，允许并行处理" : "采用单模块增量生成策略",
@@ -54,6 +59,9 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         payload.put("validationMode", validationMode);
         payload.put("generationMode", generationMode);
         payload.put("orchestrationMode", requiresBuild ? "heavy" : "light");
+        payload.put("contextRecallSource", patchFirst ? "semantic_index" : "new_project");
+        payload.put("contextRecallQuery", userMessage);
+        payload.put("indexHits", indexHits);
         payload.put("goals", goals);
         payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
         payload.put("recipes", support.buildRecipePayloads(matchedRecipes));
@@ -68,7 +76,8 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                         "patchFirst", patchFirst,
                         "requiresBuild", requiresBuild,
                         "validationMode", validationMode,
-                        "generationMode", generationMode
+                        "generationMode", generationMode,
+                        "indexHitCount", indexHits.size()
                 )
         );
     }

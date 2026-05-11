@@ -14,8 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.yupi.yuaicodemother.constant.AppConstant.CODE_OUTPUT_ROOT_DIR;
-
 /**
  * Context：提取项目上下文。
  */
@@ -37,12 +35,14 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 "general",
                 List.of(),
                 0,
+                0,
+                List.of(),
                 context.getRequest().hasGeneratedCode() ? "empty" : "new_project",
                 ""
         );
         if (app != null && app.getId() != null && context.getRequest().hasGeneratedCode()) {
-            File rootDir = new File(CODE_OUTPUT_ROOT_DIR + File.separator + app.getCodeGenType() + "_" + app.getId());
-            if (rootDir.exists() && rootDir.isDirectory()) {
+            File rootDir = support.resolveWorkspaceRoot(app);
+            if (rootDir != null) {
                 contextPackage = support.buildProjectContextPackage(
                         app,
                         currentType,
@@ -60,6 +60,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
         payload.put("intent", contextPackage.intent());
         payload.put("selectedFiles", normalizedSelectedFiles);
         payload.put("indexedFileCount", contextPackage.indexedFileCount());
+        payload.put("indexedSymbolCount", contextPackage.indexedSymbolCount());
+        payload.put("indexHits", contextPackage.indexHits());
         payload.put("contextMode", contextPackage.contextMode());
         payload.put("projectContext", StrUtil.blankToDefault(contextPackage.projectContext(), ""));
         payload.put("hasGeneratedCode", context.getRequest().hasGeneratedCode());
@@ -74,6 +76,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 List.of(artifact),
                 Map.of(
                         "indexedFileCount", contextPackage.indexedFileCount(),
+                        "indexedSymbolCount", contextPackage.indexedSymbolCount(),
+                        "indexHitCount", contextPackage.indexHits().size(),
                         "selectedFileCount", normalizedSelectedFiles.size(),
                         "contextMode", contextPackage.contextMode()
                 )

@@ -71,7 +71,10 @@ public class ProjectSearchTool extends BaseTool {
                 builder.append("\n[命中]\n")
                         .append("文件: ").append(hit.relativePath()).append('\n')
                         .append("类型: ").append(hit.matchType()).append('\n')
+                        .append("来源: ").append(hit.recallSource()).append('\n')
                         .append("分数: ").append(hit.score()).append('\n')
+                        .append("匹配词: ").append(hit.matchedTerms()).append('\n')
+                        .append("匹配符号: ").append(hit.matchedSymbols()).append('\n')
                         .append("内容:\n").append(hit.preview()).append('\n');
             }
             return builder.toString().trim();

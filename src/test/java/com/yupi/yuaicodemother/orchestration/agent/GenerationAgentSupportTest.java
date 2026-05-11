@@ -27,7 +27,12 @@ class GenerationAgentSupportTest {
             write(tempDir, "src/main.ts", "import { createApp } from 'vue'");
             write(tempDir, "src/App.vue", "<template><RouterView /></template>");
             write(tempDir, "src/router/index.ts", "export const routes = []");
-            write(tempDir, "src/views/Login.vue", "<template>login</template>");
+            write(tempDir, "src/views/Login.vue", """
+                    <template>login</template>
+                    <script setup>
+                    export function submitLoginForm() {}
+                    </script>
+                    """);
             write(tempDir, "src/views/Dashboard.vue", "<template>dashboard</template>");
             write(tempDir, "src/components/AuthPanel.vue", "<template>auth</template>");
             write(tempDir, "src/components/ChartPanel.vue", "<template>chart</template>");
@@ -44,6 +49,10 @@ class GenerationAgentSupportTest {
             assertTrue(contextPackage.selectedFiles().size() <= 6);
             assertTrue(contextPackage.selectedFiles().contains("src/views/Login.vue"));
             assertTrue(contextPackage.projectContext().contains("src/views/Login.vue"));
+            assertTrue(contextPackage.indexedSymbolCount() > 0);
+            assertTrue(contextPackage.indexHits().stream()
+                    .anyMatch(hit -> "src/views/Login.vue".equals(hit.get("relativePath"))));
+            assertTrue(contextPackage.projectContext().contains("索引命中"));
             assertEquals("intent_selected_files", contextPackage.contextMode());
         } finally {
             cleanup(tempDir);

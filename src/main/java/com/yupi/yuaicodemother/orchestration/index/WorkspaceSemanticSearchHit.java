@@ -1,5 +1,7 @@
 package com.yupi.yuaicodemother.orchestration.index;
 
+import java.util.List;
+
 /**
  * 语义索引命中结果。
  */
@@ -8,6 +10,9 @@ public record WorkspaceSemanticSearchHit(
         String fileName,
         String matchType,
         int score,
-        String preview
+        String preview,
+        String recallSource,
+        List<String> matchedTerms,
+        List<String> matchedSymbols
 ) {
 }

@@ -41,9 +41,11 @@ import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationResult;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
 import com.yupi.yuaicodemother.orchestration.artifact.DiffSummary;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
+import com.yupi.yuaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.yupi.yuaicodemother.orchestration.artifact.PatchResult;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
 import com.yupi.yuaicodemother.orchestration.patch.GenerationPatchResultService;
+import com.yupi.yuaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.yupi.yuaicodemother.service.AppService;
@@ -152,6 +154,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     @Resource
     private GenerationPatchResultService generationPatchResultService;
+
+    @Resource
+    private GenerationCommitService generationCommitService;
 
     @Resource
     private GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
@@ -535,6 +540,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     startBackgroundBuild(appId, loginUser, preparation, session);
                 } else {
                     emitDiffSummaryIfAvailable(appId, preparation, session);
+                    emitCommitResultIfAvailable(appId, preparation, session);
                     markGenerationFinished(appId);
                     completeGenerationSession(session, preparation, "success");
                     activeGenerationSessions.remove(appId, session);
@@ -581,6 +587,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 boolean buildSucceeded = runBackgroundBuildWithAutoRepair(appId, loginUser, preparation, session);
                 if (buildSucceeded) {
                     emitDiffSummaryIfAvailable(appId, preparation, session);
+                    emitCommitResultIfAvailable(appId, preparation, session);
                 } else {
                     completionStatus = "failed";
                 }
@@ -839,6 +846,35 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ));
     }
 
+    private void emitCommitResultIfAvailable(Long appId,
+                                             GenerationPreparation preparation,
+                                             GenerationSession session) {
+        if (session.isCancelled()) {
+            return;
+        }
+        GenerationCommitResult commitResult = generationCommitService.commit(
+                appId,
+                preparation.taskId(),
+                preparation.artifact("diff_summary")
+        );
+        GenerationArtifact commitArtifact = GenerationArtifact.of(
+                "generation_commit",
+                "Orchestrator",
+                "生成结果本地 Git 提交",
+                commitResult.toPayload()
+        );
+        preparation.putArtifact(commitArtifact);
+        generationOrchestrationMetricsCollector.recordGenerationCommit(
+                commitResult.provider(),
+                commitResult.status(),
+                commitResult.reason()
+        );
+        session.emit(GenerationStreamEvent.agentEvent(
+                generationCommitService.renderText(commitResult),
+                buildCommitResultEventData(preparation, commitArtifact)
+        ));
+    }
+
     private Map<String, Object> buildDiffSummaryEventData(GenerationPreparation preparation,
                                                           GenerationArtifact diffSummary) {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -864,6 +900,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 : "Patch 实际落盘结果存在偏差或已跳过");
         data.put("taskId", preparation.taskId());
         data.put("artifact", patchResult.payload());
+        return data;
+    }
+
+    private Map<String, Object> buildCommitResultEventData(GenerationPreparation preparation,
+                                                           GenerationArtifact commitResult) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "commit");
+        data.put("status", commitResult.payload().get("status"));
+        data.put("summary", "committed".equals(String.valueOf(commitResult.payload().get("status")))
+                ? "生成结果已提交到本地 Git"
+                : "生成结果本地 Git 提交已跳过或失败");
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", commitResult.payload());
         return data;
     }
 
@@ -989,6 +1039,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         GenerationArtifact patchResult = preparation.artifacts() == null ? null : preparation.artifacts().get("patch_result");
         if (patchResult != null) {
             data.put("patch_result", patchResult.payload());
+        }
+        GenerationArtifact commitResult = preparation.artifacts() == null ? null : preparation.artifacts().get("generation_commit");
+        if (commitResult != null) {
+            data.put("generation_commit", commitResult.payload());
         }
         GenerationArtifact rollbackRestore = preparation.artifacts() == null ? null : preparation.artifacts().get("rollback_restore");
         if (rollbackRestore != null) {

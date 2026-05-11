@@ -16,6 +16,7 @@ class GenerationOrchestrationMetricsCollectorTest {
                 new GenerationOrchestrationMetricsCollector(meterRegistry);
 
         collector.recordPatchApply("local_patch_executor", "applied", "");
+        collector.recordGenerationCommit("local_git", "committed", "");
         collector.recordAutoRepair("heavy", "build", "started");
         collector.recordUserWaitDuration("heavy", "vue_project", "success", Duration.ofSeconds(3));
         collector.recordContextSnapshot("heavy", "intent_selected_files", 2, 8, 12, 2, 1200);
@@ -23,6 +24,12 @@ class GenerationOrchestrationMetricsCollectorTest {
         assertEquals(1, meterRegistry.find("generation_orchestration_patch_apply_total")
                 .tag("provider", "local_patch_executor")
                 .tag("status", "applied")
+                .tag("reason", "unknown")
+                .counter()
+                .count(), 0.001);
+        assertEquals(1, meterRegistry.find("generation_orchestration_commit_total")
+                .tag("provider", "local_git")
+                .tag("status", "committed")
                 .tag("reason", "unknown")
                 .counter()
                 .count(), 0.001);

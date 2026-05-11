@@ -30,6 +30,7 @@ public class GenerationOrchestrationMetricsCollector {
     private final ConcurrentMap<String, Counter> qualityGateCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> rollbackPlanCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> rollbackRestoreCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> commitCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> patchResultCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> patchApplyCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> autoRepairCounters = new ConcurrentHashMap<>();
@@ -198,6 +199,22 @@ public class GenerationOrchestrationMetricsCollector {
                 Counter.builder("generation_orchestration_rollback_restore_total")
                         .description("代码生成失败后本地快照恢复次数")
                         .tag("orchestration_mode", mode)
+                        .tag("status", normalizedStatus)
+                        .tag("reason", normalizedReason)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    public void recordGenerationCommit(String provider, String status, String reason) {
+        String normalizedProvider = normalize(provider);
+        String normalizedStatus = normalize(status);
+        String normalizedReason = normalize(reason);
+        String key = String.join(":", normalizedProvider, normalizedStatus, normalizedReason);
+        Counter counter = commitCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_orchestration_commit_total")
+                        .description("代码生成结果本地 Git 提交次数")
+                        .tag("provider", normalizedProvider)
                         .tag("status", normalizedStatus)
                         .tag("reason", normalizedReason)
                         .register(meterRegistry)

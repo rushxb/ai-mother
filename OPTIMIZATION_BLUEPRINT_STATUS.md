@@ -278,6 +278,19 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=WorkspaceSemanticIndexServiceTest,GenerationAgentSupportTest,GenerationOrchestrationMetricsCollectorTest,AgentGenerationOrchestratorTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 12`, `Failures: 0`, `Errors: 0`
 
+### 3.22 本地 Git 自动提交闭环
+
+- 新增 `GenerationCommitResult` 标准 artifact，输出 `status/appId/taskId/projectPath/commitId/shortCommitId/branch/committedFileCount/committedFiles/reason`
+- 新增 `GenerationCommitService`，在生成成功后基于 `diff_summary` 里的真实变更文件做最小范围 `git add` / `git commit`，不会把仓库内其他无关脏改动一起提交
+- 提交范围限定为当前生成工作区目录下的真实新增 / 修改 / 删除文件；缺少 diff、没有真实变更、工作区不在 Git 仓库内时会明确 `skipped`
+- `AppServiceImpl` 已在成功链路发送 `stage=commit` 的 `agent_event`，并把 `generation_commit` 写回本次 `GenerationPreparation.artifacts()`
+- `generation_error` payload 现在会在存在 `generation_commit` 时一并携带 commit 元数据，便于前端或后续恢复链路追踪“最近一次已落库提交”
+- `GenerationOrchestrationMetricsCollector` 新增 `generation_orchestration_commit_total`，按 `provider/status/reason` 记录本地 Git 提交结果
+- 新增 `GenerationCommitServiceTest`，并扩展 `GenerationOrchestrationMetricsCollectorTest` 覆盖提交成功与指标落库
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationCommitServiceTest,GenerationOrchestrationMetricsCollectorTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,GenerationPatchResultServiceTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 12`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -308,7 +321,7 @@
 
 当前已从“纯轻量扫描 + 关键词匹配”升级为“轻量持久化索引 + 轻量符号索引 + 索引驱动召回 + 可解释命中元数据 + 指标闭环”阶段。Java 单体内索引需求点已收口完成；`ripgrep / FTS5 / tree-sitter` 可归入未来 Go Workspace Kernel 的实现选型，不作为本轮语义索引的未完成项。
 
-### 4.4 Git / Snapshot 一等公民方案
+### 4.4 Git / Snapshot 一等公民方案（本地闭环已完成）
 
 - 自动 commit
 - 标准回滚点
@@ -316,11 +329,13 @@
 - 失败自动回滚到稳定版本
 - 结果直接输出 commit id / rollback point
 
-当前已将本地快照提升为生成主流程里的标准 `rollback_point` artifact，并在服务层 `generation_error` 事件中透出回滚点元数据；生成成功后会基于本地快照输出标准 `diff_summary` artifact，生成失败后也会在策略 opt-in 时恢复到本地快照。尚未接入自动 commit；短期内不要求外部 Git 服务，后续如需 commit id 再优先抽象本地 Git CLI 适配层。
+当前已将本地快照提升为生成主流程里的标准 `rollback_point` artifact，并在服务层 `generation_error` 事件中透出回滚点元数据；生成成功后会基于本地快照输出标准 `diff_summary` artifact，生成失败后也会在策略 opt-in 时恢复到本地快照。现在已补齐本地 Git 自动 commit 闭环，生成成功后会按 `diff_summary` 里的真实变更范围提交并输出 `generation_commit` artifact，成功和失败事件都会携带 commit 元数据。
+
+当前这一项在 Java 单体内的本地闭环已完成。
 
 ### 4.5 指标闭环
 
-当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、索引符号数、索引命中数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数、patch-first 实际落盘结果次数。
+当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、索引符号数、索引命中数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数、patch-first 实际落盘结果次数、本地 Git 提交结果次数。
 
 本阶段已继续补齐：
 
@@ -359,8 +374,8 @@
 - 本轮已落地的核心收益是：prompt 优化入口、改修分流、上下文减重、patch-first 元数据、分层构建验证
 - 这些优化已经把系统从“整仓重写 + 全量 build”推向“意图驱动 + 最小 patch + 分层校验 + 标准化变更计划”
 - 路由判定、heavy path 和 BuildFix 门禁现在也已经单点化，减少了 Planner 与编排器之间的语义漂移
-- 编排层指标已经接入 Micrometer，Prometheus / Grafana 现在可观察上下文规模、节点耗时、门禁结果、回滚计划、补丁执行、真实改修对齐率、自动修复和用户等待时间
-- 后续最值钱的工作仍然是 `测试 + Recipe 扩展 + 回滚联动 + 更细粒度补丁执行 + Go workspace kernel`
+- 编排层指标已经接入 Micrometer，Prometheus / Grafana 现在可观察上下文规模、节点耗时、门禁结果、回滚计划、补丁执行、真实改修对齐率、自动修复、用户等待时间以及本地 Git 提交结果
+- 后续最值钱的工作仍然是 `测试 + Recipe 扩展 + 更细粒度补丁执行 + Go workspace kernel`
 
 注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则(可以接受现有代码重构，但需要保证不影响现有代码功能)，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成。
 注：继续完成本优化项时，尽可能一次性把某个点都进行优化，不要落下“后续再做”的后续工作残留，不要留下拓展内容

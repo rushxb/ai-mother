@@ -1,0 +1,16 @@
+{
+  "id": "vue-web-admin",
+  "name": "Vue Web Admin",
+  "description": "后台管理模板，默认单页仪表盘可运行，额外列表、订单和设置页作为可选扩展样板保留。",
+  "packageManager": "pnpm",
+  "tags": ["vue", "vite", "admin", "dashboard", "table"],
+  "entryFiles": [
+    "src/router/routeManifest.json",
+    "src/layouts/MainLayout.vue",
+    "src/views/DashboardView.vue",
+    "src/data/adminData.js",
+    "src/components/ProTable.vue",
+    "src/services/api.ts"
+  ],
+  "optionalFiles": ["src/pages/UsersPage.vue", "src/pages/OrdersPage.vue", "src/pages/SettingsPage.vue"]
+}

@@ -1,0 +1,9 @@
+[
+  {
+    "path": "/",
+    "name": "landing",
+    "component": "LandingView",
+    "title": "首页",
+    "layout": "MainLayout"
+  }
+]

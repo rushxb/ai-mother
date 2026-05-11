@@ -114,14 +114,14 @@ public class VueProjectBuilder {
 
         if (dependencyCached && criticalUnchanged && presentationUnchanged && distExists) {
             log.info("依赖和源码均未变化，复用现有 dist: {}", projectPath);
-            CommandResult installResult = CommandResult.skipped("npm install --no-audit --no-fund", "依赖和源码未变化，已跳过 npm install");
+            CommandResult installResult = CommandResult.skipped("pnpm install --prefer-offline", "依赖和源码未变化，已跳过 pnpm install");
             CommandResult buildResult = CommandResult.skipped("reuse dist", "依赖和源码未变化，复用现有 dist");
             return BuildResult.reused(projectPath, installResult, buildResult);
         }
 
         CommandResult installResult = installDependenciesIfNeeded(projectDir, currentSnapshot.dependencyFingerprint());
         if (!installResult.success()) {
-            log.error("npm install 执行失败：{}", projectPath);
+            log.error("pnpm install 执行失败：{}", projectPath);
             return BuildResult.installFailed(projectPath, installResult);
         }
 
@@ -149,7 +149,7 @@ public class VueProjectBuilder {
 
         CommandResult buildResult = executeFullBuild(projectDir, scripts);
         if (!buildResult.success()) {
-            log.error("npm run build 执行失败：{}", projectPath);
+            log.error("pnpm run build 执行失败：{}", projectPath);
             return BuildResult.buildFailed(projectPath, installResult, buildResult);
         }
         if (!isDirectory(new File(projectDir, "dist"))) {
@@ -168,18 +168,18 @@ public class VueProjectBuilder {
             if (nodeModulesDir.exists() && stampFile.exists()) {
                 String installedFingerprint = readStamp(stampFile);
                 if (currentDependencyFingerprint.equals(installedFingerprint)) {
-                    log.info("依赖未变化，跳过 npm install: {}", projectDir.getAbsolutePath());
-                    return CommandResult.skipped("npm install --no-audit --no-fund", "依赖未变化，已跳过 npm install");
+                    log.info("依赖未变化，跳过 pnpm install: {}", projectDir.getAbsolutePath());
+                    return CommandResult.skipped("pnpm install --prefer-offline", "依赖未变化，已跳过 pnpm install");
                 }
             }
-            CommandResult installResult = executeNpmInstall(projectDir);
+            CommandResult installResult = executePnpmInstall(projectDir);
             if (installResult.success()) {
                 writeStamp(stampFile, currentDependencyFingerprint);
             }
             return installResult;
         } catch (Exception e) {
-            log.warn("依赖缓存判断失败，将执行 npm install: {}", e.getMessage());
-            return executeNpmInstall(projectDir);
+            log.warn("依赖缓存判断失败，将执行 pnpm install: {}", e.getMessage());
+            return executePnpmInstall(projectDir);
         }
     }
 
@@ -271,9 +271,9 @@ public class VueProjectBuilder {
         entries.add(normalizePath(relativePath) + ':' + content.length + ':' + Arrays.hashCode(content));
     }
 
-    private CommandResult executeNpmInstall(File projectDir) {
-        log.info("执行 npm install...");
-        return executeCommand(projectDir, INSTALL_TIMEOUT_SECONDS, buildCommand("npm"), "install", "--no-audit", "--no-fund");
+    private CommandResult executePnpmInstall(File projectDir) {
+        log.info("执行 pnpm install...");
+        return executeCommand(projectDir, INSTALL_TIMEOUT_SECONDS, buildCommand("pnpm"), "install", "--prefer-offline");
     }
 
     private CommandResult executeLightValidation(File projectDir, ProjectScripts scripts) {
@@ -281,26 +281,26 @@ public class VueProjectBuilder {
         if (script == null) {
             return CommandResult.skipped("light validation", "package.json 中未找到轻量校验脚本");
         }
-        log.info("执行轻量校验: npm run {}", script);
-        return executeCommand(projectDir, LIGHT_VALIDATE_TIMEOUT_SECONDS, buildCommand("npm"), "run", script);
+        log.info("执行轻量校验: pnpm run {}", script);
+        return executeCommand(projectDir, LIGHT_VALIDATE_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
     }
 
     private CommandResult executeLightBuild(File projectDir, ProjectScripts scripts) {
         String script = scripts.lightBuildScript();
         if (script == null) {
-            return CommandResult.exception("npm run build", "package.json 中未找到可用的轻量构建脚本");
+            return CommandResult.exception("pnpm run build", "package.json 中未找到可用的轻量构建脚本");
         }
-        log.info("执行轻量构建: npm run {}", script);
-        return executeCommand(projectDir, LIGHT_BUILD_TIMEOUT_SECONDS, buildCommand("npm"), "run", script);
+        log.info("执行轻量构建: pnpm run {}", script);
+        return executeCommand(projectDir, LIGHT_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
     }
 
     private CommandResult executeFullBuild(File projectDir, ProjectScripts scripts) {
         String script = scripts.fullBuildScript();
         if (script == null) {
-            return CommandResult.exception("npm run build", "package.json 中未找到可用的构建脚本");
+            return CommandResult.exception("pnpm run build", "package.json 中未找到可用的构建脚本");
         }
-        log.info("执行全量构建: npm run {}", script);
-        return executeCommand(projectDir, FULL_BUILD_TIMEOUT_SECONDS, buildCommand("npm"), "run", script);
+        log.info("执行全量构建: pnpm run {}", script);
+        return executeCommand(projectDir, FULL_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
     }
 
     private String buildCommand(String baseCommand) {

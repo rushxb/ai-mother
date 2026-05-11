@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * npm 命令执行辅助类
+ * 前端包管理命令执行辅助类
  */
 final class NpmCommandSupport {
 
@@ -51,8 +51,8 @@ final class NpmCommandSupport {
         }
     }
 
-    static String npmCommand() {
-        return isWindows() ? "npm.cmd" : "npm";
+    static String pnpmCommand() {
+        return isWindows() ? "pnpm.cmd" : "pnpm";
     }
 
     private static boolean isWindows() {

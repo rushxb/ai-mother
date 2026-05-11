@@ -1,0 +1,13 @@
+[
+  {
+    "path": "/",
+    "redirect": "/dashboard"
+  },
+  {
+    "path": "/dashboard",
+    "name": "dashboard",
+    "component": "DashboardView",
+    "title": "工作台",
+    "layout": "MainLayout"
+  }
+]

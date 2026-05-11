@@ -56,7 +56,7 @@ public class LintOrTestTool extends BaseTool {
                 return "错误：package.json 中未找到脚本 - " + scriptName;
             }
             NpmCommandSupport.CommandResult result = NpmCommandSupport.runCommand(
-                    projectPath, 300, NpmCommandSupport.npmCommand(), "run", scriptName
+                    projectPath, 300, NpmCommandSupport.pnpmCommand(), "run", scriptName
             );
             StringBuilder builder = new StringBuilder();
             builder.append("脚本: ").append(scriptName).append('\n');

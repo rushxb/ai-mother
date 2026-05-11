@@ -25,7 +25,7 @@ public class PackageManagerTool extends BaseTool {
     private static final String DEV_DEPENDENCIES = "devDependencies";
     private static final String SCRIPTS = "scripts";
 
-    @Tool("管理 package.json 的依赖和 scripts，支持查看、添加、更新、删除依赖，或修改 npm scripts；必要时可执行 npm install 同步锁文件。")
+    @Tool("管理 package.json 的依赖和 scripts，支持查看、添加、更新、删除依赖，或修改 scripts；必要时可执行 pnpm install 同步锁文件。")
     public String managePackageJson(
             @P("操作类型：getPackageJson、addDependency、updateDependency、removeDependency、setScript、removeScript、installDependencies")
             String action,
@@ -39,7 +39,7 @@ public class PackageManagerTool extends BaseTool {
             String scriptName,
             @P("脚本命令；setScript 时必填")
             String scriptCommand,
-            @P("执行 package.json 修改后是否立即运行 npm install，同步 lock 文件")
+            @P("执行 package.json 修改后是否立即运行 pnpm install，同步 lock 文件")
             Boolean runInstall,
             @ToolMemoryId Long appId
     ) {
@@ -163,9 +163,9 @@ public class PackageManagerTool extends BaseTool {
 
     private String runInstall(Path projectDir) {
         NpmCommandSupport.CommandResult result = NpmCommandSupport.runCommand(
-                projectDir, 300, NpmCommandSupport.npmCommand(), "install"
+                projectDir, 300, NpmCommandSupport.pnpmCommand(), "install"
         );
-        return "[npm install]\n" + result.toReport();
+        return "[pnpm install]\n" + result.toReport();
     }
 
     private void writePackageJson(Path packageJsonPath, JSONObject packageJson) {

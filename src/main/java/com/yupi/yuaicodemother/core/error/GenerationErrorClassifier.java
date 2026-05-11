@@ -53,6 +53,7 @@ public final class GenerationErrorClassifier {
             return new GenerationError(CATEGORY_CODEGEN_EMPTY, errorMessage, true);
         }
         if (containsAny(normalized,
+                "pnpm install",
                 "npm install",
                 "缺少模块",
                 "dependency",
@@ -61,6 +62,7 @@ public final class GenerationErrorClassifier {
             return new GenerationError(CATEGORY_DEPENDENCY, errorMessage, true);
         }
         if (containsAny(normalized,
+                "pnpm run build",
                 "npm run build",
                 "syntax",
                 "编译",

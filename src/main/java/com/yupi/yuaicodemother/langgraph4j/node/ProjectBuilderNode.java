@@ -32,7 +32,7 @@ public class ProjectBuilderNode {
             // 一定是 Vue 项目类型：使用 VueProjectBuilder 进行构建
             try {
                 VueProjectBuilder vueBuilder = SpringContextUtil.getBean(VueProjectBuilder.class);
-                // 执行 Vue 项目构建（npm install + npm run build）
+                // 执行 Vue 项目构建（pnpm install + pnpm run build）
                 boolean buildSuccess = vueBuilder.buildProject(generatedCodeDir);
                 if (buildSuccess) {
                     // 构建成功，返回 dist 目录路径

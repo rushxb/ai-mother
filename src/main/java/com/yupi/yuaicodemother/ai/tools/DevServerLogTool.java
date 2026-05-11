@@ -19,7 +19,7 @@ public class DevServerLogTool extends BaseTool {
     @Resource
     private LocalDevServerManager localDevServerManager;
 
-    @Tool("启动、重启、查看或停止本地 npm run dev 开发服务器，返回启动状态、访问地址和最近日志，适合排查白屏、热更新失败、启动失败等运行时问题。")
+    @Tool("启动、重启、查看或停止本地 pnpm run dev 开发服务器，返回启动状态、访问地址和最近日志，适合排查白屏、热更新失败、启动失败等运行时问题。")
     public String manageDevServer(
             @P("操作类型：startDevServer、restartDevServer、getDevServerStatus、stopDevServer")
             String action,

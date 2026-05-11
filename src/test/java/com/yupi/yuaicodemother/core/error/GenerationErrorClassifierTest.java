@@ -21,7 +21,7 @@ class GenerationErrorClassifierTest {
     @Test
     void shouldKeepBuildErrorsRecoverable() {
         GenerationErrorClassifier.GenerationError error = GenerationErrorClassifier.classify(
-                "npm run build 执行失败: failed to resolve import"
+                "pnpm run build 执行失败: failed to resolve import"
         );
 
         assertEquals(GenerationErrorClassifier.CATEGORY_DEPENDENCY, error.category());

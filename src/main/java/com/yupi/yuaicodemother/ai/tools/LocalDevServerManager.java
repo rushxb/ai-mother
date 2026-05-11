@@ -51,7 +51,7 @@ public class LocalDevServerManager {
         int port = findAvailablePort(resolvePreferredPort(appId));
         try {
             Process process = new ProcessBuilder(
-                    NpmCommandSupport.npmCommand(),
+                    NpmCommandSupport.pnpmCommand(),
                     "run",
                     "dev",
                     "--",

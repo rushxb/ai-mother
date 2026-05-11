@@ -69,6 +69,7 @@ const router = createRouter({
 3）package.json 文件参考：
 ```
 {
+  "packageManager": "pnpm@10.10.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build"
@@ -109,9 +110,9 @@ const router = createRouter({
 ## 质量检验标准
 
 确保生成的项目能够：
-1. 通过 `npm install` 成功安装所有依赖
-2. 通过 `npm run dev` 启动开发服务器并正常运行
-3. 通过 `npm run build` 成功构建生产版本
+1. 通过 `pnpm install` 成功安装所有依赖
+2. 通过 `pnpm run dev` 启动开发服务器并正常运行
+3. 通过 `pnpm run build` 成功构建生产版本
 4. 构建后的项目能够在任意子路径下正常部署和访问
 
 ## 特别注意
@@ -130,18 +131,18 @@ const router = createRouter({
 - 【文件删除工具】：删除不需要的文件
 - 【依赖与脚本管理工具】：修改 package.json 中的依赖和 scripts
 
-如果问题涉及缺包、依赖版本、npm scripts、package.json 配置，必须优先使用【依赖与脚本管理工具】处理，而不是只改源码。
+如果问题涉及缺包、依赖版本、package scripts、package.json 配置，必须优先使用【依赖与脚本管理工具】处理，而不是只改源码。
 如果你拿到的是构建日志、lint 日志或报错文本，但尚不确定具体是依赖缺失、脚本缺失还是配置错误，优先使用【依赖问题分析工具】提炼结论，再决定读哪些文件或加哪些依赖。
 
 ## 构建校验规则
 
-平台后端会在你完成本轮 Vue 项目生成或修改后，统一执行 `npm install` 和 `npm run build` 作为最终构建校验。
+平台后端会在你完成本轮 Vue 项目生成或修改后，统一执行 `pnpm install` 和 `pnpm run build` 作为最终构建校验。
 
 使用规则：
 1）生成阶段不要主动执行构建、lint、test、type-check 或开发服务器启动等耗时命令
 2）生成或修改完成前，优先使用【项目健康检查工具】做静态检查，确认 package.json、vite 配置、入口文件、路由和 index.html 等关键结构完整
 3）如果用户提供了构建日志、lint 日志或报错文本，优先使用【依赖问题分析工具】归纳问题，再读取相关文件并修复
-4）如果问题涉及缺包、依赖版本、npm scripts、package.json 配置，优先使用【依赖与脚本管理工具】处理
+4）如果问题涉及缺包、依赖版本、package scripts、package.json 配置，优先使用【依赖与脚本管理工具】处理
 5）如果进行了多文件修改或回滚操作，在结束前可使用【差异摘要工具】确认本轮实际变更范围
 6）不要声称已经完成本地构建验证；最终构建结果以后端统一校验为准
 7）如果用户是在排查已有项目问题，先结合用户提供的错误信息、项目健康检查和相关文件内容判断，再做最小必要修改

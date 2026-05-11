@@ -291,6 +291,17 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationCommitServiceTest,GenerationOrchestrationMetricsCollectorTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,GenerationPatchResultServiceTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 12`, `Failures: 0`, `Errors: 0`
 
+### 3.23 AppServiceImpl 事件与收尾回归测试已完成
+
+- 新增 `AppServiceImplRegressionTest`，聚焦 `AppServiceImpl` 内部真正负责收口的私有方法回归，不改动现有生产链路
+- 已覆盖 `buildGenerationErrorData(...)` 对 `rollback_point / diff_summary / patch_result / generation_commit / rollback_restore` 的透传，避免后续改动把失败事件 payload 悄悄裁掉
+- 已覆盖 `buildDiffSummaryEventData(...)`、`buildPatchResultEventData(...)`、`buildCommitResultEventData(...)`、`buildRollbackRestoreEventData(...)`，锁定 `agent/stage/status/summary/taskId/artifact` 结构
+- 已覆盖 `completeGenerationSession(...)` 的幂等收尾行为，确认用户等待时间指标不会在重复收尾或取消分支里重复记数
+- 这一步把蓝图里“`AppServiceImpl` 成功 / 失败 / 取消 / 后台构建事件 payload 需要补测试”的最核心收口点先补齐，减少后续继续演进 artifact 时的回归风险
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=AppServiceImplRegressionTest,AgentGenerationOrchestratorTest,GenerationDiffSummaryServiceTest,GenerationPatchResultServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,GenerationCommitServiceTest,ChangePlanTest,ReviewAgentNodeTest,BuildFixAgentNodeTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 27`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -358,16 +369,25 @@
 
 目前系统仍以 Java 单体控制逻辑为主；不过文件级补丁执行器已经先在 Java 内收口，后续若拆 Go kernel，可以直接承接这层契约。
 
-## 5. 建议的后续工作顺序
+## 5. 建议的后续工作
+0. 蓝图文档本身需要整理
+    第 4 节标题仍叫“当前未实现部分”，但 ChangePlan、语义索引、Git/Snapshot、本地指标闭环都已经基本完成；第 5 节“建议顺序”也有些过时。后续实施前，最好先把蓝图改成“已完成 / 待增强 / 长
+    期架构”三类，避免重复做已经完成的项。
+1. 核心回归测试剩余覆盖面
+   `AppServiceImpl` 事件 payload 和收尾幂等回归已补齐；剩余最值得补的是 Vue 构建分层结果、后台构建成功 / 失败完整事件流、以及生成主链路到后台构建链路之间的衔接测试。
+2. 更细粒度补丁执行
+   现在已有 GenerationPatchApplyService MVP，但还是文件级 add / modify / replace / delete。下一步可做内容级 patch，例如 hunk 级修改、前置内容校验、冲突报告、批量事务语义、失败自动回
+   滚已应用片段。
+3. Recipe 扩展
+   目前是 Java 内置 MVP。后续可优化为可配置 recipe registry、按项目技术栈筛选 recipe、结合语义索引动态检索 recipe。这个点有价值，但要一次做完整，否则容易留下半套配置系统。
+4. 指标看板治理
+   基础指标已经很多了，后续不是继续堆埋点，而是按租户 / 模型 / 代码类型拆分 SLO，把 Prometheus 告警真正接入 Alertmanager 或通知渠道，并明确“成功率、等待时间、补丁拒绝率”的运营阈值。
+5. Go Workspace Kernel
+   这是最大但也最重的后续方向：Go 独立 workspace 服务、SQLite 元数据、FTS5、tree-sitter、统一进程管理、独立补丁执行器。当前 Java 单体已经把契约和闭环打出来了，Go kernel 更适合作为后
+   续架构迁移，不建议夹在小优化里半做。
 
-建议按“先固化当前收益，再扩展知识和执行面”的顺序推进：
+简单排序：先补测试，其次做内容级补丁执行，再考虑 Recipe 配置化，最后才是 Go Workspace Kernel。
 
-1. 补齐核心回归测试，优先覆盖轻 / 重链路、Vue 构建分层、回滚兜底
-2. 建立指标埋点，先把上下文、耗时、成功率、回滚率量化出来（编排层基础指标、执行层 patch apply、真实 diff 对齐率、自动修复和用户等待时间已完成）
-3. 定义并落地 `ChangePlan`
-4. 把快照 / 回滚接入生成主流程的失败兜底
-5. 做第一批高频 recipe
-6. 最后再拆 Go workspace kernel
 
 ## 6. 当前状态总结
 

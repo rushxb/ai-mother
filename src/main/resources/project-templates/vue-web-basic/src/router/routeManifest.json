@@ -1,0 +1,9 @@
+[
+  {
+    "path": "/",
+    "name": "home",
+    "component": "HomeView",
+    "title": "首页",
+    "layout": "MainLayout"
+  }
+]

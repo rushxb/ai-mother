@@ -20,7 +20,7 @@ public class VueProjectBuildTool extends BaseTool {
     @Resource
     private VueProjectBuilder vueProjectBuilder;
 
-    @Tool("执行本地 Vue 项目构建，返回 npm install 和 npm run build 的详细结果。生成完成后、构建失败后、或用户反馈项目有问题时必须优先调用此工具。")
+    @Tool("执行本地 Vue 项目构建，返回 pnpm install 和 pnpm run build 的详细结果。生成完成后、构建失败后、或用户反馈项目有问题时必须优先调用此工具。")
     public String buildVueProject(
             @P("可选，相对于当前项目根目录的子目录。为空时默认构建整个项目根目录")
             String relativeProjectPath,

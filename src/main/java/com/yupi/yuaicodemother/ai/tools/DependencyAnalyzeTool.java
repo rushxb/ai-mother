@@ -100,13 +100,13 @@ public class DependencyAnalyzeTool extends BaseTool {
 
         if (containsAny(log, "missing script:", "Missing script:")) {
             String missingScript = extractFirst(log, "(?i)missing script:\\s*([^\\s\\n]+)");
-            findings.add("日志显示缺少 npm script" + (StrUtil.isNotBlank(missingScript) ? " `" + missingScript + "`" : "") + "。");
+            findings.add("日志显示缺少 package script" + (StrUtil.isNotBlank(missingScript) ? " `" + missingScript + "`" : "") + "。");
             suggestions.add("使用【依赖与脚本管理工具】补充缺失的 scripts 配置。");
         }
 
         if (containsAny(log, "'vite' is not recognized", "vite: not found", "Cannot find package 'vite'")) {
             findings.add("日志显示 Vite 不可用，通常意味着 `vite` 未安装、lock 文件损坏或 devDependencies 缺失。");
-            suggestions.add("确认 `vite` 和 `@vitejs/plugin-vue` 存在于 devDependencies，并执行 npm install。");
+            suggestions.add("确认 `vite` 和 `@vitejs/plugin-vue` 存在于 devDependencies，并执行 pnpm install。");
         }
 
         if (containsAny(log, "@vitejs/plugin-vue", "plugin-vue")) {

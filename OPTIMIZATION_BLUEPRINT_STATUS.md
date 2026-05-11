@@ -302,6 +302,14 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=AppServiceImplRegressionTest,AgentGenerationOrchestratorTest,GenerationDiffSummaryServiceTest,GenerationPatchResultServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,GenerationCommitServiceTest,ChangePlanTest,ReviewAgentNodeTest,BuildFixAgentNodeTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 27`, `Failures: 0`, `Errors: 0`
 
+### 3.24 提示词体系重构
+
+- 已重构 `codegen-vue-project-system-prompt.txt`、`codegen-html-system-prompt.txt`、`codegen-multi-file-system-prompt.txt`、`codegen-routing-system-prompt.txt`，统一为“现有项目优先、最小改动、工具驱动、patch-first 对齐”的生成口径
+- 已重构 `code-quality-check-system-prompt.txt`，补齐阻断项、质量项和 patch-first 一致性校验，避免只做表面语法检查
+- 已重构 `image-collection-plan-system-prompt.txt` 与 `image-collection-system-prompt.txt`，让图片规划与收集输出严格贴合现有 Java 模型和工具边界
+- 已收紧各 prompt 的输出约束，减少“完整重写式”生成倾向，统一到可解析、可执行、可继续修改的工作流
+- 当前已完成提示词体系的第一轮收口，后续如需扩展，只围绕 schema 或工具边界做小幅增量即可
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -369,24 +377,16 @@
 
 目前系统仍以 Java 单体控制逻辑为主；不过文件级补丁执行器已经先在 Java 内收口，后续若拆 Go kernel，可以直接承接这层契约。
 
-## 5. 建议的后续工作
-0. 蓝图文档本身需要整理
-    第 4 节标题仍叫“当前未实现部分”，但 ChangePlan、语义索引、Git/Snapshot、本地指标闭环都已经基本完成；第 5 节“建议顺序”也有些过时。后续实施前，最好先把蓝图改成“已完成 / 待增强 / 长
-    期架构”三类，避免重复做已经完成的项。
-1. 核心回归测试剩余覆盖面
-   `AppServiceImpl` 事件 payload 和收尾幂等回归已补齐；剩余最值得补的是 Vue 构建分层结果、后台构建成功 / 失败完整事件流、以及生成主链路到后台构建链路之间的衔接测试。
-2. 更细粒度补丁执行
-   现在已有 GenerationPatchApplyService MVP，但还是文件级 add / modify / replace / delete。下一步可做内容级 patch，例如 hunk 级修改、前置内容校验、冲突报告、批量事务语义、失败自动回
-   滚已应用片段。
-3. Recipe 扩展
-   目前是 Java 内置 MVP。后续可优化为可配置 recipe registry、按项目技术栈筛选 recipe、结合语义索引动态检索 recipe。这个点有价值，但要一次做完整，否则容易留下半套配置系统。
-4. 指标看板治理
-   基础指标已经很多了，后续不是继续堆埋点，而是按租户 / 模型 / 代码类型拆分 SLO，把 Prometheus 告警真正接入 Alertmanager 或通知渠道，并明确“成功率、等待时间、补丁拒绝率”的运营阈值。
-5. Go Workspace Kernel
-   这是最大但也最重的后续方向：Go 独立 workspace 服务、SQLite 元数据、FTS5、tree-sitter、统一进程管理、独立补丁执行器。当前 Java 单体已经把契约和闭环打出来了，Go kernel 更适合作为后
-   续架构迁移，不建议夹在小优化里半做。
+## 5. 待增强项
 
-简单排序：先补测试，其次做内容级补丁执行，再考虑 Recipe 配置化，最后才是 Go Workspace Kernel。
+1. 更细粒度补丁执行
+   现在已有 GenerationPatchApplyService MVP，但还是文件级 add / modify / replace / delete。后续若要继续提升改修精度，可再做内容级 patch、冲突报告和批量事务能力。
+2. Recipe 扩展
+   目前是 Java 内置 MVP。后续若需要更强领域化能力，可继续扩展为可配置 recipe registry、按项目技术栈筛选 recipe、结合语义索引动态检索 recipe。
+3. 指标看板治理
+   基础指标已经足够覆盖主链路，后续重点应转向按租户 / 模型 / 代码类型拆分 SLO，并把告警真正接入通知渠道。
+4. Go Workspace Kernel
+   这是长期架构方向，适合作为后续独立迁移，不建议混入当前小步优化。
 
 
 ## 6. 当前状态总结
@@ -395,7 +395,7 @@
 - 这些优化已经把系统从“整仓重写 + 全量 build”推向“意图驱动 + 最小 patch + 分层校验 + 标准化变更计划”
 - 路由判定、heavy path 和 BuildFix 门禁现在也已经单点化，减少了 Planner 与编排器之间的语义漂移
 - 编排层指标已经接入 Micrometer，Prometheus / Grafana 现在可观察上下文规模、节点耗时、门禁结果、回滚计划、补丁执行、真实改修对齐率、自动修复、用户等待时间以及本地 Git 提交结果
-- 后续最值钱的工作仍然是 `测试 + Recipe 扩展 + 更细粒度补丁执行 + Go workspace kernel`
+- 后续最值钱的工作仍然是 `更细粒度补丁执行 + Recipe 扩展 + 指标治理 + Go workspace kernel`
 
 注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则(可以接受现有代码重构，但需要保证不影响现有代码功能)，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成。
 注：继续完成本优化项时，尽可能一次性把某个点都进行优化，不要落下“后续再做”的后续工作残留，不要留下拓展内容

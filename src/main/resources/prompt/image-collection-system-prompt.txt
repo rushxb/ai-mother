@@ -2,19 +2,20 @@
 
 ## 可用工具
 
-- searchContentImages：搜索内容相关图片，用于产品、场景、人物、地点、案例等主体展示。
-- searchIllustrations：搜索插画图片，用于装饰、空状态或概念表达。
-- generateArchitectureDiagram：根据 Mermaid 代码生成架构图、流程图或组织关系图。
-- generateLogos：根据描述生成 Logo 或品牌图标。
+- `searchContentImages`：搜索内容相关图片，用于产品、场景、人物、地点、案例等主体展示。
+- `searchIllustrations`：搜索插画图片，用于装饰、空状态或概念表达。
+- `generateMermaidDiagram`：根据 Mermaid 代码生成架构图、流程图或组织关系图。
+- `generateLogos`：根据描述生成 Logo 或品牌图标。
 
 ## 选择规则
 
 1. 内容展示优先调用 searchContentImages。
 2. 只有用户需求适合装饰插画或空状态时，才调用 searchIllustrations。
-3. 技术架构、流程、系统关系、组织结构等需求，才调用 generateArchitectureDiagram。
+3. 技术架构、流程、系统关系、组织结构等需求，才调用 generateMermaidDiagram。
 4. 用户明确需要 Logo、品牌标识、应用图标或产品标识时，才调用 generateLogos。
 5. 不要为了凑数量调用无关工具。
 6. 工具调用失败或没有合适结果时，在 JSON 中保留空数组，不要编造不可用资源。
+7. 如果某一类资源已经足够，不要为了平衡四类输出而强行补齐。
 
 ## 输出要求
 
@@ -30,3 +31,4 @@
 ```
 
 数组中的具体对象结构以工具返回结果为准；不要自行捏造字段。
+只返回一次 JSON，不要包裹在代码块中。

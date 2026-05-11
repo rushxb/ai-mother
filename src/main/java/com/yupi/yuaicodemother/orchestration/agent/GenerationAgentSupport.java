@@ -4,6 +4,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
+import com.yupi.yuaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipe;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,18 +12,12 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -37,18 +32,23 @@ public class GenerationAgentSupport {
     private static final Set<String> INDEXABLE_SOURCE_EXTENSIONS = Set.of(
             "vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "html", "go", "sql"
     );
-    private static final Set<String> SKIPPED_WALK_DIRECTORIES = Set.of(
-            ".git", ".idea", ".vscode", "node_modules", "dist", "target", "coverage", "build", "out", ".cache", ".turbo"
-    );
+
     private final GenerationRecipeLibrary recipeLibrary;
+    private final WorkspaceSemanticIndexService semanticIndexService;
 
     public GenerationAgentSupport() {
-        this(new GenerationRecipeLibrary());
+        this(new GenerationRecipeLibrary(), new WorkspaceSemanticIndexService());
+    }
+
+    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary) {
+        this(recipeLibrary, new WorkspaceSemanticIndexService());
     }
 
     @Autowired
-    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary) {
+    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
+                                  WorkspaceSemanticIndexService semanticIndexService) {
         this.recipeLibrary = recipeLibrary;
+        this.semanticIndexService = semanticIndexService;
     }
 
     public boolean isComplexRequest(String userMessage) {
@@ -118,7 +118,7 @@ public class GenerationAgentSupport {
             resolvedType = CodeGenTypeEnum.HTML;
         }
         List<String> selectedFiles = normalizeSelectedFiles(selectContextFiles(app, resolvedType, userMessage, rootDir));
-        int indexedFileCount = countIndexableFiles(rootDir);
+        int indexedFileCount = semanticIndexService.countIndexableFiles(rootDir.toPath());
         String contextMode = selectedFiles.isEmpty()
                 ? "reuse_index"
                 : "general".equals(intent) ? "type_key_files" : "intent_selected_files";
@@ -136,39 +136,40 @@ public class GenerationAgentSupport {
             return List.of();
         }
         String normalizedMessage = buildSearchScope(app, userMessage);
+        candidates.addAll(semanticIndexService.suggestFiles(rootDir.toPath(), normalizedMessage, MAX_SELECTED_CONTEXT_FILES));
         recipeLibrary.contextFileHints(matchRecipes(normalizedMessage, "")).forEach(candidates::add);
         if (containsAny(normalizedMessage, "登录", "注册", "auth", "login", "signin", "signup", "用户", "账号", "权限", "角色", "token")) {
             candidates.addAll(List.of("src/views/Login.vue", "src/views/Register.vue", "src/pages/login", "src/pages/register",
                     "src/components/Auth", "src/api", "src/stores", "src/store"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("login", "register", "auth", "user", "token")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("login", "register", "auth", "user", "token"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "dashboard", "工作台", "首页", "概览", "overview")) {
             candidates.addAll(List.of("src/views/Dashboard.vue", "src/pages/home", "src/layouts", "src/components"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("dashboard", "home", "overview", "layout")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("dashboard", "home", "overview", "layout"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "列表", "table", "管理", "crud", "搜索", "分页")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("list", "table", "manage", "management", "crud")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("list", "table", "manage", "management", "crud"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "图表", "chart", "统计", "报表", "report", "分析")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("chart", "analytics", "stat", "report", "metric")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("chart", "analytics", "stat", "report", "metric"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "设置", "setting", "config", "profile", "偏好")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("setting", "config", "profile", "preference")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("setting", "config", "profile", "preference"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "路由", "router", "menu", "nav", "sidebar", "layout")) {
             candidates.addAll(List.of("src/router", "src/layouts", "src/components", "src/views"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("router", "route", "menu", "nav", "sidebar", "layout")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("router", "route", "menu", "nav", "sidebar", "layout"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "表单", "form", "input", "dialog", "modal", "editor")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("form", "input", "dialog", "modal", "editor")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("form", "input", "dialog", "modal", "editor"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
             candidates.addAll(List.of("backend", "src/api", "src/views", "src/pages"));
-            candidates.addAll(findMatchingFiles(rootDir, List.of("database", "sqlite", "backend", "api", "service")));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("database", "sqlite", "backend", "api", "service"), MAX_SELECTED_CONTEXT_FILES));
         }
 
         if (codeGenTypeEnum == CodeGenTypeEnum.HTML) {
@@ -208,18 +209,12 @@ public class GenerationAgentSupport {
             File file = new File(rootDir, candidate);
             if (file.exists() && file.isFile()) {
                 if (shouldIndex(candidate)) {
-                    selected.add(candidate);
+                    selected.add(candidate.replace("\\", "/"));
                 }
                 continue;
             }
             if (file.exists() && file.isDirectory()) {
-                List<String> discovered = listFilesUnder(rootDir, file);
-                for (String relative : discovered) {
-                    if (selected.size() >= MAX_SELECTED_CONTEXT_FILES) {
-                        break;
-                    }
-                    selected.add(relative);
-                }
+                selected.addAll(listFilesUnder(rootDir, candidate));
             }
         }
         return selected.stream()
@@ -229,34 +224,15 @@ public class GenerationAgentSupport {
                 .toList();
     }
 
-    private List<String> listFilesUnder(File rootDir, File directory) {
-        List<String> selected = new ArrayList<>();
-        walkProjectFiles(rootDir, directory, file -> {
-            if (file.isFile()) {
-                String relativePath = relativize(rootDir, file);
-                if (shouldIndex(relativePath)) {
-                    selected.add(relativePath);
-                }
-            }
-            return selected.size() < MAX_SELECTED_CONTEXT_FILES;
-        });
-        return selected;
-    }
-
-    private List<String> findMatchingFiles(File rootDir, List<String> keywords) {
-        List<String> matches = new ArrayList<>();
-        walkProjectFiles(rootDir, rootDir, file -> {
-            if (!file.isFile()) {
-                return true;
-            }
-            String relativePath = relativize(rootDir, file);
-            String normalizedPath = relativePath.toLowerCase(Locale.ROOT);
-            if (shouldIndex(relativePath) && keywords.stream().anyMatch(normalizedPath::contains)) {
-                matches.add(relativePath);
-            }
-            return matches.size() < MAX_SELECTED_CONTEXT_FILES;
-        });
-        return matches;
+    private List<String> listFilesUnder(File rootDir, String relativeDirectory) {
+        if (StrUtil.isBlank(relativeDirectory)) {
+            return List.of();
+        }
+        String query = relativeDirectory.replace("\\", "/");
+        return semanticIndexService.suggestFiles(rootDir.toPath(), query, MAX_SELECTED_CONTEXT_FILES).stream()
+                .filter(path -> path.startsWith(query.endsWith("/") ? query : query + "/"))
+                .limit(MAX_SELECTED_CONTEXT_FILES)
+                .toList();
     }
 
     private String buildSearchScope(App app, String userMessage) {
@@ -264,18 +240,6 @@ public class GenerationAgentSupport {
         builder.append(StrUtil.blankToDefault(userMessage, ""));
         builder.append('\n').append(StrUtil.blankToDefault(app == null ? null : app.getAppName(), ""));
         return builder.toString().toLowerCase(Locale.ROOT);
-    }
-
-    private int countIndexableFiles(File rootDir) {
-        int[] count = {0};
-        walkProjectFiles(rootDir, rootDir, file -> {
-            String relativePath = relativize(rootDir, file);
-            if (shouldIndex(relativePath)) {
-                count[0]++;
-            }
-            return true;
-        });
-        return count[0];
     }
 
     private String buildStructuredContext(CodeGenTypeEnum codeGenTypeEnum,
@@ -343,6 +307,7 @@ public class GenerationAgentSupport {
                 .filter(StrUtil::isNotBlank)
                 .map(path -> path.replace("\\", "/"))
                 .filter(path -> !path.contains(".."))
+                .filter(path -> !path.startsWith("/"))
                 .distinct()
                 .limit(MAX_SELECTED_CONTEXT_FILES)
                 .collect(Collectors.toList());
@@ -356,43 +321,6 @@ public class GenerationAgentSupport {
                 + "\n<!-- 文件内容过长，以上为截断后的前 "
                 + MAX_MODEL_CONTEXT_FILE_CHARS
                 + " 个字符 -->";
-    }
-
-    private String relativize(File rootDir, File file) {
-        Path rootPath = rootDir.toPath().toAbsolutePath().normalize();
-        Path filePath = file.toPath().toAbsolutePath().normalize();
-        return rootPath.relativize(filePath).toString().replace(File.separator, "/");
-    }
-
-    private void walkProjectFiles(File rootDir, File startDir, Predicate<File> visitor) {
-        if (rootDir == null || startDir == null || !startDir.exists()) {
-            return;
-        }
-        Path rootPath = rootDir.toPath().toAbsolutePath().normalize();
-        Path startPath = startDir.toPath().toAbsolutePath().normalize();
-        if (!startPath.startsWith(rootPath)) {
-            return;
-        }
-        try {
-            Files.walkFileTree(startPath, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    if (!dir.equals(startPath)) {
-                        String directoryName = dir.getFileName() == null ? "" : dir.getFileName().toString();
-                        if (SKIPPED_WALK_DIRECTORIES.contains(directoryName)) {
-                            return FileVisitResult.SKIP_SUBTREE;
-                        }
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    return visitor.test(file.toFile()) ? FileVisitResult.CONTINUE : FileVisitResult.TERMINATE;
-                }
-            });
-        } catch (Exception ignored) {
-        }
     }
 
     private String inferIntent(String userMessage) {

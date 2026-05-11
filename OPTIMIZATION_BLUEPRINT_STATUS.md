@@ -249,6 +249,20 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationRecipeLibraryTest,GenerationAgentSupportTest,CodeAgentNodeTest,AgentGenerationOrchestratorTest,GenerationRoutingSupportTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 14`, `Failures: 0`, `Errors: 0`
 
+### 3.20 Java 内语义索引 MVP
+
+- 新增 `WorkspaceSemanticIndexService`、`WorkspaceSemanticIndex`、`WorkspaceSemanticIndexEntry`、`WorkspaceSemanticSearchHit`，在项目工作区内落地轻量持久化语义索引
+- 索引文件会写入项目内 `.ai-code-index/semantic-index.json`，并基于工作区签名自动复用 / 刷新，避免上下文精选和项目搜索反复整树扫描
+- 当前索引覆盖 `src / public / backend` 及关键配置文件，记录相对路径、文件名、扩展名、截断内容摘要和可搜索 terms，形成 Java 单体内的第一阶段“文件级索引持久化”
+- `GenerationAgentSupport` 现已复用该索引做 `indexedFileCount` 统计、候选文件召回和目录 hint 扩展，上下文减重链路不再维护独立文件遍历实现
+- `ProjectSearchTool` 已切换为基于语义索引的搜索结果输出，返回命中类型和分数，为后续接更细粒度符号索引或 FTS 检索保留统一接口
+- `ProjectWorkspaceSupport` 已把 `.ai-code-index` 纳入忽略目录，避免索引元数据反向污染快照、diff、回滚和补丁链路
+- 当前阶段已完成“文件索引持久化 + 以索引替代当前文件扫描”的 MVP；符号级索引与 `ripgrep + FTS5 + tree-sitter` 深化检索仍可作为下一阶段扩展
+- 新增 `WorkspaceSemanticIndexServiceTest`，并复用 `GenerationAgentSupportTest` 验证上下文选择仍保持意图命中和预算约束
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=WorkspaceSemanticIndexServiceTest,GenerationAgentSupportTest,GenerationRecipeLibraryTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 9`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -269,12 +283,14 @@
 
 ### 4.3 语义索引 MVP
 
-- 文件索引持久化
-- 符号级索引
-- 以索引代替当前文件扫描
-- 结合 `ripgrep + FTS5 + tree-sitter` 的语义检索
+- 已完成：
+  - 文件索引持久化
+  - 以索引代替当前上下文精选和项目搜索的整树扫描
+- 后续可继续扩展：
+  - 符号级索引
+  - 结合 `ripgrep + FTS5 + tree-sitter` 的更强语义检索
 
-当前仍是轻量扫描 + 关键词匹配阶段。
+当前已从“纯轻量扫描 + 关键词匹配”升级为“轻量持久化索引 + 索引驱动召回”阶段。
 
 ### 4.4 Git / Snapshot 一等公民方案
 
@@ -320,7 +336,7 @@
 3. 定义并落地 `ChangePlan`
 4. 把快照 / 回滚接入生成主流程的失败兜底
 5. 做第一批高频 recipe
-6. 做 Java 内语义索引 MVP
+6. 扩展 Java 内语义索引到符号级检索与更强召回
 7. 最后再拆 Go workspace kernel
 
 ## 6. 当前状态总结
@@ -329,6 +345,7 @@
 - 这些优化已经把系统从“整仓重写 + 全量 build”推向“意图驱动 + 最小 patch + 分层校验 + 标准化变更计划”
 - 路由判定、heavy path 和 BuildFix 门禁现在也已经单点化，减少了 Planner 与编排器之间的语义漂移
 - 编排层指标已经接入 Micrometer，Prometheus / Grafana 现在可观察上下文规模、节点耗时、门禁结果、回滚计划、补丁执行、真实改修对齐率、自动修复和用户等待时间
-- 后续最值钱的工作仍然是 `测试 + Recipe + 语义索引 + 回滚联动 + 更细粒度补丁执行`
+- 后续最值钱的工作仍然是 `测试 + Recipe 扩展 + 语义索引深化 + 回滚联动 + 更细粒度补丁执行`
 
-注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则(可以接受现有代码重构，但需要保证不影响现有代码功能)，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成
+注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则(可以接受现有代码重构，但需要保证不影响现有代码功能)，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成。
+注：继续完成本优化项时，尽可能一次性把某个点都进行优化，不要落下“后续再做”的后续工作残留

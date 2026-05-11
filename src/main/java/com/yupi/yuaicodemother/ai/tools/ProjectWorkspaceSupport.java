@@ -15,16 +15,16 @@ import java.util.stream.Stream;
 /**
  * 项目工作区辅助类
  */
-final class ProjectWorkspaceSupport {
+public final class ProjectWorkspaceSupport {
 
-    static final Set<String> DEFAULT_IGNORED_NAMES = Set.of(
-            ".git", ".idea", ".vscode", "node_modules", "dist", "build", "target", "coverage"
+    public static final Set<String> DEFAULT_IGNORED_NAMES = Set.of(
+            ".git", ".idea", ".vscode", "node_modules", "dist", "build", "target", "coverage", ".ai-code-index"
     );
 
     private ProjectWorkspaceSupport() {
     }
 
-    static List<Path> listProjectFiles(Path root) throws IOException {
+    public static List<Path> listProjectFiles(Path root) throws IOException {
         try (Stream<Path> stream = Files.walk(root)) {
             return stream
                     .filter(Files::isRegularFile)

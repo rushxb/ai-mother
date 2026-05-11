@@ -32,13 +32,14 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         List<String> goals = (List<String>) context.getArtifactValue("requirements", "goals");
         @SuppressWarnings("unchecked")
         List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
+        List<Map<String, Object>> recipes = readRecipePayloads(context);
         boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
         boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
         String validationMode = artifactStringValue(context, "requirements", "validationMode",
                 requiresBuild ? "build_validation" : "review_only");
         String generationMode = artifactStringValue(context, "requirements", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
-        String prompt = buildExecutionPrompt(context, projectContext, modules, goals);
+        String prompt = buildExecutionPrompt(context, projectContext, modules, goals, recipes);
         ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("enhancedPrompt", prompt);
@@ -51,6 +52,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         payload.put("generationMode", generationMode);
         payload.put("artifactMode", patchFirst ? "patch_plan" : "generation_plan");
         payload.put("changePlan", changePlan.toPayload());
+        payload.put("recipes", recipes);
         GenerationArtifact changePlanArtifact = GenerationArtifact.of("change_plan", "Code", "变更计划", changePlan.toPayload());
         GenerationArtifact artifact = GenerationArtifact.of("generation_spec", "Code", "生成规范", payload);
         return AgentNodeResult.of(
@@ -70,7 +72,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     private String buildExecutionPrompt(GenerationAgentContext context,
                                         String projectContext,
                                         List<String> modules,
-                                        List<String> goals) {
+                                        List<String> goals,
+                                        List<Map<String, Object>> recipes) {
         boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
         boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
         String validationMode = artifactStringValue(context, "requirements", "validationMode",
@@ -101,6 +104,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             lines.add("patchFirst: 必须遵守 changePlan 的文件边界与回滚策略。");
         }
         lines.add("【架构】modules=" + formatModulesForPrompt(modules));
+        appendRecipeInstructions(lines, recipes);
         lines.add("【ChangePlan】" + "scope=" + buildChangeScope(modules, patchFirst)
                 + ", validate=" + validationMode
                 + ", rollback=" + (requiresBuild ? "snapshot_or_manual_retry" : "manual_retry")
@@ -118,6 +122,45 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             }
         }
         return String.join("\n", lines);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> readRecipePayloads(GenerationAgentContext context) {
+        Object contextRecipes = context.getArtifactValue("context_summary", "recipes");
+        if (contextRecipes instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
+            return (List<Map<String, Object>>) contextRecipes;
+        }
+        Object requirementRecipes = context.getArtifactValue("requirements", "recipes");
+        if (requirementRecipes instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
+            return (List<Map<String, Object>>) requirementRecipes;
+        }
+        return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void appendRecipeInstructions(List<String> lines, List<Map<String, Object>> recipes) {
+        if (recipes == null || recipes.isEmpty()) {
+            return;
+        }
+        lines.add("【Recipe】matched=" + recipes.stream()
+                .map(recipe -> String.valueOf(recipe.get("id")))
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .toList());
+        for (Map<String, Object> recipe : recipes) {
+            lines.add("- " + recipe.get("title") + ": modules=" + recipe.get("modules"));
+            Object steps = recipe.get("implementationSteps");
+            if (steps instanceof List<?> stepList && !stepList.isEmpty()) {
+                lines.add("  steps=" + stepList.stream().limit(3).toList());
+            }
+            Object validationHints = recipe.get("validationHints");
+            if (validationHints instanceof List<?> hintList && !hintList.isEmpty()) {
+                lines.add("  validation=" + hintList.stream().limit(2).toList());
+            }
+            if (Boolean.TRUE.equals(recipe.get("databaseRequired"))) {
+                lines.add("  database=true，必须遵守 Database 服务接入边界。");
+            }
+        }
     }
 
     private ChangePlan buildChangePlan(List<String> modules,

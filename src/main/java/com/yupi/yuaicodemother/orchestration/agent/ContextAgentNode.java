@@ -6,6 +6,7 @@ import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
+import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipe;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -51,6 +52,10 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
             }
         }
         List<String> normalizedSelectedFiles = support.normalizeSelectedFiles(contextPackage.selectedFiles());
+        List<GenerationRecipe> matchedRecipes = support.matchRecipes(
+                context.getRequest().userMessage(),
+                contextPackage.projectContext()
+        );
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("intent", contextPackage.intent());
         payload.put("selectedFiles", normalizedSelectedFiles);
@@ -58,6 +63,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
         payload.put("contextMode", contextPackage.contextMode());
         payload.put("projectContext", StrUtil.blankToDefault(contextPackage.projectContext(), ""));
         payload.put("hasGeneratedCode", context.getRequest().hasGeneratedCode());
+        payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
+        payload.put("recipes", support.buildRecipePayloads(matchedRecipes));
         GenerationArtifact artifact = GenerationArtifact.of("context_summary", "Context", "项目上下文", payload);
         String summary = StrUtil.isBlank(contextPackage.projectContext())
                 ? "未发现可复用项目上下文，将按新项目处理"

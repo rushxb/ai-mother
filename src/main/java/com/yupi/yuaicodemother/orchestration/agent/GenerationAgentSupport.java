@@ -4,6 +4,9 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
+import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipe;
+import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipeLibrary;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -17,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -31,17 +35,28 @@ public class GenerationAgentSupport {
     private static final int MAX_SELECTED_CONTEXT_FILES = 6;
     private static final int MAX_CONTEXT_TOTAL_CHARS = 10000;
     private static final Set<String> INDEXABLE_SOURCE_EXTENSIONS = Set.of(
-            "vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "html"
+            "vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "html", "go", "sql"
     );
     private static final Set<String> SKIPPED_WALK_DIRECTORIES = Set.of(
             ".git", ".idea", ".vscode", "node_modules", "dist", "target", "coverage", "build", "out", ".cache", ".turbo"
     );
+    private final GenerationRecipeLibrary recipeLibrary;
+
+    public GenerationAgentSupport() {
+        this(new GenerationRecipeLibrary());
+    }
+
+    @Autowired
+    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary) {
+        this.recipeLibrary = recipeLibrary;
+    }
 
     public boolean isComplexRequest(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         return containsAny(normalized,
                 "vue", "组件", "路由", "router", "模块", "后台", "管理系统", "登录", "注册",
-                "api", "接口", "状态管理", "pinia", "图表", "表单", "多页面", "工作台", "dashboard");
+                "api", "接口", "状态管理", "pinia", "图表", "表单", "多页面", "工作台", "dashboard",
+                "crud", "搜索", "分页", "database", "数据库", "sqlite", "后端", "backend");
     }
 
     public List<String> inferModules(String userMessage, String projectContext) {
@@ -68,10 +83,22 @@ public class GenerationAgentSupport {
         if (containsAny(normalized, "表单", "form", "input", "dialog", "modal", "editor")) {
             modules.add("form");
         }
+        if (containsAny(normalized, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
+            modules.add("database");
+        }
+        modules.addAll(recipeLibrary.modules(matchRecipes(userMessage, projectContext)));
         if (modules.isEmpty()) {
             modules.add("core-app");
         }
         return modules.stream().distinct().toList();
+    }
+
+    public List<GenerationRecipe> matchRecipes(String userMessage, String projectContext) {
+        return recipeLibrary.match(userMessage, projectContext);
+    }
+
+    public List<Map<String, Object>> buildRecipePayloads(List<GenerationRecipe> matchedRecipes) {
+        return recipeLibrary.toPayloads(matchedRecipes);
     }
 
     public String buildProjectContext(App app, CodeGenTypeEnum codeGenTypeEnum, File rootDir) {
@@ -109,6 +136,7 @@ public class GenerationAgentSupport {
             return List.of();
         }
         String normalizedMessage = buildSearchScope(app, userMessage);
+        recipeLibrary.contextFileHints(matchRecipes(normalizedMessage, "")).forEach(candidates::add);
         if (containsAny(normalizedMessage, "登录", "注册", "auth", "login", "signin", "signup", "用户", "账号", "权限", "角色", "token")) {
             candidates.addAll(List.of("src/views/Login.vue", "src/views/Register.vue", "src/pages/login", "src/pages/register",
                     "src/components/Auth", "src/api", "src/stores", "src/store"));
@@ -137,6 +165,10 @@ public class GenerationAgentSupport {
         if (containsAny(normalizedMessage, "表单", "form", "input", "dialog", "modal", "editor")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
             candidates.addAll(findMatchingFiles(rootDir, List.of("form", "input", "dialog", "modal", "editor")));
+        }
+        if (containsAny(normalizedMessage, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
+            candidates.addAll(List.of("backend", "src/api", "src/views", "src/pages"));
+            candidates.addAll(findMatchingFiles(rootDir, List.of("database", "sqlite", "backend", "api", "service")));
         }
 
         if (codeGenTypeEnum == CodeGenTypeEnum.HTML) {
@@ -276,7 +308,7 @@ public class GenerationAgentSupport {
         }
         String normalized = relativePath.replace("\\", "/");
         String extension = FileUtil.extName(relativePath).toLowerCase(Locale.ROOT);
-        if (normalized.startsWith("src/") || normalized.startsWith("public/")) {
+        if (normalized.startsWith("src/") || normalized.startsWith("public/") || normalized.startsWith("backend/")) {
             return INDEXABLE_SOURCE_EXTENSIONS.contains(extension);
         }
         return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html",
@@ -385,6 +417,9 @@ public class GenerationAgentSupport {
         }
         if (containsAny(normalized, "表单", "form", "input", "dialog", "modal", "editor")) {
             return "form";
+        }
+        if (containsAny(normalized, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
+            return "database";
         }
         return "general";
     }

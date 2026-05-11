@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -96,6 +97,33 @@ class GenerationAgentSupportTest {
 
             assertTrue(contextPackage.projectContext().contains("文件内容过长"));
             assertTrue(contextPackage.projectContext().length() < 1800);
+        } finally {
+            cleanup(tempDir);
+        }
+    }
+
+    @Test
+    void shouldMatchRecipeAndSelectDatabaseContextHints() throws Exception {
+        Path tempDir = createTempWorkspace();
+        try {
+            write(tempDir, "backend/main.go", "package main");
+            write(tempDir, "backend/schema.sql", "create table users(id integer primary key);");
+            write(tempDir, "src/api/database.ts", "export function listUsers() {}");
+
+            GenerationAgentSupport.ProjectContextPackage contextPackage = support.buildProjectContextPackage(
+                    app(),
+                    CodeGenTypeEnum.VUE_PROJECT,
+                    "接入 database 后端接口和 sqlite 数据服务",
+                    tempDir.toFile()
+            );
+
+            List<Map<String, Object>> recipes = support.buildRecipePayloads(
+                    support.matchRecipes("接入 database 后端接口和 sqlite 数据服务", contextPackage.projectContext())
+            );
+
+            assertEquals("database", contextPackage.intent());
+            assertTrue(contextPackage.selectedFiles().contains("backend/main.go"));
+            assertTrue(recipes.stream().anyMatch(recipe -> "database-service".equals(recipe.get("id"))));
         } finally {
             cleanup(tempDir);
         }

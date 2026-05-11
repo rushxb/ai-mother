@@ -39,7 +39,15 @@ class CodeAgentNodeTest {
                         "selectedFiles", List.of("src/router/index.ts", "src/components/UserForm.vue"),
                         "projectContext", "",
                         "intent", "navigation",
-                        "contextMode", "intent_selected_files"
+                        "contextMode", "intent_selected_files",
+                        "recipes", List.of(Map.of(
+                                "id", "form-settings",
+                                "title", "表单 / 设置页",
+                                "modules", List.of("form", "settings"),
+                                "implementationSteps", List.of("复用表单结构", "补齐提交状态"),
+                                "validationHints", List.of("验证必填校验"),
+                                "databaseRequired", false
+                        ))
                 ))
         ));
 
@@ -61,6 +69,8 @@ class CodeAgentNodeTest {
         assertEquals(List.of("src/router/index.ts", "src/components/UserForm.vue"), modifyFiles);
         assertEquals(changePlanArtifact.payload(), changePlan);
         assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("【ChangePlan】"));
+        assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("【Recipe】"));
+        assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("form-settings"));
         assertFalse(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("null"));
         assertEquals("cross_module_patch", result.data().get("changeScope"));
         assertNotNull(context.getArtifact("requirements").orElse(null));

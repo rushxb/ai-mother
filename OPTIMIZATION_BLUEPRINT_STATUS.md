@@ -237,15 +237,24 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationOrchestrationMetricsCollectorTest,GenerationPatchApplyServiceTest,GenerationPatchResultServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 19`, `Failures: 0`, `Errors: 0`
 
+### 3.19 Recipe 库 MVP
+
+- 新增 `GenerationRecipe` 与 `GenerationRecipeLibrary`，内置覆盖登录 / 注册 / 权限、CRUD / 列表 / 搜索分页、Dashboard / 图表、表单 / 设置页、Database 服务接入五类高频 recipe
+- `GenerationAgentSupport` 已支持 recipe 匹配、recipe 模块补全和上下文文件 hint 注入；数据库、CRUD、搜索分页等需求也会被识别为复杂生成场景
+- `PlannerAgentNode` 会在 `requirements` artifact 中输出 `recipeIds` 与结构化 `recipes`
+- `ContextAgentNode` 会结合精简项目上下文再次匹配 recipe，并在 `context_summary` 中透传
+- `CodeAgentNode` 会把匹配 recipe 压缩进最终 `generation_spec.enhancedPrompt`，让模型按稳定实现步骤、验证提示和 Database 边界生成
+- 当前 recipe 仍为 Java 内置 MVP，后续可替换为配置化 recipe、语义检索 recipe 或 workspace kernel 侧 recipe registry
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationRecipeLibraryTest,GenerationAgentSupportTest,CodeAgentNodeTest,AgentGenerationOrchestratorTest,GenerationRoutingSupportTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 14`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
 
-- 登录 / 注册 / 权限 recipe
-- CRUD / 列表 / 搜索分页 recipe
-- Dashboard / 图表 recipe
-- 表单 / 设置页 recipe
-- 数据库服务接入 recipe
+- 已完成内置 MVP：登录 / 注册 / 权限、CRUD / 列表 / 搜索分页、Dashboard / 图表、表单 / 设置页、数据库服务接入
+- 后续仍可扩展为可配置 recipe registry、按项目技术栈筛选 recipe、以及结合语义索引的动态 recipe 检索
 
 ### 4.2 标准化 ChangePlan
 
@@ -322,4 +331,4 @@
 - 编排层指标已经接入 Micrometer，Prometheus / Grafana 现在可观察上下文规模、节点耗时、门禁结果、回滚计划、补丁执行、真实改修对齐率、自动修复和用户等待时间
 - 后续最值钱的工作仍然是 `测试 + Recipe + 语义索引 + 回滚联动 + 更细粒度补丁执行`
 
-注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成
+注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则(可以接受现有代码重构，但需要保证不影响现有代码功能)，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成

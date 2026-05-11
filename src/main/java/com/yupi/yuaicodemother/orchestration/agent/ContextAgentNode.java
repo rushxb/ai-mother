@@ -7,6 +7,7 @@ import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipe;
+import com.yupi.yuaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -53,6 +54,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 );
             }
         }
+        List<GenerationSkill> matchedSkills = support.matchSkills(context.getRequest().userMessage());
         List<String> normalizedSelectedFiles = support.normalizeSelectedFiles(contextPackage.selectedFiles());
         List<GenerationRecipe> matchedRecipes = support.matchRecipes(
                 context.getRequest().userMessage(),
@@ -69,6 +71,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
         payload.put("hasGeneratedCode", context.getRequest().hasGeneratedCode());
         payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
         payload.put("recipes", support.buildRecipePayloads(matchedRecipes));
+        payload.put("skillIds", matchedSkills.stream().map(GenerationSkill::id).toList());
+        payload.put("skills", support.buildSkillPayloads(matchedSkills));
         GenerationArtifact artifact = GenerationArtifact.of("context_summary", "Context", "项目上下文", payload);
         String summary = StrUtil.isBlank(contextPackage.projectContext())
                 ? "未发现可复用项目上下文，将按新项目处理"
@@ -81,7 +85,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                         "indexedSymbolCount", contextPackage.indexedSymbolCount(),
                         "indexHitCount", contextPackage.indexHits().size(),
                         "selectedFileCount", normalizedSelectedFiles.size(),
-                        "contextMode", contextPackage.contextMode()
+                        "contextMode", contextPackage.contextMode(),
+                        "skillCount", matchedSkills.size()
                 )
         );
     }

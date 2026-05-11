@@ -8,6 +8,8 @@ import com.yupi.yuaicodemother.orchestration.index.WorkspaceSemanticIndexService
 import com.yupi.yuaicodemother.orchestration.index.WorkspaceSemanticSearchHit;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipe;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipeLibrary;
+import com.yupi.yuaicodemother.orchestration.skill.GenerationSkill;
+import com.yupi.yuaicodemother.orchestration.skill.GenerationSkillLibrary;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -39,27 +41,37 @@ public class GenerationAgentSupport {
     );
 
     private final GenerationRecipeLibrary recipeLibrary;
+    private final GenerationSkillLibrary skillLibrary;
     private final WorkspaceSemanticIndexService semanticIndexService;
     private final Path codeOutputRoot;
 
     public GenerationAgentSupport() {
-        this(new GenerationRecipeLibrary(), new WorkspaceSemanticIndexService());
+        this(new GenerationRecipeLibrary(), new GenerationSkillLibrary(), new WorkspaceSemanticIndexService());
     }
 
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary) {
-        this(recipeLibrary, new WorkspaceSemanticIndexService());
-    }
-
-    @Autowired
-    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
-                                  WorkspaceSemanticIndexService semanticIndexService) {
-        this(recipeLibrary, semanticIndexService, Path.of(CODE_OUTPUT_ROOT_DIR));
+        this(recipeLibrary, new GenerationSkillLibrary(), new WorkspaceSemanticIndexService());
     }
 
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
                                   WorkspaceSemanticIndexService semanticIndexService,
                                   Path codeOutputRoot) {
+        this(recipeLibrary, new GenerationSkillLibrary(), semanticIndexService, codeOutputRoot);
+    }
+
+    @Autowired
+    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
+                                  GenerationSkillLibrary skillLibrary,
+                                  WorkspaceSemanticIndexService semanticIndexService) {
+        this(recipeLibrary, skillLibrary, semanticIndexService, Path.of(CODE_OUTPUT_ROOT_DIR));
+    }
+
+    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
+                                  GenerationSkillLibrary skillLibrary,
+                                  WorkspaceSemanticIndexService semanticIndexService,
+                                  Path codeOutputRoot) {
         this.recipeLibrary = recipeLibrary;
+        this.skillLibrary = skillLibrary;
         this.semanticIndexService = semanticIndexService;
         this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
     }
@@ -99,6 +111,7 @@ public class GenerationAgentSupport {
         if (containsAny(normalized, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
             modules.add("database");
         }
+        modules.addAll(skillLibrary.modules(matchSkills(userMessage)));
         modules.addAll(recipeLibrary.modules(matchRecipes(userMessage, projectContext)));
         if (modules.isEmpty()) {
             modules.add("core-app");
@@ -112,6 +125,14 @@ public class GenerationAgentSupport {
 
     public List<Map<String, Object>> buildRecipePayloads(List<GenerationRecipe> matchedRecipes) {
         return recipeLibrary.toPayloads(matchedRecipes);
+    }
+
+    public List<GenerationSkill> matchSkills(String userMessage) {
+        return skillLibrary.match(userMessage);
+    }
+
+    public List<Map<String, Object>> buildSkillPayloads(List<GenerationSkill> matchedSkills) {
+        return skillLibrary.toPayloads(matchedSkills);
     }
 
     public String buildProjectContext(App app, CodeGenTypeEnum codeGenTypeEnum, File rootDir) {
@@ -197,6 +218,7 @@ public class GenerationAgentSupport {
         String normalizedMessage = buildSearchScope(app, userMessage);
         candidates.addAll(semanticIndexService.suggestFiles(rootDir.toPath(), normalizedMessage, MAX_SELECTED_CONTEXT_FILES));
         recipeLibrary.contextFileHints(matchRecipes(normalizedMessage, "")).forEach(candidates::add);
+        skillLibrary.contextFileHints(matchSkills(normalizedMessage)).forEach(candidates::add);
         if (containsAny(normalizedMessage, "登录", "注册", "auth", "login", "signin", "signup", "用户", "账号", "权限", "角色", "token")) {
             candidates.addAll(List.of("src/views/Login.vue", "src/views/Register.vue", "src/pages/login", "src/pages/register",
                     "src/components/Auth", "src/api", "src/stores", "src/store"));

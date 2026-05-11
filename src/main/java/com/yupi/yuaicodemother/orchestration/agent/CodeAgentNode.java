@@ -33,6 +33,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         @SuppressWarnings("unchecked")
         List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
         List<Map<String, Object>> recipes = readRecipePayloads(context);
+        List<Map<String, Object>> skills = readSkillPayloads(context);
         String templateId = artifactStringValue(context, "template_bootstrap", "templateId", "");
         boolean templateBootstrapped = artifactBooleanValue(context, "template_bootstrap", "bootstrapped");
         boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
@@ -41,7 +42,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                 requiresBuild ? "build_validation" : "review_only");
         String generationMode = artifactStringValue(context, "requirements", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
-        String prompt = buildExecutionPrompt(context, projectContext, modules, goals, recipes);
+        String prompt = buildExecutionPrompt(context, projectContext, modules, goals, skills, recipes);
         ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("enhancedPrompt", prompt);
@@ -56,6 +57,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         payload.put("templateBootstrapped", templateBootstrapped);
         payload.put("artifactMode", patchFirst ? "patch_plan" : "generation_plan");
         payload.put("changePlan", changePlan.toPayload());
+        payload.put("skillIds", readSkillIds(skills));
+        payload.put("skills", skills);
         payload.put("recipes", recipes);
         GenerationArtifact changePlanArtifact = GenerationArtifact.of("change_plan", "Code", "变更计划", changePlan.toPayload());
         GenerationArtifact artifact = GenerationArtifact.of("generation_spec", "Code", "生成规范", payload);
@@ -77,6 +80,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                                         String projectContext,
                                         List<String> modules,
                                         List<String> goals,
+                                        List<Map<String, Object>> skills,
                                         List<Map<String, Object>> recipes) {
         boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
         boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
@@ -114,6 +118,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             lines.add("patchFirst: 必须遵守 changePlan 的文件边界与回滚策略。");
         }
         lines.add("【架构】modules=" + formatModulesForPrompt(modules));
+        appendSkillInstructions(lines, skills);
         appendRecipeInstructions(lines, recipes);
         lines.add("【ChangePlan】" + "scope=" + buildChangeScope(modules, patchFirst)
                 + ", validate=" + validationMode
@@ -148,6 +153,19 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     }
 
     @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> readSkillPayloads(GenerationAgentContext context) {
+        Object contextSkills = context.getArtifactValue("context_summary", "skills");
+        if (contextSkills instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
+            return (List<Map<String, Object>>) contextSkills;
+        }
+        Object requirementSkills = context.getArtifactValue("requirements", "skills");
+        if (requirementSkills instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
+            return (List<Map<String, Object>>) requirementSkills;
+        }
+        return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
     private void appendRecipeInstructions(List<String> lines, List<Map<String, Object>> recipes) {
         if (recipes == null || recipes.isEmpty()) {
             return;
@@ -169,6 +187,36 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             }
             if (Boolean.TRUE.equals(recipe.get("databaseRequired"))) {
                 lines.add("  database=true，必须遵守 Database 服务接入边界。");
+            }
+        }
+    }
+
+    private void appendSkillInstructions(List<String> lines, List<Map<String, Object>> skills) {
+        if (skills == null || skills.isEmpty()) {
+            return;
+        }
+        lines.add("【Skill】matched=" + readSkillIds(skills));
+        for (Map<String, Object> skill : skills) {
+            lines.add("- " + skill.get("title") + ": modules=" + skill.get("modules"));
+            Object implementationHints = skill.get("implementationHints");
+            if (implementationHints instanceof List<?> hintList && !hintList.isEmpty()) {
+                lines.add("  implementation=" + hintList.stream().limit(3).toList());
+            }
+            Object validationHints = skill.get("validationHints");
+            if (validationHints instanceof List<?> hintList && !hintList.isEmpty()) {
+                lines.add("  validation=" + hintList.stream().limit(3).toList());
+            }
+            if (Boolean.TRUE.equals(skill.get("databaseRequired"))) {
+                lines.add("  database=true，必须遵守 Database 服务接入边界。");
+            }
+            Object instructions = skill.get("promptInstructions");
+            if (instructions instanceof String instructionText && StrUtil.isNotBlank(instructionText)) {
+                lines.add("  instructions:");
+                for (String line : instructionText.split("\\R")) {
+                    if (StrUtil.isNotBlank(line)) {
+                        lines.add("    " + line);
+                    }
+                }
             }
         }
     }
@@ -219,6 +267,17 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             return "[core-app]";
         }
         return modules.stream().filter(StrUtil::isNotBlank).distinct().toList().toString();
+    }
+
+    private List<String> readSkillIds(List<Map<String, Object>> skills) {
+        if (skills == null || skills.isEmpty()) {
+            return List.of();
+        }
+        return skills.stream()
+                .map(skill -> String.valueOf(skill.get("id")))
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .toList();
     }
 
     private List<String> normalizeSelectedFiles(List<String> selectedFiles) {

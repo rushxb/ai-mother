@@ -7,6 +7,7 @@ import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
 import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipe;
+import com.yupi.yuaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -40,6 +41,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         String generationMode = patchFirst ? "patch_first_update" : "full_generation";
         String validationMode = requiresBuild ? "build_validation" : "review_only";
         List<GenerationRecipe> matchedRecipes = support.matchRecipes(userMessage, "");
+        List<GenerationSkill> matchedSkills = support.matchSkills(userMessage);
         App app = context.getRequest().app();
         List<Map<String, Object>> indexHits = patchFirst
                 ? support.collectIndexRecallPayloads(app, userMessage, 3)
@@ -48,7 +50,8 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                 "保留现有项目能力并尽量复用结构",
                 complex ? "按模块拆分生成任务，允许并行处理" : "采用单模块增量生成策略",
                 requiresBuild ? "生成后必须经过 Review 与 BuildFix 门禁" : "生成后经过 Review 门禁，默认跳过构建修复链路",
-                matchedRecipes.isEmpty() ? "未匹配到专项 recipe，按通用生成策略执行" : "套用匹配的 recipe 作为最小实现边界"
+                matchedRecipes.isEmpty() ? "未匹配到专项 recipe，按通用生成策略执行" : "套用匹配的 recipe 作为最小实现边界",
+                matchedSkills.isEmpty() ? "未匹配到专项 skill，按通用生成策略执行" : "套用匹配的 skill 作为实现约束"
         );
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("complex", complex);
@@ -65,6 +68,8 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         payload.put("goals", goals);
         payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
         payload.put("recipes", support.buildRecipePayloads(matchedRecipes));
+        payload.put("skillIds", matchedSkills.stream().map(GenerationSkill::id).toList());
+        payload.put("skills", support.buildSkillPayloads(matchedSkills));
         GenerationArtifact artifact = GenerationArtifact.of("requirements", "Planner", "需求与目标", payload);
         return AgentNodeResult.of(
                 complex ? "需求已拆解为复杂任务，准备进入模块级 DAG 生成" : "需求已拆解为标准任务，采用轻量 DAG 生成",
@@ -77,7 +82,8 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                         "requiresBuild", requiresBuild,
                         "validationMode", validationMode,
                         "generationMode", generationMode,
-                        "indexHitCount", indexHits.size()
+                        "indexHitCount", indexHits.size(),
+                        "skillCount", matchedSkills.size()
                 )
         );
     }

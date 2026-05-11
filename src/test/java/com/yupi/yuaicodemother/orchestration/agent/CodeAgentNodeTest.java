@@ -30,7 +30,16 @@ class CodeAgentNodeTest {
                         "requiresBuild", true,
                         "validationMode", "build_validation",
                         "generationMode", "patch_first_update",
-                        "goals", List.of("复用已有页面")
+                        "goals", List.of("复用已有页面"),
+                        "skills", List.of(Map.of(
+                                "id", "vue-admin-dashboard",
+                                "title", "Vue Admin Dashboard",
+                                "modules", List.of("dashboard", "navigation"),
+                                "implementationHints", List.of("复用布局骨架"),
+                                "validationHints", List.of("验证菜单跳转"),
+                                "promptInstructions", "- 页面、路由和菜单要一起改。",
+                                "databaseRequired", false
+                        ))
                 )),
                 GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
                         "modules", List.of("navigation", "form")
@@ -46,6 +55,15 @@ class CodeAgentNodeTest {
                                 "modules", List.of("form", "settings"),
                                 "implementationSteps", List.of("复用表单结构", "补齐提交状态"),
                                 "validationHints", List.of("验证必填校验"),
+                                "databaseRequired", false
+                        )),
+                        "skills", List.of(Map.of(
+                                "id", "vue-admin-dashboard",
+                                "title", "Vue Admin Dashboard",
+                                "modules", List.of("dashboard", "navigation"),
+                                "implementationHints", List.of("复用布局骨架"),
+                                "validationHints", List.of("验证菜单跳转"),
+                                "promptInstructions", "- 页面、路由和菜单要一起改。",
                                 "databaseRequired", false
                         ))
                 ))
@@ -69,6 +87,8 @@ class CodeAgentNodeTest {
         assertEquals(List.of("src/router/index.ts", "src/components/UserForm.vue"), modifyFiles);
         assertEquals(changePlanArtifact.payload(), changePlan);
         assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("【ChangePlan】"));
+        assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("【Skill】"));
+        assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("Vue Admin Dashboard"));
         assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("【Recipe】"));
         assertTrue(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("form-settings"));
         assertFalse(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("null"));

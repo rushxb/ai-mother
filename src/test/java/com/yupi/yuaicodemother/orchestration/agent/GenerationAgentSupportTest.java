@@ -3,6 +3,10 @@ package com.yupi.yuaicodemother.orchestration.agent;
 import cn.hutool.core.io.FileUtil;
 import com.yupi.yuaicodemother.model.entity.App;
 import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
+import com.yupi.yuaicodemother.orchestration.index.WorkspaceSemanticIndexService;
+import com.yupi.yuaicodemother.orchestration.recipe.GenerationRecipeLibrary;
+import com.yupi.yuaicodemother.orchestration.skill.GenerationSkill;
+import com.yupi.yuaicodemother.orchestration.skill.GenerationSkillLibrary;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -135,6 +139,52 @@ class GenerationAgentSupportTest {
             assertTrue(recipes.stream().anyMatch(recipe -> "database-service".equals(recipe.get("id"))));
         } finally {
             cleanup(tempDir);
+        }
+    }
+
+    @Test
+    void shouldMatchSkillAndSelectSkillContextHints() throws Exception {
+        Path workspace = createTempWorkspace();
+        Path skillRoot = createTempWorkspace();
+        try {
+            write(workspace, "src/layouts/AdminLayout.vue", "<template>admin layout</template>");
+            write(workspace, "src/router/index.ts", "export const routes = []");
+            write(skillRoot, "admin-dashboard/SKILL.md", """
+                    ---
+                    name: Admin Dashboard Skill
+                    description: Admin dashboard generation guidance.
+                    keywords: 后台,dashboard,仪表盘
+                    modules: dashboard,navigation
+                    contextFileHints: src/layouts,src/router
+                    implementationHints: 路由和菜单同步修改
+                    validationHints: 验证菜单跳转
+                    ---
+                    - 页面、路由和菜单要一起改。
+                    """);
+            GenerationAgentSupport customSupport = new GenerationAgentSupport(
+                    new GenerationRecipeLibrary(),
+                    new GenerationSkillLibrary(skillRoot),
+                    new WorkspaceSemanticIndexService(),
+                    workspace
+            );
+
+            GenerationAgentSupport.ProjectContextPackage contextPackage = customSupport.buildProjectContextPackage(
+                    app(),
+                    CodeGenTypeEnum.VUE_PROJECT,
+                    "创建后台 dashboard 仪表盘",
+                    workspace.toFile()
+            );
+            List<GenerationSkill> skills = customSupport.matchSkills("创建后台 dashboard 仪表盘");
+            List<Map<String, Object>> payloads = customSupport.buildSkillPayloads(skills);
+
+            assertTrue(contextPackage.selectedFiles().contains("src/layouts/AdminLayout.vue"));
+            assertTrue(contextPackage.selectedFiles().contains("src/router/index.ts"));
+            assertEquals(1, skills.size());
+            assertEquals("admin-dashboard-skill", skills.getFirst().id());
+            assertTrue(payloads.stream().anyMatch(payload -> "Admin Dashboard Skill".equals(payload.get("title"))));
+        } finally {
+            cleanup(workspace);
+            cleanup(skillRoot);
         }
     }
 

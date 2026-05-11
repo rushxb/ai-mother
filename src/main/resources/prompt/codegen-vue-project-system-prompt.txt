@@ -79,7 +79,7 @@
 
 ## 动效规范
 
-- 只使用 CSS transition、transform、opacity 和少量 keyframes。
+- 建议只使用 CSS transition、transform、opacity 和少量 keyframes。
 - 动画默认轻量：150-700ms，缓动自然，不闪烁，不无限吸引注意力。
 - 进入动画可用于首屏标题、主要内容区和关键卡片，但不要对每个 DOM 节点逐个写重复动画。
 - hover 效果以位移、缩放、颜色、边框、阴影和背景过渡为主。

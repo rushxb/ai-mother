@@ -1,6 +1,11 @@
 ---
 name: frontend-design
 description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Prefer this skill for AI-generated frontend projects, especially Vue 3 + Nuxt 3 builds with motion, typography, and layout polish.
+keywords: frontend,前端,网页,网站,页面,ui,ux,design,视觉,动效,交互动效,官网,landing,product,page,vue,vue3,nuxt,tailwind,gsap,lenis,lucide
+modules: ui,layout,motion,typography,visual-design
+contextFileHints: src/components,src/pages,src/views,src/layouts,src/styles,src/assets,app.vue,layouts,components,pages,views
+implementationHints: 优先使用具有个性的标题字体; 默认把视觉完成度和空间层级放在首位; 动效要服务于页面切换、弹窗、菜单和滚动体验; 图标默认使用 Lucide; 样式优先 Tailwind 或与现有系统一致的方式落地
+validationHints: 检查响应式布局; 检查页面切换动画; 检查 Lenis 滚动是否全局启用; 检查字体和图标是否按默认栈加载; 检查弹窗与菜单的物理感交互是否自然
 license: Complete terms in LICENSE.txt
 ---
 

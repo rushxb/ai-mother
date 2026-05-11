@@ -12,7 +12,7 @@ alerting:
 
 # 规则文件配置
 rule_files:
-# - "alert_rules.yml"  # 可以添加告警规则
+  - "alert_rules.yml"
 
 # 抓取配置
 scrape_configs:

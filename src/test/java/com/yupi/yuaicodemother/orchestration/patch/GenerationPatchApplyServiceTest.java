@@ -1,9 +1,11 @@
 package com.yupi.yuaicodemother.orchestration.patch;
 
 import cn.hutool.core.io.FileUtil;
+import com.yupi.yuaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.PatchApplyResult;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -17,7 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationPatchApplyServiceTest {
 
-    private final GenerationPatchApplyService service = new GenerationPatchApplyService();
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final GenerationPatchApplyService service =
+            new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(meterRegistry));
 
     @Test
     void shouldApplyValidatedFileOperationsInsideChangePlan() throws Exception {
@@ -142,6 +146,12 @@ class GenerationPatchApplyServiceTest {
 
         assertEquals("applied", result.status());
         assertTrue(Files.exists(root.resolve("src/New.vue")));
+        assertEquals(1, meterRegistry.find("generation_orchestration_patch_apply_total")
+                .tag("provider", "local_patch_executor")
+                .tag("status", "applied")
+                .tag("reason", "unknown")
+                .counter()
+                .count(), 0.001);
     }
 
     private Path cleanTestRoot(String caseName) {

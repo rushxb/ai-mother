@@ -63,6 +63,8 @@ import java.io.File;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -203,7 +205,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             }
             markGenerationStarted(appId, preparation.generatingStage());
             updateGenerationPhase(appId, AppConstant.GENERATING_STAGE_AGENT, "智能体正在分析需求并规划生成策略...");
-            session = new GenerationSession();
+            session = new GenerationSession(preparation);
             activeGenerationSessions.put(appId, session);
         }
         return session;
@@ -225,7 +227,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         session.cancel();
         markGenerationFinished(app.getId());
         session.emitStopped();
-        session.complete();
+        completeGenerationSession(session, session.preparation(), "cancelled");
         activeGenerationSessions.remove(app.getId(), session);
     }
 
@@ -236,9 +238,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
         MonitorContextHolder.setContext(
                 MonitorContext.builder()
-                        .userId(loginUser.getId().toString())
-                        .appId("prompt_optimize")
-                        .build()
+                            .userId(loginUser.getId().toString())
+                            .appId("prompt_optimize")
+                            .taskId("prompt_optimize")
+                            .build()
         );
         try {
             String optimizedPrompt = promptOptimizerService.optimizePrompt(prompt);
@@ -514,6 +517,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     MonitorContext.builder()
                             .userId(loginUser.getId().toString())
                             .appId(appId.toString())
+                            .taskId(preparation.taskId())
                             .build()
             );
             try {
@@ -523,7 +527,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 if (session.isCancelled()) {
                     markGenerationFinished(appId);
                     session.emitStopped();
-                    session.complete();
+                    completeGenerationSession(session, preparation, "cancelled");
                     activeGenerationSessions.remove(appId, session);
                     return;
                 }
@@ -532,14 +536,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 } else {
                     emitDiffSummaryIfAvailable(appId, preparation, session);
                     markGenerationFinished(appId);
-                    session.complete();
+                    completeGenerationSession(session, preparation, "success");
                     activeGenerationSessions.remove(appId, session);
                 }
             } catch (GenerationStoppedException e) {
                 log.info("应用生成任务已停止，appId: {}", appId);
                 markGenerationFinished(appId);
                 session.emitStopped();
-                session.complete();
+                completeGenerationSession(session, preparation, "cancelled");
                 activeGenerationSessions.remove(appId, session);
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
@@ -551,7 +555,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                         generationError.message(),
                         buildGenerationErrorData(preparation, generationError)
                 ));
-                session.complete();
+                completeGenerationSession(session, preparation, "failed");
                 activeGenerationSessions.remove(appId, session);
             } finally {
                 MonitorContextHolder.clearContext();
@@ -569,14 +573,19 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     MonitorContext.builder()
                             .userId(loginUser.getId().toString())
                             .appId(appId.toString())
+                            .taskId(preparation.taskId())
                             .build()
             );
+            String completionStatus = "success";
             try {
                 boolean buildSucceeded = runBackgroundBuildWithAutoRepair(appId, loginUser, preparation, session);
                 if (buildSucceeded) {
                     emitDiffSummaryIfAvailable(appId, preparation, session);
+                } else {
+                    completionStatus = "failed";
                 }
             } catch (Exception e) {
+                completionStatus = "failed";
                 log.error("后台构建校验失败，appId: {}", appId, e);
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 emitRollbackRestoreIfAllowed(appId, preparation, session);
@@ -587,7 +596,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 ));
             } finally {
                 markGenerationFinished(appId);
-                session.complete();
+                completeGenerationSession(session, preparation, session.isCancelled() ? "cancelled" : completionStatus);
                 activeGenerationSessions.remove(appId, session);
                 MonitorContextHolder.clearContext();
             }
@@ -647,21 +656,27 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 return false;
             }
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_REPAIR, "构建未通过，正在自动修复...");
+            generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "started");
             session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                     "round", round,
                     "maxRounds", MAX_AUTO_REPAIR_ROUNDS,
                     "taskId", preparation.taskId(),
                     "agent", "BuildFix"
             )));
-            executeGenerationRound(
-                    appId,
-                    loginUser,
-                    preparation.targetType(),
-                    buildAutoRepairPrompt(new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()), round),
-                    session,
-                    generatedContent,
-                    lastSnapshotUpdateAt
-            );
+            try {
+                executeGenerationRound(
+                        appId,
+                        loginUser,
+                        preparation.targetType(),
+                        buildAutoRepairPrompt(new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()), round),
+                        session,
+                        generatedContent,
+                        lastSnapshotUpdateAt
+                );
+            } catch (Exception e) {
+                generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "failed");
+                throw e;
+            }
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "自动修复完成，正在重新构建校验...");
             buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
             if (session.isCancelled()) {
@@ -677,8 +692,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     "qualityGate", preparation.qualityGateLevel()
             )));
             if (buildResult.success()) {
+                generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "success");
                 return true;
             }
+            generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "failed");
         }
         emitRollbackRestoreIfAllowed(appId, preparation, session);
         rollbackCodeGenTypeIfNeeded(appId, preparation);
@@ -707,6 +724,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         for (int round = 0; round <= maxGenerationRepairRounds; round++) {
             session.throwIfCancelled();
             if (round > 0) {
+                generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "generation", "started");
                 session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                         "round", round,
                         "maxRounds", maxGenerationRepairRounds,
@@ -716,12 +734,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             }
             try {
                 executeGenerationRound(appId, loginUser, preparation.targetType(), currentPrompt, session, generatedContent, lastSnapshotUpdateAt);
+                if (round > 0) {
+                    generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "generation", "success");
+                }
                 return;
             } catch (Exception e) {
                 lastError = e;
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 log.warn("应用生成轮次失败，appId: {}, round: {}, category: {}, error: {}",
                         appId, round, generationError.category(), e.getMessage());
+                if (round > 0) {
+                    generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "generation", "failed");
+                }
                 if (e instanceof MissingGeneratedProjectException || !generationError.recoverable()) {
                     break;
                 }
@@ -1168,6 +1192,45 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
     }
 
+    private void completeGenerationSession(GenerationSession session,
+                                           GenerationPreparation preparation,
+                                           String status) {
+        if (session == null || !session.tryMarkCompleted()) {
+            return;
+        }
+        recordUserWaitMetric(session, preparation, status);
+        session.complete();
+    }
+
+    private void recordUserWaitMetric(GenerationSession session,
+                                      GenerationPreparation preparation,
+                                      String status) {
+        if (session == null || preparation == null) {
+            return;
+        }
+        long orchestrationDurationMs = preparation.timings() == null
+                ? 0L
+                : preparation.timings().values().stream().mapToLong(Long::longValue).sum();
+        generationOrchestrationMetricsCollector.recordUserWaitDuration(
+                orchestrationMode(preparation),
+                preparation.targetType() == null ? "unknown" : preparation.targetType().getValue(),
+                status,
+                Duration.between(session.startedAt(), Instant.now()).plusMillis(Math.max(0L, orchestrationDurationMs))
+        );
+    }
+
+    private String orchestrationMode(GenerationPreparation preparation) {
+        if (preparation == null || preparation.events() == null) {
+            return "unknown";
+        }
+        return preparation.events().stream()
+                .map(GenerationStreamEvent::getData)
+                .filter(map -> map != null && map.get("orchestrationMode") != null)
+                .map(map -> String.valueOf(map.get("orchestrationMode")))
+                .findFirst()
+                .orElse("unknown");
+    }
+
     private void markGenerationFinished(Long appId) {
         App updateApp = new App();
         updateApp.setId(appId);
@@ -1529,9 +1592,27 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         private final Sinks.Many<GenerationStreamEvent> sink = Sinks.many().replay().limit(MAX_GENERATION_REPLAY_EVENTS);
         private final Sinks.Empty<Void> cancelSink = Sinks.empty();
+        private final GenerationPreparation preparation;
+        private final Instant startedAt = Instant.now();
         private final AtomicBoolean cancelled = new AtomicBoolean(false);
         private final AtomicBoolean completed = new AtomicBoolean(false);
         private final AtomicReference<dev.langchain4j.model.openai.internal.ResponseHandle> responseHandleRef = new AtomicReference<>();
+
+        private GenerationSession(GenerationPreparation preparation) {
+            this.preparation = preparation;
+        }
+
+        private Instant startedAt() {
+            return startedAt;
+        }
+
+        private GenerationPreparation preparation() {
+            return preparation;
+        }
+
+        private boolean tryMarkCompleted() {
+            return completed.compareAndSet(false, true);
+        }
 
         private Flux<GenerationStreamEvent> asFlux() {
             return sink.asFlux();
@@ -1545,14 +1626,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
 
         private void complete() {
-            if (!completed.compareAndSet(false, true)) {
-                return;
-            }
             sink.tryEmitComplete();
         }
 
         private void error(Throwable throwable) {
-            if (!completed.compareAndSet(false, true)) {
+            if (!tryMarkCompleted()) {
                 return;
             }
             sink.tryEmitError(throwable);

@@ -1,9 +1,11 @@
 package com.yupi.yuaicodemother.orchestration.patch;
 
 import cn.hutool.core.util.StrUtil;
+import com.yupi.yuaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.PatchApplyResult;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +25,7 @@ import java.util.Set;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class GenerationPatchApplyService {
 
     private static final Set<String> SUPPORTED_ACTIONS = Set.of(
@@ -32,13 +35,15 @@ public class GenerationPatchApplyService {
             PatchOperation.ACTION_DELETE
     );
 
+    private final GenerationOrchestrationMetricsCollector metricsCollector;
+
     public PatchApplyResult apply(Long appId,
                                   String taskId,
                                   Path projectRoot,
                                   GenerationArtifact changePlanArtifact,
                                   List<PatchOperation> operations) {
         if (changePlanArtifact == null || changePlanArtifact.payload() == null || changePlanArtifact.payload().isEmpty()) {
-            return PatchApplyResult.skipped(appId, taskId, normalizeRoot(projectRoot) == null ? "" : normalizeRoot(projectRoot).toString(), "change_plan_missing");
+            return record(PatchApplyResult.skipped(appId, taskId, normalizeRoot(projectRoot) == null ? "" : normalizeRoot(projectRoot).toString(), "change_plan_missing"));
         }
         return apply(appId, taskId, projectRoot, ChangePlan.fromPayload(payload(changePlanArtifact)), operations);
     }
@@ -51,41 +56,41 @@ public class GenerationPatchApplyService {
         Path normalizedRoot = normalizeRoot(projectRoot);
         String projectPath = pathToString(normalizedRoot);
         if (normalizedRoot == null || !Files.isDirectory(normalizedRoot)) {
-            return PatchApplyResult.skipped(appId, taskId, projectPath, "project_root_missing");
+            return record(PatchApplyResult.skipped(appId, taskId, projectPath, "project_root_missing"));
         }
         if (changePlan == null) {
-            return PatchApplyResult.skipped(appId, taskId, projectPath, "change_plan_missing");
+            return record(PatchApplyResult.skipped(appId, taskId, projectPath, "change_plan_missing"));
         }
         if ("project_bootstrap".equals(changePlan.changeScope())) {
-            return PatchApplyResult.skipped(appId, taskId, projectPath, "project_bootstrap_not_patch_first");
+            return record(PatchApplyResult.skipped(appId, taskId, projectPath, "project_bootstrap_not_patch_first"));
         }
         if (operations == null || operations.isEmpty()) {
-            return PatchApplyResult.skipped(appId, taskId, projectPath, "patch_operations_empty");
+            return record(PatchApplyResult.skipped(appId, taskId, projectPath, "patch_operations_empty"));
         }
         ValidationResult validationResult = validate(normalizedRoot, changePlan, operations);
         if (!validationResult.rejectedOperations().isEmpty()) {
-            return PatchApplyResult.rejected(
+            return record(PatchApplyResult.rejected(
                     appId,
                     taskId,
                     projectPath,
                     operations.size(),
                     validationResult.rejectedOperations(),
                     "patch_operation_validation_failed"
-            );
+            ));
         }
         try {
             List<String> appliedFiles = applyValidatedOperations(validationResult.validOperations());
-            return PatchApplyResult.applied(appId, taskId, projectPath, operations.size(), appliedFiles);
+            return record(PatchApplyResult.applied(appId, taskId, projectPath, operations.size(), appliedFiles));
         } catch (Exception e) {
             log.warn("本地补丁执行失败，appId: {}, taskId: {}", appId, taskId, e);
-            return PatchApplyResult.rejected(
+            return record(PatchApplyResult.rejected(
                     appId,
                     taskId,
                     projectPath,
                     operations.size(),
                     List.of("executor:" + e.getMessage()),
                     "patch_apply_failed"
-            );
+            ));
         }
     }
 
@@ -241,6 +246,11 @@ public class GenerationPatchApplyService {
 
     private Map<String, Object> payload(GenerationArtifact artifact) {
         return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
+    }
+
+    private PatchApplyResult record(PatchApplyResult result) {
+        metricsCollector.recordPatchApply(result.provider(), result.status(), result.reason());
+        return result;
     }
 
     private record ValidatedOperation(String action, String relativePath, Path targetPath, PatchOperation operation) {

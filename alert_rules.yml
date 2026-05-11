@@ -1,0 +1,40 @@
+groups:
+  - name: yu-ai-code-mother-orchestration
+    rules:
+      - alert: GenerationUserWaitTooHigh
+        expr: |
+          (
+            sum(increase(generation_orchestration_user_wait_duration_seconds_sum{status="success"}[15m]))
+            /
+            clamp_min(sum(increase(generation_orchestration_user_wait_duration_seconds_count{status="success"}[15m])), 1)
+          ) > 180
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "生成用户等待时间过高"
+          description: "过去 15 分钟成功生成任务的平均等待时间超过 180 秒。"
+
+      - alert: GenerationPatchAlignmentLow
+        expr: |
+          (
+            sum(increase(generation_orchestration_patch_result_total{status="applied"}[30m]))
+            /
+            clamp_min(sum(increase(generation_orchestration_patch_result_total{status=~"applied|drifted"}[30m])), 1)
+          ) < 0.8
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "真实改修对齐率偏低"
+          description: "过去 30 分钟 patch-first 实际落盘与 ChangePlan 对齐率低于 80%。"
+
+      - alert: GenerationPatchApplyRejectedSpike
+        expr: |
+          sum(increase(generation_orchestration_patch_apply_total{status="rejected"}[15m])) >= 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "补丁执行拒绝次数激增"
+          description: "过去 15 分钟补丁执行器拒绝次数达到 5 次以上，请检查 change_plan 或工具调用边界。"

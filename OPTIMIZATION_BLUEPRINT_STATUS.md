@@ -219,6 +219,24 @@
   - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationPatchApplyServiceTest,GenerationPatchResultServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
   - `Tests run: 18`, `Failures: 0`, `Errors: 0`
 
+### 3.18 指标闭环第二阶段
+
+- `MonitorContext` 已新增 `taskId`，生成主链路和后台构建链路都会把编排任务 ID 透传到 AI 模型监听器
+- `AiModelMetricsCollector` 的 `ai_model_requests_total`、`ai_model_errors_total`、`ai_model_tokens_total`、`ai_model_response_duration_seconds` 已新增 `task_id` 标签，支持单次生成 token 与任务快照关联
+- `GenerationOrchestrationMetricsCollector` 新增：
+  - `generation_orchestration_user_wait_duration_seconds`：按 `orchestration_mode / target_type / status` 记录用户等待时间
+  - `generation_orchestration_auto_repair_total`：按 `orchestration_mode / stage / status` 记录生成阶段和构建阶段自动修复次数
+  - `generation_orchestration_patch_apply_total`：按 `provider / status / reason` 记录补丁执行器真实落盘结果
+- `AppServiceImpl` 会在生成成功、失败、取消和后台构建结束时记录等待时间，并避免停止与后台线程同时收尾造成重复计数
+- 自动修复链路已区分 `generation` 与 `build` 阶段，记录 `started / success / failed`，便于评估自动修复真实收益
+- 补丁执行器已在 `GenerationPatchApplyService` 内统一记录 applied / rejected / skipped，为真实改修成功率提供更前置的执行层口径
+- `grafana/ai_model_grafana_config.json` 已新增“生成编排闭环”面板：平均用户等待时间、真实改修对齐率、自动修复趋势、补丁执行结果分布、任务级 Token 消耗 Top10
+- 新增 `alert_rules.yml` 并在 `prometheus.yml` 中启用，覆盖用户等待时间过高、真实改修对齐率偏低、补丁拒绝次数激增三类告警
+- 新增 `GenerationOrchestrationMetricsCollectorTest`，并扩展 `GenerationPatchApplyServiceTest` 验证补丁执行指标
+- 最新验证结果：
+  - `$env:JAVA_HOME='D:\java\jdk21'; $env:Path='D:\java\jdk21\bin;' + $env:Path; .\mvnw.cmd "-Dtest=GenerationOrchestrationMetricsCollectorTest,GenerationPatchApplyServiceTest,GenerationPatchResultServiceTest,GenerationDiffSummaryServiceTest,GenerationRollbackRestoreServiceTest,GenerationRollbackPointServiceTest,ChangePlanTest" "-Dmaven.resources.skip=true" "-DskipTests=false" test`
+  - `Tests run: 19`, `Failures: 0`, `Errors: 0`
+
 ## 4. 当前未实现部分
 
 ### 4.1 Recipe 库
@@ -263,13 +281,15 @@
 
 当前已落地编排层基础指标：上下文字符数、精选文件数、索引文件数、DAG 节点耗时、编排总耗时、质量门禁结果、patch-first 次数、BuildFix 启用次数、回滚策略计划次数、失败后本地快照恢复结果次数、patch-first 实际落盘结果次数。
 
-仍未闭环的部分：
+本阶段已继续补齐：
 
-- 单次生成 token 与编排任务关联
-- 真实改修成功率
-- 自动修复次数
-- 用户平均等待时间
-- Grafana 面板和告警规则按新指标更新
+- 单次生成 token 与编排任务关联：AI 模型指标新增 `task_id` 标签
+- 真实改修成功率：已有 `patch_result` 对齐率，新增 `patch_apply` 执行层结果
+- 自动修复次数：新增生成阶段 / 构建阶段自动修复 started / success / failed 指标
+- 用户平均等待时间：新增用户等待耗时 timer
+- Grafana 面板和告警规则：已新增编排闭环面板和 Prometheus 告警规则
+
+后续仍可继续做更细的看板治理，例如按租户 / 模型 / 代码类型拆分 SLO，以及把告警接入真实 Alertmanager 通知渠道。
 
 ### 4.6 Go Workspace Kernel
 
@@ -287,7 +307,7 @@
 建议按“先固化当前收益，再扩展知识和执行面”的顺序推进：
 
 1. 补齐核心回归测试，优先覆盖轻 / 重链路、Vue 构建分层、回滚兜底
-2. 建立指标埋点，先把上下文、耗时、成功率、回滚率量化出来（编排层基础指标已完成，成功率 / 真实回滚率待接执行闭环）
+2. 建立指标埋点，先把上下文、耗时、成功率、回滚率量化出来（编排层基础指标、执行层 patch apply、真实 diff 对齐率、自动修复和用户等待时间已完成）
 3. 定义并落地 `ChangePlan`
 4. 把快照 / 回滚接入生成主流程的失败兜底
 5. 做第一批高频 recipe
@@ -299,7 +319,7 @@
 - 本轮已落地的核心收益是：prompt 优化入口、改修分流、上下文减重、patch-first 元数据、分层构建验证
 - 这些优化已经把系统从“整仓重写 + 全量 build”推向“意图驱动 + 最小 patch + 分层校验 + 标准化变更计划”
 - 路由判定、heavy path 和 BuildFix 门禁现在也已经单点化，减少了 Planner 与编排器之间的语义漂移
-- 编排层指标已经接入 Micrometer，后续可以直接基于 Prometheus / Grafana 观察上下文规模、节点耗时、门禁结果和回滚计划分布
-- 后续最值钱的工作仍然是 `测试 + 指标 + Recipe + 回滚联动 + 独立补丁执行器`
+- 编排层指标已经接入 Micrometer，Prometheus / Grafana 现在可观察上下文规模、节点耗时、门禁结果、回滚计划、补丁执行、真实改修对齐率、自动修复和用户等待时间
+- 后续最值钱的工作仍然是 `测试 + Recipe + 语义索引 + 回滚联动 + 更细粒度补丁执行`
 
 注：优化要求就是保证代码健壮性，可读性、可扩展性、遵行设计模式思维、开闭原则，每次完成工作后，都要更新该文件内任务状态和文件内容。已完成的工作要标注已完成

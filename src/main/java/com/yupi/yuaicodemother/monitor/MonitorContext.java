@@ -21,6 +21,8 @@ public class MonitorContext implements Serializable {
 
     private String appId;
 
+    private String taskId;
+
     @Serial
     private static final long serialVersionUID = 1L;
 }

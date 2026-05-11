@@ -31,6 +31,9 @@ public class GenerationOrchestrationMetricsCollector {
     private final ConcurrentMap<String, Counter> rollbackPlanCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> rollbackRestoreCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> patchResultCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> patchApplyCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> autoRepairCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Timer> userWaitTimers = new ConcurrentHashMap<>();
 
     public void recordRun(String orchestrationMode, String status) {
         String mode = normalize(orchestrationMode);
@@ -196,6 +199,54 @@ public class GenerationOrchestrationMetricsCollector {
                         .register(meterRegistry)
         );
         counter.increment();
+    }
+
+    public void recordPatchApply(String provider, String status, String reason) {
+        String normalizedProvider = normalize(provider);
+        String normalizedStatus = normalize(status);
+        String normalizedReason = normalize(reason);
+        String key = String.join(":", normalizedProvider, normalizedStatus, normalizedReason);
+        Counter counter = patchApplyCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_orchestration_patch_apply_total")
+                        .description("代码生成补丁执行器落盘结果次数")
+                        .tag("provider", normalizedProvider)
+                        .tag("status", normalizedStatus)
+                        .tag("reason", normalizedReason)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    public void recordAutoRepair(String orchestrationMode, String stage, String status) {
+        String mode = normalize(orchestrationMode);
+        String normalizedStage = normalize(stage);
+        String normalizedStatus = normalize(status);
+        String key = String.join(":", mode, normalizedStage, normalizedStatus);
+        Counter counter = autoRepairCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_orchestration_auto_repair_total")
+                        .description("代码生成自动修复尝试和结果次数")
+                        .tag("orchestration_mode", mode)
+                        .tag("stage", normalizedStage)
+                        .tag("status", normalizedStatus)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    public void recordUserWaitDuration(String orchestrationMode, String targetType, String status, Duration duration) {
+        String mode = normalize(orchestrationMode);
+        String type = normalize(targetType);
+        String normalizedStatus = normalize(status);
+        String key = String.join(":", mode, type, normalizedStatus);
+        Timer timer = userWaitTimers.computeIfAbsent(key, unused ->
+                Timer.builder("generation_orchestration_user_wait_duration_seconds")
+                        .description("用户从提交生成到任务结束的等待耗时")
+                        .tag("orchestration_mode", mode)
+                        .tag("target_type", type)
+                        .tag("status", normalizedStatus)
+                        .register(meterRegistry)
+        );
+        timer.record(nonNegative(duration));
     }
 
     private void recordSummary(String name,

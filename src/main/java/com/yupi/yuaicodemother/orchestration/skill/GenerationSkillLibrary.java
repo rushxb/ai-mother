@@ -1,6 +1,7 @@
 package com.yupi.yuaicodemother.orchestration.skill;
 
 import cn.hutool.core.util.StrUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
@@ -21,6 +22,7 @@ import java.util.Objects;
 /**
  * 生成技能库：从 markdown 技能文件中发现并匹配技能。
  */
+@Slf4j
 @Component
 public class GenerationSkillLibrary {
 
@@ -39,6 +41,7 @@ public class GenerationSkillLibrary {
 
     public GenerationSkillLibrary(List<Path> filesystemSkillRoots, boolean includeClasspathSkills) {
         this.skills = List.copyOf(loadSkills(filesystemSkillRoots, includeClasspathSkills));
+        logSkillRegistrySummary(filesystemSkillRoots, includeClasspathSkills, this.skills);
     }
 
     public List<GenerationSkill> match(String userMessage) {
@@ -46,7 +49,7 @@ public class GenerationSkillLibrary {
         if (StrUtil.isBlank(normalized)) {
             return List.of();
         }
-        return skills.stream()
+        List<GenerationSkill> matchedSkills = skills.stream()
                 .map(skill -> new SkillMatch(skill, score(skill, normalized)))
                 .filter(match -> match.score() > 0)
                 .sorted((left, right) -> {
@@ -59,6 +62,15 @@ public class GenerationSkillLibrary {
                 .limit(MAX_MATCHED_SKILLS)
                 .map(SkillMatch::skill)
                 .toList();
+        if (!matchedSkills.isEmpty()) {
+            log.info("技能匹配命中 {} 个: {}", matchedSkills.size(),
+                    matchedSkills.stream().map(GenerationSkill::id).toList());
+            matchedSkills.forEach(skill ->
+                    log.info("技能匹配详情: id={}, title={}, sourcePath={}", skill.id(), skill.title(), skill.sourcePath()));
+        } else {
+            log.info("技能匹配结果为空，输入未命中任何已注册技能");
+        }
+        return matchedSkills;
     }
 
     public List<String> modules(List<GenerationSkill> matchedSkills) {
@@ -130,8 +142,10 @@ public class GenerationSkillLibrary {
                 } catch (Exception ignored) {
                 }
             }
+            log.info("已扫描 classpath 技能目录，pattern={}, 命中数量={}", CLASS_PATH_PATTERN, result.size());
             return result;
         } catch (IOException e) {
+            log.warn("扫描 classpath 技能目录失败，pattern={}", CLASS_PATH_PATTERN, e);
             return List.of();
         }
     }
@@ -153,6 +167,7 @@ public class GenerationSkillLibrary {
                     .filter(Objects::nonNull)
                     .toList();
         } catch (IOException e) {
+            log.warn("扫描文件系统技能目录失败，root={}", root, e);
             return List.of();
         }
     }
@@ -301,6 +316,20 @@ public class GenerationSkillLibrary {
 
     private String normalize(String value) {
         return StrUtil.blankToDefault(value, "").trim().toLowerCase(Locale.ROOT);
+    }
+
+    private void logSkillRegistrySummary(List<Path> filesystemSkillRoots,
+                                         boolean includeClasspathSkills,
+                                         List<GenerationSkill> loadedSkills) {
+        if (loadedSkills.isEmpty()) {
+            log.warn("技能注册结果为空。includeClasspathSkills={}, filesystemSkillRoots={}", includeClasspathSkills, filesystemSkillRoots);
+            return;
+        }
+        log.info("技能注册完成，共 {} 个技能。includeClasspathSkills={}, filesystemSkillRoots={}",
+                loadedSkills.size(), includeClasspathSkills, filesystemSkillRoots);
+        for (GenerationSkill skill : loadedSkills) {
+            log.info("已注册技能: id={}, title={}, sourcePath={}", skill.id(), skill.title(), skill.sourcePath());
+        }
     }
 
     private record SkillMatch(GenerationSkill skill, int score) {

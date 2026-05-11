@@ -57,4 +57,16 @@ class GenerationSkillLibraryTest {
             }
         }
     }
+
+    @Test
+    void shouldLoadClasspathSkillsFromAgentSkillsDirectory() {
+        GenerationSkillLibrary library = new GenerationSkillLibrary(List.of(), true);
+
+        List<GenerationSkill> matchedSkills = library.match("前端官网 landing 页面");
+
+        assertTrue(matchedSkills.stream().anyMatch(skill -> "frontend-design".equals(skill.id())
+                || "vue-admin-dashboard".equals(skill.id())
+                || "database-boundary".equals(skill.id())
+                || "crud-form-flow".equals(skill.id())));
+    }
 }

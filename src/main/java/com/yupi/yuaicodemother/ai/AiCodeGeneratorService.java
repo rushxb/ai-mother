@@ -6,6 +6,7 @@ import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
 import reactor.core.publisher.Flux;
 
 public interface AiCodeGeneratorService {
@@ -17,7 +18,8 @@ public interface AiCodeGeneratorService {
      * @return AI 的输出结果
      */
     @SystemMessage(fromResource = "prompt/codegen-html-system-prompt.txt")
-    HtmlCodeResult generateHtmlCode(String userMessage);
+    @UserMessage("{{userMessage}}")
+    HtmlCodeResult generateHtmlCode(@V("userMessage") String userMessage);
 
     /**
      * 生成多文件代码
@@ -26,7 +28,8 @@ public interface AiCodeGeneratorService {
      * @return AI 的输出结果
      */
     @SystemMessage(fromResource = "prompt/codegen-multi-file-system-prompt.txt")
-    MultiFileCodeResult generateMultiFileCode(String userMessage);
+    @UserMessage("{{userMessage}}")
+    MultiFileCodeResult generateMultiFileCode(@V("userMessage") String userMessage);
 
     /**
      * 生成 HTML 代码
@@ -35,7 +38,8 @@ public interface AiCodeGeneratorService {
      * @return AI 的输出结果
      */
     @SystemMessage(fromResource = "prompt/codegen-html-system-prompt.txt")
-    Flux<String> generateHtmlCodeStream(String userMessage);
+    @UserMessage("{{userMessage}}")
+    Flux<String> generateHtmlCodeStream(@V("userMessage") String userMessage);
 
     /**
      * 生成多文件代码
@@ -44,7 +48,8 @@ public interface AiCodeGeneratorService {
      * @return AI 的输出结果
      */
     @SystemMessage(fromResource = "prompt/codegen-multi-file-system-prompt.txt")
-    Flux<String> generateMultiFileCodeStream(String userMessage);
+    @UserMessage("{{userMessage}}")
+    Flux<String> generateMultiFileCodeStream(@V("userMessage") String userMessage);
 
     /**
      * 生成 Vue 项目代码（流式）
@@ -53,5 +58,6 @@ public interface AiCodeGeneratorService {
      * @return AI 的输出结果
      */
     @SystemMessage(fromResource = "prompt/codegen-vue-project-system-prompt.txt")
-    TokenStream generateVueProjectCodeStream(@MemoryId long appId, @UserMessage String userMessage);
+    @UserMessage("{{userMessage}}")
+    TokenStream generateVueProjectCodeStream(@MemoryId long appId, @V("userMessage") String userMessage);
 }

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -39,6 +40,7 @@ public class GenerationAgentSupport {
 
     private final GenerationRecipeLibrary recipeLibrary;
     private final WorkspaceSemanticIndexService semanticIndexService;
+    private final Path codeOutputRoot;
 
     public GenerationAgentSupport() {
         this(new GenerationRecipeLibrary(), new WorkspaceSemanticIndexService());
@@ -51,8 +53,15 @@ public class GenerationAgentSupport {
     @Autowired
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
                                   WorkspaceSemanticIndexService semanticIndexService) {
+        this(recipeLibrary, semanticIndexService, Path.of(CODE_OUTPUT_ROOT_DIR));
+    }
+
+    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
+                                  WorkspaceSemanticIndexService semanticIndexService,
+                                  Path codeOutputRoot) {
         this.recipeLibrary = recipeLibrary;
         this.semanticIndexService = semanticIndexService;
+        this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
     }
 
     public boolean isComplexRequest(String userMessage) {
@@ -110,10 +119,21 @@ public class GenerationAgentSupport {
     }
 
     public File resolveWorkspaceRoot(App app) {
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app == null ? null : app.getCodeGenType());
+        return resolveWorkspaceRoot(app, codeGenTypeEnum);
+    }
+
+    public File resolveWorkspaceRoot(App app, CodeGenTypeEnum codeGenTypeEnum) {
         if (app == null || app.getId() == null || StrUtil.isBlank(app.getCodeGenType())) {
             return null;
         }
-        File rootDir = new File(CODE_OUTPUT_ROOT_DIR + File.separator + app.getCodeGenType() + "_" + app.getId());
+        CodeGenTypeEnum resolvedType = codeGenTypeEnum == null
+                ? CodeGenTypeEnum.getEnumByValue(app.getCodeGenType())
+                : codeGenTypeEnum;
+        if (resolvedType == null) {
+            return null;
+        }
+        File rootDir = codeOutputRoot.resolve(resolvedType.getValue() + "_" + app.getId()).toFile();
         if (!rootDir.exists() || !rootDir.isDirectory()) {
             return null;
         }

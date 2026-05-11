@@ -13,6 +13,7 @@ import com.yupi.yuaicodemother.orchestration.agent.ContextAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.yupi.yuaicodemother.orchestration.agent.PlannerAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.ReviewAgentNode;
+import com.yupi.yuaicodemother.orchestration.agent.TemplateAgentNode;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
@@ -42,6 +43,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private final GenerationDagRunner dagRunner;
     private final GenerationOrchestrationTaskStore taskStore;
     private final PlannerAgentNode plannerAgentNode;
+    private final TemplateAgentNode templateAgentNode;
     private final ContextAgentNode contextAgentNode;
     private final ArchitectAgentNode architectAgentNode;
     private final CodeAgentNode codeAgentNode;
@@ -119,6 +121,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private List<GenerationAgentNode> selectNodes(boolean heavyPath) {
         List<GenerationAgentNode> nodes = new ArrayList<>();
         nodes.add(plannerAgentNode);
+        nodes.add(templateAgentNode);
         nodes.add(contextAgentNode);
         nodes.add(architectAgentNode);
         nodes.add(codeAgentNode);

@@ -23,14 +23,16 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
     private final GenerationAgentSupport support;
 
     public ContextAgentNode(GenerationAgentSupport support) {
-        super("context", "Context", "context", List.of());
+        super("context", "Context", "context", List.of("template"));
         this.support = support;
     }
 
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         App app = context.getRequest().app();
-        CodeGenTypeEnum currentType = context.getRequest().currentType();
+        CodeGenTypeEnum targetType = context.getTargetType() == null
+                ? context.getRequest().currentType()
+                : context.getTargetType();
         GenerationAgentSupport.ProjectContextPackage contextPackage = new GenerationAgentSupport.ProjectContextPackage(
                 "general",
                 List.of(),
@@ -40,12 +42,12 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 context.getRequest().hasGeneratedCode() ? "empty" : "new_project",
                 ""
         );
-        if (app != null && app.getId() != null && context.getRequest().hasGeneratedCode()) {
-            File rootDir = support.resolveWorkspaceRoot(app);
+        if (app != null && app.getId() != null) {
+            File rootDir = support.resolveWorkspaceRoot(app, targetType);
             if (rootDir != null) {
                 contextPackage = support.buildProjectContextPackage(
                         app,
-                        currentType,
+                        targetType,
                         context.getRequest().userMessage(),
                         rootDir
                 );

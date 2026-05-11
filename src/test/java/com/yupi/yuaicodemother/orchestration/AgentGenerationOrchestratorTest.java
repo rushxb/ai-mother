@@ -12,10 +12,12 @@ import com.yupi.yuaicodemother.orchestration.agent.GenerationAgentSupport;
 import com.yupi.yuaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.yupi.yuaicodemother.orchestration.agent.PlannerAgentNode;
 import com.yupi.yuaicodemother.orchestration.agent.ReviewAgentNode;
+import com.yupi.yuaicodemother.orchestration.agent.TemplateAgentNode;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationDagRunner;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackPointService;
+import com.yupi.yuaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import cn.hutool.core.io.FileUtil;
 import org.junit.jupiter.api.Test;
@@ -155,6 +157,7 @@ class AgentGenerationOrchestratorTest {
                 dagRunner,
                 taskStore,
                 new PlannerAgentNode(support, routingSupport),
+                testTemplateAgentNode("metrics"),
                 new ContextAgentNode(support),
                 new ArchitectAgentNode(support),
                 new CodeAgentNode(),
@@ -219,6 +222,7 @@ class AgentGenerationOrchestratorTest {
                 dagRunner,
                 taskStore,
                 new PlannerAgentNode(support, routingSupport),
+                testTemplateAgentNode("shared"),
                 new ContextAgentNode(support),
                 new ArchitectAgentNode(support),
                 new CodeAgentNode(),
@@ -234,5 +238,15 @@ class AgentGenerationOrchestratorTest {
         Path root = Path.of("target", "test-workspaces", "rollback-orchestrator", caseName);
         FileUtil.del(root.toFile());
         return new GenerationRollbackPointService(root.resolve("code_output"), root.resolve("code_snapshot"));
+    }
+
+    private TemplateAgentNode testTemplateAgentNode(String caseName) {
+        Path root = Path.of("target", "test-workspaces", "template-orchestrator", caseName);
+        FileUtil.del(root.toFile());
+        VueProjectTemplateBootstrapService bootstrapService = new VueProjectTemplateBootstrapService(
+                root.resolve("code_output"),
+                new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+        );
+        return new TemplateAgentNode(bootstrapService);
     }
 }

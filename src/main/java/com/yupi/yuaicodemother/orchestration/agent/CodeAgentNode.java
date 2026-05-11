@@ -33,6 +33,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         @SuppressWarnings("unchecked")
         List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
         List<Map<String, Object>> recipes = readRecipePayloads(context);
+        String templateId = artifactStringValue(context, "template_bootstrap", "templateId", "");
+        boolean templateBootstrapped = artifactBooleanValue(context, "template_bootstrap", "bootstrapped");
         boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
         boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
         String validationMode = artifactStringValue(context, "requirements", "validationMode",
@@ -50,6 +52,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         payload.put("requiresBuild", requiresBuild);
         payload.put("validationMode", validationMode);
         payload.put("generationMode", generationMode);
+        payload.put("templateId", templateId);
+        payload.put("templateBootstrapped", templateBootstrapped);
         payload.put("artifactMode", patchFirst ? "patch_plan" : "generation_plan");
         payload.put("changePlan", changePlan.toPayload());
         payload.put("recipes", recipes);
@@ -95,6 +99,12 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             lines.add("基于当前项目继续修改，不要重建无关内容。");
             lines.add("");
             lines.add(projectContext);
+        }
+        String templateId = artifactStringValue(context, "template_bootstrap", "templateId", "");
+        if (StrUtil.isNotBlank(templateId)) {
+            lines.add("");
+            lines.add("【模板基线】当前 Vue 工程已基于模板 " + templateId + " 初始化。");
+            lines.add("优先改造模板内的 src/data、src/pages、src/views、src/components 和 src/styles，保留 package.json、vite.config.js、index.html、src/main.js、src/router/index.js 等稳定工程入口。");
         }
         lines.add("");
         lines.add("【执行规范】mode=" + generationMode + ", patchFirst=" + patchFirst

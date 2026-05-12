@@ -54,11 +54,9 @@ public class CodeGeneratorNode {
      */
     private static String buildUserMessage(WorkflowContext context) {
         String userMessage = context.getEnhancedPrompt();
-        // 检查是否存在质检失败结果
         QualityResult qualityResult = context.getQualityResult();
         if (isQualityCheckFailed(qualityResult)) {
-            // 直接将错误修复信息作为新的提示词（起到了修改的作用）
-            userMessage = buildErrorFixPrompt(qualityResult);
+            userMessage = buildErrorFixPrompt(context, qualityResult);
         }
         return userMessage;
     }
@@ -76,19 +74,24 @@ public class CodeGeneratorNode {
     /**
      * 构造错误修复提示词
      */
-    private static String buildErrorFixPrompt(QualityResult qualityResult) {
+    private static String buildErrorFixPrompt(WorkflowContext context, QualityResult qualityResult) {
         StringBuilder errorInfo = new StringBuilder();
-        errorInfo.append("\n\n## 上次生成的代码存在以下问题，请修复：\n");
-        // 添加错误列表
+        errorInfo.append("请在现有已生成项目基础上做局部修复，不要重写整个项目，不要无关改动。\n");
+        if (context.getEnhancedPrompt() != null) {
+            errorInfo.append("\n## 原始生成要求\n").append(context.getEnhancedPrompt()).append("\n");
+        }
+        if (context.getGeneratedCodeDir() != null) {
+            errorInfo.append("\n## 已生成项目目录\n").append(context.getGeneratedCodeDir()).append("\n");
+        }
+        errorInfo.append("\n## 质检发现的问题\n");
         qualityResult.getErrors().forEach(error ->
                 errorInfo.append("- ").append(error).append("\n"));
-        // 添加修复建议（如果有）
         if (qualityResult.getSuggestions() != null && !qualityResult.getSuggestions().isEmpty()) {
-            errorInfo.append("\n## 修复建议：\n");
+            errorInfo.append("\n## 修复建议\n");
             qualityResult.getSuggestions().forEach(suggestion ->
                     errorInfo.append("- ").append(suggestion).append("\n"));
         }
-        errorInfo.append("\n请根据上述问题和建议重新生成代码，确保修复所有提到的问题。");
+        errorInfo.append("\n只修改与上述问题直接相关的文件，保留当前目录结构和已有功能，修复完成后停止。教程、解释、总结都不要输出到项目文件中。");
         return errorInfo.toString();
     }
 }

@@ -116,7 +116,7 @@ public class AiCodeGeneratorServiceFactory {
                                 ToolExecutionResultMessage.from(toolExecutionRequest,
                                         "Error: there is no tool called " + toolExecutionRequest.name())
                         )
-                        .maxSequentialToolsInvocations(codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT ? 80 : codeGenType == CodeGenTypeEnum.BACKEND_PROJECT ? 50 : 20)
+                        .maxSequentialToolsInvocations(codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT ? 32 : codeGenType == CodeGenTypeEnum.BACKEND_PROJECT ? 20 : 10)
                         .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
 //                        .outputGuardrails(new RetryOutputGuardrail()) // 添加输出护轨，为了流式输出，这里不使用
                         .build();

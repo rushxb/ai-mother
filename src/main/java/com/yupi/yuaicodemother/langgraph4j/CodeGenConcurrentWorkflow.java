@@ -76,7 +76,7 @@ public class CodeGenConcurrentWorkflow {
                             Map.of(
                                     "build", "project_builder",
                                     "skip_build", END,
-                                    "fail", "code_generator"
+                                    "repair", "code_generator"
                             ))
                     .addEdge("project_builder", END)
                     .compile();
@@ -132,8 +132,8 @@ public class CodeGenConcurrentWorkflow {
         QualityResult qualityResult = context.getQualityResult();
 
         if (qualityResult == null || !qualityResult.getIsValid()) {
-            log.error("代码质检失败，需要重新生成代码");
-            return "fail";
+            log.warn("代码质检失败，进入局部修复流程");
+            return "repair";
         }
         log.info("代码质检通过，继续后续流程");
         CodeGenTypeEnum generationType = context.getGenerationType();

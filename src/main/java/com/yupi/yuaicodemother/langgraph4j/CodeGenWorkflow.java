@@ -56,7 +56,7 @@ public class CodeGenWorkflow {
                             Map.of(
                                     "build", "project_builder",   // 质检通过且需要构建
                                     "skip_build", END,            // 质检通过但跳过构建
-                                    "fail", "code_generator"      // 质检失败，重新生成
+                                    "repair", "code_generator"    // 质检失败，进入局部修复
                             ))
                     .addEdge("project_builder", END)
 
@@ -235,10 +235,10 @@ public class CodeGenWorkflow {
     private String routeAfterQualityCheck(MessagesState<String> state) {
         WorkflowContext context = WorkflowContext.getContext(state);
         QualityResult qualityResult = context.getQualityResult();
-        // 如果质检失败，重新生成代码
+        // 如果质检失败，进入局部修复流程
         if (qualityResult == null || !qualityResult.getIsValid()) {
-            log.error("代码质检失败，需要重新生成代码");
-            return "fail";
+            log.warn("代码质检失败，进入局部修复流程");
+            return "repair";
         }
         // 质检通过，使用原有的构建路由逻辑
         log.info("代码质检通过，继续后续流程");

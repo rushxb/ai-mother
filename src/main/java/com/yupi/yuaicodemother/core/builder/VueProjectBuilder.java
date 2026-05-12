@@ -105,12 +105,14 @@ public class VueProjectBuilder {
         boolean distExists = isDirectory(new File(projectDir, "dist"));
         boolean dependencyCached = nodeModulesExists
                 && currentSnapshot.dependencyFingerprint().equals(persistedState.dependencyFingerprint());
+        boolean dependencyChanged = !currentSnapshot.dependencyFingerprint().equals(persistedState.dependencyFingerprint());
         boolean criticalUnchanged = currentSnapshot.criticalFingerprint().equals(persistedState.criticalFingerprint());
         boolean presentationUnchanged = currentSnapshot.presentationFingerprint().equals(persistedState.presentationFingerprint());
+        boolean dependencyOnlyChanged = dependencyChanged && criticalUnchanged && presentationUnchanged && distExists;
 
-        log.info("Vue 验证计划：dependencyCached={}, criticalUnchanged={}, presentationUnchanged={}, distExists={}, lightValidate={}, lightBuild={}",
-                dependencyCached, criticalUnchanged, presentationUnchanged, distExists, scripts.supportsLightValidation(),
-                scripts.supportsLightBuild());
+        log.info("Vue 验证计划：dependencyCached={}, dependencyOnlyChanged={}, criticalUnchanged={}, presentationUnchanged={}, distExists={}, lightValidate={}, lightBuild={}",
+                dependencyCached, dependencyOnlyChanged, criticalUnchanged, presentationUnchanged, distExists,
+                scripts.supportsLightValidation(), scripts.supportsLightBuild());
 
         if (dependencyCached && criticalUnchanged && presentationUnchanged && distExists) {
             log.info("依赖和源码均未变化，复用现有 dist: {}", projectPath);
@@ -127,7 +129,8 @@ public class VueProjectBuilder {
 
         boolean useLightBuild = dependencyCached && criticalUnchanged && !presentationUnchanged
                 && distExists && scripts.supportsLightBuild();
-        if (useLightBuild) {
+        boolean useDependencyRefreshBuild = dependencyOnlyChanged && scripts.supportsLightBuild();
+        if (useLightBuild || useDependencyRefreshBuild) {
             CommandResult validateResult = executeLightValidation(projectDir, scripts);
             if (!validateResult.success()) {
                 log.error("轻量校验执行失败：{}", projectPath);
@@ -143,6 +146,10 @@ public class VueProjectBuilder {
                 return BuildResult.distMissing(projectPath, installResult, buildResult);
             }
             persistProjectState(projectDir, currentSnapshot);
+            if (useDependencyRefreshBuild) {
+                log.info("Vue 项目依赖刷新轻量构建成功，dist 目录：{}", projectPath);
+                return BuildResult.dependencyRefreshSuccess(projectPath, installResult, buildResult);
+            }
             log.info("Vue 项目轻量构建成功，dist 目录：{}", projectPath);
             return BuildResult.lightSuccess(projectPath, installResult, buildResult);
         }
@@ -662,6 +669,11 @@ public class VueProjectBuilder {
             return new BuildResult(true, "light-done", projectPath, "轻量构建通过并刷新 dist", installResult, buildResult);
         }
 
+        private static BuildResult dependencyRefreshSuccess(String projectPath, CommandResult installResult,
+                                                            CommandResult buildResult) {
+            return new BuildResult(true, "dependency-refresh", projectPath, "依赖刷新后轻量构建通过", installResult, buildResult);
+        }
+
         private static BuildResult reused(String projectPath, CommandResult installResult,
                                           CommandResult buildResult) {
             return new BuildResult(true, "reuse", projectPath, "依赖和源码未变化，复用现有 dist", installResult, buildResult);
@@ -716,7 +728,7 @@ public class VueProjectBuilder {
         public String validationTier() {
             return switch (stage) {
                 case "reuse" -> "复用";
-                case "light-done", "build-light", "validate-light" -> "轻量";
+                case "light-done", "build-light", "validate-light", "dependency-refresh" -> "轻量";
                 case "done", "build" -> "全量";
                 case "install" -> "安装";
                 case "dist" -> "产物检查";
@@ -736,6 +748,7 @@ public class VueProjectBuilder {
             return switch (stage) {
                 case "reuse" -> "复用现有 dist，跳过安装和构建";
                 case "light-done" -> "跳过安装，执行轻量校验和轻量构建";
+                case "dependency-refresh" -> "依赖刷新后执行轻量校验和轻量构建";
                 case "validate-light" -> "轻量校验失败";
                 case "build-light" -> "轻量构建失败";
                 case "done" -> "执行全量安装和构建";

@@ -17,6 +17,7 @@ import com.yupi.yuaicodemother.orchestration.dag.GenerationDagRunner;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackPointService;
+import com.yupi.yuaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.yupi.yuaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import cn.hutool.core.io.FileUtil;
@@ -247,6 +248,10 @@ class AgentGenerationOrchestratorTest {
                 root.resolve("code_output"),
                 new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
         );
-        return new TemplateAgentNode(bootstrapService);
+        BackendProjectTemplateBootstrapService backendBootstrapService = new BackendProjectTemplateBootstrapService(
+                root.resolve("code_output"),
+                new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+        );
+        return new TemplateAgentNode(bootstrapService, backendBootstrapService);
     }
 }

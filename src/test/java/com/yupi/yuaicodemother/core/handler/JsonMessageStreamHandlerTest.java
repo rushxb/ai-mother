@@ -86,6 +86,27 @@ class JsonMessageStreamHandlerTest {
         assertEquals("export const locale = 'zh-CN'", events.get(2).getData().get("content"));
     }
 
+    @Test
+    void handleGenerationStageShouldNotPersistAsBuildResult() {
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler();
+        ReflectionTestUtils.setField(handler, "toolManager", mock(ToolManager.class));
+        Flux<GenerationStreamEvent> originFlux = Flux.just(GenerationStreamEvent.generationStage("代码生成完成", Map.of(
+                "stage", "codegen_done",
+                "status", "transition",
+                "summary", "代码已生成，后台正在执行构建校验"
+        )));
+        User loginUser = new User();
+        loginUser.setId(1L);
+
+        List<GenerationStreamEvent> events = handler.handle(originFlux, mock(ChatHistoryService.class), 1L, loginUser)
+                .collectList()
+                .block();
+
+        assertEquals(1, events.size());
+        assertEquals(GenerationStreamEvent.GENERATION_STAGE, events.get(0).getType());
+        assertEquals("codegen_done", events.get(0).getData().get("stage"));
+    }
+
     private GenerationStreamEvent toolCall(String requestId, String arguments) {
         return GenerationStreamEvent.toolCall("", Map.of(
                 "toolName", "writeFile",

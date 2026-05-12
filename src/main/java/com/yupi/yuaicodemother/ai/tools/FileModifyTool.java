@@ -9,6 +9,8 @@ import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.artifact.PatchApplyResult;
 import com.yupi.yuaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.yupi.yuaicodemother.orchestration.patch.PatchOperation;
+import com.yupi.yuaicodemother.orchestration.tool.GenerationToolExecutionContext;
+import com.yupi.yuaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
@@ -24,9 +26,12 @@ import java.util.List;
 public class FileModifyTool extends BaseTool {
 
     private final GenerationPatchApplyService generationPatchApplyService;
+    private final GenerationToolExecutionContextService toolExecutionContextService;
 
-    public FileModifyTool(GenerationPatchApplyService generationPatchApplyService) {
+    public FileModifyTool(GenerationPatchApplyService generationPatchApplyService,
+                          GenerationToolExecutionContextService toolExecutionContextService) {
         this.generationPatchApplyService = generationPatchApplyService;
+        this.toolExecutionContextService = toolExecutionContextService;
     }
 
     @Tool("修改文件内容，用新内容替换指定的旧内容")
@@ -48,12 +53,10 @@ public class FileModifyTool extends BaseTool {
             if (!Files.readString(path).contains(oldContent)) {
                 return "警告：文件中未找到要替换的内容，文件未修改 - " + normalizedPath;
             }
-            PatchApplyResult result = generationPatchApplyService.apply(
+            PatchApplyResult result = applyWithGlobalChangePlan(
                     appId,
-                    "tool-modify-file",
                     ToolPathSupport.resolveProjectRoot(appId),
-                    new ChangePlan("v1", "single_file_patch", List.of(), List.of(normalizedPath), List.of(), List.of("workspace"), "review_only", "manual_retry_without_snapshot"),
-                    List.of(PatchOperation.replace(normalizedPath, oldContent, newContent))
+                    PatchOperation.replace(normalizedPath, oldContent, newContent)
             );
             if ("applied".equals(result.status())) {
                 log.info("成功修改文件: {}", path.toAbsolutePath());
@@ -67,6 +70,20 @@ public class FileModifyTool extends BaseTool {
             log.error(errorMessage, e);
             return errorMessage;
         }
+    }
+
+    private PatchApplyResult applyWithGlobalChangePlan(Long appId, Path projectRoot, PatchOperation operation) {
+        GenerationToolExecutionContext context = toolExecutionContextService.getContext(appId).orElse(null);
+        if (context == null) {
+            return PatchApplyResult.skipped(appId, "tool-modify-file", projectRoot.toString(), "change_plan_missing");
+        }
+        if (context.allowsBootstrapWrite()) {
+            return generationPatchApplyService.applyWithoutChangePlan(
+                    appId, context.taskId(), projectRoot, List.of(operation), context.reason()
+            );
+        }
+        ChangePlan changePlan = context.changePlan();
+        return generationPatchApplyService.apply(appId, context.taskId(), projectRoot, changePlan, List.of(operation));
     }
 
     @Override

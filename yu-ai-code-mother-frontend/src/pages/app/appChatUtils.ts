@@ -89,9 +89,13 @@ export const parseBuildResult = (content: string): BuildResultView | undefined =
   }
   const stageMatch = content.match(/阶段：([^\n\r]+)/)
   const summaryMatch = content.match(/摘要：([^\n\r]+)/)
+  const stage = stageMatch?.[1]?.trim() || 'unknown'
+  if (stage === 'codegen_done') {
+    return undefined
+  }
   return {
     status: resultMatch[1] === '成功' ? 'success' : 'failed',
-    stage: stageMatch?.[1]?.trim() || 'unknown',
+    stage,
     summary: summaryMatch?.[1]?.trim() || (resultMatch[1] === '成功' ? '项目构建成功' : '项目构建失败'),
   }
 }
@@ -138,6 +142,7 @@ export const upsertAgentEvent = (targetMessage: ChatMessage, streamEvent: Genera
     taskId: data.taskId ? String(data.taskId) : undefined,
     qualityGate: data.qualityGate ? String(data.qualityGate) : undefined,
     recoverable: Boolean(data.recoverable),
+    artifact: data.artifact && typeof data.artifact === 'object' ? data.artifact : undefined,
   }
   const events = targetMessage.agentEvents ? [...targetMessage.agentEvents] : []
   const existingIndex = events.findIndex((item) => {

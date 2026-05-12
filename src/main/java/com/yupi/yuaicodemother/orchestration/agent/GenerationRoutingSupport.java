@@ -18,6 +18,11 @@ public class GenerationRoutingSupport {
             "build", "构建", "打包", "编译", "测试", "lint", "校验", "发布", "npm", "vite", "工程化", "vue工程"
     );
 
+    private static final List<String> BACKEND_KEYWORDS = List.of(
+            "后端", "服务端", "go后端", "go 后端", "golang", "api服务", "api 服务", "接口服务",
+            "数据库", "sqlite", "sqllite", "sql lite", "登录注册接口", "crud接口", "crud 接口"
+    );
+
     private final GenerationAgentSupport generationAgentSupport;
 
     public GenerationRoutingSupport(GenerationAgentSupport generationAgentSupport) {
@@ -32,8 +37,14 @@ public class GenerationRoutingSupport {
         if (request == null) {
             return CodeGenTypeEnum.HTML;
         }
+        if (containsAny(StrUtil.blankToDefault(request.userMessage(), "").toLowerCase(Locale.ROOT), BACKEND_KEYWORDS)) {
+            return CodeGenTypeEnum.BACKEND_PROJECT;
+        }
         if (!complex && request.currentType() == CodeGenTypeEnum.HTML) {
             return CodeGenTypeEnum.HTML;
+        }
+        if (request.currentType() == CodeGenTypeEnum.BACKEND_PROJECT) {
+            return CodeGenTypeEnum.BACKEND_PROJECT;
         }
         if (request.currentType() == CodeGenTypeEnum.VUE_PROJECT) {
             return CodeGenTypeEnum.VUE_PROJECT;

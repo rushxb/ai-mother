@@ -15,6 +15,7 @@ export interface AgentEventView {
   taskId?: string
   qualityGate?: string
   recoverable?: boolean
+  artifact?: Record<string, any>
 }
 
 export interface ChatMessage {

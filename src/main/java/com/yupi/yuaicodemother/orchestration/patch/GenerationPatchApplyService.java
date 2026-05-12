@@ -94,6 +94,50 @@ public class GenerationPatchApplyService {
         }
     }
 
+    public PatchApplyResult applyWithoutChangePlan(Long appId,
+                                                   String taskId,
+                                                   Path projectRoot,
+                                                   List<PatchOperation> operations,
+                                                   String reason) {
+        Path normalizedRoot = normalizeRoot(projectRoot);
+        String projectPath = pathToString(normalizedRoot);
+        if (normalizedRoot == null || !Files.isDirectory(normalizedRoot)) {
+            return record(PatchApplyResult.skipped(appId, taskId, projectPath, "project_root_missing"));
+        }
+        if (operations == null || operations.isEmpty()) {
+            return record(PatchApplyResult.skipped(appId, taskId, projectPath, "patch_operations_empty"));
+        }
+        try {
+            List<ValidatedOperation> validOperations = new ArrayList<>();
+            for (PatchOperation operation : operations) {
+                String action = operation == null ? "" : operation.action();
+                String normalizedPath = normalizePath(operation == null ? "" : operation.relativePath());
+                if (!SUPPORTED_ACTIONS.contains(action) || StrUtil.isBlank(normalizedPath)) {
+                    return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
+                            List.of(StrUtil.blankToDefault(action, "unknown") + ":" + StrUtil.blankToDefault(normalizedPath, "") + ":unsupported_or_invalid"),
+                            "patch_operation_validation_failed"));
+                }
+                Path targetPath = normalizedRoot.resolve(normalizedPath).toAbsolutePath().normalize();
+                if (!targetPath.startsWith(normalizedRoot)) {
+                    return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
+                            List.of(action + ":" + normalizedPath + ":path_outside_project"), "patch_operation_validation_failed"));
+                }
+                String blocker = validateTarget(action, operation, targetPath);
+                if (StrUtil.isNotBlank(blocker)) {
+                    return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
+                            List.of(action + ":" + normalizedPath + ":" + blocker), "patch_operation_validation_failed"));
+                }
+                validOperations.add(new ValidatedOperation(action, normalizedPath, targetPath, operation));
+            }
+            List<String> appliedFiles = applyValidatedOperations(validOperations);
+            return record(PatchApplyResult.applied(appId, taskId, projectPath, operations.size(), appliedFiles));
+        } catch (Exception e) {
+            log.warn("无计划补丁执行失败，appId: {}, taskId: {}, reason: {}", appId, taskId, reason, e);
+            return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
+                    List.of("executor:" + e.getMessage()), "patch_apply_failed"));
+        }
+    }
+
     public String renderText(PatchApplyResult result) {
         if (result == null) {
             return "补丁执行结果不可用";
@@ -249,7 +293,9 @@ public class GenerationPatchApplyService {
     }
 
     private PatchApplyResult record(PatchApplyResult result) {
-        metricsCollector.recordPatchApply(result.provider(), result.status(), result.reason());
+        if (metricsCollector != null) {
+            metricsCollector.recordPatchApply(result.provider(), result.status(), result.reason());
+        }
         return result;
     }
 

@@ -11,6 +11,7 @@ public enum StreamMessageTypeEnum {
     AI_RESPONSE("ai_response", "AI响应"),
     TOOL_REQUEST("tool_request", "工具请求"),
     TOOL_EXECUTED("tool_executed", "工具执行结果"),
+    GENERATION_STAGE("generation_stage", "生成阶段"),
     BUILD_RESULT("build_result", "构建结果");
 
     private final String value;

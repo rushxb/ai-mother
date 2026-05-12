@@ -5,9 +5,12 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.yupi.yuaicodemother.constant.AppConstant;
+import com.yupi.yuaicodemother.orchestration.artifact.ManualSnapshot;
+import com.yupi.yuaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +29,9 @@ import java.util.List;
 public class SnapshotRollbackTool extends BaseTool {
 
     private static final DateTimeFormatter SNAPSHOT_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
+
+    @Resource
+    private GenerationToolExecutionContextService toolExecutionContextService;
 
     @Tool("创建项目快照、列出快照、回滚到指定快照、删除快照。进行较大范围改动前建议先创建快照。")
     public String manageSnapshot(
@@ -46,7 +52,7 @@ public class SnapshotRollbackTool extends BaseTool {
             Path snapshotRoot = resolveSnapshotRoot(appId);
             Files.createDirectories(snapshotRoot);
             return switch (normalizedAction) {
-                case "createSnapshot" -> createSnapshot(projectPath, snapshotRoot, snapshotName);
+                case "createSnapshot" -> createSnapshot(projectPath, snapshotRoot, snapshotName, appId);
                 case "listSnapshots" -> listSnapshots(snapshotRoot);
                 case "rollbackSnapshot" -> rollbackSnapshot(projectPath, snapshotRoot, snapshotName);
                 case "deleteSnapshot" -> deleteSnapshot(snapshotRoot, snapshotName);
@@ -60,7 +66,7 @@ public class SnapshotRollbackTool extends BaseTool {
         }
     }
 
-    private String createSnapshot(Path projectPath, Path snapshotRoot, String snapshotName) throws Exception {
+    private String createSnapshot(Path projectPath, Path snapshotRoot, String snapshotName, Long appId) throws Exception {
         String normalizedSnapshotName = normalizeSnapshotName(snapshotName);
         Path snapshotPath = snapshotRoot.resolve(normalizedSnapshotName);
         if (Files.exists(snapshotPath)) {
@@ -68,7 +74,24 @@ public class SnapshotRollbackTool extends BaseTool {
         }
         ProjectWorkspaceSupport.copyProject(projectPath, snapshotPath);
         long fileCount = ProjectWorkspaceSupport.listProjectFiles(snapshotPath).size();
-        return "快照创建成功: " + normalizedSnapshotName + "，文件数: " + fileCount;
+        String taskId = toolExecutionContextService == null ? null : toolExecutionContextService.getContext(appId)
+                .map(context -> context.taskId())
+                .orElse(null);
+        ManualSnapshot artifact = new ManualSnapshot(
+                "manual_snapshot",
+                "SnapshotRollbackTool",
+                "created",
+                normalizedSnapshotName,
+                appId,
+                taskId,
+                projectPath.toString(),
+                snapshotPath.toString(),
+                "ai_tool",
+                fileCount,
+                java.time.LocalDateTime.now()
+        );
+        return "快照创建成功: " + normalizedSnapshotName + "，文件数: " + fileCount
+                + "\nartifact: " + cn.hutool.json.JSONUtil.toJsonStr(artifact.toPayload());
     }
 
     private String listSnapshots(Path snapshotRoot) throws Exception {

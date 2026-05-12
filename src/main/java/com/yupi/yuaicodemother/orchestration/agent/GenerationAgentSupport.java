@@ -37,7 +37,7 @@ public class GenerationAgentSupport {
     private static final int MAX_SELECTED_CONTEXT_FILES = 6;
     private static final int MAX_CONTEXT_TOTAL_CHARS = 10000;
     private static final Set<String> INDEXABLE_SOURCE_EXTENSIONS = Set.of(
-            "vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "html", "go", "sql"
+            "vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "html", "java", "xml", "yml", "yaml", "go", "sql"
     );
 
     private final GenerationRecipeLibrary recipeLibrary;
@@ -249,14 +249,22 @@ public class GenerationAgentSupport {
             candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("form", "input", "dialog", "modal", "editor"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
-            candidates.addAll(List.of("backend", "src/api", "src/views", "src/pages"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("database", "sqlite", "backend", "api", "service"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(List.of("cmd/server", "internal", "sql", "go.mod"));
+            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("database", "sqlite", "backend", "api", "service", "handler", "repository"), MAX_SELECTED_CONTEXT_FILES));
         }
 
         if (codeGenTypeEnum == CodeGenTypeEnum.HTML) {
             candidates.add("index.html");
         } else if (codeGenTypeEnum == CodeGenTypeEnum.MULTI_FILE) {
             candidates.addAll(List.of("index.html", "style.css", "script.js"));
+        } else if (codeGenTypeEnum == CodeGenTypeEnum.BACKEND_PROJECT) {
+            candidates.addAll(List.of(
+                    "go.mod",
+                    "cmd/server/main.go",
+                    "internal/config/config.go",
+                    "internal/database/database.go",
+                    "sql/schema.sql"
+            ));
         } else {
             candidates.addAll(List.of(
                     "package.json",
@@ -357,11 +365,11 @@ public class GenerationAgentSupport {
         }
         String normalized = relativePath.replace("\\", "/");
         String extension = FileUtil.extName(relativePath).toLowerCase(Locale.ROOT);
-        if (normalized.startsWith("src/") || normalized.startsWith("public/") || normalized.startsWith("backend/")) {
+        if (normalized.startsWith("src/") || normalized.startsWith("public/") || normalized.startsWith("backend/") || normalized.startsWith("sql/")) {
             return INDEXABLE_SOURCE_EXTENSIONS.contains(extension);
         }
         return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html",
-                "tsconfig.json", "tsconfig.app.json").contains(normalized);
+                "tsconfig.json", "tsconfig.app.json", "go.mod", "go.sum", "README.md").contains(normalized);
     }
 
     private List<Map<String, Object>> collectIndexRecallPayloads(File rootDir,

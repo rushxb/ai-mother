@@ -40,14 +40,17 @@ import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrationResult;
 import com.yupi.yuaicodemother.orchestration.GenerationOrchestrator;
 import com.yupi.yuaicodemother.orchestration.artifact.DiffSummary;
+import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.yupi.yuaicodemother.orchestration.artifact.PatchResult;
 import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
+import com.yupi.yuaicodemother.orchestration.review.OrphanFileReviewService;
 import com.yupi.yuaicodemother.orchestration.patch.GenerationPatchResultService;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.yupi.yuaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
+import com.yupi.yuaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.yupi.yuaicodemother.service.AppService;
 import com.yupi.yuaicodemother.service.AppDatabaseResourceService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
@@ -107,7 +110,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     );
 
     private static final Set<String> EDITABLE_EXTENSIONS = Set.of(
-            "html", "css", "js", "ts", "jsx", "tsx", "vue", "json", "md", "txt", "xml", "svg", "yml", "yaml"
+            "html", "css", "js", "ts", "jsx", "tsx", "vue", "json", "md", "txt", "xml", "svg", "yml", "yaml", "go", "sql", "mod", "sum"
     );
 
     @Value("${code.deploy-host:http://localhost:8088}")
@@ -160,6 +163,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     @Resource
     private GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
+
+    @Resource
+    private GenerationToolExecutionContextService generationToolExecutionContextService;
+
+    @Resource
+    private OrphanFileReviewService orphanFileReviewService;
 
     private final Map<Long, Object> generationLocks = new ConcurrentHashMap<>();
     private final Map<Long, GenerationSession> activeGenerationSessions = new ConcurrentHashMap<>();
@@ -234,6 +243,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         session.emitStopped();
         completeGenerationSession(session, session.preparation(), "cancelled");
         activeGenerationSessions.remove(app.getId(), session);
+        generationToolExecutionContextService.clearContext(app.getId());
     }
 
     @Override
@@ -348,6 +358,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         // 7. Vue 项目特殊处理：执行构建
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
+        if (codeGenTypeEnum == CodeGenTypeEnum.BACKEND_PROJECT) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "后端工程暂不支持静态部署，请下载后本地运行或后续接入容器化部署");
+        }
         if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
             // Vue 项目需要构建
             VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(sourceDirPath);
@@ -534,6 +547,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     session.emitStopped();
                     completeGenerationSession(session, preparation, "cancelled");
                     activeGenerationSessions.remove(appId, session);
+                    generationToolExecutionContextService.clearContext(appId);
                     return;
                 }
                 if (preparation.requiresBuildValidation()) {
@@ -544,6 +558,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     markGenerationFinished(appId);
                     completeGenerationSession(session, preparation, "success");
                     activeGenerationSessions.remove(appId, session);
+                    generationToolExecutionContextService.clearContext(appId);
                 }
             } catch (GenerationStoppedException e) {
                 log.info("应用生成任务已停止，appId: {}", appId);
@@ -551,6 +566,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 session.emitStopped();
                 completeGenerationSession(session, preparation, "cancelled");
                 activeGenerationSessions.remove(appId, session);
+                generationToolExecutionContextService.clearContext(appId);
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
@@ -563,6 +579,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 ));
                 completeGenerationSession(session, preparation, "failed");
                 activeGenerationSessions.remove(appId, session);
+                generationToolExecutionContextService.clearContext(appId);
             } finally {
                 MonitorContextHolder.clearContext();
             }
@@ -605,6 +622,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 markGenerationFinished(appId);
                 completeGenerationSession(session, preparation, session.isCancelled() ? "cancelled" : completionStatus);
                 activeGenerationSessions.remove(appId, session);
+                generationToolExecutionContextService.clearContext(appId);
                 MonitorContextHolder.clearContext();
             }
         });
@@ -844,6 +862,32 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 generationPatchResultService.renderText(patchResult),
                 buildPatchResultEventData(preparation, patchResultArtifact)
         ));
+        emitOrphanFileReviewIfAvailable(appId, preparation, session);
+    }
+
+    private void emitOrphanFileReviewIfAvailable(Long appId,
+                                                 GenerationPreparation preparation,
+                                                 GenerationSession session) {
+        if (session.isCancelled()) {
+            return;
+        }
+        Path projectRoot = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR, preparation.targetType().getValue() + "_" + appId);
+        ChangePlan changePlan = preparation.artifact("change_plan") == null
+                ? null
+                : ChangePlan.fromPayload(preparation.artifact("change_plan").payload());
+        OrphanFileReviewService.OrphanFileReviewResult result = orphanFileReviewService.review(projectRoot, changePlan);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", result.status());
+        payload.put("orphanCandidates", result.orphanCandidates());
+        payload.put("reasons", result.reasons());
+        payload.put("deleteAllowedFiles", result.deleteAllowedFiles());
+        payload.put("summary", result.summary());
+        GenerationArtifact artifact = GenerationArtifact.of("orphan_file_review", "Orchestrator", "旧模板残留审查", payload);
+        preparation.putArtifact(artifact);
+        session.emit(GenerationStreamEvent.agentEvent(
+                result.summary(),
+                buildOrphanReviewEventData(preparation, artifact)
+        ));
     }
 
     private void emitCommitResultIfAvailable(Long appId,
@@ -900,6 +944,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 : "Patch 实际落盘结果存在偏差或已跳过");
         data.put("taskId", preparation.taskId());
         data.put("artifact", patchResult.payload());
+        return data;
+    }
+
+    private Map<String, Object> buildOrphanReviewEventData(GenerationPreparation preparation,
+                                                           GenerationArtifact orphanReview) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "orphan_review");
+        data.put("status", orphanReview.payload().get("status"));
+        data.put("summary", orphanReview.payload().get("summary"));
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", orphanReview.payload());
         return data;
     }
 
@@ -963,10 +1019,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     private void verifyGeneratedProjectReady(Long appId, CodeGenTypeEnum codeGenType) {
+        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenType.getValue() + "_" + appId;
+        if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
+            File projectDir = new File(projectPath);
+            boolean ready = projectDir.isDirectory()
+                    && new File(projectDir, "go.mod").isFile()
+                    && new File(projectDir, "cmd/server/main.go").isFile();
+            ThrowUtils.throwIf(!ready, ErrorCode.SYSTEM_ERROR, "生成结束但未发现有效后端工程，请重试生成");
+            return;
+        }
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
             return;
         }
-        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenType.getValue() + "_" + appId;
         GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
         if (!workspaceState.canAutoRepair()) {
@@ -1053,7 +1117,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private String buildMissingProjectCodeMessage(GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
         return workspaceState.missingProjectSummary()
-                + "。请重试生成；如果持续出现，请检查模型工具调用是否成功写入 package.json、index.html、src/main.* 等文件。";
+                + "。请重试生成；如果持续出现，请检查模型工具调用是否成功写入关键项目文件。";
     }
 
     private String buildAutoRepairPrompt(Exception exception, int repairRound) {
@@ -1143,7 +1207,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                         routingPlan.routingFunction()
                 )
         );
-        return new GenerationPreparation(
+        GenerationPreparation preparation = new GenerationPreparation(
                 orchestrationResult.originalType(),
                 orchestrationResult.targetType(),
                 orchestrationResult.upgradeRequired(),
@@ -1154,6 +1218,27 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 orchestrationResult.qualityGateResult(),
                 orchestrationResult.timings(),
                 orchestrationResult.taskId()
+        );
+        bindToolExecutionContext(intent.app(), preparation);
+        return preparation;
+    }
+
+    private void bindToolExecutionContext(App app, GenerationPreparation preparation) {
+        if (app == null || app.getId() == null || preparation == null) {
+            return;
+        }
+        GenerationArtifact changePlanArtifact = preparation.artifact("change_plan");
+        ChangePlan changePlan = changePlanArtifact == null ? null : ChangePlan.fromPayload(changePlanArtifact.payload());
+        boolean allowUnplannedWrite = changePlan != null && "project_bootstrap".equals(changePlan.changeScope());
+        String generationMode = allowUnplannedWrite ? "full_generation" : "patch_first";
+        generationToolExecutionContextService.bindChangePlan(
+                app.getId(),
+                preparation.taskId(),
+                generationMode,
+                preparation.targetType(),
+                changePlan,
+                allowUnplannedWrite,
+                "orchestration_context"
         );
     }
 
@@ -1447,6 +1532,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 case HTML -> readSingleFileContext(rootDir, "index.html");
                 case MULTI_FILE -> readMultiFileContext(rootDir, List.of("index.html", "style.css", "script.js"));
                 case VUE_PROJECT -> readMultiFileContext(rootDir, List.of("src/App.vue", "src/main.js", "src/main.ts", "index.html"));
+                case BACKEND_PROJECT -> readMultiFileContext(rootDir, List.of("go.mod", "cmd/server/main.go", "internal/config/config.go", "internal/database/database.go", "sql/schema.sql"));
             };
             if (StrUtil.isBlank(projectIndex)) {
                 return keyFiles;
@@ -1499,10 +1585,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (StrUtil.isBlank(relativePath)) {
             return false;
         }
-        if (relativePath.startsWith("src/") || relativePath.startsWith("public/")) {
-            return Set.of("vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md").contains(extension);
+        if (relativePath.startsWith("src/") || relativePath.startsWith("public/") || relativePath.startsWith("cmd/") || relativePath.startsWith("internal/") || relativePath.startsWith("sql/")) {
+            return Set.of("vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "go", "sql").contains(extension);
         }
-        return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html", "tsconfig.json", "tsconfig.app.json")
+        return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html", "tsconfig.json", "tsconfig.app.json", "go.mod", "go.sum", "README.md")
                 .contains(relativePath);
     }
 

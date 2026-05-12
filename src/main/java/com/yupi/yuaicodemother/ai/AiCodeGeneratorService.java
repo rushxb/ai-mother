@@ -60,4 +60,14 @@ public interface AiCodeGeneratorService {
     @SystemMessage(fromResource = "prompt/codegen-vue-project-system-prompt.txt")
     @UserMessage("{{userMessage}}")
     TokenStream generateVueProjectCodeStream(@MemoryId long appId, @V("userMessage") String userMessage);
+
+    /**
+     * 生成后端项目代码（流式）
+     *
+     * @param userMessage 用户提示词
+     * @return AI 的输出结果
+     */
+    @SystemMessage(fromResource = "prompt/codegen-backend-project-system-prompt.txt")
+    @UserMessage("{{userMessage}}")
+    TokenStream generateBackendProjectCodeStream(@MemoryId long appId, @V("userMessage") String userMessage);
 }

@@ -177,7 +177,7 @@ public class JsonMessageStreamHandler {
                 event.setText(output);
                 return event;
             }
-            case GenerationStreamEvent.AGENT_EVENT -> {
+            case GenerationStreamEvent.AGENT_EVENT, GenerationStreamEvent.GENERATION_STAGE -> {
                 return event;
             }
             case GenerationStreamEvent.REPAIR_START, GenerationStreamEvent.GENERATION_ERROR -> {

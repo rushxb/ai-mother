@@ -117,7 +117,11 @@ public class AiCodeGeneratorFacade {
             }
             case VUE_PROJECT -> {
                 TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                yield processTokenStream(tokenStream, appId, cancelChecker, handleConsumer);
+                yield processTokenStream(tokenStream, codeGenTypeEnum, appId, cancelChecker, handleConsumer);
+            }
+            case BACKEND_PROJECT -> {
+                TokenStream tokenStream = aiCodeGeneratorService.generateBackendProjectCodeStream(appId, userMessage);
+                yield processTokenStream(tokenStream, codeGenTypeEnum, appId, cancelChecker, handleConsumer);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -134,6 +138,7 @@ public class AiCodeGeneratorFacade {
      * @return Flux<String> 流式响应
      */
     private Flux<GenerationStreamEvent> processTokenStream(TokenStream tokenStream,
+                                                           CodeGenTypeEnum codeGenType,
                                                            Long appId,
                                                            BooleanSupplier cancelChecker,
                                                            java.util.function.Consumer<ResponseHandle> handleConsumer) {
@@ -179,12 +184,15 @@ public class AiCodeGeneratorFacade {
                         if (sink.isCancelled() || isCancelled(cancelChecker)) {
                             return;
                         }
-                        sink.next(GenerationStreamEvent.buildResult("代码生成完成，后台正在校验项目构建", Map.of(
-                                "success", true,
+                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/" + codeGenType.getValue() + "_" + appId;
+                        String summary = codeGenType == CodeGenTypeEnum.VUE_PROJECT
+                                ? "代码已生成，后台正在执行构建校验"
+                                : "代码已生成";
+                        sink.next(GenerationStreamEvent.generationStage("代码生成完成", Map.of(
+                                "status", "transition",
                                 "stage", "codegen_done",
-                                "projectPath", AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId,
-                                "summary", "代码已生成，后台正在执行构建校验",
-                                "report", "代码已生成，后台正在执行构建校验"
+                                "projectPath", projectPath,
+                                "summary", summary
                         )));
                         sink.complete();
                     })
@@ -192,7 +200,7 @@ public class AiCodeGeneratorFacade {
                         if (sink.isCancelled() || isCancelled(cancelChecker)) {
                             return;
                         }
-                        log.error("Vue 项目流式生成失败，appId: {}", appId, error);
+                        log.error("{} 流式生成失败，appId: {}", codeGenType.getValue(), appId, error);
                         sink.error(error);
                     })
                     ;

@@ -62,11 +62,11 @@ public class ToolManager {
     }
 
     /**
-     * Vue 项目生成阶段使用的轻量工具集。
-     * 生成过程中不暴露构建类工具，避免模型在中途重复触发耗时的 pnpm install / pnpm run build。
+     * 项目生成阶段使用的轻量工具集。
+     * 生成过程中不暴露构建和运行类工具，避免模型在中途重复触发耗时或有副作用的命令。
      */
     public BaseTool[] getToolsForCodeGen(CodeGenTypeEnum codeGenType) {
-        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT) {
             return tools;
         }
         return Arrays.stream(tools)
@@ -74,6 +74,8 @@ public class ToolManager {
                 .filter(tool -> !"runProjectCheck".equals(tool.getToolName()))
                 .filter(tool -> !"manageDevServer".equals(tool.getToolName()))
                 .filter(tool -> !"diagnosePreviewRuntime".equals(tool.getToolName()))
+                .filter(tool -> codeGenType != CodeGenTypeEnum.BACKEND_PROJECT || !"analyzeDependencyIssue".equals(tool.getToolName()))
+                .filter(tool -> codeGenType != CodeGenTypeEnum.BACKEND_PROJECT || !"managePackageJson".equals(tool.getToolName()))
                 .toArray(BaseTool[]::new);
     }
 }

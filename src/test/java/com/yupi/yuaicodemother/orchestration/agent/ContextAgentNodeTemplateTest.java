@@ -31,6 +31,10 @@ class ContextAgentNodeTemplateTest {
                     new com.yupi.yuaicodemother.orchestration.template.VueProjectTemplateBootstrapService(
                             outputRoot,
                             new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                    ),
+                    new com.yupi.yuaicodemother.orchestration.template.BackendProjectTemplateBootstrapService(
+                            outputRoot,
+                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
                     )
             );
             ContextAgentNode contextAgentNode = new ContextAgentNode(support);

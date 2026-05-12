@@ -1018,6 +1018,25 @@ const handleGenerationEvent = (event: MessageEvent) => {
         messages.value[aiMessageIndex].loading = true
         return
       }
+      if (streamEvent.type === 'generation_stage') {
+        const stage = String(streamEvent.data?.stage || 'unknown')
+        if (stage === 'codegen_done') {
+          generationPhase.value = 'build'
+          currentAgentStageText.value = ''
+          if (appInfo.value) {
+            appInfo.value = {
+              ...appInfo.value,
+              isGenerating: 1,
+              generatingStage: 'build',
+              generatingMessage: String(streamEvent.data?.summary || '代码已生成，后台正在执行构建校验'),
+            }
+          }
+          startGenerationPolling()
+          messages.value[aiMessageIndex].generationFailed = false
+          messages.value[aiMessageIndex].loading = true
+        }
+        return
+      }
       if (streamEvent.type === 'build_result') {
         const success = Boolean(streamEvent.data?.success)
         const stage = String(streamEvent.data?.stage || 'unknown')
@@ -1035,6 +1054,7 @@ const handleGenerationEvent = (event: MessageEvent) => {
           startGenerationPolling()
           messages.value[aiMessageIndex].generationFailed = false
           messages.value[aiMessageIndex].loading = true
+          return
         }
         messages.value[aiMessageIndex].buildResult = {
           status: success ? 'success' : 'failed',
@@ -1082,6 +1102,7 @@ const handleGenerationEvent = (event: MessageEvent) => {
     eventSource.addEventListener('tool_call', handleGenerationEvent)
     eventSource.addEventListener('tool_result', handleGenerationEvent)
     eventSource.addEventListener('agent_event', handleGenerationEvent)
+    eventSource.addEventListener('generation_stage', handleGenerationEvent)
     eventSource.addEventListener('build_result', handleGenerationEvent)
     eventSource.addEventListener('repair_start', handleGenerationEvent)
     eventSource.addEventListener('generation_error', handleGenerationEvent)

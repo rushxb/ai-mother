@@ -1,0 +1,11 @@
+{
+  "id": "springboot-backend-basic",
+  "name": "Spring Boot 后端基础模板",
+  "description": "Java 21 + Spring Boot 3 + MyBatis-Flex 的 AI 友好后端工程骨架",
+  "entryFiles": [
+    "pom.xml",
+    "src/main/java/com/example/backendtemplate/BackendTemplateApplication.java",
+    "src/main/resources/application.yml",
+    "sql/create_table.sql"
+  ]
+}

@@ -4,9 +4,11 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.yupi.yuaicodemother.ai.tools.policy.DependencyPolicyService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -20,10 +22,10 @@ import java.nio.file.Path;
 @Slf4j
 @Component
 public class PackageManagerTool extends BaseTool {
-
-    private static final String DEPENDENCIES = "dependencies";
-    private static final String DEV_DEPENDENCIES = "devDependencies";
     private static final String SCRIPTS = "scripts";
+
+    @Resource
+    private DependencyPolicyService dependencyPolicyService;
 
     @Tool("管理 package.json 的依赖和 scripts，支持查看、添加、更新、删除依赖，或修改 scripts；必要时可执行 pnpm install 同步锁文件。")
     public String managePackageJson(
@@ -41,6 +43,8 @@ public class PackageManagerTool extends BaseTool {
             String scriptCommand,
             @P("执行 package.json 修改后是否立即运行 pnpm install，同步 lock 文件")
             Boolean runInstall,
+            @P("依赖新增、更新或删除原因；依赖变更时必填")
+            String reason,
             @ToolMemoryId Long appId
     ) {
         try {
@@ -55,14 +59,14 @@ public class PackageManagerTool extends BaseTool {
                 case "getPackageJson" -> JSONUtil.toJsonPrettyStr(packageJson);
                 case "addDependency", "updateDependency" ->
                         handleUpsertDependency(packageJsonPath, packageJson, normalizedAction, packageName, version,
-                                dependencyType, runInstall);
+                                dependencyType, runInstall, reason);
                 case "removeDependency" ->
                         handleRemoveDependency(packageJsonPath, packageJson, packageName, dependencyType, runInstall);
                 case "setScript" ->
                         handleSetScript(packageJsonPath, packageJson, scriptName, scriptCommand, runInstall);
                 case "removeScript" ->
                         handleRemoveScript(packageJsonPath, packageJson, scriptName, runInstall);
-                case "installDependencies" -> runInstall(packageJsonPath.getParent());
+                case "installDependencies" -> runInstall(packageJsonPath.getParent(), "installDependencies");
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
             };
         } catch (IllegalArgumentException e) {
@@ -74,11 +78,14 @@ public class PackageManagerTool extends BaseTool {
     }
 
     private String handleUpsertDependency(Path packageJsonPath, JSONObject packageJson, String action, String packageName,
-                                          String version, String dependencyType, Boolean runInstall) {
-        if (StrUtil.isBlank(packageName) || StrUtil.isBlank(version)) {
-            return "错误：依赖名称和版本不能为空";
+                                          String version, String dependencyType, Boolean runInstall, String reason) {
+        DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateAddOrUpdate(
+                packageName, version, dependencyType, reason
+        );
+        if (!decision.allowed()) {
+            return "错误：依赖策略拒绝 - " + decision.reason();
         }
-        String sectionName = normalizeDependencyType(dependencyType);
+        String sectionName = dependencyPolicyService.normalizeDependencyType(dependencyType);
         JSONObject section = packageJson.getJSONObject(sectionName);
         if (section == null) {
             section = new JSONObject();
@@ -92,20 +99,31 @@ public class PackageManagerTool extends BaseTool {
                 .append(": ")
                 .append(packageName)
                 .append(" -> ")
-                .append(version);
+                .append(version)
+                .append("\npolicy: ")
+                .append(decision.reason())
+                .append("\npackage: ")
+                .append(packageName)
+                .append("\nversion: ")
+                .append(version)
+                .append("\ndependencyType: ")
+                .append(sectionName)
+                .append("\nreason: ")
+                .append(reason);
         if (StrUtil.isNotBlank(oldVersion)) {
             builder.append("（旧版本: ").append(oldVersion).append("）");
         }
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall);
+        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, action);
         return builder.toString();
     }
 
     private String handleRemoveDependency(Path packageJsonPath, JSONObject packageJson, String packageName,
                                           String dependencyType, Boolean runInstall) {
-        if (StrUtil.isBlank(packageName)) {
-            return "错误：依赖名称不能为空";
+        DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateRemove(packageName, dependencyType);
+        if (!decision.allowed()) {
+            return "错误：依赖策略拒绝 - " + decision.reason();
         }
-        String sectionName = normalizeDependencyType(dependencyType);
+        String sectionName = dependencyPolicyService.normalizeDependencyType(dependencyType);
         JSONObject section = packageJson.getJSONObject(sectionName);
         if (section == null || !section.containsKey(packageName)) {
             return "提示：在 " + sectionName + " 中未找到依赖 - " + packageName;
@@ -113,14 +131,15 @@ public class PackageManagerTool extends BaseTool {
         section.remove(packageName);
         writePackageJson(packageJsonPath, packageJson);
         StringBuilder builder = new StringBuilder("已删除依赖: " + packageName + "（" + sectionName + "）");
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall);
+        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, "removeDependency");
         return builder.toString();
     }
 
     private String handleSetScript(Path packageJsonPath, JSONObject packageJson, String scriptName, String scriptCommand,
                                    Boolean runInstall) {
-        if (StrUtil.isBlank(scriptName) || StrUtil.isBlank(scriptCommand)) {
-            return "错误：脚本名称和脚本命令不能为空";
+        DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateScript(scriptName, scriptCommand);
+        if (!decision.allowed()) {
+            return "错误：依赖策略拒绝 - " + decision.reason();
         }
         JSONObject scripts = packageJson.getJSONObject(SCRIPTS);
         if (scripts == null) {
@@ -135,7 +154,7 @@ public class PackageManagerTool extends BaseTool {
         if (StrUtil.isNotBlank(oldCommand)) {
             builder.append("（旧命令: ").append(oldCommand).append("）");
         }
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall);
+        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, "setScript");
         return builder.toString();
     }
 
@@ -150,33 +169,30 @@ public class PackageManagerTool extends BaseTool {
         scripts.remove(scriptName);
         writePackageJson(packageJsonPath, packageJson);
         StringBuilder builder = new StringBuilder("已删除脚本: " + scriptName);
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall);
+        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, "removeScript");
         return builder.toString();
     }
 
-    private void appendInstallResultIfNeeded(StringBuilder builder, Path projectDir, Boolean runInstall) {
+    private void appendInstallResultIfNeeded(StringBuilder builder, Path projectDir, Boolean runInstall, String actionSource) {
         if (!Boolean.TRUE.equals(runInstall)) {
             return;
         }
-        builder.append("\n\n").append(runInstall(projectDir));
+        builder.append("\n\n").append(runInstall(projectDir, actionSource));
     }
 
-    private String runInstall(Path projectDir) {
+    private String runInstall(Path projectDir, String actionSource) {
+        DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateInstall(actionSource);
+        if (!decision.allowed()) {
+            return "[pnpm install]\n依赖策略拒绝: " + decision.reason();
+        }
         NpmCommandSupport.CommandResult result = NpmCommandSupport.runCommand(
                 projectDir, 300, NpmCommandSupport.pnpmCommand(), "install"
         );
-        return "[pnpm install]\n" + result.toReport();
+        return "[pnpm install]\npolicy: " + decision.reason() + "\n" + result.toReport();
     }
 
     private void writePackageJson(Path packageJsonPath, JSONObject packageJson) {
         FileUtil.writeString(JSONUtil.toJsonPrettyStr(packageJson), packageJsonPath.toFile(), StandardCharsets.UTF_8);
-    }
-
-    private String normalizeDependencyType(String dependencyType) {
-        if (DEV_DEPENDENCIES.equals(dependencyType)) {
-            return DEV_DEPENDENCIES;
-        }
-        return DEPENDENCIES;
     }
 
     @Override

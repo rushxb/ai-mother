@@ -5,6 +5,7 @@ import com.yupi.yuaicodemother.orchestration.artifact.QualityGateResult;
 import com.yupi.yuaicodemother.orchestration.artifact.ChangePlan;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
+import com.yupi.yuaicodemother.orchestration.review.VueSecurityReviewService;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -18,8 +19,15 @@ import java.util.Map;
 @Component
 public class ReviewAgentNode extends BaseGenerationAgentNode {
 
+    private final VueSecurityReviewService vueSecurityReviewService;
+
     public ReviewAgentNode() {
+        this(new VueSecurityReviewService());
+    }
+
+    public ReviewAgentNode(VueSecurityReviewService vueSecurityReviewService) {
         super("review", "Review", "quality", List.of("code"));
+        this.vueSecurityReviewService = vueSecurityReviewService;
     }
 
     @Override
@@ -61,6 +69,12 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         } else {
             passes.add("当前为轻量校验模式，默认跳过 BuildFix");
         }
+        VueSecurityReviewService.SecurityReviewResult securityReviewResult = vueSecurityReviewService.review(prompt);
+        blockers.addAll(securityReviewResult.blockers());
+        warnings.addAll(securityReviewResult.warnings());
+        if (securityReviewResult.passed()) {
+            passes.add("Vue 安全审查未发现阻断项");
+        }
         QualityGateResult gateResult = blockers.isEmpty()
                 ? QualityGateResult.passed(warnings, passes)
                 : QualityGateResult.failed(blockers, warnings, passes);
@@ -76,6 +90,8 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         payload.put("validationMode", validationMode);
         payload.put("generationMode", generationMode);
         payload.put("hasChangePlan", hasChangePlan);
+        payload.put("securityBlockers", securityReviewResult.blockers());
+        payload.put("securityWarnings", securityReviewResult.warnings());
         GenerationArtifact artifact = GenerationArtifact.of("quality_gate", "Review", "质量门禁", payload);
         return AgentNodeResult.of(
                 gateResult.passed() ? "质量门禁通过，允许执行代码生成" : "质量门禁未通过，阻止后续生成",

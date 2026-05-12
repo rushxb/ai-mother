@@ -254,11 +254,9 @@ public class CodeGenWorkflow {
     private String routeBuildOrSkip(MessagesState<String> state) {
         WorkflowContext context = WorkflowContext.getContext(state);
         CodeGenTypeEnum generationType = context.getGenerationType();
-        // HTML 和 MULTI_FILE 类型不需要构建，直接结束
-        if (generationType == CodeGenTypeEnum.HTML || generationType == CodeGenTypeEnum.MULTI_FILE) {
-            return "skip_build";
+        if (generationType == CodeGenTypeEnum.VUE_PROJECT) {
+            return "build";
         }
-        // VUE_PROJECT 需要构建
-        return "build";
+        return "skip_build";
     }
 }

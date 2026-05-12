@@ -123,6 +123,10 @@ public class AiCodeGeneratorFacade {
                 TokenStream tokenStream = aiCodeGeneratorService.generateBackendProjectCodeStream(appId, userMessage);
                 yield processTokenStream(tokenStream, codeGenTypeEnum, appId, cancelChecker, handleConsumer);
             }
+            case FULL_STACK_PROJECT -> {
+                TokenStream tokenStream = aiCodeGeneratorService.generateFullStackProjectCodeStream(appId, userMessage);
+                yield processTokenStream(tokenStream, codeGenTypeEnum, appId, cancelChecker, handleConsumer);
+            }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);

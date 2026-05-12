@@ -105,10 +105,18 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             lines.add(projectContext);
         }
         String templateId = artifactStringValue(context, "template_bootstrap", "templateId", "");
+        if (context.getTargetType() == com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            appendFullStackContext(lines, context);
+        }
         if (StrUtil.isNotBlank(templateId)) {
             lines.add("");
-            lines.add("【模板基线】当前 Vue 工程已基于模板 " + templateId + " 初始化。");
-            lines.add("优先改造模板内的 src/data、src/pages、src/views、src/components 和 src/styles，保留 package.json、vite.config.js、index.html、src/main.js、src/router/index.js 等稳定工程入口。");
+            if (context.getTargetType() == com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum.FULL_STACK_PROJECT) {
+                lines.add("【模板基线】当前全栈工程已基于模板 " + templateId + " 初始化，前端位于 frontend/，Go + SQLite 后端位于 backend/。");
+                lines.add("前端只通过 import.meta.env.VITE_API_BASE_URL 访问后端；后端监听 SERVER_ADDR，容器化仅预留 Dockerfile/docker-compose/.env.example，不自动运行服务。");
+            } else {
+                lines.add("【模板基线】当前 Vue 工程已基于模板 " + templateId + " 初始化。");
+                lines.add("优先改造模板内的 src/data、src/pages、src/views、src/components 和 src/styles，保留 package.json、vite.config.js、index.html、src/main.js、src/router/index.js 等稳定工程入口。");
+            }
         }
         lines.add("");
         lines.add("【执行规范】mode=" + generationMode + ", patchFirst=" + patchFirst
@@ -137,6 +145,21 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             }
         }
         return String.join("\n", lines);
+    }
+
+    private void appendFullStackContext(List<String> lines, GenerationAgentContext context) {
+        lines.add("");
+        lines.add("【全栈共享上下文】");
+        lines.add("workspaceRoot=" + artifactStringValue(context, "full_stack_context", "workspaceRoot", ""));
+        lines.add("frontendPath=" + artifactStringValue(context, "full_stack_context", "frontendPath", "frontend"));
+        lines.add("backendPath=" + artifactStringValue(context, "full_stack_context", "backendPath", "backend"));
+        lines.add("backendBaseUrl=" + artifactStringValue(context, "full_stack_context", "backendBaseUrl", ""));
+        lines.add("apiPrefix=" + artifactStringValue(context, "full_stack_context", "apiPrefix", "/api"));
+        lines.add("frontendEnv=" + artifactStringValue(context, "full_stack_context", "frontendApiEnvName", "VITE_API_BASE_URL")
+                + "=" + artifactStringValue(context, "full_stack_context", "frontendApiEnvValue", ""));
+        lines.add("backendServerAddr=" + artifactStringValue(context, "full_stack_context", "backendServerAddr", ""));
+        lines.add("要求：前端文件路径必须以 frontend/ 开头，后端文件路径必须以 backend/ 开头。");
+        lines.add("要求：前端 API baseURL 只能读取 VITE_API_BASE_URL；后端端口只能读取 SERVER_ADDR。");
     }
 
     @SuppressWarnings("unchecked")

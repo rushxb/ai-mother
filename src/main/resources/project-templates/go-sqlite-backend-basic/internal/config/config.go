@@ -11,7 +11,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		Addr:        envOrDefault("SERVER_ADDR", ":8080"),
+		Addr:        envOrDefault("SERVER_ADDR", ":18000"),
 		DatabaseDSN: envOrDefault("DATABASE_DSN", "data/app.db"),
 	}
 }

@@ -18,6 +18,11 @@ public class GenerationRoutingSupport {
             "build", "构建", "打包", "编译", "测试", "lint", "校验", "发布", "npm", "vite", "工程化", "vue工程"
     );
 
+    private static final List<String> FULL_STACK_KEYWORDS = List.of(
+            "全栈", "前后端", "前端和后端", "前端+后端", "前端 后端", "frontend backend",
+            "前端调用后端", "接口联调", "联调", "完整应用", "完整项目"
+    );
+
     private static final List<String> BACKEND_KEYWORDS = List.of(
             "后端", "服务端", "go后端", "go 后端", "golang", "api服务", "api 服务", "接口服务",
             "数据库", "sqlite", "sqllite", "sql lite", "登录注册接口", "crud接口", "crud 接口"
@@ -37,7 +42,14 @@ public class GenerationRoutingSupport {
         if (request == null) {
             return CodeGenTypeEnum.HTML;
         }
-        if (containsAny(StrUtil.blankToDefault(request.userMessage(), "").toLowerCase(Locale.ROOT), BACKEND_KEYWORDS)) {
+        String normalized = StrUtil.blankToDefault(request.userMessage(), "").toLowerCase(Locale.ROOT);
+        if (request.currentType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            return CodeGenTypeEnum.FULL_STACK_PROJECT;
+        }
+        if (containsAny(normalized, FULL_STACK_KEYWORDS)) {
+            return CodeGenTypeEnum.FULL_STACK_PROJECT;
+        }
+        if (containsAny(normalized, BACKEND_KEYWORDS)) {
             return CodeGenTypeEnum.BACKEND_PROJECT;
         }
         if (!complex && request.currentType() == CodeGenTypeEnum.HTML) {
@@ -71,7 +83,7 @@ public class GenerationRoutingSupport {
         if (containsAny(normalized, BUILD_KEYWORDS)) {
             return true;
         }
-        if (targetType != CodeGenTypeEnum.VUE_PROJECT) {
+        if (targetType != CodeGenTypeEnum.VUE_PROJECT && targetType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return false;
         }
         return !request.hasGeneratedCode()

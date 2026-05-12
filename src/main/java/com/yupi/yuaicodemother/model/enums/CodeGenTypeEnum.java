@@ -12,7 +12,8 @@ public enum CodeGenTypeEnum {
     HTML("原生 HTML 模式", "html", 1),
     MULTI_FILE("原生多文件模式", "multi_file", 2),
     VUE_PROJECT("Vue 工程模式", "vue_project", 3),
-    BACKEND_PROJECT("后端工程模式", "backend_project", 4);
+    BACKEND_PROJECT("后端工程模式", "backend_project", 4),
+    FULL_STACK_PROJECT("全栈工程模式", "full_stack_project", 5);
 
     private final String text;
     private final String value;

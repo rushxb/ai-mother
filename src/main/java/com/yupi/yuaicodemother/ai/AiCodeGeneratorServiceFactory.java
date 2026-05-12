@@ -102,8 +102,8 @@ public class AiCodeGeneratorServiceFactory {
         // 从数据库中加载对话历史到记忆中
         chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, 20);
         return switch (codeGenType) {
-            // Vue 和后端项目生成，使用工具调用和推理模型
-            case VUE_PROJECT, BACKEND_PROJECT -> {
+            // Vue、后端和全栈项目生成，使用工具调用和推理模型
+            case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> {
                 // 使用多例模式的 StreamingChatModel 解决并发问题
                 StreamingChatModel reasoningStreamingChatModel = applicationContext.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
                 yield AiServices.builder(AiCodeGeneratorService.class)
@@ -116,7 +116,7 @@ public class AiCodeGeneratorServiceFactory {
                                 ToolExecutionResultMessage.from(toolExecutionRequest,
                                         "Error: there is no tool called " + toolExecutionRequest.name())
                         )
-                        .maxSequentialToolsInvocations(codeGenType == CodeGenTypeEnum.BACKEND_PROJECT ? 50 : 20)
+                        .maxSequentialToolsInvocations(codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT ? 80 : codeGenType == CodeGenTypeEnum.BACKEND_PROJECT ? 50 : 20)
                         .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
 //                        .outputGuardrails(new RetryOutputGuardrail()) // 添加输出护轨，为了流式输出，这里不使用
                         .build();

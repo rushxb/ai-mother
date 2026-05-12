@@ -43,7 +43,15 @@ public class BackendProjectTemplateBootstrapService {
         if (appId == null || appId <= 0) {
             return BootstrapResult.skipped("", "", "invalid_app_id");
         }
-        Path targetRoot = resolveProjectRoot(appId);
+        return bootstrapIfNecessary(resolveProjectRoot(appId));
+    }
+
+    public BootstrapResult bootstrapIfNecessary(Path targetRoot) {
+        if (targetRoot == null) {
+            return BootstrapResult.skipped("", "", "invalid_target_root");
+        }
+        targetRoot = targetRoot.toAbsolutePath().normalize();
+        ensureChildOf(codeOutputRoot, targetRoot);
         if (Files.exists(targetRoot)) {
             return BootstrapResult.skipped("", targetRoot.toString(), "workspace_exists");
         }
@@ -51,10 +59,10 @@ public class BackendProjectTemplateBootstrapService {
             Files.createDirectories(targetRoot);
             int fileCount = copyTemplate(targetRoot);
             BootstrapResult result = BootstrapResult.created(TEMPLATE_ID, targetRoot.toString(), fileCount);
-            log.info("已复制后端项目模板，appId: {}, templateId: {}, fileCount: {}", appId, TEMPLATE_ID, fileCount);
+            log.info("已复制后端项目模板，targetRoot: {}, templateId: {}, fileCount: {}", targetRoot, TEMPLATE_ID, fileCount);
             return result;
         } catch (Exception e) {
-            log.warn("复制后端项目模板失败，appId: {}, templateId: {}", appId, TEMPLATE_ID, e);
+            log.warn("复制后端项目模板失败，targetRoot: {}, templateId: {}", targetRoot, TEMPLATE_ID, e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "初始化后端项目模板失败：" + e.getMessage());
         }
     }

@@ -46,13 +46,18 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         List<Map<String, Object>> indexHits = patchFirst
                 ? support.collectIndexRecallPayloads(app, userMessage, 3)
                 : List.of();
-        List<String> goals = List.of(
+        List<String> goals = new java.util.ArrayList<>(List.of(
                 "保留现有项目能力并尽量复用结构",
                 complex ? "按模块拆分生成任务，允许并行处理" : "采用单模块增量生成策略",
                 requiresBuild ? "生成后必须经过 Review 与 BuildFix 门禁" : "生成后经过 Review 门禁，默认跳过构建修复链路",
                 matchedRecipes.isEmpty() ? "未匹配到专项 recipe，按通用生成策略执行" : "套用匹配的 recipe 作为最小实现边界",
                 matchedSkills.isEmpty() ? "未匹配到专项 skill，按通用生成策略执行" : "套用匹配的 skill 作为实现约束"
-        );
+        ));
+        if (context.getTargetType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            goals.add("全栈项目必须共享平台分配的前后端端口与 API 地址上下文");
+            goals.add("前端必须通过 VITE_API_BASE_URL 调用后端，不硬编码 localhost 端口");
+            goals.add("容器化部署本期只预留配置和上下文，不自动启动用户生成的后端服务");
+        }
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("complex", complex);
         payload.put("targetType", context.getTargetType().getValue());

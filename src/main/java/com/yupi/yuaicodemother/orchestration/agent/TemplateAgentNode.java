@@ -5,10 +5,14 @@ import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.yupi.yuaicodemother.orchestration.artifact.GenerationArtifact;
 import com.yupi.yuaicodemother.orchestration.dag.AgentNodeResult;
 import com.yupi.yuaicodemother.orchestration.dag.GenerationAgentContext;
+import com.yupi.yuaicodemother.orchestration.fullstack.FullStackGenerationContext;
+import com.yupi.yuaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.yupi.yuaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.yupi.yuaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -17,12 +21,15 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
 
     private final VueProjectTemplateBootstrapService vueTemplateBootstrapService;
     private final BackendProjectTemplateBootstrapService backendTemplateBootstrapService;
+    private final FullStackPortAllocator fullStackPortAllocator;
 
     public TemplateAgentNode(VueProjectTemplateBootstrapService vueTemplateBootstrapService,
-                             BackendProjectTemplateBootstrapService backendTemplateBootstrapService) {
+                             BackendProjectTemplateBootstrapService backendTemplateBootstrapService,
+                             FullStackPortAllocator fullStackPortAllocator) {
         super("template", "Template", "template", List.of("planner"));
         this.vueTemplateBootstrapService = vueTemplateBootstrapService;
         this.backendTemplateBootstrapService = backendTemplateBootstrapService;
+        this.fullStackPortAllocator = fullStackPortAllocator;
     }
 
     @Override
@@ -46,7 +53,44 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
                     ? "已复制后端项目模板：" + result.templateId()
                     : "跳过后端项目模板复制：" + result.reason());
         }
+        if (targetType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            return bootstrapFullStackProject(context, app);
+        }
         return skipped("无需复制项目模板", targetType, "unsupported_template_type");
+    }
+
+    private AgentNodeResult bootstrapFullStackProject(GenerationAgentContext context, App app) {
+        FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(app.getId());
+        Path workspaceRoot = Path.of(fullStackContext.workspaceRoot());
+        VueProjectTemplateBootstrapService.BootstrapResult frontendResult =
+                vueTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("frontend"), context.getRequest().userMessage());
+        BackendProjectTemplateBootstrapService.BootstrapResult backendResult =
+                backendTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("backend"));
+        Map<String, Object> payload = new LinkedHashMap<>(fullStackContext.toPayload());
+        payload.put("bootstrapped", frontendResult.bootstrapped() || backendResult.bootstrapped());
+        payload.put("templateId", frontendResult.templateId() + "+" + backendResult.templateId());
+        payload.put("frontendTemplateId", frontendResult.templateId());
+        payload.put("backendTemplateId", backendResult.templateId());
+        payload.put("projectPath", fullStackContext.workspaceRoot());
+        payload.put("fileCount", frontendResult.fileCount() + backendResult.fileCount());
+        payload.put("reason", frontendResult.reason().isBlank() ? backendResult.reason() : frontendResult.reason());
+        GenerationArtifact contextArtifact = GenerationArtifact.of(
+                "full_stack_context",
+                "Template",
+                "全栈上下文",
+                fullStackContext.toPayload()
+        );
+        GenerationArtifact templateArtifact = GenerationArtifact.of(
+                "template_bootstrap",
+                "Template",
+                "全栈项目模板",
+                payload
+        );
+        return AgentNodeResult.of(
+                "已准备全栈项目模板与端口上下文",
+                List.of(templateArtifact, contextArtifact),
+                payload
+        );
     }
 
     private AgentNodeResult skipped(String summary, CodeGenTypeEnum targetType, String reason) {

@@ -66,7 +66,9 @@ public class ToolManager {
      * 生成过程中不暴露构建和运行类工具，避免模型在中途重复触发耗时或有副作用的命令。
      */
     public BaseTool[] getToolsForCodeGen(CodeGenTypeEnum codeGenType) {
-        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT) {
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT
+                && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT
+                && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return tools;
         }
         return Arrays.stream(tools)

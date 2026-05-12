@@ -361,6 +361,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (codeGenTypeEnum == CodeGenTypeEnum.BACKEND_PROJECT) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "后端工程暂不支持静态部署，请下载后本地运行或后续接入容器化部署");
         }
+        if (codeGenTypeEnum == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "全栈工程已预留容器化部署上下文，暂不支持静态部署或自动启动后端服务");
+        }
         if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
             // Vue 项目需要构建
             VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(sourceDirPath);
@@ -632,7 +635,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                                                      User loginUser,
                                                      GenerationPreparation preparation,
                                                      GenerationSession session) {
-        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + CodeGenTypeEnum.VUE_PROJECT.getValue() + "_" + appId;
+        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
+                + preparation.targetType().getValue() + "_" + appId
+                + (preparation.targetType() == CodeGenTypeEnum.FULL_STACK_PROJECT ? File.separator + "frontend" : "");
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
         GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
@@ -1026,6 +1031,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     && new File(projectDir, "go.mod").isFile()
                     && new File(projectDir, "cmd/server/main.go").isFile();
             ThrowUtils.throwIf(!ready, ErrorCode.SYSTEM_ERROR, "生成结束但未发现有效后端工程，请重试生成");
+            return;
+        }
+        if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            File projectDir = new File(projectPath);
+            boolean ready = projectDir.isDirectory()
+                    && new File(projectDir, "frontend/package.json").isFile()
+                    && new File(projectDir, "backend/go.mod").isFile()
+                    && new File(projectDir, "backend/cmd/server/main.go").isFile();
+            ThrowUtils.throwIf(!ready, ErrorCode.SYSTEM_ERROR, "生成结束但未发现有效全栈工程，请重试生成");
             return;
         }
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
@@ -1533,6 +1547,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 case MULTI_FILE -> readMultiFileContext(rootDir, List.of("index.html", "style.css", "script.js"));
                 case VUE_PROJECT -> readMultiFileContext(rootDir, List.of("src/App.vue", "src/main.js", "src/main.ts", "index.html"));
                 case BACKEND_PROJECT -> readMultiFileContext(rootDir, List.of("go.mod", "cmd/server/main.go", "internal/config/config.go", "internal/database/database.go", "sql/schema.sql"));
+                case FULL_STACK_PROJECT -> readMultiFileContext(rootDir, List.of("frontend/package.json", "frontend/src/services/request.ts", "frontend/src/App.vue", "backend/go.mod", "backend/cmd/server/main.go", "backend/internal/config/config.go", "backend/sql/schema.sql", ".env.example"));
             };
             if (StrUtil.isBlank(projectIndex)) {
                 return keyFiles;
@@ -1585,10 +1600,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (StrUtil.isBlank(relativePath)) {
             return false;
         }
-        if (relativePath.startsWith("src/") || relativePath.startsWith("public/") || relativePath.startsWith("cmd/") || relativePath.startsWith("internal/") || relativePath.startsWith("sql/")) {
-            return Set.of("vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "go", "sql").contains(extension);
+        if (relativePath.startsWith("src/") || relativePath.startsWith("public/") || relativePath.startsWith("cmd/") || relativePath.startsWith("internal/") || relativePath.startsWith("sql/") || relativePath.startsWith("frontend/") || relativePath.startsWith("backend/")) {
+            return Set.of("vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "go", "sql", "mod", "sum", "yml", "yaml").contains(extension);
         }
-        return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html", "tsconfig.json", "tsconfig.app.json", "go.mod", "go.sum", "README.md")
+        return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html", "tsconfig.json", "tsconfig.app.json", "go.mod", "go.sum", "README.md", "docker-compose.yml", ".env.example")
                 .contains(relativePath);
     }
 
@@ -1658,7 +1673,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
 
         private boolean requiresBuildValidation() {
-            if (targetType != CodeGenTypeEnum.VUE_PROJECT) {
+            if (targetType != CodeGenTypeEnum.VUE_PROJECT && targetType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
                 return false;
             }
             GenerationArtifact generationSpec = artifacts == null ? null : artifacts.get("generation_spec");
@@ -1690,10 +1705,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private void rebuildIfVueProject(App app, File rootDir) {
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
-        if (codeGenTypeEnum != CodeGenTypeEnum.VUE_PROJECT) {
+        if (codeGenTypeEnum != CodeGenTypeEnum.VUE_PROJECT && codeGenTypeEnum != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return;
         }
-        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(rootDir.getAbsolutePath());
+        File buildRoot = codeGenTypeEnum == CodeGenTypeEnum.FULL_STACK_PROJECT ? new File(rootDir, "frontend") : rootDir;
+        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(buildRoot.getAbsolutePath());
         ThrowUtils.throwIf(!buildResult.success(), ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary());
     }
 

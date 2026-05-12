@@ -81,7 +81,7 @@ public class GenerationAgentSupport {
         return containsAny(normalized,
                 "vue", "组件", "路由", "router", "模块", "后台", "管理系统", "登录", "注册",
                 "api", "接口", "状态管理", "pinia", "图表", "表单", "多页面", "工作台", "dashboard",
-                "crud", "搜索", "分页", "database", "数据库", "sqlite", "后端", "backend");
+                "crud", "搜索", "分页", "database", "数据库", "sqlite", "后端", "backend", "全栈", "前后端");
     }
 
     public List<String> inferModules(String userMessage, String projectContext) {
@@ -265,6 +265,17 @@ public class GenerationAgentSupport {
                     "internal/database/database.go",
                     "sql/schema.sql"
             ));
+        } else if (codeGenTypeEnum == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            candidates.addAll(List.of(
+                    "frontend/package.json",
+                    "frontend/src/services/request.ts",
+                    "frontend/src/App.vue",
+                    "backend/go.mod",
+                    "backend/cmd/server/main.go",
+                    "backend/internal/config/config.go",
+                    "backend/sql/schema.sql",
+                    ".env.example"
+            ));
         } else {
             candidates.addAll(List.of(
                     "package.json",
@@ -365,7 +376,7 @@ public class GenerationAgentSupport {
         }
         String normalized = relativePath.replace("\\", "/");
         String extension = FileUtil.extName(relativePath).toLowerCase(Locale.ROOT);
-        if (normalized.startsWith("src/") || normalized.startsWith("public/") || normalized.startsWith("backend/") || normalized.startsWith("sql/")) {
+        if (normalized.startsWith("src/") || normalized.startsWith("public/") || normalized.startsWith("cmd/") || normalized.startsWith("internal/") || normalized.startsWith("backend/") || normalized.startsWith("frontend/") || normalized.startsWith("sql/")) {
             return INDEXABLE_SOURCE_EXTENSIONS.contains(extension);
         }
         return Set.of("package.json", "vite.config.js", "vite.config.ts", "index.html",

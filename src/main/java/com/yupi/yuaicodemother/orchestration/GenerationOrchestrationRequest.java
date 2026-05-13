@@ -16,6 +16,7 @@ public record GenerationOrchestrationRequest(
         String generatingStage,
         boolean hasGeneratedCode,
         Supplier<String> projectContextSupplier,
-        Function<String, CodeGenTypeEnum> routingFunction
+        Function<String, CodeGenTypeEnum> routingFunction,
+        String memoryContext
 ) {
 }

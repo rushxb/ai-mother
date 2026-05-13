@@ -54,7 +54,10 @@ import com.yupi.yuaicodemother.orchestration.tool.GenerationToolExecutionContext
 import com.yupi.yuaicodemother.service.AppService;
 import com.yupi.yuaicodemother.service.AppDatabaseResourceService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
+import com.yupi.yuaicodemother.service.GenerationMemoryContextService;
+import com.yupi.yuaicodemother.service.GenerationTraceService;
 import com.yupi.yuaicodemother.service.ScreenshotService;
+import com.yupi.yuaicodemother.service.UserCreditService;
 import com.yupi.yuaicodemother.service.UserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -120,10 +123,19 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private UserService userService;
 
     @Resource
+    private UserCreditService userCreditService;
+
+    @Resource
     private AiCodeGeneratorFacade aiCodeGeneratorFacade;
 
     @Resource
     private ChatHistoryService chatHistoryService;
+
+    @Resource
+    private GenerationTraceService generationTraceService;
+
+    @Resource
+    private GenerationMemoryContextService generationMemoryContextService;
 
     @Resource
     private StreamHandlerExecutor streamHandlerExecutor;
@@ -178,6 +190,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
         App app = getGenerationApp(appId, loginUser);
+        userService.ensureHasCredit(loginUser.getId());
         enableDatabaseForGenerationIfNeeded(app, message);
         GenerationPreparation preparation = prepareGeneration(app, message);
         GenerationSession session = openGenerationSession(appId, message, loginUser, preparation);
@@ -214,12 +227,25 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             ThrowUtils.throwIf(activeGenerationSessions.containsKey(appId), ErrorCode.OPERATION_ERROR, "当前应用正在生成中，请稍后再试");
             resetResidualGenerationState(this.getById(appId));
             chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+            generationTraceService.startTask(
+                    preparation.taskId(),
+                    appId,
+                    loginUser.getId(),
+                    preparation.originalType(),
+                    preparation.targetType(),
+                    message,
+                    preparation.enhancedMessage(),
+                    preparation.requiresBuildValidation(),
+                    preparation.qualityGateLevel(),
+                    orchestrationMode(preparation)
+            );
             if (preparation.upgradeRequired()) {
                 switchAppCodeGenType(appId, preparation.targetType());
             }
             markGenerationStarted(appId, preparation.generatingStage());
             updateGenerationPhase(appId, AppConstant.GENERATING_STAGE_AGENT, "智能体正在分析需求并规划生成策略...");
             session = new GenerationSession(preparation);
+            session.bindTraceContext(generationTraceService, appId, loginUser.getId());
             activeGenerationSessions.put(appId, session);
         }
         return session;
@@ -556,12 +582,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 if (preparation.requiresBuildValidation()) {
                     startBackgroundBuild(appId, loginUser, preparation, session);
                 } else {
-                    emitDiffSummaryIfAvailable(appId, preparation, session);
-                    emitCommitResultIfAvailable(appId, preparation, session);
-                    markGenerationFinished(appId);
-                    completeGenerationSession(session, preparation, "success");
-                    activeGenerationSessions.remove(appId, session);
-                    generationToolExecutionContextService.clearContext(appId);
+                    startBackgroundFinalization(appId, loginUser, preparation, session);
                 }
             } catch (GenerationStoppedException e) {
                 log.info("应用生成任务已停止，appId: {}", appId);
@@ -614,6 +635,43 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             } catch (Exception e) {
                 completionStatus = "failed";
                 log.error("后台构建校验失败，appId: {}", appId, e);
+                GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
+                emitRollbackRestoreIfAllowed(appId, preparation, session);
+                rollbackCodeGenTypeIfNeeded(appId, preparation);
+                session.emit(GenerationStreamEvent.generationError(
+                        generationError.message(),
+                        buildGenerationErrorData(preparation, generationError)
+                ));
+            } finally {
+                markGenerationFinished(appId);
+                completeGenerationSession(session, preparation, session.isCancelled() ? "cancelled" : completionStatus);
+                activeGenerationSessions.remove(appId, session);
+                generationToolExecutionContextService.clearContext(appId);
+                MonitorContextHolder.clearContext();
+            }
+        });
+    }
+
+    private void startBackgroundFinalization(Long appId,
+                                             User loginUser,
+                                             GenerationPreparation preparation,
+                                             GenerationSession session) {
+        markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "代码已生成，正在后台整理生成结果...");
+        Thread.startVirtualThread(() -> {
+            MonitorContextHolder.setContext(
+                    MonitorContext.builder()
+                            .userId(loginUser.getId().toString())
+                            .appId(appId.toString())
+                            .taskId(preparation.taskId())
+                            .build()
+            );
+            String completionStatus = "success";
+            try {
+                emitDiffSummaryIfAvailable(appId, preparation, session);
+                emitCommitResultIfAvailable(appId, preparation, session);
+            } catch (Exception e) {
+                completionStatus = "failed";
+                log.error("后台整理生成结果失败，appId: {}", appId, e);
                 GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(e);
                 emitRollbackRestoreIfAllowed(appId, preparation, session);
                 rollbackCodeGenTypeIfNeeded(appId, preparation);
@@ -698,7 +756,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                         appId,
                         loginUser,
                         preparation.targetType(),
-                        buildAutoRepairPrompt(new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()), round),
+                        buildAutoRepairPrompt(
+                                appId,
+                                preparation,
+                                new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()),
+                                round
+                        ),
                         session,
                         generatedContent,
                         lastSnapshotUpdateAt
@@ -782,7 +845,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 if (round >= maxGenerationRepairRounds) {
                     break;
                 }
-                currentPrompt = buildAutoRepairPrompt(e, round + 1);
+                currentPrompt = buildAutoRepairPrompt(appId, preparation, e, round + 1);
             }
         }
         throw new BusinessException(ErrorCode.SYSTEM_ERROR,
@@ -1134,12 +1197,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 + "。请重试生成；如果持续出现，请检查模型工具调用是否成功写入关键项目文件。";
     }
 
-    private String buildAutoRepairPrompt(Exception exception, int repairRound) {
+    private String buildAutoRepairPrompt(Long appId,
+                                         GenerationPreparation preparation,
+                                         Exception exception,
+                                         int repairRound) {
         String errorMessage = StrUtil.blankToDefault(exception.getMessage(), "构建失败");
+        String memoryContext = generationMemoryContextService.buildAutoRepairMemoryContext(
+                appId,
+                preparation == null ? null : preparation.taskId(),
+                errorMessage,
+                repairRound
+        );
+        String memorySection = StrUtil.isBlank(memoryContext) ? "" : "\n" + memoryContext + "\n";
         return """
                 【自动修复任务】
                 上一次 Vue 项目生成后未通过本地构建。请基于当前项目文件直接修复，不要重建整个项目。
-
+                %s
                 修复轮次：%d
                 错误分类：%s
                 错误摘要：
@@ -1150,7 +1223,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 2. 如果涉及依赖、scripts 或 package.json，先使用依赖问题分析工具，再用依赖与脚本管理工具处理。
                 3. 只修改必要文件，避免无关重构。
                 4. 修复后必须调用本地构建诊断工具验证。
-                """.formatted(repairRound, classifyGenerationError(errorMessage).category(), errorMessage);
+                """.formatted(memorySection, repairRound, classifyGenerationError(errorMessage).category(), errorMessage);
     }
 
     private GenerationErrorClassifier.GenerationError classifyGenerationError(Throwable throwable) {
@@ -1210,6 +1283,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     private GenerationPreparation buildGenerationPreparation(GenerationIntent intent, GenerationRoutingPlan routingPlan) {
+        CodeGenTypeEnum targetType = routingPlan.routingFunction().apply(intent.generationMessage());
+        String memoryContext = generationMemoryContextService.buildGenerationMemoryContext(
+                intent.app(),
+                intent.generationMessage(),
+                targetType
+        );
         GenerationOrchestrationResult orchestrationResult = generationOrchestrator.prepare(
                 new GenerationOrchestrationRequest(
                         intent.app(),
@@ -1218,7 +1297,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                         intent.generatingStage(),
                         intent.hasGeneratedCode(),
                         routingPlan.contextAssembly().projectContextSupplier(),
-                        routingPlan.routingFunction()
+                        routingPlan.routingFunction(),
+                        memoryContext
                 )
         );
         GenerationPreparation preparation = new GenerationPreparation(
@@ -1311,6 +1391,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         updateApp.setGeneratingMessage(generatingMessage);
         updateApp.setGeneratingStage(generatingStage);
         this.updateById(updateApp);
+        GenerationSession session = activeGenerationSessions.get(appId);
+        if (session != null && session.preparation() != null) {
+            generationTraceService.updateStage(session.preparation().taskId(), generatingStage, generatingMessage);
+        }
     }
 
     private void updateGenerationPhase(Long appId, String generatingStage, String generatingMessage) {
@@ -1352,7 +1436,46 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             return;
         }
         recordUserWaitMetric(session, preparation, status);
+        generationTraceService.updateMemorySummary(preparation.taskId(), buildMemorySummary(preparation, status));
+        generationTraceService.completeTask(preparation.taskId(), status, session.startedAt(), null);
+        userCreditService.chargeGenerationTask(preparation.taskId());
         session.complete();
+    }
+
+    private String buildMemorySummary(GenerationPreparation preparation, String status) {
+        if (preparation == null) {
+            return "";
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add("任务状态：" + StrUtil.blankToDefault(status, "unknown"));
+        lines.add("生成类型：" + (preparation.targetType() == null ? "unknown" : preparation.targetType().getValue())
+                + "，阶段：" + StrUtil.blankToDefault(preparation.generatingStage(), "unknown")
+                + "，构建校验：" + preparation.requiresBuildValidation());
+        GenerationArtifact changePlan = preparation.artifact("change_plan");
+        if (changePlan != null) {
+            lines.add("变更计划：" + compactMemoryText(String.valueOf(changePlan.payload()), 900));
+        }
+        GenerationArtifact diffSummary = preparation.artifact("diff_summary");
+        if (diffSummary != null) {
+            lines.add("实际变更：" + compactMemoryText(String.valueOf(diffSummary.payload()), 900));
+        }
+        GenerationArtifact patchResult = preparation.artifact("patch_result");
+        if (patchResult != null) {
+            lines.add("Patch 结果：" + compactMemoryText(String.valueOf(patchResult.payload()), 700));
+        }
+        if (preparation.qualityGateResult() != null) {
+            lines.add("质量门禁：passed=" + preparation.qualityGateResult().passed()
+                    + ", blockers=" + compactMemoryText(String.valueOf(preparation.qualityGateResult().blockers()), 500));
+        }
+        return compactMemoryText(String.join("\n", lines), 5000);
+    }
+
+    private String compactMemoryText(String value, int maxLength) {
+        if (StrUtil.isBlank(value)) {
+            return "";
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
     }
 
     private void recordUserWaitMetric(GenerationSession session,
@@ -1752,7 +1875,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         private final Instant startedAt = Instant.now();
         private final AtomicBoolean cancelled = new AtomicBoolean(false);
         private final AtomicBoolean completed = new AtomicBoolean(false);
+        private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
         private final AtomicReference<dev.langchain4j.model.openai.internal.ResponseHandle> responseHandleRef = new AtomicReference<>();
+        private Long appId;
+        private Long userId;
 
         private GenerationSession(GenerationPreparation preparation) {
             this.preparation = preparation;
@@ -1766,6 +1892,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             return preparation;
         }
 
+        private void bindTraceContext(GenerationTraceService generationTraceService, Long appId, Long userId) {
+            this.traceServiceRef.set(generationTraceService);
+            this.appId = appId;
+            this.userId = userId;
+        }
+
         private boolean tryMarkCompleted() {
             return completed.compareAndSet(false, true);
         }
@@ -1777,6 +1909,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         private void emit(GenerationStreamEvent event) {
             if (completed.get()) {
                 return;
+            }
+            GenerationTraceService generationTraceService = traceServiceRef.get();
+            if (generationTraceService != null && preparation != null) {
+                generationTraceService.recordEvent(preparation.taskId(), appId, userId, event);
+            } else {
+                log.warn("生成事件未写入 trace，原因: traceService={}, preparation={}, eventType={}",
+                        generationTraceService != null, preparation != null, event == null ? null : event.getType());
             }
             sink.tryEmitNext(event);
         }

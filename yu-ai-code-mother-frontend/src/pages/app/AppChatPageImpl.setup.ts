@@ -1,4 +1,5 @@
 import { defineComponent, ref, onMounted, nextTick, onUnmounted, computed } from 'vue'
+import dayjs from 'dayjs'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import hljs from 'highlight.js'
@@ -94,6 +95,7 @@ const lastCreateTime = ref<string>()
 const historyLoaded = ref(false)
 const refreshingGenerationState = ref(false)
 const lastGenerationPrompt = ref('')
+const editingMessageIndex = ref<number | null>(null)
 
 let generationPollingTimer: ReturnType<typeof window.setInterval> | null = null
 let activeEventSource: EventSource | null = null
@@ -459,6 +461,7 @@ const syncGeneratingMessageFromAppInfo = () => {
       content: generatingMessage,
       loading: true,
       thinkingCollapsed: true,
+      createTime: getCurrentMessageTime(),
     }
     decorateMessageWithBuildResult(restoredMessage)
     messages.value.push(restoredMessage)
@@ -545,6 +548,18 @@ const refreshAfterGeneration = async () => {
 
 const retryLastGeneration = async () => {
   if (!lastGenerationPrompt.value || isGenerating.value || !isOwner.value) {
+    return
+  }
+  const latestAiIndex = (() => {
+    for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+      if (messages.value[index].type === 'ai') {
+        return index
+      }
+    }
+    return -1
+  })()
+  if (latestAiIndex >= 0) {
+    await regenerateAiMessage(latestAiIndex)
     return
   }
   userInput.value = lastGenerationPrompt.value
@@ -792,29 +807,42 @@ const fetchAppInfo = async () => {
   }
 }
 
-// 发送初始消息
-const sendInitialMessage = async (prompt: string) => {
-  stopGenerationPolling()
-  // 添加用户消息
-  messages.value.push({
-    type: 'user',
-    content: prompt,
-  })
+const getCurrentMessageTime = () => dayjs().format('YYYY-MM-DD HH:mm:ss')
 
-  // 添加AI消息占位符
-  const aiMessageIndex = messages.value.length
-  messages.value.push({
-    type: 'ai',
-    content: '',
-    loading: true,
-    thinkingActive: true,
-    thinkingCollapsed: false,
-  })
+const formatMessageTime = (time?: string) => {
+  if (!time) {
+    return ''
+  }
+  const targetTime = dayjs(time)
+  if (!targetTime.isValid()) {
+    return ''
+  }
+  const hour = targetTime.hour()
+  const period = hour < 6 ? '凌晨' : hour < 12 ? '上午' : hour < 18 ? '下午' : '晚上'
+  const clockText = targetTime.format('HH:mm')
+  if (targetTime.isSame(dayjs(), 'day')) {
+    return `今天${period}${clockText}`
+  }
+  if (targetTime.isSame(dayjs().subtract(1, 'day'), 'day')) {
+    return `昨天${period}${clockText}`
+  }
+  return targetTime.format('YYYY-MM-DD HH:mm')
+}
 
-  await nextTick()
-  scrollToBottom('smooth')
+const clearMessagesAfter = (index: number) => {
+  messages.value.splice(index + 1)
+}
 
-  // 开始生成
+const createLoadingAiMessage = (): ChatMessage => ({
+  type: 'ai',
+  content: '',
+  loading: true,
+  thinkingActive: true,
+  thinkingCollapsed: false,
+  createTime: getCurrentMessageTime(),
+})
+
+const prepareGenerationState = (stage: 'create' | 'update') => {
   isGenerating.value = true
   generationPhase.value = 'codegen'
   activeWorkspaceTab.value = 'files'
@@ -826,10 +854,34 @@ const sendInitialMessage = async (prompt: string) => {
       ...appInfo.value,
       isGenerating: 1,
       generatingMessage: '',
-      generatingStage: 'create',
+      generatingStage: stage,
     }
   }
+}
+
+const startGenerationFromMessage = async (
+  prompt: string,
+  aiMessageIndex: number,
+  stage: 'create' | 'update',
+) => {
+  await nextTick()
+  scrollToBottom('smooth')
+  prepareGenerationState(stage)
   await generateCode(prompt, aiMessageIndex)
+}
+
+// 发送初始消息
+const sendInitialMessage = async (prompt: string) => {
+  stopGenerationPolling()
+  messages.value.push({
+    type: 'user',
+    content: prompt,
+    createTime: getCurrentMessageTime(),
+  })
+
+  const aiMessageIndex = messages.value.length
+  messages.value.push(createLoadingAiMessage())
+  await startGenerationFromMessage(prompt, aiMessageIndex, 'create')
 }
 
 // 发送消息
@@ -856,11 +908,26 @@ const sendMessage = async (presetMessage?: string) => {
   if (!presetMessage) {
     userInput.value = ''
   }
-  // 添加用户消息（包含元素信息）
-  messages.value.push({
-    type: 'user',
-    content: message,
-  })
+
+  const editingIndex = presetMessage ? null : editingMessageIndex.value
+  let aiMessageIndex: number
+  if (editingIndex !== null && messages.value[editingIndex]?.type === 'user') {
+    messages.value[editingIndex] = {
+      type: 'user',
+      content: message,
+      createTime: getCurrentMessageTime(),
+    }
+    clearMessagesAfter(editingIndex)
+    aiMessageIndex = messages.value.length
+  } else {
+    messages.value.push({
+      type: 'user',
+      content: message,
+      createTime: getCurrentMessageTime(),
+    })
+    aiMessageIndex = messages.value.length
+  }
+  editingMessageIndex.value = null
 
   // 发送消息后，清除选中元素并退出编辑模式
   if (selectedElementInfo.value) {
@@ -871,34 +938,46 @@ const sendMessage = async (presetMessage?: string) => {
   }
 
   // 添加AI消息占位符
+  messages.value.push(createLoadingAiMessage())
+  await startGenerationFromMessage(message, aiMessageIndex, 'update')
+}
+
+const editUserMessage = (index: number) => {
+  const targetMessage = messages.value[index]
+  if (!targetMessage || targetMessage.type !== 'user' || isGenerating.value || !isOwner.value) {
+    return
+  }
+  editingMessageIndex.value = index
+  userInput.value = targetMessage.content
+  message.info('已回填到输入框，发送后将清空该节点后的对话')
+}
+
+const regenerateAiMessage = async (index: number) => {
+  const targetMessage = messages.value[index]
+  if (!targetMessage || targetMessage.type !== 'ai' || isGenerating.value || !isOwner.value) {
+    return
+  }
+  const previousUserMessage = [...messages.value]
+    .slice(0, index)
+    .reverse()
+    .find((currentMessage) => currentMessage.type === 'user')
+  if (!previousUserMessage?.content.trim()) {
+    message.warning('未找到可重新生成的用户消息')
+    return
+  }
+  stopGenerationPolling()
+  messages.value.splice(index)
   const aiMessageIndex = messages.value.length
-  messages.value.push({
-    type: 'ai',
-    content: '',
-    loading: true,
-    thinkingActive: true,
-    thinkingCollapsed: false,
-  })
+  messages.value.push(createLoadingAiMessage())
+  await startGenerationFromMessage(previousUserMessage.content, aiMessageIndex, 'update')
+}
 
-  await nextTick()
-  scrollToBottom('smooth')
-
-  // 开始生成
-  isGenerating.value = true
-  generationPhase.value = 'codegen'
-  activeWorkspaceTab.value = 'files'
-  if (!fileTreeData.value.length) {
-    void loadCodeFiles()
+const toggleAiFeedback = (index: number, feedback: 'like' | 'dislike') => {
+  const targetMessage = messages.value[index]
+  if (!targetMessage || targetMessage.type !== 'ai') {
+    return
   }
-  if (appInfo.value) {
-    appInfo.value = {
-      ...appInfo.value,
-      isGenerating: 1,
-      generatingMessage: '',
-      generatingStage: 'update',
-    }
-  }
-  await generateCode(message, aiMessageIndex)
+  targetMessage.feedback = targetMessage.feedback === feedback ? undefined : feedback
 }
 
 const handleDatabaseEnabled = async (resource: API.AppDatabaseResourceVO) => {
@@ -1034,6 +1113,7 @@ const handleGenerationEvent = (event: MessageEvent) => {
           startGenerationPolling()
           messages.value[aiMessageIndex].generationFailed = false
           messages.value[aiMessageIndex].loading = true
+          void showGeneratedResultBeforeValidation()
         }
         return
       }
@@ -1054,6 +1134,7 @@ const handleGenerationEvent = (event: MessageEvent) => {
           startGenerationPolling()
           messages.value[aiMessageIndex].generationFailed = false
           messages.value[aiMessageIndex].loading = true
+          void showGeneratedResultBeforeValidation()
           return
         }
         messages.value[aiMessageIndex].buildResult = {
@@ -1138,28 +1219,30 @@ const handleGenerationEvent = (event: MessageEvent) => {
         messages.value[aiMessageIndex].thinkingActive = false
         messages.value[aiMessageIndex].thinkingCollapsed = true
       }
+      if (messages.value[aiMessageIndex]) {
+        messages.value[aiMessageIndex].createTime = getCurrentMessageTime()
+      }
       eventSource?.close()
       if (activeEventSource === eventSource) {
         activeEventSource = null
       }
 
-      // 延迟更新预览，确保后端已完成处理
       setTimeout(async () => {
         await fetchAppInfo()
         if (appInfo.value?.isGenerating) {
           isGenerating.value = true
           startGenerationPolling()
           syncGeneratingMessageFromAppInfo()
+          if (!messages.value[aiMessageIndex]?.generationFailed) {
+            await showGeneratedResultBeforeValidation()
+          }
           return
         }
         if (!messages.value[aiMessageIndex]?.generationFailed) {
           generationPhase.value = 'done'
-          updatePreview()
-          activeWorkspaceTab.value = 'preview'
+          await showGeneratedResultBeforeValidation()
         }
-        await loadCodeFiles()
-        stopStreamingFilePreview(true)
-      }, 1000)
+      }, 300)
     })
 
     // 处理business-error事件（后端限流等错误）
@@ -1273,6 +1356,13 @@ const updatePreview = () => {
     previewUrl.value = newPreviewUrl
     previewReady.value = true
   }
+}
+
+const showGeneratedResultBeforeValidation = async () => {
+  updatePreview()
+  activeWorkspaceTab.value = 'preview'
+  await loadCodeFiles()
+  stopStreamingFilePreview(true)
 }
 
 const expandDirectoriesForFilePath = (filePath: string) => {
@@ -1928,12 +2018,14 @@ onUnmounted(() => {
     downloadCode,
     downloading,
     editApp,
+    editUserMessage,
     editorStatusText,
     expandedFileTreeKeys,
     fileContent,
     fileTreeData,
     formatCodeGenType,
     formatDuration,
+    formatMessageTime,
     generationStageDescription,
     generationStatusText,
     generationStepIndex,
@@ -1978,6 +2070,7 @@ onUnmounted(() => {
     optimizeUserPrompt,
     previewRefreshKey,
     previewUrl,
+    regenerateAiMessage,
     retryLastGeneration,
     saveAppName,
     saveCurrentFile,
@@ -1996,6 +2089,7 @@ onUnmounted(() => {
     syncCodeEditorScroll,
     syncDeployment,
     syncingDeploy,
+    toggleAiFeedback,
     toggleEditMode,
     updateAppNameDraft,
     userInput,

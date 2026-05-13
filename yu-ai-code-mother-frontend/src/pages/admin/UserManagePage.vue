@@ -59,18 +59,43 @@
             {{ dayjs(record.createTime).format('YYYY-MM-DD HH:mm:ss') }}
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-popconfirm title="确定要删除这个用户吗？" @confirm="doDelete(record.id)">
-              <a-button danger ghost class="action-button">删除</a-button>
-            </a-popconfirm>
+            <a-space>
+              <a-button ghost class="action-button" @click="openCreditModal(record)">积分</a-button>
+              <a-popconfirm title="确定要删除这个用户吗？" @confirm="doDelete(record.id)">
+                <a-button danger ghost class="action-button">删除</a-button>
+              </a-popconfirm>
+            </a-space>
           </template>
         </template>
       </a-table>
     </a-card>
+
+    <a-modal
+      v-model:open="creditModalVisible"
+      title="调整用户积分"
+      :confirm-loading="adjustingCredit"
+      @ok="submitCreditAdjust"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="用户">
+          <a-input :value="selectedCreditUser?.userName || selectedCreditUser?.userAccount" disabled />
+        </a-form-item>
+        <a-form-item label="当前积分">
+          <a-input :value="selectedCreditUser?.creditBalance ?? 0" disabled />
+        </a-form-item>
+        <a-form-item label="积分变动">
+          <a-input-number v-model:value="creditForm.changeAmount" :precision="0" class="credit-input" placeholder="正数增加，负数扣减" />
+        </a-form-item>
+        <a-form-item label="调整原因">
+          <a-textarea v-model:value="creditForm.remark" :rows="3" placeholder="请输入调整原因" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { deleteUser, listUserVoByPage } from '@/api/userController.ts'
+import { adjustUserCredit, deleteUser, listUserVoByPage } from '@/api/userController.ts'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
@@ -92,6 +117,11 @@ const columns = [
     width: 120,
   },
   {
+    title: '积分余额',
+    dataIndex: 'creditBalance',
+    width: 120,
+  },
+  {
     title: '创建时间',
     dataIndex: 'createTime',
     width: 180,
@@ -106,6 +136,13 @@ const columns = [
 // 展示的数据
 const data = ref<API.UserVO[]>([])
 const total = ref(0)
+const creditModalVisible = ref(false)
+const adjustingCredit = ref(false)
+const selectedCreditUser = ref<API.UserVO>()
+const creditForm = reactive<API.UserCreditAdjustRequest>({
+  changeAmount: undefined,
+  remark: '',
+})
 const getUserAvatar = (userAvatar?: string) => userAvatar || DEFAULT_USER_AVATAR
 
 // 搜索条件
@@ -159,6 +196,42 @@ const resetSearch = () => {
   searchParams.userName = undefined
   searchParams.pageNum = 1
   fetchData()
+}
+
+const openCreditModal = (record: API.UserVO) => {
+  selectedCreditUser.value = record
+  creditForm.userId = record.id
+  creditForm.changeAmount = undefined
+  creditForm.remark = ''
+  creditModalVisible.value = true
+}
+
+const submitCreditAdjust = async () => {
+  if (!creditForm.userId || !creditForm.changeAmount) {
+    message.warning('请输入积分变动')
+    return
+  }
+  if (!creditForm.remark?.trim()) {
+    message.warning('请输入调整原因')
+    return
+  }
+  adjustingCredit.value = true
+  try {
+    const res = await adjustUserCredit({
+      userId: creditForm.userId,
+      changeAmount: creditForm.changeAmount,
+      remark: creditForm.remark.trim(),
+    })
+    if (res.data.code === 0) {
+      message.success('积分调整成功')
+      creditModalVisible.value = false
+      fetchData()
+    } else {
+      message.error('积分调整失败，' + res.data.message)
+    }
+  } finally {
+    adjustingCredit.value = false
+  }
 }
 
 // 删除数据
@@ -348,6 +421,14 @@ onMounted(() => {
 :deep(.ant-input),
 :deep(.ant-select-selector),
 :deep(.ant-btn) {
+  border-radius: 999px !important;
+}
+
+.credit-input {
+  width: 100%;
+}
+
+:deep(.ant-input-number) {
   border-radius: 999px !important;
 }
 

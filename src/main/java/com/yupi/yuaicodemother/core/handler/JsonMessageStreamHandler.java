@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -103,6 +104,7 @@ public class JsonMessageStreamHandler {
                         log.warn("收到未注册的工具请求: {}", toolName);
                         String output = String.format("\n\n[选择工具] %s（未注册工具）\n\n", toolName);
                         return GenerationStreamEvent.toolCall(output, buildToolEventData(
+                                toolId,
                                 toolName,
                                 false,
                                 arguments,
@@ -112,6 +114,7 @@ public class JsonMessageStreamHandler {
                     // 返回格式化的工具调用信息
                     String output = tool.generateToolRequestResponse();
                     return GenerationStreamEvent.toolCall(output, buildToolEventData(
+                            toolId,
                             toolName,
                             true,
                             arguments,
@@ -120,6 +123,7 @@ public class JsonMessageStreamHandler {
                 } else {
                     // 同一个工具调用的后续增量参数继续透传，供前端做更贴近 SSE 的文件预览
                     return GenerationStreamEvent.toolCall("", buildToolEventData(
+                            toolId,
                             toolName,
                             registered,
                             arguments,
@@ -143,6 +147,7 @@ public class JsonMessageStreamHandler {
                     String output = String.format("\n\n%s\n\n", fallbackResult);
                     chatHistoryStringBuilder.append(output);
                     return GenerationStreamEvent.toolResult(output, Map.of(
+                            "requestId", StrUtil.blankToDefault(toolId, ""),
                             "toolName", toolName,
                             "registered", false,
                             "result", StrUtil.blankToDefault(event.getText(), "")
@@ -153,6 +158,7 @@ public class JsonMessageStreamHandler {
                 String output = String.format("\n\n%s\n\n", result);
                 chatHistoryStringBuilder.append(output);
                 return GenerationStreamEvent.toolResult(output, buildToolEventData(
+                        toolId,
                         toolName,
                         true,
                         arguments,
@@ -191,8 +197,9 @@ public class JsonMessageStreamHandler {
         }
     }
 
-    private Map<String, Object> buildToolEventData(String toolName, boolean registered, String arguments, String result) {
-        Map<String, Object> data = new java.util.HashMap<>();
+    private Map<String, Object> buildToolEventData(String requestId, String toolName, boolean registered, String arguments, String result) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("requestId", StrUtil.blankToDefault(requestId, ""));
         data.put("toolName", toolName);
         data.put("registered", registered);
         data.put("arguments", StrUtil.blankToDefault(arguments, ""));

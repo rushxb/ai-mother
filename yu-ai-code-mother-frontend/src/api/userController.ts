@@ -14,6 +14,21 @@ export async function addUser(body: API.UserAddRequest, options?: { [key: string
   })
 }
 
+/** 管理员调整用户积分 POST /user/credit/adjust */
+export async function adjustUserCredit(
+  body: API.UserCreditAdjustRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/user/credit/adjust', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 POST /user/delete */
 export async function deleteUser(body: API.DeleteRequest, options?: { [key: string]: any }) {
   return request<API.BaseResponseBoolean>('/user/delete', {

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn *)",
+      "Bash(npm run *)",
+      "Bash(../mvnw *)",
+      "PowerShell(mvn *)",
+      "PowerShell(& \"D:\\\\java项目\\\\ai-code-mother\\\\mvnw.cmd\" -q -DskipTests compile)",
+      "PowerShell(& \"D:\\\\java项目\\\\ai-code-mother\\\\mvnw.cmd\" -q -f \"D:\\\\java项目\\\\ai-code-mother\\\\pom.xml\" -DskipTests compile)",
+      "PowerShell($root = \\(Resolve-Path \"..\\\\\"\\).Path; & \"$root\\\\mvnw.cmd\" -q -f \"$root\\\\pom.xml\" -DskipTests compile)",
+      "PowerShell($root = \\(Resolve-Path \"..\\\\\"\\).ProviderPath; & \"$root\\\\mvnw.cmd\" -q -f \"$root\\\\pom.xml\" -DskipTests compile)",
+      "PowerShell(& \"..\\\\mvnw.cmd\" -q -f \"..\\\\pom.xml\" -DskipTests compile)",
+      "PowerShell(java *)"
+    ]
+  }
+}

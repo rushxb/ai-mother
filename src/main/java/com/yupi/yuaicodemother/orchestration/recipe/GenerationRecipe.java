@@ -16,6 +16,8 @@ public record GenerationRecipe(
         List<String> contextFileHints,
         List<String> implementationSteps,
         List<String> validationHints,
+        List<Map<String, String>> templateFiles,
+        List<String> aiFillSlots,
         boolean databaseRequired
 ) {
 
@@ -25,6 +27,8 @@ public record GenerationRecipe(
         contextFileHints = contextFileHints == null ? List.of() : List.copyOf(contextFileHints);
         implementationSteps = implementationSteps == null ? List.of() : List.copyOf(implementationSteps);
         validationHints = validationHints == null ? List.of() : List.copyOf(validationHints);
+        templateFiles = templateFiles == null ? List.of() : List.copyOf(templateFiles);
+        aiFillSlots = aiFillSlots == null ? List.of() : List.copyOf(aiFillSlots);
     }
 
     public Map<String, Object> toPayload() {
@@ -36,6 +40,8 @@ public record GenerationRecipe(
         payload.put("contextFileHints", contextFileHints);
         payload.put("implementationSteps", implementationSteps);
         payload.put("validationHints", validationHints);
+        payload.put("templateFiles", templateFiles);
+        payload.put("aiFillSlots", aiFillSlots);
         payload.put("databaseRequired", databaseRequired);
         return payload;
     }

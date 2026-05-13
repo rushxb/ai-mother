@@ -21,125 +21,183 @@
           class="message-item"
           :class="`message-item-${message.type}`"
       >
-        <div v-if="message.type === 'user'" class="user-message">
-          <div class="message-content">{{ message.content }}</div>
+        <div v-if="message.type === 'user'" class="message-row message-row-user">
+          <div class="message-body message-body-user">
+            <div class="message-content">{{ message.content }}</div>
+            <div class="message-actions message-actions-user">
+              <ChatToolbarButton
+                  size="small"
+                  type="text"
+                  class="message-action-button"
+                  :disabled="isGenerating || !isOwner"
+                  @click="$emit('editUserMessage', index)"
+              >
+                <template #icon>
+                  <EditOutlined />
+                </template>
+                编辑
+              </ChatToolbarButton>
+              <span v-if="message.createTime" class="message-time">{{ formatMessageTime(message.createTime) }}</span>
+            </div>
+          </div>
           <div class="message-avatar">
             <a-avatar :src="loginUserAvatar" />
           </div>
         </div>
-        <div v-else class="ai-message">
+        <div v-else class="message-row message-row-ai">
           <div class="message-avatar">
             <a-avatar :src="aiAvatar" />
           </div>
-          <div class="message-content">
-            <div
-                v-if="message.thinkingContent"
-                class="thinking-block"
-                :class="{ collapsed: message.thinkingCollapsed }"
-            >
-              <button
-                  type="button"
-                  class="thinking-header"
-                  @click="message.thinkingCollapsed = !message.thinkingCollapsed"
-              >
-                <span class="thinking-status">
-                  <span
-                      class="thinking-dot"
-                      :class="{ active: message.thinkingActive && !message.thinkingCollapsed }"
-                  ></span>
-                  {{ message.thinkingActive ? 'AI 正在思考' : '已完成思考' }}
-                </span>
-                <DownOutlined class="thinking-toggle" />
-              </button>
-              <div v-show="!message.thinkingCollapsed" class="thinking-content">
-                {{ message.thinkingContent }}
-              </div>
-            </div>
-            <template v-if="message.content">
-              <template
-                  v-for="(segment, segmentIndex) in getAiMessageSegments(message)"
-                  :key="`${index}-${segmentIndex}`"
-              >
-                <MarkdownRenderer
-                    v-if="segment.type === 'markdown'"
-                    :content="segment.content"
-                />
-                <button
-                    v-else
-                    type="button"
-                    class="tool-call-file-card"
-                    :class="{ active: isToolCallFileActive(segment.filePath) }"
-                    @click="$emit('openToolCallFile', segment.filePath)"
-                >
-                  <span
-                      class="file-type-icon"
-                      :class="`file-type-icon-${getToolCallFileIcon(segment.filePath).type}`"
-                  >
-                    {{ getToolCallFileIcon(segment.filePath).label }}
-                  </span>
-                  <span class="tool-call-file-main">
-                    <span class="tool-call-file-label">{{ segment.label }}</span>
-                    <span class="tool-call-file-path">{{ segment.filePath }}</span>
-                  </span>
-                  <span class="tool-call-file-action">查看文件</span>
-                </button>
-              </template>
-            </template>
-            <div v-if="message.agentEvents?.length" class="agent-timeline">
+          <div class="message-body message-body-ai">
+            <div class="message-content">
               <div
-                  v-for="agentEvent in message.agentEvents"
-                  :key="`${agentEvent.dagNode || agentEvent.stage}-${agentEvent.agent}-${agentEvent.status}`"
-                  class="agent-timeline-item"
-                  :class="`agent-timeline-item-${agentEvent.status}`"
+                  v-if="message.thinkingContent"
+                  class="thinking-block"
+                  :class="{ collapsed: message.thinkingCollapsed }"
               >
-                <span class="agent-timeline-dot"></span>
-                <div class="agent-timeline-copy">
-                  <div class="agent-timeline-title">
-                    <strong>{{ agentEvent.agent }}</strong>
-                    <span v-if="agentEvent.dagNode" class="agent-node-chip">{{ agentEvent.dagNode }}</span>
-                    <span v-if="agentEvent.durationMs" class="agent-duration">{{ formatDuration(agentEvent.durationMs) }}</span>
-                  </div>
-                  <span>{{ agentEvent.summary }}</span>
-                  <div v-if="agentEvent.qualityGate || agentEvent.recoverable" class="agent-timeline-meta">
-                    <span v-if="agentEvent.qualityGate">门禁：{{ agentEvent.qualityGate }}</span>
-                    <span v-if="agentEvent.recoverable">可恢复</span>
+                <button
+                    type="button"
+                    class="thinking-header"
+                    @click="message.thinkingCollapsed = !message.thinkingCollapsed"
+                >
+                  <span class="thinking-status">
+                    <span
+                        class="thinking-dot"
+                        :class="{ active: message.thinkingActive && !message.thinkingCollapsed }"
+                    ></span>
+                    {{ message.thinkingActive ? 'AI 正在思考' : '已完成思考' }}
+                  </span>
+                  <DownOutlined class="thinking-toggle" />
+                </button>
+                <div v-show="!message.thinkingCollapsed" class="thinking-content">
+                  {{ message.thinkingContent }}
+                </div>
+              </div>
+              <template v-if="message.content">
+                <template
+                    v-for="(segment, segmentIndex) in getAiMessageSegments(message)"
+                    :key="`${index}-${segmentIndex}`"
+                >
+                  <MarkdownRenderer
+                      v-if="segment.type === 'markdown'"
+                      :content="segment.content"
+                  />
+                  <button
+                      v-else
+                      type="button"
+                      class="tool-call-file-card"
+                      :class="{ active: isToolCallFileActive(segment.filePath) }"
+                      @click="$emit('openToolCallFile', segment.filePath)"
+                  >
+                    <span
+                        class="file-type-icon"
+                        :class="`file-type-icon-${getToolCallFileIcon(segment.filePath).type}`"
+                    >
+                      {{ getToolCallFileIcon(segment.filePath).label }}
+                    </span>
+                    <span class="tool-call-file-main">
+                      <span class="tool-call-file-label">{{ segment.label }}</span>
+                      <span class="tool-call-file-path">{{ segment.filePath }}</span>
+                    </span>
+                    <span class="tool-call-file-action">查看文件</span>
+                  </button>
+                </template>
+              </template>
+              <div v-if="message.agentEvents?.length" class="agent-timeline">
+                <div
+                    v-for="agentEvent in message.agentEvents"
+                    :key="`${agentEvent.dagNode || agentEvent.stage}-${agentEvent.agent}-${agentEvent.status}`"
+                    class="agent-timeline-item"
+                    :class="`agent-timeline-item-${agentEvent.status}`"
+                >
+                  <span class="agent-timeline-dot"></span>
+                  <div class="agent-timeline-copy">
+                    <div class="agent-timeline-title">
+                      <strong>{{ agentEvent.agent }}</strong>
+                      <span v-if="agentEvent.dagNode" class="agent-node-chip">{{ agentEvent.dagNode }}</span>
+                      <span v-if="agentEvent.durationMs" class="agent-duration">{{ formatDuration(agentEvent.durationMs) }}</span>
+                    </div>
+                    <span>{{ agentEvent.summary }}</span>
+                    <div v-if="agentEvent.qualityGate || agentEvent.recoverable" class="agent-timeline-meta">
+                      <span v-if="agentEvent.qualityGate">门禁：{{ agentEvent.qualityGate }}</span>
+                      <span v-if="agentEvent.recoverable">可恢复</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            <div
-                v-if="message.buildResult"
-                class="build-result-card"
-                :class="`build-result-${message.buildResult.status}`"
-            >
-              <div class="build-result-main">
-                <CheckCircleOutlined v-if="message.buildResult.status === 'success'" />
-                <CloseCircleOutlined v-else />
-                <div class="build-result-copy">
-                  <strong>{{ message.buildResult.status === 'success' ? '构建通过' : '构建失败' }}</strong>
-                  <span>{{ message.buildResult.summary }}</span>
+              <div
+                  v-if="message.buildResult"
+                  class="build-result-card"
+                  :class="`build-result-${message.buildResult.status}`"
+              >
+                <div class="build-result-main">
+                  <CheckCircleOutlined v-if="message.buildResult.status === 'success'" />
+                  <CloseCircleOutlined v-else />
+                  <div class="build-result-copy">
+                    <strong>{{ message.buildResult.status === 'success' ? '构建通过' : '构建失败' }}</strong>
+                    <span>{{ message.buildResult.summary }}</span>
+                  </div>
                 </div>
+                <a-tag class="build-stage-tag" :color="message.buildResult.status === 'success' ? 'success' : 'error'">
+                  {{ message.buildResult.stage }}
+                </a-tag>
               </div>
-              <a-tag class="build-stage-tag" :color="message.buildResult.status === 'success' ? 'success' : 'error'">
-                {{ message.buildResult.stage }}
-              </a-tag>
+              <div v-if="message.generationFailed && isOwner" class="message-retry-row">
+                <ChatToolbarButton
+                    size="small"
+                    type="text"
+                    class="message-retry-button"
+                    @click="$emit('retryLastGeneration')"
+                >
+                  <template #icon>
+                    <RedoOutlined />
+                  </template>
+                  重试本轮生成
+                </ChatToolbarButton>
+              </div>
+              <div v-if="message.loading" class="loading-indicator">
+                <a-spin size="small" />
+                <span>AI 正在思考...</span>
+              </div>
             </div>
-            <div v-if="message.generationFailed && isOwner" class="message-retry-row">
+            <div class="message-actions message-actions-ai">
               <ChatToolbarButton
                   size="small"
                   type="text"
-                  class="message-retry-button"
-                  @click="$emit('retryLastGeneration')"
+                  class="message-action-button"
+                  :disabled="isGenerating || !isOwner"
+                  @click="$emit('regenerateAiMessage', index)"
               >
                 <template #icon>
                   <RedoOutlined />
                 </template>
-                重试本轮生成
+                重新生成
               </ChatToolbarButton>
-            </div>
-            <div v-if="message.loading" class="loading-indicator">
-              <a-spin size="small" />
-              <span>AI 正在思考...</span>
+              <ChatToolbarButton
+                  size="small"
+                  type="text"
+                  class="message-action-button"
+                  :class="{ active: message.feedback === 'like' }"
+                  @click="$emit('toggleAiFeedback', index, 'like')"
+              >
+                <template #icon>
+                  <LikeOutlined />
+                </template>
+                喜欢
+              </ChatToolbarButton>
+              <ChatToolbarButton
+                  size="small"
+                  type="text"
+                  class="message-action-button"
+                  :class="{ active: message.feedback === 'dislike' }"
+                  @click="$emit('toggleAiFeedback', index, 'dislike')"
+              >
+                <template #icon>
+                  <DislikeOutlined />
+                </template>
+                不喜欢
+              </ChatToolbarButton>
+              <span v-if="message.createTime" class="message-time">{{ formatMessageTime(message.createTime) }}</span>
             </div>
           </div>
         </div>
@@ -164,7 +222,10 @@ import { ref } from 'vue'
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
+  DislikeOutlined,
   DownOutlined,
+  EditOutlined,
+  LikeOutlined,
   RedoOutlined,
   VerticalAlignBottomOutlined,
 } from '@ant-design/icons-vue'
@@ -175,9 +236,11 @@ import ChatToolbarButton from './ChatToolbarButton.vue'
 defineProps<{
   aiAvatar: string
   formatDuration: (durationMs?: number) => string
+  formatMessageTime: (time?: string) => string
   getAiMessageSegments: (message: ChatMessage) => AiMessageSegment[]
   getToolCallFileIcon: (filePath: string) => FileIconMeta
   hasMoreHistory: boolean
+  isGenerating: boolean
   isOwner: boolean
   isToolCallFileActive: (filePath: string) => boolean
   loadingHistory: boolean
@@ -187,11 +250,14 @@ defineProps<{
 }>()
 
 defineEmits<{
+  editUserMessage: [index: number]
   loadMoreHistory: []
   openToolCallFile: [filePath: string]
+  regenerateAiMessage: [index: number]
   retryLastGeneration: []
   scroll: []
   scrollToBottom: []
+  toggleAiFeedback: [index: number, feedback: 'like' | 'dislike']
 }>()
 
 const messagesContainerRef = ref<HTMLElement>()
@@ -300,22 +366,37 @@ defineExpose({
   margin-top: 20px;
 }
 
-.user-message {
+.message-row {
   display: flex;
-  justify-content: flex-end;
   align-items: flex-start;
   gap: 8px;
 }
 
-.ai-message {
-  display: flex;
+.message-row-user {
+  justify-content: flex-end;
+}
+
+.message-row-ai {
   justify-content: flex-start;
+}
+
+.message-body {
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.message-body-user {
+  align-items: flex-end;
+}
+
+.message-body-ai {
   align-items: flex-start;
-  gap: 8px;
 }
 
 .message-content {
-  max-width: 70%;
+  max-width: 100%;
   padding: 14px 18px;
   border-radius: 20px;
   line-height: 1.7;
@@ -327,14 +408,14 @@ defineExpose({
   transform: translateY(-1px);
 }
 
-.user-message .message-content {
+.message-body-user .message-content {
   background: linear-gradient(135deg, #1677ff 0%, #3b82f6 100%);
   color: white;
   border-top-right-radius: 8px;
   box-shadow: 0 14px 30px rgba(22, 119, 255, 0.2);
 }
 
-.ai-message .message-content {
+.message-body-ai .message-content {
   background: rgba(255, 255, 255, 0.92);
   color: #0f172a;
   padding: 14px 18px;
@@ -343,8 +424,55 @@ defineExpose({
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
 }
 
-.ai-message .message-content > :deep(.markdown-content + .markdown-content) {
+.message-body-ai .message-content > :deep(.markdown-content + .markdown-content) {
   margin-top: 10px;
+}
+
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+  color: #94a3b8;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.message-item:last-child .message-actions,
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.message-actions-user {
+  justify-content: flex-end;
+}
+
+.message-actions-ai {
+  justify-content: flex-start;
+}
+
+.message-action-button {
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.message-action-button.active {
+  color: #1677ff;
+  background: rgba(22, 119, 255, 0.08);
+}
+
+.message-time {
+  padding: 0 4px;
+  line-height: 24px;
+  white-space: nowrap;
 }
 
 .thinking-block {
@@ -768,7 +896,7 @@ defineExpose({
     padding: 12px 16px 80px;
   }
 
-  .message-content {
+  .message-body {
     max-width: 85%;
   }
 

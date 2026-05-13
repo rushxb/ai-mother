@@ -21,6 +21,7 @@
         <a-dropdown v-if="loginUserStore.loginUser.id" trigger="click">
           <a-button class="user-trigger" type="text">
             <a-avatar :src="loginUserAvatar" size="small" />
+            <span class="credit-badge">{{ loginUserStore.loginUser.creditBalance ?? 0 }} 积分</span>
             <span class="user-name">{{ loginUserStore.loginUser.userName ?? '神秘用户' }}</span>
           </a-button>
           <template #overlay>
@@ -254,6 +255,18 @@ const doLogout = async () => {
   background: rgba(15, 23, 42, 0.05);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
   transform: translateY(-1px);
+}
+
+.credit-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(24, 144, 255, 0.08);
+  color: #1677ff;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .user-name {

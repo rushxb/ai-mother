@@ -24,9 +24,11 @@
             ref="messagesPanelRef"
             :ai-avatar="aiAvatar"
             :format-duration="formatDuration"
+            :format-message-time="formatMessageTime"
             :get-ai-message-segments="getAiMessageSegments"
             :get-tool-call-file-icon="getToolCallFileIcon"
             :has-more-history="hasMoreHistory"
+            :is-generating="isGenerating"
             :is-owner="isOwner"
             :is-tool-call-file-active="isToolCallFileActive"
             :loading-history="loadingHistory"
@@ -34,10 +36,13 @@
             :messages="messages"
             :show-scroll-to-bottom="showScrollToBottom"
             @load-more-history="loadMoreHistory"
+            @edit-user-message="editUserMessage"
             @open-tool-call-file="openToolCallFile"
+            @regenerate-ai-message="regenerateAiMessage"
             @retry-last-generation="retryLastGeneration"
             @scroll="handleMessagesScroll"
             @scroll-to-bottom="scrollMessagesToBottom"
+            @toggle-ai-feedback="toggleAiFeedback"
         />
 
         <SelectedElementAlert

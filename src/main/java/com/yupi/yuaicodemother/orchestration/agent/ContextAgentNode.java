@@ -68,6 +68,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
         payload.put("indexHits", contextPackage.indexHits());
         payload.put("contextMode", contextPackage.contextMode());
         payload.put("projectContext", StrUtil.blankToDefault(contextPackage.projectContext(), ""));
+        payload.put("memoryContext", StrUtil.blankToDefault(context.getRequest().memoryContext(), ""));
         payload.put("hasGeneratedCode", context.getRequest().hasGeneratedCode());
         payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
         payload.put("recipes", support.buildRecipePayloads(matchedRecipes));

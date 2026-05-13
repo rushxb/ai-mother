@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import com.yupi.yuaicodemother.model.entity.User;
+import com.yupi.yuaicodemother.service.UserCreditService;
 import com.yupi.yuaicodemother.service.UserService;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,6 +37,9 @@ public class UserController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private UserCreditService userCreditService;
 
     /**
      * 用户注册
@@ -154,6 +158,26 @@ public class UserController {
         BeanUtil.copyProperties(userUpdateRequest, user);
         boolean result = userService.updateById(user);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        return ResultUtils.success(true);
+    }
+
+    @PostMapping("/credit/adjust")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Boolean> adjustUserCredit(@RequestBody UserCreditAdjustRequest userCreditAdjustRequest, HttpServletRequest request) {
+        ThrowUtils.throwIf(userCreditAdjustRequest == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(userCreditAdjustRequest.getUserId() == null || userCreditAdjustRequest.getChangeAmount() == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(userCreditAdjustRequest.getChangeAmount() == 0, ErrorCode.PARAMS_ERROR, "积分变动不能为 0");
+        ThrowUtils.throwIf(userCreditAdjustRequest.getRemark() == null || userCreditAdjustRequest.getRemark().trim().isEmpty(), ErrorCode.PARAMS_ERROR, "调整原因不能为空");
+        User loginUser = userService.getLoginUser(request);
+        userCreditService.adjustCredit(
+                userCreditAdjustRequest.getUserId(),
+                userCreditAdjustRequest.getChangeAmount(),
+                "ADMIN_ADJUST",
+                null,
+                userCreditAdjustRequest.getRemark(),
+                loginUser.getId(),
+                null
+        );
         return ResultUtils.success(true);
     }
 

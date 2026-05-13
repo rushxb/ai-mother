@@ -42,6 +42,11 @@ public class UserVO implements Serializable {
     private String userRole;
 
     /**
+     * 用户积分余额
+     */
+    private Long creditBalance;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;

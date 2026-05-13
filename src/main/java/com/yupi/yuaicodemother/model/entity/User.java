@@ -73,6 +73,12 @@ public class User implements Serializable {
     private String userRole;
 
     /**
+     * 用户积分余额
+     */
+    @Column("creditBalance")
+    private Long creditBalance;
+
+    /**
      * 编辑时间
      */
     @Column("editTime")

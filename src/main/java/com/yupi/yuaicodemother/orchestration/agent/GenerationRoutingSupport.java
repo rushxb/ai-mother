@@ -86,8 +86,10 @@ public class GenerationRoutingSupport {
         if (targetType != CodeGenTypeEnum.VUE_PROJECT && targetType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return false;
         }
-        return !request.hasGeneratedCode()
-                || (request.currentType() != null && request.currentType().canUpgradeTo(targetType));
+        if (!request.hasGeneratedCode()) {
+            return false;
+        }
+        return request.currentType() != null && request.currentType().canUpgradeTo(targetType);
     }
 
     public boolean shouldUseHeavyPath(GenerationOrchestrationRequest request) {

@@ -260,6 +260,7 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    creditBalance?: number
     createTime?: string
     updateTime?: string
   }
@@ -305,6 +306,7 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    creditBalance?: number
     editTime?: string
     createTime?: string
     updateTime?: string
@@ -317,6 +319,13 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    creditBalance?: number
+  }
+
+  type UserCreditAdjustRequest = {
+    userId?: number
+    changeAmount?: number
+    remark?: string
   }
 
   type UserLoginRequest = {
@@ -348,6 +357,7 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    creditBalance?: number
   }
 
   type UserVO = {
@@ -357,6 +367,7 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    creditBalance?: number
     createTime?: string
   }
 }

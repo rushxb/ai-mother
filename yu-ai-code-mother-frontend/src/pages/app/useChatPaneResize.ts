@@ -7,7 +7,7 @@ export const useChatPaneResize = (appId: Ref<string | number | undefined>) => {
   const CHAT_PANE_MIN_WIDTH = 360
   const WORKSPACE_MIN_WIDTH = 360
   const CHAT_SPLITTER_WIDTH = 12
-  const CHAT_PANE_DEFAULT_RATIO = 0.54
+  const CHAT_PANE_DEFAULT_RATIO = 0.4
   const CHAT_PANE_STORAGE_PREFIX = 'app-chat-pane-ratio:'
 
   const chatPaneWidthRatio = ref(CHAT_PANE_DEFAULT_RATIO)

@@ -19,6 +19,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -36,6 +38,8 @@ public class VueProjectBuilder {
     private static final int INSTALL_TIMEOUT_SECONDS = 300;
     private static final int LIGHT_BUILD_TIMEOUT_SECONDS = 180;
     private static final int FULL_BUILD_TIMEOUT_SECONDS = 240;
+
+    private final Map<String, BuildResult> recentBuildResults = new ConcurrentHashMap<>();
 
     /**
      * 异步构建 Vue 项目
@@ -70,6 +74,31 @@ public class VueProjectBuilder {
      * @return 详细构建结果
      */
     public BuildResult buildProjectWithResult(String projectPath) {
+        BuildResult buildResult = doBuildProjectWithResult(projectPath);
+        rememberBuildResult(buildResult);
+        return buildResult;
+    }
+
+    public BuildResult getRecentBuildResult(String projectPath) {
+        File projectDir = new File(projectPath);
+        if (!projectDir.exists() || !projectDir.isDirectory()) {
+            return null;
+        }
+        File packageJsonFile = new File(projectDir, "package.json");
+        if (!packageJsonFile.exists()) {
+            return null;
+        }
+        try {
+            JSONObject packageJson = JSONUtil.parseObj(Files.readString(packageJsonFile.toPath(), StandardCharsets.UTF_8));
+            ProjectSnapshot currentSnapshot = captureProjectSnapshot(projectDir, packageJson);
+            return recentBuildResults.get(buildCacheKey(projectDir, currentSnapshot));
+        } catch (Exception e) {
+            log.debug("读取最近构建结果失败: {}, {}", projectPath, e.getMessage());
+            return null;
+        }
+    }
+
+    private BuildResult doBuildProjectWithResult(String projectPath) {
         File projectDir = new File(projectPath);
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             log.error("项目目录不存在：{}", projectPath);
@@ -396,6 +425,31 @@ public class VueProjectBuilder {
         } catch (Exception e) {
             log.warn("写入构建指纹失败: {}", e.getMessage());
         }
+    }
+
+    private void rememberBuildResult(BuildResult buildResult) {
+        if (buildResult == null || StrUtil.isBlank(buildResult.projectPath())) {
+            return;
+        }
+        File projectDir = new File(buildResult.projectPath());
+        File packageJsonFile = new File(projectDir, "package.json");
+        if (!packageJsonFile.exists()) {
+            return;
+        }
+        try {
+            JSONObject packageJson = JSONUtil.parseObj(Files.readString(packageJsonFile.toPath(), StandardCharsets.UTF_8));
+            ProjectSnapshot snapshot = captureProjectSnapshot(projectDir, packageJson);
+            recentBuildResults.put(buildCacheKey(projectDir, snapshot), buildResult);
+        } catch (Exception e) {
+            log.debug("记录最近构建结果失败: {}, {}", buildResult.projectPath(), e.getMessage());
+        }
+    }
+
+    private String buildCacheKey(File projectDir, ProjectSnapshot snapshot) {
+        return projectDir.getAbsolutePath()
+                + "|" + snapshot.dependencyFingerprint()
+                + "|" + snapshot.criticalFingerprint()
+                + "|" + snapshot.presentationFingerprint();
     }
 
     private String readStamp(File stampFile) {

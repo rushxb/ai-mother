@@ -97,6 +97,11 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                     + context.getTargetType().getText() + "。");
             lines.add("必须保留已有业务能力与设计意图，并迁移为可持续迭代的工程结构。");
         }
+        String memoryContext = artifactStringValue(context, "context_summary", "memoryContext", "");
+        if (StrUtil.isNotBlank(memoryContext)) {
+            lines.add("");
+            lines.add(memoryContext);
+        }
         if (StrUtil.isNotBlank(projectContext)) {
             lines.add("");
             lines.add(AppConstant.PROJECT_CONTEXT_MARKER);
@@ -207,6 +212,15 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             Object validationHints = recipe.get("validationHints");
             if (validationHints instanceof List<?> hintList && !hintList.isEmpty()) {
                 lines.add("  validation=" + hintList.stream().limit(2).toList());
+            }
+            Object templateFiles = recipe.get("templateFiles");
+            if (templateFiles instanceof List<?> fileList && !fileList.isEmpty()) {
+                lines.add("  templateFiles=" + fileList.stream().limit(6).toList());
+            }
+            Object aiFillSlots = recipe.get("aiFillSlots");
+            if (aiFillSlots instanceof List<?> slotList && !slotList.isEmpty()) {
+                lines.add("  aiFillSlots=" + slotList.stream().limit(8).toList());
+                lines.add("  要求：优先落地上述模板文件/片段，AI 只补齐这些 slots 和少量业务差异，不要把 recipe 当作普通 prompt 重写。");
             }
             if (Boolean.TRUE.equals(recipe.get("databaseRequired"))) {
                 lines.add("  database=true，必须遵守 Database 服务接入边界。");

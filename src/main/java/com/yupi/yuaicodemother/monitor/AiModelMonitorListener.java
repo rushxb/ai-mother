@@ -7,9 +7,11 @@ import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import dev.langchain4j.model.output.TokenUsage;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
+import com.yupi.yuaicodemother.service.GenerationTraceService;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -25,6 +27,9 @@ public class AiModelMonitorListener implements ChatModelListener {
 
     @Resource
     private AiModelMetricsCollector aiModelMetricsCollector;
+
+    @Resource
+    private GenerationTraceService generationTraceService;
 
     @Override
     public void onRequest(ChatModelRequestContext requestContext) {
@@ -131,6 +136,33 @@ public class AiModelMonitorListener implements ChatModelListener {
             aiModelMetricsCollector.recordTokenUsage(userId, appId, taskId, modelName, "input", tokenUsage.inputTokenCount());
             aiModelMetricsCollector.recordTokenUsage(userId, appId, taskId, modelName, "output", tokenUsage.outputTokenCount());
             aiModelMetricsCollector.recordTokenUsage(userId, appId, taskId, modelName, "total", tokenUsage.totalTokenCount());
+            recordGenerationModelCall(userId, appId, taskId, modelName, tokenUsage);
+        }
+    }
+
+    private void recordGenerationModelCall(String userId,
+                                           String appId,
+                                           String taskId,
+                                           String modelName,
+                                           TokenUsage tokenUsage) {
+        if ("none".equals(taskId) || "anonymous".equals(userId) || tokenUsage == null) {
+            return;
+        }
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("provider", "langchain4j");
+        metadata.put("model", modelName);
+        metadata.put("promptTokens", tokenUsage.inputTokenCount());
+        metadata.put("completionTokens", tokenUsage.outputTokenCount());
+        metadata.put("totalTokens", tokenUsage.totalTokenCount());
+        metadata.put("usageSource", "OFFICIAL");
+        generationTraceService.recordModelCall(taskId, parseLong(appId), parseLong(userId), metadata);
+    }
+
+    private Long parseLong(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (Exception e) {
+            return null;
         }
     }
 }

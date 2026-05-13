@@ -26,6 +26,7 @@ export interface ChatMessage {
   thinkingActive?: boolean
   thinkingCollapsed?: boolean
   createTime?: string
+  feedback?: 'like' | 'dislike'
   buildResult?: BuildResultView
   agentEvents?: AgentEventView[]
   generationFailed?: boolean

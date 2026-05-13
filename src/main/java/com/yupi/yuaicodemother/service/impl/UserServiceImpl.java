@@ -184,4 +184,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         final String SALT = "yupi";
         return DigestUtils.md5DigestAsHex((userPassword + SALT).getBytes(StandardCharsets.UTF_8));
     }
+
+    @Override
+    public void ensureHasCredit(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        User user = this.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        Long creditBalance = user.getCreditBalance();
+        if (creditBalance == null || creditBalance <= 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "积分不足，请联系管理员充值");
+        }
+    }
 }

@@ -88,7 +88,10 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
             throw new IllegalArgumentException("不支持的诊断模式 - " + action);
         }
         String projectPath = ToolPathSupport.resolvePath(relativeProjectPath, appId).toString();
-        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.getRecentBuildResult(projectPath);
+        if (buildResult == null) {
+            throw new IllegalArgumentException("缺少可复用的最近构建结果，请先调用【本地构建诊断】或等待后台构建完成后再进行预览运行时诊断。");
+        }
         if (!buildResult.success()) {
             throw new IllegalArgumentException("构建未通过，无法进行预览运行时诊断。\n" + buildResult.toDiagnosticReport());
         }

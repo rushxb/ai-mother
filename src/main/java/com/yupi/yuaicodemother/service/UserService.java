@@ -91,4 +91,6 @@ public interface UserService extends IService<User> {
      * @return 加密后的用户密码
      */
     String getEncryptPassword(String userPassword);
+
+    void ensureHasCredit(Long userId);
 }

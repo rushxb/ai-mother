@@ -25,6 +25,8 @@ import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
+import com.rush.rushaicodemother.orchestration.edit.LightweightEditResult;
+import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.review.OrphanFileReviewService;
@@ -81,6 +83,7 @@ public class GenerationTaskOrchestrator {
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
     private final AppDatabaseResourceService appDatabaseResourceService;
     private final ChatHistoryService chatHistoryService;
+    private final LightweightEditService lightweightEditService;
     private final GenerationAppStateService generationAppStateService;
     private final GenerationCommitService generationCommitService;
     private final GenerationDiffSummaryService generationDiffSummaryService;
@@ -106,6 +109,27 @@ public class GenerationTaskOrchestrator {
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
+
+        // Phase 2: 尝试轻量编辑路径
+        try {
+            LightweightEditResult editResult = lightweightEditService.execute(request);
+            if (editResult != null) {
+                log.info("轻量编辑路径完成，appId: {}, taskId: {}, route: {}", app.getId(), editResult.taskId(), editResult.route());
+                // 轻量编辑是同步完成的，直接返回结果
+                // 创建一个已完成的 session 用于返回
+                GenerationSession editSession = new GenerationSession(null);
+                editSession.emit(GenerationStreamEvent.agentEvent(
+                        editResult.summary(),
+                        Map.of("route", editResult.route(), "taskId", editResult.taskId(), "status", editResult.validationResult())
+                ));
+                editSession.complete();
+                return new GenerationTaskResult(editResult.taskId(), editResult.route(), workspace, editSession.asFlux());
+            }
+        } catch (Exception e) {
+            log.warn("轻量编辑路径异常，回退到重型生成，appId: {}, error: {}", app.getId(), e.getMessage());
+        }
+
+        // 重型生成路径
         generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用重型生成路径", Map.of(
                 "route", HEAVY_GENERATION_ROUTE,
                 "reason", "phase_1_default_heavy_path",

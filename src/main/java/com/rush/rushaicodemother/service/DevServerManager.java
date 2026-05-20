@@ -130,6 +130,12 @@ public class DevServerManager {
                     stale.destroyForcibly();
                 }
             } else {
+                // 确保引导脚本已注入（处理已运行但未注入的情况）
+                String projectPath = getProjectPath(app);
+                File projectDir = new File(projectPath);
+                if (projectDir.exists() && projectDir.isDirectory()) {
+                    injectVisualEditorBootstrap(projectDir);
+                }
                 return port;
             }
         }
@@ -326,6 +332,12 @@ public class DevServerManager {
             env.put("NPM_CONFIG_AUDIT", "false");
             env.put("NPM_CONFIG_FUND", "false");
 
+            // 设置允许跨域（CORS）的环境变量
+            env.put("VITE_CORS_ORIGIN", "*");
+
+            // 2.5 注入可视化编辑器引导脚本到 index.html
+            injectVisualEditorBootstrap(projectDir);
+
             Process process = processBuilder.start();
 
             // 3. 异步读取进程输出（防止缓冲区满导致进程挂起）
@@ -427,6 +439,53 @@ public class DevServerManager {
      */
     private boolean isWindows() {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
+    }
+
+    /**
+     * 向生成项目的 index.html 注入可视化编辑器引导脚本
+     * 该脚本监听 postMessage 消息，接收父窗口发送的编辑脚本并执行
+     * 仅在 index.html 中未包含引导脚本时注入
+     */
+    private void injectVisualEditorBootstrap(File projectDir) {
+        File indexHtml = new File(projectDir, "index.html");
+        if (!indexHtml.exists()) {
+            return;
+        }
+        try {
+            String content = new String(java.nio.file.Files.readAllBytes(indexHtml.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            // 检查是否已注入
+            if (content.contains("visual-editor-bootstrap")) {
+                return;
+            }
+            String bootstrapScript = """
+                    <script id="visual-editor-bootstrap">
+                    // 可视化编辑器引导脚本：接收父窗口通过 postMessage 发送的编辑脚本
+                    window.addEventListener('message', function(event) {
+                      var data = event.data;
+                      if (!data || !data.type) return;
+                      if (data.type === 'INJECT_EDIT_SCRIPT' && data.script) {
+                        if (!document.getElementById('visual-edit-script')) {
+                          try {
+                            var s = document.createElement('script');
+                            s.id = 'visual-edit-script';
+                            s.textContent = data.script;
+                            document.head.appendChild(s);
+                          } catch (e) { console.error('注入编辑脚本失败:', e); }
+                        }
+                      }
+                    });
+                    </script>
+                    """;
+            // 在 </head> 前注入
+            int headCloseIndex = content.indexOf("</head>");
+            if (headCloseIndex >= 0) {
+                String newContent = content.substring(0, headCloseIndex) + bootstrapScript + content.substring(headCloseIndex);
+                java.nio.file.Files.write(indexHtml.toPath(), newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                log.info("已注入可视化编辑器引导脚本到 index.html");
+            }
+        } catch (IOException e) {
+            log.warn("注入可视化编辑器引导脚本失败: {}", e.getMessage());
+        }
     }
 
     /**

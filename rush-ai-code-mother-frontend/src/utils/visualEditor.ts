@@ -144,36 +144,45 @@ export class VisualEditor {
 
   /**
    * 注入编辑脚本到 iframe
+   * 对于跨域 iframe，使用 postMessage 发送脚本内容
+   * 对于同源 iframe，直接操作 DOM 注入
    */
   private injectEditScript() {
     if (!this.iframe) return
 
-    const waitForIframeLoad = () => {
-      try {
-        if (this.iframe!.contentWindow && this.iframe!.contentDocument) {
-          // 检查是否已经注入过脚本
-          if (this.iframe!.contentDocument.getElementById('visual-edit-script')) {
-            this.sendMessageToIframe({
-              type: 'TOGGLE_EDIT_MODE',
-              editMode: true,
-            })
-            return
-          }
-
-          const script = this.generateEditScript()
-          const scriptElement = this.iframe!.contentDocument.createElement('script')
-          scriptElement.id = 'visual-edit-script'
-          scriptElement.textContent = script
-          this.iframe!.contentDocument.head.appendChild(scriptElement)
-        } else {
-          setTimeout(waitForIframeLoad, 100)
+    // 尝试同源注入（快速路径）
+    try {
+      if (this.iframe!.contentWindow && this.iframe!.contentDocument) {
+        // 检查是否已经注入过脚本
+        if (this.iframe!.contentDocument.getElementById('visual-edit-script')) {
+          this.sendMessageToIframe({
+            type: 'TOGGLE_EDIT_MODE',
+            editMode: true,
+          })
+          return
         }
-      } catch {
-        // 静默处理注入失败
+
+        const script = this.generateEditScript()
+        const scriptElement = this.iframe!.contentDocument.createElement('script')
+        scriptElement.id = 'visual-edit-script'
+        scriptElement.textContent = script
+        this.iframe!.contentDocument.head.appendChild(scriptElement)
+        return
       }
+    } catch {
+      // 跨域 iframe，contentDocument 访问被阻止，使用 postMessage 方案
     }
 
-    waitForIframeLoad()
+    // 跨域方案：通过 postMessage 发送脚本内容，由 iframe 内的消息监听器执行
+    this.sendMessageToIframe({
+      type: 'INJECT_EDIT_SCRIPT',
+      script: this.generateEditScript(),
+    })
+    // 同时发送开启编辑模式的消息
+    this.sendMessageToIframe({
+      type: 'TOGGLE_EDIT_MODE',
+      editMode: true,
+    })
   }
 
   /**
@@ -363,8 +372,21 @@ export class VisualEditor {
 
         // 监听父窗口消息
         window.addEventListener('message', (event) => {
-           const { type, editMode } = event.data;
+           const { type, editMode, script } = event.data;
            switch (type) {
+             case 'INJECT_EDIT_SCRIPT':
+               // 跨域场景：父窗口通过 postMessage 发送脚本内容，iframe 内执行
+               if (script && !document.getElementById('visual-edit-script')) {
+                 try {
+                   const scriptElement = document.createElement('script');
+                   scriptElement.id = 'visual-edit-script';
+                   scriptElement.textContent = script;
+                   document.head.appendChild(scriptElement);
+                 } catch (e) {
+                   console.error('注入编辑脚本失败:', e);
+                 }
+               }
+               break;
              case 'TOGGLE_EDIT_MODE':
                isEditMode = editMode;
                if (isEditMode) {

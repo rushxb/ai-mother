@@ -1414,14 +1414,11 @@ const updatePreview = () => {
   if (appId.value) {
     const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
     const devServerPort = appInfo.value?.devServerPort
-    console.log('updatePreview:', { codeGenType, devServerRunning: devServerRunning.value, devServerPort, appId: appId.value })
-    // Vue 项目且 dev server 运行中时，使用 dev server URL（通过后端代理）
+    // Vue 项目且 dev server 运行中时，使用 dev server URL
     if ((codeGenType === CodeGenTypeEnum.VUE_PROJECT || codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT) && devServerRunning.value && devServerPort) {
       previewUrl.value = getDevServerPreviewUrl(appId.value, devServerPort)
-      console.log('设置预览 URL (dev server):', previewUrl.value)
     } else {
       previewUrl.value = getStaticPreviewUrl(codeGenType, appId.value)
-      console.log('设置预览 URL (static):', previewUrl.value)
     }
     previewReady.value = true
   }

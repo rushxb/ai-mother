@@ -30,10 +30,15 @@ import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.review.OrphanFileReviewService;
+import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchResultService;
+import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
+import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
+import com.rush.rushaicodemother.orchestration.template.TemplateSlotFillService;
+import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -70,6 +75,7 @@ import java.util.function.Supplier;
 public class GenerationTaskOrchestrator {
 
     private static final String HEAVY_GENERATION_ROUTE = "heavy_generation";
+    private static final String SLOT_FILL_ROUTE = "slot_fill";
     private static final int MAX_GENERATION_SNAPSHOT_CHARS = 20000;
     private static final long GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS = 1000;
     private static final int MAX_AUTO_REPAIR_ROUNDS = 1;
@@ -91,6 +97,7 @@ public class GenerationTaskOrchestrator {
     private final GenerationMemoryContextService generationMemoryContextService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationOrchestrator generationOrchestrator;
+    private final GenerationPatchApplyService generationPatchApplyService;
     private final GenerationPatchResultService generationPatchResultService;
     private final GenerationRollbackRestoreService generationRollbackRestoreService;
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
@@ -98,8 +105,10 @@ public class GenerationTaskOrchestrator {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final OrphanFileReviewService orphanFileReviewService;
     private final StreamHandlerExecutor streamHandlerExecutor;
+    private final TemplateSlotFillService templateSlotFillService;
     private final UserCreditService userCreditService;
     private final VueProjectBuilder vueProjectBuilder;
+    private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
 
     public GenerationTaskResult start(GenerationTaskRequest request) {
         ThrowUtils.throwIf(request == null || request.app() == null || request.loginUser() == null,
@@ -127,6 +136,32 @@ public class GenerationTaskOrchestrator {
             }
         } catch (Exception e) {
             log.warn("轻量编辑路径异常，回退到重型生成，appId: {}, error: {}", app.getId(), e.getMessage());
+        }
+
+        // Phase 4: 尝试模板 slot 填充路径（首次生成）
+        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT && !hasGeneratedCode(app)) {
+            try {
+                SlotFillResult slotFillResult = trySlotFillGeneration(app, request);
+                if (slotFillResult != null) {
+                    log.info("模板 slot 填充路径完成，appId: {}, templateId: {}, filledSlots: {}",
+                            app.getId(), slotFillResult.templateId(), slotFillResult.filledSlotCount());
+                    GenerationSession slotFillSession = new GenerationSession(null);
+                    slotFillSession.emit(GenerationStreamEvent.agentEvent(
+                            slotFillResult.summary(),
+                            Map.of(
+                                    "route", SLOT_FILL_ROUTE,
+                                    "templateId", slotFillResult.templateId(),
+                                    "filledSlots", slotFillResult.filledSlots(),
+                                    "totalChars", slotFillResult.totalChars()
+                            )
+                    ));
+                    slotFillSession.complete();
+                    String taskId = "slot_fill_" + System.currentTimeMillis();
+                    return new GenerationTaskResult(taskId, SLOT_FILL_ROUTE, workspace, slotFillSession.asFlux());
+                }
+            } catch (Exception e) {
+                log.warn("模板 slot 填充路径异常，回退到重型生成，appId: {}, error: {}", app.getId(), e.getMessage());
+            }
         }
 
         // 重型生成路径
@@ -1292,6 +1327,85 @@ public class GenerationTaskOrchestrator {
         } catch (Exception e) {
             return file.getName();
         }
+    }
+
+    /**
+     * 尝试使用模板 slot 填充进行首次生成。
+     *
+     * @param app     应用
+     * @param request 生成任务请求
+     * @return slot 填充结果，如果无法使用则返回 null
+     */
+    private SlotFillResult trySlotFillGeneration(App app, GenerationTaskRequest request) {
+        if (app == null || request == null) {
+            return null;
+        }
+
+        // 1. 判断是否是 Vue 项目首次生成
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
+            log.debug("非 Vue 项目，跳过 slot 填充: {}", codeGenType);
+            return null;
+        }
+
+        // 2. 选择模板
+        String templateId = vueProjectTemplateBootstrapService.selectTemplateId(request.message());
+        if (StrUtil.isBlank(templateId)) {
+            log.debug("无法选择模板");
+            return null;
+        }
+
+        // 3. 检查模板是否支持 slot 填充
+        if (!templateSlotFillService.supportsSlotFill(templateId)) {
+            log.debug("模板不支持 slot 填充: {}", templateId);
+            return null;
+        }
+
+        // 4. 引导模板（复制模板文件到目标目录）
+        VueProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
+                vueProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), request.message());
+        if (!bootstrapResult.bootstrapped()) {
+            log.debug("模板引导跳过: {}", bootstrapResult.reason());
+            // 如果工作区已存在，可能不是首次生成
+            if ("workspace_exists".equals(bootstrapResult.reason())) {
+                return null;
+            }
+        }
+
+        // 5. 执行 slot 填充
+        SlotFillResult result = templateSlotFillService.fillSlots(templateId, app.getId(), request.message());
+        if (result == null || result.patchOperations() == null || result.patchOperations().isEmpty()) {
+            log.debug("Slot 填充未产生有效操作");
+            return null;
+        }
+
+        // 6. 应用 patch 操作
+        try {
+            String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
+                    + codeGenType.getValue() + "_" + app.getId();
+            Path projectRoot = Path.of(projectPath);
+            generationPatchApplyService.applyWithoutChangePlan(
+                    app.getId(),
+                    "slot_fill_" + System.currentTimeMillis(),
+                    projectRoot,
+                    result.patchOperations(),
+                    "slot_fill_generation"
+            );
+            log.info("Slot 填充 patch 应用成功: {} 个操作", result.patchOperations().size());
+        } catch (Exception e) {
+            log.warn("Slot 填充 patch 应用失败: {}", e.getMessage());
+            return null;
+        }
+
+        // 7. 发布事件
+        generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用模板 slot 填充路径", Map.of(
+                "route", SLOT_FILL_ROUTE,
+                "templateId", templateId,
+                "filledSlots", result.filledSlots(),
+                "totalChars", result.totalChars()
+        ));
+
+        return result;
     }
 
     private record GenerationIntent(App app,

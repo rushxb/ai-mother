@@ -86,7 +86,7 @@ public class VueProjectTemplateBootstrapService {
         return targetRoot;
     }
 
-    String selectTemplateId(String userMessage) {
+    public String selectTemplateId(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "移动端", "手机", "h5", "mobile", "商城", "会员", "预约", "vant")) {
             return "vue-web-mobile";

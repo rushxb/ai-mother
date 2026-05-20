@@ -13,7 +13,7 @@ import java.util.Set;
 /**
  * 检查生成项目工作区是否具备继续构建或自动修复的基本条件。
  */
-final class GeneratedProjectWorkspaceInspector {
+public final class GeneratedProjectWorkspaceInspector {
 
     private static final Set<String> IGNORED_DIR_NAMES = Set.of(
             ".git", ".idea", "node_modules", "dist", "target"
@@ -37,7 +37,7 @@ final class GeneratedProjectWorkspaceInspector {
     private GeneratedProjectWorkspaceInspector() {
     }
 
-    static WorkspaceState inspectVueProject(String projectPath) {
+    public static WorkspaceState inspectVueProject(String projectPath) {
         Path rootPath = Path.of(projectPath).toAbsolutePath().normalize();
         if (!Files.exists(rootPath) || !Files.isDirectory(rootPath)) {
             return new WorkspaceState(rootPath, false, 0, 0, Set.of());
@@ -93,25 +93,25 @@ final class GeneratedProjectWorkspaceInspector {
         return rootPath.relativize(filePath).toString().replace("\\", "/");
     }
 
-    record WorkspaceState(Path rootPath,
-                          boolean directoryExists,
-                          long fileCount,
-                          long meaningfulFileCount,
-                          Set<String> detectedKeyFiles) {
+    public record WorkspaceState(Path rootPath,
+                                 boolean directoryExists,
+                                 long fileCount,
+                                 long meaningfulFileCount,
+                                 Set<String> detectedKeyFiles) {
 
-        boolean hasAnyGeneratedFiles() {
+        public boolean hasAnyGeneratedFiles() {
             return meaningfulFileCount > 0;
         }
 
-        boolean canAutoRepair() {
+        public boolean canAutoRepair() {
             return directoryExists && (hasKeyProjectFiles() || meaningfulFileCount >= 2);
         }
 
-        boolean hasKeyProjectFiles() {
+        public boolean hasKeyProjectFiles() {
             return detectedKeyFiles != null && !detectedKeyFiles.isEmpty();
         }
 
-        String missingProjectSummary() {
+        public String missingProjectSummary() {
             if (!directoryExists) {
                 return "代码生成未产出项目目录，无法执行构建或自动修复";
             }

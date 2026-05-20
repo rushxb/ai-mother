@@ -1,8 +1,13 @@
 package com.rush.rushaicodemother.service.impl;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
+import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
@@ -10,12 +15,13 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
+import com.rush.rushaicodemother.service.GenerationTraceService;
+import com.rush.rushaicodemother.service.UserCreditService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,19 +32,17 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 
 class AppServiceImplRegressionTest {
 
-    private static final String APP_SERVICE_IMPL = "com.rush.rushaicodemother.service.impl.AppServiceImpl";
-
     @Test
     void shouldIncludeLifecycleArtifactsInGenerationErrorPayload() throws Exception {
         Map<String, GenerationArtifact> artifacts = lifecycleArtifacts();
-        Object preparation = newPreparation(artifacts, List.of(), Map.of());
-        AppServiceImpl service = new AppServiceImpl();
+        GenerationPreparation preparation = newPreparation(artifacts, List.of(), Map.of());
+        GenerationTaskOrchestrator orchestrator = newOrchestrator(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
 
         @SuppressWarnings("unchecked")
         Map<String, Object> data = (Map<String, Object>) invoke(
-                service,
+                orchestrator,
                 "buildGenerationErrorData",
-                new Class<?>[]{preparationClass(), String.class, String.class, boolean.class, Map.class},
+                new Class<?>[]{GenerationPreparation.class, String.class, String.class, boolean.class, Map.class},
                 preparation,
                 "build_failed",
                 "构建失败",
@@ -60,47 +64,42 @@ class AppServiceImplRegressionTest {
 
     @Test
     void shouldBuildStableLifecycleEventPayloads() throws Exception {
-        Object preparation = newPreparation(lifecycleArtifacts(), List.of(), Map.of());
-        AppServiceImpl service = new AppServiceImpl();
+        GenerationPreparation preparation = newPreparation(lifecycleArtifacts(), List.of(), Map.of());
+        GenerationTaskOrchestrator orchestrator = newOrchestrator(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
 
-        assertEventPayload(service, preparation, "buildDiffSummaryEventData",
+        assertEventPayload(orchestrator, preparation, "buildDiffSummaryEventData",
                 lifecycleArtifacts().get("diff_summary"), "diff", "created", "生成后差异摘要已生成");
-        assertEventPayload(service, preparation, "buildPatchResultEventData",
+        assertEventPayload(orchestrator, preparation, "buildPatchResultEventData",
                 lifecycleArtifacts().get("patch_result"), "patch", "applied", "Patch 实际落盘结果已对齐");
-        assertEventPayload(service, preparation, "buildCommitResultEventData",
+        assertEventPayload(orchestrator, preparation, "buildCommitResultEventData",
                 lifecycleArtifacts().get("generation_commit"), "commit", "committed", "生成结果已提交到本地 Git");
-        assertEventPayload(service, preparation, "buildRollbackRestoreEventData",
+        assertEventPayload(orchestrator, preparation, "buildRollbackRestoreEventData",
                 lifecycleArtifacts().get("rollback_restore"), "rollback", "restored", "生成失败，已从本地回滚点恢复项目文件。");
     }
 
     @Test
     void shouldRecordUserWaitMetricOnceWhenSessionCompletes() throws Exception {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        AppServiceImpl service = new AppServiceImpl();
-        ReflectionTestUtils.setField(
-                service,
-                "generationOrchestrationMetricsCollector",
-                new GenerationOrchestrationMetricsCollector(meterRegistry)
-        );
-        Object preparation = newPreparation(
+        GenerationTaskOrchestrator orchestrator = newOrchestrator(new GenerationOrchestrationMetricsCollector(meterRegistry));
+        GenerationPreparation preparation = newPreparation(
                 lifecycleArtifacts(),
                 List.of(GenerationStreamEvent.agentEvent("route", Map.of("orchestrationMode", "light"))),
                 Map.of("planner", 25L, "context", 10L)
         );
-        Object session = newSession(service, preparation);
+        GenerationSession session = new GenerationSession(preparation);
 
         invoke(
-                service,
+                orchestrator,
                 "completeGenerationSession",
-                new Class<?>[]{sessionClass(), preparationClass(), String.class},
+                new Class<?>[]{GenerationSession.class, GenerationPreparation.class, String.class},
                 session,
                 preparation,
                 "success"
         );
         invoke(
-                service,
+                orchestrator,
                 "completeGenerationSession",
-                new Class<?>[]{sessionClass(), preparationClass(), String.class},
+                new Class<?>[]{GenerationSession.class, GenerationPreparation.class, String.class},
                 session,
                 preparation,
                 "success"
@@ -114,8 +113,33 @@ class AppServiceImplRegressionTest {
                 .count());
     }
 
-    private void assertEventPayload(AppServiceImpl service,
-                                    Object preparation,
+    private GenerationTaskOrchestrator newOrchestrator(GenerationOrchestrationMetricsCollector metricsCollector) {
+        return new GenerationTaskOrchestrator(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                metricsCollector,
+                null,
+                null,
+                null,
+                null,
+                new NoopGenerationTraceService(),
+                null,
+                null,
+                null,
+                new NoopUserCreditService(),
+                null
+        );
+    }
+
+    private void assertEventPayload(GenerationTaskOrchestrator orchestrator,
+                                    GenerationPreparation preparation,
                                     String methodName,
                                     GenerationArtifact artifact,
                                     String stage,
@@ -123,9 +147,9 @@ class AppServiceImplRegressionTest {
                                     String summary) throws Exception {
         @SuppressWarnings("unchecked")
         Map<String, Object> data = (Map<String, Object>) invoke(
-                service,
+                orchestrator,
                 methodName,
-                new Class<?>[]{preparationClass(), GenerationArtifact.class},
+                new Class<?>[]{GenerationPreparation.class, GenerationArtifact.class},
                 preparation,
                 artifact
         );
@@ -160,23 +184,10 @@ class AppServiceImplRegressionTest {
         return artifacts;
     }
 
-    private Object newPreparation(Map<String, GenerationArtifact> artifacts,
-                                  List<GenerationStreamEvent> events,
-                                  Map<String, Long> timings) throws Exception {
-        Constructor<?> constructor = preparationClass().getDeclaredConstructor(
-                CodeGenTypeEnum.class,
-                CodeGenTypeEnum.class,
-                boolean.class,
-                String.class,
-                String.class,
-                List.class,
-                Map.class,
-                QualityGateResult.class,
-                Map.class,
-                String.class
-        );
-        constructor.setAccessible(true);
-        return constructor.newInstance(
+    private GenerationPreparation newPreparation(Map<String, GenerationArtifact> artifacts,
+                                                 List<GenerationStreamEvent> events,
+                                                 Map<String, Long> timings) {
+        return new GenerationPreparation(
                 CodeGenTypeEnum.HTML,
                 CodeGenTypeEnum.VUE_PROJECT,
                 true,
@@ -190,12 +201,6 @@ class AppServiceImplRegressionTest {
         );
     }
 
-    private Object newSession(AppServiceImpl service, Object preparation) throws Exception {
-        Constructor<?> constructor = sessionClass().getDeclaredConstructor(preparationClass());
-        constructor.setAccessible(true);
-        return constructor.newInstance(preparation);
-    }
-
     private Object invoke(Object target, String methodName, Class<?>[] parameterTypes, Object... args) throws Exception {
         Method method = target.getClass().getDeclaredMethod(methodName, parameterTypes);
         method.setAccessible(true);
@@ -206,11 +211,71 @@ class AppServiceImplRegressionTest {
         return result;
     }
 
-    private Class<?> preparationClass() throws ClassNotFoundException {
-        return Class.forName(APP_SERVICE_IMPL + "$GenerationPreparation");
+    private static class NoopGenerationTraceService implements GenerationTraceService {
+
+        @Override
+        public void startTask(String taskId, Long appId, Long userId, CodeGenTypeEnum originalType, CodeGenTypeEnum targetType, String userPrompt, String enhancedPrompt, boolean requiresBuildValidation, String qualityGate, String orchestrationMode) {
+        }
+
+        @Override
+        public void updateStage(String taskId, String stage, String message) {
+        }
+
+        @Override
+        public void updateMemorySummary(String taskId, String memorySummary) {
+        }
+
+        @Override
+        public void completeTask(String taskId, String status, Instant startedAt, String errorMessage) {
+        }
+
+        @Override
+        public void recordEvent(String taskId, Long appId, Long userId, GenerationStreamEvent event) {
+        }
+
+        @Override
+        public void recordBuildResult(String taskId, Long appId, Long userId, GenerationStreamEvent event) {
+        }
+
+        @Override
+        public void recordModelCall(String taskId, Long appId, Long userId, Map<String, Object> metadata) {
+        }
+
+        @Override
+        public GenerationTask getByTaskId(String taskId) {
+            return null;
+        }
+
+        @Override
+        public List<GenerationTask> listRecentTasksByAppId(Long appId, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public List<GenerationBuildLog> listRecentBuildLogsByAppId(Long appId, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public List<GenerationBuildLog> listBuildLogsByTaskId(String taskId, int limit) {
+            return List.of();
+        }
     }
 
-    private Class<?> sessionClass() throws ClassNotFoundException {
-        return Class.forName(APP_SERVICE_IMPL + "$GenerationSession");
+    private static class NoopUserCreditService implements UserCreditService {
+
+        @Override
+        public long calculateCreditCost(long totalTokens) {
+            return 0;
+        }
+
+        @Override
+        public long adjustCredit(Long userId, Long changeAmount, String type, String bizId, String remark, Long adminUserId, Long tokenCount) {
+            return 0;
+        }
+
+        @Override
+        public void chargeGenerationTask(String taskId) {
+        }
     }
 }

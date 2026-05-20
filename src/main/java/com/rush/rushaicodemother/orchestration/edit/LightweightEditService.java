@@ -237,6 +237,9 @@ public class LightweightEditService {
             // 完成 trace
             generationTraceService.completeTask(taskId, "success", null, null);
 
+            // 扣减用户积分（轻量编辑成功后）
+            userCreditService.chargeGenerationTask(taskId);
+
             return new LightweightEditResult(
                     taskId,
                     GenerationEditRouteResult.ROUTE_LIGHTWEIGHT_EDIT,

@@ -115,26 +115,30 @@ class AppServiceImplRegressionTest {
 
     private GenerationTaskOrchestrator newOrchestrator(GenerationOrchestrationMetricsCollector metricsCollector) {
         return new GenerationTaskOrchestrator(
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                metricsCollector,
-                null,
-                null,
-                null,
-                null,
-                new NoopGenerationTraceService(),
-                null,
-                null,
-                null,
-                new NoopUserCreditService(),
-                null
+                null,  // aiCodeGenTypeRoutingServiceFactory
+                null,  // aiCodeGeneratorFacade
+                null,  // appDatabaseResourceService
+                null,  // chatHistoryService
+                null,  // lightweightEditService
+                null,  // generationAppStateService
+                null,  // generationCommitService
+                null,  // generationDiffSummaryService
+                null,  // generationEventPublisher
+                null,  // generationMemoryContextService
+                metricsCollector,  // generationOrchestrationMetricsCollector
+                null,  // generationOrchestrator
+                null,  // generationPatchApplyService
+                null,  // generationPatchResultService
+                null,  // generationRollbackRestoreService
+                null,  // generationToolExecutionContextService
+                new NoopGenerationTraceService(),  // generationTraceService
+                null,  // generationWorkspaceService
+                null,  // orphanFileReviewService
+                null,  // streamHandlerExecutor
+                null,  // templateSlotFillService
+                new NoopUserCreditService(),  // userCreditService
+                null,  // vueProjectBuilder
+                null   // vueProjectTemplateBootstrapService
         );
     }
 

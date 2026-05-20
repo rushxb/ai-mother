@@ -157,6 +157,8 @@ public class GenerationTaskOrchestrator {
                     ));
                     slotFillSession.complete();
                     String taskId = "slot_fill_" + System.currentTimeMillis();
+                    // 扣减用户积分（slot 填充成功后）
+                    userCreditService.chargeGenerationTask(taskId);
                     return new GenerationTaskResult(taskId, SLOT_FILL_ROUTE, workspace, slotFillSession.asFlux());
                 }
             } catch (Exception e) {

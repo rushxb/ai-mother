@@ -226,11 +226,12 @@ public class EditStatePersistenceService {
 
     /**
      * 解析状态文件路径。
+     * 使用用户主目录下的隐藏目录存储状态，确保系统重启后状态不丢失。
      */
     private Path resolveStateFile(Long appId) {
-        // 使用临时目录存储状态
-        Path tempDir = Path.of(System.getProperty("java.io.tmpdir"));
-        return tempDir.resolve(STATE_DIRECTORY_NAME).resolve(appId + "-" + STATE_FILE_NAME);
+        // 使用用户主目录存储状态，比临时目录更持久
+        Path homeDir = Path.of(System.getProperty("user.home"));
+        return homeDir.resolve(STATE_DIRECTORY_NAME).resolve(appId + "-" + STATE_FILE_NAME);
     }
 
     /**

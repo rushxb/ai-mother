@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
@@ -31,6 +32,7 @@ public class BackgroundValidationService {
     private final GenerationEventPublisher generationEventPublisher;
     private final GenerationTraceService generationTraceService;
     private final EditStatePersistenceService editStatePersistenceService;
+    private final VueProjectBuilder vueProjectBuilder;
 
     /**
      * 异步执行后台验证。
@@ -154,15 +156,25 @@ public class BackgroundValidationService {
     private ValidationResult executeBuildValidation(String taskId, Long appId, GenerationWorkspace workspace, List<PatchOperation> patchOperations) {
         log.debug("执行构建验证，taskId: {}, 文件数: {}", taskId, patchOperations.size());
 
-        // 这里应该调用现有的构建服务
-        // 目前返回成功，后续集成现有构建逻辑
         Path projectRoot = workspace.canonicalRootPath();
-        log.info("构建验证，项目根目录: {}", projectRoot);
+        String projectPath = projectRoot.toString();
+        log.info("构建验证，项目根目录: {}", projectPath);
 
-        // TODO: 集成现有构建服务
-        // appService.buildAndFixCode(appId, projectRoot, ...);
+        try {
+            // 调用 VueProjectBuilder 执行实际构建
+            VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
 
-        return ValidationResult.success(taskId, "构建验证通过（占位实现）");
+            if (buildResult.success()) {
+                log.info("构建验证通过，taskId: {}, stage: {}", taskId, buildResult.stage());
+                return ValidationResult.success(taskId, "构建验证通过: " + buildResult.summary());
+            } else {
+                log.warn("构建验证失败，taskId: {}, stage: {}, summary: {}", taskId, buildResult.stage(), buildResult.summary());
+                return ValidationResult.failed(taskId, "构建验证失败 [" + buildResult.stage() + "]: " + buildResult.summary());
+            }
+        } catch (Exception e) {
+            log.error("构建验证异常，taskId: {}", taskId, e);
+            return ValidationResult.failed(taskId, "构建验证异常: " + e.getMessage());
+        }
     }
 
     /**
@@ -177,12 +189,22 @@ public class BackgroundValidationService {
             return buildResult;
         }
 
-        // TODO: 集成代码审查服务
-        // 1. 代码风格检查
-        // 2. 安全检查
-        // 3. 性能检查
+        // 构建通过后，执行额外的文件级检查
+        Path projectRoot = workspace.canonicalRootPath();
+        List<String> invalidFiles = patchOperations.stream()
+                .map(PatchOperation::relativePath)
+                .filter(StrUtil::isNotBlank)
+                .filter(relativePath -> {
+                    Path filePath = projectRoot.resolve(relativePath);
+                    return !java.nio.file.Files.exists(filePath) || !java.nio.file.Files.isReadable(filePath);
+                })
+                .toList();
 
-        return ValidationResult.success(taskId, "完整审查通过（占位实现）");
+        if (!invalidFiles.isEmpty()) {
+            return ValidationResult.failed(taskId, "完整审查失败，以下文件不存在或不可读: " + String.join(", ", invalidFiles));
+        }
+
+        return ValidationResult.success(taskId, "完整审查通过（构建验证 + 文件完整性检查）");
     }
 
     /**

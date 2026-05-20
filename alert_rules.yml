@@ -1,5 +1,5 @@
 groups:
-  - name: yu-ai-code-mother-orchestration
+  - name: rush-ai-code-mother-orchestration
     rules:
       - alert: GenerationUserWaitTooHigh
         expr: |

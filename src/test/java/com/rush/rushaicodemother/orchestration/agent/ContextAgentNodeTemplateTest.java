@@ -1,0 +1,73 @@
+package com.rush.rushaicodemother.orchestration.agent;
+
+import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
+import org.junit.jupiter.api.Test;
+
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ContextAgentNodeTemplateTest {
+
+    @Test
+    void shouldReadBootstrappedVueWorkspaceAsContextForNewProject() {
+        Path outputRoot = Path.of("target", "test-workspaces", "template-context");
+        FileUtil.del(outputRoot.toFile());
+        try {
+            GenerationAgentSupport support = new GenerationAgentSupport(
+                    new com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary(),
+                    new com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService(),
+                    outputRoot
+            );
+            TemplateAgentNode templateAgentNode = new TemplateAgentNode(
+                    new com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService(
+                            outputRoot,
+                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                    ),
+                    new com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService(
+                            outputRoot,
+                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                    ),
+                    new FullStackPortAllocator()
+            );
+            ContextAgentNode contextAgentNode = new ContextAgentNode(support);
+
+            App app = new App();
+            app.setId(301L);
+            app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+            GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                    app,
+                    "创建一个 Vue 后台管理仪表盘",
+                    CodeGenTypeEnum.HTML,
+                    "create",
+                    false,
+                    null,
+                    prompt -> CodeGenTypeEnum.VUE_PROJECT,
+                    null
+            );
+            GenerationAgentContext context = new GenerationAgentContext(request, new GenerationOrchestrationTask(), true);
+            context.setTargetType(CodeGenTypeEnum.VUE_PROJECT);
+
+            templateAgentNode.execute(context).artifacts().forEach(artifact -> context.putArtifacts(java.util.List.of(artifact)));
+            GenerationArtifact artifact = contextAgentNode.execute(context).artifacts().getFirst();
+
+            assertEquals("context_summary", artifact.key());
+            assertEquals("management", artifact.payload().get("intent"));
+            assertEquals("intent_selected_files", artifact.payload().get("contextMode"));
+            java.util.List<?> selectedFiles = (java.util.List<?>) artifact.payload().get("selectedFiles");
+            assertFalse(selectedFiles.isEmpty());
+            assertTrue(String.valueOf(artifact.payload().get("projectContext")).contains(String.valueOf(selectedFiles.getFirst())));
+        } finally {
+            FileUtil.del(outputRoot.toFile());
+        }
+    }
+}

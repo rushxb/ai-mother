@@ -193,37 +193,37 @@ create table chat_history
 ) comment '对话历史' collate = utf8mb4_unicode_ci;
 
 -- AI 生成任务主表：按 taskId 串联一次用户请求、AI 调用、工具执行、构建和自动修复
-create table if not exists generation_task
-(
-    id                      bigint auto_increment comment 'id' primary key,
-    taskId                  varchar(128)                       not null comment '生成任务 ID',
-    appId                   bigint                             not null comment '应用id',
-    userId                  bigint                             not null comment '创建用户id',
-    originalCodeGenType     varchar(64)                        null comment '原始代码生成类型',
-    targetCodeGenType       varchar(64)                        null comment '目标代码生成类型',
-    status                  varchar(32) default 'running'      not null comment '状态：running/success/failed/cancelled',
-    stage                   varchar(64)                        null comment '当前阶段',
-    userPrompt              mediumtext                         null comment '用户原始提示词',
-    enhancedPrompt          mediumtext                         null comment '增强后的生成提示词',
-    requiresBuildValidation tinyint     default 0              not null comment '是否需要构建校验',
-    qualityGate             varchar(64)                        null comment '质量门禁级别',
-    orchestrationMode       varchar(64)                        null comment '编排模式',
-    startTime               datetime default CURRENT_TIMESTAMP not null comment '开始时间',
-    endTime                 datetime                           null comment '结束时间',
-    durationMs              bigint                             null comment '耗时毫秒',
-    errorMessage            text                               null comment '错误信息',
-    memorySummary           mediumtext                         null comment 'AI 可读的生成记忆摘要',
-    totalTokens             bigint   default 0                 not null comment '任务累计 token 数',
-    creditCost              bigint   default 0                 not null comment '任务消耗积分',
-    creditCharged           tinyint  default 0                 not null comment '是否已结算积分',
-    createTime              datetime default CURRENT_TIMESTAMP not null comment '创建时间',
-    updateTime              datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
-    isDelete                tinyint  default 0                 not null comment '是否删除',
-    UNIQUE KEY uk_taskId (taskId),
-    INDEX idx_appId_createTime (appId, createTime),
-    INDEX idx_userId_createTime (userId, createTime),
-    INDEX idx_status_createTime (status, createTime)
-) comment 'AI 生成任务' collate = utf8mb4_unicode_ci;
+    create table if not exists generation_task
+    (
+        id                      bigint auto_increment comment 'id' primary key,
+        taskId                  varchar(128)                       not null comment '生成任务 ID',
+        appId                   bigint                             not null comment '应用id',
+        userId                  bigint                             not null comment '创建用户id',
+        originalCodeGenType     varchar(64)                        null comment '原始代码生成类型',
+        targetCodeGenType       varchar(64)                        null comment '目标代码生成类型',
+        status                  varchar(32) default 'running'      not null comment '状态：running/success/failed/cancelled',
+        stage                   varchar(64)                        null comment '当前阶段',
+        userPrompt              mediumtext                         null comment '用户原始提示词',
+        enhancedPrompt          mediumtext                         null comment '增强后的生成提示词',
+        requiresBuildValidation tinyint     default 0              not null comment '是否需要构建校验',
+        qualityGate             varchar(64)                        null comment '质量门禁级别',
+        orchestrationMode       varchar(64)                        null comment '编排模式',
+        startTime               datetime default CURRENT_TIMESTAMP not null comment '开始时间',
+        endTime                 datetime                           null comment '结束时间',
+        durationMs              bigint                             null comment '耗时毫秒',
+        errorMessage            text                               null comment '错误信息',
+        memorySummary           mediumtext                         null comment 'AI 可读的生成记忆摘要',
+        totalTokens             bigint   default 0                 not null comment '任务累计 token 数',
+        creditCost              bigint   default 0                 not null comment '任务消耗积分',
+        creditCharged           tinyint  default 0                 not null comment '是否已结算积分',
+        createTime              datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+        updateTime              datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+        isDelete                tinyint  default 0                 not null comment '是否删除',
+        UNIQUE KEY uk_taskId (taskId),
+        INDEX idx_appId_createTime (appId, createTime),
+        INDEX idx_userId_createTime (userId, createTime),
+        INDEX idx_status_createTime (status, createTime)
+    ) comment 'AI 生成任务' collate = utf8mb4_unicode_ci;
 
 -- 已有库升级可执行以下语句
 alter table generation_task add column if not exists memorySummary mediumtext null comment 'AI 可读的生成记忆摘要';
@@ -277,3 +277,5 @@ create table if not exists generation_model_call
     INDEX idx_model_createTime (model, createTime),
     INDEX idx_appId_createTime (appId, createTime)
 ) comment 'AI 模型调用' collate = utf8mb4_unicode_ci;
+
+-- 后续库表更新，不要仅仅在create中新建，因为现有库已经有库表了

@@ -17,6 +17,8 @@ import {
   saveAppCodeFile,
   syncAppDeployment,
   updateApp,
+  startDevServer,
+  stopDevServer,
 } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
@@ -25,7 +27,7 @@ import request from '@/request'
 import AppDetailModal from '@/components/AppDetailModal.vue'
 import DeploySuccessModal from '@/components/DeploySuccessModal.vue'
 import aiAvatar from '@/assets/aiAvatar.png'
-import { API_BASE_URL, getDeployUrl, getStaticPreviewUrl } from '@/config/env'
+import { API_BASE_URL, getDeployUrl, getStaticPreviewUrl, getDevServerPreviewUrl, getPreviewUrl } from '@/config/env'
 import { VisualEditor, type ElementInfo } from '@/utils/visualEditor'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 import ChatPageHeader from '@/components/app/chat/ChatPageHeader.vue'
@@ -106,6 +108,7 @@ const SCROLL_BUTTON_THRESHOLD = 180
 const previewUrl = ref('')
 const previewReady = ref(false)
 const previewRefreshKey = ref(0)
+const devServerRunning = ref(false)
 
 const activeWorkspaceTab = ref<WorkspaceTabKey>('preview')
 const generationPhase = ref<'idle' | 'codegen' | 'build' | 'repair' | 'done' | 'failed'>('idle')
@@ -535,9 +538,7 @@ const refreshAfterGeneration = async () => {
   currentAgentStageText.value = ''
   generationPhase.value = latestGenerationFailed.value ? 'failed' : 'done'
   await loadChatHistory()
-  if (messages.value.length >= 2) {
-    updatePreview()
-  }
+  updatePreview()
   if (activeWorkspaceTab.value === 'files') {
     await loadCodeFiles()
   }
@@ -769,6 +770,47 @@ const loadMoreHistory = async () => {
   await loadChatHistory(true)
 }
 
+// 判断是否为 Vue 项目
+const isVueProject = (app: API.AppVO) => {
+  return app?.codeGenType === CodeGenTypeEnum.VUE_PROJECT || app?.codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT
+}
+
+// 启动 dev server
+const startDevServerForApp = async () => {
+  if (!appId.value || !isOwner.value) return
+
+  try {
+    const res = await startDevServer({ appId: appId.value })
+    if (res.data.code === 0 && res.data.data) {
+      devServerRunning.value = true
+      // 更新 appInfo 中的端口信息
+      if (appInfo.value && res.data.data.port) {
+        appInfo.value = {
+          ...appInfo.value,
+          devServerPort: res.data.data.port,
+        }
+      }
+      console.log('Dev server 已启动，端口:', res.data.data.port)
+    }
+  } catch (error) {
+    console.error('启动 dev server 失败:', error)
+    // 不阻断流程，降级使用静态预览
+  }
+}
+
+// 停止 dev server
+const stopDevServerForApp = async () => {
+  if (!appId.value || !devServerRunning.value) return
+
+  try {
+    await stopDevServer({ appId: appId.value })
+    devServerRunning.value = false
+    console.log('Dev server 已停止')
+  } catch (error) {
+    console.error('停止 dev server 失败:', error)
+  }
+}
+
 // 获取应用信息
 const fetchAppInfo = async () => {
   const id = route.params.id as string
@@ -782,10 +824,16 @@ const fetchAppInfo = async () => {
 
   try {
     const latestAppInfo = await fetchAppStateOnly()
-    await loadChatHistory()
-    if (messages.value.length >= 2) {
-      updatePreview()
+
+    // 为 Vue 项目启动 dev server
+    if (isVueProject(latestAppInfo) && isOwner.value) {
+      await startDevServerForApp()
     }
+
+    // 更新预览（无论消息数量）
+    updatePreview()
+
+    await loadChatHistory()
     const restoredGeneratingState = syncGeneratingMessageFromAppInfo()
     if (restoredGeneratingState) {
       startGenerationPolling()
@@ -1350,7 +1398,13 @@ const refreshPreview = () => {
     return
   }
   const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-  previewUrl.value = appendPreviewCacheBuster(getStaticPreviewUrl(codeGenType, appId.value))
+  const devServerPort = appInfo.value?.devServerPort
+  // Vue 项目且 dev server 运行中时，使用 dev server URL
+  if ((codeGenType === CodeGenTypeEnum.VUE_PROJECT || codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT) && devServerRunning.value && devServerPort) {
+    previewUrl.value = getDevServerPreviewUrl(devServerPort)
+  } else {
+    previewUrl.value = appendPreviewCacheBuster(getStaticPreviewUrl(codeGenType, appId.value))
+  }
   previewReady.value = false
   previewRefreshKey.value += 1
 }
@@ -1359,8 +1413,13 @@ const refreshPreview = () => {
 const updatePreview = () => {
   if (appId.value) {
     const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-    const newPreviewUrl = getStaticPreviewUrl(codeGenType, appId.value)
-    previewUrl.value = newPreviewUrl
+    const devServerPort = appInfo.value?.devServerPort
+    // Vue 项目且 dev server 运行中时，使用 dev server URL
+    if ((codeGenType === CodeGenTypeEnum.VUE_PROJECT || codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT) && devServerRunning.value && devServerPort) {
+      previewUrl.value = getDevServerPreviewUrl(devServerPort)
+    } else {
+      previewUrl.value = getStaticPreviewUrl(codeGenType, appId.value)
+    }
     previewReady.value = true
   }
 }
@@ -1996,6 +2055,8 @@ onUnmounted(() => {
   stopStreamingFilePreview()
   closeActiveEventSource()
   window.removeEventListener('message', handleIframeMessage)
+  // 停止 dev server
+  stopDevServerForApp()
 })
 
   return {
@@ -2077,6 +2138,7 @@ onUnmounted(() => {
     optimizeUserPrompt,
     previewRefreshKey,
     previewUrl,
+    devServerRunning,
     regenerateAiMessage,
     retryLastGeneration,
     saveAppName,

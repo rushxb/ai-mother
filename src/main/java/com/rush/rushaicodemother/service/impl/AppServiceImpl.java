@@ -38,6 +38,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.service.DevServerManager;
 import com.rush.rushaicodemother.service.ScreenshotService;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.annotation.Resource;
@@ -112,6 +113,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     @Resource
     private AppDatabaseResourceService appDatabaseResourceService;
+
+    @Resource
+    private DevServerManager devServerManager;
 
     @Override
     public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
@@ -191,6 +195,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
         CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
         app.setCodeGenType(selectedCodeGenType.getValue());
+
+        // 为 Vue 项目预分配 dev server 端口
+        if (selectedCodeGenType == CodeGenTypeEnum.VUE_PROJECT || selectedCodeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            int port = devServerManager.allocatePort(app.getId());
+            app.setDevServerPort(port);
+            log.info("为 Vue 项目 {} 预分配端口 {}", app.getId(), port);
+        }
+
         // 插入数据库
         boolean result = this.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -558,9 +570,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (app == null) {
             return null;
         }
+
+        // 为已存在的 Vue 项目懒加载分配端口（必须在 BeanUtil.copyProperties 之前）
+        lazilyAllocateDevServerPort(app);
+
         AppVO appVO = new AppVO();
         BeanUtil.copyProperties(app, appVO);
         appVO.setDatabaseResource(appDatabaseResourceService.getResourceVO(appDatabaseResourceService.getByAppId(app.getId())));
+
         // 关联查询用户信息
         Long userId = app.getUserId();
         if (userId != null) {
@@ -569,6 +586,31 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             appVO.setUser(userVO);
         }
         return appVO;
+    }
+
+    /**
+     * 为已存在的 Vue 项目懒加载分配端口
+     * 如果 Vue 项目没有分配端口，则自动分配并更新数据库
+     */
+    private void lazilyAllocateDevServerPort(App app) {
+        if (app.getDevServerPort() != null) {
+            return;
+        }
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            return;
+        }
+        try {
+            int port = devServerManager.allocatePort(app.getId());
+            App updateApp = new App();
+            updateApp.setId(app.getId());
+            updateApp.setDevServerPort(port);
+            this.updateById(updateApp);
+            app.setDevServerPort(port);
+            log.info("为已存在的 Vue 项目 {} 懒加载分配端口 {}", app.getId(), port);
+        } catch (Exception e) {
+            log.warn("为 Vue 项目 {} 分配端口失败: {}", app.getId(), e.getMessage());
+        }
     }
 
     @Override

@@ -21,8 +21,10 @@ import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
 import com.rush.rushaicodemother.model.vo.AppCodeFileTreeVO;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.model.vo.AppVO;
+import com.rush.rushaicodemother.model.vo.DevServerStatusVO;
 import com.rush.rushaicodemother.ratelimter.annotation.RateLimit;
 import com.rush.rushaicodemother.ratelimter.enums.RateLimitType;
+import com.rush.rushaicodemother.service.DevServerManager;
 import com.rush.rushaicodemother.service.ProjectDownloadService;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.annotation.Resource;
@@ -58,6 +60,9 @@ public class AppController {
 
     @Resource
     private ProjectDownloadService projectDownloadService;
+
+    @Resource
+    private DevServerManager devServerManager;
 
     /**
      * 优化提示词
@@ -163,6 +168,99 @@ public class AppController {
         String deployUrl = appService.deployApp(appId, loginUser);
         // 返回部署 URL
         return ResultUtils.success(deployUrl);
+    }
+
+    /**
+     * 启动应用的 Vue 开发服务器
+     *
+     * @param appId   应用 ID
+     * @param request 请求
+     * @return Dev Server 状态
+     */
+    @PostMapping("/dev-server/start")
+    public BaseResponse<DevServerStatusVO> startDevServer(@RequestParam Long appId,
+                                                          HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限操作该应用");
+        }
+
+        int port = devServerManager.startDevServer(app, loginUser.getId());
+
+        // 如果应用之前没有分配端口，更新数据库
+        if (app.getDevServerPort() == null || app.getDevServerPort() != port) {
+            App updateApp = new App();
+            updateApp.setId(appId);
+            updateApp.setDevServerPort(port);
+            appService.updateById(updateApp);
+        }
+
+        DevServerStatusVO statusVO = DevServerStatusVO.builder()
+                .appId(appId)
+                .running(true)
+                .port(port)
+                .previewUrl(String.format("http://localhost:%d", port))
+                .status("running")
+                .build();
+
+        return ResultUtils.success(statusVO);
+    }
+
+    /**
+     * 停止应用的 Vue 开发服务器
+     *
+     * @param appId   应用 ID
+     * @param request 请求
+     * @return 操作结果
+     */
+    @PostMapping("/dev-server/stop")
+    public BaseResponse<Boolean> stopDevServer(@RequestParam Long appId,
+                                               HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限操作该应用");
+        }
+
+        devServerManager.stopDevServer(appId, loginUser.getId());
+        return ResultUtils.success(true);
+    }
+
+    /**
+     * 获取应用的 Vue 开发服务器状态
+     *
+     * @param appId   应用 ID
+     * @param request 请求
+     * @return Dev Server 状态
+     */
+    @GetMapping("/dev-server/status")
+    public BaseResponse<DevServerStatusVO> getDevServerStatus(@RequestParam Long appId,
+                                                              HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用");
+        }
+
+        boolean running = devServerManager.isRunning(appId);
+        Integer port = app.getDevServerPort();
+
+        DevServerStatusVO statusVO = DevServerStatusVO.builder()
+                .appId(appId)
+                .running(running)
+                .port(port)
+                .previewUrl(port != null ? String.format("http://localhost:%d", port) : null)
+                .status(running ? "running" : "stopped")
+                .build();
+
+        return ResultUtils.success(statusVO);
     }
 
     /**

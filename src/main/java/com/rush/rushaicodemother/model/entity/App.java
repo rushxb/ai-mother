@@ -91,6 +91,12 @@ public class App implements Serializable {
     private String generatingStage;
 
     /**
+     * Vue 开发服务器端口号（预览用）
+     */
+    @Column("devServerPort")
+    private Integer devServerPort;
+
+    /**
      * 优先级
      */
     private Integer priority;

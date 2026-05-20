@@ -67,6 +67,11 @@ public class AppVO implements Serializable {
     private AppDatabaseResourceVO databaseResource;
 
     /**
+     * Vue 开发服务器端口号（预览用）
+     */
+    private Integer devServerPort;
+
+    /**
      * 优先级
      */
     private Integer priority;

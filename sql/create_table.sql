@@ -79,6 +79,7 @@ create table app
 alter table app add column if not exists isGenerating tinyint default 0 not null comment '是否正在生成';
 alter table app add column if not exists generatingMessage mediumtext null comment '当前生成中的 AI 响应快照';
 alter table app add column if not exists generatingStage varchar(32) null comment '当前生成阶段：create / update';
+alter table app add column if not exists devServerPort int null comment 'Vue 开发服务器端口号（预览用）';
 
 -- 应用能力表：统一承载 database / analytics / git / mobile 等开关状态，避免 app 主表持续膨胀
 create table if not exists app_capability

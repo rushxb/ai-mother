@@ -5,6 +5,8 @@ export enum CodeGenTypeEnum {
   HTML = 'html',
   MULTI_FILE = 'multi_file',
   VUE_PROJECT = 'vue_project',
+  BACKEND_PROJECT = 'backend_project',
+  FULL_STACK_PROJECT = 'full_stack_project',
 }
 
 /**
@@ -22,6 +24,14 @@ export const CODE_GEN_TYPE_CONFIG = {
   [CodeGenTypeEnum.VUE_PROJECT]: {
     label: 'Vue 项目模式',
     value: CodeGenTypeEnum.VUE_PROJECT,
+  },
+  [CodeGenTypeEnum.BACKEND_PROJECT]: {
+    label: '后端工程模式',
+    value: CodeGenTypeEnum.BACKEND_PROJECT,
+  },
+  [CodeGenTypeEnum.FULL_STACK_PROJECT]: {
+    label: '全栈工程模式',
+    value: CodeGenTypeEnum.FULL_STACK_PROJECT,
   },
 } as const
 

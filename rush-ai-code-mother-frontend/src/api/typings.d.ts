@@ -91,12 +91,21 @@ declare namespace API {
     isGenerating?: number
     generatingMessage?: string
     generatingStage?: string
+    devServerPort?: number
     databaseResource?: AppDatabaseResourceVO
     priority?: number
     userId?: string | number
     createTime?: string
     updateTime?: string
     user?: UserVO
+  }
+
+  type DevServerStatusVO = {
+    appId?: string | number
+    running?: boolean
+    port?: number
+    previewUrl?: string
+    status?: string
   }
 
   type BaseResponseAppVO = {
@@ -114,6 +123,12 @@ declare namespace API {
   type BaseResponseAppDatabaseResourceVO = {
     code?: number
     data?: AppDatabaseResourceVO
+    message?: string
+  }
+
+  type BaseResponseDevServerStatusVO = {
+    code?: number
+    data?: DevServerStatusVO
     message?: string
   }
 

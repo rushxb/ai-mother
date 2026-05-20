@@ -167,6 +167,48 @@ export async function deployApp(body: API.AppDeployRequest, options?: { [key: st
   })
 }
 
+/** 启动应用的 Vue 开发服务器 POST /app/dev-server/start */
+export async function startDevServer(
+  params: { appId: string | number },
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseDevServerStatusVO>('/app/dev-server/start', {
+    method: 'POST',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
+/** 停止应用的 Vue 开发服务器 POST /app/dev-server/stop */
+export async function stopDevServer(
+  params: { appId: string | number },
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/app/dev-server/stop', {
+    method: 'POST',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
+/** 获取应用的 Vue 开发服务器状态 GET /app/dev-server/status */
+export async function getDevServerStatus(
+  params: { appId: string | number },
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseDevServerStatusVO>('/app/dev-server/status', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
 /** 获取应用代码文件树 GET /app/code/files */
 export async function listAppCodeFiles(
   params: API.listAppCodeFilesParams,

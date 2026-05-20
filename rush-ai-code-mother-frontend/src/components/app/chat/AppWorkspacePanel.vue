@@ -146,7 +146,7 @@
           <iframe
               v-if="previewUrl"
               :key="previewRefreshKey"
-              :src="previewUrl"
+              ref="previewIframeRef"
               class="preview-iframe"
               frameborder="0"
               @load="$emit('iframeLoad')"
@@ -280,11 +280,12 @@ import {
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons-vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import DatabaseWorkspace from '@/components/app/DatabaseWorkspace.vue'
 import ChatToolbarButton from './ChatToolbarButton.vue'
 import type { FileTreeNode, WorkspaceTabKey } from './types'
 
-defineProps<{
+const props = defineProps<{
   activeWorkspaceTab: WorkspaceTabKey
   appInfo?: API.AppVO
   canSaveFile: boolean
@@ -333,6 +334,26 @@ defineEmits<{
   'update:activeWorkspaceTab': [value: WorkspaceTabKey]
   'update:fileContent': [value: string]
 }>()
+
+// iframe ref，用于直接设置 src（绕过 Vue Router）
+const previewIframeRef = ref<HTMLIFrameElement | null>(null)
+
+// 设置 iframe src 的函数
+const updateIframeSrc = async () => {
+  await nextTick()
+  if (previewIframeRef.value && props.previewUrl) {
+    previewIframeRef.value.src = props.previewUrl
+  }
+}
+
+// 监听 previewUrl 变化
+watch(() => props.previewUrl, updateIframeSrc)
+
+// 监听 previewRefreshKey 变化，强制刷新 iframe
+watch(() => props.previewRefreshKey, updateIframeSrc)
+
+// 组件挂载后设置初始 src
+onMounted(updateIframeSrc)
 </script>
 
 <style scoped>

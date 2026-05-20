@@ -30,6 +30,7 @@ import com.rush.rushaicodemother.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -48,6 +49,7 @@ import java.util.List;
  *
  *
  */
+@Slf4j
 @RestController
 @RequestMapping("/app")
 public class AppController {
@@ -261,6 +263,108 @@ public class AppController {
                 .build();
 
         return ResultUtils.success(statusVO);
+    }
+
+    /**
+     * 代理访问 Vue 开发服务器（保证同源以支持可视化编辑）
+     * 将 /app/dev-server/proxy/{appId}/... 代理到 http://localhost:{port}/...
+     */
+    @RequestMapping("/dev-server/proxy/{appId}/**")
+    public void proxyDevServer(@PathVariable Long appId,
+                               HttpServletRequest request,
+                               HttpServletResponse response) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+
+        // 获取应用信息和端口
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        Integer port = app.getDevServerPort();
+        ThrowUtils.throwIf(port == null, ErrorCode.NOT_FOUND_ERROR, "应用未分配 Dev Server 端口");
+
+        // 检查 dev server 是否运行
+        ThrowUtils.throwIf(!devServerManager.isRunning(appId), ErrorCode.OPERATION_ERROR, "Dev Server 未运行");
+
+        // 提取路径：/api/app/dev-server/proxy/{appId}/xxx → /xxx
+        String requestURI = request.getRequestURI();
+        String prefix = String.format("/api/app/dev-server/proxy/%d", appId);
+        String path = requestURI.substring(prefix.length());
+        if (path.isEmpty()) {
+            path = "/";
+        }
+
+        // 构建目标 URL
+        String targetUrl = String.format("http://localhost:%d%s", port, path);
+        String queryString = request.getQueryString();
+        if (queryString != null) {
+            targetUrl += "?" + queryString;
+        }
+
+        // 代理请求
+        try {
+            java.net.URL url = new java.net.URL(targetUrl);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod(request.getMethod());
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(30000);
+
+            // 复制请求头
+            java.util.Enumeration<String> headerNames = request.getHeaderNames();
+            while (headerNames.hasMoreElements()) {
+                String headerName = headerNames.nextElement();
+                // 跳过一些不需要的头
+                if (headerName.equalsIgnoreCase("host") || headerName.equalsIgnoreCase("connection")) {
+                    continue;
+                }
+                String headerValue = request.getHeader(headerName);
+                conn.setRequestProperty(headerName, headerValue);
+            }
+
+            // 如果有请求体，转发
+            if ("POST".equalsIgnoreCase(request.getMethod()) || "PUT".equalsIgnoreCase(request.getMethod())) {
+                conn.setDoOutput(true);
+                try (java.io.InputStream is = request.getInputStream();
+                     java.io.OutputStream os = conn.getOutputStream()) {
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = is.read(buffer)) != -1) {
+                        os.write(buffer, 0, bytesRead);
+                    }
+                }
+            }
+
+            // 获取响应
+            int statusCode = conn.getResponseCode();
+            response.setStatus(statusCode);
+
+            // 复制响应头
+            java.util.Map<String, java.util.List<String>> headerFields = conn.getHeaderFields();
+            for (java.util.Map.Entry<String, java.util.List<String>> entry : headerFields.entrySet()) {
+                String key = entry.getKey();
+                if (key != null) {
+                    for (String value : entry.getValue()) {
+                        response.addHeader(key, value);
+                    }
+                }
+            }
+
+            // 复制响应体
+            try (java.io.InputStream is = conn.getInputStream();
+                 java.io.OutputStream os = response.getOutputStream()) {
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = is.read(buffer)) != -1) {
+                    os.write(buffer, 0, bytesRead);
+                }
+            }
+
+        } catch (java.io.IOException e) {
+            log.error("代理 Dev Server 请求失败: {}", e.getMessage());
+            response.setStatus(502);
+            try {
+                response.getWriter().write("Dev Server 代理请求失败: " + e.getMessage());
+            } catch (java.io.IOException ignored) {
+            }
+        }
     }
 
     /**

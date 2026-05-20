@@ -122,7 +122,16 @@ public class DevServerManager {
                 port = app.getDevServerPort();
                 appPorts.put(appId, port); // 同步到 map
             }
-            return port;
+            if (port == null) {
+                // 端口信息丢失，杀掉残留进程后重新启动
+                log.warn("应用 {} 的 dev server 在运行但端口信息丢失，将重新启动", appId);
+                Process stale = runningProcesses.remove(appId);
+                if (stale != null) {
+                    stale.destroyForcibly();
+                }
+            } else {
+                return port;
+            }
         }
 
         // 检查用户并发限制

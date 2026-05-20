@@ -1399,9 +1399,9 @@ const refreshPreview = () => {
   }
   const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
   const devServerPort = appInfo.value?.devServerPort
-  // Vue 项目且 dev server 运行中时，使用 dev server URL
+  // Vue 项目且 dev server 运行中时，使用 dev server URL（通过后端代理）
   if ((codeGenType === CodeGenTypeEnum.VUE_PROJECT || codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT) && devServerRunning.value && devServerPort) {
-    previewUrl.value = getDevServerPreviewUrl(devServerPort)
+    previewUrl.value = getDevServerPreviewUrl(appId.value, devServerPort)
   } else {
     previewUrl.value = appendPreviewCacheBuster(getStaticPreviewUrl(codeGenType, appId.value))
   }
@@ -1414,11 +1414,14 @@ const updatePreview = () => {
   if (appId.value) {
     const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
     const devServerPort = appInfo.value?.devServerPort
-    // Vue 项目且 dev server 运行中时，使用 dev server URL
+    console.log('updatePreview:', { codeGenType, devServerRunning: devServerRunning.value, devServerPort, appId: appId.value })
+    // Vue 项目且 dev server 运行中时，使用 dev server URL（通过后端代理）
     if ((codeGenType === CodeGenTypeEnum.VUE_PROJECT || codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT) && devServerRunning.value && devServerPort) {
-      previewUrl.value = getDevServerPreviewUrl(devServerPort)
+      previewUrl.value = getDevServerPreviewUrl(appId.value, devServerPort)
+      console.log('设置预览 URL (dev server):', previewUrl.value)
     } else {
       previewUrl.value = getStaticPreviewUrl(codeGenType, appId.value)
+      console.log('设置预览 URL (static):', previewUrl.value)
     }
     previewReady.value = true
   }
@@ -1958,10 +1961,16 @@ const deployApp = async () => {
   }
 }
 
-// 在新窗口打开预览
+// 在新窗口打开预览（dev server 需要用直接 URL，代理在新窗口不可用）
 const openInNewTab = () => {
   if (previewUrl.value) {
-    window.open(previewUrl.value, '_blank')
+    // 如果是 dev server 代理路径，转换为直接 URL
+    const devServerMatch = previewUrl.value.match(/\/dev-server\/proxy\/\d+\//)
+    if (devServerMatch && appInfo.value?.devServerPort) {
+      window.open(`http://localhost:${appInfo.value.devServerPort}`, '_blank')
+    } else {
+      window.open(previewUrl.value, '_blank')
+    }
   }
 }
 

@@ -65,7 +65,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -124,16 +126,25 @@ public class GenerationTaskOrchestrator {
             LightweightEditResult editResult = lightweightEditService.execute(request);
             if (editResult != null) {
                 log.info("轻量编辑路径完成，appId: {}, taskId: {}, route: {}", app.getId(), editResult.taskId(), editResult.route());
-                // 轻量编辑是同步完成的，直接返回结果
-                // 创建一个已完成的 session 用于返回
+                // 如果轻量编辑失败，重置生成状态并抛出异常让前端显示错误信息
+                if ("failed".equals(editResult.validationResult())) {
+                    generationAppStateService.markGenerationFinished(app.getId());
+                    throw new BusinessException(ErrorCode.OPERATION_ERROR, editResult.summary());
+                }
+                // 轻量编辑成功，创建 session 并存入 activeGenerationSessions
                 GenerationSession editSession = new GenerationSession(null);
+                activeGenerationSessions.put(app.getId(), editSession);
                 editSession.emit(GenerationStreamEvent.agentEvent(
                         editResult.summary(),
                         Map.of("route", editResult.route(), "taskId", editResult.taskId(), "status", editResult.validationResult())
                 ));
                 editSession.complete();
+                // 延迟清理 session，确保前端有时间获取事件
+                scheduleSessionCleanup(app.getId(), editSession);
                 return new GenerationTaskResult(editResult.taskId(), editResult.route(), workspace, editSession.asFlux());
             }
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("轻量编辑路径异常，回退到重型生成，appId: {}, error: {}", app.getId(), e.getMessage());
         }
@@ -1104,6 +1115,18 @@ public class GenerationTaskOrchestrator {
         generationTraceService.completeTask(preparation.taskId(), status, session.startedAt(), null);
         userCreditService.chargeGenerationTask(preparation.taskId());
         session.complete();
+    }
+
+    /**
+     * 延迟清理轻量编辑的 session，确保前端有时间获取事件流。
+     * 使用 Sinks.Many.replay() 的特性，即使 session 完成后，前端仍可获取历史事件。
+     */
+    private void scheduleSessionCleanup(Long appId, GenerationSession session) {
+        // 30 秒后清理 session，给前端足够时间建立连接并获取事件
+        CompletableFuture.delayedExecutor(30, TimeUnit.SECONDS).execute(() -> {
+            activeGenerationSessions.remove(appId, session);
+            log.debug("轻量编辑 session 已清理，appId: {}", appId);
+        });
     }
 
     private String buildMemorySummary(GenerationPreparation preparation, String status) {

@@ -1028,7 +1028,14 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       message: userMessage,
     })
     if (startRes.data.code !== 0) {
-      throw new Error(startRes.data.message || '启动生成失败')
+      // 直接显示后端返回的错误信息，并停止生成流程
+      const errorMsg = startRes.data.message || '启动生成失败'
+      messages.value[aiMessageIndex].content = errorMsg
+      messages.value[aiMessageIndex].loading = false
+      messages.value[aiMessageIndex].generationFailed = true
+      isGenerating.value = false
+      message.error(errorMsg)
+      return
     }
 
     // 获取 axios 配置的 baseURL

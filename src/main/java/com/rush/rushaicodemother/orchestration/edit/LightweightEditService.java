@@ -132,10 +132,11 @@ public class LightweightEditService {
             List<EditFileCandidate> candidates = editFileLocatorService.locate(workspace, userMessage, codeGenType);
             if (candidates.isEmpty()) {
                 log.warn("文件定位未找到候选文件，appId: {}", app.getId());
-                generationEventPublisher.publish(request, GenerationEventType.TASK_FAILED, "文件定位未找到候选文件", Map.of(
+                 generationEventPublisher.publish(request, GenerationEventType.TASK_FAILED, "文件定位未找到候选文件", Map.of(
                         "taskId", taskId,
                         "reason", "no_candidates_found"
                 ));
+                generationAppStateService.markGenerationFinished(app.getId());
                 return buildFailedResult(taskId, "文件定位未找到候选文件");
             }
 
@@ -150,6 +151,7 @@ public class LightweightEditService {
             EditContextPackage contextPackage = editFileLocatorService.buildContextPackage(workspace, candidates);
             if (contextPackage.isEmpty()) {
                 log.warn("上下文构建为空，appId: {}", app.getId());
+                generationAppStateService.markGenerationFinished(app.getId());
                 return buildFailedResult(taskId, "上下文构建为空");
             }
 
@@ -160,17 +162,21 @@ public class LightweightEditService {
                 editResult = aiCodeEditService.editCode(userMessage, projectContext);
             } catch (Exception e) {
                 log.error("AI 编辑服务调用失败，appId: {}", app.getId(), e);
-                return buildFailedResult(taskId, "AI 编辑服务调用失败: " + e.getMessage());
+                String userFriendlyMessage = extractUserFriendlyMessage(e);
+                generationAppStateService.markGenerationFinished(app.getId());
+                return buildFailedResult(taskId, userFriendlyMessage);
             }
 
             if (editResult == null || editResult.operations() == null || editResult.operations().isEmpty()) {
                 log.warn("AI 编辑返回空操作，appId: {}", app.getId());
+                generationAppStateService.markGenerationFinished(app.getId());
                 return buildFailedResult(taskId, "AI 编辑返回空操作");
             }
 
             // 5. 转换为 PatchOperation
             List<PatchOperation> patchOperations = convertToPatchOperations(editResult.operations());
             if (patchOperations.isEmpty()) {
+                generationAppStateService.markGenerationFinished(app.getId());
                 return buildFailedResult(taskId, "无有效补丁操作");
             }
 
@@ -347,6 +353,34 @@ public class LightweightEditService {
      */
     private String generateTaskId() {
         return "edit_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    }
+
+    /**
+     * 从异常中提取用户友好的错误信息。
+     */
+    private String extractUserFriendlyMessage(Exception e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return "AI 服务调用失败，请稍后重试";
+        }
+        // 余额不足
+        if (message.contains("Insufficient Balance") || message.contains("402")) {
+            return "AI 服务账户余额不足，请联系管理员充值";
+        }
+        // 请求过多（限流）
+        if (message.contains("429") || message.contains("Too Many Requests")) {
+            return "AI 服务请求过于频繁，请稍后重试";
+        }
+        // 认证失败
+        if (message.contains("401") || message.contains("Unauthorized")) {
+            return "AI 服务认证失败，请联系管理员检查配置";
+        }
+        // 服务不可用
+        if (message.contains("503") || message.contains("Service Unavailable")) {
+            return "AI 服务暂时不可用，请稍后重试";
+        }
+        // 其他错误
+        return "AI 服务调用失败: " + message;
     }
 
     /**

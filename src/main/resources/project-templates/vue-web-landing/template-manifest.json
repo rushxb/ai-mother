@@ -1,0 +1,51 @@
+{
+  "templateId": "vue-web-landing",
+  "description": "展示型官网/活动页，包含首屏、亮点、案例、流程和 FAQ",
+  "slots": [
+    {
+      "id": "hero_section",
+      "file": "src/views/HomeView.vue",
+      "description": "首屏 Hero 区域内容",
+      "required": true
+    },
+    {
+      "id": "theme_tokens",
+      "file": "src/styles/theme.css",
+      "description": "主题色和基础样式变量",
+      "required": false
+    },
+    {
+      "id": "features_data",
+      "file": "src/data/features.ts",
+      "description": "产品亮点/特性数据",
+      "required": true
+    },
+    {
+      "id": "cases_data",
+      "file": "src/data/cases.ts",
+      "description": "案例/客户见证数据",
+      "required": false
+    },
+    {
+      "id": "faq_data",
+      "file": "src/data/faq.ts",
+      "description": "常见问题数据",
+      "required": false
+    },
+    {
+      "id": "contact_info",
+      "file": "src/data/contact.ts",
+      "description": "联系方式和底部信息",
+      "required": false
+    }
+  ],
+  "protectedFiles": [
+    "package.json",
+    "vite.config.js",
+    "index.html",
+    "src/main.js",
+    "src/App.vue",
+    "src/router/index.js"
+  ],
+  "maxSlotsPerGeneration": 6
+}

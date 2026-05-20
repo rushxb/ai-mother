@@ -142,6 +142,116 @@ public class WorkspaceSemanticIndexService {
                 .toList();
     }
 
+    /**
+     * 增量更新索引：修改指定文件的索引条目。
+     * 只刷新指定文件，不重建整个索引。
+     *
+     * @param rootDir      工作区根目录
+     * @param relativePath 相对路径
+     */
+    public void refreshFileIndex(Path rootDir, String relativePath) {
+        if (rootDir == null || StrUtil.isBlank(relativePath)) {
+            return;
+        }
+        Path normalizedRoot = normalizeRoot(rootDir);
+        String normalizedRelativePath = relativePath.replace("\\", "/");
+        if (!isIndexable(normalizedRelativePath)) {
+            return;
+        }
+        Path absolutePath = normalizedRoot.resolve(normalizedRelativePath);
+        if (!Files.isRegularFile(absolutePath)) {
+            return;
+        }
+        String cacheKey = normalizedRoot.toString();
+        CachedIndex cachedIndex = cache.get(cacheKey);
+        if (cachedIndex == null) {
+            return;
+        }
+        WorkspaceSemanticIndex index = cachedIndex.index();
+        List<WorkspaceSemanticIndexEntry> entries = new ArrayList<>(index.entries());
+        entries.removeIf(entry -> normalizedRelativePath.equals(entry.relativePath()));
+        try {
+            entries.add(buildEntry(normalizedRelativePath, absolutePath));
+        } catch (IOException e) {
+            log.warn("构建文件索引失败，path: {}", absolutePath, e);
+            return;
+        }
+        WorkspaceSemanticIndex updatedIndex = new WorkspaceSemanticIndex(
+                index.schemaVersion(),
+                index.rootPath(),
+                index.workspaceSignature(),
+                System.currentTimeMillis(),
+                entries.size(),
+                List.copyOf(entries)
+        );
+        cache.put(cacheKey, new CachedIndex(index.workspaceSignature(), updatedIndex));
+        Path indexFile = resolveIndexFile(normalizedRoot);
+        writeIndex(indexFile, updatedIndex);
+        log.debug("增量更新文件索引，path: {}", normalizedRelativePath);
+    }
+
+    /**
+     * 增量更新索引：删除指定文件的索引条目。
+     *
+     * @param rootDir      工作区根目录
+     * @param relativePath 相对路径
+     */
+    public void removeFileIndex(Path rootDir, String relativePath) {
+        if (rootDir == null || StrUtil.isBlank(relativePath)) {
+            return;
+        }
+        Path normalizedRoot = normalizeRoot(rootDir);
+        String normalizedRelativePath = relativePath.replace("\\", "/");
+        String cacheKey = normalizedRoot.toString();
+        CachedIndex cachedIndex = cache.get(cacheKey);
+        if (cachedIndex == null) {
+            return;
+        }
+        WorkspaceSemanticIndex index = cachedIndex.index();
+        List<WorkspaceSemanticIndexEntry> entries = new ArrayList<>(index.entries());
+        boolean removed = entries.removeIf(entry -> normalizedRelativePath.equals(entry.relativePath()));
+        if (!removed) {
+            return;
+        }
+        WorkspaceSemanticIndex updatedIndex = new WorkspaceSemanticIndex(
+                index.schemaVersion(),
+                index.rootPath(),
+                index.workspaceSignature(),
+                System.currentTimeMillis(),
+                entries.size(),
+                List.copyOf(entries)
+        );
+        cache.put(cacheKey, new CachedIndex(index.workspaceSignature(), updatedIndex));
+        Path indexFile = resolveIndexFile(normalizedRoot);
+        writeIndex(indexFile, updatedIndex);
+        log.debug("删除文件索引，path: {}", normalizedRelativePath);
+    }
+
+    /**
+     * 增量更新索引：批量刷新指定文件的索引条目。
+     *
+     * @param rootDir       工作区根目录
+     * @param relativePaths 相对路径列表
+     */
+    public void refreshFilesIndex(Path rootDir, List<String> relativePaths) {
+        if (rootDir == null || CollUtil.isEmpty(relativePaths)) {
+            return;
+        }
+        for (String relativePath : relativePaths) {
+            refreshFileIndex(rootDir, relativePath);
+        }
+    }
+
+    /**
+     * 增量更新索引：添加新文件的索引条目。
+     *
+     * @param rootDir      工作区根目录
+     * @param relativePath 相对路径
+     */
+    public void addFileIndex(Path rootDir, String relativePath) {
+        refreshFileIndex(rootDir, relativePath);
+    }
+
     public List<WorkspaceSemanticSearchHit> search(Path rootDir, String query, Set<String> extensionFilter, int limit) {
         if (rootDir == null || StrUtil.isBlank(query) || limit <= 0) {
             return List.of();

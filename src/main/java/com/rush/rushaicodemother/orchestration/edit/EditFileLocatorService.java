@@ -34,6 +34,7 @@ public class EditFileLocatorService {
 
     private final WorkspaceSemanticIndexService workspaceSemanticIndexService;
     private final GenerationWorkspaceService generationWorkspaceService;
+    private final EditStatePersistenceService editStatePersistenceService;
 
     private static final int MAX_CANDIDATE_FILES = 8;
     private static final int MAX_SINGLE_FILE_CHARS = 20 * 1024;
@@ -70,7 +71,15 @@ public class EditFileLocatorService {
             }
         }
 
-        // 2. 语义索引搜索
+        // 2. 最近修改的文件提权（连续改修时优先命中刚改过的文件）
+        List<EditFileCandidate> recentMatches = getRecentModifiedFiles(workspace, userMessage);
+        for (EditFileCandidate candidate : recentMatches) {
+            if (seenPaths.add(candidate.relativePath())) {
+                candidates.add(candidate);
+            }
+        }
+
+        // 3. 语义索引搜索
         List<EditFileCandidate> semanticMatches = searchBySemanticIndex(workspace, userMessage);
         for (EditFileCandidate candidate : semanticMatches) {
             if (seenPaths.add(candidate.relativePath())) {
@@ -78,7 +87,7 @@ public class EditFileLocatorService {
             }
         }
 
-        // 3. 按 code type 加固定入口文件兜底
+        // 4. 按 code type 加固定入口文件兜底
         List<EditFileCandidate> fallbackMatches = getFallbackFiles(workspace, codeGenType);
         for (EditFileCandidate candidate : fallbackMatches) {
             if (seenPaths.add(candidate.relativePath())) {
@@ -213,6 +222,40 @@ public class EditFileLocatorService {
             }
         } catch (Exception e) {
             log.warn("语义索引搜索失败: {}", e.getMessage());
+        }
+
+        return candidates;
+    }
+
+    /**
+     * 获取最近修改的文件（连续改修时优先命中刚改过的文件）。
+     */
+    private List<EditFileCandidate> getRecentModifiedFiles(GenerationWorkspace workspace, String userMessage) {
+        List<EditFileCandidate> candidates = new ArrayList<>();
+        if (StrUtil.isBlank(userMessage)) {
+            return candidates;
+        }
+
+        try {
+            // 获取与用户消息相关的最近修改文件
+            List<String> relevantFiles = editStatePersistenceService.getRelevantRecentFiles(
+                    workspace.appId(), userMessage, 3
+            );
+            for (String relativePath : relevantFiles) {
+                Path filePath = workspace.canonicalRootPath().resolve(relativePath);
+                if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
+                    candidates.add(new EditFileCandidate(
+                            relativePath,
+                            extractFileName(relativePath),
+                            "recent_modified",
+                            150,
+                            "最近修改的文件",
+                            List.of()
+                    ));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("获取最近修改文件失败: {}", e.getMessage());
         }
 
         return candidates;

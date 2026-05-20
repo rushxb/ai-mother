@@ -1,0 +1,45 @@
+{
+  "templateId": "vue-web-basic",
+  "description": "通用 Web 应用，适合信息站、轻应用、内容型产品",
+  "slots": [
+    {
+      "id": "home_content",
+      "file": "src/views/HomeView.vue",
+      "description": "首页主体内容区域",
+      "required": true
+    },
+    {
+      "id": "theme_tokens",
+      "file": "src/styles/theme.css",
+      "description": "主题色和基础样式变量",
+      "required": false
+    },
+    {
+      "id": "mock_data",
+      "file": "src/data/mock.ts",
+      "description": "页面演示数据",
+      "required": false
+    },
+    {
+      "id": "app_config",
+      "file": "src/data/app.config.ts",
+      "description": "应用配置信息（标题、描述、联系方式等）",
+      "required": true
+    },
+    {
+      "id": "navigation_items",
+      "file": "src/data/navigation.ts",
+      "description": "导航菜单项配置",
+      "required": false
+    }
+  ],
+  "protectedFiles": [
+    "package.json",
+    "vite.config.js",
+    "index.html",
+    "src/main.js",
+    "src/App.vue",
+    "src/router/index.js"
+  ],
+  "maxSlotsPerGeneration": 5
+}

@@ -1,0 +1,45 @@
+{
+  "templateId": "vue-web-mobile",
+  "description": "移动端 H5，基于 Vue 3 + Vant 4",
+  "slots": [
+    {
+      "id": "home_content",
+      "file": "src/views/HomeView.vue",
+      "description": "首页主体内容区域",
+      "required": true
+    },
+    {
+      "id": "theme_tokens",
+      "file": "src/styles/theme.css",
+      "description": "主题色和基础样式变量",
+      "required": false
+    },
+    {
+      "id": "mock_data",
+      "file": "src/data/mock.ts",
+      "description": "页面演示数据",
+      "required": false
+    },
+    {
+      "id": "tabbar_config",
+      "file": "src/data/tabbar.ts",
+      "description": "底部导航栏配置",
+      "required": false
+    },
+    {
+      "id": "product_list",
+      "file": "src/data/products.ts",
+      "description": "商品/内容列表数据",
+      "required": false
+    }
+  ],
+  "protectedFiles": [
+    "package.json",
+    "vite.config.js",
+    "index.html",
+    "src/main.js",
+    "src/App.vue",
+    "src/router/index.js"
+  ],
+  "maxSlotsPerGeneration": 5
+}

@@ -23,6 +23,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceServ
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -54,6 +55,10 @@ public class LightweightEditService {
     private final GenerationTraceService generationTraceService;
     private final ChatHistoryService chatHistoryService;
     private final UserCreditService userCreditService;
+    private final EditValidationPolicyService editValidationPolicyService;
+    private final BackgroundValidationService backgroundValidationService;
+    private final EditStatePersistenceService editStatePersistenceService;
+    private final WorkspaceSemanticIndexService workspaceSemanticIndexService;
 
     /**
      * 受保护的文件名前缀（不允许轻量编辑修改）
@@ -183,8 +188,39 @@ public class LightweightEditService {
                     "reason", StrUtil.blankToDefault(applyResult.reason(), "")
             ));
 
-            // 7. 记录聊天历史（AI 回复）
-            String summaryMessage = buildSummaryMessage(editResult, applyResult);
+            // 7. 增量更新索引
+            if ("applied".equals(applyResult.status())) {
+                List<String> changedFiles = patchOperations.stream()
+                        .map(PatchOperation::relativePath)
+                        .filter(StrUtil::isNotBlank)
+                        .toList();
+                workspaceSemanticIndexService.refreshFilesIndex(projectRoot, changedFiles);
+                log.debug("增量更新索引完成，文件数: {}", changedFiles.size());
+            }
+
+            // 8. 确定验证计划
+            EditValidationPlan validationPlan = editValidationPolicyService.determineValidationPlan(
+                    patchOperations, codeGenType, editResult.validation()
+            );
+            log.debug("验证计划: level={}, reason={}", validationPlan.level(), validationPlan.reason());
+
+            // 9. 记录编辑状态
+            boolean editSuccess = "applied".equals(applyResult.status());
+            editStatePersistenceService.recordEditResult(
+                    app.getId(), taskId, userMessage, patchOperations, editSuccess,
+                    editSuccess ? "" : applyResult.reason()
+            );
+
+            // 10. 启动后台验证（异步，不阻塞用户）
+            if (validationPlan.requiresBackgroundValidation() && editSuccess) {
+                backgroundValidationService.executeBackgroundValidation(
+                        taskId, app.getId(), loginUser.getId(), workspace,
+                        patchOperations, validationPlan, userMessage
+                );
+            }
+
+            // 11. 记录聊天历史（AI 回复）
+            String summaryMessage = buildSummaryMessage(editResult, applyResult, validationPlan);
             chatHistoryService.addChatMessage(app.getId(), summaryMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
 
             // 发送完成事件
@@ -288,7 +324,7 @@ public class LightweightEditService {
     /**
      * 构建摘要消息。
      */
-    private String buildSummaryMessage(EditResult editResult, PatchApplyResult applyResult) {
+    private String buildSummaryMessage(EditResult editResult, PatchApplyResult applyResult, EditValidationPlan validationPlan) {
         StringBuilder builder = new StringBuilder();
         builder.append(editResult.summary());
         if ("applied".equals(applyResult.status())) {
@@ -296,8 +332,9 @@ public class LightweightEditService {
         } else if ("rejected".equals(applyResult.status())) {
             builder.append("\n\n补丁应用被拒绝：").append(applyResult.reason());
         }
-        if (editResult.validation() != null && editResult.validation().requiresBuild()) {
-            builder.append("\n\n建议进行构建验证。");
+        if (validationPlan != null && validationPlan.requiresBackgroundValidation()) {
+            builder.append("\n\n后台验证级别：").append(validationPlan.level().name());
+            builder.append("（").append(validationPlan.reason()).append("）");
         }
         return builder.toString();
     }

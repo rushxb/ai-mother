@@ -1,0 +1,51 @@
+{
+  "templateId": "vue-web-admin",
+  "description": "后台管理应用，包含指标、筛选、表格、弹窗和设置区",
+  "slots": [
+    {
+      "id": "dashboard_content",
+      "file": "src/views/DashboardView.vue",
+      "description": "工作台/仪表盘主体内容",
+      "required": true
+    },
+    {
+      "id": "theme_tokens",
+      "file": "src/styles/theme.css",
+      "description": "主题色和基础样式变量",
+      "required": false
+    },
+    {
+      "id": "mock_data",
+      "file": "src/data/mock.ts",
+      "description": "页面演示数据",
+      "required": false
+    },
+    {
+      "id": "table_columns",
+      "file": "src/data/table.columns.ts",
+      "description": "表格列定义配置",
+      "required": false
+    },
+    {
+      "id": "sidebar_menu",
+      "file": "src/data/sidebar.menu.ts",
+      "description": "侧边栏菜单配置",
+      "required": false
+    },
+    {
+      "id": "statistics_cards",
+      "file": "src/data/statistics.ts",
+      "description": "统计卡片数据配置",
+      "required": false
+    }
+  ],
+  "protectedFiles": [
+    "package.json",
+    "vite.config.js",
+    "index.html",
+    "src/main.js",
+    "src/App.vue",
+    "src/router/index.js"
+  ],
+  "maxSlotsPerGeneration": 6
+}

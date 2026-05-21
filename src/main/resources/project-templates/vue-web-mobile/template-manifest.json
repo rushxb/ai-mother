@@ -1,6 +1,6 @@
 {
   "templateId": "vue-web-mobile",
-  "description": "移动端 H5，基于 Vue 3 + Vite + Vant 4，适合电商、内容、活动等移动端场景",
+  "description": "移动端 H5，基于 Vue 3 + Vite + Vant 4 + vaul-vue + motion-v + TresJS + Lenis，适合电商、内容、活动等移动端场景",
   "slots": [
     {
       "id": "home_content",
@@ -101,6 +101,57 @@
       "aiHints": {
         "pattern": "Pinia defineStore + ref + computed + actions",
         "persist": true
+      }
+    },
+    {
+      "id": "drawer_example",
+      "file": "src/components/DrawerExample.vue",
+      "description": "vaul-vue 底部抽屉示例组件",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<DrawerRoot>\n  <DrawerTrigger>打开抽屉</DrawerTrigger>\n  <DrawerContent>\n    <div>抽屉内容</div>\n  </DrawerContent>\n</DrawerRoot>",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 vaul-vue",
+      "aiHints": {
+        "pattern": "底部抽屉 + 手势 + iOS 风格",
+        "components": ["DrawerRoot", "DrawerTrigger", "DrawerContent", "DrawerOverlay"],
+        "props": ["shouldScaleBackground", "snapPoints"]
+      }
+    },
+    {
+      "id": "basic_scene",
+      "file": "src/components/tres/BasicScene.vue",
+      "description": "TresJS 基础 3D 场景组件",
+      "required": false,
+      "type": "component",
+      "category": "3d",
+      "example": "<BasicScene>\n  <TresMesh>\n    <TresBoxGeometry />\n    <TresMeshStandardMaterial color=\"blue\" />\n  </TresMesh>\n</BasicScene>",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 @tresjs/core",
+      "aiHints": {
+        "pattern": "3D 场景 + 相机 + 光照 + 物体",
+        "components": ["TresCanvas", "TresPerspectiveCamera", "TresAmbientLight", "TresDirectionalLight"],
+        "props": ["color", "intensity"]
+      }
+    },
+    {
+      "id": "rotating_cube",
+      "file": "src/components/tres/RotatingCube.vue",
+      "description": "旋转立方体 3D 组件",
+      "required": false,
+      "type": "component",
+      "category": "3d",
+      "example": "<RotatingCube color=\"#00ff00\" :speed=\"1\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 @tresjs/core + useRenderLoop",
+      "aiHints": {
+        "pattern": "3D 物体 + 动画循环 + 材质",
+        "components": ["TresCanvas", "TresMesh", "TresBoxGeometry", "TresMeshStandardMaterial"],
+        "props": ["color", "speed"]
       }
     }
   ],

@@ -5,8 +5,8 @@
 ## 基本原则
 
 - 先满足用户明确需求，再补足必要的页面结构、数据和交互。
-- 优先复用现有模板、目录、组件、样式和依赖，不为“看起来完整”创建无意义文件。
-- 新建项目追求“少文件、高密度、强完成度”；改修项目追求“只动相关处、保持原风格”。
+- 优先复用现有模板、目录、组件、样式和依赖，不为"看起来完整"创建无意义文件。
+- 新建项目追求"少文件、高密度、强完成度"；改修项目追求"只动相关处、保持原风格"。
 - 不引入和任务无关的新技术栈、UI 框架、状态管理库、动画库、图表库或工具库；`frontend-design` 和其他已匹配 Skill 的约束视为本轮需求的一部分。
 - 设计细则不要在本提示词中重复展开，统一遵守 `frontend-design` skill。
 
@@ -19,6 +19,70 @@
 - 路由按现有工程约定实现；已有 Vue 3 模板默认继续使用 hash 模式。
 - Node.js 18+ 兼容。
 - 样式、图标、字体、滚动和动效默认遵守 `frontend-design` skill；改修项目优先沿用现有项目约定。
+
+## 组件库架构
+
+平台模板已集成以下组件库，按优先级使用：
+
+### 1. Inspira UI（首选 - 炫酷视觉效果）
+位置：`src/components/inspira/`
+用途：大胆、创意的视觉效果和动画组件
+- `GradientText` - 渐变文字标题
+- `AnimateOnScroll` - 滚动触发动画
+- `ParticleField` - 粒子背景
+- `TypewriterEffect` - 打字机效果
+- `GlowingOrb` - 光效球体
+
+使用场景：Hero 区域、标题动画、背景特效、创意展示
+
+### 2. shadcn-vue（基础 - 无头 UI 原语）
+位置：`src/components/ui/`
+用途：可访问、可定制的基础 UI 组件
+- `Button`, `Card`, `Dialog`, `Input`, `Label`, `Select`, `Badge`
+
+使用场景：表单、弹窗、基础交互元素
+
+### 3. TresJS（3D - 沉浸式体验）
+位置：`src/components/tres/`
+用途：3D 场景、粒子系统、后处理特效
+
+#### 视觉特效 (effects/)
+- `BloomEffect` - 辉光/霓虹
+- `GlassRefraction` - 玻璃折射
+- `VolumetricLight` - 体积光
+- `MatcapRendering` - 材质捕获
+- `EnvironmentMapping` - 环境反射
+
+#### 交互维度 (interactive/)
+- `ScrollDriven` - 滚动驱动
+- `MouseParallax` - 鼠标视差
+- `RaycasterInteraction` - 射线交互
+- `GravityPhysics` - 重力碰撞
+- `CameraTransition` - 相机转场
+
+#### 创意粒子 (particles/)
+- `ParticleSwarm` - 粒子群
+- `Morphing` - 形态畸变
+- `InstancedMesh` - 高性能群集
+- `LiquidShader` - 液态流体
+- `Typography3D` - 立体文字
+
+#### 后处理艺术 (post-processing/)
+- `GlitchEffect` - 故障艺术
+- `DepthOfField` - 景深虚化
+- `ASCIIEffect` - 字符滤镜
+- `MotionBlur` - 运动模糊
+- `ChromaticAberration` - 色散
+
+使用场景：Hero 3D 场景、滚动驱动交互、粒子背景、视觉特效
+
+### 4. motion-v（动画引擎）
+用途：物理动画、弹性交互
+使用场景：弹窗动画、菜单展开、抽屉滑入、tooltip 弹出
+
+### 5. Lenis（滚动引擎）
+用途：丝滑 iOS 风格滚动
+使用场景：全局滚动平滑
 
 ## 工作模式
 
@@ -128,17 +192,30 @@
 ├── index.html
 ├── package.json
 ├── vite.config.js
+├── tailwind.config.js
+├── postcss.config.js
 ├── src/
-│   ├── main.js
+│   ├── main.ts
 │   ├── App.vue
 │   ├── router/
-│   │   └── index.js
+│   │   └── index.ts
 │   ├── components/
+│   │   ├── ui/            # shadcn-vue 基础组件
+│   │   ├── inspira/       # Inspira UI 炫酷组件
+│   │   └── tres/          # TresJS 3D 组件
+│   │       ├── effects/
+│   │       ├── interactive/
+│   │       ├── particles/
+│   │       └── post-processing/
+│   ├── lib/
+│   │   └── utils.ts       # cn() 工具函数
 │   ├── pages/ 或 views/
 │   ├── data/
-│   ├── utils/
-│   ├── assets/
-│   └── styles/
+│   ├── stores/            # Pinia 状态管理
+│   ├── services/          # API 服务
+│   ├── types/             # TypeScript 类型
+│   ├── styles/
+│   └── assets/
 └── public/
 
 ## 稳定配置要求
@@ -181,12 +258,29 @@ const router = createRouter({
     "build": "vite build"
   },
   "dependencies": {
-    "vue": "^3.3.4",
-    "vue-router": "^4.2.4"
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.4",
+    "pinia": "^2.1.7",
+    "pinia-plugin-persistedstate": "^3.2.1",
+    "@vueuse/core": "^12.5.0",
+    "radix-vue": "^1.9.12",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.6.0",
+    "motion-v": "^0.5.0",
+    "@tresjs/core": "^4.3.2",
+    "three": "^0.170.0",
+    "lenis": "^1.1.18",
+    "lucide-vue-next": "^0.469.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^4.2.3",
-    "vite": "^4.4.5"
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.0",
+    "typescript": "^5.7.0",
+    "tailwindcss": "^3.4.17",
+    "postcss": "^8.4.49",
+    "autoprefixer": "^10.4.20",
+    "@types/three": "^0.170.0"
   }
 }
 ```

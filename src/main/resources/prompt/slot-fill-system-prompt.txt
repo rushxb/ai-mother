@@ -82,13 +82,98 @@
 2. 在 `<script setup>` 中导入依赖的数据文件
 3. 确保导入路径正确
 
-示例：
-```vue
-<script setup>
-import MetricGrid from '@/components/MetricGrid.vue'
-import ProTable from '@/components/ProTable.vue'
+### 组件库导入路径
+
+根据组件库类型使用正确的导入路径：
+
+```typescript
+// shadcn-vue 基础组件
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+
+// Inspira UI 炫酷组件
+import GradientText from '@/components/inspira/GradientText.vue'
+import AnimateOnScroll from '@/components/inspira/AnimateOnScroll.vue'
+import ParticleField from '@/components/inspira/ParticleField.vue'
+import TypewriterEffect from '@/components/inspira/TypewriterEffect.vue'
+import GlowingOrb from '@/components/inspira/GlowingOrb.vue'
+
+// TresJS 3D 基础组件
+import BasicScene from '@/components/tres/BasicScene.vue'
+import RotatingCube from '@/components/tres/RotatingCube.vue'
+import ParticleSphere from '@/components/tres/ParticleSphere.vue'
+
+// TresJS 视觉特效
+import BloomEffect from '@/components/tres/effects/BloomEffect.vue'
+import GlassRefraction from '@/components/tres/effects/GlassRefraction.vue'
+import VolumetricLight from '@/components/tres/effects/VolumetricLight.vue'
+import MatcapRendering from '@/components/tres/effects/MatcapRendering.vue'
+import EnvironmentMapping from '@/components/tres/effects/EnvironmentMapping.vue'
+
+// TresJS 交互维度
+import ScrollDriven from '@/components/tres/interactive/ScrollDriven.vue'
+import MouseParallax from '@/components/tres/interactive/MouseParallax.vue'
+import RaycasterInteraction from '@/components/tres/interactive/RaycasterInteraction.vue'
+import GravityPhysics from '@/components/tres/interactive/GravityPhysics.vue'
+import CameraTransition from '@/components/tres/interactive/CameraTransition.vue'
+
+// TresJS 创意粒子
+import ParticleSwarm from '@/components/tres/particles/ParticleSwarm.vue'
+import Morphing from '@/components/tres/particles/Morphing.vue'
+import InstancedMesh from '@/components/tres/particles/InstancedMesh.vue'
+import LiquidShader from '@/components/tres/particles/LiquidShader.vue'
+import Typography3D from '@/components/tres/particles/Typography3D.vue'
+
+// TresJS 后处理艺术
+import GlitchEffect from '@/components/tres/post-processing/GlitchEffect.vue'
+import DepthOfField from '@/components/tres/post-processing/DepthOfField.vue'
+import ASCIIEffect from '@/components/tres/post-processing/ASCIIEffect.vue'
+import MotionBlur from '@/components/tres/post-processing/MotionBlur.vue'
+import ChromaticAberration from '@/components/tres/post-processing/ChromaticAberration.vue'
+
+// 移动端抽屉组件 (vue-web-mobile)
+import { DrawerRoot, DrawerTrigger, DrawerContent, DrawerOverlay } from '@/components/drawer'
+```
+
+### 组件使用场景指南
+
+| 需求场景 | 推荐组件 | 导入来源 |
+|---------|---------|---------|
+| 基础表单 | Button, Input, Label, Select | @/components/ui/* |
+| 弹窗对话 | Dialog | @/components/ui/dialog |
+| 卡片布局 | Card | @/components/ui/card |
+| 标签徽章 | Badge | @/components/ui/badge |
+| 渐变标题 | GradientText | @/components/inspira/ |
+| 滚动动画 | AnimateOnScroll | @/components/inspira/ |
+| 粒子背景 | ParticleField | @/components/inspira/ |
+| 打字效果 | TypewriterEffect | @/components/inspira/ |
+| 光效装饰 | GlowingOrb | @/components/inspira/ |
+| 3D 场景 | BasicScene | @/components/tres/ |
+| 3D 物体 | RotatingCube, ParticleSphere | @/components/tres/ |
+| 滚动驱动 | ScrollDriven | @/components/tres/interactive/ |
+| 鼠标交互 | MouseParallax, RaycasterInteraction | @/components/tres/interactive/ |
+| 视觉特效 | BloomEffect, GlitchEffect | @/components/tres/effects/, post-processing/ |
+| 移动抽屉 | DrawerRoot, DrawerContent | @/components/drawer/ |
+
+### 数据文件导入示例
+
+```typescript
+// 数据文件
 import { metrics, users } from '@/data/adminData'
-</script>
+import { products, categories } from '@/data/siteData'
+import { testimonials } from '@/data/testimonials'
+
+// Store
+import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
+
+// API 服务
+import { getUserList, createUser } from '@/services/api'
 ```
 
 ## 首次生成策略

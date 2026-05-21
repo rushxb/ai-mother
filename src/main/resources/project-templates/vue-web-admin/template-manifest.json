@@ -1,6 +1,6 @@
 {
   "templateId": "vue-web-admin",
-  "description": "后台管理模板，基于 Vue 3 + Vite + Naive UI，包含指标、筛选、表格、弹窗和设置区",
+  "description": "后台管理模板，基于 Vue 3 + Vite + shadcn-vue + Inspira UI + TresJS，包含指标、筛选、表格、弹窗和设置区",
   "slots": [
     {
       "id": "dashboard_content",
@@ -9,13 +9,13 @@
       "required": true,
       "type": "view",
       "category": "page",
-      "example": "<template>\n  <n-grid :cols=\"4\">\n    <n-gi v-for=\"item in metrics\" :key=\"item.label\">\n      <n-card>\n        <n-statistic :label=\"item.label\" :value=\"item.value\" />\n      </n-card>\n    </n-gi>\n  </n-grid>\n</template>\n\n<script setup lang=\"ts\">\nimport { metrics } from '@/data/adminData'\n</script>",
+      "example": "<template>\n  <div class=\"grid grid-cols-4 gap-4\">\n    <Card v-for=\"item in metrics\" :key=\"item.label\">\n      <CardHeader>\n        <CardTitle>{{ item.label }}</CardTitle>\n      </CardHeader>\n      <CardContent>\n        <div class=\"text-2xl font-bold\">{{ item.value }}</div>\n      </CardContent>\n    </Card>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { metrics } from '@/data/adminData'\n</script>",
       "dependencies": ["src/data/adminData.ts", "src/components/ProTable.vue"],
       "styleVariables": ["--color-primary", "--color-success", "--color-warning", "--color-danger", "--panel-bg", "--panel-radius"],
-      "outputFormat": "完整的 Vue SFC，使用 Naive UI 组件",
+      "outputFormat": "完整的 Vue SFC，使用 shadcn-vue 组件",
       "aiHints": {
         "pattern": "指标卡片 + 趋势图 + 活动列表 + 表格",
-        "components": ["n-grid", "n-card", "n-statistic", "n-data-table"],
+        "components": ["Card", "CardHeader", "CardTitle", "CardContent", "Badge"],
         "hooks": ["useRouter", "useAppStore"]
       }
     },
@@ -122,14 +122,14 @@
       "required": false,
       "type": "page",
       "category": "auth",
-      "example": "<template>\n  <n-card class=\"login-card\">\n    <n-form :model=\"formData\" :rules=\"rules\">\n      <n-form-item label=\"账号\" path=\"userAccount\">\n        <n-input v-model:value=\"formData.userAccount\" />\n      </n-form-item>\n    </n-form>\n  </n-card>\n</template>",
+      "example": "<template>\n  <Card class=\"login-card\">\n    <CardHeader>\n      <CardTitle>登录</CardTitle>\n    </CardHeader>\n    <CardContent>\n      <form @submit=\"onSubmit\">\n        <Label>账号</Label>\n        <Input v-model=\"formData.userAccount\" />\n        <Button type=\"submit\">登录</Button>\n      </form>\n    </CardContent>\n  </Card>\n</template>",
       "dependencies": ["src/stores/user.ts", "src/data/adminData.ts"],
       "styleVariables": null,
-      "outputFormat": "完整的 Vue SFC，使用 Naive UI 组件",
+      "outputFormat": "完整的 Vue SFC，使用 shadcn-vue 组件",
       "aiHints": {
         "pattern": "表单 + 验证 + 路由跳转",
-        "components": ["n-card", "n-form", "n-input", "n-button"],
-        "hooks": ["useUserStore", "useRouter", "useMessage"]
+        "components": ["Card", "CardHeader", "CardTitle", "CardContent", "Input", "Label", "Button"],
+        "hooks": ["useUserStore", "useRouter", "useToast"]
       }
     },
     {
@@ -142,10 +142,10 @@
       "example": "<SearchBar :filters=\"filters\" @search=\"handleSearch\" @reset=\"handleReset\" />",
       "dependencies": null,
       "styleVariables": null,
-      "outputFormat": "Vue 组件，使用 Naive UI",
+      "outputFormat": "Vue 组件，使用 shadcn-vue",
       "aiHints": {
         "pattern": "表单 + 筛选 + 重置",
-        "components": ["n-form", "n-grid", "n-input", "n-select", "n-date-picker"]
+        "components": ["Input", "Select", "Button", "Label"]
       }
     },
     {
@@ -158,10 +158,27 @@
       "example": "<FormModal v-model:show=\"showModal\" title=\"新增\" :fields=\"fields\" @confirm=\"handleConfirm\" />",
       "dependencies": null,
       "styleVariables": null,
-      "outputFormat": "Vue 组件，使用 Naive UI",
+      "outputFormat": "Vue 组件，使用 shadcn-vue",
       "aiHints": {
         "pattern": "弹窗 + 表单 + 验证",
-        "components": ["n-modal", "n-form", "n-grid", "n-input", "n-select", "n-switch"]
+        "components": ["Dialog", "DialogHeader", "DialogTitle", "DialogContent", "Input", "Label", "Button"]
+      }
+    },
+    {
+      "id": "pro_table",
+      "file": "src/components/ProTable.vue",
+      "description": "高级表格组件，支持搜索、分页和自定义列",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<ProTable :columns=\"columns\" :rows=\"data\" :row-key=\"id\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用原生 table + shadcn-vue 样式",
+      "aiHints": {
+        "pattern": "表格 + 搜索 + 分页",
+        "components": ["table", "Input", "Button", "Badge"],
+        "props": ["columns", "rows", "rowKey", "pageSize"]
       }
     }
   ],

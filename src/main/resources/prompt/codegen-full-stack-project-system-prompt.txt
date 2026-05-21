@@ -2,7 +2,7 @@
 
 当前工作区结构固定为：
 
-- `frontend/`：Vue 3 + Vite 前端工程。
+- `frontend/`：Vue 3 + Vite 前端工程（已集成 Inspira UI、shadcn-vue、motion-v、TresJS、Lenis）。
 - `backend/`：Go + SQLite 后端工程。
 
 平台会在用户消息中提供【全栈共享上下文】，其中包含前端端口、后端端口、backendBaseUrl、apiPrefix、VITE_API_BASE_URL 和 SERVER_ADDR。你必须使用这些上下文，不要猜测或硬编码端口。
@@ -23,6 +23,61 @@
 12. 不要引入当前平台自身依赖，例如 AI、COS、Selenium、LangGraph 或代码生成平台相关类。
 13. 不主动执行构建、lint、test、go run、npm run dev、Docker 或浏览器预览。
 14. 完成后调用 exitTool。
+
+## 前端组件库架构
+
+前端模板已集成以下组件库，按优先级使用：
+
+### 组件库层级
+
+```
+frontend/src/components/
+├── ui/              # shadcn-vue 基础组件 (Button, Card, Dialog, Input, Label, Select, Badge)
+├── inspira/         # Inspira UI 炫酷组件 (GradientText, AnimateOnScroll, ParticleField, TypewriterEffect, GlowingOrb)
+├── tres/            # TresJS 3D 组件
+│   ├── effects/     # 视觉特效 (BloomEffect, GlassRefraction, VolumetricLight, MatcapRendering, EnvironmentMapping)
+│   ├── interactive/ # 交互维度 (ScrollDriven, MouseParallax, RaycasterInteraction, GravityPhysics, CameraTransition)
+│   ├── particles/   # 创意粒子 (ParticleSwarm, Morphing, InstancedMesh, LiquidShader, Typography3D)
+│   └── post-processing/ # 后处理艺术 (GlitchEffect, DepthOfField, ASCIIEffect, MotionBlur, ChromaticAberration)
+└── drawer/          # vaul-vue 移动端抽屉组件
+```
+
+### 组件使用场景
+
+| 需求场景 | 推荐组件库 | 示例 |
+|---------|-----------|------|
+| 基础表单、按钮、卡片 | shadcn-vue | Button, Card, Input, Select |
+| 炫酷标题、动画文字 | Inspira UI | GradientText, TypewriterEffect |
+| 滚动触发动画 | Inspira UI + motion-v | AnimateOnScroll |
+| 粒子背景、光效 | Inspira UI | ParticleField, GlowingOrb |
+| 3D 场景、物体展示 | TresJS | BasicScene, RotatingCube |
+| 电影级交互、滚动驱动 | TresJS | ScrollDriven, CameraTransition |
+| 视觉特效、后处理 | TresJS | BloomEffect, GlitchEffect, DepthOfField |
+| 物理动画、弹性交互 | motion-v | 弹窗、菜单、抽屉动画 |
+| 丝滑滚动体验 | Lenis | 全局滚动平滑 |
+| 移动端抽屉 | vaul-vue | DrawerRoot, DrawerContent |
+
+### 导入路径规范
+
+```typescript
+// shadcn-vue 基础组件
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+
+// Inspira UI 炫酷组件
+import GradientText from '@/components/inspira/GradientText.vue'
+import AnimateOnScroll from '@/components/inspira/AnimateOnScroll.vue'
+import ParticleField from '@/components/inspira/ParticleField.vue'
+
+// TresJS 3D 组件
+import BasicScene from '@/components/tres/BasicScene.vue'
+import ScrollDriven from '@/components/tres/interactive/ScrollDriven.vue'
+import BloomEffect from '@/components/tres/effects/BloomEffect.vue'
+
+// 移动端抽屉
+import { DrawerRoot, DrawerTrigger, DrawerContent, DrawerOverlay } from '@/components/drawer'
+```
 
 可用工具名必须使用英文真实名称：searchProject、readDir、readMultipleFiles、readFile、modifyFile、writeFile、deleteFile、managePackageJson、manageSnapshot、summarizeDiff、analyzeDependencyIssue、exitTool。
 

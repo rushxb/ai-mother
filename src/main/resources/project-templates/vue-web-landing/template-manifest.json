@@ -1,6 +1,6 @@
 {
   "templateId": "vue-web-landing",
-  "description": "展示型官网/活动页，基于 Vue 3 + Vite，包含首屏、亮点、案例、流程和 FAQ",
+  "description": "展示型官网/活动页，基于 Vue 3 + Vite + Inspira UI + motion-v + Lenis，包含首屏、亮点、案例、流程和 FAQ",
   "slots": [
     {
       "id": "hero_section",
@@ -10,12 +10,12 @@
       "type": "view",
       "category": "page",
       "example": "<template>\n  <LandingPage />\n</template>\n\n<script setup lang=\"ts\">\nimport LandingPage from '@/pages/LandingPage.vue'\n</script>",
-      "dependencies": ["src/data/landingData.ts", "src/pages/LandingPage.vue", "src/components/LandingSection.vue"],
+      "dependencies": ["src/data/landingData.ts", "src/pages/LandingPage.vue", "src/components/inspira/GradientText.vue"],
       "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text"],
-      "outputFormat": "完整的 Vue SFC，使用 LandingPage 组件",
+      "outputFormat": "完整的 Vue SFC，使用 Inspira UI 组件",
       "aiHints": {
         "pattern": "Hero + 特性 + 案例 + 流程 + 价格 + FAQ + 联系",
-        "components": ["LandingSection", "PricingCard", "FAQItem"],
+        "components": ["GradientText", "AnimateOnScroll", "ParticleField", "TypewriterEffect"],
         "hooks": ["useRouter"]
       }
     },
@@ -106,6 +106,86 @@
       "dependencies": null,
       "styleVariables": null,
       "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "gradient_text",
+      "file": "src/components/inspira/GradientText.vue",
+      "description": "渐变文字组件，支持多种尺寸",
+      "required": false,
+      "type": "component",
+      "category": "visual",
+      "example": "<GradientText size=\"lg\">Hello World</GradientText>",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 Tailwind CSS 渐变",
+      "aiHints": {
+        "pattern": "渐变文字 + 尺寸 + 动画",
+        "props": ["size", "class"]
+      }
+    },
+    {
+      "id": "animate_on_scroll",
+      "file": "src/components/inspira/AnimateOnScroll.vue",
+      "description": "滚动动画组件，元素进入视口时触发动画",
+      "required": false,
+      "type": "component",
+      "category": "visual",
+      "example": "<AnimateOnScroll :delay=\"200\">\n  <div>内容</div>\n</AnimateOnScroll>",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 IntersectionObserver",
+      "aiHints": {
+        "pattern": "滚动动画 + 延迟 + 淡入",
+        "props": ["delay", "class"]
+      }
+    },
+    {
+      "id": "particle_field",
+      "file": "src/components/inspira/ParticleField.vue",
+      "description": "粒子场背景组件",
+      "required": false,
+      "type": "component",
+      "category": "visual",
+      "example": "<ParticleField color=\"primary\" :count=\"100\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 CSS 动画",
+      "aiHints": {
+        "pattern": "粒子背景 + 浮动动画 + 随机分布",
+        "props": ["color", "count", "class"]
+      }
+    },
+    {
+      "id": "typewriter_effect",
+      "file": "src/components/inspira/TypewriterEffect.vue",
+      "description": "打字机效果组件",
+      "required": false,
+      "type": "component",
+      "category": "visual",
+      "example": "<TypewriterEffect text=\"Hello World\" :delay=\"50\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 setInterval",
+      "aiHints": {
+        "pattern": "打字机 + 光标闪烁 + 逐字显示",
+        "props": ["text", "delay", "class"]
+      }
+    },
+    {
+      "id": "glowing_orb",
+      "file": "src/components/inspira/GlowingOrb.vue",
+      "description": "发光球体组件",
+      "required": false,
+      "type": "component",
+      "category": "visual",
+      "example": "<GlowingOrb size=\"lg\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 CSS 渐变 + 动画",
+      "aiHints": {
+        "pattern": "发光球体 + 渐变 + 旋转动画",
+        "props": ["size", "class"]
+      }
     }
   ],
   "protectedFiles": [

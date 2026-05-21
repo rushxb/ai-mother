@@ -39,24 +39,28 @@ const promptTemplates = [
   {
     title: '个人博客',
     tag: 'Content',
+    summary: '文章、搜索、分类与个人主页',
     prompt:
       '创建一个现代化的个人博客网站，包含文章列表、详情页、分类标签、搜索功能、评论系统和个人简介页面。采用简洁的设计风格，支持响应式布局，文章支持Markdown格式，首页展示最新文章和热门推荐。',
   },
   {
     title: '企业官网',
     tag: 'Business',
+    summary: '公司介绍、服务展示与客户案例',
     prompt:
       '设计一个专业的企业官网，包含公司介绍、产品服务展示、新闻资讯、联系我们等页面。采用商务风格的设计，包含轮播图、产品展示卡片、团队介绍、客户案例展示，支持多语言切换和在线客服功能。',
   },
   {
     title: '在线商城',
     tag: 'Commerce',
+    summary: '商品、订单、支付与会员体系',
     prompt:
       '构建一个功能完整的在线商城，包含商品展示、购物车、用户注册登录、订单管理、支付结算等功能。设计现代化的商品卡片布局，支持商品搜索筛选、用户评价、优惠券系统和会员积分功能。',
   },
   {
     title: '作品展示',
     tag: 'Portfolio',
+    summary: '画廊、项目详情与分类筛选',
     prompt:
       '制作一个精美的作品展示网站，适合设计师、摄影师、艺术家等创作者。包含作品画廊、项目详情页、个人简历、联系方式等模块。采用瀑布流或网格布局展示作品，支持图片放大预览和作品分类筛选。',
   },
@@ -347,6 +351,9 @@ onUnmounted(() => {
         <div class="template-card" v-for="item in promptTemplates" :key="item.title" @click="setPrompt(item.prompt)">
           <span>{{ item.tag }}</span>
           <strong>{{ item.title }}</strong>
+          <p class="template-summary">
+            <TextScrollReveal :text="item.summary" :stagger="0.05" :duration="0.48" />
+          </p>
         </div>
       </section>
 
@@ -761,6 +768,8 @@ onUnmounted(() => {
 }
 
 .template-card {
+  position: relative;
+  overflow: hidden;
   border-radius: 24px;
   padding: 20px;
   cursor: pointer;
@@ -770,13 +779,36 @@ onUnmounted(() => {
     border-color 0.28s ease;
 }
 
+.template-card::after {
+  content: '';
+  position: absolute;
+  inset: auto 18px 14px auto;
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(47, 128, 255, 0.12), transparent 68%);
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+  pointer-events: none;
+}
+
 .template-card:hover {
   transform: translateY(-4px);
   border-color: rgba(47, 128, 255, 0.26);
   box-shadow: 0 26px 54px rgba(114, 137, 170, 0.16);
 }
 
+.template-card:hover::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .template-card span {
+  position: relative;
+  z-index: 1;
   display: block;
   color: var(--accent);
   font-size: 12px;
@@ -785,10 +817,21 @@ onUnmounted(() => {
 }
 
 .template-card strong {
+  position: relative;
+  z-index: 1;
   display: block;
   margin-top: 12px;
   color: var(--strong-text);
   font-size: 18px;
+}
+
+.template-summary {
+  position: relative;
+  z-index: 1;
+  margin: 12px 0 0;
+  color: var(--soft-text);
+  font-size: 14px;
+  line-height: 1.75;
 }
 
 .section {

@@ -5,6 +5,7 @@ import { BubblesBackground } from './bubbles-background'
 import { MorphingTabs } from './morphing-tabs'
 import { ShimmerButton } from './shimmer-button'
 import { TextGenerateEffect } from './text-generate-effect'
+import { TextScrollReveal } from './text-scroll-reveal'
 
 const inspiraUiComponents = {
   BlurReveal,
@@ -13,6 +14,7 @@ const inspiraUiComponents = {
   MorphingTabs,
   ShimmerButton,
   TextGenerateEffect,
+  TextScrollReveal,
 }
 
 export {
@@ -22,6 +24,7 @@ export {
   MorphingTabs,
   ShimmerButton,
   TextGenerateEffect,
+  TextScrollReveal,
   inspiraUiComponents,
 }
 

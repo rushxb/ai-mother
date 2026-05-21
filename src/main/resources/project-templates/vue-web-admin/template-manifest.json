@@ -5,38 +5,68 @@
     {
       "id": "dashboard_content",
       "file": "src/views/DashboardView.vue",
-      "description": "工作台/仪表盘主体内容",
-      "required": true
+      "description": "工作台/仪表盘主体内容，包含指标卡片、趋势图、活动列表和表格",
+      "required": true,
+      "type": "view",
+      "example": "<template>\n  <MetricGrid :items=\"metrics\" />\n  <section class=\"dashboard-grid\">\n    <article class=\"panel wide\">\n      <h2>业务趋势</h2>\n      <div class=\"bars\">\n        <span v-for=\"height in [42, 68, 54, 88, 74, 96, 82]\" :key=\"height\" :style=\"{ height: height + '%' }\" />\n      </div>\n    </article>\n  </section>\n</template>\n\n<script setup>\nimport MetricGrid from '@/components/MetricGrid.vue'\nimport { metrics } from '@/data/adminData'\n</script>",
+      "dependencies": ["src/data/adminData.js", "src/components/MetricGrid.vue", "src/components/ProTable.vue"],
+      "styleVariables": ["--color-primary", "--color-success", "--color-warning", "--color-danger", "--panel-bg", "--panel-radius"],
+      "outputFormat": "完整的 Vue SFC，使用 MetricGrid 和 ProTable 组件"
     },
     {
       "id": "theme_tokens",
       "file": "src/styles/theme.css",
-      "description": "主题色和基础样式变量",
-      "required": false
+      "description": "主题色和基础样式变量，定义后台管理系统的全局 CSS 变量",
+      "required": false,
+      "type": "style",
+      "example": ":root {\n  --color-primary: #3b82f6;\n  --color-success: #10b981;\n  --color-warning: #f59e0b;\n  --color-danger: #ef4444;\n  --panel-bg: #ffffff;\n  --panel-radius: 0.75rem;\n}",
+      "dependencies": null,
+      "styleVariables": ["--color-primary", "--color-success", "--color-warning", "--color-danger", "--panel-bg", "--panel-radius"],
+      "outputFormat": "CSS 变量定义，使用 :root 选择器"
     },
     {
       "id": "mock_data",
-      "file": "src/data/mock.ts",
-      "description": "页面演示数据",
-      "required": false
+      "file": "src/data/adminData.js",
+      "description": "页面演示数据，包含 metrics、users、orders、activities 等内容",
+      "required": true,
+      "type": "data",
+      "example": "export const metrics = [\n  { label: '今日访问', value: '24,890', trend: '+12.6%', tone: 'green' }\n]\n\nexport const users = [\n  { id: 1001, name: '用户名', role: '会员', status: '活跃' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "ES Module 导出，使用 const 定义"
     },
     {
       "id": "table_columns",
       "file": "src/data/table.columns.ts",
-      "description": "表格列定义配置",
-      "required": false
+      "description": "表格列定义配置，定义表格的列和渲染方式",
+      "required": false,
+      "type": "config",
+      "example": "export const columns = [\n  { key: 'id', title: 'ID' },\n  { key: 'name', title: '名称' },\n  { key: 'status', title: '状态' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     },
     {
       "id": "sidebar_menu",
       "file": "src/data/sidebar.menu.ts",
-      "description": "侧边栏菜单配置",
-      "required": false
+      "description": "侧边栏菜单配置，定义导航菜单项",
+      "required": false,
+      "type": "data",
+      "example": "export const sidebarMenu = [\n  { label: '总览', path: '#overview', icon: '▦' },\n  { label: '用户', path: '#users', icon: '○' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     },
     {
       "id": "statistics_cards",
       "file": "src/data/statistics.ts",
-      "description": "统计卡片数据配置",
-      "required": false
+      "description": "统计卡片数据配置，定义指标卡片的内容和样式",
+      "required": false,
+      "type": "data",
+      "example": "export const statistics = [\n  { label: '总用户', value: '12,345', trend: '+5.2%', tone: 'green' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     }
   ],
   "protectedFiles": [

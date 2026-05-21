@@ -5,32 +5,57 @@
     {
       "id": "home_content",
       "file": "src/views/HomeView.vue",
-      "description": "首页主体内容区域",
-      "required": true
+      "description": "首页主体内容区域，包含 Hero 区、模块展示、流程和联系区",
+      "required": true,
+      "type": "view",
+      "example": "<template>\n  <section id=\"hero\" class=\"hero\">\n    <div class=\"hero-copy\">\n      <span class=\"eyebrow\">{{ hero.eyebrow }}</span>\n      <h1>{{ hero.title }}</h1>\n      <p>{{ hero.description }}</p>\n    </div>\n  </section>\n</template>\n\n<script setup>\nimport { hero } from '@/data/siteData'\n</script>",
+      "dependencies": ["src/data/siteData.js", "src/components/SectionTitle.vue"],
+      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text", "--spacing-md", "--radius-md"],
+      "outputFormat": "完整的 Vue SFC，包含 <template>、<script setup>、<style scoped>"
     },
     {
       "id": "theme_tokens",
       "file": "src/styles/theme.css",
-      "description": "主题色和基础样式变量",
-      "required": false
+      "description": "主题色和基础样式变量，定义全局 CSS 变量",
+      "required": false,
+      "type": "style",
+      "example": ":root {\n  --color-primary: #3b82f6;\n  --color-secondary: #8b5cf6;\n  --color-bg: #ffffff;\n  --color-text: #1f2937;\n  --spacing-md: 1rem;\n  --radius-md: 0.5rem;\n}",
+      "dependencies": null,
+      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text", "--spacing-md", "--radius-md"],
+      "outputFormat": "CSS 变量定义，使用 :root 选择器"
     },
     {
       "id": "mock_data",
-      "file": "src/data/mock.ts",
-      "description": "页面演示数据",
-      "required": false
+      "file": "src/data/siteData.js",
+      "description": "页面演示数据，包含 hero、features、cards、timeline 等内容",
+      "required": true,
+      "type": "data",
+      "example": "export const hero = {\n  eyebrow: '示例标签',\n  title: '页面标题',\n  description: '页面描述',\n  actions: [\n    { label: '主要按钮', path: '#', type: 'primary' }\n  ]\n}\n\nexport const features = [\n  { title: '特性1', text: '描述1', stat: '100%' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "ES Module 导出，使用 const 定义"
     },
     {
       "id": "app_config",
       "file": "src/data/app.config.ts",
       "description": "应用配置信息（标题、描述、联系方式等）",
-      "required": true
+      "required": true,
+      "type": "config",
+      "example": "export const appConfig = {\n  title: '应用标题',\n  description: '应用描述',\n  copyright: '© 2024 公司名称'\n}",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 常量导出"
     },
     {
       "id": "navigation_items",
       "file": "src/data/navigation.ts",
       "description": "导航菜单项配置",
-      "required": false
+      "required": false,
+      "type": "data",
+      "example": "export const navItems = [\n  { label: '首页', path: '#hero' },\n  { label: '关于', path: '#about' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     }
   ],
   "protectedFiles": [

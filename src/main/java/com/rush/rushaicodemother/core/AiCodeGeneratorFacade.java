@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.core;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorService;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
+import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
 import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
 import com.rush.rushaicodemother.ai.model.message.AiResponseMessage;
@@ -29,7 +30,10 @@ import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
- * AI 代码生成门面类，组合代码生成和保存功能
+ * AI 代码生成门面类，组合代码生成和保存功能。
+ * <p>
+ * 支持通过 {@link GenerationPerformanceProfile} 动态选择模型配置，
+ * 实现首次生成加速和改修场景的平衡。
  */
 @Service
 @Slf4j
@@ -97,15 +101,35 @@ public class AiCodeGeneratorFacade {
     }
 
     public Flux<GenerationStreamEvent> generateAndSaveCodeStream(String userMessage,
-                                                                 CodeGenTypeEnum codeGenTypeEnum,
-                                                                 Long appId,
-                                                                 BooleanSupplier cancelChecker,
-                                                                 java.util.function.Consumer<ResponseHandle> handleConsumer) {
+                                                                  CodeGenTypeEnum codeGenTypeEnum,
+                                                                  Long appId,
+                                                                  BooleanSupplier cancelChecker,
+                                                                  java.util.function.Consumer<ResponseHandle> handleConsumer) {
+        return generateAndSaveCodeStream(userMessage, codeGenTypeEnum, appId, cancelChecker, handleConsumer, null);
+    }
+
+    /**
+     * 统一入口：根据类型生成并保存代码（流式），支持性能配置。
+     *
+     * @param userMessage     用户提示词
+     * @param codeGenTypeEnum 生成类型
+     * @param appId           应用 ID
+     * @param cancelChecker   取消检查器
+     * @param handleConsumer  响应处理器消费者
+     * @param profile         性能配置，null 表示使用默认配置
+     * @return 流式事件
+     */
+    public Flux<GenerationStreamEvent> generateAndSaveCodeStream(String userMessage,
+                                                                  CodeGenTypeEnum codeGenTypeEnum,
+                                                                  Long appId,
+                                                                  BooleanSupplier cancelChecker,
+                                                                  java.util.function.Consumer<ResponseHandle> handleConsumer,
+                                                                  GenerationPerformanceProfile profile) {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成类型不能为空");
         }
-        // 根据 appId 获取相应的 AI 服务实例
-        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId, codeGenTypeEnum);
+        // 根据 appId 和性能配置获取相应的 AI 服务实例
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId, codeGenTypeEnum, profile);
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 Flux<String> codeStream = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);

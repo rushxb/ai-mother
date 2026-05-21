@@ -129,10 +129,29 @@ public class TemplateManifestService {
             String id,
             String file,
             String description,
-            Boolean required
+            Boolean required,
+            String type,
+            String example,
+            List<String> dependencies,
+            List<String> styleVariables,
+            String outputFormat
     ) {
         public boolean isRequired() {
             return required != null && required;
+        }
+
+        /**
+         * 获取 slot 类型，默认为 auto。
+         */
+        public String getType() {
+            return type != null ? type : "auto";
+        }
+
+        /**
+         * 获取输出格式说明。
+         */
+        public String getOutputFormat() {
+            return outputFormat != null ? outputFormat : "";
         }
     }
 }

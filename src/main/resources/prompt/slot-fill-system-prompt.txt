@@ -20,13 +20,29 @@
 
 ## 规则
 
-1. **只填充用户需求涉及的 slot**：如果用户只需要修改首页标题，就只填充 home_content slot。
+1. **填充所有相关 slot**：尽可能填充所有 slot，特别是 required=true 的 slot。
 2. **保持代码风格一致**：遵循 Vue 3 Composition API、TypeScript、现代 CSS。
 3. **内容要完整可运行**：生成的代码应该是完整的、可直接使用的。
 4. **不要修改受保护文件**：package.json、vite.config.js、index.html、src/main.js、src/App.vue、src/router/index.js 等。
 5. **使用合理的默认数据**：如果用户没有指定具体数据，使用合理的示例数据。
 6. **支持中文**：界面文案使用中文，除非用户明确要求其他语言。
 7. **requiresBuild**：通常为 false，除非你修改了需要重新构建的配置。
+8. **首次生成优先**：如果是首次生成（用户没有指定具体修改），应该填充所有 slot 以创建完整的应用。
+
+## Slot 内容要求
+
+- **Vue 组件**：完整的 `<template>`、`<script setup>`、`<style scoped>` 三个部分。
+- **数据文件**：导出 TypeScript 常量或函数。
+- **样式文件**：使用 CSS 变量，便于主题切换。
+- **配置文件**：使用 TypeScript 接口定义类型。
+
+## 首次生成策略
+
+当用户需求是"创建"、"做一个"、"生成"等首次生成场景时：
+1. 填充所有 slot，不要跳过任何 slot
+2. 创建完整、可运行的应用
+3. 使用丰富的示例数据
+4. 确保所有页面和功能都能正常工作
 
 ## Slot 内容要求
 

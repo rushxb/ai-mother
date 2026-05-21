@@ -4,6 +4,8 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
+import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
+import com.rush.rushaicodemother.ai.model.GenerationPerformanceSelector;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.AiCodeGeneratorFacade;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
@@ -36,6 +38,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
+import com.rush.rushaicodemother.orchestration.template.ParallelSlotFillService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.TemplateSlotFillService;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
@@ -91,6 +94,7 @@ public class GenerationTaskOrchestrator {
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
     private final AppDatabaseResourceService appDatabaseResourceService;
     private final ChatHistoryService chatHistoryService;
+    private final GenerationPerformanceSelector generationPerformanceSelector;
     private final LightweightEditService lightweightEditService;
     private final GenerationAppStateService generationAppStateService;
     private final GenerationCommitService generationCommitService;
@@ -106,6 +110,7 @@ public class GenerationTaskOrchestrator {
     private final GenerationTraceService generationTraceService;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final OrphanFileReviewService orphanFileReviewService;
+    private final ParallelSlotFillService parallelSlotFillService;
     private final StreamHandlerExecutor streamHandlerExecutor;
     private final TemplateSlotFillService templateSlotFillService;
     private final UserCreditService userCreditService;
@@ -510,11 +515,11 @@ public class GenerationTaskOrchestrator {
     }
 
     private void runGenerationWithAutoRepair(Long appId,
-                                             User loginUser,
-                                             GenerationPreparation preparation,
-                                             GenerationSession session,
-                                             StringBuilder generatedContent,
-                                             long[] lastSnapshotUpdateAt) {
+                                              User loginUser,
+                                              GenerationPreparation preparation,
+                                              GenerationSession session,
+                                              StringBuilder generatedContent,
+                                              long[] lastSnapshotUpdateAt) {
         String currentPrompt = preparation.enhancedMessage();
         Exception lastError = null;
         int maxGenerationRepairRounds = GenerationRepairPolicy.allowAutoRepair(
@@ -522,6 +527,13 @@ public class GenerationTaskOrchestrator {
                 preparation.targetType(),
                 MAX_AUTO_REPAIR_ROUNDS
         ) && preparation.requiresBuildValidation() ? MAX_AUTO_REPAIR_ROUNDS : 0;
+
+        // 选择生成性能配置
+        boolean isFirstGeneration = AppConstant.GENERATING_STAGE_CREATE.equals(preparation.generatingStage());
+        boolean isComplex = isComplexPrompt(currentPrompt);
+        GenerationPerformanceProfile profile = generationPerformanceSelector.select(
+                isFirstGeneration, isComplex, preparation.targetType());
+
         for (int round = 0; round <= maxGenerationRepairRounds; round++) {
             session.throwIfCancelled();
             if (round > 0) {
@@ -532,9 +544,12 @@ public class GenerationTaskOrchestrator {
                         "taskId", preparation.taskId(),
                         "agent", "BuildFix"
                 )));
+                // 修复轮次使用质量优先配置
+                profile = GenerationPerformanceProfile.qualityFirst();
             }
             try {
-                executeGenerationRound(appId, loginUser, preparation.targetType(), currentPrompt, session, generatedContent, lastSnapshotUpdateAt);
+                executeGenerationRound(appId, loginUser, preparation.targetType(), currentPrompt,
+                        session, generatedContent, lastSnapshotUpdateAt, profile);
                 if (round > 0) {
                     generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "generation", "success");
                 }
@@ -560,15 +575,53 @@ public class GenerationTaskOrchestrator {
                 lastError == null ? "生成失败" : StrUtil.blankToDefault(lastError.getMessage(), "生成失败"));
     }
 
+    /**
+     * 判断提示词是否为复杂请求。
+     */
+    private boolean isComplexPrompt(String prompt) {
+        if (StrUtil.isBlank(prompt)) {
+            return false;
+        }
+        String normalized = prompt.toLowerCase();
+        return normalized.contains("vue") || normalized.contains("组件") || normalized.contains("路由")
+                || normalized.contains("模块") || normalized.contains("后台") || normalized.contains("管理系统")
+                || normalized.contains("登录") || normalized.contains("注册") || normalized.contains("api")
+                || normalized.contains("接口") || normalized.contains("状态管理") || normalized.contains("多页面")
+                || normalized.contains("工作台") || normalized.contains("dashboard") || normalized.contains("crud");
+    }
+
     private void executeGenerationRound(Long appId,
-                                        User loginUser,
-                                        CodeGenTypeEnum codeGenType,
-                                        String prompt,
-                                        GenerationSession session,
-                                        StringBuilder generatedContent,
-                                        long[] lastSnapshotUpdateAt) {
+                                         User loginUser,
+                                         CodeGenTypeEnum codeGenType,
+                                         String prompt,
+                                         GenerationSession session,
+                                         StringBuilder generatedContent,
+                                         long[] lastSnapshotUpdateAt) {
+        executeGenerationRound(appId, loginUser, codeGenType, prompt, session, generatedContent, lastSnapshotUpdateAt, null);
+    }
+
+    /**
+     * 执行一轮代码生成。
+     *
+     * @param appId              应用 ID
+     * @param loginUser          登录用户
+     * @param codeGenType        代码生成类型
+     * @param prompt             生成提示词
+     * @param session            生成会话
+     * @param generatedContent   已生成内容
+     * @param lastSnapshotUpdateAt 上次快照更新时间
+     * @param profile            性能配置，null 表示使用默认配置
+     */
+    private void executeGenerationRound(Long appId,
+                                         User loginUser,
+                                         CodeGenTypeEnum codeGenType,
+                                         String prompt,
+                                         GenerationSession session,
+                                         StringBuilder generatedContent,
+                                         long[] lastSnapshotUpdateAt,
+                                         GenerationPerformanceProfile profile) {
         Flux<GenerationStreamEvent> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(
-                prompt, codeGenType, appId, session::isCancelled, session::setResponseHandle);
+                prompt, codeGenType, appId, session::isCancelled, session::setResponseHandle, profile);
         streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenType)
                 .takeUntilOther(session.cancelSignal())
                 .doOnNext(event -> {
@@ -1386,25 +1439,22 @@ public class GenerationTaskOrchestrator {
             return null;
         }
 
-        // 4. 引导模板（复制模板文件到目标目录）
-        VueProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
-                vueProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), request.message());
-        if (!bootstrapResult.bootstrapped()) {
-            log.debug("模板引导跳过: {}", bootstrapResult.reason());
-            // 如果工作区已存在，可能不是首次生成
-            if ("workspace_exists".equals(bootstrapResult.reason())) {
-                return null;
-            }
+        // 4. 并行执行模板复制和 slot 填充
+        ParallelSlotFillService.ParallelSlotFillResult parallelResult =
+                parallelSlotFillService.executeInParallel(templateId, app.getId(), request.message());
+
+        if (!parallelResult.success()) {
+            log.debug("并行 Slot Fill 失败，回退到串行执行");
+            return trySlotFillGenerationSequential(app, request, templateId);
         }
 
-        // 5. 执行 slot 填充
-        SlotFillResult result = templateSlotFillService.fillSlots(templateId, app.getId(), request.message());
+        SlotFillResult result = parallelResult.slotFillResult();
         if (result == null || result.patchOperations() == null || result.patchOperations().isEmpty()) {
             log.debug("Slot 填充未产生有效操作");
             return null;
         }
 
-        // 6. 应用 patch 操作
+        // 5. 应用 patch 操作
         try {
             String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
                     + codeGenType.getValue() + "_" + app.getId();
@@ -1422,7 +1472,59 @@ public class GenerationTaskOrchestrator {
             return null;
         }
 
-        // 7. 发布事件
+        // 6. 发布事件
+        generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用模板 slot 填充路径", Map.of(
+                "route", SLOT_FILL_ROUTE,
+                "templateId", templateId,
+                "filledSlots", result.filledSlots(),
+                "totalChars", result.totalChars()
+        ));
+
+        return result;
+    }
+
+    /**
+     * 串行执行 slot 填充（回退方案）。
+     */
+    private SlotFillResult trySlotFillGenerationSequential(App app, GenerationTaskRequest request, String templateId) {
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+
+        // 引导模板
+        VueProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
+                vueProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), request.message());
+        if (!bootstrapResult.bootstrapped()) {
+            log.debug("模板引导跳过: {}", bootstrapResult.reason());
+            if ("workspace_exists".equals(bootstrapResult.reason())) {
+                return null;
+            }
+        }
+
+        // 执行 slot 填充
+        SlotFillResult result = templateSlotFillService.fillSlots(templateId, app.getId(), request.message());
+        if (result == null || result.patchOperations() == null || result.patchOperations().isEmpty()) {
+            log.debug("Slot 填充未产生有效操作");
+            return null;
+        }
+
+        // 应用 patch 操作
+        try {
+            String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
+                    + codeGenType.getValue() + "_" + app.getId();
+            Path projectRoot = Path.of(projectPath);
+            generationPatchApplyService.applyWithoutChangePlan(
+                    app.getId(),
+                    "slot_fill_" + System.currentTimeMillis(),
+                    projectRoot,
+                    result.patchOperations(),
+                    "slot_fill_generation"
+            );
+            log.info("Slot 填充 patch 应用成功: {} 个操作", result.patchOperations().size());
+        } catch (Exception e) {
+            log.warn("Slot 填充 patch 应用失败: {}", e.getMessage());
+            return null;
+        }
+
+        // 发布事件
         generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用模板 slot 填充路径", Map.of(
                 "route", SLOT_FILL_ROUTE,
                 "templateId", templateId,

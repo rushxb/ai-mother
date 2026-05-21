@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
@@ -50,6 +51,9 @@ public class AiCodeGeneratorServiceFactory {
 
     @Resource
     private StreamingModelFactory streamingModelFactory;
+
+    @Resource
+    private AiModelService aiModelService;
 
     /**
      * AI 服务实例缓存
@@ -183,6 +187,7 @@ public class AiCodeGeneratorServiceFactory {
     @EventListener
     public void onAiModelConfigChanged(AiModelConfigChangedEvent event) {
         log.info("检测到 AI 模型配置变更，清理 AI 服务缓存");
+        aiModelService.evictEnabledModelCache();
         serviceCache.invalidateAll();
     }
 

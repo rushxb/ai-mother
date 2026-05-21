@@ -5,7 +5,8 @@ import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import { addApp, copyApp, listMyAppVoByPage, listGoodAppVoByPage, optimizePrompt } from '@/api/appController'
 import { getDeployUrl } from '@/config/env'
-import AppCard from '@/components/AppCard.vue'
+import { normalizeImageUrl } from '@/utils/url'
+import { DEFAULT_APP_COVER, DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 import { BulbOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -34,6 +35,15 @@ const featuredAppsPage = reactive({
 })
 
 const copyingAppIds = ref<Set<string>>(new Set())
+
+const showcasePalette = [
+  '运营工作台',
+  '可部署 Demo',
+  '交互案例',
+  '业务流程',
+  '团队模板',
+  '上线预览',
+]
 
 const promptTemplates = [
   {
@@ -203,6 +213,43 @@ const isCopyingApp = (app: API.AppVO) => {
   return Boolean(app.id && copyingAppIds.value.has(String(app.id)))
 }
 
+const getAppImage = (app: API.AppVO) => normalizeImageUrl(app.cover) || DEFAULT_APP_COVER
+
+const getAppAuthor = (app: API.AppVO, fallback = '未知用户') => app.user?.userName || fallback
+
+const getAppSummary = (app: API.AppVO, index: number) => {
+  const source = (app.initPrompt || '').trim()
+  if (source) {
+    return source.length > 54 ? `${source.slice(0, 54)}...` : source
+  }
+  return `围绕 ${app.appName || '当前应用'} 构建页面、流程与交互，可继续对话改修并快速预览。`
+}
+
+const featuredCarouselItems = computed(() =>
+  featuredApps.value.slice(0, 6).map((app, index) => ({
+    id: String(app.id ?? index),
+    title: app.appName || '未命名案例',
+    subtitle: getAppSummary(app, index),
+    imageUrl: getAppImage(app),
+    meta: isOwnApp(app) ? '查看对话' : '复制案例',
+    badge: showcasePalette[index % showcasePalette.length],
+    app,
+  })),
+)
+
+const workspaceCards = computed(() =>
+  myApps.value.map((app, index) => ({
+    id: String(app.id ?? index),
+    title: app.appName || '未命名应用',
+    author: getAppAuthor(app),
+    summary: getAppSummary(app, index),
+    imageUrl: getAppImage(app),
+    avatar: app.user?.userAvatar || DEFAULT_USER_AVATAR,
+    status: app.isGenerating ? '生成中' : app.deployKey ? '已部署' : '草稿',
+    app,
+  })),
+)
+
 const copyFeaturedApp = async (app: API.AppVO) => {
   if (!loginUserStore.loginUser.id) {
     message.warning('请先登录')
@@ -234,6 +281,26 @@ const copyFeaturedApp = async (app: API.AppVO) => {
     nextIds.delete(appId)
     copyingAppIds.value = nextIds
   }
+}
+
+const handleFeaturedPrimary = (item: { app?: unknown }) => {
+  const app = item.app as API.AppVO | undefined
+  if (!app) {
+    return
+  }
+  viewWork(app)
+}
+
+const handleFeaturedSecondary = (item: { app?: unknown }) => {
+  const app = item.app as API.AppVO | undefined
+  if (!app) {
+    return
+  }
+  if (isOwnApp(app)) {
+    viewChat(app.id)
+    return
+  }
+  copyFeaturedApp(app)
 }
 
 const handleMouseMove = (e: MouseEvent) => {
@@ -365,14 +432,40 @@ onUnmounted(() => {
           </div>
           <p>继续编辑最近创建的应用，或进入只读对话查看生成过程。</p>
         </div>
-        <div v-if="myApps.length" class="app-grid">
-          <AppCard
-            v-for="app in myApps"
-            :key="app.id"
-            :app="app"
-            @view-chat="viewChat"
-            @view-work="viewWork"
-          />
+        <div v-if="workspaceCards.length" class="workspace-grid">
+          <article v-for="item in workspaceCards" :key="item.id" class="workspace-card">
+            <DirectionAwareHover :image-url="item.imageUrl" :image-alt="item.title" overlay-class="workspace-overlay">
+              <template #base>
+                <div class="workspace-base">
+                  <div class="workspace-topline">
+                    <span class="workspace-status">{{ item.status }}</span>
+                  </div>
+                  <div class="workspace-footer">
+                    <h3>{{ item.title }}</h3>
+                    <p>{{ item.author }}</p>
+                  </div>
+                </div>
+              </template>
+              <div class="workspace-overlay-body">
+                <span class="workspace-overlay-kicker">Continue Building</span>
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.summary }}</p>
+                <div class="workspace-actions">
+                  <button type="button" class="workspace-action workspace-action--primary" @click="viewChat(item.app.id)">
+                    查看对话
+                  </button>
+                  <button
+                    type="button"
+                    class="workspace-action"
+                    :disabled="!item.app.deployKey"
+                    @click="viewWork(item.app)"
+                  >
+                    在线预览
+                  </button>
+                </div>
+              </div>
+            </DirectionAwareHover>
+          </article>
         </div>
         <div v-else class="empty-panel">
           <strong>还没有作品</strong>
@@ -398,20 +491,11 @@ onUnmounted(() => {
           </div>
           <p>参考优秀案例的结构、交互和页面组织方式。</p>
         </div>
-        <div v-if="featuredApps.length" class="featured-grid">
-          <AppCard
-            v-for="app in featuredApps"
-            :key="app.id"
-            :app="app"
-            :featured="true"
-            :can-view-chat="isOwnApp(app)"
-            :chat-button-text="isOwnApp(app) ? '查看对话' : '复制'"
-            :show-work-button="true"
-            work-button-text="预览"
-            :copying="isCopyingApp(app)"
-            @view-chat="viewChat"
-            @view-work="viewWork"
-            @copy="copyFeaturedApp"
+        <div v-if="featuredCarouselItems.length" class="featured-carousel-wrap">
+          <AppleCardCarousel
+            :items="featuredCarouselItems"
+            @primary="handleFeaturedPrimary"
+            @secondary="handleFeaturedSecondary"
           />
         </div>
         <div v-else class="empty-panel">
@@ -863,11 +947,135 @@ onUnmounted(() => {
   text-align: right;
 }
 
-.app-grid,
-.featured-grid {
+.workspace-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 22px;
+}
+
+.workspace-card {
+  min-height: 320px;
+  border-radius: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(104, 132, 175, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 250, 255, 0.84));
+  box-shadow:
+    0 20px 48px rgba(114, 137, 170, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.workspace-base,
+.workspace-overlay-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 22px;
+}
+
+.workspace-base {
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(10, 18, 30, 0.08), rgba(10, 18, 30, 0.46)),
+    linear-gradient(180deg, transparent 18%, rgba(7, 17, 28, 0.58) 100%);
+}
+
+.workspace-topline {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workspace-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(14px);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workspace-footer h3 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 24px;
+  line-height: 1.16;
+}
+
+.workspace-footer p {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+}
+
+:deep(.workspace-overlay) {
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.94), rgba(240, 247, 255, 0.94)),
+    rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.workspace-overlay-body {
+  color: #0d1b2a;
+}
+
+.workspace-overlay-kicker {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.workspace-overlay-body strong {
+  display: block;
+  margin-top: auto;
+  color: var(--strong-text);
+  font-size: 24px;
+  line-height: 1.18;
+}
+
+.workspace-overlay-body p {
+  margin: 12px 0 0;
+  color: var(--soft-text);
+  font-size: 14px;
+  line-height: 1.78;
+}
+
+.workspace-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.workspace-action {
+  height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(104, 132, 175, 0.16);
+  border-radius: 999px;
+  color: var(--strong-text);
+  background: rgba(255, 255, 255, 0.82);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.workspace-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.workspace-action--primary {
+  border-color: rgba(47, 128, 255, 0.18);
+  color: #ffffff;
+  background: linear-gradient(135deg, #2a73ff 0%, #58b6ff 100%);
+}
+
+.featured-carousel-wrap {
+  position: relative;
 }
 
 .empty-panel {
@@ -967,9 +1175,12 @@ onUnmounted(() => {
   }
 
   .template-section,
-  .app-grid,
-  .featured-grid {
+  .workspace-grid {
     grid-template-columns: 1fr;
+  }
+
+  .workspace-actions {
+    flex-direction: column;
   }
 
   .input-footer {

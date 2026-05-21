@@ -1,51 +1,121 @@
 {
   "templateId": "vue-web-landing",
-  "description": "展示型官网/活动页，包含首屏、亮点、案例、流程和 FAQ",
+  "description": "展示型官网/活动页，基于 Vue 3 + Vite，包含首屏、亮点、案例、流程和 FAQ",
   "slots": [
     {
       "id": "hero_section",
-      "file": "src/views/HomeView.vue",
-      "description": "首屏 Hero 区域内容",
-      "required": true
+      "file": "src/views/LandingView.vue",
+      "description": "首屏 Hero 区域内容，包含标题、描述、行动按钮和信任数据",
+      "required": true,
+      "type": "view",
+      "category": "page",
+      "example": "<template>\n  <LandingPage />\n</template>\n\n<script setup lang=\"ts\">\nimport LandingPage from '@/pages/LandingPage.vue'\n</script>",
+      "dependencies": ["src/data/landingData.ts", "src/pages/LandingPage.vue", "src/components/LandingSection.vue"],
+      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text"],
+      "outputFormat": "完整的 Vue SFC，使用 LandingPage 组件",
+      "aiHints": {
+        "pattern": "Hero + 特性 + 案例 + 流程 + 价格 + FAQ + 联系",
+        "components": ["LandingSection", "PricingCard", "FAQItem"],
+        "hooks": ["useRouter"]
+      }
     },
     {
       "id": "theme_tokens",
-      "file": "src/styles/theme.css",
-      "description": "主题色和基础样式变量",
-      "required": false
+      "file": "src/styles/landing.css",
+      "description": "主题色和基础样式变量，定义落地页的全局 CSS 变量",
+      "required": false,
+      "type": "style",
+      "category": "theme",
+      "example": ":root {\n  --color-primary: #3b82f6;\n  --color-secondary: #8b5cf6;\n  --color-bg: #ffffff;\n  --color-text: #1f2937;\n}",
+      "dependencies": null,
+      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text"],
+      "outputFormat": "CSS 变量定义，使用 :root 选择器"
     },
     {
-      "id": "features_data",
-      "file": "src/data/features.ts",
+      "id": "brand_data",
+      "file": "src/data/landingData.ts",
+      "description": "品牌信息，包含名称、标题、描述和 CTA",
+      "required": true,
+      "type": "data",
+      "category": "data",
+      "example": "export const brand = {\n  name: '品牌名',\n  headline: '主标题',\n  description: '描述',\n  cta: '行动按钮'\n}",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 常量导出，带类型定义",
+      "aiHints": {
+        "pattern": "品牌信息 + 产品亮点 + 案例 + 流程 + 价格 + FAQ",
+        "types": ["LandingBrand", "Highlight", "Case", "Process", "Plan", "FAQ"]
+      }
+    },
+    {
+      "id": "highlights_data",
+      "file": "src/data/landingData.ts",
       "description": "产品亮点/特性数据",
-      "required": true
+      "required": true,
+      "type": "data",
+      "category": "data",
+      "example": "export const highlights = [\n  { title: '亮点1', text: '描述1' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     },
     {
       "id": "cases_data",
-      "file": "src/data/cases.ts",
+      "file": "src/data/landingData.ts",
       "description": "案例/客户见证数据",
-      "required": false
+      "required": false,
+      "type": "data",
+      "category": "data",
+      "example": "export const cases = [\n  { title: '案例标题', text: '案例描述' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     },
     {
       "id": "faq_data",
-      "file": "src/data/faq.ts",
+      "file": "src/data/landingData.ts",
       "description": "常见问题数据",
-      "required": false
+      "required": false,
+      "type": "data",
+      "category": "data",
+      "example": "export const faqs = [\n  { q: '问题？', a: '答案' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     },
     {
       "id": "contact_info",
-      "file": "src/data/contact.ts",
+      "file": "src/data/landingData.ts",
       "description": "联系方式和底部信息",
-      "required": false
+      "required": false,
+      "type": "data",
+      "category": "data",
+      "example": "export const contact = {\n  email: 'contact@example.com',\n  phone: '400-xxx-xxxx'\n}",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 常量导出"
+    },
+    {
+      "id": "pricing_data",
+      "file": "src/data/landingData.ts",
+      "description": "价格方案数据",
+      "required": false,
+      "type": "data",
+      "category": "data",
+      "example": "export const plans = [\n  { name: '基础版', price: '¥9,800', features: ['特性1', '特性2'], cta: '选择方案' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
     }
   ],
   "protectedFiles": [
     "package.json",
-    "vite.config.js",
+    "vite.config.ts",
+    "tsconfig.json",
     "index.html",
-    "src/main.js",
+    "src/main.ts",
     "src/App.vue",
-    "src/router/index.js"
+    "src/router/index.ts"
   ],
   "maxSlotsPerGeneration": 6
 }

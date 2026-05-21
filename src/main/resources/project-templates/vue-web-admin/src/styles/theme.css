@@ -11,4 +11,8 @@
   --warning: #c56a14;
   --radius: 8px;
   --shadow: 0 14px 34px rgba(24, 33, 44, 0.08);
+
+  /* @AI_INJECT_STYLE_VARIABLES */
 }
+
+/* @AI_INJECT_STYLES */

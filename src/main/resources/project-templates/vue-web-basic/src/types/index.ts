@@ -1,0 +1,55 @@
+// API Response Types
+export interface ApiResponse<T = unknown> {
+  code: number
+  data: T
+  message: string
+}
+
+export interface PageResult<T = unknown> {
+  list: T[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+// User Types
+export interface UserInfo {
+  id: number
+  userAccount: string
+  userName: string
+  userAvatar: string
+  userRole: 'user' | 'admin'
+  createTime: string
+}
+
+export interface LoginParams {
+  userAccount: string
+  userPassword: string
+}
+
+export interface LoginResult {
+  token: string
+  user: UserInfo
+}
+
+// Navigation Types
+export interface NavItem {
+  label: string
+  path: string
+  icon?: string
+  children?: NavItem[]
+}
+
+// Route Types
+export interface RouteManifest {
+  path: string
+  name: string
+  component: string
+  title: string
+  layout?: string
+  meta?: {
+    requiresAuth?: boolean
+    roles?: string[]
+    icon?: string
+  }
+}

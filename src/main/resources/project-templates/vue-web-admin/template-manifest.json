@@ -1,6 +1,6 @@
 {
   "templateId": "vue-web-admin",
-  "description": "后台管理应用，包含指标、筛选、表格、弹窗和设置区",
+  "description": "后台管理模板，基于 Vue 3 + Vite + Naive UI，包含指标、筛选、表格、弹窗和设置区",
   "slots": [
     {
       "id": "dashboard_content",
@@ -8,10 +8,16 @@
       "description": "工作台/仪表盘主体内容，包含指标卡片、趋势图、活动列表和表格",
       "required": true,
       "type": "view",
-      "example": "<template>\n  <MetricGrid :items=\"metrics\" />\n  <section class=\"dashboard-grid\">\n    <article class=\"panel wide\">\n      <h2>业务趋势</h2>\n      <div class=\"bars\">\n        <span v-for=\"height in [42, 68, 54, 88, 74, 96, 82]\" :key=\"height\" :style=\"{ height: height + '%' }\" />\n      </div>\n    </article>\n  </section>\n</template>\n\n<script setup>\nimport MetricGrid from '@/components/MetricGrid.vue'\nimport { metrics } from '@/data/adminData'\n</script>",
-      "dependencies": ["src/data/adminData.js", "src/components/MetricGrid.vue", "src/components/ProTable.vue"],
+      "category": "page",
+      "example": "<template>\n  <n-grid :cols=\"4\">\n    <n-gi v-for=\"item in metrics\" :key=\"item.label\">\n      <n-card>\n        <n-statistic :label=\"item.label\" :value=\"item.value\" />\n      </n-card>\n    </n-gi>\n  </n-grid>\n</template>\n\n<script setup lang=\"ts\">\nimport { metrics } from '@/data/adminData'\n</script>",
+      "dependencies": ["src/data/adminData.ts", "src/components/ProTable.vue"],
       "styleVariables": ["--color-primary", "--color-success", "--color-warning", "--color-danger", "--panel-bg", "--panel-radius"],
-      "outputFormat": "完整的 Vue SFC，使用 MetricGrid 和 ProTable 组件"
+      "outputFormat": "完整的 Vue SFC，使用 Naive UI 组件",
+      "aiHints": {
+        "pattern": "指标卡片 + 趋势图 + 活动列表 + 表格",
+        "components": ["n-grid", "n-card", "n-statistic", "n-data-table"],
+        "hooks": ["useRouter", "useAppStore"]
+      }
     },
     {
       "id": "theme_tokens",
@@ -19,6 +25,7 @@
       "description": "主题色和基础样式变量，定义后台管理系统的全局 CSS 变量",
       "required": false,
       "type": "style",
+      "category": "theme",
       "example": ":root {\n  --color-primary: #3b82f6;\n  --color-success: #10b981;\n  --color-warning: #f59e0b;\n  --color-danger: #ef4444;\n  --panel-bg: #ffffff;\n  --panel-radius: 0.75rem;\n}",
       "dependencies": null,
       "styleVariables": ["--color-primary", "--color-success", "--color-warning", "--color-danger", "--panel-bg", "--panel-radius"],
@@ -26,14 +33,19 @@
     },
     {
       "id": "mock_data",
-      "file": "src/data/adminData.js",
+      "file": "src/data/adminData.ts",
       "description": "页面演示数据，包含 metrics、users、orders、activities 等内容",
       "required": true,
       "type": "data",
-      "example": "export const metrics = [\n  { label: '今日访问', value: '24,890', trend: '+12.6%', tone: 'green' }\n]\n\nexport const users = [\n  { id: 1001, name: '用户名', role: '会员', status: '活跃' }\n]",
+      "category": "data",
+      "example": "export const metrics = [\n  { label: '今日访问', value: '24,890', trend: '+12.6%', trendType: 'up' }\n]\n\nexport const orders = [\n  { no: 'ORD-2024-001', product: '企业版套餐', buyer: '张三', status: '已完成', amount: 9800 }\n]",
       "dependencies": null,
       "styleVariables": null,
-      "outputFormat": "ES Module 导出，使用 const 定义"
+      "outputFormat": "TypeScript 常量导出，带类型定义",
+      "aiHints": {
+        "pattern": "数据结构定义 + 常量导出",
+        "types": ["DashboardMetrics", "OrderInfo", "UserInfo"]
+      }
     },
     {
       "id": "table_columns",
@@ -41,6 +53,7 @@
       "description": "表格列定义配置，定义表格的列和渲染方式",
       "required": false,
       "type": "config",
+      "category": "config",
       "example": "export const columns = [\n  { key: 'id', title: 'ID' },\n  { key: 'name', title: '名称' },\n  { key: 'status', title: '状态' }\n]",
       "dependencies": null,
       "styleVariables": null,
@@ -52,6 +65,7 @@
       "description": "侧边栏菜单配置，定义导航菜单项",
       "required": false,
       "type": "data",
+      "category": "config",
       "example": "export const sidebarMenu = [\n  { label: '总览', path: '#overview', icon: '▦' },\n  { label: '用户', path: '#users', icon: '○' }\n]",
       "dependencies": null,
       "styleVariables": null,
@@ -63,19 +77,102 @@
       "description": "统计卡片数据配置，定义指标卡片的内容和样式",
       "required": false,
       "type": "data",
+      "category": "config",
       "example": "export const statistics = [\n  { label: '总用户', value: '12,345', trend: '+5.2%', tone: 'green' }\n]",
       "dependencies": null,
       "styleVariables": null,
       "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "user_store",
+      "file": "src/stores/user.ts",
+      "description": "用户状态管理，包含登录、token、用户信息",
+      "required": true,
+      "type": "store",
+      "category": "state",
+      "example": "export const useUserStore = defineStore('user', () => {\n  const token = ref('')\n  const userInfo = ref<UserInfo | null>(null)\n  \n  async function login(params: LoginParams) { ... }\n  async function logout() { ... }\n  \n  return { token, userInfo, login, logout }\n})",
+      "dependencies": ["src/services/api.ts", "src/types/index.ts"],
+      "styleVariables": null,
+      "outputFormat": "Pinia store，使用 Composition API",
+      "aiHints": {
+        "pattern": "Pinia defineStore + ref + computed + async actions",
+        "persist": true
+      }
+    },
+    {
+      "id": "app_store",
+      "file": "src/stores/app.ts",
+      "description": "应用状态管理，包含主题、语言、加载状态",
+      "required": false,
+      "type": "store",
+      "category": "state",
+      "example": "export const useAppStore = defineStore('app', () => {\n  const theme = ref<'light' | 'dark'>('light')\n  const loading = ref(false)\n  \n  function toggleTheme() { ... }\n  \n  return { theme, loading, toggleTheme }\n})",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Pinia store，使用 Composition API",
+      "aiHints": {
+        "pattern": "Pinia defineStore + ref + computed + actions",
+        "persist": true
+      }
+    },
+    {
+      "id": "login_page",
+      "file": "src/pages/LoginPage.vue",
+      "description": "登录页面，包含表单验证、登录逻辑",
+      "required": false,
+      "type": "page",
+      "category": "auth",
+      "example": "<template>\n  <n-card class=\"login-card\">\n    <n-form :model=\"formData\" :rules=\"rules\">\n      <n-form-item label=\"账号\" path=\"userAccount\">\n        <n-input v-model:value=\"formData.userAccount\" />\n      </n-form-item>\n    </n-form>\n  </n-card>\n</template>",
+      "dependencies": ["src/stores/user.ts", "src/data/adminData.ts"],
+      "styleVariables": null,
+      "outputFormat": "完整的 Vue SFC，使用 Naive UI 组件",
+      "aiHints": {
+        "pattern": "表单 + 验证 + 路由跳转",
+        "components": ["n-card", "n-form", "n-input", "n-button"],
+        "hooks": ["useUserStore", "useRouter", "useMessage"]
+      }
+    },
+    {
+      "id": "search_bar",
+      "file": "src/components/SearchBar.vue",
+      "description": "搜索栏组件，支持多种筛选条件",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<SearchBar :filters=\"filters\" @search=\"handleSearch\" @reset=\"handleReset\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 Naive UI",
+      "aiHints": {
+        "pattern": "表单 + 筛选 + 重置",
+        "components": ["n-form", "n-grid", "n-input", "n-select", "n-date-picker"]
+      }
+    },
+    {
+      "id": "form_modal",
+      "file": "src/components/FormModal.vue",
+      "description": "表单弹窗组件，支持多种表单字段",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<FormModal v-model:show=\"showModal\" title=\"新增\" :fields=\"fields\" @confirm=\"handleConfirm\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 Naive UI",
+      "aiHints": {
+        "pattern": "弹窗 + 表单 + 验证",
+        "components": ["n-modal", "n-form", "n-grid", "n-input", "n-select", "n-switch"]
+      }
     }
   ],
   "protectedFiles": [
     "package.json",
-    "vite.config.js",
+    "vite.config.ts",
+    "tsconfig.json",
     "index.html",
-    "src/main.js",
+    "src/main.ts",
     "src/App.vue",
-    "src/router/index.js"
+    "src/router/index.ts"
   ],
-  "maxSlotsPerGeneration": 6
+  "maxSlotsPerGeneration": 8
 }

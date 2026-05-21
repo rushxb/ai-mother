@@ -29,12 +29,67 @@
 7. **requiresBuild**：通常为 false，除非你修改了需要重新构建的配置。
 8. **首次生成优先**：如果是首次生成（用户没有指定具体修改），应该填充所有 slot 以创建完整的应用。
 
-## Slot 内容要求
+## Slot 类型说明
 
-- **Vue 组件**：完整的 `<template>`、`<script setup>`、`<style scoped>` 三个部分。
-- **数据文件**：导出 TypeScript 常量或函数。
-- **样式文件**：使用 CSS 变量，便于主题切换。
-- **配置文件**：使用 TypeScript 接口定义类型。
+根据 slot 的 `type` 字段，生成对应类型的内容：
+
+### view 类型
+- 生成完整的 Vue SFC 文件
+- 包含 `<template>`、`<script setup>`、`<style scoped>` 三个部分
+- 使用 Composition API
+- 引用 `dependencies` 中列出的组件和数据文件
+- 使用 `styleVariables` 中列出的 CSS 变量
+
+### data 类型
+- 生成 ES Module 导出的数据
+- 使用 `const` 定义常量
+- 提供丰富的示例数据
+- 确保数据结构与 view 组件的使用方式匹配
+
+### style 类型
+- 生成 CSS 变量定义
+- 使用 `:root` 选择器
+- 包含 `styleVariables` 中列出的所有变量
+- 提供合理的默认值
+
+### config 类型
+- 生成 TypeScript 常量导出
+- 定义配置对象或数组
+- 包含必要的类型注解
+
+## 样式变量使用
+
+当 slot 定义中包含 `styleVariables` 字段时：
+1. 在生成的样式中使用这些变量
+2. 确保变量名称一致
+3. 提供合理的默认值
+
+示例：
+```css
+/* 使用 slot 定义中的变量 */
+.my-component {
+  color: var(--color-primary);
+  background: var(--color-bg);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+}
+```
+
+## 组件依赖处理
+
+当 slot 定义中包含 `dependencies` 字段时：
+1. 在 `<script setup>` 中导入依赖的组件
+2. 在 `<script setup>` 中导入依赖的数据文件
+3. 确保导入路径正确
+
+示例：
+```vue
+<script setup>
+import MetricGrid from '@/components/MetricGrid.vue'
+import ProTable from '@/components/ProTable.vue'
+import { metrics, users } from '@/data/adminData'
+</script>
+```
 
 ## 首次生成策略
 
@@ -62,7 +117,7 @@
   "slots": [
     {
       "slotId": "home_content",
-      "content": "<template>\n  <div class=\"home\">\n    <section class=\"hero\">\n      <h1>{{ title }}</h1>\n      <p>{{ subtitle }}</p>\n    </section>\n    <section class=\"hot-products\">\n      <h2>热门商品</h2>\n      <div class=\"product-grid\">\n        <div v-for=\"product in hotProducts\" :key=\"product.id\" class=\"product-card\">\n          <img :src=\"product.image\" :alt=\"product.name\">\n          <h3>{{ product.name }}</h3>\n          <p class=\"price\">¥{{ product.price }}</p>\n        </div>\n      </div>\n    </section>\n    <section class=\"promotions\">\n      <h2>促销活动</h2>\n      <div class=\"promo-list\">\n        <div v-for=\"promo in promotions\" :key=\"promo.id\" class=\"promo-card\">\n          <h3>{{ promo.title }}</h3>\n          <p>{{ promo.description }}</p>\n        </div>\n      </div>\n    </section>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref } from 'vue'\n\nconst title = ref('欢迎来到我们的商城')\nconst subtitle = ref('发现优质好物，享受美好生活')\n\nconst hotProducts = ref([\n  { id: 1, name: '示例商品1', price: 99, image: '/placeholder.png' },\n  { id: 2, name: '示例商品2', price: 199, image: '/placeholder.png' },\n  { id: 3, name: '示例商品3', price: 299, image: '/placeholder.png' },\n])\n\nconst promotions = ref([\n  { id: 1, title: '新用户专享', description: '首单立减 50 元' },\n  { id: 2, title: '限时特惠', description: '精选商品低至 5 折' },\n])\n</script>\n\n<style scoped>\n.home {\n  max-width: 1200px;\n  margin: 0 auto;\n  padding: 20px;\n}\n\n.hero {\n  text-align: center;\n  padding: 60px 0;\n  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n  color: white;\n  border-radius: 12px;\n  margin-bottom: 40px;\n}\n\n.product-grid {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));\n  gap: 20px;\n}\n\n.product-card {\n  border: 1px solid #eee;\n  border-radius: 8px;\n  padding: 16px;\n  text-align: center;\n}\n\n.price {\n  color: #e74c3c;\n  font-size: 1.2em;\n  font-weight: bold;\n}\n</style>",
+      "content": "<template>\n  <div class=\"home\">\n    <section class=\"hero\">\n      <h1>{{ title }}</h1>\n      <p>{{ subtitle }}</p>\n    </section>\n    <section class=\"hot-products\">\n      <h2>热门商品</h2>\n      <div class=\"product-grid\">\n        <div v-for=\"product in hotProducts\" :key=\"product.id\" class=\"product-card\">\n          <img :src=\"product.image\" :alt=\"product.name\">\n          <h3>{{ product.name }}</h3>\n          <p class=\"price\">¥{{ product.price }}</p>\n        </div>\n      </div>\n    </section>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref } from 'vue'\nimport { hotProducts } from '@/data/siteData'\n\nconst title = ref('欢迎来到我们的商城')\nconst subtitle = ref('发现优质好物，享受美好生活')\n</script>\n\n<style scoped>\n.home {\n  max-width: 1200px;\n  margin: 0 auto;\n  padding: var(--spacing-md);\n}\n\n.hero {\n  text-align: center;\n  padding: 60px 0;\n  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);\n  color: white;\n  border-radius: var(--radius-md);\n  margin-bottom: 40px;\n}\n</style>",
       "reason": "根据用户需求生成电商首页，包含热门商品和促销活动展示"
     },
     {

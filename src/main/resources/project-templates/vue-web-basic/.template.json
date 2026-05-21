@@ -1,15 +1,24 @@
 {
   "id": "vue-web-basic",
   "name": "Vue Web Basic",
-  "description": "通用 Vue 3 + Vite Web 应用模板，默认单页可运行，适合内容展示、轻量业务系统和可扩展产品原型。",
+  "description": "通用 Vue 3 + Vite + Naive UI Web 应用模板，默认单页可运行，适合内容展示、轻量业务系统和可扩展产品原型。",
   "packageManager": "pnpm",
-  "tags": ["vue", "vite", "web", "basic"],
+  "tags": ["vue", "vite", "web", "basic", "naive-ui", "pinia", "typescript"],
   "entryFiles": [
     "src/router/routeManifest.json",
     "src/layouts/MainLayout.vue",
     "src/views/HomeView.vue",
-    "src/data/siteData.js",
-    "src/services/api.ts"
+    "src/data/siteData.ts",
+    "src/services/api.ts",
+    "src/stores/user.ts",
+    "src/stores/app.ts"
   ],
-  "optionalFiles": ["src/pages/DetailPage.vue", "src/pages/AboutPage.vue", "src/components/ProTable.vue"]
+  "optionalFiles": [
+    "src/pages/DetailPage.vue",
+    "src/pages/AboutPage.vue",
+    "src/pages/LoginPage.vue",
+    "src/components/ProTable.vue",
+    "src/components/SearchBar.vue",
+    "src/components/FormModal.vue"
+  ]
 }

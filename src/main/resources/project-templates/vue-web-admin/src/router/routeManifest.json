@@ -8,6 +8,22 @@
     "name": "dashboard",
     "component": "DashboardView",
     "title": "工作台",
-    "layout": "MainLayout"
+    "layout": "MainLayout",
+    "meta": {
+      "requiresAuth": true,
+      "icon": "Dashboard"
+    }
+  },
+  {
+    "path": "/login",
+    "name": "login",
+    "component": "LoginPage",
+    "title": "登录"
+  },
+  {
+    "path": "/403",
+    "name": "403",
+    "component": "ForbiddenPage",
+    "title": "无权限"
   }
 ]

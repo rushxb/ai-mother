@@ -1,6 +1,6 @@
 {
   "templateId": "vue-web-basic",
-  "description": "通用 Web 应用，适合信息站、轻应用、内容型产品",
+  "description": "通用 Vue 3 + Vite + Naive UI Web 应用模板，适合内容展示、轻量业务系统和可扩展产品原型",
   "slots": [
     {
       "id": "home_content",
@@ -8,10 +8,16 @@
       "description": "首页主体内容区域，包含 Hero 区、模块展示、流程和联系区",
       "required": true,
       "type": "view",
-      "example": "<template>\n  <section id=\"hero\" class=\"hero\">\n    <div class=\"hero-copy\">\n      <span class=\"eyebrow\">{{ hero.eyebrow }}</span>\n      <h1>{{ hero.title }}</h1>\n      <p>{{ hero.description }}</p>\n    </div>\n  </section>\n</template>\n\n<script setup>\nimport { hero } from '@/data/siteData'\n</script>",
-      "dependencies": ["src/data/siteData.js", "src/components/SectionTitle.vue"],
+      "category": "page",
+      "example": "<template>\n  <section id=\"hero\" class=\"hero\">\n    <div class=\"hero-copy\">\n      <span class=\"eyebrow\">{{ hero.eyebrow }}</span>\n      <h1>{{ hero.title }}</h1>\n      <p>{{ hero.description }}</p>\n    </div>\n  </section>\n</template>\n\n<script setup lang=\"ts\">\nimport { hero } from '@/data/siteData'\n</script>",
+      "dependencies": ["src/data/siteData.ts", "src/components/SectionTitle.vue"],
       "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text", "--spacing-md", "--radius-md"],
-      "outputFormat": "完整的 Vue SFC，包含 <template>、<script setup>、<style scoped>"
+      "outputFormat": "完整的 Vue SFC，包含 <template>、<script setup lang=\"ts\">、<style scoped>",
+      "aiHints": {
+        "pattern": "Hero + 内容卡片 + 流程 + 联系区",
+        "components": ["SectionTitle", "ProTable"],
+        "hooks": ["useRouter", "useAppStore"]
+      }
     },
     {
       "id": "theme_tokens",
@@ -19,6 +25,7 @@
       "description": "主题色和基础样式变量，定义全局 CSS 变量",
       "required": false,
       "type": "style",
+      "category": "theme",
       "example": ":root {\n  --color-primary: #3b82f6;\n  --color-secondary: #8b5cf6;\n  --color-bg: #ffffff;\n  --color-text: #1f2937;\n  --spacing-md: 1rem;\n  --radius-md: 0.5rem;\n}",
       "dependencies": null,
       "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text", "--spacing-md", "--radius-md"],
@@ -26,14 +33,19 @@
     },
     {
       "id": "mock_data",
-      "file": "src/data/siteData.js",
+      "file": "src/data/siteData.ts",
       "description": "页面演示数据，包含 hero、features、cards、timeline 等内容",
       "required": true,
       "type": "data",
+      "category": "data",
       "example": "export const hero = {\n  eyebrow: '示例标签',\n  title: '页面标题',\n  description: '页面描述',\n  actions: [\n    { label: '主要按钮', path: '#', type: 'primary' }\n  ]\n}\n\nexport const features = [\n  { title: '特性1', text: '描述1', stat: '100%' }\n]",
       "dependencies": null,
       "styleVariables": null,
-      "outputFormat": "ES Module 导出，使用 const 定义"
+      "outputFormat": "TypeScript 常量导出，带类型定义",
+      "aiHints": {
+        "pattern": "数据结构定义 + 常量导出",
+        "types": ["SiteInfo", "HeroData", "FeatureItem", "CardItem"]
+      }
     },
     {
       "id": "app_config",
@@ -41,6 +53,7 @@
       "description": "应用配置信息（标题、描述、联系方式等）",
       "required": true,
       "type": "config",
+      "category": "config",
       "example": "export const appConfig = {\n  title: '应用标题',\n  description: '应用描述',\n  copyright: '© 2024 公司名称'\n}",
       "dependencies": null,
       "styleVariables": null,
@@ -52,19 +65,102 @@
       "description": "导航菜单项配置",
       "required": false,
       "type": "data",
+      "category": "config",
       "example": "export const navItems = [\n  { label: '首页', path: '#hero' },\n  { label: '关于', path: '#about' }\n]",
       "dependencies": null,
       "styleVariables": null,
       "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "user_store",
+      "file": "src/stores/user.ts",
+      "description": "用户状态管理，包含登录、token、用户信息",
+      "required": true,
+      "type": "store",
+      "category": "state",
+      "example": "export const useUserStore = defineStore('user', () => {\n  const token = ref('')\n  const userInfo = ref<UserInfo | null>(null)\n  \n  async function login(params: LoginParams) { ... }\n  async function logout() { ... }\n  \n  return { token, userInfo, login, logout }\n})",
+      "dependencies": ["src/services/api.ts", "src/types/index.ts"],
+      "styleVariables": null,
+      "outputFormat": "Pinia store，使用 Composition API",
+      "aiHints": {
+        "pattern": "Pinia defineStore + ref + computed + async actions",
+        "persist": true
+      }
+    },
+    {
+      "id": "app_store",
+      "file": "src/stores/app.ts",
+      "description": "应用状态管理，包含主题、语言、加载状态",
+      "required": false,
+      "type": "store",
+      "category": "state",
+      "example": "export const useAppStore = defineStore('app', () => {\n  const theme = ref<'light' | 'dark'>('light')\n  const loading = ref(false)\n  \n  function toggleTheme() { ... }\n  \n  return { theme, loading, toggleTheme }\n})",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Pinia store，使用 Composition API",
+      "aiHints": {
+        "pattern": "Pinia defineStore + ref + computed + actions",
+        "persist": true
+      }
+    },
+    {
+      "id": "login_page",
+      "file": "src/pages/LoginPage.vue",
+      "description": "登录页面，包含表单验证、登录逻辑",
+      "required": false,
+      "type": "page",
+      "category": "auth",
+      "example": "<template>\n  <n-card class=\"login-card\">\n    <n-form :model=\"formData\" :rules=\"rules\">\n      <n-form-item label=\"账号\" path=\"userAccount\">\n        <n-input v-model:value=\"formData.userAccount\" />\n      </n-form-item>\n    </n-form>\n  </n-card>\n</template>",
+      "dependencies": ["src/stores/user.ts", "src/data/siteData.ts"],
+      "styleVariables": null,
+      "outputFormat": "完整的 Vue SFC，使用 Naive UI 组件",
+      "aiHints": {
+        "pattern": "表单 + 验证 + 路由跳转",
+        "components": ["n-card", "n-form", "n-input", "n-button"],
+        "hooks": ["useUserStore", "useRouter", "useMessage"]
+      }
+    },
+    {
+      "id": "search_bar",
+      "file": "src/components/SearchBar.vue",
+      "description": "搜索栏组件，支持多种筛选条件",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<SearchBar :filters=\"filters\" @search=\"handleSearch\" @reset=\"handleReset\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 Naive UI",
+      "aiHints": {
+        "pattern": "表单 + 筛选 + 重置",
+        "components": ["n-form", "n-grid", "n-input", "n-select", "n-date-picker"]
+      }
+    },
+    {
+      "id": "form_modal",
+      "file": "src/components/FormModal.vue",
+      "description": "表单弹窗组件，支持多种表单字段",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<FormModal v-model:show=\"showModal\" title=\"新增\" :fields=\"fields\" @confirm=\"handleConfirm\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 Naive UI",
+      "aiHints": {
+        "pattern": "弹窗 + 表单 + 验证",
+        "components": ["n-modal", "n-form", "n-grid", "n-input", "n-select", "n-switch"]
+      }
     }
   ],
   "protectedFiles": [
     "package.json",
-    "vite.config.js",
+    "vite.config.ts",
+    "tsconfig.json",
     "index.html",
-    "src/main.js",
+    "src/main.ts",
     "src/App.vue",
-    "src/router/index.js"
+    "src/router/index.ts"
   ],
-  "maxSlotsPerGeneration": 5
+  "maxSlotsPerGeneration": 8
 }

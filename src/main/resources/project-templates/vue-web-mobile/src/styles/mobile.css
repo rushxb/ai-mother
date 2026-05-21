@@ -2,7 +2,11 @@
   color: #1f1a17;
   background: #f7f1ea;
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+
+  /* @AI_INJECT_STYLE_VARIABLES */
 }
+
+/* @AI_INJECT_STYLES */
 
 * {
   box-sizing: border-box;

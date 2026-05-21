@@ -196,16 +196,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
         app.setCodeGenType(selectedCodeGenType.getValue());
 
-        // 为 Vue 项目预分配 dev server 端口
+        // 先插入数据库获取 ID
+        boolean result = this.save(app);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+
+        // 为 Vue 项目分配 dev server 端口（需要 appId 作为 key）
         if (selectedCodeGenType == CodeGenTypeEnum.VUE_PROJECT || selectedCodeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
             int port = devServerManager.allocatePort(app.getId());
             app.setDevServerPort(port);
-            log.info("为 Vue 项目 {} 预分配端口 {}", app.getId(), port);
+            this.updateById(app);
+            log.info("为 Vue 项目 {} 分配端口 {}", app.getId(), port);
         }
 
-        // 插入数据库
-        boolean result = this.save(app);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         log.info("应用创建成功，ID: {}, 类型: {}", app.getId(), selectedCodeGenType.getValue());
         return app.getId();
     }

@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.service;
 
 import com.mybatisflex.core.service.IService;
 import com.rush.rushaicodemother.model.entity.AiModel;
+import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 
 import java.util.List;
 
@@ -26,6 +27,16 @@ public interface AiModelService extends IService<AiModel> {
     List<AiModel> listEnabledModelsByType(String modelType);
 
     /**
+     * 获取所有可执行的启用模型
+     */
+    List<AiModel> listRunnableEnabledModels();
+
+    /**
+     * 获取指定类型的可执行启用模型
+     */
+    List<AiModel> listRunnableEnabledModelsByType(String modelType);
+
+    /**
      * 根据提供商和模型ID获取模型
      *
      * @param provider 模型提供商
@@ -41,6 +52,11 @@ public interface AiModelService extends IService<AiModel> {
      * @return 测试结果
      */
     boolean testModelConnection(Long modelId);
+
+    /**
+     * 使用当前表单配置测试模型连接
+     */
+    AiModelConnectionTestResultVO testModelConnection(AiModel model);
 
     /**
      * 切换模型启用状态

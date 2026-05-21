@@ -1,137 +1,28 @@
 <template>
   <div id="userAuthPage">
-    <div class="ambient-grid"></div>
-    <div class="ambient-glow glow-one"></div>
-    <div class="ambient-glow glow-two"></div>
-    <div class="page-shell">
-      <section class="brand-panel">
-        <div class="brand-copy">
-          <div class="eyebrow">AI APPLICATION STUDIO</div>
-          <h1 class="title">{{ heroTitle }}</h1>
-          <p class="desc">{{ heroDesc }}</p>
-          <div class="hero-scene">
-            <svg
-              class="hero-svg"
-              viewBox="0 0 520 240"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient id="flowGradient" x1="73" y1="58" x2="409" y2="178">
-                  <stop offset="0%" stop-color="#7FD6FF" stop-opacity="0.08" />
-                  <stop offset="45%" stop-color="#2F80FF" stop-opacity="0.92" />
-                  <stop offset="100%" stop-color="#54D2FF" stop-opacity="0.18" />
-                </linearGradient>
-                <linearGradient id="flowGradientSoft" x1="124" y1="90" x2="445" y2="185">
-                  <stop offset="0%" stop-color="#A7E6FF" stop-opacity="0.02" />
-                  <stop offset="50%" stop-color="#2F80FF" stop-opacity="0.6" />
-                  <stop offset="100%" stop-color="#2CC0D2" stop-opacity="0.04" />
-                </linearGradient>
-                <radialGradient id="coreGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
-                  gradientTransform="translate(386 96) rotate(90) scale(96 96)"
-                >
-                  <stop offset="0%" stop-color="#8ADBFF" stop-opacity="0.9" />
-                  <stop offset="55%" stop-color="#2F80FF" stop-opacity="0.28" />
-                  <stop offset="100%" stop-color="#2F80FF" stop-opacity="0" />
-                </radialGradient>
-                <filter id="softBlur" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="8" />
-                </filter>
-                <pattern id="microGrid" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse">
-                  <path d="M28 0H0V28" stroke="rgba(104,132,175,0.12)" stroke-width="1" />
-                </pattern>
-              </defs>
+    <BubblesBackground class="auth-bubbles" :bubble-count="34" :speed="1.2" :blur="0.2" />
+    <div class="auth-overlay"></div>
 
-              <rect x="0.5" y="0.5" width="519" height="239" rx="30" fill="url(#microGrid)" />
-              <ellipse
-                cx="386"
-                cy="96"
-                rx="112"
-                ry="92"
-                fill="url(#coreGlow)"
-                class="svg-glow"
-                filter="url(#softBlur)"
-              />
+    <main class="auth-shell">
+      <section class="auth-hero" aria-label="产品介绍">
+        <BlurReveal class="hero-reveal" :duration="0.78" :delay="0.14" blur="22px" :y-offset="24">
+          <p class="eyebrow">AI APPLICATION STUDIO</p>
+          <h1>{{ heroTitle }}</h1>
+          <p class="hero-desc">{{ heroDesc }}</p>
+        </BlurReveal>
 
-              <g class="svg-rings ring-group-primary">
-                <circle cx="154" cy="92" r="76" class="svg-ring ring-large" />
-                <circle cx="154" cy="92" r="44" class="svg-ring ring-small" />
-              </g>
-              <g class="svg-rings ring-group-secondary">
-                <circle cx="388" cy="84" r="54" class="svg-ring ring-medium" />
-                <circle cx="388" cy="84" r="22" class="svg-ring ring-core" />
-              </g>
-
-              <path
-                d="M72 146C122 126 164 116 208 122C250 128 286 152 332 152C372 152 408 132 450 94"
-                class="svg-flow flow-main"
-                stroke="url(#flowGradient)"
-              />
-              <path
-                d="M98 74C146 74 180 90 218 104C258 120 304 126 346 118C386 110 414 92 444 56"
-                class="svg-flow flow-secondary"
-                stroke="url(#flowGradientSoft)"
-              />
-              <path
-                d="M156 92L206 118L256 110L306 146L388 84"
-                class="svg-link"
-              />
-
-              <g class="svg-node node-left">
-                <circle cx="96" cy="150" r="7" class="svg-node-core" />
-                <circle cx="96" cy="150" r="17" class="svg-node-halo" />
-              </g>
-              <g class="svg-node node-mid">
-                <circle cx="256" cy="110" r="7" class="svg-node-core" />
-                <circle cx="256" cy="110" r="17" class="svg-node-halo" />
-              </g>
-              <g class="svg-node node-right">
-                <circle cx="388" cy="84" r="8" class="svg-node-core" />
-                <circle cx="388" cy="84" r="21" class="svg-node-halo" />
-              </g>
-              <g class="svg-node node-end">
-                <circle cx="448" cy="58" r="6" class="svg-node-core" />
-                <circle cx="448" cy="58" r="15" class="svg-node-halo" />
-              </g>
-
-              <g class="svg-bars">
-                <rect x="330" y="144" width="18" height="34" rx="9" class="bar bar-one" />
-                <rect x="358" y="126" width="18" height="52" rx="9" class="bar bar-two" />
-                <rect x="386" y="112" width="18" height="66" rx="9" class="bar bar-three" />
-                <rect x="414" y="136" width="18" height="42" rx="9" class="bar bar-four" />
-              </g>
-            </svg>
-            <div class="scene-core">
-              <span class="scene-core-label">{{ isRegisterMode ? 'AUTH SETUP' : 'WORKSPACE ACCESS' }}</span>
-              <strong>{{ isRegisterMode ? 'Create secure onboarding' : 'Enter your active session' }}</strong>
-            </div>
-          </div>
-        </div>
-        <div class="metrics">
-          <div v-for="item in metrics" :key="item.label" class="metric-card">
-            <span class="metric-label">{{ item.label }}</span>
+        <div class="signal-strip">
+          <div v-for="item in signalItems" :key="item.label" class="signal-item">
+            <span>{{ item.label }}</span>
             <strong>{{ item.value }}</strong>
-          </div>
-        </div>
-        <div class="signal-board">
-          <div class="signal-header">
-            <span class="signal-dot"></span>
-            <span>{{ isRegisterMode ? 'Launch Checklist' : 'Workspace Signal' }}</span>
-          </div>
-          <div class="signal-list">
-            <div v-for="item in signalItems" :key="item.label" class="signal-item">
-              <span>{{ item.label }}</span>
-              <span>{{ item.value }}</span>
-            </div>
           </div>
         </div>
       </section>
 
       <section class="login-panel">
-        <div class="panel-decoration"></div>
+        <div class="panel-rim"></div>
         <div class="panel-content">
-          <div class="form-head">
+          <BlurReveal class="form-reveal" :duration="0.62" :delay="0.1" blur="16px" :y-offset="16">
             <div class="auth-switch">
               <button
                 type="button"
@@ -150,150 +41,143 @@
                 注册
               </button>
             </div>
-            <p class="form-kicker">{{ isRegisterMode ? 'CREATE ACCESS' : 'WELCOME BACK' }}</p>
-            <h2>{{ isRegisterMode ? '创建你的工作台账号' : '登录工作台' }}</h2>
-            <p>
-              {{
-                isRegisterMode
-                  ? '完成账号创建后即可进入应用生成与调试流程。'
-                  : '继续管理你的 AI 应用、会话与部署流程。'
-              }}
-            </p>
-          </div>
+            <div class="form-head">
+              <p>{{ isRegisterMode ? 'CREATE ACCESS' : 'WELCOME BACK' }}</p>
+              <h2>{{ isRegisterMode ? '创建工作台账号' : '登录工作台' }}</h2>
+            </div>
+          </BlurReveal>
 
-          <div class="form-stage">
-            <Transition name="auth-card" mode="out-in">
-              <a-form
-                v-if="!isRegisterMode"
-                key="login"
-                :model="loginFormState"
-                name="login"
-                autocomplete="off"
-                layout="vertical"
-                class="auth-form"
-                @finish="handleLoginSubmit"
+          <Transition name="auth-card" mode="out-in">
+            <a-form
+              v-if="!isRegisterMode"
+              key="login"
+              :model="loginFormState"
+              name="login"
+              autocomplete="off"
+              layout="vertical"
+              class="auth-form"
+              @finish="handleLoginSubmit"
+            >
+              <a-form-item
+                label="账号"
+                name="userAccount"
+                :rules="[{ required: true, message: '请输入账号' }]"
               >
-                <a-form-item
-                  label="账号"
-                  name="userAccount"
-                  :rules="[{ required: true, message: '请输入账号' }]"
-                >
-                  <a-input
-                    v-model:value="loginFormState.userAccount"
-                    size="large"
-                    placeholder="输入账号"
-                  />
-                </a-form-item>
-                <a-form-item
-                  label="密码"
-                  name="userPassword"
-                  :rules="[
-                    { required: true, message: '请输入密码' },
-                    { min: 8, message: '密码长度不能小于 8 位' },
-                  ]"
-                >
-                  <a-input-password
-                    v-model:value="loginFormState.userPassword"
-                    size="large"
-                    placeholder="输入密码"
-                  />
-                </a-form-item>
-
-                <div class="assist-row">
-                  <span class="assist-text">首次使用可先创建账号</span>
-                  <button type="button" class="register-link" @click="switchMode('register')">
-                    去注册
-                  </button>
-                </div>
-
-                <a-form-item class="submit-row">
-                  <a-button
-                    type="primary"
-                    html-type="submit"
-                    size="large"
-                    :loading="loginSubmitting"
-                    class="submit-button"
-                  >
-                    登录并进入
-                  </a-button>
-                </a-form-item>
-              </a-form>
-
-              <a-form
-                v-else
-                key="register"
-                :model="registerFormState"
-                name="register"
-                autocomplete="off"
-                layout="vertical"
-                class="auth-form"
-                @finish="handleRegisterSubmit"
+                <a-input
+                  v-model:value="loginFormState.userAccount"
+                  size="large"
+                  placeholder="输入账号"
+                />
+              </a-form-item>
+              <a-form-item
+                label="密码"
+                name="userPassword"
+                :rules="[
+                  { required: true, message: '请输入密码' },
+                  { min: 8, message: '密码长度不能小于 8 位' },
+                ]"
               >
-                <a-form-item
-                  label="账号"
-                  name="userAccount"
-                  :rules="[{ required: true, message: '请输入账号' }]"
-                >
-                  <a-input
-                    v-model:value="registerFormState.userAccount"
-                    size="large"
-                    placeholder="设置账号"
-                  />
-                </a-form-item>
-                <a-form-item
-                  label="密码"
-                  name="userPassword"
-                  :rules="[
-                    { required: true, message: '请输入密码' },
-                    { min: 8, message: '密码长度不能小于 8 位' },
-                  ]"
-                >
-                  <a-input-password
-                    v-model:value="registerFormState.userPassword"
-                    size="large"
-                    placeholder="设置密码"
-                  />
-                </a-form-item>
-                <a-form-item
-                  label="确认密码"
-                  name="checkPassword"
-                  :rules="[
-                    { required: true, message: '请确认密码' },
-                    { min: 8, message: '密码长度不能小于 8 位' },
-                    { validator: validateCheckPassword },
-                  ]"
-                >
-                  <a-input-password
-                    v-model:value="registerFormState.checkPassword"
-                    size="large"
-                    placeholder="再次输入密码"
-                  />
-                </a-form-item>
+                <a-input-password
+                  v-model:value="loginFormState.userPassword"
+                  size="large"
+                  placeholder="输入密码"
+                />
+              </a-form-item>
 
-                <div class="assist-row">
-                  <span class="assist-text">已经有账号可以直接进入</span>
-                  <button type="button" class="register-link" @click="switchMode('login')">
-                    去登录
-                  </button>
-                </div>
+              <div class="assist-row">
+                <span>首次使用可先创建账号</span>
+                <button type="button" class="text-button" @click="switchMode('register')">
+                  去注册
+                </button>
+              </div>
 
-                <a-form-item class="submit-row">
-                  <a-button
-                    type="primary"
-                    html-type="submit"
-                    size="large"
-                    :loading="registerSubmitting"
-                    class="submit-button"
-                  >
-                    创建账号
-                  </a-button>
-                </a-form-item>
-              </a-form>
-            </Transition>
-          </div>
+              <a-form-item class="submit-row">
+                <a-button
+                  type="primary"
+                  html-type="submit"
+                  size="large"
+                  :loading="loginSubmitting"
+                  class="submit-button"
+                >
+                  登录并进入
+                </a-button>
+              </a-form-item>
+            </a-form>
+
+            <a-form
+              v-else
+              key="register"
+              :model="registerFormState"
+              name="register"
+              autocomplete="off"
+              layout="vertical"
+              class="auth-form"
+              @finish="handleRegisterSubmit"
+            >
+              <a-form-item
+                label="账号"
+                name="userAccount"
+                :rules="[{ required: true, message: '请输入账号' }]"
+              >
+                <a-input
+                  v-model:value="registerFormState.userAccount"
+                  size="large"
+                  placeholder="设置账号"
+                />
+              </a-form-item>
+              <a-form-item
+                label="密码"
+                name="userPassword"
+                :rules="[
+                  { required: true, message: '请输入密码' },
+                  { min: 8, message: '密码长度不能小于 8 位' },
+                ]"
+              >
+                <a-input-password
+                  v-model:value="registerFormState.userPassword"
+                  size="large"
+                  placeholder="设置密码"
+                />
+              </a-form-item>
+              <a-form-item
+                label="确认密码"
+                name="checkPassword"
+                :rules="[
+                  { required: true, message: '请确认密码' },
+                  { min: 8, message: '密码长度不能小于 8 位' },
+                  { validator: validateCheckPassword },
+                ]"
+              >
+                <a-input-password
+                  v-model:value="registerFormState.checkPassword"
+                  size="large"
+                  placeholder="再次输入密码"
+                />
+              </a-form-item>
+
+              <div class="assist-row">
+                <span>已经有账号可以直接进入</span>
+                <button type="button" class="text-button" @click="switchMode('login')">
+                  去登录
+                </button>
+              </div>
+
+              <a-form-item class="submit-row">
+                <a-button
+                  type="primary"
+                  html-type="submit"
+                  size="large"
+                  :loading="registerSubmitting"
+                  class="submit-button"
+                >
+                  创建账号
+                </a-button>
+              </a-form-item>
+            </a-form>
+          </Transition>
         </div>
       </section>
-    </div>
+    </main>
   </div>
 </template>
 
@@ -327,9 +211,7 @@ const registerFormState = reactive<API.UserRegisterRequest>({
 const isRegisterMode = computed(() => route.path === '/user/register')
 
 const heroTitle = computed(() =>
-  isRegisterMode.value
-    ? '建立统一入口，让每一次产品试验都有明确起点。'
-    : '把想法整理成产品，而不是停留在草稿里。',
+  isRegisterMode.value ? '建立账号，进入你的 AI 应用工作台。' : '把想法整理成产品，而不是停留在草稿里。',
 )
 
 const heroDesc = computed(() =>
@@ -338,31 +220,17 @@ const heroDesc = computed(() =>
     : '面向高频迭代场景的 AI 应用生成台，从需求描述、页面搭建到对话调试，尽量把过程收敛到更短路径。',
 )
 
-const metrics = computed(() =>
-  isRegisterMode.value
-    ? [
-        { label: 'Onboarding', value: '账号创建只保留必要步骤' },
-        { label: 'Workspace', value: '注册后直接进入统一工作台' },
-        { label: 'Security', value: '密码校验与确认流程完整' },
-      ]
-    : [
-        { label: 'Prompt to App', value: '分钟级成型' },
-        { label: 'Workflow', value: '生成 · 编辑 · 部署' },
-        { label: 'Collaboration', value: '适合团队快速验证' },
-      ],
-)
-
 const signalItems = computed(() =>
   isRegisterMode.value
     ? [
-        { label: '接入方式', value: '账号创建后立即可用' },
-        { label: '适用场景', value: 'MVP / Demo / 内部工具' },
-        { label: '当前入口', value: '新账号注册' },
+        { label: '入口', value: '新账号注册' },
+        { label: '流程', value: '创建后直接进入工作台' },
+        { label: '适用', value: 'MVP / Demo / 内部工具' },
       ]
     : [
-        { label: '体验方向', value: '精炼、清晰、可执行' },
-        { label: '适用场景', value: 'MVP / Demo / 内部工具' },
-        { label: '当前入口', value: '账户登录' },
+        { label: '入口', value: '账户登录' },
+        { label: '流程', value: '生成 · 编辑 · 部署' },
+        { label: '适用', value: 'MVP / Demo / 内部工具' },
       ],
 )
 
@@ -450,527 +318,207 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 
 <style scoped>
 #userAuthPage {
-  --page-bg: #f4f8fc;
-  --page-bg-strong: #edf3fa;
-  --panel-bg: rgba(255, 255, 255, 0.78);
-  --panel-border: rgba(104, 132, 175, 0.18);
-  --soft-text: #607086;
-  --strong-text: #0d1b2a;
-  --accent: #2f80ff;
-  --accent-strong: #1858c8;
-  --accent-soft: rgba(47, 128, 255, 0.12);
-  --accent-glow: rgba(47, 128, 255, 0.18);
-  --cyan-soft: rgba(44, 192, 210, 0.18);
-  height: 100%;
-  min-height: 100%;
-  padding: 20px 24px 24px;
+  --text-strong: #f8fbff;
+  --text-soft: rgba(226, 237, 250, 0.74);
+  --panel-bg: rgba(8, 18, 33, 0.58);
+  --panel-border: rgba(191, 222, 255, 0.22);
+  --accent: #8fe4ff;
+  --accent-strong: #58b8ff;
+  min-height: 100vh;
   position: relative;
   overflow: hidden;
+  color: var(--text-strong);
   background:
-    radial-gradient(circle at top left, rgba(47, 128, 255, 0.12), transparent 28%),
-    radial-gradient(circle at 88% 16%, rgba(44, 192, 210, 0.14), transparent 24%),
-    linear-gradient(180deg, #fbfdff 0%, #f4f8fc 45%, #edf3fa 100%);
+    radial-gradient(circle at 16% 8%, rgba(120, 196, 255, 0.22), transparent 30%),
+    linear-gradient(135deg, #07101f 0%, #0b1627 48%, #102b3d 100%);
 }
 
-.ambient-grid {
+.auth-bubbles {
+  position: absolute;
+  inset: -8%;
+  width: 116%;
+  height: 116%;
+  opacity: 0.92;
+}
+
+.auth-overlay {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(122, 146, 184, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(122, 146, 184, 0.08) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: radial-gradient(circle at center, black 35%, transparent 88%);
-  opacity: 0.7;
-  animation: gridDrift 18s linear infinite;
   pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(4, 11, 23, 0.5), rgba(4, 11, 23, 0.16) 42%, rgba(4, 11, 23, 0.58)),
+    radial-gradient(circle at 76% 18%, rgba(143, 228, 255, 0.2), transparent 26%),
+    radial-gradient(circle at 40% 92%, rgba(88, 184, 255, 0.18), transparent 30%);
 }
 
-.ambient-glow {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(18px);
-  pointer-events: none;
-}
-
-.glow-one {
-  width: 280px;
-  height: 280px;
-  top: 72px;
-  right: 8%;
-  background: rgba(47, 128, 255, 0.14);
-  animation: floatGlow 10s ease-in-out infinite;
-}
-
-.glow-two {
-  width: 340px;
-  height: 340px;
-  left: -80px;
-  bottom: -120px;
-  background: rgba(44, 192, 210, 0.12);
-  animation: floatGlow 12s ease-in-out infinite reverse;
-}
-
-#userAuthPage::before,
-#userAuthPage::after {
-  content: '';
-  position: absolute;
-  inset: auto;
-  border-radius: 999px;
-  filter: blur(24px);
-  pointer-events: none;
-}
-
-#userAuthPage::before {
-  width: 240px;
-  height: 240px;
-  top: 96px;
-  right: 20%;
-  background: rgba(255, 255, 255, 0.62);
-}
-
-#userAuthPage::after {
-  width: 320px;
-  height: 320px;
-  bottom: 8%;
-  left: 10%;
-  background: rgba(255, 255, 255, 0.56);
-}
-
-.page-shell {
-  height: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(380px, 460px);
-  gap: 28px;
-  align-items: stretch;
+.auth-shell {
   position: relative;
   z-index: 1;
+  min-height: 100vh;
+  width: min(1180px, calc(100% - 48px));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(370px, 438px);
+  gap: 42px;
+  align-items: center;
+  padding: 40px 0;
 }
 
-.brand-panel,
-.login-panel {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-bg);
-  backdrop-filter: blur(18px);
-  box-shadow:
-    0 24px 70px rgba(114, 137, 170, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+.auth-hero {
+  min-width: 0;
 }
 
-.brand-panel {
-  border-radius: 32px;
-  padding: 40px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(247, 250, 255, 0.78)),
-    rgba(255, 255, 255, 0.84);
-  animation: panelReveal 0.62s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-.brand-panel::before {
-  content: '';
-  position: absolute;
-  inset: 24px 24px auto auto;
-  width: 220px;
-  height: 220px;
-  border-radius: 24px;
-  border: 1px solid rgba(130, 153, 186, 0.18);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.16)),
-    radial-gradient(circle at top, rgba(47, 128, 255, 0.1), transparent 58%);
-  transform: rotate(10deg);
-}
-
-.brand-copy {
-  position: relative;
-  max-width: 560px;
+.hero-reveal {
+  max-width: 660px;
 }
 
 .eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  margin: 0 0 18px;
+  color: var(--accent);
   font-size: 12px;
-  letter-spacing: 0.28em;
-  color: var(--accent);
-  margin-bottom: 20px;
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(104, 132, 175, 0.16);
-  box-shadow: 0 14px 30px rgba(114, 137, 170, 0.08);
-}
-
-.eyebrow::before {
-  content: '';
-  width: 36px;
-  height: 1px;
-  background: currentColor;
-}
-
-.title {
-  margin: 0;
-  font-size: clamp(38px, 5vw, 64px);
-  line-height: 1.04;
-  color: var(--strong-text);
-  letter-spacing: -0.04em;
   font-weight: 700;
+  letter-spacing: 0.26em;
+}
+
+.auth-hero h1 {
+  margin: 0;
+  max-width: 680px;
+  font-size: clamp(44px, 6.4vw, 78px);
+  line-height: 1.03;
+  font-weight: 800;
+  letter-spacing: 0;
   text-wrap: balance;
+  text-shadow: 0 22px 58px rgba(0, 0, 0, 0.34);
 }
 
-.desc {
+.hero-desc {
   margin: 24px 0 0;
-  max-width: 520px;
-  font-size: 16px;
+  max-width: 590px;
+  color: var(--text-soft);
+  font-size: 17px;
   line-height: 1.9;
-  color: var(--soft-text);
 }
 
-.hero-scene {
-  position: relative;
-  width: min(100%, 500px);
-  height: 184px;
-  margin-top: 32px;
-  border-radius: 30px;
-  overflow: hidden;
-  border: 1px solid rgba(104, 132, 175, 0.16);
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(241, 246, 255, 0.82)),
-    rgba(255, 255, 255, 0.86);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 20px 44px rgba(122, 146, 184, 0.12);
-}
-
-.hero-scene::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(90deg, transparent 0%, rgba(47, 128, 255, 0.06) 48%, transparent 100%);
-  transform: translateX(-100%);
-  animation: beamSweep 7s ease-in-out infinite;
-}
-
-.hero-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.svg-glow {
-  transform-origin: 386px 96px;
-  animation: glowPulse 6s ease-in-out infinite;
-}
-
-.svg-rings {
-  transform-origin: center;
-}
-
-.ring-group-primary {
-  transform-origin: 154px 92px;
-  animation: orbitSpin 18s linear infinite;
-}
-
-.ring-group-secondary {
-  transform-origin: 388px 84px;
-  animation: orbitSpin 14s linear infinite reverse;
-}
-
-.svg-ring {
-  stroke: rgba(47, 128, 255, 0.18);
-  stroke-width: 1.25;
-}
-
-.ring-small,
-.ring-core {
-  stroke: rgba(44, 192, 210, 0.26);
-}
-
-.svg-flow {
-  fill: none;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: 8 12;
-  animation: dashFlow 8s linear infinite;
-}
-
-.flow-secondary {
-  stroke-width: 2.2;
-  animation-duration: 10s;
-}
-
-.svg-link {
-  fill: none;
-  stroke: rgba(47, 128, 255, 0.2);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.svg-node {
-  animation: nodeDrift 5.4s ease-in-out infinite;
-}
-
-.node-mid {
-  animation-delay: 0.8s;
-}
-
-.node-right {
-  animation-delay: 1.4s;
-}
-
-.node-end {
-  animation-delay: 2s;
-}
-
-.svg-node-core {
-  fill: #ffffff;
-  stroke: #2f80ff;
-  stroke-width: 3;
-}
-
-.svg-node-halo {
-  fill: rgba(47, 128, 255, 0.06);
-  stroke: rgba(47, 128, 255, 0.14);
-  stroke-width: 1;
-  animation: haloPulse 3.2s ease-in-out infinite;
-}
-
-.svg-bars .bar {
-  fill: rgba(47, 128, 255, 0.16);
-  transform-box: fill-box;
-  transform-origin: center bottom;
-  animation: barLift 3.4s ease-in-out infinite;
-}
-
-.svg-bars .bar-two {
-  animation-delay: 0.2s;
-}
-
-.svg-bars .bar-three {
-  animation-delay: 0.4s;
-}
-
-.svg-bars .bar-four {
-  animation-delay: 0.6s;
-}
-
-.scene-core {
-  position: absolute;
-  left: 48px;
-  bottom: 28px;
-  display: inline-flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px 20px;
-  min-width: 228px;
-  border-radius: 22px;
-  border: 1px solid rgba(104, 132, 175, 0.16);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 16px 40px rgba(122, 146, 184, 0.1);
-  backdrop-filter: blur(12px);
-}
-
-.scene-core-label {
-  font-size: 11px;
-  letter-spacing: 0.22em;
-  color: var(--accent);
-}
-
-.scene-core strong {
-  font-size: 18px;
-  color: var(--strong-text);
-  font-weight: 600;
-  line-height: 1.45;
-}
-
-.metrics {
+.signal-strip {
+  margin-top: 42px;
+  width: min(100%, 720px);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.metric-card {
-  padding: 20px 18px;
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.88));
-  border: 1px solid rgba(104, 132, 175, 0.14);
-  box-shadow: 0 16px 34px rgba(122, 146, 184, 0.08);
-  transition:
-    transform 0.28s ease,
-    box-shadow 0.28s ease,
-    border-color 0.28s ease;
-}
-
-.metric-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(47, 128, 255, 0.24);
-  box-shadow: 0 24px 44px rgba(122, 146, 184, 0.12);
-}
-
-.metric-label {
-  display: block;
-  margin-bottom: 12px;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  color: #7d8ea6;
-  text-transform: uppercase;
-}
-
-.metric-card strong {
-  font-size: 18px;
-  line-height: 1.5;
-  color: var(--strong-text);
-  font-weight: 600;
-}
-
-.signal-board {
+  overflow: hidden;
+  border: 1px solid rgba(191, 222, 255, 0.18);
   border-radius: 24px;
-  padding: 22px 24px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 249, 255, 0.86)),
-    rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(104, 132, 175, 0.14);
-  box-shadow: 0 18px 36px rgba(122, 146, 184, 0.08);
-}
-
-.signal-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  letter-spacing: 0.14em;
-  color: #6c7f97;
-  text-transform: uppercase;
-}
-
-.signal-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 7px var(--accent-soft);
-}
-
-.signal-list {
-  margin-top: 20px;
-  display: grid;
-  gap: 14px;
+  background: rgba(6, 16, 31, 0.34);
+  backdrop-filter: blur(18px);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .signal-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(104, 132, 175, 0.12);
-  color: var(--strong-text);
-  font-size: 14px;
+  padding: 22px 24px;
+  border-right: 1px solid rgba(191, 222, 255, 0.14);
 }
 
-.signal-item span:first-child {
-  color: #7a8ca4;
+.signal-item:last-child {
+  border-right: none;
+}
+
+.signal-item span {
+  display: block;
+  margin-bottom: 10px;
+  color: rgba(226, 237, 250, 0.58);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+}
+
+.signal-item strong {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .login-panel {
-  border-radius: 28px;
+  position: relative;
+  min-width: 0;
+  border-radius: 30px;
   padding: 1px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 249, 255, 0.8)),
-    rgba(255, 255, 255, 0.84);
-  animation: panelReveal 0.62s cubic-bezier(0.2, 0.8, 0.2, 1) 0.08s both;
+  background: linear-gradient(145deg, rgba(199, 232, 255, 0.44), rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 32px 90px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
-.panel-decoration {
+.panel-rim {
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background:
-    radial-gradient(circle at top, rgba(47, 128, 255, 0.14), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.7), transparent 26%);
+    radial-gradient(circle at 30% 0%, rgba(143, 228, 255, 0.3), transparent 36%),
+    radial-gradient(circle at 90% 18%, rgba(88, 184, 255, 0.22), transparent 34%);
   pointer-events: none;
 }
 
 .panel-content {
   position: relative;
-  height: 100%;
-  min-height: 0;
-  padding: 30px 34px 34px;
-  border-radius: 27px;
+  padding: 32px 34px 36px;
+  border-radius: 29px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92)),
-    rgba(255, 255, 255, 0.94);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.form-head {
-  margin-bottom: 24px;
+    linear-gradient(180deg, rgba(10, 22, 39, 0.78), rgba(8, 17, 31, 0.66)),
+    var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(26px);
 }
 
 .auth-switch {
   display: inline-grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 4px;
-  padding: 4px;
-  margin-bottom: 24px;
+  gap: 5px;
+  width: 178px;
+  padding: 5px;
   border-radius: 999px;
-  background: #eef4fb;
-  border: 1px solid rgba(104, 132, 175, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  background: rgba(220, 240, 255, 0.1);
+  border: 1px solid rgba(191, 222, 255, 0.16);
 }
 
 .switch-option {
   border: none;
-  min-width: 86px;
   height: 38px;
   border-radius: 999px;
   background: transparent;
-  color: #70839c;
+  color: rgba(226, 237, 250, 0.72);
   font-size: 13px;
   cursor: pointer;
   transition:
-    background 0.24s ease,
     color 0.24s ease,
-    transform 0.24s ease;
+    background 0.24s ease,
+    box-shadow 0.24s ease;
 }
 
 .switch-option.active {
-  color: #ffffff;
-  background: linear-gradient(135deg, #2878ff 0%, #4bb8ff 100%);
-  box-shadow: 0 10px 22px rgba(47, 128, 255, 0.24);
+  color: #05111f;
+  background: linear-gradient(135deg, #9eeaff 0%, #7cbcff 100%);
+  box-shadow: 0 12px 28px rgba(104, 196, 255, 0.32);
 }
 
-.form-kicker {
-  margin: 0 0 12px;
-  font-size: 12px;
-  letter-spacing: 0.22em;
+.form-head {
+  margin: 26px 0 26px;
+}
+
+.form-head p {
+  margin: 0 0 10px;
   color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
 }
 
 .form-head h2 {
   margin: 0;
-  color: var(--strong-text);
-  font-size: 32px;
-  line-height: 1.15;
-}
-
-.form-head p {
-  margin: 14px 0 0;
-  color: var(--soft-text);
-  line-height: 1.8;
-  font-size: 14px;
-}
-
-.form-stage {
-  position: relative;
-  min-height: 332px;
+  color: #ffffff;
+  font-size: 30px;
+  line-height: 1.18;
+  font-weight: 700;
 }
 
 .auth-form {
@@ -982,22 +530,22 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 }
 
 :deep(.ant-form-item-label > label) {
-  color: #5b6d85;
+  color: rgba(226, 237, 250, 0.74);
   font-size: 13px;
 }
 
 :deep(.ant-input-affix-wrapper),
 :deep(.ant-input) {
-  border-radius: 16px;
   min-height: 52px;
-  color: var(--strong-text);
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(104, 132, 175, 0.14);
-  box-shadow: none;
+  border-radius: 16px;
+  color: #f8fbff;
+  background: rgba(6, 16, 31, 0.54);
+  border: 1px solid rgba(191, 222, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition:
-    border-color 0.24s ease,
-    box-shadow 0.24s ease,
-    transform 0.24s ease;
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    background 0.22s ease;
 }
 
 :deep(.ant-input-password .ant-input) {
@@ -1007,7 +555,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 }
 
 :deep(.ant-input::placeholder) {
-  color: #9aa9bd;
+  color: rgba(226, 237, 250, 0.4);
 }
 
 :deep(.ant-input-affix-wrapper:hover),
@@ -1015,14 +563,13 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 :deep(.ant-input-affix-wrapper:focus),
 :deep(.ant-input-affix-wrapper-focused),
 :deep(.ant-input:focus) {
-  border-color: rgba(47, 128, 255, 0.4);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 0 0 4px rgba(47, 128, 255, 0.08);
-  transform: translateY(-1px);
+  border-color: rgba(143, 228, 255, 0.62);
+  background: rgba(8, 21, 38, 0.72);
+  box-shadow: 0 0 0 4px rgba(143, 228, 255, 0.12);
 }
 
 :deep(.ant-input-password-icon.anticon) {
-  color: #7f91aa;
+  color: rgba(226, 237, 250, 0.66);
 }
 
 .assist-row {
@@ -1031,42 +578,16 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  color: rgba(226, 237, 250, 0.56);
   font-size: 13px;
 }
 
-.assist-text {
-  color: #7d8ea6;
-}
-
-.register-link {
+.text-button {
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--accent-strong);
-  text-decoration: none;
-  position: relative;
+  color: var(--accent);
   cursor: pointer;
-}
-
-.register-link::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -2px;
-  height: 1px;
-  background: currentColor;
-  transform: scaleX(0.5);
-  transform-origin: left;
-  opacity: 0.5;
-  transition:
-    transform 0.24s ease,
-    opacity 0.24s ease;
-}
-
-.register-link:hover::after {
-  transform: scaleX(1);
-  opacity: 1;
 }
 
 .submit-row {
@@ -1078,295 +599,92 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   height: 54px;
   border: none;
   border-radius: 16px;
-  font-weight: 600;
+  color: #04111f;
+  font-weight: 700;
   letter-spacing: 0.04em;
-  color: #ffffff;
-  background: linear-gradient(135deg, #1f6fff 0%, #4dbbff 100%);
+  background: linear-gradient(135deg, #9eecff 0%, #73b5ff 100%);
   box-shadow:
-    0 18px 36px rgba(47, 128, 255, 0.22),
-    inset 0 -2px 0 rgba(0, 0, 0, 0.08);
-  position: relative;
-  overflow: hidden;
+    0 20px 44px rgba(83, 178, 255, 0.3),
+    inset 0 -2px 0 rgba(4, 17, 31, 0.1);
 }
 
 .submit-button:hover,
 .submit-button:focus {
-  color: #ffffff;
-  background: linear-gradient(135deg, #2b79ff 0%, #62c4ff 100%);
-}
-
-.submit-button::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 50%, transparent 74%);
-  transform: translateX(-140%);
-  animation: buttonSweep 5.2s ease-in-out infinite;
+  color: #04111f;
+  background: linear-gradient(135deg, #b8f3ff 0%, #89c3ff 100%);
 }
 
 .auth-card-enter-active,
 .auth-card-leave-active {
   transition:
-    opacity 0.28s ease,
-    transform 0.32s ease,
-    filter 0.32s ease;
+    opacity 0.26s ease,
+    transform 0.3s ease,
+    filter 0.3s ease;
 }
 
 .auth-card-enter-from {
   opacity: 0;
-  transform: translateY(18px) scale(0.985);
-  filter: blur(4px);
+  transform: translateY(14px);
+  filter: blur(6px);
 }
 
 .auth-card-leave-to {
   opacity: 0;
-  transform: translateY(-12px) scale(0.985);
-  filter: blur(3px);
+  transform: translateY(-10px);
+  filter: blur(5px);
 }
 
-@keyframes gridDrift {
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(8px, 10px, 0);
-  }
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-}
-
-@keyframes floatGlow {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(0, -12px, 0);
-  }
-}
-
-@keyframes beamSweep {
-  0%,
-  100% {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
-  20%,
-  70% {
-    opacity: 1;
-  }
-  60% {
-    transform: translateX(100%);
-  }
-}
-
-@keyframes orbitSpin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes nodeDrift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(0, -4px, 0);
-  }
-}
-
-@keyframes haloPulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.82;
-  }
-  50% {
-    transform: scale(1.12);
-    opacity: 0.42;
-  }
-}
-
-@keyframes glowPulse {
-  0%,
-  100% {
-    opacity: 0.8;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.04);
-  }
-}
-
-@keyframes dashFlow {
-  from {
-    stroke-dashoffset: 0;
-  }
-  to {
-    stroke-dashoffset: -120;
-  }
-}
-
-@keyframes barLift {
-  0%,
-  100% {
-    transform: scaleY(0.92);
-    opacity: 0.72;
-  }
-  50% {
-    transform: scaleY(1.06);
-    opacity: 1;
-  }
-}
-
-@keyframes buttonSweep {
-  0%,
-  100% {
-    transform: translateX(-140%);
-    opacity: 0;
-  }
-  18%,
-  62% {
-    opacity: 1;
-  }
-  48% {
-    transform: translateX(140%);
-  }
-}
-
-@keyframes panelReveal {
-  from {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (max-width: 1080px) {
-  .page-shell {
-    height: auto;
+@media (max-width: 980px) {
+  .auth-shell {
     grid-template-columns: 1fr;
+    gap: 28px;
+    align-items: start;
   }
 
-  .brand-panel {
-    gap: 32px;
+  .auth-hero {
+    padding-top: 28px;
   }
 
-  .hero-scene {
-    width: 100%;
+  .login-panel {
+    width: min(100%, 520px);
   }
 }
 
-@media (max-width: 768px) {
-  #userAuthPage {
-    height: auto;
-    min-height: 100%;
-    padding: 16px;
+@media (max-width: 680px) {
+  .auth-shell {
+    width: min(100% - 28px, 520px);
+    padding: 24px 0;
   }
 
-  .brand-panel,
+  .auth-hero h1 {
+    font-size: 40px;
+  }
+
+  .hero-desc {
+    font-size: 15px;
+  }
+
+  .signal-strip {
+    grid-template-columns: 1fr;
+    margin-top: 28px;
+  }
+
+  .signal-item {
+    border-right: none;
+    border-bottom: 1px solid rgba(191, 222, 255, 0.14);
+  }
+
+  .signal-item:last-child {
+    border-bottom: none;
+  }
+
   .panel-content {
-    padding: 24px 20px;
+    padding: 26px 20px 28px;
   }
 
-  .metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-scene {
-    height: 164px;
-  }
-
-  .scene-core {
-    left: 20px;
-    right: 20px;
-    min-width: 0;
-  }
-
-  .signal-item,
   .assist-row {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .form-stage {
-    min-height: 0;
-  }
-
-  .form-head h2 {
-    font-size: 28px;
-  }
-}
-
-@media (min-width: 1081px) and (max-height: 760px) {
-  #userAuthPage {
-    padding: 14px 20px 18px;
-  }
-
-  .brand-panel {
-    padding: 30px;
-  }
-
-  .panel-content {
-    padding: 24px 30px 28px;
-  }
-
-  .title {
-    font-size: clamp(34px, 4.2vw, 52px);
-  }
-
-  .desc {
-    margin-top: 18px;
-    line-height: 1.7;
-  }
-
-  .hero-scene {
-    height: 156px;
-    margin-top: 24px;
-  }
-
-  .scene-core {
-    left: 26px;
-    bottom: 20px;
-    padding: 14px 16px;
-  }
-
-  .form-head {
-    margin-bottom: 18px;
-  }
-
-  .auth-switch {
-    margin-bottom: 18px;
-  }
-
-  .form-head h2 {
-    font-size: 28px;
-  }
-
-  .form-stage {
-    min-height: 304px;
-  }
-
-  .metric-card {
-    padding: 16px;
-  }
-
-  .signal-board {
-    padding: 18px 20px;
-  }
-
-  .signal-list {
-    margin-top: 14px;
-    gap: 10px;
   }
 }
 </style>

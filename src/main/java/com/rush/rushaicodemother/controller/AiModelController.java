@@ -14,6 +14,9 @@ import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
+import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
+import com.rush.rushaicodemother.service.AiModelCatalogService;
 import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.annotation.Resource;
@@ -32,6 +35,9 @@ public class AiModelController {
 
     @Resource
     private AiModelService aiModelService;
+
+    @Resource
+    private AiModelCatalogService aiModelCatalogService;
 
     @Resource
     private com.rush.rushaicodemother.service.impl.AiModelServiceImpl aiModelServiceImpl;
@@ -134,6 +140,15 @@ public class AiModelController {
     }
 
     /**
+     * 获取支持的模型目录（仅管理员）
+     */
+    @GetMapping("/catalog")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<List<SupportedAiModelVO>> listSupportedModels() {
+        return ResultUtils.success(aiModelCatalogService.listSupportedModels());
+    }
+
+    /**
      * 分页获取模型列表（仅管理员）
      */
     @PostMapping("/list/page")
@@ -175,6 +190,22 @@ public class AiModelController {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "模型连接测试失败，请检查配置");
         }
         return ResultUtils.success(true);
+    }
+
+    /**
+     * 使用当前表单配置测试模型连接（仅管理员）
+     */
+    @PostMapping("/test/config")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<AiModelConnectionTestResultVO> testModelConnectionByConfig(@RequestBody AiModelAddRequest testRequest) {
+        ThrowUtils.throwIf(testRequest == null, ErrorCode.PARAMS_ERROR);
+        AiModel model = new AiModel();
+        BeanUtil.copyProperties(testRequest, model);
+        AiModelConnectionTestResultVO result = aiModelService.testModelConnection(model);
+        if (!Boolean.TRUE.equals(result.getSuccess())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, result.getMessage());
+        }
+        return ResultUtils.success(result);
     }
 
     // ========== 内部请求类 ==========

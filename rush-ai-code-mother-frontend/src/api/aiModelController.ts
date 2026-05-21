@@ -2,6 +2,14 @@
 /* eslint-disable */
 import request from '@/request'
 
+/** 获取支持的模型目录 GET /ai-model/catalog */
+export async function listSupportedModels(options?: { [key: string]: any }) {
+  return request<API.BaseResponseListSupportedAiModelVO>('/ai-model/catalog', {
+    method: 'GET',
+    ...(options || {}),
+  })
+}
+
 /** 添加模型 POST /ai-model/add */
 export async function addModel(body: API.AiModelAddRequest, options?: { [key: string]: any }) {
   return request<API.BaseResponseLong>('/ai-model/add', {
@@ -83,6 +91,21 @@ export async function testModelConnection(
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseBoolean>('/ai-model/test', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** 使用当前配置测试模型连接 POST /ai-model/test/config */
+export async function testModelConnectionByConfig(
+  body: API.AiModelAddRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseAiModelConnectionTestResultVO>('/ai-model/test/config', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

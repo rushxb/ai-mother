@@ -3,7 +3,7 @@
     <section class="page-head">
       <div>
         <h2 class="page-title">AI 模型管理</h2>
-        <p class="page-desc">配置和管理 AI 模型，支持 DeepSeek、OpenAI 及其他兼容 OpenAI 接口的模型</p>
+        <p class="page-desc">配置和管理 AI 模型，仅允许启用当前系统已适配的模型</p>
       </div>
       <div class="page-summary">
         <span class="summary-label">启用模型</span>
@@ -18,7 +18,6 @@
           <a-select v-model:value="searchParams.provider" allow-clear placeholder="全部" style="width: 140px">
             <a-select-option value="deepseek">DeepSeek</a-select-option>
             <a-select-option value="openai">OpenAI</a-select-option>
-            <a-select-option value="custom">自定义</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="模型类型">
@@ -117,8 +116,6 @@
     <a-modal
       v-model:open="modalVisible"
       :title="isEditing ? '编辑模型' : '添加模型'"
-      :confirm-loading="submitting"
-      @ok="handleSubmit"
       @cancel="resetForm"
       width="640px"
     >
@@ -132,12 +129,24 @@
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="模型名称" name="modelName">
-              <a-input v-model:value="formData.modelName" placeholder="如：GPT-4o" />
+              <a-input v-model:value="formData.modelName" disabled placeholder="选择模型后自动填充" />
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="模型标识符" name="modelId">
-              <a-input v-model:value="formData.modelId" placeholder="如：gpt-4o" />
+              <a-select
+                v-model:value="formData.modelId"
+                placeholder="选择系统支持的模型"
+                @change="handleModelSelect"
+              >
+                <a-select-option
+                  v-for="model in supportedModels"
+                  :key="`${model.provider}:${model.modelId}`"
+                  :value="model.modelId"
+                >
+                  {{ model.modelName }}（{{ model.providerLabel }}）
+                </a-select-option>
+              </a-select>
             </a-form-item>
           </a-col>
         </a-row>
@@ -145,26 +154,26 @@
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="提供商" name="provider">
-              <a-select v-model:value="formData.provider" placeholder="选择提供商">
-                <a-select-option value="deepseek">DeepSeek</a-select-option>
-                <a-select-option value="openai">OpenAI</a-select-option>
-                <a-select-option value="custom">自定义</a-select-option>
+              <a-select v-model:value="formData.provider" disabled placeholder="选择模型后自动填充">
+                <a-select-option v-for="provider in providerOptions" :key="provider.value" :value="provider.value">
+                  {{ provider.label }}
+                </a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="模型类型" name="modelType">
               <a-select v-model:value="formData.modelType" placeholder="选择类型">
-                <a-select-option value="chat">对话模型</a-select-option>
-                <a-select-option value="reasoning">推理模型</a-select-option>
-                <a-select-option value="routing">路由模型</a-select-option>
+                <a-select-option v-for="type in currentSupportedTypes" :key="type" :value="type">
+                  {{ getTypeLabel(type) }}
+                </a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
         </a-row>
 
         <a-form-item label="API 地址" name="baseUrl">
-          <a-input v-model:value="formData.baseUrl" placeholder="如：https://api.openai.com" />
+          <a-input v-model:value="formData.baseUrl" disabled placeholder="选择模型后自动填充" />
         </a-form-item>
 
         <a-form-item label="API 密钥" name="apiKey">
@@ -189,11 +198,12 @@
           </a-col>
         </a-row>
 
-        <a-form-item label="支持 Thinking 模式" name="supportsThinking" help="仅限官方支持 thinking/reasoning 的模型">
+        <a-form-item label="支持 Thinking 模式" name="supportsThinking" help="由系统支持目录决定，不能手动修改">
           <a-switch
             v-model:checked="formData.supportsThinking"
             :checked-value="1"
             :un-checked-value="0"
+            disabled
             checked-children="支持"
             un-checked-children="不支持"
           />
@@ -210,6 +220,15 @@
           <a-switch v-model:checked="formData.isEnabled" checked-children="启用" un-checked-children="禁用" />
         </a-form-item>
       </a-form>
+      <template #footer>
+        <a-space>
+          <a-button @click="resetForm">取消</a-button>
+          <a-button :loading="testingConfig" @click="handleTestCurrentConfig">测试当前配置</a-button>
+          <a-button type="primary" :loading="submitting" @click="handleSubmit">
+            {{ isEditing ? '更新' : '添加' }}
+          </a-button>
+        </a-space>
+      </template>
     </a-modal>
   </div>
 </template>
@@ -219,8 +238,10 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   addModel,
   deleteModel,
+  listSupportedModels,
   listModelsByPage,
   testModelConnection,
+  testModelConnectionByConfig,
   toggleModelEnabled,
   updateModel,
 } from '@/api/aiModelController.ts'
@@ -273,7 +294,9 @@ const enabledCount = ref(0)
 const modalVisible = ref(false)
 const isEditing = ref(false)
 const submitting = ref(false)
+const testingConfig = ref(false)
 const formRef = ref<FormInstance>()
+const supportedModels = ref<API.SupportedAiModelVO[]>([])
 
 // 搜索条件
 const searchParams = reactive<API.AiModelQueryRequest>({
@@ -284,25 +307,15 @@ const searchParams = reactive<API.AiModelQueryRequest>({
   keyword: undefined,
 })
 
-// 支持 thinking 模式的模型列表
-const THINKING_MODELS = [
-  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
-  { id: 'o1', name: 'OpenAI o1' },
-  { id: 'o1-mini', name: 'OpenAI o1-mini' },
-  { id: 'o1-preview', name: 'OpenAI o1-preview' },
-  { id: 'o3', name: 'OpenAI o3' },
-  { id: 'o3-mini', name: 'OpenAI o3-mini' },
-  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-  { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-]
-
-// 判断模型是否支持 thinking
-const isThinkingModel = (modelId: string) => {
-  if (!modelId) return false
-  const lower = modelId.toLowerCase()
-  return THINKING_MODELS.some(m => lower.startsWith(m.id) || lower.includes(m.id))
-}
+const providerOptions = computed(() => {
+  const providerMap = new Map<string, string>()
+  supportedModels.value.forEach((model) => {
+    if (model.provider) {
+      providerMap.set(model.provider, model.providerLabel ?? model.provider)
+    }
+  })
+  return Array.from(providerMap.entries()).map(([value, label]) => ({ value, label }))
+})
 
 // 表单数据
 const formData = reactive<API.AiModelAddRequest & { id?: number }>({
@@ -325,9 +338,29 @@ const formData = reactive<API.AiModelAddRequest & { id?: number }>({
 const formRules = {
   modelName: [{ required: true, message: '请输入模型名称' }],
   provider: [{ required: true, message: '请选择提供商' }],
-  modelId: [{ required: true, message: '请输入模型标识符' }],
+  modelId: [{ required: true, message: '请选择模型' }],
   baseUrl: [{ required: true, message: '请输入 API 地址' }],
   modelType: [{ required: true, message: '请选择模型类型' }],
+}
+
+const currentCatalogModel = computed(() =>
+  supportedModels.value.find(
+    (model) => model.provider === formData.provider && model.modelId === formData.modelId,
+  ),
+)
+
+const currentSupportedTypes = computed(() => currentCatalogModel.value?.supportedModelTypes ?? ['chat'])
+
+const fetchCatalog = async () => {
+  const res = await listSupportedModels()
+  if (res.data.code === 0) {
+    supportedModels.value = res.data.data ?? []
+    if (!formData.modelId && supportedModels.value.length > 0) {
+      applyCatalogModel(supportedModels.value[0])
+    }
+  } else {
+    message.error('获取支持模型目录失败，' + res.data.message)
+  }
 }
 
 // 获取数据
@@ -401,6 +434,26 @@ const openEditModal = (record: API.AiModel) => {
   modalVisible.value = true
 }
 
+const handleModelSelect = (modelId: string) => {
+  const selected = supportedModels.value.find((model) => model.modelId === modelId)
+  if (selected) {
+    applyCatalogModel(selected)
+  }
+}
+
+const applyCatalogModel = (model: API.SupportedAiModelVO) => {
+  Object.assign(formData, {
+    modelName: model.modelName ?? '',
+    provider: model.provider ?? '',
+    modelId: model.modelId ?? '',
+    baseUrl: model.defaultBaseUrl ?? '',
+    maxTokens: model.defaultMaxTokens ?? 8192,
+    temperature: model.defaultTemperature ?? 0.7,
+    modelType: model.defaultModelType ?? model.supportedModelTypes?.[0] ?? 'chat',
+    supportsThinking: model.supportsThinking ?? 0,
+  })
+}
+
 // 重置表单
 const resetForm = () => {
   Object.assign(formData, {
@@ -418,6 +471,9 @@ const resetForm = () => {
     supportsThinking: 0,
     sortOrder: 0,
   })
+  if (supportedModels.value.length > 0) {
+    applyCatalogModel(supportedModels.value[0])
+  }
 }
 
 // 提交表单
@@ -484,6 +540,28 @@ const handleTestConnection = async (id: number | undefined) => {
     }
   } finally {
     hide()
+  }
+}
+
+const handleTestCurrentConfig = async () => {
+  try {
+    await formRef.value?.validateFields()
+  } catch {
+    return
+  }
+  testingConfig.value = true
+  try {
+    const res = await testModelConnectionByConfig({
+      ...formData,
+      isEnabled: formData.isEnabled ? 1 : 0,
+    } as API.AiModelAddRequest)
+    if (res.data.code === 0) {
+      message.success(res.data.data?.message ?? '连接测试成功')
+    } else {
+      message.error(res.data.message ?? '连接测试失败')
+    }
+  } finally {
+    testingConfig.value = false
   }
 }
 
@@ -573,6 +651,7 @@ const truncateUrl = (url?: string) => {
 
 // 页面加载
 onMounted(() => {
+  fetchCatalog()
   fetchData()
 })
 </script>

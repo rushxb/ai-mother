@@ -454,6 +454,26 @@ declare namespace API {
     keyword?: string
   }
 
+  type SupportedAiModelVO = {
+    provider?: string
+    providerLabel?: string
+    modelId?: string
+    modelName?: string
+    defaultBaseUrl?: string
+    supportedModelTypes?: string[]
+    defaultModelType?: string
+    supportsThinking?: number
+    defaultMaxTokens?: number
+    defaultTemperature?: number
+    minTemperature?: number
+    maxTemperature?: number
+  }
+
+  type AiModelConnectionTestResultVO = {
+    success?: boolean
+    message?: string
+  }
+
   type BaseResponseAiModel = {
     code?: number
     data?: AiModel
@@ -463,6 +483,18 @@ declare namespace API {
   type BaseResponseListAiModel = {
     code?: number
     data?: AiModel[]
+    message?: string
+  }
+
+  type BaseResponseListSupportedAiModelVO = {
+    code?: number
+    data?: SupportedAiModelVO[]
+    message?: string
+  }
+
+  type BaseResponseAiModelConnectionTestResultVO = {
+    code?: number
+    data?: AiModelConnectionTestResultVO
     message?: string
   }
 

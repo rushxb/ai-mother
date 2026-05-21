@@ -6,8 +6,12 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.rush.rushaicodemother.controller.AiModelController.AiModelQueryRequest;
 import com.rush.rushaicodemother.constant.RedisKeyConstant;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.AiModelMapper;
 import com.rush.rushaicodemother.model.entity.AiModel;
+import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
+import com.rush.rushaicodemother.service.AiModelCatalogService;
 import com.rush.rushaicodemother.service.AiModelService;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import jakarta.annotation.Resource;
@@ -31,6 +35,9 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private AiModelCatalogService aiModelCatalogService;
+
     @Override
     public List<AiModel> listEnabledModels() {
         List<AiModel> cachedModels = getEnabledModelsFromCache();
@@ -45,6 +52,20 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
     @Override
     public List<AiModel> listEnabledModelsByType(String modelType) {
         return listEnabledModels().stream()
+                .filter(model -> StrUtil.equals(model.getModelType(), modelType))
+                .toList();
+    }
+
+    @Override
+    public List<AiModel> listRunnableEnabledModels() {
+        return listEnabledModels().stream()
+                .filter(aiModelCatalogService::isRunnable)
+                .toList();
+    }
+
+    @Override
+    public List<AiModel> listRunnableEnabledModelsByType(String modelType) {
+        return listRunnableEnabledModels().stream()
                 .filter(model -> StrUtil.equals(model.getModelType(), modelType))
                 .toList();
     }
@@ -73,26 +94,38 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
             log.warn("测试连接失败：模型不存在，ID={}", modelId);
             return false;
         }
+        AiModelConnectionTestResultVO result = testModelConnection(model);
+        return Boolean.TRUE.equals(result.getSuccess());
+    }
 
+    @Override
+    public AiModelConnectionTestResultVO testModelConnection(AiModel model) {
+        AiModel validatedModel = aiModelCatalogService.normalizeAndValidate(model);
         try {
-            // 构建一个简单的测试请求
             OpenAiChatModel chatModel = OpenAiChatModel.builder()
-                    .apiKey(model.getApiKey())
-                    .baseUrl(model.getBaseUrl())
-                    .modelName(model.getModelId())
-                    .maxTokens(100)
-                    .temperature(0.7)
+                    .apiKey(validatedModel.getApiKey())
+                    .baseUrl(validatedModel.getBaseUrl())
+                    .modelName(validatedModel.getModelId())
+                    .maxTokens(Math.min(validatedModel.getMaxTokens(), 256))
+                    .temperature(validatedModel.getTemperature())
                     .logRequests(false)
                     .logResponses(false)
                     .build();
 
-            // 发送测试消息
             String response = chatModel.chat("Hello, this is a connection test. Reply with 'OK' only.");
-            log.info("模型连接测试成功，模型={}，响应={}", model.getModelName(), response);
-            return response != null && !response.isEmpty();
+            log.info("模型连接测试成功，模型={}，响应={}", validatedModel.getModelName(), response);
+            return AiModelConnectionTestResultVO.builder()
+                    .success(StrUtil.isNotBlank(response))
+                    .message("模型连接测试成功")
+                    .build();
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("模型连接测试失败，模型={}，错误={}", model.getModelName(), e.getMessage(), e);
-            return false;
+            log.error("模型连接测试失败，模型={}，错误={}", validatedModel.getModelName(), e.getMessage(), e);
+            return AiModelConnectionTestResultVO.builder()
+                    .success(false)
+                    .message(resolveConnectionErrorMessage(e))
+                    .build();
         }
     }
 
@@ -122,6 +155,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         if (model == null) {
             return false;
         }
+        aiModelCatalogService.normalizeAndValidate(model);
         if (Integer.valueOf(1).equals(model.getIsEnabled())) {
             disableOtherEnabledModels(null);
         }
@@ -138,6 +172,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         if (model == null || model.getId() == null) {
             return false;
         }
+        aiModelCatalogService.normalizeAndValidate(model);
         if (Integer.valueOf(1).equals(model.getIsEnabled())) {
             disableOtherEnabledModels(model.getId());
         }
@@ -164,6 +199,19 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
     @Override
     public void evictEnabledModelCache() {
         stringRedisTemplate.delete(RedisKeyConstant.AI_MODEL_ENABLED_LIST);
+    }
+
+    private String resolveConnectionErrorMessage(Exception e) {
+        String rawMessage = e.getMessage();
+        if (StrUtil.containsIgnoreCase(rawMessage, "Unexpected character ('<'")
+                || StrUtil.containsIgnoreCase(rawMessage, "text/html")) {
+            return "模型接口返回了 HTML 而不是 JSON，请检查是否使用了受支持的官方接口地址，或当前网关被拦截";
+        }
+        if (StrUtil.containsIgnoreCase(rawMessage, "401")
+                || StrUtil.containsIgnoreCase(rawMessage, "403")) {
+            return "模型认证失败，请检查 API Key 是否正确，或当前账号是否具备该模型权限";
+        }
+        return StrUtil.blankToDefault(rawMessage, "模型连接测试失败，请检查配置");
     }
 
     /**

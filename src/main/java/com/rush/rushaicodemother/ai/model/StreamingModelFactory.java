@@ -203,8 +203,11 @@ public class StreamingModelFactory {
      */
     private AiModel getFirstEnabledModelByType(String modelType) {
         try {
-            List<AiModel> models = aiModelService.listEnabledModelsByType(modelType);
-            return models.isEmpty() ? null : models.get(0);
+            List<AiModel> models = aiModelService.listRunnableEnabledModelsByType(modelType);
+            if (models.isEmpty()) {
+                return null;
+            }
+            return models.get(0);
         } catch (Exception e) {
             log.warn("从数据库获取模型配置失败，将使用默认配置", e);
             return null;
@@ -220,7 +223,7 @@ public class StreamingModelFactory {
             return preferredModel;
         }
         try {
-            List<AiModel> models = aiModelService.listEnabledModels();
+            List<AiModel> models = aiModelService.listRunnableEnabledModels();
             return models.isEmpty() ? null : models.get(0);
         } catch (Exception e) {
             log.warn("从数据库获取启用模型配置失败，将使用默认配置", e);

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.template;
 
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,12 +20,15 @@ import java.util.concurrent.Executors;
 @Service
 public class ParallelSlotFillService {
 
-    private final VueProjectTemplateBootstrapService templateBootstrapService;
+    private final VueProjectTemplateBootstrapService vueTemplateBootstrapService;
+    private final BackendProjectTemplateBootstrapService backendTemplateBootstrapService;
     private final TemplateSlotFillService slotFillService;
 
-    public ParallelSlotFillService(VueProjectTemplateBootstrapService templateBootstrapService,
+    public ParallelSlotFillService(VueProjectTemplateBootstrapService vueTemplateBootstrapService,
+                                    BackendProjectTemplateBootstrapService backendTemplateBootstrapService,
                                     TemplateSlotFillService slotFillService) {
-        this.templateBootstrapService = templateBootstrapService;
+        this.vueTemplateBootstrapService = vueTemplateBootstrapService;
+        this.backendTemplateBootstrapService = backendTemplateBootstrapService;
         this.slotFillService = slotFillService;
     }
 
@@ -34,16 +38,27 @@ public class ParallelSlotFillService {
      * @param templateId  模板 ID
      * @param appId       应用 ID
      * @param userMessage 用户消息
+     * @param codeGenType 代码生成类型
      * @return 并行执行结果
      */
-    public ParallelSlotFillResult executeInParallel(String templateId, Long appId, String userMessage) {
+    public ParallelSlotFillResult executeInParallel(String templateId, Long appId, String userMessage, CodeGenTypeEnum codeGenType) {
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             // 并行执行：模板复制 + Slot 填充准备
-            CompletableFuture<VueProjectTemplateBootstrapService.BootstrapResult> bootstrapFuture =
-                    CompletableFuture.supplyAsync(
-                            () -> templateBootstrapService.bootstrapIfNecessary(appId, userMessage),
-                            executor
-                    );
+            CompletableFuture<?> bootstrapFuture;
+            if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
+                bootstrapFuture = CompletableFuture.supplyAsync(
+                        () -> vueTemplateBootstrapService.bootstrapIfNecessary(appId, userMessage),
+                        executor
+                );
+            } else if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
+                bootstrapFuture = CompletableFuture.supplyAsync(
+                        () -> backendTemplateBootstrapService.bootstrapIfNecessary(appId),
+                        executor
+                );
+            } else {
+                log.warn("不支持的代码生成类型: {}", codeGenType);
+                return new ParallelSlotFillResult(null, null, false);
+            }
 
             CompletableFuture<SlotFillResult> slotFillFuture =
                     CompletableFuture.supplyAsync(
@@ -55,13 +70,12 @@ public class ParallelSlotFillService {
             CompletableFuture.allOf(bootstrapFuture, slotFillFuture).join();
 
             // 获取结果
-            VueProjectTemplateBootstrapService.BootstrapResult bootstrapResult = bootstrapFuture.get();
             SlotFillResult slotFillResult = slotFillFuture.get();
 
             return new ParallelSlotFillResult(
-                    bootstrapResult,
+                    null, // 不再需要 bootstrap 结果
                     slotFillResult,
-                    bootstrapResult.bootstrapped() && slotFillResult != null
+                    slotFillResult != null
             );
         } catch (Exception e) {
             log.warn("并行 Slot Fill 失败: {}", e.getMessage());
@@ -98,9 +112,7 @@ public class ParallelSlotFillService {
             if (!success) {
                 return "并行 Slot Fill 未成功";
             }
-            return String.format("模板 %s 已复制，%d 个 slot 已填充",
-                    bootstrapResult != null ? bootstrapResult.templateId() : "unknown",
-                    filledSlotCount());
+            return String.format("模板已复制，%d 个 slot 已填充", filledSlotCount());
         }
     }
 }

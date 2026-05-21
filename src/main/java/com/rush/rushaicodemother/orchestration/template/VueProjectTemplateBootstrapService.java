@@ -9,6 +9,8 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLDecoder;
@@ -39,15 +41,19 @@ public class VueProjectTemplateBootstrapService {
 
     private final Path codeOutputRoot;
     private final PathMatchingResourcePatternResolver resourceResolver;
+    private final TemplatePreWarmService templatePreWarmService;
 
-    public VueProjectTemplateBootstrapService() {
-        this(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR), new PathMatchingResourcePatternResolver());
+    @Autowired
+    public VueProjectTemplateBootstrapService(TemplatePreWarmService templatePreWarmService) {
+        this(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR), new PathMatchingResourcePatternResolver(), templatePreWarmService);
     }
 
     public VueProjectTemplateBootstrapService(Path codeOutputRoot,
-                                              PathMatchingResourcePatternResolver resourceResolver) {
+                                              PathMatchingResourcePatternResolver resourceResolver,
+                                              TemplatePreWarmService templatePreWarmService) {
         this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
         this.resourceResolver = resourceResolver;
+        this.templatePreWarmService = templatePreWarmService;
     }
 
     public BootstrapResult bootstrapIfNecessary(Long appId, String userMessage) {
@@ -70,6 +76,13 @@ public class VueProjectTemplateBootstrapService {
         try {
             Files.createDirectories(targetRoot);
             int fileCount = copyTemplate(templateId, targetRoot);
+
+            // 尝试复制预热的 node_modules
+            boolean preWarmed = templatePreWarmService.copyPreWarmedModules(templateId, targetRoot.toString());
+            if (preWarmed) {
+                log.info("已复制预热的 node_modules，templateId: {}, targetRoot: {}", templateId, targetRoot);
+            }
+
             BootstrapResult result = BootstrapResult.created(templateId, targetRoot.toString(), fileCount);
             log.info("已复制 Vue 项目模板，targetRoot: {}, templateId: {}, fileCount: {}", targetRoot, templateId, fileCount);
             return result;

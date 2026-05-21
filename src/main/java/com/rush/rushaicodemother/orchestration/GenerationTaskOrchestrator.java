@@ -38,6 +38,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
+import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.ParallelSlotFillService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.TemplateSlotFillService;
@@ -93,6 +94,7 @@ public class GenerationTaskOrchestrator {
     private final AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
     private final AppDatabaseResourceService appDatabaseResourceService;
+    private final BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService;
     private final ChatHistoryService chatHistoryService;
     private final GenerationPerformanceSelector generationPerformanceSelector;
     private final LightweightEditService lightweightEditService;
@@ -126,7 +128,7 @@ public class GenerationTaskOrchestrator {
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
 
-        // Phase 2: 尝试轻量编辑路径
+        //  2: 尝试轻量编辑路径
         try {
             LightweightEditResult editResult = lightweightEditService.execute(request);
             if (editResult != null) {
@@ -154,8 +156,9 @@ public class GenerationTaskOrchestrator {
             log.warn("轻量编辑路径异常，回退到重型生成，appId: {}, error: {}", app.getId(), e.getMessage());
         }
 
-        // Phase 4: 尝试模板 slot 填充路径（首次生成）
-        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT && !hasGeneratedCode(app)) {
+        //  4: 尝试模板 slot 填充路径（首次生成）
+        if ((codeGenType == CodeGenTypeEnum.VUE_PROJECT || codeGenType == CodeGenTypeEnum.BACKEND_PROJECT)
+                && !hasGeneratedCode(app)) {
             try {
                 SlotFillResult slotFillResult = trySlotFillGeneration(app, request);
                 if (slotFillResult != null) {
@@ -1419,15 +1422,23 @@ public class GenerationTaskOrchestrator {
             return null;
         }
 
-        // 1. 判断是否是 Vue 项目首次生成
+        // 1. 判断是否是首次生成
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
-        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
-            log.debug("非 Vue 项目，跳过 slot 填充: {}", codeGenType);
+        if (codeGenType == null) {
             return null;
         }
 
-        // 2. 选择模板
-        String templateId = vueProjectTemplateBootstrapService.selectTemplateId(request.message());
+        // 2. 根据类型选择模板
+        String templateId;
+        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
+            templateId = vueProjectTemplateBootstrapService.selectTemplateId(request.message());
+        } else if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
+            templateId = "go-sqlite-backend-basic"; // 后端固定模板
+        } else {
+            log.debug("不支持的代码生成类型，跳过 slot 填充: {}", codeGenType);
+            return null;
+        }
+
         if (StrUtil.isBlank(templateId)) {
             log.debug("无法选择模板");
             return null;
@@ -1441,11 +1452,11 @@ public class GenerationTaskOrchestrator {
 
         // 4. 并行执行模板复制和 slot 填充
         ParallelSlotFillService.ParallelSlotFillResult parallelResult =
-                parallelSlotFillService.executeInParallel(templateId, app.getId(), request.message());
+                parallelSlotFillService.executeInParallel(templateId, app.getId(), request.message(), codeGenType);
 
         if (!parallelResult.success()) {
             log.debug("并行 Slot Fill 失败，回退到串行执行");
-            return trySlotFillGenerationSequential(app, request, templateId);
+            return trySlotFillGenerationSequential(app, request, templateId, codeGenType);
         }
 
         SlotFillResult result = parallelResult.slotFillResult();
@@ -1486,16 +1497,25 @@ public class GenerationTaskOrchestrator {
     /**
      * 串行执行 slot 填充（回退方案）。
      */
-    private SlotFillResult trySlotFillGenerationSequential(App app, GenerationTaskRequest request, String templateId) {
-        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
-
+    private SlotFillResult trySlotFillGenerationSequential(App app, GenerationTaskRequest request, String templateId, CodeGenTypeEnum codeGenType) {
         // 引导模板
-        VueProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
-                vueProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), request.message());
-        if (!bootstrapResult.bootstrapped()) {
-            log.debug("模板引导跳过: {}", bootstrapResult.reason());
-            if ("workspace_exists".equals(bootstrapResult.reason())) {
-                return null;
+        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
+            VueProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
+                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), request.message());
+            if (!bootstrapResult.bootstrapped()) {
+                log.debug("模板引导跳过: {}", bootstrapResult.reason());
+                if ("workspace_exists".equals(bootstrapResult.reason())) {
+                    return null;
+                }
+            }
+        } else if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
+            BackendProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
+                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId());
+            if (!bootstrapResult.bootstrapped()) {
+                log.debug("后端模板引导跳过: {}", bootstrapResult.reason());
+                if ("workspace_exists".equals(bootstrapResult.reason())) {
+                    return null;
+                }
             }
         }
 

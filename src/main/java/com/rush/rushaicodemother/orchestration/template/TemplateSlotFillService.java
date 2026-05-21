@@ -13,6 +13,8 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Service;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.io.File;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -43,6 +45,7 @@ public class TemplateSlotFillService {
     private final PathMatchingResourcePatternResolver resourceResolver;
     private final Map<String, String> templateContentCache = new ConcurrentHashMap<>();
 
+    @Autowired
     public TemplateSlotFillService(TemplateManifestService templateManifestService,
                                     AiSlotFillServiceFactory aiSlotFillServiceFactory) {
         this(templateManifestService, aiSlotFillServiceFactory, new PathMatchingResourcePatternResolver());

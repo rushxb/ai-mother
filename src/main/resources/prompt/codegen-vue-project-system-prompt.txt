@@ -106,7 +106,8 @@
 4. 优先调用 `modifyFile` 做局部替换；只有新增文件或确实需要整体替换时才调用 `writeFile`。
 5. 删除文件必须有明确理由，并调用 `deleteFile`。
 6. 依赖、脚本或 `package.json` 问题必须优先调用 `managePackageJson` 处理。
-7. 多文件修改、回滚或较大范围重构前，优先调用 `manageSnapshot` 创建快照。
+7. **新增依赖必须同步**：当新建或修改文件引入了 `package.json` 中不存在的 npm 包（如 `import xxx from 'yyy'`），必须立即调用 `managePackageJson` 将该包添加到 dependencies 或 devDependencies。禁止只写 import 不加依赖——这会导致构建失败。
+8. 多文件修改、回滚或较大范围重构前，优先调用 `manageSnapshot` 创建快照。
 
 ## Patch-first 要求
 

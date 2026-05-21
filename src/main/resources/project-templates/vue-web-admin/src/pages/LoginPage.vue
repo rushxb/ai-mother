@@ -1,68 +1,58 @@
 <template>
   <div class="login-page">
-    <n-card class="login-card" :bordered="false">
-      <template #header>
-        <div class="login-header">
-          <h1>{{ site.brand }}</h1>
-          <p>{{ site.slogan }}</p>
-        </div>
-      </template>
-      
-      <n-form
-        ref="formRef"
-        :model="formData"
-        :rules="rules"
-        label-placement="left"
-        label-width="auto"
-        require-mark-placement="right-hanging"
-      >
-        <n-form-item path="userAccount" label="账号">
-          <n-input
-            v-model:value="formData.userAccount"
-            placeholder="请输入账号"
-            @keydown.enter="handleLogin"
-          />
-        </n-form-item>
-        
-        <n-form-item path="userPassword" label="密码">
-          <n-input
-            v-model:value="formData.userPassword"
-            type="password"
-            placeholder="请输入密码"
-            show-password-on="click"
-            @keydown.enter="handleLogin"
-          />
-        </n-form-item>
-        
-        <n-form-item>
-          <n-button
-            type="primary"
-            block
-            :loading="loading"
-            @click="handleLogin"
-          >
-            登录
-          </n-button>
-        </n-form-item>
-      </n-form>
-    </n-card>
+    <Card class="login-card">
+      <CardHeader>
+        <CardTitle>{{ site.brand }}</CardTitle>
+        <CardDescription>{{ site.slogan }}</CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        <form @submit.prevent="handleLogin" class="login-form">
+          <div class="form-field">
+            <Label for="userAccount">账号</Label>
+            <Input
+              id="userAccount"
+              v-model="formData.userAccount"
+              placeholder="请输入账号"
+              :disabled="loading"
+            />
+          </div>
+
+          <div class="form-field">
+            <Label for="userPassword">密码</Label>
+            <Input
+              id="userPassword"
+              v-model="formData.userPassword"
+              type="password"
+              placeholder="请输入密码"
+              :disabled="loading"
+              @keydown.enter="handleLogin"
+            />
+          </div>
+
+          <Button type="submit" class="w-full" :disabled="loading">
+            {{ loading ? '登录中...' : '登录' }}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useMessage } from 'naive-ui'
-import type { FormInst, FormRules } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { site } from '@/data/adminData'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 const router = useRouter()
 const route = useRoute()
-const message = useMessage()
 const userStore = useUserStore()
 
-const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 
 const formData = reactive({
@@ -70,32 +60,20 @@ const formData = reactive({
   userPassword: ''
 })
 
-const rules: FormRules = {
-  userAccount: [
-    { required: true, message: '请输入账号', trigger: 'blur' },
-    { min: 4, max: 20, message: '账号长度 4-20 位', trigger: 'blur' }
-  ],
-  userPassword: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 8, max: 20, message: '密码长度 8-20 位', trigger: 'blur' }
-  ]
-}
-
 async function handleLogin() {
+  if (!formData.userAccount || !formData.userPassword) {
+    alert('请填写账号和密码')
+    return
+  }
+
   try {
-    await formRef.value?.validate()
     loading.value = true
-    
     await userStore.login(formData)
-    message.success('登录成功')
-    
-    // Redirect to previous page or home
+
     const redirect = (route.query.redirect as string) || '/dashboard'
     router.push(redirect)
   } catch (error: any) {
-    if (error?.message) {
-      message.error(error.message)
-    }
+    alert(error?.message || '登录失败')
   } finally {
     loading.value = false
   }
@@ -110,7 +88,7 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg);
+  background: var(--bg, #0a0a0a);
   padding: 2rem;
 }
 
@@ -119,17 +97,15 @@ async function handleLogin() {
   max-width: 420px;
 }
 
-.login-header {
-  text-align: center;
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
-.login-header h1 {
-  font-size: 1.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.login-header p {
-  color: var(--muted);
-  font-size: 0.9rem;
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 </style>

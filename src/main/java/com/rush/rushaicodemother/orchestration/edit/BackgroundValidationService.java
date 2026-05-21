@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.service.DevServerManager;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class BackgroundValidationService {
     private final GenerationTraceService generationTraceService;
     private final EditStatePersistenceService editStatePersistenceService;
     private final VueProjectBuilder vueProjectBuilder;
+    private final DevServerManager devServerManager;
 
     /**
      * 异步执行后台验证。
@@ -73,8 +75,8 @@ public class BackgroundValidationService {
             ValidationResult result = switch (validationPlan.level()) {
                 case NONE -> ValidationResult.skipped(taskId, "无需验证");
                 case FAST_CHECK -> executeFastCheck(taskId, appId, workspace, patchOperations);
-                case BUILD_REQUIRED -> executeBuildValidation(taskId, appId, workspace, patchOperations);
-                case HEAVY_REVIEW_REQUIRED -> executeHeavyReview(taskId, appId, workspace, patchOperations);
+                case BUILD_REQUIRED -> executeBuildValidation(taskId, appId, userId, workspace, patchOperations);
+                case HEAVY_REVIEW_REQUIRED -> executeHeavyReview(taskId, appId, userId, workspace, patchOperations);
             };
 
             // 保存验证结果到编辑状态
@@ -152,13 +154,27 @@ public class BackgroundValidationService {
 
     /**
      * 执行构建验证。
+     * 在 Windows 上，dev server 会锁定 node_modules 中的文件（esbuild.exe、rollup 等），
+     * 导致 pnpm install --force 失败（EPERM）。
+     * 因此在构建前停止 dev server，构建后重启。
      */
-    private ValidationResult executeBuildValidation(String taskId, Long appId, GenerationWorkspace workspace, List<PatchOperation> patchOperations) {
+    private ValidationResult executeBuildValidation(String taskId, Long appId, Long userId, GenerationWorkspace workspace, List<PatchOperation> patchOperations) {
         log.debug("执行构建验证，taskId: {}, 文件数: {}", taskId, patchOperations.size());
 
         Path projectRoot = workspace.canonicalRootPath();
         String projectPath = projectRoot.toString();
         log.info("构建验证，项目根目录: {}", projectPath);
+
+        // 停止 dev server（如果正在运行），释放 node_modules 文件锁
+        boolean devServerWasRunning = devServerManager.isRunning(appId);
+        Integer savedPort = null;
+        if (devServerWasRunning) {
+            savedPort = devServerManager.getPort(appId);
+            log.info("构建验证前停止 dev server，appId: {}, port: {}", appId, savedPort);
+            devServerManager.stopDevServer(appId, userId);
+            // 等待进程完全退出，确保文件锁释放
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
 
         try {
             // 调用 VueProjectBuilder 执行实际构建
@@ -174,17 +190,32 @@ public class BackgroundValidationService {
         } catch (Exception e) {
             log.error("构建验证异常，taskId: {}", taskId, e);
             return ValidationResult.failed(taskId, "构建验证异常: " + e.getMessage());
+        } finally {
+            // 构建完成后重启 dev server
+            if (devServerWasRunning) {
+                try {
+                    log.info("构建验证后重启 dev server，appId: {}, port: {}", appId, savedPort);
+                    App app = new App();
+                    app.setId(appId);
+                    if (savedPort != null) {
+                        app.setDevServerPort(savedPort);
+                    }
+                    devServerManager.startDevServer(app, userId);
+                } catch (Exception e) {
+                    log.warn("重启 dev server 失败，appId: {}, 错误: {}", appId, e.getMessage());
+                }
+            }
         }
     }
 
     /**
      * 执行完整审查。
      */
-    private ValidationResult executeHeavyReview(String taskId, Long appId, GenerationWorkspace workspace, List<PatchOperation> patchOperations) {
+    private ValidationResult executeHeavyReview(String taskId, Long appId, Long userId, GenerationWorkspace workspace, List<PatchOperation> patchOperations) {
         log.debug("执行完整审查，taskId: {}, 文件数: {}", taskId, patchOperations.size());
 
         // 先执行构建验证
-        ValidationResult buildResult = executeBuildValidation(taskId, appId, workspace, patchOperations);
+        ValidationResult buildResult = executeBuildValidation(taskId, appId, userId, workspace, patchOperations);
         if (!buildResult.isSuccess()) {
             return buildResult;
         }

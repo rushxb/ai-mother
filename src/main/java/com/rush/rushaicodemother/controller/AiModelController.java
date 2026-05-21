@@ -12,11 +12,13 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.AiModel;
+import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -36,6 +38,9 @@ public class AiModelController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private ApplicationEventPublisher applicationEventPublisher;
 
     /**
      * 添加模型（仅管理员）
@@ -57,6 +62,7 @@ public class AiModelController {
         model.setUserId(loginUser.getId());
         boolean result = aiModelService.save(model);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        publishModelConfigChanged();
         return ResultUtils.success(model.getId());
     }
 
@@ -76,6 +82,7 @@ public class AiModelController {
         BeanUtil.copyProperties(updateRequest, model);
         boolean result = aiModelService.updateById(model);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        publishModelConfigChanged();
         return ResultUtils.success(true);
     }
 
@@ -89,6 +96,9 @@ public class AiModelController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         boolean result = aiModelService.removeById(deleteRequest.getId());
+        if (result) {
+            publishModelConfigChanged();
+        }
         return ResultUtils.success(result);
     }
 
@@ -149,6 +159,7 @@ public class AiModelController {
         ThrowUtils.throwIf(toggleRequest == null || toggleRequest.getId() == null, ErrorCode.PARAMS_ERROR);
         AiModel model = aiModelService.toggleModelEnabled(toggleRequest.getId());
         ThrowUtils.throwIf(model == null, ErrorCode.NOT_FOUND_ERROR);
+        publishModelConfigChanged();
         return ResultUtils.success(model);
     }
 
@@ -219,5 +230,9 @@ public class AiModelController {
     @lombok.Data
     public static class TestRequest {
         private Long id;
+    }
+
+    private void publishModelConfigChanged() {
+        applicationEventPublisher.publishEvent(new AiModelConfigChangedEvent());
     }
 }

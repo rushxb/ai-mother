@@ -3,7 +3,9 @@ package com.rush.rushaicodemother.ai.model;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.service.AiModelService;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,21 @@ public class StreamingModelFactory {
     @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.temperature}")
     private Double reasoningTemperature;
 
+    @Value("${langchain4j.open-ai.routing-chat-model.base-url}")
+    private String routingBaseUrl;
+
+    @Value("${langchain4j.open-ai.routing-chat-model.api-key}")
+    private String routingApiKey;
+
+    @Value("${langchain4j.open-ai.routing-chat-model.model-name}")
+    private String routingModelName;
+
+    @Value("${langchain4j.open-ai.routing-chat-model.max-tokens}")
+    private Integer routingMaxTokens;
+
+    @Value("${langchain4j.open-ai.routing-chat-model.temperature:#{null}}")
+    private Double routingTemperature;
+
     @Value("${langchain4j.open-ai.streaming-chat-model.base-url}")
     private String flashBaseUrl;
 
@@ -64,6 +81,12 @@ public class StreamingModelFactory {
     @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.log-responses:false}")
     private boolean logResponses;
 
+    @Value("${langchain4j.open-ai.routing-chat-model.log-requests:false}")
+    private boolean routingLogRequests;
+
+    @Value("${langchain4j.open-ai.routing-chat-model.log-responses:false}")
+    private boolean routingLogResponses;
+
     /**
      * 根据性能配置创建流式模型。
      * <p>
@@ -73,9 +96,8 @@ public class StreamingModelFactory {
      * @return 流式模型实例
      */
     public StreamingChatModel createModel(GenerationPerformanceProfile profile) {
-        // 尝试从数据库获取对应类型的模型配置
         String modelType = resolveModelType(profile.modelTier());
-        AiModel dbModel = getFirstEnabledModelByType(modelType);
+        AiModel dbModel = getPreferredEnabledModel(modelType);
 
         if (dbModel != null) {
             log.debug("使用数据库模型配置: {}", dbModel.getModelName());
@@ -88,6 +110,82 @@ public class StreamingModelFactory {
             case SPEED, BALANCED -> createFlashModel(profile.thinkingEnabled());
             case QUALITY -> createReasoningModel(profile.thinkingEnabled());
         };
+    }
+
+    /**
+     * 创建普通对话流式模型。
+     * <p>
+     * 优先从数据库读取 chat 类型模型，找不到时回退到配置文件默认模型。
+     */
+    public StreamingChatModel createChatModel() {
+        AiModel dbModel = getPreferredEnabledModel("chat");
+        if (dbModel != null) {
+            log.debug("使用数据库普通模型配置: {}", dbModel.getModelName());
+            return createModelFromDb(dbModel, false);
+        }
+        log.debug("使用配置文件默认普通模型配置");
+        return createFlashModel(false);
+    }
+
+    /**
+     * 创建推理流式模型。
+     * <p>
+     * 优先从数据库读取 reasoning 类型模型，找不到时回退到配置文件默认推理模型。
+     */
+    public StreamingChatModel createReasoningModel() {
+        AiModel dbModel = getPreferredEnabledModel("reasoning");
+        if (dbModel != null) {
+            log.debug("使用数据库推理模型配置: {}", dbModel.getModelName());
+            return createModelFromDb(dbModel, true);
+        }
+        log.debug("使用配置文件默认推理模型配置");
+        return createReasoningModel(true);
+    }
+
+    /**
+     * 创建路由/轻量同步模型。
+     * <p>
+     * 优先使用数据库 chat 类型模型，找不到时降级到配置文件中的 routing-chat-model。
+     */
+    public ChatModel createRoutingChatModel() {
+        AiModel dbModel = getPreferredEnabledModel("chat");
+        if (dbModel != null) {
+            log.debug("使用数据库路由模型配置: {}", dbModel.getModelName());
+            return createChatModelFromDb(dbModel);
+        }
+        log.debug("使用配置文件默认路由模型配置");
+        return OpenAiChatModel.builder()
+                .apiKey(routingApiKey)
+                .baseUrl(routingBaseUrl)
+                .modelName(routingModelName)
+                .maxTokens(routingMaxTokens)
+                .temperature(routingTemperature)
+                .logRequests(routingLogRequests)
+                .logResponses(routingLogResponses)
+                .build();
+    }
+
+    /**
+     * 创建主同步模型。
+     * <p>
+     * 优先使用数据库 reasoning 类型模型，其次 chat 类型模型，最后降级到配置文件。
+     */
+    public ChatModel createPrimaryChatModel() {
+        AiModel dbModel = getPreferredEnabledModel("reasoning");
+        if (dbModel != null) {
+            log.debug("使用数据库主模型配置: {}", dbModel.getModelName());
+            return createChatModelFromDb(dbModel);
+        }
+        log.debug("使用配置文件默认主模型配置");
+        return OpenAiChatModel.builder()
+                .apiKey(reasoningApiKey)
+                .baseUrl(reasoningBaseUrl)
+                .modelName(reasoningModelName)
+                .maxTokens(reasoningMaxTokens)
+                .temperature(reasoningTemperature)
+                .logRequests(logRequests)
+                .logResponses(logResponses)
+                .build();
     }
 
     /**
@@ -109,6 +207,23 @@ public class StreamingModelFactory {
             return models.isEmpty() ? null : models.get(0);
         } catch (Exception e) {
             log.warn("从数据库获取模型配置失败，将使用默认配置", e);
+            return null;
+        }
+    }
+
+    /**
+     * 获取优先类型的启用模型；如果没有该类型，使用任意启用模型。
+     */
+    private AiModel getPreferredEnabledModel(String preferredModelType) {
+        AiModel preferredModel = getFirstEnabledModelByType(preferredModelType);
+        if (preferredModel != null) {
+            return preferredModel;
+        }
+        try {
+            List<AiModel> models = aiModelService.listEnabledModels();
+            return models.isEmpty() ? null : models.get(0);
+        } catch (Exception e) {
+            log.warn("从数据库获取启用模型配置失败，将使用默认配置", e);
             return null;
         }
     }
@@ -138,6 +253,18 @@ public class StreamingModelFactory {
         // }
 
         return builder.build();
+    }
+
+    private ChatModel createChatModelFromDb(AiModel dbModel) {
+        return OpenAiChatModel.builder()
+                .apiKey(dbModel.getApiKey())
+                .baseUrl(dbModel.getBaseUrl())
+                .modelName(dbModel.getModelId())
+                .maxTokens(dbModel.getMaxTokens())
+                .temperature(resolveTemperature(dbModel))
+                .logRequests(routingLogRequests)
+                .logResponses(routingLogResponses)
+                .build();
     }
 
     /**

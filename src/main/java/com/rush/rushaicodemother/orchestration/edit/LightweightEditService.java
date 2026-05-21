@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AiCodeEditService;
+import com.rush.rushaicodemother.ai.AiCodeEditServiceFactory;
 import com.rush.rushaicodemother.ai.model.EditOperation;
 import com.rush.rushaicodemother.ai.model.EditResult;
 import com.rush.rushaicodemother.constant.AppConstant;
@@ -47,7 +48,7 @@ public class LightweightEditService {
 
     private final GenerationEditRouteService generationEditRouteService;
     private final EditFileLocatorService editFileLocatorService;
-    private final AiCodeEditService aiCodeEditService;
+    private final AiCodeEditServiceFactory aiCodeEditServiceFactory;
     private final GenerationPatchApplyService generationPatchApplyService;
     private final GenerationEventPublisher generationEventPublisher;
     private final GenerationWorkspaceService generationWorkspaceService;
@@ -157,6 +158,7 @@ public class LightweightEditService {
 
             // 4. AI 编辑
             String projectContext = buildProjectContextString(contextPackage);
+            AiCodeEditService aiCodeEditService = aiCodeEditServiceFactory.createAiCodeEditService();
             EditResult editResult;
             try {
                 editResult = aiCodeEditService.editCode(userMessage, projectContext);
@@ -345,6 +347,7 @@ public class LightweightEditService {
     private EditResult retryEditAfterPatchRejection(String userMessage,
                                                     String projectContext,
                                                     PatchApplyResult applyResult) {
+        AiCodeEditService aiCodeEditService = aiCodeEditServiceFactory.createAiCodeEditService();
         String retryMessage = """
                 %s
 

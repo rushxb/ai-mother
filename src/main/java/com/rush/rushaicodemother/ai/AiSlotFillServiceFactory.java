@@ -1,9 +1,9 @@
 package com.rush.rushaicodemother.ai;
 
+import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,10 +13,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class AiSlotFillServiceFactory {
 
-    private final ChatModel routingChatModelPrototype;
+    private final StreamingModelFactory streamingModelFactory;
 
-    public AiSlotFillServiceFactory(@Qualifier("routingChatModelPrototype") ChatModel routingChatModelPrototype) {
-        this.routingChatModelPrototype = routingChatModelPrototype;
+    public AiSlotFillServiceFactory(StreamingModelFactory streamingModelFactory) {
+        this.streamingModelFactory = streamingModelFactory;
     }
 
     /**
@@ -25,8 +25,9 @@ public class AiSlotFillServiceFactory {
      * @return AI slot 填充服务
      */
     public AiSlotFillService createAiSlotFillService() {
+        ChatModel chatModel = streamingModelFactory.createRoutingChatModel();
         return AiServices.builder(AiSlotFillService.class)
-                .chatModel(routingChatModelPrototype)
+                .chatModel(chatModel)
                 .build();
     }
 }

@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import com.rush.rushaicodemother.ai.tools.*;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.EventListener;
 
 import java.time.Duration;
 
@@ -36,9 +38,6 @@ public class AiCodeGeneratorServiceFactory {
 
     @Resource
     private ApplicationContext applicationContext;
-
-    @Resource(name = "openAiChatModel")
-    private ChatModel chatModel;
 
     @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
@@ -136,6 +135,7 @@ public class AiCodeGeneratorServiceFactory {
             case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> {
                 // 根据性能配置选择流式模型
                 StreamingChatModel streamingModel = selectStreamingModel(codeGenType, profile);
+                ChatModel chatModel = streamingModelFactory.createPrimaryChatModel();
                 int maxToolInvocations = resolveMaxToolInvocations(codeGenType, profile);
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
@@ -153,8 +153,8 @@ public class AiCodeGeneratorServiceFactory {
             }
             // HTML 和 多文件生成，使用流式对话模型
             case HTML, MULTI_FILE -> {
-                // 使用多例模式的 StreamingChatModel 解决并发问题
-                StreamingChatModel openAiStreamingChatModel = applicationContext.getBean("streamingChatModelPrototype", StreamingChatModel.class);
+                StreamingChatModel openAiStreamingChatModel = streamingModelFactory.createChatModel();
+                ChatModel chatModel = streamingModelFactory.createPrimaryChatModel();
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
@@ -175,11 +175,17 @@ public class AiCodeGeneratorServiceFactory {
     private StreamingChatModel selectStreamingModel(CodeGenTypeEnum codeGenType,
                                                      GenerationPerformanceProfile profile) {
         if (profile == null) {
-            // 向后兼容：使用默认的推理模型
-            return applicationContext.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
+            return streamingModelFactory.createReasoningModel();
         }
         return streamingModelFactory.createModel(profile);
     }
+
+    @EventListener
+    public void onAiModelConfigChanged(AiModelConfigChangedEvent event) {
+        log.info("检测到 AI 模型配置变更，清理 AI 服务缓存");
+        serviceCache.invalidateAll();
+    }
+
 
     /**
      * 解析最大工具调用次数。

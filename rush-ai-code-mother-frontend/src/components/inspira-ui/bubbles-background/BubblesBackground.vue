@@ -11,6 +11,16 @@ interface Props {
   speed?: number
   blur?: number
   interactive?: boolean
+  minRadius?: number
+  maxRadius?: number
+  minOpacity?: number
+  maxOpacity?: number
+  spreadX?: number
+  spreadY?: number
+  depthMin?: number
+  depthMax?: number
+  driftStrength?: number
+  cameraZ?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -21,6 +31,16 @@ const props = withDefaults(defineProps<Props>(), {
   speed: 1,
   blur: 0,
   interactive: true,
+  minRadius: 0.26,
+  maxRadius: 1.28,
+  minOpacity: 0.2,
+  maxOpacity: 0.5,
+  spreadX: 16,
+  spreadY: 10,
+  depthMin: -7,
+  depthMax: 4,
+  driftStrength: 1,
+  cameraZ: 18,
 })
 
 const containerRef = ref<HTMLDivElement | null>(null)
@@ -47,7 +67,7 @@ const buildScene = () => {
 
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100)
-  camera.position.set(0, 0, 18)
+  camera.position.set(0, 0, props.cameraZ)
 
   renderer = new THREE.WebGLRenderer({
     antialias: true,
@@ -73,12 +93,12 @@ const buildScene = () => {
 
   const palette = [props.color1, props.color2, props.color3]
   for (let index = 0; index < props.bubbleCount; index += 1) {
-    const radius = THREE.MathUtils.randFloat(0.26, 1.28)
+    const radius = THREE.MathUtils.randFloat(props.minRadius, props.maxRadius)
     const geometry = new THREE.SphereGeometry(radius, 40, 40)
     const material = new THREE.MeshPhysicalMaterial({
       color: palette[index % palette.length],
       transparent: true,
-      opacity: THREE.MathUtils.randFloat(0.2, 0.5),
+      opacity: THREE.MathUtils.randFloat(props.minOpacity, props.maxOpacity),
       roughness: 0.08,
       metalness: 0.02,
       transmission: 0.96,
@@ -90,9 +110,9 @@ const buildScene = () => {
     })
 
     const mesh = new THREE.Mesh(geometry, material)
-    const baseX = THREE.MathUtils.randFloatSpread(16)
-    const baseY = THREE.MathUtils.randFloatSpread(10)
-    const depth = THREE.MathUtils.randFloat(-7, 4)
+    const baseX = THREE.MathUtils.randFloatSpread(props.spreadX)
+    const baseY = THREE.MathUtils.randFloatSpread(props.spreadY)
+    const depth = THREE.MathUtils.randFloat(props.depthMin, props.depthMax)
     const drift = THREE.MathUtils.randFloat(0.12, 0.44)
     const phase = THREE.MathUtils.randFloat(0, Math.PI * 2)
 
@@ -124,8 +144,14 @@ const animate = (time: number) => {
   const elapsed = time * 0.00022 * props.speed
 
   bubbles.forEach((bubble, index) => {
-    const waveX = Math.cos(elapsed * (0.65 + bubble.drift) + bubble.phase) * (0.5 + bubble.depth * -0.03)
-    const waveY = Math.sin(elapsed * (0.95 + bubble.drift) + bubble.phase) * (0.9 + bubble.drift * 2.2)
+    const waveX =
+      Math.cos(elapsed * (0.65 + bubble.drift) + bubble.phase) *
+      (0.5 + bubble.depth * -0.03) *
+      props.driftStrength
+    const waveY =
+      Math.sin(elapsed * (0.95 + bubble.drift) + bubble.phase) *
+      (0.9 + bubble.drift * 2.2) *
+      props.driftStrength
     bubble.mesh.position.x = bubble.baseX + waveX + pointer.x * (0.18 + index * 0.002)
     bubble.mesh.position.y = bubble.baseY + waveY + pointer.y * (0.14 + index * 0.0015)
     bubble.mesh.rotation.x += 0.0018
@@ -187,7 +213,24 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.bubbleCount, props.color1, props.color2, props.color3, props.blur] as const,
+  () =>
+    [
+      props.bubbleCount,
+      props.color1,
+      props.color2,
+      props.color3,
+      props.blur,
+      props.minRadius,
+      props.maxRadius,
+      props.minOpacity,
+      props.maxOpacity,
+      props.spreadX,
+      props.spreadY,
+      props.depthMin,
+      props.depthMax,
+      props.driftStrength,
+      props.cameraZ,
+    ] as const,
   () => {
     if (!containerRef.value) {
       return

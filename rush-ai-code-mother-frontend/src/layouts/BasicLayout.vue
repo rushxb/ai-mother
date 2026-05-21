@@ -1,5 +1,8 @@
 <template>
-  <a-layout class="basic-layout" :class="{ 'chat-page-layout': isChatPage }">
+  <a-layout
+    class="basic-layout"
+    :class="{ 'auth-page-layout': isAuthPage, 'chat-page-layout': isChatPage }"
+  >
     <!-- 顶部导航栏 -->
     <GlobalHeader v-if="!isChatPage" />
     <!-- 主要内容区域 -->
@@ -34,6 +37,12 @@ const isChatPage = computed(() => route.path.startsWith('/app/chat/'))
   overflow: hidden;
 }
 
+.basic-layout.auth-page-layout {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .main-content {
   flex: 1;
   width: 100%;
@@ -44,6 +53,10 @@ const isChatPage = computed(() => route.path.startsWith('/app/chat/'))
 }
 
 .chat-page-layout .main-content {
+  overflow: hidden;
+}
+
+.auth-page-layout .main-content {
   overflow: hidden;
 }
 </style>

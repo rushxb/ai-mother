@@ -3,27 +3,35 @@
     <div class="header-inner">
       <RouterLink to="/" class="brand">
         <img class="logo" src="@/assets/logo.png" alt="Logo" />
-        <div class="brand-text">
-          <h1 class="site-title">rush应用生成</h1>
-          <p class="site-subtitle">高效构建，流畅交互</p>
+        <div class="brand-copy">
+          <span class="brand-kicker">RUSH STUDIO</span>
+          <div class="brand-text">
+            <h1 class="site-title">rush应用生成</h1>
+            <p class="site-subtitle">高效构建，流畅交互</p>
+          </div>
         </div>
       </RouterLink>
 
-      <a-menu
-        v-model:selectedKeys="selectedKeys"
-        class="site-menu"
-        mode="horizontal"
-        :items="menuItems"
-        @click="handleMenuClick"
-      />
+      <div class="nav-shell">
+        <MorphingTabs
+          v-model:activeTab="activeTab"
+          class="site-tabs"
+          :tabs="navTabs"
+          :margin="10"
+          :blur-std-deviation="5"
+          @change="handleTabChange"
+        />
+      </div>
 
       <div class="user-login-status">
         <a-dropdown v-if="loginUserStore.loginUser.id" trigger="click">
-          <a-button class="user-trigger" type="text">
+          <button type="button" class="user-trigger">
             <a-avatar :src="loginUserAvatar" size="small" />
-            <span class="credit-badge">{{ loginUserStore.loginUser.creditBalance ?? 0 }} 积分</span>
-            <span class="user-name">{{ loginUserStore.loginUser.userName ?? '神秘用户' }}</span>
-          </a-button>
+            <span class="user-meta">
+              <span class="user-name">{{ loginUserStore.loginUser.userName ?? '神秘用户' }}</span>
+              <span class="credit-badge">{{ loginUserStore.loginUser.creditBalance ?? 0 }} 积分</span>
+            </span>
+          </button>
           <template #overlay>
             <a-menu class="user-menu">
               <a-menu-item @click="doLogout">
@@ -34,27 +42,32 @@
           </template>
         </a-dropdown>
 
-        <a-button v-else class="login-button" href="/user/login">登录</a-button>
+        <RouterLink v-else to="/user/login" class="login-button">登录</RouterLink>
       </div>
     </div>
   </a-layout-header>
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { type MenuProps, message } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
+import { LogoutOutlined } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { userLogout } from '@/api/userController.ts'
-import { LogoutOutlined, HomeOutlined } from '@ant-design/icons-vue'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
+
+interface NavTab {
+  label: string
+  value: string
+}
 
 const loginUserStore = useLoginUserStore()
 const router = useRouter()
 const route = useRoute()
+
 const loginUserAvatar = computed(() => loginUserStore.loginUser.userAvatar || DEFAULT_USER_AVATAR)
-// 当前选中菜单
-const selectedKeys = ref<string[]>(['/'])
+const activeTab = ref('/')
 
 const getSelectedKey = (path: string) => {
   if (path.startsWith('/admin/userManage')) {
@@ -66,70 +79,37 @@ const getSelectedKey = (path: string) => {
   if (path.startsWith('/admin/modelManage')) {
     return '/admin/modelManage'
   }
-  return path
+  return '/'
 }
 
 watch(
   () => route.path,
   (path) => {
-    selectedKeys.value = [getSelectedKey(path)]
+    activeTab.value = getSelectedKey(path)
   },
   { immediate: true },
 )
 
-// 菜单配置项
-const originItems = [
-  {
-    key: '/',
-    icon: () => h(HomeOutlined),
-    label: '主页',
-    title: '主页',
-  },
-  {
-    key: '/admin/userManage',
-    label: '用户管理',
-    title: '用户管理',
-  },
-  {
-    key: '/admin/appManage',
-    label: '应用管理',
-    title: '应用管理',
-  },
-  {
-    key: '/admin/modelManage',
-    label: '模型管理',
-    title: '模型管理',
-  },
-]
+const navTabs = computed<NavTab[]>(() => {
+  const items: NavTab[] = [{ label: '主页', value: '/' }]
 
-// 过滤菜单项
-const filterMenus = (menus = [] as MenuProps['items']) => {
-  return menus?.filter((menu) => {
-    const menuKey = menu?.key as string
-    if (menuKey?.startsWith('/admin')) {
-      const loginUser = loginUserStore.loginUser
-      if (!loginUser || loginUser.userRole !== 'admin') {
-        return false
-      }
-    }
-    return true
-  })
-}
+  if (loginUserStore.loginUser?.userRole === 'admin') {
+    items.push(
+      { label: '用户管理', value: '/admin/userManage' },
+      { label: '应用管理', value: '/admin/appManage' },
+      { label: '模型管理', value: '/admin/modelManage' },
+    )
+  }
 
-// 展示在菜单的路由数组
-const menuItems = computed<MenuProps['items']>(() => filterMenus(originItems))
+  return items
+})
 
-// 处理菜单点击
-const handleMenuClick: MenuProps['onClick'] = (e) => {
-  const key = e.key as string
-  selectedKeys.value = [key]
-  // 跳转到对应页面
-  if (key.startsWith('/')) {
-    router.push(key)
+const handleTabChange = (value: string) => {
+  if (value !== route.path) {
+    router.push(value)
   }
 }
 
-// 退出登录
 const doLogout = async () => {
   const res = await userLogout()
   if (res.data.code === 0) {
@@ -149,145 +129,159 @@ const doLogout = async () => {
   position: sticky;
   top: 0;
   z-index: 1000;
-  height: 72px;
-  background: #fff;
-  padding: 0 20px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
-  backdrop-filter: saturate(180%) blur(16px);
+  height: 78px;
+  padding: 0 24px;
+  background: rgba(255, 255, 255, 0.84);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 10px 30px rgba(76, 102, 140, 0.06);
+  backdrop-filter: saturate(180%) blur(18px);
 }
 
 .header-inner {
   height: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 20px;
+  gap: 18px;
 }
 
 .brand {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  flex: 0 0 auto;
+  gap: 14px;
   text-decoration: none;
   color: inherit;
 }
 
-.brand-text {
+.logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(47, 139, 255, 0.16);
+}
+
+.brand-copy {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: center;
+  gap: 14px;
   min-width: 0;
 }
 
-.logo {
-  height: 40px;
-  width: 40px;
-  border-radius: 12px;
-  box-shadow: 0 6px 18px rgba(24, 144, 255, 0.18);
+.brand-kicker {
+  flex: 0 0 auto;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(47, 139, 255, 0.08);
+  color: #2f8bff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.brand-text {
+  min-width: 0;
 }
 
 .site-title {
   margin: 0;
+  color: #102033;
   font-size: 17px;
   line-height: 1.1;
-  color: #0f172a;
   font-weight: 700;
 }
 
 .site-subtitle {
-  margin: 2px 0 0;
+  margin: 3px 0 0;
+  color: #7b8da6;
   font-size: 12px;
   line-height: 1.2;
-  color: #94a3b8;
 }
 
-.site-menu {
-  flex: 1 1 auto;
+.nav-shell {
   min-width: 0;
-  border-bottom: 0;
+  display: flex;
   justify-content: center;
-  background: transparent;
 }
 
-:deep(.site-menu.ant-menu-horizontal) {
-  border-bottom: 0;
-}
-
-:deep(.site-menu .ant-menu-item) {
-  margin-inline: 4px;
-  padding-inline: 18px;
-  border-radius: 999px;
-  transition:
-    background-color 0.25s ease,
-    color 0.25s ease,
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
-}
-
-:deep(.site-menu .ant-menu-item:hover) {
-  background: rgba(24, 144, 255, 0.08);
-  color: #1677ff;
-  transform: translateY(-1px);
-}
-
-:deep(.site-menu .ant-menu-item-selected) {
-  background: linear-gradient(180deg, rgba(24, 144, 255, 0.12), rgba(24, 144, 255, 0.08));
-  color: #1677ff;
-  box-shadow: inset 0 0 0 1px rgba(24, 144, 255, 0.12);
-}
-
-:deep(.site-menu .ant-menu-title-content) {
-  transition: color 0.25s ease;
+.site-tabs {
+  max-width: 100%;
 }
 
 .user-login-status {
-  flex: 0 0 auto;
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
 }
 
 .user-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 12px;
+  gap: 10px;
+  min-width: 0;
+  height: 46px;
+  padding: 0 10px 0 8px;
+  border: 1px solid rgba(126, 158, 196, 0.14);
   border-radius: 999px;
-  color: #0f172a;
-  transition: background-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+  background: rgba(255, 255, 255, 0.72);
+  color: #102033;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 26px rgba(76, 102, 140, 0.08);
+  transition:
+    transform 0.24s ease,
+    box-shadow 0.24s ease,
+    border-color 0.24s ease;
 }
 
 .user-trigger:hover {
-  background: rgba(15, 23, 42, 0.05);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
   transform: translateY(-1px);
+  border-color: rgba(47, 139, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 14px 32px rgba(76, 102, 140, 0.12);
+}
+
+.user-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.user-name {
+  max-width: 124px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .credit-badge {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(24, 144, 255, 0.08);
-  color: #1677ff;
+  color: #2f8bff;
   font-size: 12px;
-  font-weight: 600;
-}
-
-.user-name {
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1;
 }
 
 .login-button {
-  height: 40px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
   border-radius: 999px;
-  padding: 0 18px;
-  box-shadow: 0 8px 24px rgba(24, 144, 255, 0.14);
+  text-decoration: none;
+  color: #ffffff;
+  font-weight: 600;
+  background: linear-gradient(135deg, #2f8bff 0%, #67c8ff 100%);
+  box-shadow: 0 14px 30px rgba(47, 139, 255, 0.22);
 }
 
 :deep(.user-menu) {
@@ -296,25 +290,57 @@ const doLogout = async () => {
   overflow: hidden;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 980px) {
   .header {
     height: auto;
     padding: 12px 16px;
   }
 
   .header-inner {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-
-  .site-menu {
-    order: 3;
-    width: 100%;
-    justify-content: flex-start;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand user'
+      'nav nav';
+    row-gap: 12px;
   }
 
   .brand {
-    min-width: 0;
+    grid-area: brand;
+  }
+
+  .nav-shell {
+    grid-area: nav;
+    justify-content: flex-start;
+  }
+
+  .user-login-status {
+    grid-area: user;
+  }
+}
+
+@media (max-width: 680px) {
+  .brand-copy {
+    gap: 10px;
+  }
+
+  .brand-kicker {
+    display: none;
+  }
+
+  .site-title {
+    font-size: 16px;
+  }
+
+  .site-subtitle {
+    font-size: 11px;
+  }
+
+  .user-trigger {
+    padding-right: 8px;
+  }
+
+  .user-name {
+    max-width: 92px;
   }
 }
 </style>

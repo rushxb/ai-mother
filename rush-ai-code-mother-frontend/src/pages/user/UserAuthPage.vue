@@ -1,6 +1,24 @@
 <template>
   <div id="userAuthPage">
-    <BubblesBackground class="auth-bubbles" :bubble-count="34" :speed="1.2" :blur="0.2" />
+    <BubblesBackground
+      class="auth-bubbles"
+      :bubble-count="24"
+      color1="#9BD8FF"
+      color2="#B9CAFF"
+      color3="#A8F0DF"
+      :speed="0.72"
+      :blur="0.45"
+      :min-radius="0.62"
+      :max-radius="1.9"
+      :min-opacity="0.22"
+      :max-opacity="0.52"
+      :spread-x="18"
+      :spread-y="11"
+      :depth-min="-9"
+      :depth-max="2"
+      :drift-strength="0.58"
+      :camera-z="20"
+    />
     <div class="auth-overlay"></div>
 
     <main class="auth-shell">
@@ -318,19 +336,35 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 
 <style scoped>
 #userAuthPage {
-  --text-strong: #f8fbff;
-  --text-soft: rgba(226, 237, 250, 0.74);
-  --panel-bg: rgba(8, 18, 33, 0.58);
-  --panel-border: rgba(191, 222, 255, 0.22);
-  --accent: #8fe4ff;
-  --accent-strong: #58b8ff;
-  min-height: 100vh;
+  --text-strong: #102033;
+  --text-soft: rgba(47, 65, 88, 0.72);
+  --panel-bg: rgba(255, 255, 255, 0.72);
+  --panel-border: rgba(126, 158, 196, 0.24);
+  --accent: #2f8bff;
+  --accent-strong: #1466d8;
+  --mist-blue: rgba(208, 231, 255, 0.54);
+  --mist-green: rgba(216, 245, 237, 0.44);
+  min-height: 100%;
   position: relative;
   overflow: hidden;
   color: var(--text-strong);
   background:
-    radial-gradient(circle at 16% 8%, rgba(120, 196, 255, 0.22), transparent 30%),
-    linear-gradient(135deg, #07101f 0%, #0b1627 48%, #102b3d 100%);
+    radial-gradient(circle at 18% 10%, var(--mist-blue), transparent 34%),
+    radial-gradient(circle at 82% 14%, var(--mist-green), transparent 34%),
+    linear-gradient(135deg, #fcfdff 0%, #f6f9fd 48%, #f1f8f7 100%);
+}
+
+#userAuthPage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.42;
+  background-image:
+    linear-gradient(rgba(116, 142, 174, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(116, 142, 174, 0.08) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(90deg, transparent, black 18%, black 70%, transparent);
 }
 
 .auth-bubbles {
@@ -338,7 +372,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   inset: -8%;
   width: 116%;
   height: 116%;
-  opacity: 0.92;
+  opacity: 0.94;
 }
 
 .auth-overlay {
@@ -346,15 +380,16 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(4, 11, 23, 0.5), rgba(4, 11, 23, 0.16) 42%, rgba(4, 11, 23, 0.58)),
-    radial-gradient(circle at 76% 18%, rgba(143, 228, 255, 0.2), transparent 26%),
-    radial-gradient(circle at 40% 92%, rgba(88, 184, 255, 0.18), transparent 30%);
+    linear-gradient(90deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.18) 46%, rgba(255, 255, 255, 0.72)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08) 48%, rgba(255, 255, 255, 0.58)),
+    radial-gradient(circle at 76% 18%, rgba(255, 255, 255, 0.44), transparent 32%),
+    radial-gradient(circle at 42% 92%, rgba(207, 232, 255, 0.32), transparent 36%);
 }
 
 .auth-shell {
   position: relative;
   z-index: 1;
-  min-height: 100vh;
+  min-height: 100%;
   width: min(1180px, calc(100% - 48px));
   margin: 0 auto;
   display: grid;
@@ -388,7 +423,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   font-weight: 800;
   letter-spacing: 0;
   text-wrap: balance;
-  text-shadow: 0 22px 58px rgba(0, 0, 0, 0.34);
+  text-shadow: 0 18px 48px rgba(91, 126, 168, 0.14);
 }
 
 .hero-desc {
@@ -407,11 +442,11 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   overflow: hidden;
   border: 1px solid rgba(191, 222, 255, 0.18);
   border-radius: 24px;
-  background: rgba(6, 16, 31, 0.34);
+  background: rgba(255, 255, 255, 0.62);
   backdrop-filter: blur(18px);
   box-shadow:
-    0 24px 70px rgba(0, 0, 0, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 24px 70px rgba(88, 124, 166, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .signal-item {
@@ -426,13 +461,13 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 .signal-item span {
   display: block;
   margin-bottom: 10px;
-  color: rgba(226, 237, 250, 0.58);
+  color: rgba(47, 65, 88, 0.5);
   font-size: 12px;
   letter-spacing: 0.16em;
 }
 
 .signal-item strong {
-  color: #ffffff;
+  color: #14263a;
   font-size: 15px;
   font-weight: 600;
   line-height: 1.5;
@@ -443,10 +478,12 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   min-width: 0;
   border-radius: 30px;
   padding: 1px;
-  background: linear-gradient(145deg, rgba(199, 232, 255, 0.44), rgba(255, 255, 255, 0.08));
+  background:
+    linear-gradient(145deg, rgba(151, 199, 236, 0.34), rgba(255, 255, 255, 0.92)),
+    rgba(255, 255, 255, 0.78);
   box-shadow:
-    0 32px 90px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 32px 90px rgba(87, 123, 166, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .panel-rim {
@@ -454,8 +491,8 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   inset: 0;
   border-radius: inherit;
   background:
-    radial-gradient(circle at 30% 0%, rgba(143, 228, 255, 0.3), transparent 36%),
-    radial-gradient(circle at 90% 18%, rgba(88, 184, 255, 0.22), transparent 34%);
+    radial-gradient(circle at 30% 0%, rgba(168, 214, 245, 0.22), transparent 36%),
+    radial-gradient(circle at 90% 18%, rgba(211, 244, 235, 0.28), transparent 34%);
   pointer-events: none;
 }
 
@@ -464,7 +501,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   padding: 32px 34px 36px;
   border-radius: 29px;
   background:
-    linear-gradient(180deg, rgba(10, 22, 39, 0.78), rgba(8, 17, 31, 0.66)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(249, 252, 255, 0.78)),
     var(--panel-bg);
   border: 1px solid var(--panel-border);
   backdrop-filter: blur(26px);
@@ -477,8 +514,8 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   width: 178px;
   padding: 5px;
   border-radius: 999px;
-  background: rgba(220, 240, 255, 0.1);
-  border: 1px solid rgba(191, 222, 255, 0.16);
+  background: rgba(232, 243, 255, 0.76);
+  border: 1px solid rgba(126, 158, 196, 0.18);
 }
 
 .switch-option {
@@ -486,7 +523,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   height: 38px;
   border-radius: 999px;
   background: transparent;
-  color: rgba(226, 237, 250, 0.72);
+  color: rgba(47, 65, 88, 0.62);
   font-size: 13px;
   cursor: pointer;
   transition:
@@ -496,9 +533,9 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 }
 
 .switch-option.active {
-  color: #05111f;
-  background: linear-gradient(135deg, #9eeaff 0%, #7cbcff 100%);
-  box-shadow: 0 12px 28px rgba(104, 196, 255, 0.32);
+  color: #ffffff;
+  background: linear-gradient(135deg, #2f8bff 0%, #67c8ff 100%);
+  box-shadow: 0 12px 28px rgba(47, 139, 255, 0.26);
 }
 
 .form-head {
@@ -515,7 +552,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 
 .form-head h2 {
   margin: 0;
-  color: #ffffff;
+  color: #102033;
   font-size: 30px;
   line-height: 1.18;
   font-weight: 700;
@@ -530,7 +567,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 }
 
 :deep(.ant-form-item-label > label) {
-  color: rgba(226, 237, 250, 0.74);
+  color: rgba(47, 65, 88, 0.68);
   font-size: 13px;
 }
 
@@ -538,10 +575,10 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 :deep(.ant-input) {
   min-height: 52px;
   border-radius: 16px;
-  color: #f8fbff;
-  background: rgba(6, 16, 31, 0.54);
-  border: 1px solid rgba(191, 222, 255, 0.2);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #102033;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(126, 158, 196, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
   transition:
     border-color 0.22s ease,
     box-shadow 0.22s ease,
@@ -555,7 +592,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 }
 
 :deep(.ant-input::placeholder) {
-  color: rgba(226, 237, 250, 0.4);
+  color: rgba(47, 65, 88, 0.38);
 }
 
 :deep(.ant-input-affix-wrapper:hover),
@@ -563,13 +600,13 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
 :deep(.ant-input-affix-wrapper:focus),
 :deep(.ant-input-affix-wrapper-focused),
 :deep(.ant-input:focus) {
-  border-color: rgba(143, 228, 255, 0.62);
-  background: rgba(8, 21, 38, 0.72);
-  box-shadow: 0 0 0 4px rgba(143, 228, 255, 0.12);
+  border-color: rgba(47, 139, 255, 0.42);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 0 4px rgba(47, 139, 255, 0.1);
 }
 
 :deep(.ant-input-password-icon.anticon) {
-  color: rgba(226, 237, 250, 0.66);
+  color: rgba(47, 65, 88, 0.5);
 }
 
 .assist-row {
@@ -578,7 +615,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  color: rgba(226, 237, 250, 0.56);
+  color: rgba(47, 65, 88, 0.56);
   font-size: 13px;
 }
 
@@ -599,19 +636,19 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   height: 54px;
   border: none;
   border-radius: 16px;
-  color: #04111f;
+  color: #ffffff;
   font-weight: 700;
   letter-spacing: 0.04em;
-  background: linear-gradient(135deg, #9eecff 0%, #73b5ff 100%);
+  background: linear-gradient(135deg, #2f8bff 0%, #67c8ff 100%);
   box-shadow:
-    0 20px 44px rgba(83, 178, 255, 0.3),
-    inset 0 -2px 0 rgba(4, 17, 31, 0.1);
+    0 20px 44px rgba(47, 139, 255, 0.26),
+    inset 0 -2px 0 rgba(4, 17, 31, 0.08);
 }
 
 .submit-button:hover,
 .submit-button:focus {
-  color: #04111f;
-  background: linear-gradient(135deg, #b8f3ff 0%, #89c3ff 100%);
+  color: #ffffff;
+  background: linear-gradient(135deg, #3f98ff 0%, #7bd0ff 100%);
 }
 
 .auth-card-enter-active,

@@ -127,7 +127,7 @@ public class TemplateNodeModulesPreWarmRunner {
     private boolean executePnpmInstall(File workingDir) {
         try {
             String command = isWindows() ? "pnpm.cmd" : "pnpm";
-            ProcessBuilder processBuilder = new ProcessBuilder(command, "install", "--prefer-offline")
+            ProcessBuilder processBuilder = new ProcessBuilder(command, "install", "--prefer-offline", "--force")
                     .directory(workingDir)
                     .redirectErrorStream(true);
 

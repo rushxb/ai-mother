@@ -59,6 +59,11 @@ public class DevServerManager {
     private final AtomicInteger portCounter = new AtomicInteger(PORT_RANGE_START);
 
     /**
+     * 正在安装依赖的项目目录锁
+     */
+    private final Map<String, Object> installLocks = new ConcurrentHashMap<>();
+
+    /**
      * 为应用分配一个可用端口
      *
      * @param appId 应用ID
@@ -378,42 +383,97 @@ public class DevServerManager {
      * 确保项目依赖已安装
      */
     private void ensureDependenciesInstalled(File projectDir, String npmCommand) {
-        File nodeModules = new File(projectDir, "node_modules");
-        if (nodeModules.exists() && nodeModules.isDirectory()) {
-            log.info("node_modules 已存在，跳过依赖安装");
-            return;
+        String projectPath = projectDir.getAbsolutePath();
+        Object lock = installLocks.computeIfAbsent(projectPath, k -> new Object());
+
+        synchronized (lock) {
+            File nodeModules = new File(projectDir, "node_modules");
+            if (nodeModules.exists() && nodeModules.isDirectory()) {
+                // 检查 node_modules 是否完整（通过检查 .pnpm 目录或 package-lock.json）
+                if (isNodeModulesComplete(projectDir)) {
+                    log.info("node_modules 已存在且完整，跳过依赖安装");
+                    return;
+                }
+                log.warn("node_modules 存在但不完整，将重新安装依赖");
+            }
+
+            log.info("开始安装依赖...");
+            try {
+                ProcessBuilder installBuilder = new ProcessBuilder(npmCommand, "install", "--force");
+                installBuilder.directory(projectDir);
+                installBuilder.redirectErrorStream(true);
+
+                Map<String, String> env = installBuilder.environment();
+                env.put("NO_UPDATE_NOTIFIER", "1");
+                env.put("NPM_CONFIG_AUDIT", "false");
+                env.put("NPM_CONFIG_FUND", "false");
+
+                Process installProcess = installBuilder.start();
+                startOutputDrainer(installProcess);
+
+                // 等待安装完成，最多 5 分钟
+                boolean finished = installProcess.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
+                if (!finished) {
+                    installProcess.destroyForcibly();
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装超时（5 分钟）");
+                }
+                if (installProcess.exitValue() != 0) {
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装失败（exit code: " + installProcess.exitValue() + "）");
+                }
+                log.info("依赖安装完成");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装被中断");
+            } catch (IOException e) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装失败：" + e.getMessage());
+            } finally {
+                installLocks.remove(projectPath);
+            }
+        }
+    }
+
+    /**
+     * 检查 node_modules 是否完整
+     * 通过检查关键目录和文件来判断
+     */
+    private boolean isNodeModulesComplete(File projectDir) {
+        // 检查安装标记文件（VueProjectBuilder 使用此文件跟踪安装状态）
+        File stampFile = new File(projectDir, ".ai-code-install.stamp");
+        if (!stampFile.exists()) {
+            // 如果没有标记文件，检查 node_modules 是否有内容
+            File nodeModulesDir = new File(projectDir, "node_modules");
+            if (!nodeModulesDir.exists() || !nodeModulesDir.isDirectory()) {
+                return false;
+            }
+            // 检查 node_modules 中是否有文件（防止空目录）
+            String[] files = nodeModulesDir.list();
+            if (files == null || files.length == 0) {
+                return false;
+            }
         }
 
-        log.info("node_modules 不存在，开始安装依赖...");
-        try {
-            ProcessBuilder installBuilder = new ProcessBuilder(npmCommand, "install");
-            installBuilder.directory(projectDir);
-            installBuilder.redirectErrorStream(true);
-
-            Map<String, String> env = installBuilder.environment();
-            env.put("NO_UPDATE_NOTIFIER", "1");
-            env.put("NPM_CONFIG_AUDIT", "false");
-            env.put("NPM_CONFIG_FUND", "false");
-
-            Process installProcess = installBuilder.start();
-            startOutputDrainer(installProcess);
-
-            // 等待安装完成，最多 5 分钟
-            boolean finished = installProcess.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
-            if (!finished) {
-                installProcess.destroyForcibly();
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装超时（5 分钟）");
-            }
-            if (installProcess.exitValue() != 0) {
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装失败（exit code: " + installProcess.exitValue() + "）");
-            }
-            log.info("依赖安装完成");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装被中断");
-        } catch (IOException e) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装失败：" + e.getMessage());
+        // 检查 .pnpm 目录（pnpm 的硬链接目录）
+        File pnpmDir = new File(projectDir, "node_modules/.pnpm");
+        if (!pnpmDir.exists() || !pnpmDir.isDirectory()) {
+            return false;
         }
+
+        // 检查 vite 是否已安装
+        File viteBin = new File(projectDir, "node_modules/.bin/vite.cmd");
+        if (!viteBin.exists()) {
+            viteBin = new File(projectDir, "node_modules/.bin/vite");
+            if (!viteBin.exists()) {
+                return false;
+            }
+        }
+
+        // 检查 node_modules 中是否有文件（防止空目录）
+        String[] files = pnpmDir.list();
+        if (files == null || files.length == 0) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -424,7 +484,7 @@ public class DevServerManager {
             try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    log.debug("[dev-server] {}", line);
+                    log.info("[dev-server] {}", line);
                 }
             } catch (IOException e) {
                 // 忽略读取错误

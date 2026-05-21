@@ -309,7 +309,7 @@ public class VueProjectBuilder {
 
     private CommandResult executePnpmInstall(File projectDir) {
         log.info("执行 pnpm install...");
-        return executeCommand(projectDir, INSTALL_TIMEOUT_SECONDS, buildCommand("pnpm"), "install", "--prefer-offline");
+        return executeCommand(projectDir, INSTALL_TIMEOUT_SECONDS, buildCommand("pnpm"), "install", "--prefer-offline", "--force");
     }
 
     private CommandResult executeLightValidation(File projectDir, ProjectScripts scripts) {

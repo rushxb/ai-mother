@@ -186,7 +186,7 @@ public class PackageManagerTool extends BaseTool {
             return "[pnpm install]\n依赖策略拒绝: " + decision.reason();
         }
         NpmCommandSupport.CommandResult result = NpmCommandSupport.runCommand(
-                projectDir, 300, NpmCommandSupport.pnpmCommand(), "install"
+                projectDir, 300, NpmCommandSupport.pnpmCommand(), "install", "--force"
         );
         return "[pnpm install]\npolicy: " + decision.reason() + "\n" + result.toReport();
     }

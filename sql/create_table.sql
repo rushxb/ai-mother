@@ -308,3 +308,23 @@ create table if not exists ai_model
     INDEX idx_userId (userId),
     INDEX idx_modelType (modelType)
 ) comment 'AI 模型配置' collate = utf8mb4_unicode_ci;
+
+-- 已有库升级可执行以下语句
+alter table ai_model add column if not exists modelName varchar(128) not null comment '模型显示名称';
+alter table ai_model add column if not exists provider varchar(64) not null comment '模型提供商：deepseek/openai/custom';
+alter table ai_model add column if not exists modelId varchar(128) not null comment '模型标识符，如 deepseek-v4-flash';
+alter table ai_model add column if not exists description varchar(512) null comment '模型描述';
+alter table ai_model add column if not exists baseUrl varchar(512) not null comment 'API 基础地址';
+alter table ai_model add column if not exists apiKey varchar(512) null comment 'API 密钥';
+alter table ai_model add column if not exists maxTokens int default 8192 not null comment '最大 token 数';
+alter table ai_model add column if not exists temperature double default 0.7 null comment '温度参数';
+alter table ai_model add column if not exists isEnabled tinyint default 1 not null comment '是否启用：0-禁用 1-启用';
+alter table ai_model add column if not exists modelType varchar(32) default 'chat' not null comment '模型类型：chat/reasoning/routing';
+alter table ai_model add column if not exists supportsThinking tinyint default 0 not null comment '是否支持 thinking 模式：0-不支持 1-支持';
+alter table ai_model add column if not exists sortOrder int default 0 not null comment '排序权重';
+alter table ai_model add column if not exists configJson text null comment '扩展配置 JSON';
+alter table ai_model add column if not exists userId bigint not null comment '创建用户id';
+alter table ai_model add column if not exists editTime datetime default CURRENT_TIMESTAMP not null comment '编辑时间';
+alter table ai_model add column if not exists createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间';
+alter table ai_model add column if not exists updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间';
+alter table ai_model add column if not exists isDelete tinyint default 0 not null comment '是否删除';

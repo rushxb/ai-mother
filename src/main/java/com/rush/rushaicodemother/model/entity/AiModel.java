@@ -34,76 +34,91 @@ public class AiModel implements Serializable {
     /**
      * 模型显示名称
      */
+    @Column("modelName")
     private String modelName;
 
     /**
      * 模型提供商：deepseek/openai/custom
      */
+    @Column("provider")
     private String provider;
 
     /**
      * 模型标识符，如 deepseek-v4-flash
      */
+    @Column("modelId")
     private String modelId;
 
     /**
      * 模型描述
      */
+    @Column("description")
     private String description;
 
     /**
      * API 基础地址
      */
+    @Column("baseUrl")
     private String baseUrl;
 
     /**
      * API 密钥
      */
+    @Column("apiKey")
     private String apiKey;
 
     /**
      * 最大 token 数
      */
+    @Column("maxTokens")
     private Integer maxTokens;
 
     /**
      * 温度参数
      */
+    @Column("temperature")
     private Double temperature;
 
     /**
      * 是否启用：0-禁用 1-启用
      */
+    @Column("isEnabled")
     private Integer isEnabled;
 
     /**
      * 模型类型：chat/reasoning/routing
      */
+    @Column("modelType")
     private String modelType;
 
     /**
      * 是否支持 thinking 模式：0-不支持 1-支持
      */
+    @Column("supportsThinking")
     private Integer supportsThinking;
 
     /**
      * 排序权重
      */
+    @Column("sortOrder")
     private Integer sortOrder;
 
     /**
      * 扩展配置 JSON
      */
+    @Column("configJson")
     private String configJson;
 
     /**
      * 创建用户id
      */
+    @Column("userId")
     private Long userId;
 
     /**
      * 编辑时间
      */
+    @Column("editTime")
     private LocalDateTime editTime;
 
     /**

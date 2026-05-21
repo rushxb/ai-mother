@@ -16,7 +16,7 @@ import java.util.Set;
 public class GenerationWorkspaceService {
 
     public static final Set<String> HIDDEN_FILE_NAMES = Set.of(
-            ".git", ".idea", "node_modules", "dist", "target", ".DS_Store"
+            ".git", ".idea", "node_modules", "node_modle", "node_module", "dist", "target", ".DS_Store"
     );
 
     public static final Set<String> EDITABLE_EXTENSIONS = Set.of(

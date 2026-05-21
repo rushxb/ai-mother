@@ -185,6 +185,30 @@ public class LightweightEditService {
             PatchApplyResult applyResult = generationPatchApplyService.applyWithoutChangePlan(
                     app.getId(), taskId, projectRoot, patchOperations, "lightweight_edit"
             );
+            if (shouldRetryPatchApply(applyResult)) {
+                generationEventPublisher.publish(request, GenerationEventType.PATCH_APPLY, "补丁应用被拒绝，正在重新生成补丁", Map.of(
+                        "taskId", taskId,
+                        "status", applyResult.status(),
+                        "reason", StrUtil.blankToDefault(applyResult.reason(), ""),
+                        "rejectedOperations", applyResult.rejectedOperations()
+                ));
+                try {
+                    EditResult retryEditResult = retryEditAfterPatchRejection(userMessage, projectContext, applyResult);
+                    List<PatchOperation> retryPatchOperations = retryEditResult == null
+                            ? List.of()
+                            : convertToPatchOperations(retryEditResult.operations());
+                    if (!retryPatchOperations.isEmpty()) {
+                        PatchApplyResult retryApplyResult = generationPatchApplyService.applyWithoutChangePlan(
+                                app.getId(), taskId, projectRoot, retryPatchOperations, "lightweight_edit_retry"
+                        );
+                        editResult = retryEditResult;
+                        patchOperations = retryPatchOperations;
+                        applyResult = retryApplyResult;
+                    }
+                } catch (Exception e) {
+                    log.warn("轻量编辑补丁重试失败，保留首次补丁结果，appId: {}, taskId: {}", app.getId(), taskId, e);
+                }
+            }
 
             // 发送补丁应用事件
             generationEventPublisher.publish(request, GenerationEventType.PATCH_APPLY, "补丁应用完成", Map.of(
@@ -307,6 +331,39 @@ public class LightweightEditService {
         return patchOperations;
     }
 
+    private boolean shouldRetryPatchApply(PatchApplyResult applyResult) {
+        if (applyResult == null || !"rejected".equals(applyResult.status())) {
+            return false;
+        }
+        if (!"patch_operation_validation_failed".equals(applyResult.reason())) {
+            return false;
+        }
+        return applyResult.rejectedOperations().stream()
+                .noneMatch(operation -> operation.contains("path_outside_project"));
+    }
+
+    private EditResult retryEditAfterPatchRejection(String userMessage,
+                                                    String projectContext,
+                                                    PatchApplyResult applyResult) {
+        String retryMessage = """
+                %s
+
+                上一次补丁被本地校验拒绝，请重新审视项目上下文后只返回可应用的 JSON 编辑操作。
+                拒绝原因: %s
+                拒绝操作: %s
+
+                约束:
+                1. replace.oldContent 必须逐字复制自项目上下文中的真实文件内容。
+                2. 如果无法稳定精确替换局部片段，改用 modify 覆盖完整文件，但只能覆盖确实需要修改的文件。
+                3. 不要猜测未提供内容的文件结构。
+                """.formatted(
+                StrUtil.blankToDefault(userMessage, ""),
+                StrUtil.blankToDefault(applyResult.reason(), ""),
+                applyResult.rejectedOperations()
+        );
+        return aiCodeEditService.editCode(retryMessage, projectContext);
+    }
+
     /**
      * 检查文件是否受保护。
      */
@@ -322,6 +379,24 @@ public class LightweightEditService {
         StringBuilder builder = new StringBuilder();
         if (StrUtil.isNotBlank(contextPackage.projectIndex())) {
             builder.append(contextPackage.projectIndex()).append("\n\n");
+        }
+        if (contextPackage.candidates() != null && !contextPackage.candidates().isEmpty()) {
+            builder.append("候选文件定位依据:\n");
+            for (EditFileCandidate candidate : contextPackage.candidates()) {
+                builder.append("- ")
+                        .append(candidate.relativePath())
+                        .append(" [")
+                        .append(candidate.matchType())
+                        .append(", score=")
+                        .append(candidate.score())
+                        .append("]: ")
+                        .append(StrUtil.blankToDefault(candidate.reason(), ""));
+                if (candidate.matchedTerms() != null && !candidate.matchedTerms().isEmpty()) {
+                    builder.append("，命中: ").append(candidate.matchedTerms());
+                }
+                builder.append('\n');
+            }
+            builder.append('\n');
         }
         for (Map.Entry<String, String> entry : contextPackage.fileContents().entrySet()) {
             builder.append("文件: ").append(entry.getKey()).append("\n");

@@ -29,6 +29,9 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
     private static final int MAX_STAGE_LENGTH = 64;
     private static final int MAX_MESSAGE_LENGTH = 2000;
     private static final int MAX_MEMORY_SUMMARY_LENGTH = 6000;
+    private static final int LOG_PROMPT_PREVIEW_LENGTH = 300;
+    private static final int LOG_MESSAGE_PREVIEW_LENGTH = 500;
+    private static final int LOG_METADATA_PREVIEW_LENGTH = 1000;
 
     @Resource
     private GenerationTaskMapper generationTaskMapper;
@@ -81,7 +84,19 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
                     .isDelete(0)
                     .build();
             generationTaskMapper.insert(task);
-            log.info("生成任务 trace 已创建，taskId: {}, appId: {}, targetType: {}", taskId, appId, enumValue(targetType));
+            log.info(
+                    "生成任务 trace 已创建，taskId: {}, appId: {}, userId: {}, originalType: {}, targetType: {}, requiresBuildValidation: {}, qualityGate: {}, orchestrationMode: {}, userPrompt: {}, enhancedPrompt: {}",
+                    taskId,
+                    appId,
+                    userId,
+                    enumValue(originalType),
+                    enumValue(targetType),
+                    requiresBuildValidation,
+                    qualityGate,
+                    orchestrationMode,
+                    preview(userPrompt, LOG_PROMPT_PREVIEW_LENGTH),
+                    preview(enhancedPrompt, LOG_PROMPT_PREVIEW_LENGTH)
+            );
         } catch (Exception e) {
             log.error("记录生成任务开始失败，taskId: {}, appId: {}", taskId, appId, e);
         }
@@ -103,6 +118,7 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
                 task.setErrorMessage(limit(message, MAX_MESSAGE_LENGTH));
             }
             generationTaskMapper.update(task);
+            log.info("生成任务阶段更新，taskId: {}, stage: {}, message: {}", taskId, task.getStage(), preview(message, LOG_MESSAGE_PREVIEW_LENGTH));
         } catch (Exception e) {
             log.warn("记录生成阶段失败，taskId: {}", taskId, e);
         }
@@ -121,6 +137,7 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
             task.setMemorySummary(limit(memorySummary, MAX_MEMORY_SUMMARY_LENGTH));
             task.setUpdateTime(LocalDateTime.now());
             generationTaskMapper.update(task);
+            log.info("生成任务记忆摘要更新，taskId: {}, memorySummary: {}", taskId, preview(memorySummary, LOG_MESSAGE_PREVIEW_LENGTH));
         } catch (Exception e) {
             log.warn("记录生成记忆摘要失败，taskId: {}", taskId, e);
         }
@@ -145,6 +162,13 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
             }
             task.setErrorMessage(limit(errorMessage, MAX_MESSAGE_LENGTH));
             generationTaskMapper.update(task);
+            log.info(
+                    "生成任务 trace 已完成，taskId: {}, status: {}, durationMs: {}, errorMessage: {}",
+                    taskId,
+                    task.getStatus(),
+                    task.getDurationMs(),
+                    preview(errorMessage, LOG_MESSAGE_PREVIEW_LENGTH)
+            );
         } catch (Exception e) {
             log.warn("记录生成任务结束失败，taskId: {}", taskId, e);
         }
@@ -182,6 +206,18 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
                     .isDelete(0)
                     .build();
             generationBuildLogMapper.insert(buildLog);
+            log.info(
+                    "生成构建结果已记录，taskId: {}, appId: {}, stage: {}, success: {}, qualityGate: {}, willAutoRepair: {}, projectPath: {}, summary: {}, report: {}",
+                    taskId,
+                    appId,
+                    buildLog.getStage(),
+                    buildLog.getSuccess(),
+                    buildLog.getQualityGate(),
+                    buildLog.getWillAutoRepair(),
+                    buildLog.getProjectPath(),
+                    preview(buildLog.getSummary(), LOG_MESSAGE_PREVIEW_LENGTH),
+                    preview(buildLog.getReport(), LOG_MESSAGE_PREVIEW_LENGTH)
+            );
         } catch (Exception e) {
             log.warn("记录构建结果失败，taskId: {}", taskId, e);
         }
@@ -210,6 +246,20 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
                     .isDelete(0)
                     .build();
             generationModelCallMapper.insert(modelCall);
+            log.info(
+                    "生成模型调用已记录，taskId: {}, appId: {}, provider: {}, model: {}, promptTokens: {}, completionTokens: {}, totalTokens: {}, latencyMs: {}, finishReason: {}, usageSource: {}, metadata: {}",
+                    taskId,
+                    appId,
+                    modelCall.getProvider(),
+                    modelCall.getModel(),
+                    modelCall.getPromptTokens(),
+                    modelCall.getCompletionTokens(),
+                    modelCall.getTotalTokens(),
+                    modelCall.getLatencyMs(),
+                    modelCall.getFinishReason(),
+                    modelCall.getUsageSource(),
+                    preview(modelCall.getRawMetadataJson(), LOG_METADATA_PREVIEW_LENGTH)
+            );
         } catch (Exception e) {
             log.warn("记录模型调用失败，taskId: {}", taskId, e);
         }
@@ -314,5 +364,15 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private String preview(String value, int maxLength) {
+        if (StrUtil.isBlank(value)) {
+            return value;
+        }
+        if (value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength) + "...(truncated)";
     }
 }

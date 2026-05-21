@@ -49,4 +49,33 @@ public interface AiModelService extends IService<AiModel> {
      * @return 更新后的模型
      */
     AiModel toggleModelEnabled(Long modelId);
+
+    /**
+     * 新增模型，并根据启用状态维护单活模型约束。
+     *
+     * @param model 模型配置
+     * @return 是否保存成功
+     */
+    boolean saveModel(AiModel model);
+
+    /**
+     * 更新模型，并根据启用状态维护单活模型约束。
+     *
+     * @param model 模型配置
+     * @return 是否更新成功
+     */
+    boolean updateModel(AiModel model);
+
+    /**
+     * 删除模型，并维护启用模型缓存。
+     *
+     * @param modelId 模型 ID
+     * @return 是否删除成功
+     */
+    boolean deleteModel(Long modelId);
+
+    /**
+     * 清理启用模型缓存。
+     */
+    void evictEnabledModelCache();
 }

@@ -60,7 +60,7 @@ public class AiModelController {
         AiModel model = new AiModel();
         BeanUtil.copyProperties(addRequest, model);
         model.setUserId(loginUser.getId());
-        boolean result = aiModelService.save(model);
+        boolean result = aiModelService.saveModel(model);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         publishModelConfigChanged();
         return ResultUtils.success(model.getId());
@@ -80,7 +80,7 @@ public class AiModelController {
 
         AiModel model = new AiModel();
         BeanUtil.copyProperties(updateRequest, model);
-        boolean result = aiModelService.updateById(model);
+        boolean result = aiModelService.updateModel(model);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         publishModelConfigChanged();
         return ResultUtils.success(true);
@@ -95,7 +95,7 @@ public class AiModelController {
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        boolean result = aiModelService.removeById(deleteRequest.getId());
+        boolean result = aiModelService.deleteModel(deleteRequest.getId());
         if (result) {
             publishModelConfigChanged();
         }

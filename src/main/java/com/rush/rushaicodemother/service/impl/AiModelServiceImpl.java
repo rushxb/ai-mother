@@ -1,16 +1,22 @@
 package com.rush.rushaicodemother.service.impl;
 
+import cn.hutool.json.JSONUtil;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.rush.rushaicodemother.controller.AiModelController.AiModelQueryRequest;
+import com.rush.rushaicodemother.constant.RedisKeyConstant;
 import com.rush.rushaicodemother.mapper.AiModelMapper;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.service.AiModelService;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -20,19 +26,33 @@ import java.util.List;
 @Service
 public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> implements AiModelService {
 
+    private static final Duration ENABLED_MODEL_CACHE_TTL = Duration.ofHours(6);
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
     @Override
     public List<AiModel> listEnabledModels() {
-        QueryWrapper queryWrapper = new QueryWrapper();
-        queryWrapper.eq("isEnabled", 1);
-        queryWrapper.orderBy("sortOrder", true);
-        return this.mapper.selectListByQuery(queryWrapper);
+        List<AiModel> cachedModels = getEnabledModelsFromCache();
+        if (cachedModels != null) {
+            return cachedModels;
+        }
+        List<AiModel> models = listEnabledModelsFromDb();
+        refreshEnabledModelCache(models);
+        return models;
     }
 
     @Override
     public List<AiModel> listEnabledModelsByType(String modelType) {
+        return listEnabledModels().stream()
+                .filter(model -> StrUtil.equals(model.getModelType(), modelType))
+                .toList();
+    }
+
+    private List<AiModel> listEnabledModelsFromDb() {
         QueryWrapper queryWrapper = new QueryWrapper();
         queryWrapper.eq("isEnabled", 1);
-        queryWrapper.eq("modelType", modelType);
+        queryWrapper.eq("isDelete", 0);
         queryWrapper.orderBy("sortOrder", true);
         return this.mapper.selectListByQuery(queryWrapper);
     }
@@ -77,16 +97,73 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AiModel toggleModelEnabled(Long modelId) {
         AiModel model = this.getById(modelId);
         if (model == null) {
             return null;
         }
 
-        // 切换启用状态
-        model.setIsEnabled(model.getIsEnabled() == 1 ? 0 : 1);
+        boolean enable = model.getIsEnabled() == null || model.getIsEnabled() != 1;
+        if (enable) {
+            disableOtherEnabledModels(model.getId());
+            model.setIsEnabled(1);
+        } else {
+            model.setIsEnabled(0);
+        }
         this.updateById(model);
+        refreshEnabledModelCache();
         return model;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean saveModel(AiModel model) {
+        if (model == null) {
+            return false;
+        }
+        if (Integer.valueOf(1).equals(model.getIsEnabled())) {
+            disableOtherEnabledModels(null);
+        }
+        boolean result = this.save(model);
+        if (result) {
+            refreshEnabledModelCache();
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean updateModel(AiModel model) {
+        if (model == null || model.getId() == null) {
+            return false;
+        }
+        if (Integer.valueOf(1).equals(model.getIsEnabled())) {
+            disableOtherEnabledModels(model.getId());
+        }
+        boolean result = this.updateById(model);
+        if (result) {
+            refreshEnabledModelCache();
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean deleteModel(Long modelId) {
+        if (modelId == null || modelId <= 0) {
+            return false;
+        }
+        boolean result = this.removeById(modelId);
+        if (result) {
+            refreshEnabledModelCache();
+        }
+        return result;
+    }
+
+    @Override
+    public void evictEnabledModelCache() {
+        stringRedisTemplate.delete(RedisKeyConstant.AI_MODEL_ENABLED_LIST);
     }
 
     /**
@@ -120,5 +197,49 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
 
         queryWrapper.orderBy(sortField, "ascend".equals(sortOrder));
         return queryWrapper;
+    }
+
+    private void disableOtherEnabledModels(Long excludeId) {
+        AiModel updateEntity = new AiModel();
+        updateEntity.setIsEnabled(0);
+
+        QueryWrapper queryWrapper = QueryWrapper.create()
+                .eq("isEnabled", 1)
+                .eq("isDelete", 0);
+        if (excludeId != null) {
+            queryWrapper.ne("id", excludeId);
+        }
+
+        this.mapper.updateByQuery(updateEntity, queryWrapper);
+    }
+
+    private List<AiModel> getEnabledModelsFromCache() {
+        String cachedJson = stringRedisTemplate.opsForValue().get(RedisKeyConstant.AI_MODEL_ENABLED_LIST);
+        if (StrUtil.isBlank(cachedJson)) {
+            return null;
+        }
+        try {
+            return JSONUtil.toList(cachedJson, AiModel.class);
+        } catch (Exception e) {
+            log.warn("解析启用模型缓存失败，将回退数据库查询并清理缓存", e);
+            evictEnabledModelCache();
+            return null;
+        }
+    }
+
+    private void refreshEnabledModelCache() {
+        refreshEnabledModelCache(listEnabledModelsFromDb());
+    }
+
+    private void refreshEnabledModelCache(List<AiModel> models) {
+        if (models == null || models.isEmpty()) {
+            evictEnabledModelCache();
+            return;
+        }
+        stringRedisTemplate.opsForValue().set(
+                RedisKeyConstant.AI_MODEL_ENABLED_LIST,
+                JSONUtil.toJsonStr(models),
+                ENABLED_MODEL_CACHE_TTL
+        );
     }
 }

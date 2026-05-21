@@ -328,3 +328,6 @@ alter table ai_model add column if not exists editTime datetime default CURRENT_
 alter table ai_model add column if not exists createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间';
 alter table ai_model add column if not exists updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间';
 alter table ai_model add column if not exists isDelete tinyint default 0 not null comment '是否删除';
+
+-- 如历史数据存在多个启用模型，可先全部关闭，再手动启用目标模型
+-- update ai_model set isEnabled = 0 where isDelete = 0;

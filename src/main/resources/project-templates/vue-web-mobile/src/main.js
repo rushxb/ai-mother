@@ -1,4 +1,6 @@
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import { Button, Card, Cell, CellGroup, Col, ConfigProvider, Dialog, Empty, Field, Grid, GridItem, Icon, NavBar, NoticeBar, Popup, Row, Search, Step, Steps, Swipe, SwipeItem, Tab, Tabs, Tag } from 'vant'
 import 'vant/lib/index.css'
 import App from './App.vue'
@@ -7,9 +9,12 @@ import { setupMock } from './mocks'
 import './styles/mobile.css'
 
 const app = createApp(App)
+const pinia = createPinia()
 
 setupMock()
 
+pinia.use(piniaPluginPersistedstate)
+app.use(pinia)
 app.use(router)
 app.use(ConfigProvider)
 app.use(Button)

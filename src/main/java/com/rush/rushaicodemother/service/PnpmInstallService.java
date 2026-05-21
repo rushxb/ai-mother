@@ -218,8 +218,54 @@ public class PnpmInstallService {
             return false;
         }
 
+        if (!isViteRuntimeResolvable(projectDir)) {
+            return false;
+        }
+
         // 检查关键原生包完整性
         return areNativePackagesComplete(projectDir);
+    }
+
+    /**
+     * 校验 Vite 是否能被当前 node_modules 正常加载。
+     * <p>
+     * 这能捕获仅靠文件存在性无法发现的损坏，例如 vite 的传递依赖 picomatch 缺失。
+     */
+    private boolean isViteRuntimeResolvable(File projectDir) {
+        List<String> cmd = new ArrayList<>(List.of(
+                isWindows() ? "node.exe" : "node",
+                "--input-type=module",
+                "--eval",
+                "import('vite').then(() => process.exit(0)).catch((error) => { console.error(error?.message || error); process.exit(1); })"
+        ));
+
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.directory(projectDir);
+            pb.redirectErrorStream(true);
+            pb.environment().put("NO_UPDATE_NOTIFIER", "1");
+            pb.environment().put("NPM_CONFIG_AUDIT", "false");
+            pb.environment().put("NPM_CONFIG_FUND", "false");
+
+            Process process = pb.start();
+            String output = readProcessOutput(process);
+            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("vite 运行时校验超时: {}", projectDir.getAbsolutePath());
+                return false;
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                log.warn("vite 运行时校验失败，exit code: {}, output: {}", exitCode, output.trim());
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("vite 运行时校验异常: {}", e.getMessage());
+            return false;
+        }
     }
 
     /**

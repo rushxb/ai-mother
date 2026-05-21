@@ -52,7 +52,12 @@ import reactor.core.publisher.Flux;
 import java.io.File;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -445,15 +450,86 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         String targetDirName = codeGenType + "_" + targetApp.getId();
         File sourceDir = new File(AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName);
         if (!sourceDir.exists() || !sourceDir.isDirectory()) {
-            log.warn("复制应用时源代码目录不存在，sourceAppId: {}, sourceDir: {}", sourceApp.getId(), sourceDir.getAbsolutePath());
-            return;
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR,
+                    "复制应用失败，源代码目录不存在，请先生成代码");
         }
         File targetDir = new File(AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + targetDirName);
         try {
-            FileUtil.copyContent(sourceDir, targetDir, true);
+            if (isWindows()) {
+                copyDirectoryWithRobocopy(sourceDir.toPath(), targetDir.toPath());
+            } else {
+                copyDirectoryPreservingLinks(sourceDir.toPath(), targetDir.toPath());
+            }
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "复制应用代码失败：" + e.getMessage());
         }
+    }
+
+    private void copyDirectoryWithRobocopy(Path sourceRoot, Path targetRoot) throws java.io.IOException, InterruptedException {
+        Files.createDirectories(targetRoot);
+        List<String> command = List.of(
+                "robocopy",
+                sourceRoot.toString(),
+                targetRoot.toString(),
+                "/E",
+                "/COPY:DAT",
+                "/DCOPY:DAT",
+                "/SL",
+                "/R:1",
+                "/W:1",
+                "/NFL",
+                "/NDL",
+                "/NJH",
+                "/NJS",
+                "/NP"
+        );
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exitCode = process.waitFor();
+        if (exitCode >= 8) {
+            throw new java.io.IOException("robocopy 复制失败，exit code: " + exitCode + ", output: " + output.trim());
+        }
+        if (exitCode > 0) {
+            log.info("robocopy 复制完成，exit code: {}, output: {}", exitCode, output.trim());
+        }
+    }
+
+    private void copyDirectoryPreservingLinks(Path sourceRoot, Path targetRoot) throws java.io.IOException {
+        Files.createDirectories(targetRoot);
+        Files.walkFileTree(sourceRoot, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws java.io.IOException {
+                Path relative = sourceRoot.relativize(dir);
+                Path targetDir = targetRoot.resolve(relative);
+                Files.createDirectories(targetDir);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws java.io.IOException {
+                Path relative = sourceRoot.relativize(file);
+                Path targetFile = targetRoot.resolve(relative);
+                Files.createDirectories(targetFile.getParent());
+                if (Files.isSymbolicLink(file)) {
+                    Path linkTarget = Files.readSymbolicLink(file);
+                    try {
+                        Files.deleteIfExists(targetFile);
+                        Files.createSymbolicLink(targetFile, linkTarget);
+                    } catch (UnsupportedOperationException | java.io.IOException e) {
+                        Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+                    }
+                } else {
+                    Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("windows");
     }
 
     private App getOwnedApp(Long appId, User loginUser) {

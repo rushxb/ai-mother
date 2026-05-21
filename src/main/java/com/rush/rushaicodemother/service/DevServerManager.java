@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -61,15 +62,13 @@ public class DevServerManager {
     private final AtomicInteger portCounter = new AtomicInteger(PORT_RANGE_START);
 
     /**
-     * 正在安装依赖的项目目录锁
-     */
-    private final Map<String, Object> installLocks = new ConcurrentHashMap<>();
-
-    /**
      * 错误收集器映射：appId -> DevServerErrorCollector
      * 用于运行时验证场景，收集 dev server 输出中的错误
      */
     private final Map<Long, DevServerErrorCollector> errorCollectors = new ConcurrentHashMap<>();
+
+    @Resource
+    private PnpmInstallService pnpmInstallService;
 
     /**
      * 为应用分配一个可用端口
@@ -330,10 +329,8 @@ public class DevServerManager {
      */
     private Process executeDevServer(File projectDir, int port, Long appId) {
         try {
-            String npmCommand = isWindows() ? "pnpm.cmd" : "pnpm";
-
-            // 1. 确保依赖已安装
-            ensureDependenciesInstalled(projectDir, npmCommand);
+            // 1. 确保依赖已安装（委托给 PnpmInstallService）
+            ensureDependenciesInstalled(projectDir);
 
             // 2. 启动 dev server
             // 直接调用 node_modules/.bin/vite，避免 pnpm 的 -- 分隔符在 Windows 上不生效
@@ -354,8 +351,9 @@ public class DevServerManager {
                     processBuilder = new ProcessBuilder(
                             viteBin.getAbsolutePath(), "--port", String.valueOf(port));
                 } else {
+                    String npmCmd = isWindows() ? "pnpm.cmd" : "pnpm";
                     processBuilder = new ProcessBuilder(
-                            npmCommand, "run", "dev", "--", "--port", String.valueOf(port));
+                            npmCmd, "run", "dev", "--", "--port", String.valueOf(port));
                 }
             }
             processBuilder.directory(projectDir);
@@ -410,100 +408,13 @@ public class DevServerManager {
     }
 
     /**
-     * 确保项目依赖已安装
+     * 确保项目依赖已安装（委托给 PnpmInstallService）
      */
-    private void ensureDependenciesInstalled(File projectDir, String npmCommand) {
-        String projectPath = projectDir.getAbsolutePath();
-        Object lock = installLocks.computeIfAbsent(projectPath, k -> new Object());
-
-        synchronized (lock) {
-            File nodeModules = new File(projectDir, "node_modules");
-            if (nodeModules.exists() && nodeModules.isDirectory()) {
-                // 检查 node_modules 是否完整（通过检查 .pnpm 目录或 package-lock.json）
-                if (isNodeModulesComplete(projectDir)) {
-                    log.info("node_modules 已存在且完整，跳过依赖安装");
-                    return;
-                }
-                log.warn("node_modules 存在但不完整，将重新安装依赖");
-            }
-
-            log.info("开始安装依赖...");
-            try {
-                ProcessBuilder installBuilder = new ProcessBuilder(npmCommand, "install", "--force");
-                installBuilder.directory(projectDir);
-                installBuilder.redirectErrorStream(true);
-
-                Map<String, String> env = installBuilder.environment();
-                env.put("NO_UPDATE_NOTIFIER", "1");
-                env.put("NPM_CONFIG_AUDIT", "false");
-                env.put("NPM_CONFIG_FUND", "false");
-
-                Process installProcess = installBuilder.start();
-                startOutputDrainer(installProcess, null);
-
-                // 等待安装完成，最多 5 分钟
-                boolean finished = installProcess.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
-                if (!finished) {
-                    installProcess.destroyForcibly();
-                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装超时（5 分钟）");
-                }
-                if (installProcess.exitValue() != 0) {
-                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装失败（exit code: " + installProcess.exitValue() + "）");
-                }
-                log.info("依赖安装完成");
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装被中断");
-            } catch (IOException e) {
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装失败：" + e.getMessage());
-            } finally {
-                installLocks.remove(projectPath);
-            }
+    private void ensureDependenciesInstalled(File projectDir) {
+        PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
+        if (!result.success()) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "依赖安装失败：" + result.errorDetail());
         }
-    }
-
-    /**
-     * 检查 node_modules 是否完整
-     * 通过检查关键目录和文件来判断
-     */
-    private boolean isNodeModulesComplete(File projectDir) {
-        // 检查安装标记文件（VueProjectBuilder 使用此文件跟踪安装状态）
-        File stampFile = new File(projectDir, ".ai-code-install.stamp");
-        if (!stampFile.exists()) {
-            // 如果没有标记文件，检查 node_modules 是否有内容
-            File nodeModulesDir = new File(projectDir, "node_modules");
-            if (!nodeModulesDir.exists() || !nodeModulesDir.isDirectory()) {
-                return false;
-            }
-            // 检查 node_modules 中是否有文件（防止空目录）
-            String[] files = nodeModulesDir.list();
-            if (files == null || files.length == 0) {
-                return false;
-            }
-        }
-
-        // 检查 .pnpm 目录（pnpm 的硬链接目录）
-        File pnpmDir = new File(projectDir, "node_modules/.pnpm");
-        if (!pnpmDir.exists() || !pnpmDir.isDirectory()) {
-            return false;
-        }
-
-        // 检查 vite 是否已安装
-        File viteBin = new File(projectDir, "node_modules/.bin/vite.cmd");
-        if (!viteBin.exists()) {
-            viteBin = new File(projectDir, "node_modules/.bin/vite");
-            if (!viteBin.exists()) {
-                return false;
-            }
-        }
-
-        // 检查 node_modules 中是否有文件（防止空目录）
-        String[] files = pnpmDir.list();
-        if (files == null || files.length == 0) {
-            return false;
-        }
-
-        return true;
     }
 
     /**

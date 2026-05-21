@@ -385,4 +385,107 @@ declare namespace API {
     creditBalance?: number
     createTime?: string
   }
+
+  // ========== AI 模型配置相关类型 ==========
+
+  type AiModel = {
+    id?: number
+    modelName?: string
+    provider?: string
+    modelId?: string
+    description?: string
+    baseUrl?: string
+    apiKey?: string
+    maxTokens?: number
+    temperature?: number
+    isEnabled?: number
+    modelType?: string
+    supportsThinking?: number
+    sortOrder?: number
+    configJson?: string
+    userId?: number
+    editTime?: string
+    createTime?: string
+    updateTime?: string
+    isDelete?: number
+  }
+
+  type AiModelAddRequest = {
+    modelName?: string
+    provider?: string
+    modelId?: string
+    description?: string
+    baseUrl?: string
+    apiKey?: string
+    maxTokens?: number
+    temperature?: number
+    isEnabled?: number
+    modelType?: string
+    supportsThinking?: number
+    sortOrder?: number
+    configJson?: string
+  }
+
+  type AiModelUpdateRequest = {
+    id?: number
+    modelName?: string
+    provider?: string
+    modelId?: string
+    description?: string
+    baseUrl?: string
+    apiKey?: string
+    maxTokens?: number
+    temperature?: number
+    isEnabled?: number
+    modelType?: string
+    supportsThinking?: number
+    sortOrder?: number
+    configJson?: string
+  }
+
+  type AiModelQueryRequest = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    provider?: string
+    modelType?: string
+    isEnabled?: number
+    keyword?: string
+  }
+
+  type BaseResponseAiModel = {
+    code?: number
+    data?: AiModel
+    message?: string
+  }
+
+  type BaseResponseListAiModel = {
+    code?: number
+    data?: AiModel[]
+    message?: string
+  }
+
+  type BaseResponsePageAiModel = {
+    code?: number
+    data?: PageAiModel
+    message?: string
+  }
+
+  type PageAiModel = {
+    records?: AiModel[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
+  type getModelByIdParams = {
+    id: number
+  }
+
+  type listEnabledModelsByTypeParams = {
+    modelType: string
+  }
 }

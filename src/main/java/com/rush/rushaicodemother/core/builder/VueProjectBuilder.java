@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.core.builder;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.rush.rushaicodemother.service.PnpmInstallService;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -40,6 +42,9 @@ public class VueProjectBuilder {
     private static final int FULL_BUILD_TIMEOUT_SECONDS = 240;
 
     private final Map<String, BuildResult> recentBuildResults = new ConcurrentHashMap<>();
+
+    @Resource
+    private PnpmInstallService pnpmInstallService;
 
     /**
      * 异步构建 Vue 项目
@@ -199,23 +204,27 @@ public class VueProjectBuilder {
 
     private CommandResult installDependenciesIfNeeded(File projectDir, String currentDependencyFingerprint) {
         try {
-            File nodeModulesDir = new File(projectDir, "node_modules");
             File stampFile = new File(projectDir, INSTALL_STAMP_FILE);
-            if (nodeModulesDir.exists() && stampFile.exists()) {
+            if (stampFile.exists()) {
                 String installedFingerprint = readStamp(stampFile);
                 if (currentDependencyFingerprint.equals(installedFingerprint)) {
                     log.info("依赖未变化，跳过 pnpm install: {}", projectDir.getAbsolutePath());
-                    return CommandResult.skipped("pnpm install --prefer-offline", "依赖未变化，已跳过 pnpm install");
+                    return CommandResult.skipped("pnpm install", "依赖未变化，已跳过 pnpm install");
                 }
             }
-            CommandResult installResult = executePnpmInstall(projectDir);
-            if (installResult.success()) {
+            PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
+            if (result.success()) {
                 writeStamp(stampFile, currentDependencyFingerprint);
+                return CommandResult.success("pnpm install", 0, result.output());
             }
-            return installResult;
+            return CommandResult.failed("pnpm install", 1, result.output());
         } catch (Exception e) {
             log.warn("依赖缓存判断失败，将执行 pnpm install: {}", e.getMessage());
-            return executePnpmInstall(projectDir);
+            PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
+            if (result.success()) {
+                return CommandResult.success("pnpm install", 0, result.output());
+            }
+            return CommandResult.failed("pnpm install", 1, result.output());
         }
     }
 
@@ -305,77 +314,6 @@ public class VueProjectBuilder {
         }
         byte[] content = Files.readAllBytes(filePath);
         entries.add(normalizePath(relativePath) + ':' + content.length + ':' + Arrays.hashCode(content));
-    }
-
-    private CommandResult executePnpmInstall(File projectDir) {
-        log.info("执行 pnpm install...");
-        CommandResult result = executeCommand(projectDir, INSTALL_TIMEOUT_SECONDS, buildCommand("pnpm"), "install", "--prefer-offline", "--force");
-        if (result.success()) {
-            return result;
-        }
-        // Windows: EPERM 错误通常是 dev server 进程锁定了 node_modules 中的文件（如 esbuild.exe）
-        // 杀掉 vite/esbuild 进程后重试
-        if (isWindows() && isPermissionError(result)) {
-            log.warn("检测到 EPERM 错误，尝试释放文件锁后重试...");
-            killLockingProcesses(projectDir);
-            // 等待进程完全退出
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-            log.info("重试 pnpm install...");
-            return executeCommand(projectDir, INSTALL_TIMEOUT_SECONDS, buildCommand("pnpm"), "install", "--prefer-offline", "--force");
-        }
-        return result;
-    }
-
-    /**
-     * 检查命令输出是否包含权限错误（EPERM）
-     */
-    private boolean isPermissionError(CommandResult result) {
-        String output = result.output();
-        if (output == null) {
-            return false;
-        }
-        String upper = output.toUpperCase(Locale.ROOT);
-        return upper.contains("EPERM") || upper.contains("OPERATION NOT PERMITTED");
-    }
-
-    /**
-     * 杀掉可能锁定 node_modules 的进程（vite、esbuild、rollup）
-     * 仅在 Windows 上使用。pnpm --force 替换文件时需要释放文件锁。
-     */
-    private void killLockingProcesses(File projectDir) {
-        try {
-            log.info("尝试释放 node_modules 文件锁，项目路径: {}", projectDir.getAbsolutePath());
-            // 杀掉整个 vite 进程树（包含 esbuild、rollup 子进程）
-            // /F = 强制, /T = 终止子进程树, /IM = 按镜像名匹配
-            String[] targets = {"esbuild.exe", "rollup.win32-x64-msvc.node"};
-            for (String target : targets) {
-                try {
-                    ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "taskkill /F /IM " + target + " /T");
-                    pb.redirectErrorStream(true);
-                    Process p = pb.start();
-                    String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                    p.waitFor(10, TimeUnit.SECONDS);
-                    log.info("taskkill {} 输出: {}", target, output.trim());
-                } catch (Exception e) {
-                    log.debug("taskkill {} 失败: {}", target, e.getMessage());
-                }
-            }
-            // 杀掉当前项目的 vite node 进程（通过 wmic 按命令行参数匹配）
-            try {
-                String projectPath = projectDir.getAbsolutePath().replace("\\", "\\\\");
-                ProcessBuilder pb = new ProcessBuilder("cmd", "/c",
-                        "wmic process where \"CommandLine like '%vite%' and CommandLine like '%" + projectPath + "%'\" call terminate");
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                p.waitFor(10, TimeUnit.SECONDS);
-                log.info("wmic vite terminate 输出: {}", output.trim());
-            } catch (Exception e) {
-                log.debug("wmic vite terminate 失败: {}", e.getMessage());
-            }
-        } catch (Exception e) {
-            log.warn("释放文件锁失败: {}", e.getMessage());
-        }
     }
 
     private CommandResult executeLightValidation(File projectDir, ProjectScripts scripts) {

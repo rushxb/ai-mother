@@ -6,6 +6,7 @@ import AppManagePage from '@/pages/admin/AppManagePage.vue'
 import AppChatPage from '@/pages/app/AppChatPage.vue'
 import AppEditPage from '@/pages/app/AppEditPage.vue'
 import ChatManagePage from "@/pages/admin/ChatManagePage.vue";
+import ModelManagePage from "@/pages/admin/ModelManagePage.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -39,6 +40,11 @@ const router = createRouter({
       path: '/admin/chatManage',
       name: '对话管理',
       component: ChatManagePage,
+    },
+    {
+      path: '/admin/modelManage',
+      name: '模型管理',
+      component: ModelManagePage,
     },
     {
       path: '/app/chat/:id',

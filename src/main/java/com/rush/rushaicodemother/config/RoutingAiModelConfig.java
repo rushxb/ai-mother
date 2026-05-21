@@ -31,20 +31,39 @@ public class RoutingAiModelConfig {
     private Boolean logResponses = false;
 
     /**
+     * 判断是否支持 thinking 的模型
+     */
+    private boolean isThinkingCapableModel(String modelId) {
+        if (modelId == null) return false;
+        String lower = modelId.toLowerCase();
+        return lower.startsWith("deepseek-v4-") 
+                || lower.startsWith("o1") 
+                || lower.startsWith("o3")
+                || lower.contains("claude-3-5-sonnet")
+                || lower.contains("claude-3-opus");
+    }
+
+    /**
      * 创建用于路由判断的ChatModel
      */
     @Bean
     @Scope("prototype")
     public ChatModel routingChatModelPrototype() {
-        return OpenAiChatModel.builder()
+        var builder = OpenAiChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .baseUrl(baseUrl)
                 .maxTokens(maxTokens)
                 .temperature(temperature)
-                .disableThinkingForDeepSeekV4(true)
                 .logRequests(logRequests)
-                .logResponses(logResponses)
-                .build();
+                .logResponses(logResponses);
+
+        // 支持 thinking 的模型默认禁用 thinking
+        // 注意：langchain4j 1.1.0 暂不支持 thinking API
+        // if (isThinkingCapableModel(modelName)) {
+        //     builder.thinking(Thinking.disabled());
+        // }
+
+        return builder.build();
     }
 }

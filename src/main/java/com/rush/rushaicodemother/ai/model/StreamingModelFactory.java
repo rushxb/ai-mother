@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
+import com.rush.rushaicodemother.service.AiModelService;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import jakarta.annotation.Resource;
@@ -22,6 +24,9 @@ public class StreamingModelFactory {
 
     @Resource
     private AiModelMonitorListener aiModelMonitorListener;
+
+    @Resource
+    private AiModelService aiModelService;
 
     @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.base-url}")
     private String reasoningBaseUrl;
@@ -61,11 +66,24 @@ public class StreamingModelFactory {
 
     /**
      * 根据性能配置创建流式模型。
+     * <p>
+     * 优先从数据库读取模型配置，如果数据库中没有配置，则使用配置文件的默认配置。
      *
      * @param profile 性能配置
      * @return 流式模型实例
      */
     public StreamingChatModel createModel(GenerationPerformanceProfile profile) {
+        // 尝试从数据库获取对应类型的模型配置
+        String modelType = resolveModelType(profile.modelTier());
+        AiModel dbModel = getFirstEnabledModelByType(modelType);
+
+        if (dbModel != null) {
+            log.debug("使用数据库模型配置: {}", dbModel.getModelName());
+            return createModelFromDb(dbModel, profile.thinkingEnabled());
+        }
+
+        // 回退到配置文件默认配置
+        log.debug("使用配置文件默认模型配置");
         return switch (profile.modelTier()) {
             case SPEED, BALANCED -> createFlashModel(profile.thinkingEnabled());
             case QUALITY -> createReasoningModel(profile.thinkingEnabled());
@@ -73,29 +91,116 @@ public class StreamingModelFactory {
     }
 
     /**
+     * 根据模型层级解析模型类型
+     */
+    private String resolveModelType(GenerationPerformanceProfile.ModelTier modelTier) {
+        return switch (modelTier) {
+            case SPEED, BALANCED -> "chat";
+            case QUALITY -> "reasoning";
+        };
+    }
+
+    /**
+     * 获取指定类型的第一个启用模型
+     */
+    private AiModel getFirstEnabledModelByType(String modelType) {
+        try {
+            List<AiModel> models = aiModelService.listEnabledModelsByType(modelType);
+            return models.isEmpty() ? null : models.get(0);
+        } catch (Exception e) {
+            log.warn("从数据库获取模型配置失败，将使用默认配置", e);
+            return null;
+        }
+    }
+
+    /**
+     * 从数据库配置创建模型
+     * <p>
+     * 兼容性处理：
+     * 1. 只有 supportsThinking=1 的模型才发送 thinking 参数
+     * 2. temperature 范围根据模型提供商调整
+     */
+    private StreamingChatModel createModelFromDb(AiModel dbModel, boolean enableThinking) {
+        var builder = OpenAiStreamingChatModel.builder()
+                .apiKey(dbModel.getApiKey())
+                .baseUrl(dbModel.getBaseUrl())
+                .modelName(dbModel.getModelId())
+                .maxTokens(dbModel.getMaxTokens())
+                .temperature(resolveTemperature(dbModel))
+                .logRequests(logRequests)
+                .logResponses(logResponses)
+                .listeners(List.of(aiModelMonitorListener));
+
+        // 只有明确标记支持 thinking 的模型才设置 thinking 参数
+        // 注意：langchain4j 1.1.0 暂不支持 thinking API，预留注释
+        // if (dbModel.getSupportsThinking() != null && dbModel.getSupportsThinking() == 1) {
+        //     builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        // }
+
+        return builder.build();
+    }
+
+    /**
+     * 判断是否为支持 thinking 的模型
+     * 支持 thinking 的模型包括：
+     * - DeepSeek V4 系列 (deepseek-v4-*)
+     * - OpenAI o1/o3 系列
+     * - Claude 3.5 Sonnet / Claude 3 Opus
+     */
+    private boolean isThinkingCapableModel(String modelId) {
+        if (modelId == null) return false;
+        String lower = modelId.toLowerCase();
+        
+        // DeepSeek V4 系列
+        if (lower.startsWith("deepseek-v4-")) return true;
+        
+        // OpenAI o1/o3 系列
+        if (lower.startsWith("o1") || lower.startsWith("o3")) return true;
+        
+        // Claude 3.5 Sonnet / Claude 3 Opus
+        if (lower.contains("claude-3-5-sonnet") || lower.contains("claude-3-opus")) return true;
+        
+        return false;
+    }
+
+    /**
+     * 解析温度参数，确保在模型支持的范围内
+     * <p>
+     * 不同模型的 temperature 范围：
+     * - DeepSeek: 0-2
+     * - OpenAI: 0-2
+     * - Claude: 0-1
+     * - 通义千问: 0-2
+     * - 其他: 默认 0-1（安全范围）
+     */
+    private Double resolveTemperature(AiModel dbModel) {
+        Double temp = dbModel.getTemperature();
+        if (temp == null) {
+            return 0.7;
+        }
+
+        String modelId = dbModel.getModelId() != null ? dbModel.getModelId().toLowerCase() : "";
+        String provider = dbModel.getProvider() != null ? dbModel.getProvider().toLowerCase() : "";
+
+        // Claude 模型限制 temperature 在 0-1 范围
+        if (modelId.contains("claude") || provider.contains("anthropic")) {
+            return Math.min(temp, 1.0);
+        }
+
+        // 其他模型使用原始值（OpenAI/DeepSeek/通义千问都支持 0-2）
+        return temp;
+    }
+
+    /**
      * 创建轻量 Flash 模型。
      * <p>
      * 用于首次简单生成和改修场景，响应速度快。
+     * 注意：此方法使用配置文件中的默认配置。
      */
     private StreamingChatModel createFlashModel(boolean enableThinking) {
         log.debug("创建 Flash 模型, thinking={}", enableThinking);
 
-        // Flash 模型默认禁用 thinking，除非明确要求
-        if (!enableThinking) {
-            return OpenAiStreamingChatModel.builder()
-                    .apiKey(flashApiKey)
-                    .baseUrl(flashBaseUrl)
-                    .modelName(flashModelName)
-                    .maxTokens(flashMaxTokens)
-                    .temperature(flashTemperature)
-                    .logRequests(logRequests)
-                    .logResponses(logResponses)
-                    .listeners(List.of(aiModelMonitorListener))
-                    .disableThinkingForDeepSeekV4(true)
-                    .build();
-        }
-
-        return OpenAiStreamingChatModel.builder()
+        var builder = OpenAiStreamingChatModel.builder()
                 .apiKey(flashApiKey)
                 .baseUrl(flashBaseUrl)
                 .modelName(flashModelName)
@@ -103,33 +208,27 @@ public class StreamingModelFactory {
                 .temperature(flashTemperature)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
-                .listeners(List.of(aiModelMonitorListener))
-                .build();
+                .listeners(List.of(aiModelMonitorListener));
+
+        // 支持 thinking 的模型设置 thinking 参数
+        // 注意：langchain4j 1.1.0 暂不支持 thinking API，预留注释
+        // if (isThinkingCapableModel(flashModelName)) {
+        //     builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        // }
+
+        return builder.build();
     }
 
     /**
      * 创建推理 Reasoning 模型。
      * <p>
      * 用于复杂任务，开启 thinking 以获得更好的推理能力。
+     * 注意：此方法使用配置文件中的默认配置。
      */
     private StreamingChatModel createReasoningModel(boolean enableThinking) {
         log.debug("创建 Reasoning 模型, thinking={}", enableThinking);
 
-        if (enableThinking) {
-            return OpenAiStreamingChatModel.builder()
-                    .apiKey(reasoningApiKey)
-                    .baseUrl(reasoningBaseUrl)
-                    .modelName(reasoningModelName)
-                    .maxTokens(reasoningMaxTokens)
-                    .temperature(reasoningTemperature)
-                    .logRequests(logRequests)
-                    .logResponses(logResponses)
-                    .listeners(List.of(aiModelMonitorListener))
-                    .enableThinkingForDeepSeekV4(true)
-                    .build();
-        }
-
-        return OpenAiStreamingChatModel.builder()
+        var builder = OpenAiStreamingChatModel.builder()
                 .apiKey(reasoningApiKey)
                 .baseUrl(reasoningBaseUrl)
                 .modelName(reasoningModelName)
@@ -137,8 +236,14 @@ public class StreamingModelFactory {
                 .temperature(reasoningTemperature)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
-                .listeners(List.of(aiModelMonitorListener))
-                .disableThinkingForDeepSeekV4(true)
-                .build();
+                .listeners(List.of(aiModelMonitorListener));
+
+        // 支持 thinking 的模型设置 thinking 参数
+        // 注意：langchain4j 1.1.0 暂不支持 thinking API，预留注释
+        // if (isThinkingCapableModel(reasoningModelName)) {
+        //     builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        // }
+
+        return builder.build();
     }
 }

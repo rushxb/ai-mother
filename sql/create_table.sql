@@ -280,3 +280,31 @@ create table if not exists generation_model_call
 ) comment 'AI 模型调用' collate = utf8mb4_unicode_ci;
 
 -- 后续库表更新，不要仅仅在create中新建，因为现有库已经有库表了
+
+-- AI 模型配置表：存储可配置的 AI 模型信息
+create table if not exists ai_model
+(
+    id             bigint auto_increment comment 'id' primary key,
+    modelName      varchar(128)                       not null comment '模型显示名称',
+    provider       varchar(64)                        not null comment '模型提供商：deepseek/openai/custom',
+    modelId        varchar(128)                       not null comment '模型标识符，如 deepseek-v4-flash',
+    description    varchar(512)                       null comment '模型描述',
+    baseUrl        varchar(512)                       not null comment 'API 基础地址',
+    apiKey         varchar(512)                       null comment 'API 密钥',
+    maxTokens      int      default 8192              not null comment '最大 token 数',
+    temperature    double   default 0.7               null comment '温度参数',
+    isEnabled      tinyint  default 1                 not null comment '是否启用：0-禁用 1-启用',
+    modelType      varchar(32)  default 'chat'        not null comment '模型类型：chat/reasoning/routing',
+    supportsThinking tinyint  default 0               not null comment '是否支持 thinking 模式：0-不支持 1-支持',
+    sortOrder      int      default 0                 not null comment '排序权重',
+    configJson     text                               null comment '扩展配置 JSON',
+    userId         bigint                             not null comment '创建用户id',
+    editTime       datetime default CURRENT_TIMESTAMP not null comment '编辑时间',
+    createTime     datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint  default 0                 not null comment '是否删除',
+    UNIQUE KEY uk_provider_modelId (provider, modelId),
+    INDEX idx_isEnabled (isEnabled),
+    INDEX idx_userId (userId),
+    INDEX idx_modelType (modelType)
+) comment 'AI 模型配置' collate = utf8mb4_unicode_ci;

@@ -63,6 +63,9 @@ const getSelectedKey = (path: string) => {
   if (path.startsWith('/admin/appManage')) {
     return '/admin/appManage'
   }
+  if (path.startsWith('/admin/modelManage')) {
+    return '/admin/modelManage'
+  }
   return path
 }
 
@@ -92,7 +95,11 @@ const originItems = [
     label: '应用管理',
     title: '应用管理',
   },
-
+  {
+    key: '/admin/modelManage',
+    label: '模型管理',
+    title: '模型管理',
+  },
 ]
 
 // 过滤菜单项

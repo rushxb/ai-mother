@@ -9,8 +9,8 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
-import com.rush.rushaicodemother.ai.AppNameGeneratorService;
-import com.rush.rushaicodemother.ai.PromptOptimizerService;
+import com.rush.rushaicodemother.ai.AppNameGeneratorServiceFactory;
+import com.rush.rushaicodemother.ai.PromptOptimizerServiceFactory;
 import com.rush.rushaicodemother.ai.intent.BackendIntentDetector;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
@@ -112,10 +112,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private BackendIntentDetector backendIntentDetector;
 
     @Resource
-    private PromptOptimizerService promptOptimizerService;
+    private PromptOptimizerServiceFactory promptOptimizerServiceFactory;
 
     @Resource
-    private AppNameGeneratorService appNameGeneratorService;
+    private AppNameGeneratorServiceFactory appNameGeneratorServiceFactory;
 
     @Resource
     private GenerationTaskOrchestrator generationTaskOrchestrator;
@@ -182,7 +182,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                             .build()
         );
         try {
-            String optimizedPrompt = promptOptimizerService.optimizePrompt(prompt);
+            String optimizedPrompt = promptOptimizerServiceFactory.promptOptimizerService().optimizePrompt(prompt);
             ThrowUtils.throwIf(StrUtil.isBlank(optimizedPrompt), ErrorCode.OPERATION_ERROR, "提示词优化失败");
             return optimizedPrompt.trim();
         } finally {
@@ -235,7 +235,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private String generateAppName(String initPrompt) {
         try {
-            String generatedName = appNameGeneratorService.generateAppName(initPrompt);
+            String generatedName = appNameGeneratorServiceFactory.createAppNameGeneratorService().generateAppName(initPrompt);
             String normalizedName = normalizeAppName(generatedName);
             if (StrUtil.isNotBlank(normalizedName)) {
                 return normalizedName;

@@ -10,6 +10,8 @@ import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import com.rush.rushaicodemother.service.devserver.DevServerErrorCollector;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -62,6 +64,12 @@ public class DevServerManager {
      * 正在安装依赖的项目目录锁
      */
     private final Map<String, Object> installLocks = new ConcurrentHashMap<>();
+
+    /**
+     * 错误收集器映射：appId -> DevServerErrorCollector
+     * 用于运行时验证场景，收集 dev server 输出中的错误
+     */
+    private final Map<Long, DevServerErrorCollector> errorCollectors = new ConcurrentHashMap<>();
 
     /**
      * 为应用分配一个可用端口
@@ -172,7 +180,7 @@ public class DevServerManager {
         }
 
         // 启动 dev server
-        Process process = executeDevServer(projectDir, port);
+        Process process = executeDevServer(projectDir, port, appId);
         runningProcesses.put(appId, process);
 
         // 记录用户应用
@@ -231,6 +239,27 @@ public class DevServerManager {
      */
     public Integer getPort(Long appId) {
         return appPorts.get(appId);
+    }
+
+    /**
+     * 注册错误收集器（用于运行时验证）
+     *
+     * @param appId     应用ID
+     * @param collector 错误收集器
+     */
+    public void registerErrorCollector(Long appId, DevServerErrorCollector collector) {
+        errorCollectors.put(appId, collector);
+        log.debug("已注册错误收集器，appId: {}", appId);
+    }
+
+    /**
+     * 注销错误收集器
+     *
+     * @param appId 应用ID
+     */
+    public void unregisterErrorCollector(Long appId) {
+        errorCollectors.remove(appId);
+        log.debug("已注销错误收集器，appId: {}", appId);
     }
 
     /**
@@ -296,9 +325,10 @@ public class DevServerManager {
      *
      * @param projectDir 项目目录
      * @param port       端口号
+     * @param appId      应用ID（用于错误收集器关联）
      * @return 进程
      */
-    private Process executeDevServer(File projectDir, int port) {
+    private Process executeDevServer(File projectDir, int port, Long appId) {
         try {
             String npmCommand = isWindows() ? "pnpm.cmd" : "pnpm";
 
@@ -346,7 +376,7 @@ public class DevServerManager {
             Process process = processBuilder.start();
 
             // 3. 异步读取进程输出（防止缓冲区满导致进程挂起）
-            startOutputDrainer(process);
+            startOutputDrainer(process, appId);
 
             // 4. 等待 dev server 启动并检查端口是否可用
             int maxWaitSeconds = 30;
@@ -409,7 +439,7 @@ public class DevServerManager {
                 env.put("NPM_CONFIG_FUND", "false");
 
                 Process installProcess = installBuilder.start();
-                startOutputDrainer(installProcess);
+                startOutputDrainer(installProcess, null);
 
                 // 等待安装完成，最多 5 分钟
                 boolean finished = installProcess.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
@@ -478,13 +508,24 @@ public class DevServerManager {
 
     /**
      * 异步读取进程输出，防止缓冲区满导致进程挂起
+     * 同时将输出行传递给错误收集器（如果已注册）
+     *
+     * @param process 进程
+     * @param appId   应用ID（用于查找错误收集器，可为 null）
      */
-    private void startOutputDrainer(Process process) {
+    private void startOutputDrainer(Process process, Long appId) {
         Thread drainer = new Thread(() -> {
             try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     log.info("[dev-server] {}", line);
+                    // 将输出行传递给错误收集器（如果已注册）
+                    if (appId != null) {
+                        DevServerErrorCollector collector = errorCollectors.get(appId);
+                        if (collector != null) {
+                            collector.feedLine(line);
+                        }
+                    }
                 }
             } catch (IOException e) {
                 // 忽略读取错误
@@ -565,5 +606,6 @@ public class DevServerManager {
         runningProcesses.clear();
         appPorts.clear();
         userAppServers.clear();
+        errorCollectors.clear();
     }
 }

@@ -51,6 +51,8 @@ import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import com.rush.rushaicodemother.service.impl.GenerationRepairPolicy;
 import lombok.RequiredArgsConstructor;
@@ -118,6 +120,7 @@ public class GenerationTaskOrchestrator {
     private final UserCreditService userCreditService;
     private final VueProjectBuilder vueProjectBuilder;
     private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
+    private final DevServerValidationService devServerValidationService;
 
     public GenerationTaskResult start(GenerationTaskRequest request) {
         ThrowUtils.throwIf(request == null || request.app() == null || request.loginUser() == null,
@@ -437,6 +440,22 @@ public class GenerationTaskOrchestrator {
                 "willAutoRepair", !buildResult.success() && workspaceState.canAutoRepair() && MAX_AUTO_REPAIR_ROUNDS > 0
         )));
         if (buildResult.success()) {
+            // 构建通过后，执行 Dev Server 运行时验证
+            if (preparation.targetType() == CodeGenTypeEnum.VUE_PROJECT
+                    || preparation.targetType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+                markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "构建通过，正在验证 Dev Server 运行时...");
+                DevServerValidationResult dsResult = devServerValidationService.validate(
+                        preparation.taskId(), appId, loginUser.getId(), projectPath);
+                session.emit(GenerationStreamEvent.devServerValidation(dsResult.summary(), dsResult.toEventData()));
+                if (session.isCancelled()) {
+                    return false;
+                }
+                if (!dsResult.isPassed()) {
+                    // Dev Server 运行时验证失败，触发自动修复
+                    log.warn("Dev Server 运行时验证失败，appId: {}, summary: {}", appId, dsResult.summary());
+                    return false;
+                }
+            }
             return true;
         }
         if (MAX_AUTO_REPAIR_ROUNDS <= 0 || !workspaceState.canAutoRepair()) {
@@ -501,6 +520,22 @@ public class GenerationTaskOrchestrator {
                     "qualityGate", preparation.qualityGateLevel()
             )));
             if (buildResult.success()) {
+                // 修复后构建通过，执行 Dev Server 运行时验证
+                if (preparation.targetType() == CodeGenTypeEnum.VUE_PROJECT
+                        || preparation.targetType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+                    markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "修复后构建通过，正在验证 Dev Server 运行时...");
+                    DevServerValidationResult dsResult = devServerValidationService.validate(
+                            preparation.taskId(), appId, loginUser.getId(), projectPath);
+                    session.emit(GenerationStreamEvent.devServerValidation(dsResult.summary(), dsResult.toEventData()));
+                    if (session.isCancelled()) {
+                        return false;
+                    }
+                    if (!dsResult.isPassed()) {
+                        log.warn("修复后 Dev Server 运行时验证仍失败，appId: {}, summary: {}", appId, dsResult.summary());
+                        generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "failed");
+                        continue; // 继续下一轮修复
+                    }
+                }
                 generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "success");
                 return true;
             }

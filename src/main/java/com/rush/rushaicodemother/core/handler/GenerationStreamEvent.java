@@ -27,6 +27,7 @@ public class GenerationStreamEvent {
     public static final String GENERATION_ERROR = "generation_error";
     public static final String REPAIR_START = "repair_start";
     public static final String GENERATION_STOPPED = "generation_stopped";
+    public static final String DEV_SERVER_VALIDATION = "dev_server_validation";
 
     private String type;
 
@@ -113,6 +114,14 @@ public class GenerationStreamEvent {
     public static GenerationStreamEvent generationStopped(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(GENERATION_STOPPED)
+                .text(StrUtil.blankToDefault(text, ""))
+                .data(data)
+                .build();
+    }
+
+    public static GenerationStreamEvent devServerValidation(String text, Map<String, Object> data) {
+        return GenerationStreamEvent.builder()
+                .type(DEV_SERVER_VALIDATION)
                 .text(StrUtil.blankToDefault(text, ""))
                 .data(data)
                 .build();

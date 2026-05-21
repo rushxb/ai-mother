@@ -49,7 +49,7 @@ public class UserCreditTransaction implements Serializable {
     @Column("tokenCount")
     private Long tokenCount;
 
-    @Column("createTime")
+    @Column(value = "createTime", onInsertValue = "now()")
     private LocalDateTime createTime;
 
     @Column(value = "isDelete", isLogicDelete = true)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
@@ -12,8 +12,12 @@ const router = useRouter()
 const loginUserStore = useLoginUserStore()
 
 const userPrompt = ref('')
+const promptInputRef = ref()
 const creating = ref(false)
 const optimizingPrompt = ref(false)
+const animatedPlaceholder =
+  '例如：帮我创建一个面向设计师的作品集网站，包含项目展示、个人介绍和联系表单...'
+const shouldShowAnimatedPlaceholder = computed(() => !userPrompt.value && !creating.value && !optimizingPrompt.value)
 
 const myApps = ref<API.AppVO[]>([])
 const myAppsPage = reactive({
@@ -60,6 +64,10 @@ const promptTemplates = [
 
 const setPrompt = (prompt: string) => {
   userPrompt.value = prompt
+}
+
+const focusPromptInput = () => {
+  promptInputRef.value?.focus?.()
 }
 
 const createApp = async () => {
@@ -287,9 +295,18 @@ onUnmounted(() => {
             <span class="status-chip">Ready</span>
           </div>
           <div class="input-section">
+            <button
+              v-if="shouldShowAnimatedPlaceholder"
+              type="button"
+              class="prompt-placeholder"
+              @click="focusPromptInput"
+            >
+              <TextGenerateEffect :words="animatedPlaceholder" class="prompt-placeholder-text" />
+            </button>
             <a-textarea
+              ref="promptInputRef"
               v-model:value="userPrompt"
-              placeholder="例如：帮我创建一个面向设计师的作品集网站，包含项目展示、个人介绍和联系表单..."
+              placeholder=""
               :rows="5"
               :maxlength="1000"
               class="prompt-input"
@@ -312,16 +329,14 @@ onUnmounted(() => {
                     优化
                   </a-button>
                 </a-tooltip>
-                <a-button
-                  type="primary"
-                  size="large"
+                <ShimmerButton
                   class="create-button"
                   :loading="creating"
-                  :disabled="optimizingPrompt"
+                  :disabled="optimizingPrompt || creating"
                   @click="createApp"
                 >
                   开始生成
-                </a-button>
+                </ShimmerButton>
               </div>
             </div>
           </div>
@@ -649,6 +664,28 @@ onUnmounted(() => {
   position: relative;
 }
 
+.prompt-placeholder {
+  position: absolute;
+  top: 18px;
+  left: 19px;
+  right: 24px;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #93a5bc;
+  font-size: 15px;
+  line-height: 1.8;
+  text-align: left;
+  pointer-events: auto;
+  cursor: text;
+}
+
+.prompt-placeholder-text {
+  display: block;
+  max-width: 100%;
+}
+
 :deep(.prompt-input.ant-input) {
   border-radius: 22px;
   border: 1px solid rgba(104, 132, 175, 0.14);
@@ -673,7 +710,7 @@ onUnmounted(() => {
 }
 
 :deep(.prompt-input.ant-input::placeholder) {
-  color: #9aa9bd;
+  color: transparent;
 }
 
 .input-footer {
@@ -712,23 +749,8 @@ onUnmounted(() => {
   background: rgba(47, 128, 255, 0.12);
 }
 
-:deep(.create-button.ant-btn) {
-  min-width: 128px;
-  height: 46px;
-  border: none;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #1f6fff 0%, #4dbbff 100%);
-  box-shadow: 0 18px 34px rgba(47, 128, 255, 0.22);
-  font-weight: 600;
-  color: #fff;
-}
-
-:deep(.create-button.ant-btn:hover),
-:deep(.create-button.ant-btn:focus) {
-  color: #fff;
-  background: linear-gradient(135deg, #2b79ff 0%, #62c4ff 100%);
-  border-color: transparent;
-  box-shadow: 0 22px 42px rgba(47, 128, 255, 0.26);
+.create-button {
+  flex: 0 0 auto;
 }
 
 .template-section {

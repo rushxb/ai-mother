@@ -176,6 +176,75 @@ import { useAppStore } from '@/stores/app'
 import { getUserList, createUser } from '@/services/api'
 ```
 
+### landingData.js 完整数据导出
+
+`src/data/landingData.js` 包含五类数据，覆盖常见个人创意项目场景。所有页面应从本文件导入，不要创建额外的 .ts 数据文件：
+
+```typescript
+// 落地页数据
+import { brand, nav, stats, highlights, cases, process, plans, faqs } from '@/data/landingData'
+
+// 博客/个人站点数据
+import { author, featuredPosts, categories, newsletter, projects } from '@/data/landingData'
+
+// 企业官网数据
+import { enterprise, team, services, testimonials } from '@/data/landingData'
+
+// 在线商城数据
+import { products, productCategories, cartConfig, storeInfo } from '@/data/landingData'
+
+// 作品展示数据
+import { portfolioWorks, portfolioCategories, skills, experience, socialLinks } from '@/data/landingData'
+```
+
+#### 落地页数据
+| 导出 | 类型 | 用途 |
+|------|------|------|
+| brand | object | 品牌名称、标题、描述、CTA |
+| nav | string[] | 导航菜单项 |
+| stats | array | 统计数据（值+标签） |
+| highlights | array | 亮点区块（标题+文本） |
+| cases | array | 案例展示（标题+文本） |
+| process | string[] | 流程步骤 |
+| plans | array | 价格方案（名称+价格+描述+特性） |
+| faqs | array | 常见问题（问题+答案） |
+
+#### 博客/个人站点数据
+| 导出 | 类型 | 用途 |
+|------|------|------|
+| author | object | 作者信息（姓名、头像、简介、社交链接、关于、价值观） |
+| featuredPosts | array | 文章列表（slug、标题、摘要、日期、分类、标签、封面、正文） |
+| categories | array | 文章分类（名称+数量） |
+| newsletter | object | Newsletter 订阅配置（标题+描述） |
+| projects | array | 个人项目展示（名称+描述） |
+
+#### 企业官网数据
+| 导出 | 类型 | 用途 |
+|------|------|------|
+| enterprise | object | 企业信息（名称、标语、描述、使命、愿景、价值观） |
+| team | array | 团队成员（姓名、角色、头像、简介、社交链接） |
+| services | array | 服务项目（图标、标题、描述、特性列表） |
+| testimonials | array | 客户评价（姓名、公司、头像、评价、评分） |
+
+#### 在线商城数据
+| 导出 | 类型 | 用途 |
+|------|------|------|
+| products | array | 商品列表（id、名称、价格、图片、分类、标签、评分、销量、描述） |
+| productCategories | array | 商品分类（名称+数量） |
+| cartConfig | object | 购物车配置（货币符号、包邮门槛、运费、单商品最大数量） |
+| storeInfo | object | 商城信息（名称、标语、联系方式、政策） |
+
+#### 作品展示数据
+| 导出 | 类型 | 用途 |
+|------|------|------|
+| portfolioWorks | array | 作品集（id、标题、分类、图片、标签、描述、链接、是否精选） |
+| portfolioCategories | array | 作品分类（名称+数量） |
+| skills | array | 技能标签（名称、熟练度、分类） |
+| experience | array | 工作经历（时间段、公司、角色、描述、成就） |
+| socialLinks | array | 社交链接（名称、URL、图标） |
+
+**重要：不要创建 landingData.ts，所有数据从 landingData.js 导入。**
+
 ## 首次生成策略
 
 当用户需求是"创建"、"做一个"、"生成"等首次生成场景时：

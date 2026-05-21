@@ -1,11 +1,6 @@
 <script setup lang="ts">
-interface MorphingTabItem {
-  key: string
-  label: string
-}
-
 interface Props {
-  tabs: MorphingTabItem[]
+  tabs: string[]
   activeTab: string
   margin?: number
   class?: string
@@ -19,29 +14,34 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'update:activeTab', tab: string): void
+  (e: 'change', tab: string): void
 }>()
 
-const handleClick = (tabKey: string) => {
-  emit('update:activeTab', tabKey)
+const handleClick = (tab: string) => {
+  if (tab === props.activeTab) {
+    return
+  }
+  emit('update:activeTab', tab)
+  emit('change', tab)
 }
 </script>
 
 <template>
   <div
     v-if="props.tabs.length"
-    style="filter: url('#morphingTabsGoo')"
+    :style="{ filter: 'url(#morphingTabsGoo)' }"
     :class="['morphing-tabs', props.class]"
   >
     <button
       v-for="tab in props.tabs"
-      :key="tab.key"
+      :key="tab"
       class="morphing-tab"
-      :class="{ 'morphing-tab--active': props.activeTab === tab.key }"
-      :style="{ marginInline: props.activeTab === tab.key ? `${props.margin}px` : '0px' }"
+      :class="{ 'morphing-tab--active': props.activeTab === tab }"
+      :style="{ marginInline: props.activeTab === tab ? `${props.margin}px` : '0px' }"
       type="button"
-      @click="handleClick(tab.key)"
+      @click="handleClick(tab)"
     >
-      {{ tab.label }}
+      {{ tab }}
     </button>
 
     <svg class="morphing-tabs-filter" xmlns="http://www.w3.org/2000/svg" version="1.1">
@@ -76,7 +76,11 @@ const handleClick = (tabKey: string) => {
   position: relative;
   display: inline-flex;
   align-items: center;
+  width: max-content;
+  height: 42px;
+  min-width: 0;
   border-radius: 999px;
+  line-height: 1;
 }
 
 .morphing-tab {
@@ -84,10 +88,11 @@ const handleClick = (tabKey: string) => {
   z-index: 1;
   height: 42px;
   padding: 0 18px;
+  flex: 0 0 auto;
   border: 0;
   border-radius: 999px;
-  background: rgba(162, 189, 220, 0.18);
-  color: rgba(226, 237, 250, 0.72);
+  background: rgba(222, 232, 245, 0.7);
+  color: rgba(42, 59, 82, 0.74);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -99,19 +104,22 @@ const handleClick = (tabKey: string) => {
 }
 
 .morphing-tab:hover {
-  color: #ffffff;
+  color: #0f2540;
   transform: translateY(-1px);
 }
 
 .morphing-tab--active {
-  background: linear-gradient(135deg, #a5efff 0%, #77bbff 100%);
-  color: #051120;
-  box-shadow: 0 16px 36px rgba(114, 191, 255, 0.26);
+  background: linear-gradient(135deg, #2f8bff 0%, #68c9ff 100%);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(47, 139, 255, 0.24);
 }
 
 .morphing-tabs-filter {
   position: absolute;
   width: 0;
   height: 0;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
 }
 </style>

@@ -4,7 +4,7 @@
     :class="{ 'auth-page-layout': isAuthPage, 'chat-page-layout': isChatPage }"
   >
     <!-- 顶部导航栏 -->
-    <GlobalHeader v-if="!isChatPage" />
+    <GlobalHeader v-if="showHeader" />
     <!-- 主要内容区域 -->
     <a-layout-content class="main-content">
       <router-view />
@@ -21,8 +21,11 @@ import GlobalHeader from '@/components/GlobalHeader.vue'
 import GlobalFooter from '@/components/GlobalFooter.vue'
 
 const route = useRoute()
-const isAuthPage = computed(() => route.path === '/user/login' || route.path === '/user/register')
+const isAuthPage = computed(() =>
+  route.path === '/user/login' || route.path === '/user/register' || route.path === '/user/success',
+)
 const isChatPage = computed(() => route.path.startsWith('/app/chat/'))
+const showHeader = computed(() => !isChatPage.value && route.path !== '/user/success')
 </script>
 
 <style scoped>

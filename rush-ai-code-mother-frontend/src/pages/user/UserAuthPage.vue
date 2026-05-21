@@ -300,7 +300,12 @@ const handleLoginSubmit = async (values: API.UserLoginRequest) => {
     if (res.data.code === 0 && res.data.data) {
       await loginUserStore.fetchLoginUser()
       message.success('登录成功')
-      await router.replace(getSafeRedirect())
+      await router.replace({
+        path: '/user/success',
+        query: {
+          redirect: getSafeRedirect(),
+        },
+      })
     } else {
       message.error('登录失败，' + res.data.message)
     }

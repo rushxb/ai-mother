@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import UserAuthPage from '@/pages/user/UserAuthPage.vue'
+import UserLoginSuccessPage from '@/pages/user/UserLoginSuccessPage.vue'
 import UserManagePage from '@/pages/admin/UserManagePage.vue'
 import AppManagePage from '@/pages/admin/AppManagePage.vue'
 import AppChatPage from '@/pages/app/AppChatPage.vue'
@@ -25,6 +26,11 @@ const router = createRouter({
       path: '/user/register',
       name: '用户注册',
       component: UserAuthPage,
+    },
+    {
+      path: '/user/success',
+      name: '登录成功过渡',
+      component: UserLoginSuccessPage,
     },
     {
       path: '/admin/userManage',

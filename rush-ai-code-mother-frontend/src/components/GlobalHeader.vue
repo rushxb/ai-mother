@@ -1,30 +1,31 @@
 <template>
   <a-layout-header class="header">
     <div class="header-inner">
-      <RouterLink to="/" class="brand">
-        <img class="logo" src="@/assets/logo.png" alt="Logo" />
-        <div class="brand-copy">
+      <RouterLink to="/" class="brand" aria-label="返回主页">
+        <span class="logo-frame">
+          <img class="logo" src="@/assets/logo.png" alt="Logo" />
+        </span>
+        <span class="brand-copy">
           <span class="brand-kicker">RUSH STUDIO</span>
-          <div class="brand-text">
-            <h1 class="site-title">rush应用生成</h1>
-            <p class="site-subtitle">高效构建，流畅交互</p>
-          </div>
-        </div>
+          <span class="site-title">rush应用生成</span>
+        </span>
       </RouterLink>
 
-      <div class="nav-shell">
-        <MorphingTabs
-          v-model:activeTab="activeTab"
-          class="site-tabs"
-          :tabs="navTabs"
-          :margin="10"
-          :blur-std-deviation="5"
-          @change="handleTabChange"
-        />
-      </div>
+      <nav class="nav-shell" aria-label="主导航">
+        <div class="tabs-frame">
+          <MorphingTabs
+            v-model:activeTab="activeTab"
+            class="site-tabs"
+            :tabs="navLabels"
+            :margin="10"
+            :blur-std-deviation="5"
+            @change="handleTabChange"
+          />
+        </div>
+      </nav>
 
-      <div class="user-login-status">
-        <a-dropdown v-if="loginUserStore.loginUser.id" trigger="click">
+      <div class="account-area">
+        <a-dropdown v-if="loginUserStore.loginUser.id" trigger="click" placement="bottomRight">
           <button type="button" class="user-trigger">
             <a-avatar :src="loginUserAvatar" size="small" />
             <span class="user-meta">
@@ -57,9 +58,9 @@ import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { userLogout } from '@/api/userController.ts'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 
-interface NavTab {
+interface NavItem {
   label: string
-  value: string
+  path: string
 }
 
 const loginUserStore = useLoginUserStore()
@@ -67,46 +68,43 @@ const router = useRouter()
 const route = useRoute()
 
 const loginUserAvatar = computed(() => loginUserStore.loginUser.userAvatar || DEFAULT_USER_AVATAR)
-const activeTab = ref('/')
+const activeTab = ref('主页')
 
-const getSelectedKey = (path: string) => {
-  if (path.startsWith('/admin/userManage')) {
-    return '/admin/userManage'
-  }
-  if (path.startsWith('/admin/appManage')) {
-    return '/admin/appManage'
-  }
-  if (path.startsWith('/admin/modelManage')) {
-    return '/admin/modelManage'
-  }
-  return '/'
-}
-
-watch(
-  () => route.path,
-  (path) => {
-    activeTab.value = getSelectedKey(path)
-  },
-  { immediate: true },
-)
-
-const navTabs = computed<NavTab[]>(() => {
-  const items: NavTab[] = [{ label: '主页', value: '/' }]
+const navItems = computed<NavItem[]>(() => {
+  const items: NavItem[] = [{ label: '主页', path: '/' }]
 
   if (loginUserStore.loginUser?.userRole === 'admin') {
     items.push(
-      { label: '用户管理', value: '/admin/userManage' },
-      { label: '应用管理', value: '/admin/appManage' },
-      { label: '模型管理', value: '/admin/modelManage' },
+      { label: '用户管理', path: '/admin/userManage' },
+      { label: '应用管理', path: '/admin/appManage' },
+      { label: '模型管理', path: '/admin/modelManage' },
     )
   }
 
   return items
 })
 
-const handleTabChange = (value: string) => {
-  if (value !== route.path) {
-    router.push(value)
+const navLabels = computed(() => navItems.value.map((item) => item.label))
+
+const getActiveLabel = (path: string) => {
+  const matchedItem = navItems.value.find((item) =>
+    item.path === '/' ? path === '/' : path.startsWith(item.path),
+  )
+  return matchedItem?.label ?? '主页'
+}
+
+watch(
+  [() => route.path, navItems],
+  ([path]) => {
+    activeTab.value = getActiveLabel(path)
+  },
+  { immediate: true },
+)
+
+const handleTabChange = (label: string) => {
+  const target = navItems.value.find((item) => item.label === label)
+  if (target && target.path !== route.path) {
+    router.push(target.path)
   }
 }
 
@@ -129,18 +127,22 @@ const doLogout = async () => {
   position: sticky;
   top: 0;
   z-index: 1000;
-  height: 78px;
+  display: block;
+  height: 72px;
   padding: 0 24px;
-  background: rgba(255, 255, 255, 0.84);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
-  box-shadow: 0 10px 30px rgba(76, 102, 140, 0.06);
+  line-height: normal;
+  background: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid rgba(123, 148, 180, 0.16);
+  box-shadow: 0 12px 34px rgba(77, 102, 135, 0.08);
   backdrop-filter: saturate(180%) blur(18px);
 }
 
 .header-inner {
+  max-width: 1480px;
   height: 100%;
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(210px, 300px) minmax(0, 1fr) minmax(128px, auto);
   align-items: center;
   gap: 18px;
 }
@@ -149,69 +151,88 @@ const doLogout = async () => {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 14px;
-  text-decoration: none;
+  gap: 12px;
   color: inherit;
+  text-decoration: none;
+}
+
+.logo-frame {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(236, 244, 255, 0.9));
+  border: 1px solid rgba(126, 158, 196, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 24px rgba(80, 114, 150, 0.12);
 }
 
 .logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  box-shadow: 0 10px 24px rgba(47, 139, 255, 0.16);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
 }
 
 .brand-copy {
-  display: flex;
-  align-items: center;
-  gap: 14px;
   min-width: 0;
+  display: grid;
+  gap: 3px;
 }
 
 .brand-kicker {
-  flex: 0 0 auto;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(47, 139, 255, 0.08);
   color: #2f8bff;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
   letter-spacing: 0.18em;
 }
 
-.brand-text {
-  min-width: 0;
-}
-
 .site-title {
-  margin: 0;
+  overflow: hidden;
   color: #102033;
   font-size: 17px;
-  line-height: 1.1;
-  font-weight: 700;
-}
-
-.site-subtitle {
-  margin: 3px 0 0;
-  color: #7b8da6;
-  font-size: 12px;
-  line-height: 1.2;
+  font-weight: 750;
+  line-height: 1.14;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-shell {
   min-width: 0;
   display: flex;
   justify-content: center;
+  overflow: hidden;
+}
+
+.tabs-frame {
+  max-width: 100%;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid rgba(126, 158, 196, 0.18);
+  border-radius: 999px;
+  background: rgba(244, 248, 253, 0.92);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 10px 26px rgba(80, 114, 150, 0.08);
+  scrollbar-width: none;
+}
+
+.tabs-frame::-webkit-scrollbar {
+  display: none;
 }
 
 .site-tabs {
-  max-width: 100%;
+  width: max-content;
+  max-width: none;
 }
 
-.user-login-status {
+.account-area {
+  min-width: 0;
   display: flex;
   justify-content: flex-end;
 }
@@ -221,50 +242,49 @@ const doLogout = async () => {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  height: 46px;
-  padding: 0 10px 0 8px;
-  border: 1px solid rgba(126, 158, 196, 0.14);
+  height: 42px;
+  padding: 0 12px 0 8px;
+  border: 1px solid rgba(126, 158, 196, 0.18);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.82);
   color: #102033;
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 10px 26px rgba(76, 102, 140, 0.08);
+    0 10px 24px rgba(80, 114, 150, 0.08);
   transition:
-    transform 0.24s ease,
-    box-shadow 0.24s ease,
-    border-color 0.24s ease;
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
 }
 
 .user-trigger:hover {
   transform: translateY(-1px);
-  border-color: rgba(47, 139, 255, 0.18);
+  border-color: rgba(47, 139, 255, 0.28);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 14px 32px rgba(76, 102, 140, 0.12);
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 14px 30px rgba(80, 114, 150, 0.12);
 }
 
 .user-meta {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  display: grid;
   gap: 2px;
+  text-align: left;
 }
 
 .user-name {
-  max-width: 124px;
+  max-width: 120px;
   overflow: hidden;
+  color: #102033;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .credit-badge {
-  display: inline-flex;
-  align-items: center;
   color: #2f8bff;
   font-size: 12px;
   line-height: 1;
@@ -275,13 +295,23 @@ const doLogout = async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 20px;
+  padding: 0 22px;
   border-radius: 999px;
-  text-decoration: none;
   color: #ffffff;
-  font-weight: 600;
-  background: linear-gradient(135deg, #2f8bff 0%, #67c8ff 100%);
-  box-shadow: 0 14px 30px rgba(47, 139, 255, 0.22);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  background: linear-gradient(135deg, #2f8bff 0%, #64c7ff 100%);
+  box-shadow: 0 12px 26px rgba(47, 139, 255, 0.24);
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+.login-button:hover {
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 16px 34px rgba(47, 139, 255, 0.3);
 }
 
 :deep(.user-menu) {
@@ -293,15 +323,15 @@ const doLogout = async () => {
 @media (max-width: 980px) {
   .header {
     height: auto;
-    padding: 12px 16px;
+    padding: 10px 16px 12px;
   }
 
   .header-inner {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      'brand user'
+      'brand account'
       'nav nav';
-    row-gap: 12px;
+    row-gap: 10px;
   }
 
   .brand {
@@ -311,16 +341,28 @@ const doLogout = async () => {
   .nav-shell {
     grid-area: nav;
     justify-content: flex-start;
+    width: 100%;
   }
 
-  .user-login-status {
-    grid-area: user;
+  .account-area {
+    grid-area: account;
   }
 }
 
-@media (max-width: 680px) {
-  .brand-copy {
-    gap: 10px;
+@media (max-width: 640px) {
+  .header {
+    padding-inline: 12px;
+  }
+
+  .logo-frame {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .logo {
+    width: 29px;
+    height: 29px;
   }
 
   .brand-kicker {
@@ -331,16 +373,34 @@ const doLogout = async () => {
     font-size: 16px;
   }
 
-  .site-subtitle {
-    font-size: 11px;
-  }
-
   .user-trigger {
-    padding-right: 8px;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    justify-content: center;
   }
 
-  .user-name {
-    max-width: 92px;
+  .user-meta {
+    display: none;
+  }
+
+  .login-button {
+    height: 38px;
+    padding: 0 16px;
+  }
+
+  .site-tabs {
+    width: max-content;
+  }
+
+  .tabs-frame {
+    padding: 3px;
+  }
+
+  .site-tabs :deep(.morphing-tab) {
+    height: 38px;
+    padding: 0 14px;
+    font-size: 12px;
   }
 }
 </style>

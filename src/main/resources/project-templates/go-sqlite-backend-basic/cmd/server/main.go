@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,13 +17,19 @@ import (
 
 func main() {
 	cfg := config.Load()
+
+	// 初始化结构化日志
+	initLogger(cfg.LogLevel)
+
 	db, err := database.Open(cfg.DatabaseDSN)
 	if err != nil {
-		log.Fatalf("open database: %v", err)
+		slog.Error("open database failed", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 	if err := database.Migrate(db, "sql/schema.sql"); err != nil {
-		log.Fatalf("migrate database: %v", err)
+		slog.Error("migrate database failed", "error", err)
+		os.Exit(1)
 	}
 
 	userRepo := user.NewRepository(db)
@@ -32,21 +38,36 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		response.OK(w, "ok")
+		response.OK(w, map[string]any{
+			"status": "ok",
+			"time":   time.Now().Format(time.RFC3339),
+		})
 	})
+	// @AI_INJECT_ROUTE: register
 	userHandler.RegisterRoutes(mux)
+
+	// 组装中间件链
+	handler := middleware.Chain(
+		mux,
+		middleware.Recovery,
+		middleware.Logger,
+		middleware.Security,
+		middleware.NewRateLimiter(100, time.Minute).Middleware,
+		middleware.CORS,
+	)
 
 	server := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      middleware.CORS(mux),
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 
 	go func() {
-		log.Printf("server listening on %s", cfg.Addr)
+		slog.Info("server listening", "addr", cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %v", err)
+			slog.Error("listen failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -57,6 +78,26 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("server shutdown: %v", err)
+		slog.Error("server shutdown failed", "error", err)
 	}
+	slog.Info("server stopped")
+}
+
+func initLogger(level string) {
+	var logLevel slog.Level
+	switch level {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
+	}
+
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	})
+	slog.SetDefault(slog.New(handler))
 }

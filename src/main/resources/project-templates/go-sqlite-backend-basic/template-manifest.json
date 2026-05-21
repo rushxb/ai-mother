@@ -1,0 +1,80 @@
+{
+  "id": "go-sqlite-backend-basic",
+  "name": "Go SQLite 后端基础模板",
+  "description": "Go 1.23 + net/http + SQLite 的企业级后端工程骨架",
+  "tags": ["go", "sqlite", "backend", "api", "restful", "validator", "slog", "middleware"],
+  "category": "backend",
+  "entryFiles": [
+    "go.mod",
+    "cmd/server/main.go",
+    "internal/config/config.go",
+    "internal/database/database.go",
+    "sql/schema.sql"
+  ],
+  "slots": {
+    "model": {
+      "path": "internal/user/model.go",
+      "description": "数据模型定义",
+      "type": "model",
+      "example": "type Product struct { ID int64; Name string; Price float64 }",
+      "aiHints": {
+        "pattern": "定义结构体 + JSON tag + validate tag",
+        "components": ["entity", "request", "response", "vo"]
+      }
+    },
+    "repository": {
+      "path": "internal/user/repository.go",
+      "description": "数据访问层",
+      "type": "repository",
+      "example": "func (r *Repository) FindByID(id int64) (User, error)",
+      "aiHints": {
+        "pattern": "Repository 结构体 + NewRepository + CRUD 方法",
+        "components": ["Create", "FindByID", "Update", "Delete", "List"]
+      }
+    },
+    "service": {
+      "path": "internal/user/service.go",
+      "description": "业务逻辑层",
+      "type": "service",
+      "example": "func (s *Service) Create(req CreateRequest) (int64, error)",
+      "aiHints": {
+        "pattern": "Service 结构体 + NewService + 业务方法",
+        "components": ["Create", "Update", "Delete", "GetByID", "List"]
+      }
+    },
+    "handler": {
+      "path": "internal/user/handler.go",
+      "description": "HTTP 处理器",
+      "type": "handler",
+      "example": "func (h *Handler) create(w http.ResponseWriter, r *http.Request)",
+      "aiHints": {
+        "pattern": "Handler 结构体 + NewHandler + RegisterRoutes + 处理方法",
+        "components": ["create", "update", "delete", "get", "list"]
+      }
+    },
+    "route": {
+      "path": "cmd/server/main.go",
+      "description": "路由注册",
+      "type": "config",
+      "marker": "@AI_INJECT_ROUTE"
+    },
+    "middleware": {
+      "path": "internal/middleware/",
+      "description": "中间件",
+      "type": "middleware",
+      "aiHints": {
+        "pattern": "func Name(next http.Handler) http.Handler",
+        "components": ["Logger", "Recovery", "Security", "CORS", "RateLimiter"]
+      }
+    },
+    "migration": {
+      "path": "sql/schema.sql",
+      "description": "数据库迁移",
+      "type": "migration",
+      "aiHints": {
+        "pattern": "CREATE TABLE IF NOT EXISTS ...",
+        "components": ["table", "index", "constraint"]
+      }
+    }
+  }
+}

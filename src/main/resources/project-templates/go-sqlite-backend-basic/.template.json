@@ -1,7 +1,9 @@
 {
   "id": "go-sqlite-backend-basic",
   "name": "Go SQLite 后端基础模板",
-  "description": "Go + SQLite 的 AI 友好后端工程骨架",
+  "description": "Go 1.23 + net/http + SQLite 的企业级后端工程骨架",
+  "tags": ["go", "sqlite", "backend", "api", "restful", "validator", "slog", "middleware"],
+  "category": "backend",
   "entryFiles": [
     "go.mod",
     "cmd/server/main.go",

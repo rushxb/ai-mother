@@ -5,19 +5,23 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Service 用户服务
 type Service struct {
 	repo *Repository
 }
 
+// NewService 创建用户服务
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
+// Register 用户注册
 func (s *Service) Register(req RegisterRequest) (int64, error) {
 	if len(req.UserAccount) < 4 || len(req.UserPassword) < 8 {
 		return 0, errors.New("账号或密码格式错误")
@@ -34,16 +38,24 @@ func (s *Service) Register(req RegisterRequest) (int64, error) {
 	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.UserPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return 0, err
+		slog.Error("hash password failed", "error", err)
+		return 0, errors.New("系统异常，请稍后重试")
 	}
-	return s.repo.Create(User{
+	id, err := s.repo.Create(User{
 		UserAccount:  req.UserAccount,
 		UserPassword: string(hashedPassword),
 		UserName:     req.UserAccount,
 		UserRole:     "user",
 	})
+	if err != nil {
+		slog.Error("create user failed", "error", err, "account", req.UserAccount)
+		return 0, errors.New("注册失败，请稍后重试")
+	}
+	slog.Info("user registered", "id", id, "account", req.UserAccount)
+	return id, nil
 }
 
+// Login 用户登录
 func (s *Service) Login(req LoginRequest) (string, LoginUserVO, error) {
 	user, err := s.repo.FindByAccount(req.UserAccount)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.UserPassword), []byte(req.UserPassword)) != nil {
@@ -51,11 +63,18 @@ func (s *Service) Login(req LoginRequest) (string, LoginUserVO, error) {
 	}
 	token, err := randomToken()
 	if err != nil {
-		return "", LoginUserVO{}, err
+		slog.Error("generate token failed", "error", err)
+		return "", LoginUserVO{}, errors.New("系统异常，请稍后重试")
 	}
-	return token, toLoginUserVO(user), s.repo.SaveSession(token, user.ID)
+	if err := s.repo.SaveSession(token, user.ID); err != nil {
+		slog.Error("save session failed", "error", err)
+		return "", LoginUserVO{}, errors.New("登录失败，请稍后重试")
+	}
+	slog.Info("user logged in", "id", user.ID, "account", user.UserAccount)
+	return token, toLoginUserVO(user), nil
 }
 
+// Current 获取当前登录用户
 func (s *Service) Current(token string) (LoginUserVO, error) {
 	user, err := s.repo.FindBySession(strings.TrimSpace(token))
 	if err != nil {
@@ -64,10 +83,12 @@ func (s *Service) Current(token string) (LoginUserVO, error) {
 	return toLoginUserVO(user), nil
 }
 
+// Logout 退出登录
 func (s *Service) Logout(token string) error {
 	return s.repo.DeleteSession(strings.TrimSpace(token))
 }
 
+// List 用户列表（分页）
 func (s *Service) List(req QueryRequest) (Page[LoginUserVO], error) {
 	if req.Current <= 0 {
 		req.Current = 1
@@ -77,7 +98,8 @@ func (s *Service) List(req QueryRequest) (Page[LoginUserVO], error) {
 	}
 	users, total, err := s.repo.List(req)
 	if err != nil {
-		return Page[LoginUserVO]{}, err
+		slog.Error("list users failed", "error", err)
+		return Page[LoginUserVO]{}, errors.New("查询失败")
 	}
 	records := make([]LoginUserVO, 0, len(users))
 	for _, item := range users {

@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.rush.rushaicodemother.ai.AppNameGeneratorService;
 import com.rush.rushaicodemother.ai.PromptOptimizerService;
+import com.rush.rushaicodemother.ai.intent.BackendIntentDetector;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
@@ -103,6 +104,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
 
     @Resource
+    private BackendIntentDetector backendIntentDetector;
+
+    @Resource
     private PromptOptimizerService promptOptimizerService;
 
     @Resource
@@ -191,9 +195,21 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         BeanUtil.copyProperties(appAddRequest, app);
         app.setUserId(loginUser.getId());
         app.setAppName(generateAppName(initPrompt));
-        // 使用 AI 智能选择代码生成类型（多例模式）
+
+        // 两层路由机制：关键词门控 + AI 路由
+        // 第一层：关键词门控 - 检测用户是否明确要求后端
+        BackendIntentDetector.BackendIntentResult intentResult = backendIntentDetector.detectIntent(initPrompt);
+        log.info("后端意图检测结果: {}, 原因: {}, 用户消息: {}", intentResult.level(), intentResult.reason(), initPrompt);
+
+        // 第二层：AI 路由（只在需要时调用）
         AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
-        CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        CodeGenTypeEnum aiRoutedType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        log.info("AI 路由类型: {}", aiRoutedType);
+
+        // 应用约束：根据意图检测结果约束最终的代码生成类型
+        CodeGenTypeEnum selectedCodeGenType = backendIntentDetector.constrainCodeGenType(intentResult, aiRoutedType);
+        log.info("最终代码生成类型: {} (原始 AI 路由: {}, 意图约束: {})", selectedCodeGenType, aiRoutedType, intentResult.level());
+
         app.setCodeGenType(selectedCodeGenType.getValue());
 
         // 先插入数据库获取 ID

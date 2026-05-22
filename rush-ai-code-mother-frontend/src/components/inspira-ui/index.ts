@@ -4,6 +4,8 @@ import { BoxReveal } from './box-reveal'
 import { BubblesBackground } from './bubbles-background'
 import { AppleBlurImage, AppleCard, AppleCardCarousel, AppleCarouselItem } from './apple-card-carousel'
 import { DirectionAwareHover } from './direction-aware-hover'
+import { GlowingEffect } from './glowing-effect'
+import { Lens } from './lens'
 import { MorphingTabs } from './morphing-tabs'
 import { ShimmerButton } from './shimmer-button'
 import { TextGenerateEffect } from './text-generate-effect'
@@ -18,6 +20,8 @@ const inspiraUiComponents = {
   AppleCardCarousel,
   AppleCarouselItem,
   DirectionAwareHover,
+  GlowingEffect,
+  Lens,
   MorphingTabs,
   ShimmerButton,
   TextGenerateEffect,
@@ -33,6 +37,8 @@ export {
   AppleCardCarousel,
   AppleCarouselItem,
   DirectionAwareHover,
+  GlowingEffect,
+  Lens,
   MorphingTabs,
   ShimmerButton,
   TextGenerateEffect,

@@ -413,32 +413,34 @@ onUnmounted(() => {
         </div>
         <div v-if="workspaceCards.length" class="workspace-grid">
           <article v-for="item in workspaceCards" :key="item.id" class="workspace-card">
-            <DirectionAwareHover
-              :image-url="item.imageUrl"
-              :image-alt="item.title"
-              class="workspace-direction-card"
-              image-class="workspace-direction-image"
-              children-class="workspace-direction-content"
-            >
-              <div class="workspace-hover-copy">
-                <span>{{ item.status }}</span>
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.author }}</p>
-                <div class="workspace-card-actions">
-                  <button type="button" class="workspace-action workspace-action--primary" @click="viewChat(item.app.id)">
-                    查看对话
-                  </button>
-                  <button
-                    type="button"
-                    class="workspace-action"
-                    :disabled="!item.app.deployKey"
-                    @click="viewWork(item.app)"
-                  >
-                    在线预览
-                  </button>
+            <GlowingEffect class="workspace-glow">
+              <DirectionAwareHover
+                :image-url="item.imageUrl"
+                :image-alt="item.title"
+                class="workspace-direction-card"
+                image-class="workspace-direction-image"
+                children-class="workspace-direction-content"
+              >
+                <div class="workspace-hover-copy">
+                  <span>{{ item.status }}</span>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.author }}</p>
+                  <div class="workspace-card-actions">
+                    <button type="button" class="workspace-action workspace-action--primary" @click="viewChat(item.app.id)">
+                      查看对话
+                    </button>
+                    <button
+                      type="button"
+                      class="workspace-action"
+                      :disabled="!item.app.deployKey"
+                      @click="viewWork(item.app)"
+                    >
+                      在线预览
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </DirectionAwareHover>
+              </DirectionAwareHover>
+            </GlowingEffect>
           </article>
         </div>
         <div v-else class="empty-panel">
@@ -470,7 +472,9 @@ onUnmounted(() => {
             <AppleCarouselItem v-for="(item, index) in featuredCarouselItems" :key="item.id" :index="index">
               <AppleCard :card="item" :index="index">
                 <div class="featured-modal-body">
-                  <img :src="item.src" :alt="item.title" />
+                  <Lens class="featured-modal-lens" :lens-size="180" :zoom-factor="1.65">
+                    <img :src="item.src" :alt="item.title" class="featured-modal-image" />
+                  </Lens>
                   <div class="featured-modal-copy">
                     <span>{{ item.category }}</span>
                     <p>{{ item.summary }}</p>
@@ -951,11 +955,16 @@ onUnmounted(() => {
 .workspace-card {
   border-radius: 24px;
   padding: 8px;
-  border: 1px solid rgba(104, 132, 175, 0.14);
   background: rgba(255, 255, 255, 0.62);
   box-shadow:
     0 20px 48px rgba(114, 137, 170, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.workspace-glow {
+  border-radius: 20px;
+  padding: 1px;
+  background: rgba(104, 132, 175, 0.14);
 }
 
 .workspace-direction-card {
@@ -1088,11 +1097,22 @@ onUnmounted(() => {
   align-items: stretch;
 }
 
-.featured-modal-body img {
+.featured-modal-lens {
   width: 100%;
   min-height: 340px;
+  height: 100%;
   border-radius: 24px;
+  background: #edf4fb;
+  box-shadow:
+    0 18px 48px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.featured-modal-image {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .featured-modal-copy {

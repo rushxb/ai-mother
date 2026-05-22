@@ -130,8 +130,7 @@ const selectedFilePath = ref('')
 const selectedFileName = ref('')
 const fileContent = ref('')
 const savedFileContent = ref('')
-const codeEditorTextareaRef = ref()
-const codeHighlightRef = ref<HTMLElement>()
+const openFileTabs = ref<Array<{ path: string; name: string }>>([])
 const isStreamingFilePreview = ref(false)
 const streamingFilePath = ref('')
 const streamingFileFinalContent = ref('')
@@ -330,6 +329,17 @@ const highlightedFileContent = computed(() => {
   }
   return hljs.highlightAuto(content).value
 })
+
+const rememberOpenFileTab = (filePath: string, fileName?: string) => {
+  const normalizedPath = normalizeFilePath(filePath)
+  if (!normalizedPath) {
+    return
+  }
+  const normalizedName = fileName || normalizedPath.split('/').pop() || normalizedPath
+  const nextTabs = openFileTabs.value.filter((tab) => normalizeFilePath(tab.path) !== normalizedPath)
+  nextTabs.push({ path: normalizedPath, name: normalizedName })
+  openFileTabs.value = nextTabs.slice(-5)
+}
 
 // 应用详情相关
 const appDetailVisible = ref(false)
@@ -1533,6 +1543,7 @@ const loadFileContent = async (filePath: string) => {
       fileContent.value = file.content || ''
       savedFileContent.value = file.content || ''
       loadedFileContentCache.set(normalizeFilePath(selectedFilePath.value), file.content || '')
+      rememberOpenFileTab(selectedFilePath.value, selectedFileName.value)
       return
     }
     message.error('读取文件失败：' + (res.data.message || '请重试'))
@@ -1560,6 +1571,14 @@ const handleFileSelect = async (selectedKeys: Array<string | number>) => {
   await loadFileContent(filePath)
 }
 
+const openEditorTab = async (filePath: string) => {
+  const normalizedFilePath = normalizeFilePath(filePath)
+  if (!normalizedFilePath || normalizedFilePath === normalizeFilePath(selectedFilePath.value)) {
+    return
+  }
+  await handleFileSelect([normalizedFilePath])
+}
+
 const handleWorkspaceTabChange = async (activeKey: string | number) => {
   if (activeKey === 'files' && !fileTreeData.value.length) {
     await loadCodeFiles()
@@ -1570,39 +1589,18 @@ const handleWorkspaceTabChange = async (activeKey: string | number) => {
   }
 }
 
-const getCodeEditorTextareaElement = () => {
-  const editorRef = codeEditorTextareaRef.value
-  if (!editorRef) {
-    return null
-  }
-  if (editorRef instanceof HTMLTextAreaElement) {
-    return editorRef
-  }
-  return editorRef.$el?.querySelector('textarea') || null
-}
-
-const syncCodeEditorScroll = () => {
-  const textarea = getCodeEditorTextareaElement()
-  if (!textarea || !codeHighlightRef.value) {
-    return
-  }
-  codeHighlightRef.value.scrollTop = textarea.scrollTop
-  codeHighlightRef.value.scrollLeft = textarea.scrollLeft
-}
-
 const syncCodeEditorToBottom = async () => {
   await nextTick()
-  const textarea = getCodeEditorTextareaElement()
+  const textarea = document.querySelector('.code-editor') as HTMLTextAreaElement | null
   if (!textarea) {
     return
   }
   textarea.scrollTop = textarea.scrollHeight
-  syncCodeEditorScroll()
 }
 
 const syncCodeEditorToCharIndex = async (charIndex: number) => {
   await nextTick()
-  const textarea = getCodeEditorTextareaElement()
+  const textarea = document.querySelector('.code-editor') as HTMLTextAreaElement | null
   if (!textarea) {
     return
   }
@@ -1611,7 +1609,11 @@ const syncCodeEditorToCharIndex = async (charIndex: number) => {
   const lineHeight = Number.parseFloat(window.getComputedStyle(textarea).lineHeight) || 22
   const targetTop = Math.max(lineIndex * lineHeight - textarea.clientHeight * 0.45, 0)
   textarea.scrollTop = targetTop
-  syncCodeEditorScroll()
+}
+
+const focusCodeEditor = () => {
+  const textarea = document.querySelector('.code-editor') as HTMLTextAreaElement | null
+  textarea?.focus()
 }
 
 const stopStreamingFilePreview = (keepCurrentContent = false) => {
@@ -1687,6 +1689,7 @@ const startStreamingFilePreview = async (filePath: string, targetContent: string
   const fileName = normalizedFilePath.split('/').pop() || normalizedFilePath
   selectedFilePath.value = normalizedFilePath
   selectedFileName.value = fileName
+  rememberOpenFileTab(normalizedFilePath, fileName)
   loadingFileContent.value = false
   isStreamingFilePreview.value = true
   streamingFilePath.value = normalizedFilePath
@@ -1794,13 +1797,13 @@ const showCompileRollbackConfirm = (errorMessage: string) => {
       fileContent.value = savedFileContent.value
       refreshPreview()
       nextTick(() => {
-        getCodeEditorTextareaElement()?.focus()
+        focusCodeEditor()
       })
       message.success('已回退到上一次保存的版本')
     },
     onCancel: () => {
       nextTick(() => {
-        getCodeEditorTextareaElement()?.focus()
+        focusCodeEditor()
       })
       message.info('已保留当前编辑内容，可继续修改后再次保存')
     },
@@ -2139,8 +2142,10 @@ onUnmounted(() => {
     messagesPanelRef,
     onIframeLoad,
     openDeployedSite,
+    openEditorTab,
     openInNewTab,
     openToolCallFile,
+    openFileTabs,
     optimizeUserPrompt,
     previewRefreshKey,
     previewUrl,
@@ -2161,7 +2166,6 @@ onUnmounted(() => {
     startChatPaneResize,
     startEditAppName,
     stoppingGeneration,
-    syncCodeEditorScroll,
     syncDeployment,
     syncingDeploy,
     toggleAiFeedback,

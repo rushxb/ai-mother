@@ -211,11 +211,25 @@
               <p>从左侧选择文件进行预览和编辑</p>
             </div>
             <div v-else class="editor-shell">
-              <div class="editor-titlebar">
-                <div class="editor-file-meta">
-                  <FileTextOutlined />
-                  <span class="editor-file-name">{{ selectedFileName }}</span>
-                  <span class="editor-file-path">{{ selectedFilePath }}</span>
+              <div class="editor-tabbar">
+                <div class="editor-tabs">
+                  <button
+                      v-for="tab in openFileTabs"
+                      :key="tab.path"
+                      type="button"
+                      class="editor-tab"
+                      :class="{ active: tab.path === selectedFilePath }"
+                      :title="tab.path"
+                      @click="$emit('openEditorTab', tab.path)"
+                  >
+                    <FileTextOutlined />
+                    <span class="editor-tab-name">{{ tab.name }}</span>
+                    <span
+                        v-if="tab.path === selectedFilePath && isFileDirty"
+                        class="editor-tab-dirty"
+                        aria-label="未保存修改"
+                    />
+                  </button>
                 </div>
                 <span class="editor-status" :class="{ streaming: isStreamingFilePreview }">
                   {{ editorStatusText }}
@@ -226,19 +240,27 @@
                 <span>正在读取文件...</span>
               </div>
               <div v-else class="code-editor-shell">
-                <pre class="code-highlight-layer" aria-hidden="true"><code v-html="highlightedFileContent"></code></pre>
-                <textarea
-                    :value="fileContent"
-                    class="code-editor"
-                    wrap="off"
-                    spellcheck="false"
-                    autocomplete="off"
-                    autocorrect="off"
-                    autocapitalize="off"
-                    :disabled="savingFile || isStreamingFilePreview"
-                    @input="$emit('update:fileContent', ($event.target as HTMLTextAreaElement).value)"
-                    @scroll="$emit('syncCodeEditorScroll')"
-                />
+                <div class="code-pathbar">{{ selectedFilePath }}</div>
+                <div class="code-editor-frame">
+                  <div ref="lineNumberGutterRef" class="code-line-numbers" aria-hidden="true">
+                    <span v-for="lineNumber in editorLineNumbers" :key="lineNumber">{{ lineNumber }}</span>
+                  </div>
+                  <div class="code-editor-stage">
+                    <pre ref="codeHighlightRef" class="code-highlight-layer" aria-hidden="true"><code v-html="highlightedFileContent"></code></pre>
+                    <textarea
+                        :value="fileContent"
+                        class="code-editor"
+                        wrap="off"
+                        spellcheck="false"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
+                        :readonly="savingFile || isStreamingFilePreview"
+                        @input="$emit('update:fileContent', ($event.target as HTMLTextAreaElement).value)"
+                        @scroll="handleCodeEditorScroll"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </section>
@@ -308,6 +330,7 @@ const props = defineProps<{
   loadingFiles: boolean
   previewRefreshKey: number
   previewUrl: string
+  openFileTabs: Array<{ path: string; name: string }>
   selectedFileName: string
   selectedFilePath: string
   savingFile: boolean
@@ -323,10 +346,10 @@ defineEmits<{
   iframeLoad: []
   loadCodeFiles: []
   openDeployedSite: []
+  openEditorTab: [filePath: string]
   openInNewTab: []
   saveCurrentFile: []
   showAppDetail: []
-  syncCodeEditorScroll: []
   syncDeployment: []
   toggleEditMode: []
   'update:activeWorkspaceTab': [value: WorkspaceTabKey]
@@ -336,6 +359,8 @@ defineEmits<{
 // iframe ref，用于直接设置 src（绕过 Vue Router）
 const previewIframeRef = ref<HTMLIFrameElement | null>(null)
 const fileWorkspaceRef = ref<HTMLElement | null>(null)
+const lineNumberGutterRef = ref<HTMLElement | null>(null)
+const codeHighlightRef = ref<HTMLElement | null>(null)
 const fileSidebarWidth = ref(260)
 const fileSidebarResizeMin = 220
 const fileSidebarResizeMax = 520
@@ -345,6 +370,23 @@ let fileSidebarResizeHandle: HTMLElement | null = null
 const fileWorkspaceStyle = computed(() => ({
   '--file-sidebar-width': `${fileSidebarWidth.value}px`,
 }))
+
+const editorLineNumbers = computed(() => {
+  const lineCount = Math.max(props.fileContent.split('\n').length, 1)
+  return Array.from({ length: lineCount }, (_, index) => index + 1)
+})
+
+const handleCodeEditorScroll = (event: Event) => {
+  const target = event.target as HTMLTextAreaElement
+  if (!lineNumberGutterRef.value) {
+    return
+  }
+  lineNumberGutterRef.value.scrollTop = target.scrollTop
+  if (codeHighlightRef.value) {
+    codeHighlightRef.value.scrollTop = target.scrollTop
+    codeHighlightRef.value.scrollLeft = target.scrollLeft
+  }
+}
 
 const clampFileSidebarWidth = (width: number) => {
   return Math.min(fileSidebarResizeMax, Math.max(fileSidebarResizeMin, width))
@@ -758,42 +800,71 @@ onUnmounted(stopFileSidebarResize)
   flex-direction: column;
 }
 
-.editor-titlebar {
-  min-height: 46px;
+.editor-tabbar {
+  min-height: 36px;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 14px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(248, 250, 252, 0.92);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(248, 250, 252, 0.96);
 }
 
-.editor-file-meta {
+.editor-tabs {
   min-width: 0;
   display: flex;
+  overflow: hidden;
+}
+
+.editor-tab {
+  min-width: 0;
+  max-width: 180px;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
+  padding: 0 14px;
+  border: 0;
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
+  color: #64748b;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.editor-file-name {
-  flex: none;
+.editor-tab.active {
+  background: #ffffff;
   color: #0f172a;
-  font-size: 13px;
-  font-weight: 700;
+  box-shadow: inset 0 -2px 0 #1677ff;
 }
 
-.editor-file-path {
+.editor-tab:hover {
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.editor-tab.active:hover {
+  background: #ffffff;
+}
+
+.editor-tab-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #64748b;
-  font-size: 12px;
+}
+
+.editor-tab-dirty {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #64748b;
 }
 
 .editor-status {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding-right: 14px;
   color: #64748b;
   font-size: 12px;
 }
@@ -807,12 +878,65 @@ onUnmounted(stopFileSidebarResize)
 }
 
 .code-editor-shell {
-  position: relative;
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  background: #fff;
+  background: #ffffff;
   --code-editor-font: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  --code-editor-line-height: 22px;
+  --code-editor-font-size: 13px;
+}
+
+.code-pathbar {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  color: #64748b;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.code-editor-frame {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.code-line-numbers {
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 5px 12px 0;
+  border-right: 1px solid rgba(148, 163, 184, 0.24);
+  background: #f8fafc;
+  color: #94a3b8;
+  font-family: var(--code-editor-font);
+  font-size: var(--code-editor-font-size);
+  line-height: var(--code-editor-line-height);
+  text-align: right;
+  user-select: none;
+}
+
+.code-line-numbers span {
+  display: block;
+  height: var(--code-editor-line-height);
+}
+
+.code-editor-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .code-highlight-layer {
@@ -820,19 +944,19 @@ onUnmounted(stopFileSidebarResize)
   inset: 0;
   z-index: 0;
   margin: 0;
-  padding: 16px;
-  overflow: auto;
-  pointer-events: none;
-  background: #fff;
+  padding: 12px 16px;
+  overflow: hidden;
+  background: #ffffff;
   color: #0f172a;
   font-family: var(--code-editor-font);
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--code-editor-font-size);
+  line-height: var(--code-editor-line-height);
   white-space: pre;
   word-break: normal;
   overflow-wrap: normal;
   word-wrap: normal;
   tab-size: 2;
+  box-sizing: border-box;
 }
 
 .code-highlight-layer code {
@@ -855,17 +979,19 @@ onUnmounted(stopFileSidebarResize)
   z-index: 1;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   resize: none;
   border: 0;
   border-radius: 0;
-  padding: 16px;
+  padding: 12px 16px;
   overflow: auto;
   background: transparent;
   color: transparent;
   caret-color: #0f172a;
   font-family: var(--code-editor-font) !important;
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--code-editor-font-size);
+  line-height: var(--code-editor-line-height);
   white-space: pre;
   word-break: normal;
   overflow-wrap: normal;
@@ -880,6 +1006,10 @@ onUnmounted(stopFileSidebarResize)
 
 .code-editor::selection {
   background: rgba(59, 130, 246, 0.35);
+}
+
+.code-editor:read-only {
+  opacity: 1;
 }
 
 @media (max-width: 1024px) {

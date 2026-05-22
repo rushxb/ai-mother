@@ -41,6 +41,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
     private final OpenAiChatRequestParameters defaultRequestParameters;
     private final Boolean strictJsonSchema;
     private final Boolean strictTools;
+    private final Thinking thinking;
     private final Boolean enableThinkingForDeepSeekV4;
     private final Boolean disableThinkingForDeepSeekV4;
     private final List<ChatModelListener> listeners;
@@ -100,6 +101,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .build();
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
+        this.thinking = builder.thinking;
         this.enableThinkingForDeepSeekV4 = builder.enableThinkingForDeepSeekV4;
         this.disableThinkingForDeepSeekV4 = builder.disableThinkingForDeepSeekV4;
         this.listeners = copy(builder.listeners);
@@ -124,6 +126,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         ChatCompletionRequest openAiRequest =
                 toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema)
                         .stream(true)
+                        .thinking(thinking)
                         .enableThinkingForDeepSeekV4(enableThinkingForDeepSeekV4)
                         .disableThinkingForDeepSeekV4(disableThinkingForDeepSeekV4)
                         .streamOptions(StreamOptions.builder()
@@ -276,6 +279,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         private Integer seed;
         private String user;
         private Boolean strictTools;
+        private Thinking thinking;
         private Boolean enableThinkingForDeepSeekV4;
         private Boolean disableThinkingForDeepSeekV4;
         private Boolean parallelToolCalls;
@@ -400,6 +404,11 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
         public OpenAiStreamingChatModelBuilder strictTools(Boolean strictTools) {
             this.strictTools = strictTools;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder thinking(Thinking thinking) {
+            this.thinking = thinking;
             return this;
         }
 

@@ -12,6 +12,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.internal.OpenAiClient;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
+import dev.langchain4j.model.openai.internal.chat.Thinking;
 import dev.langchain4j.model.openai.spi.OpenAiChatModelBuilderFactory;
 
 import java.time.Duration;
@@ -51,6 +52,7 @@ public class OpenAiChatModel implements ChatModel {
     private final Set<Capability> supportedCapabilities;
     private final Boolean strictJsonSchema;
     private final Boolean strictTools;
+    private final Thinking thinking;
     private final Boolean enableThinkingForDeepSeekV4;
     private final Boolean disableThinkingForDeepSeekV4;
 
@@ -113,6 +115,7 @@ public class OpenAiChatModel implements ChatModel {
         this.supportedCapabilities = copy(builder.supportedCapabilities);
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
+        this.thinking = builder.thinking;
         this.enableThinkingForDeepSeekV4 = builder.enableThinkingForDeepSeekV4;
         this.disableThinkingForDeepSeekV4 = builder.disableThinkingForDeepSeekV4;
         this.listeners = copy(builder.listeners);
@@ -140,6 +143,7 @@ public class OpenAiChatModel implements ChatModel {
 
         ChatCompletionRequest openAiRequest =
                 toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema)
+                        .thinking(thinking)
                         .enableThinkingForDeepSeekV4(enableThinkingForDeepSeekV4)
                         .disableThinkingForDeepSeekV4(disableThinkingForDeepSeekV4)
                         .build();
@@ -204,6 +208,7 @@ public class OpenAiChatModel implements ChatModel {
         private Integer seed;
         private String user;
         private Boolean strictTools;
+        private Thinking thinking;
         private Boolean enableThinkingForDeepSeekV4;
         private Boolean disableThinkingForDeepSeekV4;
         private Boolean parallelToolCalls;
@@ -338,6 +343,11 @@ public class OpenAiChatModel implements ChatModel {
 
         public OpenAiChatModelBuilder strictTools(Boolean strictTools) {
             this.strictTools = strictTools;
+            return this;
+        }
+
+        public OpenAiChatModelBuilder thinking(Thinking thinking) {
+            this.thinking = thinking;
             return this;
         }
 

@@ -8,6 +8,7 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.openai.internal.chat.Thinking;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -161,15 +162,16 @@ public class StreamingModelFactory {
             return createChatModelFromDb(dbModel);
         }
         log.warn("未找到可运行的已启用 chat 模型，回退到配置文件默认路由模型");
-        return OpenAiChatModel.builder()
+        var builder = OpenAiChatModel.builder()
                 .apiKey(routingApiKey)
                 .baseUrl(routingBaseUrl)
                 .modelName(routingModelName)
                 .maxTokens(routingMaxTokens)
                 .temperature(routingTemperature)
                 .logRequests(routingLogRequests)
-                .logResponses(routingLogResponses)
-                .build();
+                .logResponses(routingLogResponses);
+        applyThinking(builder, routingModelName, false);
+        return builder.build();
     }
 
     /**
@@ -185,15 +187,16 @@ public class StreamingModelFactory {
             return createChatModelFromDb(dbModel);
         }
         log.warn("未找到可运行的已启用主模型，回退到配置文件默认主模型");
-        return OpenAiChatModel.builder()
+        var builder = OpenAiChatModel.builder()
                 .apiKey(reasoningApiKey)
                 .baseUrl(reasoningBaseUrl)
                 .modelName(reasoningModelName)
                 .maxTokens(reasoningMaxTokens)
                 .temperature(reasoningTemperature)
                 .logRequests(logRequests)
-                .logResponses(logResponses)
-                .build();
+                .logResponses(logResponses);
+        applyThinking(builder, reasoningModelName, true);
+        return builder.build();
     }
 
     /**
@@ -257,25 +260,24 @@ public class StreamingModelFactory {
                 .logResponses(logResponses)
                 .listeners(List.of(aiModelMonitorListener));
 
-        // 只有明确标记支持 thinking 的模型才设置 thinking 参数
-        // 注意：langchain4j 1.1.0 暂不支持 thinking API，预留注释
-        // if (dbModel.getSupportsThinking() != null && dbModel.getSupportsThinking() == 1) {
-        //     builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
-        // }
+        applyThinking(builder, dbModel, enableThinking);
 
         return builder.build();
     }
 
     private ChatModel createChatModelFromDb(AiModel dbModel) {
-        return OpenAiChatModel.builder()
+        var builder = OpenAiChatModel.builder()
                 .apiKey(dbModel.getApiKey())
                 .baseUrl(dbModel.getBaseUrl())
                 .modelName(dbModel.getModelId())
                 .maxTokens(dbModel.getMaxTokens())
                 .temperature(resolveTemperature(dbModel))
                 .logRequests(routingLogRequests)
-                .logResponses(routingLogResponses)
-                .build();
+                .logResponses(routingLogResponses);
+
+        applyThinking(builder, dbModel, false);
+
+        return builder.build();
     }
 
     /**
@@ -348,11 +350,7 @@ public class StreamingModelFactory {
                 .logResponses(logResponses)
                 .listeners(List.of(aiModelMonitorListener));
 
-        // 支持 thinking 的模型设置 thinking 参数
-        // 注意：langchain4j 1.1.0 暂不支持 thinking API，预留注释
-        // if (isThinkingCapableModel(flashModelName)) {
-        //     builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
-        // }
+        applyThinking(builder, flashModelName, enableThinking);
 
         return builder.build();
     }
@@ -376,12 +374,40 @@ public class StreamingModelFactory {
                 .logResponses(logResponses)
                 .listeners(List.of(aiModelMonitorListener));
 
-        // 支持 thinking 的模型设置 thinking 参数
-        // 注意：langchain4j 1.1.0 暂不支持 thinking API，预留注释
-        // if (isThinkingCapableModel(reasoningModelName)) {
-        //     builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
-        // }
+        applyThinking(builder, reasoningModelName, enableThinking);
 
         return builder.build();
+    }
+
+    private void applyThinking(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
+                               AiModel model,
+                               boolean enableThinking) {
+        if (model != null && Integer.valueOf(1).equals(model.getSupportsThinking())) {
+            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        }
+    }
+
+    private void applyThinking(OpenAiChatModel.OpenAiChatModelBuilder builder,
+                               AiModel model,
+                               boolean enableThinking) {
+        if (model != null && Integer.valueOf(1).equals(model.getSupportsThinking())) {
+            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        }
+    }
+
+    private void applyThinking(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
+                               String modelName,
+                               boolean enableThinking) {
+        if (isThinkingCapableModel(modelName)) {
+            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        }
+    }
+
+    private void applyThinking(OpenAiChatModel.OpenAiChatModelBuilder builder,
+                               String modelName,
+                               boolean enableThinking) {
+        if (isThinkingCapableModel(modelName)) {
+            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        }
     }
 }

@@ -229,10 +229,9 @@ const featuredCarouselItems = computed(() =>
   featuredApps.value.slice(0, 6).map((app, index) => ({
     id: String(app.id ?? index),
     title: app.appName || '未命名案例',
-    subtitle: getAppSummary(app, index),
-    imageUrl: getAppImage(app),
-    meta: isOwnApp(app) ? '查看对话' : '复制案例',
-    badge: showcasePalette[index % showcasePalette.length],
+    category: showcasePalette[index % showcasePalette.length],
+    src: getAppImage(app),
+    summary: getAppSummary(app, index),
     app,
   })),
 )
@@ -281,26 +280,6 @@ const copyFeaturedApp = async (app: API.AppVO) => {
     nextIds.delete(appId)
     copyingAppIds.value = nextIds
   }
-}
-
-const handleFeaturedPrimary = (item: { app?: unknown }) => {
-  const app = item.app as API.AppVO | undefined
-  if (!app) {
-    return
-  }
-  viewWork(app)
-}
-
-const handleFeaturedSecondary = (item: { app?: unknown }) => {
-  const app = item.app as API.AppVO | undefined
-  if (!app) {
-    return
-  }
-  if (isOwnApp(app)) {
-    viewChat(app.id)
-    return
-  }
-  copyFeaturedApp(app)
 }
 
 const handleMouseMove = (e: MouseEvent) => {
@@ -434,23 +413,18 @@ onUnmounted(() => {
         </div>
         <div v-if="workspaceCards.length" class="workspace-grid">
           <article v-for="item in workspaceCards" :key="item.id" class="workspace-card">
-            <DirectionAwareHover :image-url="item.imageUrl" :image-alt="item.title" overlay-class="workspace-overlay">
-              <template #base>
-                <div class="workspace-base">
-                  <div class="workspace-topline">
-                    <span class="workspace-status">{{ item.status }}</span>
-                  </div>
-                  <div class="workspace-footer">
-                    <h3>{{ item.title }}</h3>
-                    <p>{{ item.author }}</p>
-                  </div>
-                </div>
-              </template>
-              <div class="workspace-overlay-body">
-                <span class="workspace-overlay-kicker">Continue Building</span>
+            <DirectionAwareHover
+              :image-url="item.imageUrl"
+              :image-alt="item.title"
+              class="workspace-direction-card"
+              image-class="workspace-direction-image"
+              children-class="workspace-direction-content"
+            >
+              <div class="workspace-hover-copy">
+                <span>{{ item.status }}</span>
                 <strong>{{ item.title }}</strong>
-                <p>{{ item.summary }}</p>
-                <div class="workspace-actions">
+                <p>{{ item.author }}</p>
+                <div class="workspace-card-actions">
                   <button type="button" class="workspace-action workspace-action--primary" @click="viewChat(item.app.id)">
                     查看对话
                   </button>
@@ -492,11 +466,32 @@ onUnmounted(() => {
           <p>参考优秀案例的结构、交互和页面组织方式。</p>
         </div>
         <div v-if="featuredCarouselItems.length" class="featured-carousel-wrap">
-          <AppleCardCarousel
-            :items="featuredCarouselItems"
-            @primary="handleFeaturedPrimary"
-            @secondary="handleFeaturedSecondary"
-          />
+          <AppleCardCarousel>
+            <AppleCarouselItem v-for="(item, index) in featuredCarouselItems" :key="item.id" :index="index">
+              <AppleCard :card="item" :index="index">
+                <div class="featured-modal-body">
+                  <img :src="item.src" :alt="item.title" />
+                  <div class="featured-modal-copy">
+                    <span>{{ item.category }}</span>
+                    <p>{{ item.summary }}</p>
+                    <div class="featured-modal-actions">
+                      <button type="button" class="workspace-action workspace-action--primary" @click="viewWork(item.app)">
+                        预览
+                      </button>
+                      <button
+                        type="button"
+                        class="workspace-action"
+                        :disabled="isCopyingApp(item.app)"
+                        @click="isOwnApp(item.app) ? viewChat(item.app.id) : copyFeaturedApp(item.app)"
+                      >
+                        {{ isOwnApp(item.app) ? '查看对话' : '复制案例' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </AppleCard>
+            </AppleCarouselItem>
+          </AppleCardCarousel>
         </div>
         <div v-else class="empty-panel">
           <strong>暂无精选案例</strong>
@@ -949,101 +944,89 @@ onUnmounted(() => {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 22px;
 }
 
 .workspace-card {
-  min-height: 320px;
-  border-radius: 28px;
-  overflow: hidden;
+  border-radius: 24px;
+  padding: 8px;
   border: 1px solid rgba(104, 132, 175, 0.14);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 250, 255, 0.84));
+  background: rgba(255, 255, 255, 0.62);
   box-shadow:
     0 20px 48px rgba(114, 137, 170, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.84);
 }
 
-.workspace-base,
-.workspace-overlay-body {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 22px;
-}
-
-.workspace-base {
-  z-index: 1;
+.workspace-direction-card {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 248px;
+  border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(10, 18, 30, 0.08), rgba(10, 18, 30, 0.46)),
-    linear-gradient(180deg, transparent 18%, rgba(7, 17, 28, 0.58) 100%);
+    linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(234, 241, 249, 0.92)),
+    #f5f8fc;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
 }
 
-.workspace-topline {
-  display: flex;
-  justify-content: flex-end;
+:deep(.workspace-direction-card .direction-aware-overlay) {
+  background:
+    linear-gradient(180deg, rgba(5, 17, 31, 0.08) 0%, rgba(5, 17, 31, 0.56) 48%, rgba(5, 17, 31, 0.84) 100%),
+    rgba(8, 19, 32, 0.2);
+  backdrop-filter: blur(2px);
 }
 
-.workspace-status {
-  display: inline-flex;
-  align-items: center;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+:deep(.workspace-direction-image) {
+  object-fit: contain;
+  transform: scale(1);
+  padding: 12px;
+}
+
+:deep(.workspace-direction-content) {
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+}
+
+.workspace-hover-copy {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(13, 27, 42, 0.36), rgba(13, 27, 42, 0.58)),
+    rgba(13, 27, 42, 0.42);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(14px);
-  color: #ffffff;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.44);
+}
+
+.workspace-hover-copy span {
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.88);
   font-size: 12px;
   font-weight: 700;
 }
 
-.workspace-footer h3 {
-  margin: 0;
+.workspace-hover-copy strong {
   color: #ffffff;
-  font-size: 24px;
+  font-size: 21px;
   line-height: 1.16;
 }
 
-.workspace-footer p {
-  margin: 8px 0 0;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 14px;
+.workspace-hover-copy p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.78);
 }
 
-:deep(.workspace-overlay) {
-  background:
-    linear-gradient(150deg, rgba(255, 255, 255, 0.94), rgba(240, 247, 255, 0.94)),
-    rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(18px);
-}
-
-.workspace-overlay-body {
-  color: #0d1b2a;
-}
-
-.workspace-overlay-kicker {
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.workspace-overlay-body strong {
-  display: block;
-  margin-top: auto;
-  color: var(--strong-text);
-  font-size: 24px;
-  line-height: 1.18;
-}
-
-.workspace-overlay-body p {
-  margin: 12px 0 0;
-  color: var(--soft-text);
-  font-size: 14px;
-  line-height: 1.78;
+.workspace-card-actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 6px;
 }
 
 .workspace-actions {
@@ -1061,6 +1044,21 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.82);
   font-weight: 700;
   cursor: pointer;
+  transition:
+    transform 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease;
+}
+
+.workspace-hover-copy .workspace-action {
+  height: 38px;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.workspace-action:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 .workspace-action:disabled {
@@ -1074,8 +1072,52 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #2a73ff 0%, #58b6ff 100%);
 }
 
+.workspace-hover-copy .workspace-action--primary {
+  border-color: rgba(114, 176, 255, 0.42);
+  background: linear-gradient(135deg, #2a73ff 0%, #4ab5ff 100%);
+}
+
 .featured-carousel-wrap {
   position: relative;
+}
+
+.featured-modal-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.featured-modal-body img {
+  width: 100%;
+  min-height: 340px;
+  border-radius: 24px;
+  object-fit: cover;
+}
+
+.featured-modal-copy {
+  padding: 8px 0;
+}
+
+.featured-modal-copy span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.featured-modal-copy p {
+  margin: 18px 0 0;
+  color: var(--soft-text);
+  font-size: 16px;
+  line-height: 1.9;
+}
+
+.featured-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 26px;
 }
 
 .empty-panel {
@@ -1181,6 +1223,19 @@ onUnmounted(() => {
 
   .workspace-actions {
     flex-direction: column;
+  }
+
+  .workspace-card-actions,
+  .featured-modal-actions {
+    flex-direction: column;
+  }
+
+  .workspace-card-actions {
+    width: 100%;
+  }
+
+  .featured-modal-body {
+    grid-template-columns: 1fr;
   }
 
   .input-footer {

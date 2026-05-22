@@ -2,7 +2,7 @@ import type { App } from 'vue'
 import { BlurReveal } from './blur-reveal'
 import { BoxReveal } from './box-reveal'
 import { BubblesBackground } from './bubbles-background'
-import { AppleCardCarousel } from './apple-card-carousel'
+import { AppleBlurImage, AppleCard, AppleCardCarousel, AppleCarouselItem } from './apple-card-carousel'
 import { DirectionAwareHover } from './direction-aware-hover'
 import { MorphingTabs } from './morphing-tabs'
 import { ShimmerButton } from './shimmer-button'
@@ -13,7 +13,10 @@ const inspiraUiComponents = {
   BlurReveal,
   BoxReveal,
   BubblesBackground,
+  AppleBlurImage,
+  AppleCard,
   AppleCardCarousel,
+  AppleCarouselItem,
   DirectionAwareHover,
   MorphingTabs,
   ShimmerButton,
@@ -25,7 +28,10 @@ export {
   BlurReveal,
   BoxReveal,
   BubblesBackground,
+  AppleBlurImage,
+  AppleCard,
   AppleCardCarousel,
+  AppleCarouselItem,
   DirectionAwareHover,
   MorphingTabs,
   ShimmerButton,

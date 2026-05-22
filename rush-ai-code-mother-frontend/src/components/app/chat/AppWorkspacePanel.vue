@@ -178,29 +178,15 @@
               <span>正在加载文件...</span>
             </div>
             <div v-else-if="fileTreeData.length" class="file-tree-scroll">
-              <a-tree
-                  class="code-file-tree"
-                  :tree-data="fileTreeData"
-                  :selected-keys="selectedFilePath ? [selectedFilePath] : []"
+              <InspiraFileTree
+                  :nodes="fileTreeData"
+                  :selected-key="selectedFilePath"
                   :expanded-keys="expandedFileTreeKeys"
-                  block-node
                   @select="$emit('handleFileSelect', $event)"
                   @expand="$emit('handleFileTreeExpand', $event)"
               >
-                <template #title="node">
-                  <span class="file-tree-title">
-                    <FolderOpenOutlined v-if="node.directory" class="file-tree-folder-icon" />
-                    <span
-                        v-else
-                        class="file-type-icon"
-                        :class="`file-type-icon-${node.iconType || 'file'}`"
-                    >
-                      {{ node.iconLabel || 'TXT' }}
-                    </span>
-                    <span class="file-tree-name">{{ node.title }}</span>
-                  </span>
-                </template>
-              </a-tree>
+                <template #empty>生成代码后可在这里查看文件</template>
+              </InspiraFileTree>
             </div>
             <div v-else class="file-empty-state">
               生成代码后可在这里查看文件
@@ -282,6 +268,7 @@ import {
 } from '@ant-design/icons-vue'
 import { ref, watch, nextTick, onMounted } from 'vue'
 import DatabaseWorkspace from '@/components/app/DatabaseWorkspace.vue'
+import InspiraFileTree from './InspiraFileTree.vue'
 import ChatToolbarButton from './ChatToolbarButton.vue'
 import type { FileTreeNode, WorkspaceTabKey } from './types'
 
@@ -625,117 +612,6 @@ onMounted(updateIframeSrc)
   overflow: auto;
   overscroll-behavior: contain;
   padding: 10px 8px;
-}
-
-.code-file-tree {
-  min-width: max-content;
-  background: transparent;
-}
-
-:deep(.code-file-tree .ant-tree-switcher) {
-  flex: none;
-}
-
-:deep(.code-file-tree .ant-tree-node-content-wrapper) {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border-radius: 8px;
-}
-
-:deep(.code-file-tree .ant-tree-title) {
-  font-size: 13px;
-}
-
-.file-tree-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.file-tree-folder-icon {
-  color: #f59e0b;
-  font-size: 10px;
-  flex: none;
-}
-
-.file-type-icon {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 12px;
-  padding: 0 3px;
-  border-radius: 4px;
-  color: #fff;
-  font-size: 7px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.file-type-icon-html,
-.file-type-icon-xml {
-  background: #f97316;
-}
-
-.file-type-icon-css,
-.file-type-icon-scss {
-  background: #ec4899;
-}
-
-.file-type-icon-js,
-.file-type-icon-jsx {
-  background: #facc15;
-  color: #1f2937;
-}
-
-.file-type-icon-ts,
-.file-type-icon-tsx {
-  background: #2563eb;
-}
-
-.file-type-icon-vue {
-  background: #10b981;
-}
-
-.file-type-icon-json {
-  background: #7c3aed;
-}
-
-.file-type-icon-md {
-  background: #0f766e;
-}
-
-.file-type-icon-image {
-  background: #0ea5e9;
-}
-
-.file-type-icon-yaml,
-.file-type-icon-text,
-.file-type-icon-env,
-.file-type-icon-lock,
-.file-type-icon-file {
-  background: #64748b;
-}
-
-.file-type-icon-sql {
-  background: #334155;
-}
-
-.file-type-icon-go {
-  background: #0891b2;
-}
-
-.file-tree-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .file-editor-panel {

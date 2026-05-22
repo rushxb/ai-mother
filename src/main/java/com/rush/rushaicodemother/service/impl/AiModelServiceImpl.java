@@ -75,7 +75,9 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         queryWrapper.eq("isEnabled", 1);
         queryWrapper.eq("isDelete", 0);
         queryWrapper.orderBy("sortOrder", true);
-        return this.mapper.selectListByQuery(queryWrapper);
+        return this.mapper.selectListByQuery(queryWrapper).stream()
+                .map(aiModelCatalogService::normalizeForRuntime)
+                .toList();
     }
 
     @Override
@@ -100,7 +102,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
 
     @Override
     public AiModelConnectionTestResultVO testModelConnection(AiModel model) {
-        AiModel validatedModel = aiModelCatalogService.normalizeAndValidate(model);
+        AiModel validatedModel = aiModelCatalogService.normalizeForRuntime(model);
         try {
             OpenAiChatModel chatModel = OpenAiChatModel.builder()
                     .apiKey(validatedModel.getApiKey())

@@ -23,27 +23,32 @@ public class AiModelCatalogServiceImpl implements AiModelCatalogService {
     private static final List<SupportedModelDefinition> SUPPORTED_MODELS = List.of(
             new SupportedModelDefinition(
                     "deepseek", "DeepSeek", "deepseek-v4-flash", "DeepSeek V4 Flash",
-                    "https://api.deepseek.com", List.of("chat", "routing"), "chat",
+                    "https://api.deepseek.com", List.of("https://api.deepseek.com"), List.of("chat", "routing"), "chat",
                     false, 8192, 0.7, 0.0, 2.0
             ),
             new SupportedModelDefinition(
                     "deepseek", "DeepSeek", "deepseek-v4-pro", "DeepSeek V4 Pro",
-                    "https://api.deepseek.com", List.of("reasoning", "chat"), "reasoning",
+                    "https://api.deepseek.com", List.of("https://api.deepseek.com"), List.of("reasoning", "chat"), "reasoning",
                     true, 16384, 0.1, 0.0, 2.0
             ),
             new SupportedModelDefinition(
                     "openai", "OpenAI", "gpt-4o", "GPT-4o",
-                    "https://api.openai.com/v1", List.of("chat", "routing"), "chat",
+                    "https://api.openai.com/v1", List.of("https://api.openai.com/v1"), List.of("chat", "routing"), "chat",
                     false, 8192, 0.7, 0.0, 2.0
             ),
             new SupportedModelDefinition(
                     "openai", "OpenAI", "gpt-4.1-mini", "GPT-4.1 Mini",
-                    "https://api.openai.com/v1", List.of("chat", "routing"), "chat",
+                    "https://api.openai.com/v1", List.of("https://api.openai.com/v1"), List.of("chat", "routing"), "chat",
                     false, 8192, 0.7, 0.0, 2.0
             ),
             new SupportedModelDefinition(
                     "openai", "OpenAI", "o3", "OpenAI o3",
-                    "https://api.openai.com/v1", List.of("reasoning"), "reasoning",
+                    "https://api.openai.com/v1", List.of("https://api.openai.com/v1"), List.of("reasoning"), "reasoning",
+                    true, 16384, 0.7, 0.0, 2.0
+            ),
+            new SupportedModelDefinition(
+                    "muskapi", "MuskAPI", "gpt-5.5", "GPT-5.5",
+                    "https://api.muskapi.cc/v1", List.of("https://api.muskapi.cc/v1", "https://api.muskapi.cc"), List.of("reasoning", "chat"), "reasoning",
                     true, 16384, 0.7, 0.0, 2.0
             )
     );
@@ -104,12 +109,13 @@ public class AiModelCatalogServiceImpl implements AiModelCatalogService {
         if (StrUtil.isBlank(baseUrl)) {
             baseUrl = expectedBaseUrl;
         }
-        if (!StrUtil.equals(baseUrl, expectedBaseUrl)) {
+        if (!isCompatibleBaseUrl(definition, baseUrl)) {
             throw new BusinessException(
                     ErrorCode.PARAMS_ERROR,
                     "模型接口地址不匹配，" + definition.modelName() + " 必须使用 " + expectedBaseUrl
             );
         }
+        baseUrl = expectedBaseUrl;
 
         if (StrUtil.isBlank(modelType)) {
             modelType = definition.defaultModelType();
@@ -162,8 +168,16 @@ public class AiModelCatalogServiceImpl implements AiModelCatalogService {
         SupportedModelDefinition definition = definitionOptional.get();
         String baseUrl = normalizeBaseUrl(model.getBaseUrl());
         return StrUtil.isNotBlank(StrUtil.trim(model.getApiKey()))
-                && StrUtil.equals(baseUrl, normalizeBaseUrl(definition.defaultBaseUrl()))
+                && isCompatibleBaseUrl(definition, baseUrl)
                 && definition.supportedModelTypes().contains(normalizeKey(model.getModelType()));
+    }
+
+    @Override
+    public AiModel normalizeForRuntime(AiModel model) {
+        AiModel normalizedModel = normalizeAndValidate(model);
+        findSupportedModel(normalizedModel.getProvider(), normalizedModel.getModelId())
+                .ifPresent(definition -> normalizedModel.setBaseUrl(normalizeBaseUrl(definition.defaultBaseUrl())));
+        return normalizedModel;
     }
 
     private String normalizeKey(String value) {
@@ -182,5 +196,12 @@ public class AiModelCatalogServiceImpl implements AiModelCatalogService {
         } catch (URISyntaxException e) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "API 地址格式错误");
         }
+    }
+
+    private boolean isCompatibleBaseUrl(SupportedModelDefinition definition, String baseUrl) {
+        String normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+        return definition.compatibleBaseUrls().stream()
+                .map(this::normalizeBaseUrl)
+                .anyMatch(compatibleUrl -> StrUtil.equals(compatibleUrl, normalizedBaseUrl));
     }
 }

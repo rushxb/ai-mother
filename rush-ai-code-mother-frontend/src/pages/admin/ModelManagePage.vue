@@ -18,6 +18,7 @@
           <a-select v-model:value="searchParams.provider" allow-clear placeholder="全部" style="width: 140px">
             <a-select-option value="deepseek">DeepSeek</a-select-option>
             <a-select-option value="openai">OpenAI</a-select-option>
+            <a-select-option value="muskapi">MuskAPI</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="模型类型">
@@ -135,14 +136,13 @@
           <a-col :span="12">
             <a-form-item label="模型标识符" name="modelId">
               <a-select
-                v-model:value="formData.modelId"
+                v-model:value="selectedModelKey"
                 placeholder="选择系统支持的模型"
-                @change="handleModelSelect"
               >
                 <a-select-option
                   v-for="model in supportedModels"
                   :key="`${model.provider}:${model.modelId}`"
-                  :value="model.modelId"
+                  :value="`${model.provider}:${model.modelId}`"
                 >
                   {{ model.modelName }}（{{ model.providerLabel }}）
                 </a-select-option>
@@ -351,6 +351,20 @@ const currentCatalogModel = computed(() =>
 
 const currentSupportedTypes = computed(() => currentCatalogModel.value?.supportedModelTypes ?? ['chat'])
 
+const selectedModelKey = computed({
+  get() {
+    if (!formData.provider || !formData.modelId) {
+      return undefined
+    }
+    return `${formData.provider}:${formData.modelId}`
+  },
+  set(modelKey: string | undefined) {
+    if (modelKey) {
+      handleModelSelect(modelKey)
+    }
+  },
+})
+
 const fetchCatalog = async () => {
   const res = await listSupportedModels()
   if (res.data.code === 0) {
@@ -416,26 +430,32 @@ const openAddModal = () => {
 // 打开编辑弹窗
 const openEditModal = (record: API.AiModel) => {
   isEditing.value = true
+  const catalogModel = supportedModels.value.find(
+    (model) => model.provider === record.provider && model.modelId === record.modelId,
+  )
   Object.assign(formData, {
     id: record.id,
-    modelName: record.modelName,
-    provider: record.provider,
-    modelId: record.modelId,
+    modelName: catalogModel?.modelName ?? record.modelName,
+    provider: catalogModel?.provider ?? record.provider,
+    modelId: catalogModel?.modelId ?? record.modelId,
     description: record.description,
-    baseUrl: record.baseUrl,
+    baseUrl: catalogModel?.defaultBaseUrl ?? record.baseUrl,
     apiKey: record.apiKey,
-    maxTokens: record.maxTokens,
-    temperature: record.temperature,
+    maxTokens: record.maxTokens ?? catalogModel?.defaultMaxTokens,
+    temperature: record.temperature ?? catalogModel?.defaultTemperature,
     isEnabled: record.isEnabled === 1,
-    modelType: record.modelType,
-    supportsThinking: record.supportsThinking ?? 0,
+    modelType: record.modelType ?? catalogModel?.defaultModelType,
+    supportsThinking: catalogModel?.supportsThinking ?? record.supportsThinking ?? 0,
     sortOrder: record.sortOrder,
   })
   modalVisible.value = true
 }
 
-const handleModelSelect = (modelId: string) => {
-  const selected = supportedModels.value.find((model) => model.modelId === modelId)
+const handleModelSelect = (modelKey: string) => {
+  const [provider, modelId] = modelKey.split(':')
+  const selected = supportedModels.value.find(
+    (model) => model.provider === provider && model.modelId === modelId,
+  )
   if (selected) {
     applyCatalogModel(selected)
   }
@@ -582,7 +602,7 @@ const getProviderClass = (provider?: string) => {
   const map: Record<string, string> = {
     deepseek: 'provider-deepseek',
     openai: 'provider-openai',
-    custom: 'provider-custom',
+    muskapi: 'provider-custom',
   }
   return map[provider ?? ''] ?? 'provider-custom'
 }
@@ -591,7 +611,7 @@ const getProviderIcon = (provider?: string) => {
   const map: Record<string, string> = {
     deepseek: 'DS',
     openai: 'AI',
-    custom: 'CM',
+    muskapi: 'MK',
   }
   return map[provider ?? ''] ?? 'CM'
 }
@@ -600,7 +620,7 @@ const getProviderLabel = (provider?: string) => {
   const map: Record<string, string> = {
     deepseek: 'DeepSeek',
     openai: 'OpenAI',
-    custom: '自定义',
+    muskapi: 'MuskAPI',
   }
   return map[provider ?? ''] ?? provider
 }
@@ -609,7 +629,7 @@ const getProviderColor = (provider?: string) => {
   const map: Record<string, string> = {
     deepseek: 'blue',
     openai: 'green',
-    custom: 'orange',
+    muskapi: 'orange',
   }
   return map[provider ?? ''] ?? 'default'
 }

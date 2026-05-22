@@ -32,6 +32,11 @@ public interface AiModelCatalogService {
     boolean isRunnable(AiModel model);
 
     /**
+     * 归一化运行时模型配置，兼容历史配置并输出系统当前适配的调用参数。
+     */
+    AiModel normalizeForRuntime(AiModel model);
+
+    /**
      * 支持模型定义
      */
     record SupportedModelDefinition(
@@ -40,6 +45,7 @@ public interface AiModelCatalogService {
             String modelId,
             String modelName,
             String defaultBaseUrl,
+            List<String> compatibleBaseUrls,
             List<String> supportedModelTypes,
             String defaultModelType,
             boolean supportsThinking,

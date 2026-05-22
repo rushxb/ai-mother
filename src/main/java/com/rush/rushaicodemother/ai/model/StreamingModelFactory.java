@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.ai.model;
 
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
+import com.rush.rushaicodemother.service.AiModelCatalogService;
 import com.rush.rushaicodemother.service.AiModelService;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -29,6 +30,9 @@ public class StreamingModelFactory {
 
     @Resource
     private AiModelService aiModelService;
+
+    @Resource
+    private AiModelCatalogService aiModelCatalogService;
 
     @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.base-url}")
     private String reasoningBaseUrl;
@@ -100,12 +104,12 @@ public class StreamingModelFactory {
         AiModel dbModel = getPreferredEnabledModel(modelType);
 
         if (dbModel != null) {
-            log.debug("使用数据库模型配置: {}", dbModel.getModelName());
+            log.info("使用数据库模型配置: provider={}, modelId={}, modelType={}, baseUrl={}",
+                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getModelType(), dbModel.getBaseUrl());
             return createModelFromDb(dbModel, profile.thinkingEnabled());
         }
 
-        // 回退到配置文件默认配置
-        log.debug("使用配置文件默认模型配置");
+        log.warn("未找到可运行的已启用 {} 模型，回退到配置文件默认模型", modelType);
         return switch (profile.modelTier()) {
             case SPEED, BALANCED -> createFlashModel(profile.thinkingEnabled());
             case QUALITY -> createReasoningModel(profile.thinkingEnabled());
@@ -120,10 +124,11 @@ public class StreamingModelFactory {
     public StreamingChatModel createChatModel() {
         AiModel dbModel = getPreferredEnabledModel("chat");
         if (dbModel != null) {
-            log.debug("使用数据库普通模型配置: {}", dbModel.getModelName());
+            log.info("使用数据库普通模型配置: provider={}, modelId={}, baseUrl={}",
+                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
             return createModelFromDb(dbModel, false);
         }
-        log.debug("使用配置文件默认普通模型配置");
+        log.warn("未找到可运行的已启用 chat 模型，回退到配置文件默认普通模型");
         return createFlashModel(false);
     }
 
@@ -135,10 +140,11 @@ public class StreamingModelFactory {
     public StreamingChatModel createReasoningModel() {
         AiModel dbModel = getPreferredEnabledModel("reasoning");
         if (dbModel != null) {
-            log.debug("使用数据库推理模型配置: {}", dbModel.getModelName());
+            log.info("使用数据库推理模型配置: provider={}, modelId={}, baseUrl={}",
+                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
             return createModelFromDb(dbModel, true);
         }
-        log.debug("使用配置文件默认推理模型配置");
+        log.warn("未找到可运行的已启用 reasoning 模型，回退到配置文件默认推理模型");
         return createReasoningModel(true);
     }
 
@@ -150,10 +156,11 @@ public class StreamingModelFactory {
     public ChatModel createRoutingChatModel() {
         AiModel dbModel = getPreferredEnabledModel("chat");
         if (dbModel != null) {
-            log.debug("使用数据库路由模型配置: {}", dbModel.getModelName());
+            log.info("使用数据库路由模型配置: provider={}, modelId={}, baseUrl={}",
+                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
             return createChatModelFromDb(dbModel);
         }
-        log.debug("使用配置文件默认路由模型配置");
+        log.warn("未找到可运行的已启用 chat 模型，回退到配置文件默认路由模型");
         return OpenAiChatModel.builder()
                 .apiKey(routingApiKey)
                 .baseUrl(routingBaseUrl)
@@ -173,10 +180,11 @@ public class StreamingModelFactory {
     public ChatModel createPrimaryChatModel() {
         AiModel dbModel = getPreferredEnabledModel("reasoning");
         if (dbModel != null) {
-            log.debug("使用数据库主模型配置: {}", dbModel.getModelName());
+            log.info("使用数据库主模型配置: provider={}, modelId={}, baseUrl={}",
+                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
             return createChatModelFromDb(dbModel);
         }
-        log.debug("使用配置文件默认主模型配置");
+        log.warn("未找到可运行的已启用主模型，回退到配置文件默认主模型");
         return OpenAiChatModel.builder()
                 .apiKey(reasoningApiKey)
                 .baseUrl(reasoningBaseUrl)
@@ -207,7 +215,7 @@ public class StreamingModelFactory {
             if (models.isEmpty()) {
                 return null;
             }
-            return models.get(0);
+            return aiModelCatalogService.normalizeForRuntime(models.get(0));
         } catch (Exception e) {
             log.warn("从数据库获取模型配置失败，将使用默认配置", e);
             return null;
@@ -224,7 +232,7 @@ public class StreamingModelFactory {
         }
         try {
             List<AiModel> models = aiModelService.listRunnableEnabledModels();
-            return models.isEmpty() ? null : models.get(0);
+            return models.isEmpty() ? null : aiModelCatalogService.normalizeForRuntime(models.get(0));
         } catch (Exception e) {
             log.warn("从数据库获取启用模型配置失败，将使用默认配置", e);
             return null;

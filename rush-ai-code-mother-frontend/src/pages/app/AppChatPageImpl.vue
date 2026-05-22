@@ -121,6 +121,7 @@
           @open-deployed-site="openDeployedSite"
           @open-editor-tab="openEditorTab"
           @open-in-new-tab="openInNewTab"
+          @reorder-editor-tabs="reorderEditorTabs"
           @save-current-file="saveCurrentFile"
           @show-app-detail="showAppDetail"
           @sync-deployment="syncDeployment"

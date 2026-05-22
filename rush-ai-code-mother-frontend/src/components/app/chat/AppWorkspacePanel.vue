@@ -218,9 +218,20 @@
                       :key="tab.path"
                       type="button"
                       class="editor-tab"
-                      :class="{ active: tab.path === selectedFilePath }"
+                      :class="{
+                        active: tab.path === selectedFilePath,
+                        dragging: draggingEditorTabPath === tab.path,
+                        'drop-before': editorTabDropTargetPath === tab.path && editorTabDropPosition === 'before',
+                        'drop-after': editorTabDropTargetPath === tab.path && editorTabDropPosition === 'after',
+                      }"
                       :title="tab.path"
+                      draggable="true"
                       @click="$emit('openEditorTab', tab.path)"
+                      @dragstart="handleEditorTabDragStart($event, tab.path)"
+                      @dragenter="handleEditorTabDragEnter($event, tab.path)"
+                      @dragover="handleEditorTabDragOver($event, tab.path)"
+                      @drop="handleEditorTabDrop($event, tab.path)"
+                      @dragend="handleEditorTabDragEnd"
                   >
                     <FileTextOutlined />
                     <span class="editor-tab-name">{{ tab.name }}</span>
@@ -337,7 +348,7 @@ const props = defineProps<{
   syncingDeploy: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   deployApp: []
   databaseEnabled: [resource: API.AppDatabaseResourceVO]
   downloadCode: []
@@ -348,6 +359,7 @@ defineEmits<{
   openDeployedSite: []
   openEditorTab: [filePath: string]
   openInNewTab: []
+  reorderEditorTabs: [sourcePath: string, targetPath: string, position: 'before' | 'after']
   saveCurrentFile: []
   showAppDetail: []
   syncDeployment: []
@@ -362,6 +374,9 @@ const fileWorkspaceRef = ref<HTMLElement | null>(null)
 const lineNumberGutterRef = ref<HTMLElement | null>(null)
 const codeHighlightRef = ref<HTMLElement | null>(null)
 const fileSidebarWidth = ref(260)
+const draggingEditorTabPath = ref('')
+const editorTabDropTargetPath = ref('')
+const editorTabDropPosition = ref<'before' | 'after'>('before')
 const fileSidebarResizeMin = 220
 const fileSidebarResizeMax = 520
 let fileSidebarResizePointerId: number | null = null
@@ -386,6 +401,58 @@ const handleCodeEditorScroll = (event: Event) => {
     codeHighlightRef.value.scrollTop = target.scrollTop
     codeHighlightRef.value.scrollLeft = target.scrollLeft
   }
+}
+
+const updateEditorTabDropTarget = (event: DragEvent, targetPath: string) => {
+  if (!draggingEditorTabPath.value || draggingEditorTabPath.value === targetPath) {
+    editorTabDropTargetPath.value = ''
+    return
+  }
+  const target = event.currentTarget as HTMLElement | null
+  const rect = target?.getBoundingClientRect()
+  editorTabDropTargetPath.value = targetPath
+  editorTabDropPosition.value = rect && event.clientX > rect.left + rect.width / 2 ? 'after' : 'before'
+}
+
+const resetEditorTabDragState = () => {
+  draggingEditorTabPath.value = ''
+  editorTabDropTargetPath.value = ''
+  editorTabDropPosition.value = 'before'
+}
+
+const handleEditorTabDragStart = (event: DragEvent, tabPath: string) => {
+  draggingEditorTabPath.value = tabPath
+  event.dataTransfer?.setData('text/plain', tabPath)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+  }
+}
+
+const handleEditorTabDragEnter = (event: DragEvent, targetPath: string) => {
+  event.preventDefault()
+  updateEditorTabDropTarget(event, targetPath)
+}
+
+const handleEditorTabDragOver = (event: DragEvent, targetPath: string) => {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  updateEditorTabDropTarget(event, targetPath)
+}
+
+const handleEditorTabDrop = (event: DragEvent, targetPath: string) => {
+  event.preventDefault()
+  const sourcePath = draggingEditorTabPath.value || event.dataTransfer?.getData('text/plain') || ''
+  const position = editorTabDropPosition.value
+  if (sourcePath && sourcePath !== targetPath) {
+    emit('reorderEditorTabs', sourcePath, targetPath, position)
+  }
+  resetEditorTabDragState()
+}
+
+const handleEditorTabDragEnd = () => {
+  resetEditorTabDragState()
 }
 
 const clampFileSidebarWidth = (width: number) => {
@@ -817,6 +884,7 @@ onUnmounted(stopFileSidebarResize)
 }
 
 .editor-tab {
+  position: relative;
   min-width: 0;
   max-width: 180px;
   display: inline-flex;
@@ -829,6 +897,33 @@ onUnmounted(stopFileSidebarResize)
   background: transparent;
   font-size: 12px;
   cursor: pointer;
+}
+
+.editor-tab[draggable='true'] {
+  cursor: grab;
+}
+
+.editor-tab.dragging {
+  opacity: 0.45;
+}
+
+.editor-tab.drop-before::before,
+.editor-tab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 999px;
+  background: #1677ff;
+}
+
+.editor-tab.drop-before::before {
+  left: 0;
+}
+
+.editor-tab.drop-after::after {
+  right: 0;
 }
 
 .editor-tab.active {

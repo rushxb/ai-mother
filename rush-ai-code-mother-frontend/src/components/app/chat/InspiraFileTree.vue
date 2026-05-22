@@ -33,7 +33,6 @@
         </span>
 
         <span class="tree-row-name" :title="row.node.title">{{ row.node.title }}</span>
-        <span v-if="row.node.directory && row.node.children?.length" class="tree-row-count">{{ row.node.children.length }}</span>
       </button>
     </div>
 
@@ -148,7 +147,7 @@ const getRowStyle = (row: VisibleTreeRow) => ({
 .tree-row {
   position: relative;
   display: grid;
-  grid-template-columns: 18px 18px max-content max-content;
+  grid-template-columns: 18px 18px max-content;
   align-items: center;
   gap: 8px;
   width: max-content;
@@ -291,16 +290,6 @@ const getRowStyle = (row: VisibleTreeRow) => ({
   min-width: 0;
   white-space: nowrap;
   font-size: 13px;
-}
-
-.tree-row-count {
-  align-self: center;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.14);
-  color: #64748b;
-  font-size: 11px;
-  line-height: 18px;
 }
 
 .tree-empty {

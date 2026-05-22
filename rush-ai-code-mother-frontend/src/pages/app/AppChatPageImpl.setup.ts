@@ -336,9 +336,38 @@ const rememberOpenFileTab = (filePath: string, fileName?: string) => {
     return
   }
   const normalizedName = fileName || normalizedPath.split('/').pop() || normalizedPath
-  const nextTabs = openFileTabs.value.filter((tab) => normalizeFilePath(tab.path) !== normalizedPath)
-  nextTabs.push({ path: normalizedPath, name: normalizedName })
-  openFileTabs.value = nextTabs.slice(-5)
+  const existingIndex = openFileTabs.value.findIndex((tab) => normalizeFilePath(tab.path) === normalizedPath)
+  if (existingIndex >= 0) {
+    openFileTabs.value = openFileTabs.value.map((tab, index) =>
+      index === existingIndex ? { path: normalizedPath, name: normalizedName } : tab,
+    )
+    return
+  }
+  openFileTabs.value = [...openFileTabs.value, { path: normalizedPath, name: normalizedName }].slice(-5)
+}
+
+const getOpenFileTabName = (filePath: string) => {
+  const normalizedPath = normalizeFilePath(filePath)
+  return openFileTabs.value.find((tab) => normalizeFilePath(tab.path) === normalizedPath)?.name
+}
+
+const reorderEditorTabs = (sourcePath: string, targetPath: string, position: 'before' | 'after') => {
+  const normalizedSourcePath = normalizeFilePath(sourcePath)
+  const normalizedTargetPath = normalizeFilePath(targetPath)
+  if (!normalizedSourcePath || !normalizedTargetPath || normalizedSourcePath === normalizedTargetPath) {
+    return
+  }
+  const sourceTab = openFileTabs.value.find((tab) => normalizeFilePath(tab.path) === normalizedSourcePath)
+  if (!sourceTab) {
+    return
+  }
+  const nextTabs = openFileTabs.value.filter((tab) => normalizeFilePath(tab.path) !== normalizedSourcePath)
+  const targetIndex = nextTabs.findIndex((tab) => normalizeFilePath(tab.path) === normalizedTargetPath)
+  if (targetIndex < 0) {
+    return
+  }
+  nextTabs.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, sourceTab)
+  openFileTabs.value = nextTabs
 }
 
 // 应用详情相关
@@ -1523,23 +1552,33 @@ const loadFileContent = async (filePath: string) => {
   if (!appId.value || !filePath) {
     return
   }
-  if (!isFrontendEditableFile(filePath)) {
+  const normalizedFilePath = normalizeFilePath(filePath)
+  if (!isFrontendEditableFile(normalizedFilePath)) {
     message.info('文件树已展示该文件，但当前编辑器仅支持前端文件')
     return
   }
-  if (isStreamingFilePreview.value && streamingFilePath.value === filePath) {
+  if (isStreamingFilePreview.value && normalizeFilePath(streamingFilePath.value) === normalizedFilePath) {
+    return
+  }
+  const cachedContent = loadedFileContentCache.get(normalizedFilePath)
+  if (cachedContent !== undefined) {
+    selectedFilePath.value = normalizedFilePath
+    selectedFileName.value = getOpenFileTabName(normalizedFilePath) || normalizedFilePath.split('/').pop() || normalizedFilePath
+    fileContent.value = cachedContent
+    savedFileContent.value = cachedContent
+    rememberOpenFileTab(selectedFilePath.value, selectedFileName.value)
     return
   }
   loadingFileContent.value = true
   try {
     const res = await getAppCodeFileContent({
       appId: appId.value as unknown as number,
-      filePath,
+      filePath: normalizedFilePath,
     })
     if (res.data.code === 0 && res.data.data) {
       const file = res.data.data
-      selectedFilePath.value = file.path || filePath
-      selectedFileName.value = file.name || filePath.split('/').pop() || filePath
+      selectedFilePath.value = normalizeFilePath(file.path || normalizedFilePath)
+      selectedFileName.value = file.name || normalizedFilePath.split('/').pop() || normalizedFilePath
       fileContent.value = file.content || ''
       savedFileContent.value = file.content || ''
       loadedFileContentCache.set(normalizeFilePath(selectedFilePath.value), file.content || '')
@@ -1629,6 +1668,9 @@ const stopStreamingFilePreview = (keepCurrentContent = false) => {
     return
   }
   savedFileContent.value = fileContent.value
+  if (selectedFilePath.value) {
+    loadedFileContentCache.set(normalizeFilePath(selectedFilePath.value), fileContent.value)
+  }
 }
 
 const ensureStreamingFileTimer = (filePath: string) => {
@@ -1652,6 +1694,7 @@ const ensureStreamingFileTimer = (filePath: string) => {
       streamingFileDisplayContent.value.length + chunkSize,
     )
     fileContent.value = streamingFileDisplayContent.value
+    loadedFileContentCache.set(normalizedFilePath, fileContent.value)
     void syncCodeEditorToCharIndex(streamingFileDisplayContent.value.length)
   }
 
@@ -1697,6 +1740,7 @@ const startStreamingFilePreview = async (filePath: string, targetContent: string
   streamingFileDisplayContent.value = initialContent
   fileContent.value = initialContent
   savedFileContent.value = initialContent
+  loadedFileContentCache.set(normalizedFilePath, initialContent)
 
   if (streamingFileTimer !== null) {
     window.clearInterval(streamingFileTimer)
@@ -1795,6 +1839,9 @@ const showCompileRollbackConfirm = (errorMessage: string) => {
     cancelText: '继续编辑',
     onOk: () => {
       fileContent.value = savedFileContent.value
+      if (selectedFilePath.value) {
+        loadedFileContentCache.set(normalizeFilePath(selectedFilePath.value), savedFileContent.value)
+      }
       refreshPreview()
       nextTick(() => {
         focusCodeEditor()
@@ -1823,6 +1870,7 @@ const saveCurrentFile = async () => {
     })
     if (res.data.code === 0 && res.data.data) {
       savedFileContent.value = fileContent.value
+      loadedFileContentCache.set(normalizeFilePath(selectedFilePath.value), fileContent.value)
       refreshPreview()
       message.success('文件已保存，网页预览已刷新')
       return
@@ -2151,6 +2199,7 @@ onUnmounted(() => {
     previewUrl,
     devServerRunning,
     regenerateAiMessage,
+    reorderEditorTabs,
     retryLastGeneration,
     saveAppName,
     saveCurrentFile,

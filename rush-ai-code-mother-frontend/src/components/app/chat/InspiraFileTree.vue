@@ -137,7 +137,8 @@ const getRowStyle = (row: VisibleTreeRow) => ({
 
 .tree-list {
   position: relative;
-  min-width: 0;
+  min-width: max-content;
+  width: max-content;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -147,11 +148,11 @@ const getRowStyle = (row: VisibleTreeRow) => ({
 .tree-row {
   position: relative;
   display: grid;
-  grid-template-columns: 18px 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px 18px max-content max-content;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
   padding: 7px 10px;
   border: 0;
   border-radius: 10px;
@@ -288,8 +289,6 @@ const getRowStyle = (row: VisibleTreeRow) => ({
 
 .tree-row-name {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
 }

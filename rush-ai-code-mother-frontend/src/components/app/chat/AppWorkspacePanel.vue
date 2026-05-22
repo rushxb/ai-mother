@@ -164,7 +164,7 @@
             <span class="workspace-tab-text">文件编辑</span>
           </span>
         </template>
-        <div class="file-workspace">
+        <div ref="fileWorkspaceRef" class="file-workspace" :style="fileWorkspaceStyle">
           <aside class="file-sidebar">
             <div class="file-sidebar-header">
               <span>文件资源管理器</span>
@@ -192,6 +192,17 @@
               生成代码后可在这里查看文件
             </div>
           </aside>
+          <div
+              class="file-sidebar-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              tabindex="0"
+              :aria-label="`调整文件资源管理器宽度，当前 ${fileSidebarWidth}px`"
+              @pointerdown="startFileSidebarResize"
+              @keydown="handleFileSidebarResizeKeydown"
+          >
+            <span class="file-sidebar-resizer-handle" />
+          </div>
           <section class="file-editor-panel">
             <div v-if="!selectedFilePath" class="editor-placeholder">
               <div class="placeholder-icon">
@@ -266,7 +277,7 @@ import {
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons-vue'
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DatabaseWorkspace from '@/components/app/DatabaseWorkspace.vue'
 import InspiraFileTree from './InspiraFileTree.vue'
 import ChatToolbarButton from './ChatToolbarButton.vue'
@@ -324,6 +335,80 @@ defineEmits<{
 
 // iframe ref，用于直接设置 src（绕过 Vue Router）
 const previewIframeRef = ref<HTMLIFrameElement | null>(null)
+const fileWorkspaceRef = ref<HTMLElement | null>(null)
+const fileSidebarWidth = ref(260)
+const fileSidebarResizeMin = 220
+const fileSidebarResizeMax = 520
+let fileSidebarResizePointerId: number | null = null
+let fileSidebarResizeHandle: HTMLElement | null = null
+
+const fileWorkspaceStyle = computed(() => ({
+  '--file-sidebar-width': `${fileSidebarWidth.value}px`,
+}))
+
+const clampFileSidebarWidth = (width: number) => {
+  return Math.min(fileSidebarResizeMax, Math.max(fileSidebarResizeMin, width))
+}
+
+const stopFileSidebarResize = () => {
+  if (fileSidebarResizePointerId === null) {
+    return
+  }
+  fileSidebarResizeHandle?.releasePointerCapture?.(fileSidebarResizePointerId)
+  fileSidebarResizePointerId = null
+  fileSidebarResizeHandle = null
+  window.removeEventListener('pointermove', handleFileSidebarResizeMove)
+  window.removeEventListener('pointerup', stopFileSidebarResize)
+  window.removeEventListener('pointercancel', stopFileSidebarResize)
+}
+
+const handleFileSidebarResizeMove = (event: PointerEvent) => {
+  if (fileSidebarResizePointerId === null || event.pointerId !== fileSidebarResizePointerId) {
+    return
+  }
+  const workspaceRect = fileWorkspaceRef.value?.getBoundingClientRect()
+  if (!workspaceRect) {
+    return
+  }
+  fileSidebarWidth.value = clampFileSidebarWidth(event.clientX - workspaceRect.left)
+}
+
+const startFileSidebarResize = (event: PointerEvent) => {
+  if (event.button !== 0) {
+    return
+  }
+  event.preventDefault()
+  fileSidebarResizePointerId = event.pointerId
+  fileSidebarResizeHandle = event.currentTarget as HTMLElement | null
+  fileSidebarResizeHandle?.setPointerCapture?.(event.pointerId)
+  window.addEventListener('pointermove', handleFileSidebarResizeMove)
+  window.addEventListener('pointerup', stopFileSidebarResize)
+  window.addEventListener('pointercancel', stopFileSidebarResize)
+  handleFileSidebarResizeMove(event)
+}
+
+const handleFileSidebarResizeKeydown = (event: KeyboardEvent) => {
+  const step = event.shiftKey ? 48 : 24
+  if (event.key === 'ArrowLeft') {
+    fileSidebarWidth.value = clampFileSidebarWidth(fileSidebarWidth.value - step)
+    event.preventDefault()
+    return
+  }
+  if (event.key === 'ArrowRight') {
+    fileSidebarWidth.value = clampFileSidebarWidth(fileSidebarWidth.value + step)
+    event.preventDefault()
+    return
+  }
+  if (event.key === 'Home') {
+    fileSidebarWidth.value = fileSidebarResizeMin
+    event.preventDefault()
+    return
+  }
+  if (event.key === 'End') {
+    fileSidebarWidth.value = fileSidebarResizeMax
+    event.preventDefault()
+  }
+}
 
 // 设置 iframe src 的函数
 const updateIframeSrc = async () => {
@@ -341,6 +426,7 @@ watch(() => props.previewRefreshKey, updateIframeSrc)
 
 // 组件挂载后设置初始 src
 onMounted(updateIframeSrc)
+onUnmounted(stopFileSidebarResize)
 </script>
 
 <style scoped>
@@ -560,7 +646,7 @@ onMounted(updateIframeSrc)
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: minmax(220px, var(--file-sidebar-width, 260px)) 8px minmax(0, 1fr);
   background: #f8fafc;
 }
 
@@ -569,8 +655,45 @@ onMounted(updateIframeSrc)
   min-height: 0;
   display: flex;
   flex-direction: column;
+  width: 100%;
   border-right: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(255, 255, 255, 0.78);
+}
+
+.file-sidebar-resizer {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.file-sidebar-resizer::before {
+  content: '';
+  width: 1px;
+  margin: 0 auto;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.file-sidebar-resizer:hover::before,
+.file-sidebar-resizer:focus-visible::before,
+.file-sidebar-resizer:active::before {
+  background: rgba(37, 99, 235, 0.48);
+}
+
+.file-sidebar-resizer:focus-visible {
+  outline: none;
+}
+
+.file-sidebar-resizer-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 16px;
+  transform: translateX(-50%);
 }
 
 .file-sidebar-header {
@@ -612,6 +735,7 @@ onMounted(updateIframeSrc)
   overflow: auto;
   overscroll-behavior: contain;
   padding: 10px 8px;
+  scrollbar-gutter: stable both-edges;
 }
 
 .file-editor-panel {

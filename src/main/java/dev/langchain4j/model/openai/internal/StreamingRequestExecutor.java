@@ -7,6 +7,7 @@ import dev.langchain4j.http.client.sse.ServerSentEvent;
 import dev.langchain4j.http.client.sse.ServerSentEventListener;
 import dev.langchain4j.http.client.sse.ServerSentEventParser;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -131,7 +132,8 @@ class StreamingRequestExecutor<Response> {
 
         @Override
         public void parse(java.io.InputStream httpResponseBody, ServerSentEventListener listener) {
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(httpResponseBody))) {
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(httpResponseBody, StandardCharsets.UTF_8))) {
                 String event = null;
                 StringBuilder data = new StringBuilder();
                 String line;

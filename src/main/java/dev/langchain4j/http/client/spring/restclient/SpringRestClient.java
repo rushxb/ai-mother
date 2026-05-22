@@ -19,6 +19,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.io.InputStream;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -68,14 +69,14 @@ public class SpringRestClient implements CancellableHttpClient {
     @Override
     public SuccessfulHttpResponse execute(HttpRequest request) throws HttpException {
         try {
-            ResponseEntity<String> responseEntity = toSpringRestClientRequest(request)
+            ResponseEntity<byte[]> responseEntity = toSpringRestClientRequest(request)
                     .retrieve()
-                    .toEntity(String.class);
+                    .toEntity(byte[].class);
 
             return SuccessfulHttpResponse.builder()
                     .statusCode(responseEntity.getStatusCode().value())
                     .headers(responseEntity.getHeaders())
-                    .body(responseEntity.getBody())
+                    .body(toUtf8String(responseEntity.getBody()))
                     .build();
         } catch (RestClientResponseException e) {
             throw new HttpException(e.getStatusCode().value(), e.getMessage());
@@ -106,7 +107,7 @@ public class SpringRestClient implements CancellableHttpClient {
                         .exchange((springRequest, springResponse) -> {
                             int statusCode = springResponse.getStatusCode().value();
                             if (!springResponse.getStatusCode().is2xxSuccessful()) {
-                                String body = springResponse.bodyTo(String.class);
+                                String body = toUtf8String(springResponse.bodyTo(byte[].class));
                                 if (!cancelled.get()) {
                                     HttpException exception = new HttpException(statusCode, body);
                                     ignoringExceptions(() -> listener.onError(exception));
@@ -174,5 +175,9 @@ public class SpringRestClient implements CancellableHttpClient {
         }
 
         return requestBodySpec;
+    }
+
+    private static String toUtf8String(byte[] bytes) {
+        return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
     }
 }

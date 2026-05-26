@@ -1,5 +1,11 @@
 <template>
-  <a-layout-header class="header">
+  <Motion
+    as="a-layout-header"
+    class="header"
+    :initial="{ opacity: 0, y: -12 }"
+    :animate="{ opacity: 1, y: 0 }"
+    :transition="{ duration: 0.45, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.05 }"
+  >
     <div class="header-inner">
       <RouterLink to="/" class="brand" aria-label="返回主页">
         <span class="logo-frame">
@@ -46,7 +52,7 @@
         <RouterLink v-else to="/user/login" class="login-button">登录</RouterLink>
       </div>
     </div>
-  </a-layout-header>
+  </Motion>
 </template>
 
 <script setup lang="ts">
@@ -54,6 +60,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { LogoutOutlined } from '@ant-design/icons-vue'
+import { Motion } from 'motion-v'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { userLogout } from '@/api/userController.ts'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'

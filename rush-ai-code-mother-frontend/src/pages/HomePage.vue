@@ -2,12 +2,14 @@
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { Motion } from 'motion-v'
 import { useLoginUserStore } from '@/stores/loginUser'
 import { addApp, copyApp, listMyAppVoByPage, listGoodAppVoByPage, optimizePrompt } from '@/api/appController'
 import { getDeployUrl } from '@/config/env'
 import { normalizeImageUrl } from '@/utils/url'
 import { DEFAULT_APP_COVER, DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 import { BulbOutlined } from '@ant-design/icons-vue'
+import { fadeUp, staggerChild, hoverLift } from '@/composables/useMotionPresets'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
@@ -311,32 +313,34 @@ onUnmounted(() => {
 
     <main class="home-shell">
       <section class="hero-section">
-        <div class="hero-copy">
-          <div class="eyebrow">
-            <span class="eyebrow-dot"></span>
-            AI APP GENERATION CONSOLE
-          </div>
-          <h1 class="hero-title">把一句需求，推进成可对话、可部署的应用。</h1>
-          <p class="hero-description">
-            用自然语言描述目标，系统会为你创建应用骨架并进入对话调试流程，适合快速验证 MVP、内部工具和演示项目。
-          </p>
-          <div class="hero-metrics">
-            <div class="metric-pill">
-              <strong>Prompt</strong>
-              <span>需求驱动</span>
+        <Motion class="hero-copy" as="div" v-bind="fadeUp(0)">
+          <Motion as="div" v-bind="staggerChild(0, 0.08)">
+            <div class="eyebrow">
+              <span class="eyebrow-dot"></span>
+              AI APP GENERATION CONSOLE
             </div>
-            <div class="metric-pill">
-              <strong>Chat</strong>
-              <span>持续迭代</span>
+          </Motion>
+          <Motion as="div" v-bind="staggerChild(1, 0.08)">
+            <h1 class="hero-title">把一句需求，推进成可对话、可部署的应用。</h1>
+          </Motion>
+          <Motion as="div" v-bind="staggerChild(2, 0.08)">
+            <p class="hero-description">
+              用自然语言描述目标，系统会为你创建应用骨架并进入对话调试流程，适合快速验证 MVP、内部工具和演示项目。
+            </p>
+          </Motion>
+          <Motion as="div" v-bind="staggerChild(3, 0.08)">
+            <div class="hero-metrics">
+              <Motion v-for="(m, i) in 3" :key="i" as="div" v-bind="staggerChild(i, 0.36)">
+                <div class="metric-pill">
+                  <strong>{{ ['Prompt', 'Chat', 'Deploy'][i] }}</strong>
+                  <span>{{ ['需求驱动', '持续迭代', '在线预览'][i] }}</span>
+                </div>
+              </Motion>
             </div>
-            <div class="metric-pill">
-              <strong>Deploy</strong>
-              <span>在线预览</span>
-            </div>
-          </div>
-        </div>
+          </Motion>
+        </Motion>
 
-        <div class="composer-panel">
+        <Motion class="composer-panel" as="div" v-bind="fadeUp(0.1)">
           <div class="composer-head">
             <div>
               <span class="panel-kicker">New Application</span>
@@ -390,29 +394,44 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-        </div>
+        </Motion>
       </section>
 
       <section class="template-section">
-        <div class="template-card" v-for="item in promptTemplates" :key="item.title" @click="setPrompt(item.prompt)">
+        <Motion
+          v-for="(item, index) in promptTemplates"
+          :key="item.title"
+          as="div"
+          v-bind="{ ...staggerChild(index, 0), ...hoverLift }"
+          class="template-card"
+          @click="setPrompt(item.prompt)"
+        >
           <span>{{ item.tag }}</span>
           <strong>{{ item.title }}</strong>
           <p class="template-summary">
             <TextScrollReveal :text="item.summary" :stagger="0.05" :duration="0.48" />
           </p>
-        </div>
+        </Motion>
       </section>
 
-      <section class="section">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">My Workspace</span>
-            <h2 class="section-title">我的作品</h2>
+      <Motion as="section" v-bind="fadeUp(0)" class="section">
+        <Motion as="div" v-bind="fadeUp(0.05)">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">My Workspace</span>
+              <h2 class="section-title">我的作品</h2>
+            </div>
+            <p>继续编辑最近创建的应用，或进入只读对话查看生成过程。</p>
           </div>
-          <p>继续编辑最近创建的应用，或进入只读对话查看生成过程。</p>
-        </div>
+        </Motion>
         <div v-if="workspaceCards.length" class="workspace-grid">
-          <article v-for="item in workspaceCards" :key="item.id" class="workspace-card">
+          <Motion
+            v-for="(item, index) in workspaceCards"
+            :key="item.id"
+            as="article"
+            v-bind="{ ...staggerChild(index, 0.1), ...hoverLift }"
+            class="workspace-card"
+          >
             <GlowingEffect class="workspace-glow">
               <DirectionAwareHover
                 :image-url="item.imageUrl"
@@ -441,7 +460,7 @@ onUnmounted(() => {
                 </div>
               </DirectionAwareHover>
             </GlowingEffect>
-          </article>
+          </Motion>
         </div>
         <div v-else class="empty-panel">
           <strong>还没有作品</strong>
@@ -457,16 +476,18 @@ onUnmounted(() => {
             @change="loadMyApps"
           />
         </div>
-      </section>
+      </Motion>
 
-      <section class="section">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">Featured Gallery</span>
-            <h2 class="section-title">精选案例</h2>
+      <Motion as="section" v-bind="fadeUp(0)" class="section">
+        <Motion as="div" v-bind="fadeUp(0.05)">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Featured Gallery</span>
+              <h2 class="section-title">精选案例</h2>
+            </div>
+            <p>参考优秀案例的结构、交互和页面组织方式。</p>
           </div>
-          <p>参考优秀案例的结构、交互和页面组织方式。</p>
-        </div>
+        </Motion>
         <div v-if="featuredCarouselItems.length" class="featured-carousel-wrap">
           <AppleCardCarousel>
             <AppleCarouselItem v-for="(item, index) in featuredCarouselItems" :key="item.id" :index="index">
@@ -511,7 +532,7 @@ onUnmounted(() => {
             @change="loadFeaturedApps"
           />
         </div>
-      </section>
+      </Motion>
     </main>
   </div>
 </template>
@@ -621,7 +642,6 @@ onUnmounted(() => {
   border-radius: 34px;
   padding: 42px;
   min-height: 440px;
-  animation: panelReveal 0.62s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .hero-copy::after {
@@ -713,7 +733,6 @@ onUnmounted(() => {
 .composer-panel {
   border-radius: 30px;
   padding: 30px;
-  animation: panelReveal 0.62s cubic-bezier(0.2, 0.8, 0.2, 1) 0.08s both;
 }
 
 .composer-head {
@@ -857,7 +876,6 @@ onUnmounted(() => {
   padding: 20px;
   cursor: pointer;
   transition:
-    transform 0.28s ease,
     box-shadow 0.28s ease,
     border-color 0.28s ease;
 }
@@ -879,7 +897,6 @@ onUnmounted(() => {
 }
 
 .template-card:hover {
-  transform: translateY(-4px);
   border-color: rgba(47, 128, 255, 0.26);
   box-shadow: 0 26px 54px rgba(114, 137, 170, 0.16);
 }
@@ -1181,17 +1198,6 @@ onUnmounted(() => {
   }
   50% {
     transform: translate3d(0, -12px, 0);
-  }
-}
-
-@keyframes panelReveal {
-  from {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 

@@ -30,14 +30,26 @@
         </BlurReveal>
 
         <div class="signal-strip">
-          <div v-for="item in signalItems" :key="item.label" class="signal-item">
+          <Motion
+            v-for="(item, index) in signalItems"
+            :key="item.label"
+            as="div"
+            v-bind="staggerChild(index, 0.2)"
+            class="signal-item"
+          >
             <span>{{ item.label }}</span>
             <strong>{{ item.value }}</strong>
-          </div>
+          </Motion>
         </div>
       </section>
 
-      <section class="login-panel">
+      <Motion
+        as="section"
+        class="login-panel"
+        :initial="{ opacity: 0, x: 20, filter: 'blur(6px)' }"
+        :animate="{ opacity: 1, x: 0, filter: 'blur(0px)' }"
+        :transition="{ duration: 0.58, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.18 }"
+      >
         <div class="panel-rim"></div>
         <div class="panel-content">
           <BlurReveal class="form-reveal" :duration="0.62" :delay="0.1" blur="16px" :y-offset="16">
@@ -194,7 +206,7 @@
             </a-form>
           </Transition>
         </div>
-      </section>
+      </Motion>
     </main>
   </div>
 </template>
@@ -203,8 +215,10 @@
 import { computed, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Motion } from 'motion-v'
 import { userLogin, userRegister } from '@/api/userController.ts'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
+import { staggerChild } from '@/composables/useMotionPresets'
 
 type AuthMode = 'login' | 'register'
 

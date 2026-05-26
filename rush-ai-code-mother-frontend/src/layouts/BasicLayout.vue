@@ -7,7 +7,11 @@
     <GlobalHeader v-if="showHeader" />
     <!-- 主要内容区域 -->
     <a-layout-content class="main-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <Transition :name="transitionName" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
     </a-layout-content>
     <!-- 底部版权信息 -->
     <GlobalFooter v-if="!isAuthPage && !isChatPage" />
@@ -26,6 +30,12 @@ const isAuthPage = computed(() =>
 )
 const isChatPage = computed(() => route.path.startsWith('/app/chat/'))
 const showHeader = computed(() => !isChatPage.value && route.path !== '/user/success')
+
+const transitionName = computed(() => {
+  if (isChatPage.value) return 'route-chat'
+  if (isAuthPage.value) return 'route-fade'
+  return 'route-slide'
+})
 </script>
 
 <style scoped>
@@ -61,5 +71,48 @@ const showHeader = computed(() => !isChatPage.value && route.path !== '/user/suc
 
 .auth-page-layout .main-content {
   overflow: hidden;
+}
+
+/* Page transitions */
+.route-slide-enter-active,
+.route-slide-leave-active,
+.route-fade-enter-active,
+.route-fade-leave-active,
+.route-chat-enter-active,
+.route-chat-leave-active {
+  transition:
+    opacity 0.24s ease,
+    transform 0.28s ease,
+    filter 0.28s ease;
+}
+
+.route-slide-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(3px);
+}
+
+.route-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+  filter: blur(2px);
+}
+
+.route-fade-enter-from {
+  opacity: 0;
+  filter: blur(4px);
+}
+
+.route-fade-leave-to {
+  opacity: 0;
+  filter: blur(3px);
+}
+
+.route-chat-enter-from {
+  opacity: 0;
+}
+
+.route-chat-leave-to {
+  opacity: 0;
 }
 </style>

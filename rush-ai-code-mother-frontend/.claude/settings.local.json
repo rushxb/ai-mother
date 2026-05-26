@@ -10,7 +10,9 @@
       "PowerShell($root = \\(Resolve-Path \"..\\\\\"\\).Path; & \"$root\\\\mvnw.cmd\" -q -f \"$root\\\\pom.xml\" -DskipTests compile)",
       "PowerShell($root = \\(Resolve-Path \"..\\\\\"\\).ProviderPath; & \"$root\\\\mvnw.cmd\" -q -f \"$root\\\\pom.xml\" -DskipTests compile)",
       "PowerShell(& \"..\\\\mvnw.cmd\" -q -f \"..\\\\pom.xml\" -DskipTests compile)",
-      "PowerShell(java *)"
+      "PowerShell(java *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\rush\\\\.claude\\\\plans\\\\piped-petting-dragon-agent-ae9fdc211fb220a21.md\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }

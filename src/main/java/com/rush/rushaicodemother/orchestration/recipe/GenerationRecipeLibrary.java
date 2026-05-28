@@ -84,11 +84,36 @@ public class GenerationRecipeLibrary {
                         "database",
                         List.of("database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "api", "接口", "数据服务"),
                         List.of("database", "api", "management"),
-                        List.of("backend", "src/api", "src/views", "package.json"),
-                        List.of("后端放在独立 backend 目录", "前端通过 HTTP API 调用后端，不把数据库逻辑写进页面", "先完成最小可运行的连接、初始化和示例 API"),
-                        List.of("验证后端启动入口存在", "验证前端 API 适配层隔离数据库调用", "验证危险 SQL 不直接暴露给前端"),
-                        List.of(),
-                        List.of(),
+                        List.of("backend/internal/domain", "backend/internal/modules", "backend/sql/schema.sql", "frontend/src/services", "frontend/src/pages"),
+                        List.of("先沉淀 API 字段契约", "后端按 internal/domain + internal/modules/{name} 生成 Model/Repository/Service/Handler", "前端通过 services 层调用后端，不把数据库逻辑写进页面"),
+                        List.of("验证前后端字段名一致", "验证 Repository 使用参数化 SQL", "验证 SQLite schema 覆盖 DTO/VO 和 scan 字段"),
+                        List.of(
+                                templateFile("backend/internal/domain/model.go", "共享 DTO、分页契约和跨模块类型"),
+                                templateFile("backend/internal/modules/{name}/model.go", "模块实体、请求 DTO、响应 VO"),
+                                templateFile("backend/internal/modules/{name}/repository.go", "SQLite 参数化 CRUD 与分页查询"),
+                                templateFile("backend/internal/modules/{name}/service.go", "业务规则、错误消息和 Repository 调用"),
+                                templateFile("backend/internal/modules/{name}/handler.go", "HTTP Handler、统一响应、路由注册"),
+                                templateFile("backend/sql/schema.sql", "SQLite schema、索引和迁移片段")
+                        ),
+                        List.of("domain_contract", "module_model", "module_repository", "module_service", "module_handler", "module_import", "database_schema", "server_wiring"),
+                        true
+                ),
+                recipe(
+                        "backend-crud-module",
+                        "后端业务模块 / CRUD API",
+                        "backend-module",
+                        List.of("后端模块", "业务模块", "crud api", "rest api", "管理接口", "增删改查接口"),
+                        List.of("api", "database", "backend-module"),
+                        List.of("internal/domain", "internal/modules", "sql/schema.sql", "cmd/server/main.go"),
+                        List.of("模块目录命名使用 internal/modules/{name}", "先按契约确定字段，再同步 model/repository/service/handler/schema", "简单模块优先 slot-fill，复杂流程回退重型生成"),
+                        List.of("验证 cmd/server 装配新模块", "验证 schema 不包含危险 SQL", "验证 Handler 使用 response.OK/Error"),
+                        List.of(
+                                templateFile("internal/modules/{name}/model.go", "模块字段与请求响应结构"),
+                                templateFile("internal/modules/{name}/repository.go", "参数化 SQL 数据访问"),
+                                templateFile("internal/modules/{name}/handler.go", "路由与统一响应"),
+                                templateFile("sql/schema.sql", "表结构与索引")
+                        ),
+                        List.of("module_model", "module_repository", "module_service", "module_handler", "module_import", "database_schema", "server_wiring"),
                         true
                 )
         );

@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -80,7 +81,8 @@ public class TemplateSlotFillService {
         }
 
         // 2. 构建 slot 定义 JSON
-        String slotDefinition = buildSlotDefinition(manifest);
+        String moduleName = inferBackendModuleName(templateId, userMessage);
+        String slotDefinition = buildSlotDefinition(manifest, moduleName);
 
         // 3. 读取模板上下文（从 classpath 读取模板源文件）
         String templateContext = buildTemplateContextFromResources(templateId, manifest);
@@ -101,7 +103,7 @@ public class TemplateSlotFillService {
         }
 
         // 5. 转换为 PatchOperation
-        List<PatchOperation> patchOperations = convertToPatchOperations(aiOutput.slots(), manifest);
+        List<PatchOperation> patchOperations = convertToPatchOperations(aiOutput.slots(), manifest, moduleName);
 
         // 6. 统计信息
         List<String> filledSlots = aiOutput.slots().stream()
@@ -222,10 +224,13 @@ public class TemplateSlotFillService {
                         description,
                         false,
                         type,
+                        category,
                         null,  // example - 自动生成的不提供示例
                         null,  // dependencies - 自动生成的不提供依赖
                         null,  // styleVariables - 自动生成的不提供样式变量
-                        null   // outputFormat - 自动生成的不提供输出格式
+                        null,  // outputFormat - 自动生成的不提供输出格式
+                        null,  // marker - 自动生成的不提供锚点
+                        null   // patchMode - 默认 whole_file
                 ));
             }
         } catch (Exception e) {
@@ -267,15 +272,22 @@ public class TemplateSlotFillService {
                 || lower.endsWith(".less");
     }
 
-    private String buildSlotDefinition(TemplateManifestService.TemplateManifest manifest) {
+    private String buildSlotDefinition(TemplateManifestService.TemplateManifest manifest, String moduleName) {
         List<Map<String, Object>> slots = manifest.slots().stream()
                 .map(slot -> {
                     Map<String, Object> slotMap = new java.util.HashMap<>();
                     slotMap.put("id", slot.id());
-                    slotMap.put("file", slot.file());
+                    slotMap.put("file", resolveDynamicSlotFile(slot.file(), moduleName));
+                    if (StrUtil.isNotBlank(moduleName)) {
+                        slotMap.put("moduleName", moduleName);
+                        slotMap.put("packageName", moduleName);
+                    }
                     slotMap.put("description", slot.description());
                     slotMap.put("required", slot.isRequired());
                     slotMap.put("type", slot.getType());
+                    if (StrUtil.isNotBlank(slot.category())) {
+                        slotMap.put("category", slot.category());
+                    }
 
                     if (slot.example() != null && !slot.example().isEmpty()) {
                         slotMap.put("example", slot.example());
@@ -289,6 +301,10 @@ public class TemplateSlotFillService {
                     if (slot.getOutputFormat() != null && !slot.getOutputFormat().isEmpty()) {
                         slotMap.put("outputFormat", slot.getOutputFormat());
                     }
+                    if (StrUtil.isNotBlank(slot.marker())) {
+                        slotMap.put("marker", slot.marker());
+                        slotMap.put("patchMode", slot.getPatchMode());
+                    }
 
                     return slotMap;
                 })
@@ -297,6 +313,7 @@ public class TemplateSlotFillService {
         return JSONUtil.toJsonPrettyStr(Map.of(
                 "templateId", manifest.templateId(),
                 "description", manifest.description(),
+                "dynamicModuleName", moduleName,
                 "slots", slots
         ));
     }
@@ -367,19 +384,17 @@ public class TemplateSlotFillService {
     }
 
     private List<PatchOperation> convertToPatchOperations(List<SlotFillOutput.SlotContent> slots,
-                                                           TemplateManifestService.TemplateManifest manifest) {
+                                                           TemplateManifestService.TemplateManifest manifest,
+                                                           String moduleName) {
         // 构建 slotId -> file 映射
-        Map<String, String> slotFileMap = manifest.slots().stream()
-                .collect(Collectors.toMap(
-                        TemplateManifestService.TemplateSlot::id,
-                        TemplateManifestService.TemplateSlot::file
-                ));
+        Map<String, TemplateManifestService.TemplateSlot> slotMap = manifest.slots().stream()
+                .collect(Collectors.toMap(TemplateManifestService.TemplateSlot::id, slot -> slot));
 
         List<PatchOperation> operations = new ArrayList<>();
 
         for (SlotFillOutput.SlotContent slot : slots) {
-            String filePath = slotFileMap.get(slot.slotId());
-            if (StrUtil.isBlank(filePath)) {
+            TemplateManifestService.TemplateSlot templateSlot = slotMap.get(slot.slotId());
+            if (templateSlot == null || StrUtil.isBlank(templateSlot.file())) {
                 log.warn("未知的 slotId: {}", slot.slotId());
                 continue;
             }
@@ -389,10 +404,71 @@ public class TemplateSlotFillService {
                 continue;
             }
 
-            // 使用 modify 操作，因为模板文件已经存在
-            operations.add(PatchOperation.modify(filePath, slot.content()));
+            operations.add(toPatchOperation(templateSlot, slot.content(), moduleName));
         }
 
         return operations;
+    }
+
+    private PatchOperation toPatchOperation(TemplateManifestService.TemplateSlot slot, String content, String moduleName) {
+        String file = resolveDynamicSlotFile(slot.file(), moduleName);
+        if (PatchOperation.ACTION_GO_ADD_IMPORT.equals(slot.getPatchMode())) {
+            return PatchOperation.goAddImport(file, content);
+        }
+        if (PatchOperation.ACTION_APPEND_SQL_MIGRATION.equals(slot.getPatchMode())) {
+            return PatchOperation.appendSqlMigration(file, content);
+        }
+        if (StrUtil.isBlank(slot.marker())) {
+            if (!file.equals(slot.file())) {
+                return PatchOperation.add(file, content);
+            }
+            return PatchOperation.modify(file, content);
+        }
+        return switch (slot.getPatchMode()) {
+            case PatchOperation.ACTION_INSERT_BEFORE_MARKER -> PatchOperation.insertBeforeMarker(file, slot.marker(), content);
+            case PatchOperation.ACTION_INSERT_AFTER_MARKER -> PatchOperation.insertAfterMarker(file, slot.marker(), content);
+            case PatchOperation.ACTION_GO_ADD_IMPORT -> PatchOperation.goAddImport(file, content);
+            case PatchOperation.ACTION_GO_APPEND_TO_FUNCTION -> PatchOperation.goAppendToFunction(file, slot.marker(), content);
+            case PatchOperation.ACTION_GO_ADD_STRUCT_FIELDS -> PatchOperation.goAddStructFields(file, slot.marker(), content);
+            case PatchOperation.ACTION_APPEND_SQL_MIGRATION -> PatchOperation.appendSqlMigration(file, content);
+            default -> PatchOperation.replace(file, slot.marker(), content);
+        };
+    }
+
+    private String resolveDynamicSlotFile(String file, String moduleName) {
+        if (StrUtil.isBlank(file) || StrUtil.isBlank(moduleName) || "sample".equals(moduleName)) {
+            return file;
+        }
+        return file.replace("internal/modules/sample/", "internal/modules/" + moduleName + "/");
+    }
+
+    private String inferBackendModuleName(String templateId, String userMessage) {
+        if (!"go-sqlite-backend-basic".equals(templateId)) {
+            return "";
+        }
+        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
+        Map<String, String> dictionary = Map.ofEntries(
+                Map.entry("商品", "product"),
+                Map.entry("产品", "product"),
+                Map.entry("product", "product"),
+                Map.entry("订单", "order"),
+                Map.entry("order", "order"),
+                Map.entry("文章", "article"),
+                Map.entry("article", "article"),
+                Map.entry("任务", "task"),
+                Map.entry("task", "task"),
+                Map.entry("客户", "customer"),
+                Map.entry("customer", "customer"),
+                Map.entry("库存", "inventory"),
+                Map.entry("inventory", "inventory"),
+                Map.entry("用户", "user"),
+                Map.entry("user", "user")
+        );
+        for (Map.Entry<String, String> entry : dictionary.entrySet()) {
+            if (normalized.contains(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return "app";
     }
 }

@@ -5,7 +5,9 @@ import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.review.BackendQualityReviewService;
 import com.rush.rushaicodemother.orchestration.review.VueSecurityReviewService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -20,14 +22,18 @@ import java.util.Map;
 public class ReviewAgentNode extends BaseGenerationAgentNode {
 
     private final VueSecurityReviewService vueSecurityReviewService;
+    private final BackendQualityReviewService backendQualityReviewService;
 
     public ReviewAgentNode() {
-        this(new VueSecurityReviewService());
+        this(new VueSecurityReviewService(), new BackendQualityReviewService());
     }
 
-    public ReviewAgentNode(VueSecurityReviewService vueSecurityReviewService) {
+    @Autowired
+    public ReviewAgentNode(VueSecurityReviewService vueSecurityReviewService,
+                           BackendQualityReviewService backendQualityReviewService) {
         super("review", "Review", "quality", List.of("code"));
         this.vueSecurityReviewService = vueSecurityReviewService;
+        this.backendQualityReviewService = backendQualityReviewService;
     }
 
     @Override
@@ -75,6 +81,11 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         if (securityReviewResult.passed()) {
             passes.add("Vue 安全审查未发现阻断项");
         }
+        BackendQualityReviewService.BackendReviewResult backendReviewResult =
+                backendQualityReviewService.review(context, prompt);
+        blockers.addAll(backendReviewResult.blockers());
+        warnings.addAll(backendReviewResult.warnings());
+        passes.addAll(backendReviewResult.passes());
         QualityGateResult gateResult = blockers.isEmpty()
                 ? QualityGateResult.passed(warnings, passes)
                 : QualityGateResult.failed(blockers, warnings, passes);
@@ -92,6 +103,8 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         payload.put("hasChangePlan", hasChangePlan);
         payload.put("securityBlockers", securityReviewResult.blockers());
         payload.put("securityWarnings", securityReviewResult.warnings());
+        payload.put("backendBlockers", backendReviewResult.blockers());
+        payload.put("backendWarnings", backendReviewResult.warnings());
         GenerationArtifact artifact = GenerationArtifact.of("quality_gate", "Review", "质量门禁", payload);
         return AgentNodeResult.of(
                 gateResult.passed() ? "质量门禁通过，允许执行代码生成" : "质量门禁未通过，阻止后续生成",

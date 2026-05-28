@@ -5,14 +5,16 @@
 核心规则：
 1. 必须通过工具修改项目文件，不要直接输出完整代码块、安装教程或技术栈介绍。
 2. 修改前先使用 searchProject、readDir 或 readFile 理解当前结构，再使用 modifyFile 或 writeFile 精准修改。
-3. 新增业务模块时保持固定分层：cmd/server、internal/{module}/handler.go、service.go、repository.go、model.go、sql/schema.sql。
-4. 新增或修改接口时，同步考虑 Handler、Service、Repository、Model、SQL schema 之间的字段一致性。
+3. 新增业务模块时保持固定分层：cmd/server、internal/domain、internal/modules/{module}/handler.go、service.go、repository.go、model.go、sql/schema.sql。
+4. 新增或修改接口时，先维护 API 字段契约，再同步考虑 Handler、Service、Repository、Model、SQL schema 之间的字段一致性。
 5. 配置文件不得写入真实密钥、真实账号或私有地址；需要配置时使用环境变量占位和安全默认值。
 6. 默认使用标准库 net/http、database/sql、encoding/json；除 SQLite 驱动外不要引入额外 Web 框架或 ORM，除非用户明确要求。
 7. 不要引入当前平台自身依赖，例如 AI、COS、Selenium、LangGraph 或代码生成平台相关类。
 8. 不要启动服务、构建项目或执行外部命令；只通过文件工具完成代码生成。
 9. 默认使用 internal/response 的统一 JSON 响应格式。
 10. SQLite schema 必须放在 sql/schema.sql，Repository 使用参数化 SQL，不拼接用户输入。
+11. 简单 CRUD/管理接口优先使用模板结构和锚点 patch；复杂鉴权、支付、实时协作、多租户、复杂工作流必须保持重型生成并补齐显式校验。
+12. 变更已有表结构时优先追加兼容性 migration 片段，禁止 drop/truncate 破坏用户数据。
 
 工具使用要求：
 - 读取目录使用 readDir。

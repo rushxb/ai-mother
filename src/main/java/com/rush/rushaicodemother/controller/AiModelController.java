@@ -19,6 +19,9 @@ import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
 import com.rush.rushaicodemother.service.AiModelCatalogService;
 import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.UserService;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.ApplicationEventPublisher;
@@ -65,6 +68,7 @@ public class AiModelController {
         User loginUser = userService.getLoginUser(request);
         AiModel model = new AiModel();
         BeanUtil.copyProperties(addRequest, model);
+        applyProtocolConfig(model, addRequest.getProtocol());
         model.setUserId(loginUser.getId());
         boolean result = aiModelService.saveModel(model);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -86,6 +90,7 @@ public class AiModelController {
 
         AiModel model = new AiModel();
         BeanUtil.copyProperties(updateRequest, model);
+        applyProtocolConfig(model, updateRequest.getProtocol());
         boolean result = aiModelService.updateModel(model);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         publishModelConfigChanged();
@@ -201,6 +206,7 @@ public class AiModelController {
         ThrowUtils.throwIf(testRequest == null, ErrorCode.PARAMS_ERROR);
         AiModel model = new AiModel();
         BeanUtil.copyProperties(testRequest, model);
+        applyProtocolConfig(model, testRequest.getProtocol());
         AiModelConnectionTestResultVO result = aiModelService.testModelConnection(model);
         if (!Boolean.TRUE.equals(result.getSuccess())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, result.getMessage());
@@ -225,6 +231,7 @@ public class AiModelController {
         private Integer supportsThinking;
         private Integer sortOrder;
         private String configJson;
+        private String protocol;
     }
 
     @lombok.Data
@@ -243,6 +250,7 @@ public class AiModelController {
         private Integer supportsThinking;
         private Integer sortOrder;
         private String configJson;
+        private String protocol;
     }
 
     @lombok.Data
@@ -265,5 +273,20 @@ public class AiModelController {
 
     private void publishModelConfigChanged() {
         applicationEventPublisher.publishEvent(new AiModelConfigChangedEvent());
+    }
+
+    private void applyProtocolConfig(AiModel model, String protocol) {
+        if (model == null || StrUtil.isBlank(protocol)) {
+            return;
+        }
+        try {
+            JSONObject config = StrUtil.isBlank(model.getConfigJson())
+                    ? new JSONObject()
+                    : JSONUtil.parseObj(model.getConfigJson());
+            config.set("protocol", protocol);
+            model.setConfigJson(JSONUtil.toJsonStr(config));
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型扩展配置 JSON 格式错误");
+        }
     }
 }

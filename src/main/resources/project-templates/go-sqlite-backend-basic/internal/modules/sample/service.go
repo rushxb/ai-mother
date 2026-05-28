@@ -1,4 +1,4 @@
-package user
+package sample
 
 import (
 	"crypto/rand"
@@ -8,20 +8,18 @@ import (
 	"log/slog"
 	"strings"
 
+	"backend-template/internal/domain"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Service 用户服务
 type Service struct {
 	repo *Repository
 }
 
-// NewService 创建用户服务
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// Register 用户注册
 func (s *Service) Register(req RegisterRequest) (int64, error) {
 	if len(req.UserAccount) < 4 || len(req.UserPassword) < 8 {
 		return 0, errors.New("账号或密码格式错误")
@@ -55,7 +53,6 @@ func (s *Service) Register(req RegisterRequest) (int64, error) {
 	return id, nil
 }
 
-// Login 用户登录
 func (s *Service) Login(req LoginRequest) (string, LoginUserVO, error) {
 	user, err := s.repo.FindByAccount(req.UserAccount)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.UserPassword), []byte(req.UserPassword)) != nil {
@@ -74,7 +71,6 @@ func (s *Service) Login(req LoginRequest) (string, LoginUserVO, error) {
 	return token, toLoginUserVO(user), nil
 }
 
-// Current 获取当前登录用户
 func (s *Service) Current(token string) (LoginUserVO, error) {
 	user, err := s.repo.FindBySession(strings.TrimSpace(token))
 	if err != nil {
@@ -83,29 +79,22 @@ func (s *Service) Current(token string) (LoginUserVO, error) {
 	return toLoginUserVO(user), nil
 }
 
-// Logout 退出登录
 func (s *Service) Logout(token string) error {
 	return s.repo.DeleteSession(strings.TrimSpace(token))
 }
 
-// List 用户列表（分页）
-func (s *Service) List(req QueryRequest) (Page[LoginUserVO], error) {
-	if req.Current <= 0 {
-		req.Current = 1
-	}
-	if req.PageSize <= 0 || req.PageSize > 100 {
-		req.PageSize = 10
-	}
+func (s *Service) List(req QueryRequest) (domain.Page[LoginUserVO], error) {
+	req.Normalize()
 	users, total, err := s.repo.List(req)
 	if err != nil {
 		slog.Error("list users failed", "error", err)
-		return Page[LoginUserVO]{}, errors.New("查询失败")
+		return domain.Page[LoginUserVO]{}, errors.New("查询失败")
 	}
 	records := make([]LoginUserVO, 0, len(users))
 	for _, item := range users {
 		records = append(records, toLoginUserVO(item))
 	}
-	return Page[LoginUserVO]{Records: records, Total: total, Current: req.Current, PageSize: req.PageSize}, nil
+	return domain.Page[LoginUserVO]{Records: records, Total: total, Current: req.Current, PageSize: req.PageSize}, nil
 }
 
 func toLoginUserVO(user User) LoginUserVO {

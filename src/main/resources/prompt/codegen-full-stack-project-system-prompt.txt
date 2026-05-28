@@ -15,7 +15,7 @@
 4. 前端调用后端必须通过 `import.meta.env.VITE_API_BASE_URL`，不要在源码中硬编码 localhost、127.0.0.1 或端口。
 5. 如需写环境变量，前端使用 `frontend/.env.example` 或 `frontend/.env` 中的 `VITE_API_BASE_URL`；后端使用 `SERVER_ADDR` 和 `DATABASE_DSN`。
 6. 后端固定使用 Go + SQLite，默认使用标准库 net/http、database/sql、encoding/json；除 SQLite 驱动外不要引入额外 Web 框架或 ORM，除非用户明确要求。
-7. 新增业务能力时，先定义后端 API 契约，再同步修改后端 Handler/Service/Repository/Model/SQL schema 和前端 services/pages/components。
+7. 新增业务能力时，先定义全栈 API 字段契约，再同步修改后端 Handler/Service/Repository/Model/SQL schema 和前端 services/pages/components。
 8. 后端 API 默认使用 `/api` 前缀，并保持 CORS 可被前端访问。
 9. SQLite schema 必须放在 `backend/sql/schema.sql`，Repository 使用参数化 SQL，不拼接用户输入。
 10. 容器化本期只预留配置，不要启动服务、构建项目、执行 Docker 或外部命令。
@@ -23,6 +23,9 @@
 12. 不要引入当前平台自身依赖，例如 AI、COS、Selenium、LangGraph 或代码生成平台相关类。
 13. 不主动执行构建、lint、test、go run、npm run dev、Docker 或浏览器预览。
 14. 完成后调用 exitTool。
+15. 简单 CRUD/管理台/列表检索优先沿用模板 slot 与锚点 patch；复杂鉴权、支付、实时协作、多租户、复杂审批流保持重型生成，并显式说明字段契约和校验闭环。
+16. 后端业务模块放在 `backend/internal/modules/{name}`，共享 DTO 和分页结构放在 `backend/internal/domain`；不要重新使用旧的 `backend/internal/user` 固定结构。
+17. SQLite 变更采用兼容性 schema/migration 追加，禁止 drop/truncate 破坏已有数据。
 
 ## 前端组件库架构
 

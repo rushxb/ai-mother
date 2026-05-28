@@ -11,8 +11,8 @@ import (
 	"backend-template/internal/config"
 	"backend-template/internal/database"
 	"backend-template/internal/middleware"
+	"backend-template/internal/modules/sample"
 	"backend-template/internal/response"
-	"backend-template/internal/user"
 )
 
 func main() {
@@ -32,10 +32,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	userRepo := user.NewRepository(db)
-	userService := user.NewService(userRepo)
-	userHandler := user.NewHandler(userService)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		response.OK(w, map[string]any{
@@ -43,8 +39,11 @@ func main() {
 			"time":   time.Now().Format(time.RFC3339),
 		})
 	})
-	// @AI_INJECT_ROUTE: register
-	userHandler.RegisterRoutes(mux)
+	sampleRepo := sample.NewRepository(db)
+	sampleService := sample.NewService(sampleRepo)
+	sampleHandler := sample.NewHandler(sampleService)
+	sampleHandler.RegisterRoutes(mux)
+	// @AI_INJECT_MODULE_WIRING: register
 
 	// 组装中间件链
 	handler := middleware.Chain(

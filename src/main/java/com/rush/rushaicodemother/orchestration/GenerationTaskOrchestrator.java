@@ -160,7 +160,9 @@ public class GenerationTaskOrchestrator {
         }
 
         //  4: 尝试模板 slot 填充路径（首次生成）
-        if ((codeGenType == CodeGenTypeEnum.VUE_PROJECT || codeGenType == CodeGenTypeEnum.BACKEND_PROJECT)
+        if ((codeGenType == CodeGenTypeEnum.VUE_PROJECT
+                || codeGenType == CodeGenTypeEnum.BACKEND_PROJECT
+                || codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT)
                 && !hasGeneratedCode(app)) {
             try {
                 SlotFillResult slotFillResult = trySlotFillGeneration(app, request);
@@ -1469,6 +1471,9 @@ public class GenerationTaskOrchestrator {
             templateId = vueProjectTemplateBootstrapService.selectTemplateId(request.message());
         } else if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
             templateId = "go-sqlite-backend-basic"; // 后端固定模板
+        } else if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            templateId = vueProjectTemplateBootstrapService.selectTemplateId(request.message())
+                    + "+go-sqlite-backend-basic";
         } else {
             log.debug("不支持的代码生成类型，跳过 slot 填充: {}", codeGenType);
             return null;
@@ -1480,7 +1485,7 @@ public class GenerationTaskOrchestrator {
         }
 
         // 3. 检查模板是否支持 slot 填充
-        if (!templateSlotFillService.supportsSlotFill(templateId)) {
+        if (codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT && !templateSlotFillService.supportsSlotFill(templateId)) {
             log.debug("模板不支持 slot 填充: {}", templateId);
             return null;
         }
@@ -1552,6 +1557,8 @@ public class GenerationTaskOrchestrator {
                     return null;
                 }
             }
+        } else if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            return null;
         }
 
         // 执行 slot 填充

@@ -1,4 +1,4 @@
-package user
+package sample
 
 import (
 	"database/sql"

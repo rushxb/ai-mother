@@ -1,4 +1,4 @@
-package user
+package sample
 
 import (
 	"encoding/json"
@@ -9,24 +9,22 @@ import (
 	"backend-template/internal/validator"
 )
 
-// Handler 用户处理器
 type Handler struct {
 	service *Service
 }
 
-// NewHandler 创建用户处理器
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// RegisterRoutes 注册路由
-// @AI_INJECT_ROUTE: user
+// RegisterRoutes registers sample module routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/user/register", h.register)
 	mux.HandleFunc("POST /api/user/login", h.login)
 	mux.HandleFunc("POST /api/user/logout", h.logout)
 	mux.HandleFunc("GET /api/user/current", h.current)
 	mux.HandleFunc("POST /api/user/list/page", h.list)
+	// @AI_INJECT_ROUTE: sample
 }
 
 func (h *Handler) register(w http.ResponseWriter, r *http.Request) {

@@ -1,80 +1,140 @@
 {
-  "id": "go-sqlite-backend-basic",
-  "name": "Go SQLite 后端基础模板",
-  "description": "Go 1.23 + net/http + SQLite 的企业级后端工程骨架",
-  "tags": ["go", "sqlite", "backend", "api", "restful", "validator", "slog", "middleware"],
-  "category": "backend",
-  "entryFiles": [
+  "templateId": "go-sqlite-backend-basic",
+  "description": "Go 1.23 + net/http + SQLite 后端模板，结构由模板负责，业务模块由 slot 或 recipe 补齐",
+  "slots": [
+    {
+      "id": "domain_contract",
+      "file": "internal/domain/model.go",
+      "description": "跨模块共享的领域契约、分页请求与分页响应结构",
+      "required": true,
+      "type": "backend_domain_contract",
+      "category": "domain",
+      "example": "type ProductVO struct { ID int64 `json:\"id\"`; Name string `json:\"name\"` }",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "完整 Go 文件，package domain，保留 PageRequest、Normalize、Page，可追加全栈共享 DTO"
+    },
+    {
+      "id": "module_model",
+      "file": "internal/modules/sample/model.go",
+      "description": "业务模块实体、请求 DTO、响应 VO 与查询条件",
+      "required": true,
+      "type": "backend_model",
+      "category": "module",
+      "example": "type Product struct {\n\tID int64 `json:\"id\"`\n\tName string `json:\"name\" validate:\"required\"`\n\tPrice float64 `json:\"price\" validate:\"gte=0\"`\n\tCreatedAt time.Time `json:\"createdAt\"`\n\tUpdatedAt time.Time `json:\"updatedAt\"`\n}",
+      "dependencies": [
+        "internal/domain/model.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 Go 文件，package sample，包含实体、Create/Update/List 请求、VO，并复用 internal/domain 的共享分页结构"
+    },
+    {
+      "id": "module_repository",
+      "file": "internal/modules/sample/repository.go",
+      "description": "SQLite 数据访问层，包含参数化 CRUD、分页查询和 scan helper",
+      "required": true,
+      "type": "backend_repository",
+      "category": "persistence",
+      "example": "func (r *Repository) CreateProduct(req CreateProductRequest) (int64, error) {\n\tresult, err := r.db.Exec(`insert into products (name, price) values (?, ?)`, req.Name, req.Price)\n\tif err != nil { return 0, err }\n\treturn result.LastInsertId()\n}",
+      "dependencies": [
+        "internal/modules/sample/model.go",
+        "sql/schema.sql"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 Go 文件，package sample，仅使用 database/sql 和标准库，所有 SQL 必须参数化"
+    },
+    {
+      "id": "module_service",
+      "file": "internal/modules/sample/service.go",
+      "description": "业务服务层，封装校验、业务规则、错误消息和 Repository 调用",
+      "required": true,
+      "type": "backend_service",
+      "category": "business",
+      "example": "func (s *Service) CreateProduct(req CreateProductRequest) (int64, error) {\n\tif strings.TrimSpace(req.Name) == \"\" { return 0, errors.New(\"名称不能为空\") }\n\treturn s.repo.CreateProduct(req)\n}",
+      "dependencies": [
+        "internal/modules/sample/model.go",
+        "internal/modules/sample/repository.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 Go 文件，package sample，保留 NewService 构造函数，返回面向用户的中文错误消息"
+    },
+    {
+      "id": "module_handler",
+      "file": "internal/modules/sample/handler.go",
+      "description": "HTTP Handler 与路由注册，统一 JSON 响应、请求解析、鉴权和参数校验",
+      "required": true,
+      "type": "backend_handler",
+      "category": "api",
+      "example": "func (h *Handler) RegisterRoutes(mux *http.ServeMux) {\n\tmux.HandleFunc(\"POST /api/products\", h.createProduct)\n\tmux.HandleFunc(\"POST /api/products/list/page\", h.listProducts)\n\t// @AI_INJECT_ROUTE: sample\n}",
+      "dependencies": [
+        "internal/modules/sample/service.go",
+        "internal/response/response.go",
+        "internal/validator/validator.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 Go 文件，package sample，所有路由以 /api 开头，使用 response.OK/Error 输出，并保留 @AI_INJECT_ROUTE: sample 锚点"
+    },
+    {
+      "id": "module_import",
+      "file": "cmd/server/main.go",
+      "description": "新增动态业务模块的 Go import path",
+      "required": false,
+      "type": "backend_import",
+      "category": "bootstrap",
+      "example": "backend-template/internal/modules/product",
+      "dependencies": [
+        "internal/modules/sample/handler.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "只输出一个 Go import path 字符串，不包含引号、import 关键字或解释文本",
+      "marker": null,
+      "patchMode": "go_add_import"
+    },
+    {
+      "id": "server_wiring",
+      "file": "cmd/server/main.go",
+      "description": "服务启动入口和依赖装配，注册业务 Handler 到 mux",
+      "required": false,
+      "type": "backend_wiring",
+      "category": "bootstrap",
+      "example": "productRepo := sample.NewRepository(db)\nproductService := sample.NewService(productRepo)\nproductHandler := sample.NewHandler(productService)\nproductHandler.RegisterRoutes(mux)",
+      "dependencies": [
+        "internal/modules/sample/handler.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "只输出需要插入到锚点处的 Go 依赖装配片段，不输出完整 main.go",
+      "marker": "// @AI_INJECT_MODULE_WIRING: register",
+      "patchMode": "insert_before_marker"
+    },
+    {
+      "id": "database_schema",
+      "file": "sql/schema.sql",
+      "description": "SQLite schema、索引和必要外键，字段需与 Model/Repository 保持一致",
+      "required": true,
+      "type": "backend_migration",
+      "category": "database",
+      "example": "create table if not exists products\n(\n    id integer primary key autoincrement,\n    name text not null,\n    price real default 0 not null,\n    created_at timestamp default current_timestamp not null,\n    updated_at timestamp default current_timestamp not null,\n    is_deleted integer default 0 not null\n);",
+      "dependencies": [
+        "internal/modules/sample/model.go",
+        "internal/modules/sample/repository.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 SQL 文件，使用 create table if not exists / create index if not exists，可保留用户与 session 基础表"
+    }
+  ],
+  "protectedFiles": [
     "go.mod",
-    "cmd/server/main.go",
+    "README.md",
     "internal/config/config.go",
     "internal/database/database.go",
-    "sql/schema.sql"
+    "internal/middleware/cors.go",
+    "internal/middleware/logger.go",
+    "internal/middleware/middleware.go",
+    "internal/middleware/ratelimit.go",
+    "internal/middleware/recovery.go",
+    "internal/middleware/security.go",
+    "internal/response/response.go",
+    "internal/validator/validator.go"
   ],
-  "slots": {
-    "model": {
-      "path": "internal/user/model.go",
-      "description": "数据模型定义",
-      "type": "model",
-      "example": "type Product struct { ID int64; Name string; Price float64 }",
-      "aiHints": {
-        "pattern": "定义结构体 + JSON tag + validate tag",
-        "components": ["entity", "request", "response", "vo"]
-      }
-    },
-    "repository": {
-      "path": "internal/user/repository.go",
-      "description": "数据访问层",
-      "type": "repository",
-      "example": "func (r *Repository) FindByID(id int64) (User, error)",
-      "aiHints": {
-        "pattern": "Repository 结构体 + NewRepository + CRUD 方法",
-        "components": ["Create", "FindByID", "Update", "Delete", "List"]
-      }
-    },
-    "service": {
-      "path": "internal/user/service.go",
-      "description": "业务逻辑层",
-      "type": "service",
-      "example": "func (s *Service) Create(req CreateRequest) (int64, error)",
-      "aiHints": {
-        "pattern": "Service 结构体 + NewService + 业务方法",
-        "components": ["Create", "Update", "Delete", "GetByID", "List"]
-      }
-    },
-    "handler": {
-      "path": "internal/user/handler.go",
-      "description": "HTTP 处理器",
-      "type": "handler",
-      "example": "func (h *Handler) create(w http.ResponseWriter, r *http.Request)",
-      "aiHints": {
-        "pattern": "Handler 结构体 + NewHandler + RegisterRoutes + 处理方法",
-        "components": ["create", "update", "delete", "get", "list"]
-      }
-    },
-    "route": {
-      "path": "cmd/server/main.go",
-      "description": "路由注册",
-      "type": "config",
-      "marker": "@AI_INJECT_ROUTE"
-    },
-    "middleware": {
-      "path": "internal/middleware/",
-      "description": "中间件",
-      "type": "middleware",
-      "aiHints": {
-        "pattern": "func Name(next http.Handler) http.Handler",
-        "components": ["Logger", "Recovery", "Security", "CORS", "RateLimiter"]
-      }
-    },
-    "migration": {
-      "path": "sql/schema.sql",
-      "description": "数据库迁移",
-      "type": "migration",
-      "aiHints": {
-        "pattern": "CREATE TABLE IF NOT EXISTS ...",
-        "components": ["table", "index", "constraint"]
-      }
-    }
-  }
+  "maxSlotsPerGeneration": 8
 }

@@ -424,6 +424,7 @@ declare namespace API {
     supportsThinking?: number
     sortOrder?: number
     configJson?: string
+    protocol?: string
   }
 
   type AiModelUpdateRequest = {
@@ -441,6 +442,7 @@ declare namespace API {
     supportsThinking?: number
     sortOrder?: number
     configJson?: string
+    protocol?: string
   }
 
   type AiModelQueryRequest = {
@@ -460,6 +462,8 @@ declare namespace API {
     modelId?: string
     modelName?: string
     defaultBaseUrl?: string
+    defaultProtocol?: string
+    supportedProtocols?: string[]
     supportedModelTypes?: string[]
     defaultModelType?: string
     supportsThinking?: number

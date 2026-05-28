@@ -46,14 +46,17 @@ internal/
 │   ├── security.go  # 安全头
 │   ├── ratelimit.go # 限流
 │   └── middleware.go # 中间件链
+├── domain/          # 跨模块共享契约
+│   └── model.go     # 分页与共享 DTO
+├── modules/         # 业务模块目录
+│   └── sample/      # 可被 AI 替换的示例模块
+│       ├── model.go
+│       ├── repository.go
+│       ├── service.go
+│       ├── handler.go
+│       └── handler_test.go
 ├── response/        # 统一响应
-├── validator/       # 参数校验
-└── user/            # 用户模块
-    ├── model.go     # 数据模型
-    ├── repository.go # 数据访问
-    ├── service.go   # 业务逻辑
-    ├── handler.go   # HTTP 处理
-    └── handler_test.go # 测试
+└── validator/       # 参数校验
 sql/
 └── schema.sql       # 数据库迁移
 ```
@@ -85,17 +88,19 @@ sql/
 
 | 标记 | 用途 | 位置 |
 |------|------|------|
-| `@AI_INJECT_ROUTE` | 路由注册注入 | `cmd/server/main.go` |
-| `@AI_INJECT_ROUTE: user` | 用户路由注入 | `internal/user/handler.go` |
+| `@AI_INJECT_MODULE_WIRING` | 模块依赖装配注入 | `cmd/server/main.go` |
+| `@AI_INJECT_ROUTE: sample` | 模块路由注入 | `internal/modules/sample/handler.go` |
 
 ## AI 改造约定
 
-- 新增模块放在 `internal/` 下独立目录
+- 共享字段契约放在 `internal/domain`
+- 新增模块放在 `internal/modules/{name}` 下独立目录
 - 每个模块包含 model、repository、service、handler
+- 模板负责目录结构，业务细节由 slot 或 recipe 填充
 - 使用 validator 标签进行参数校验
 - 使用 slog 记录结构化日志
 - 使用 response 包返回统一响应
-- 新增路由在 main.go 中注册
+- 新增路由优先通过锚点 patch 注入
 
 ## 测试
 

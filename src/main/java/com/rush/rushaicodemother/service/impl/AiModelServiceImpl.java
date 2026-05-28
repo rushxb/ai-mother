@@ -104,15 +104,15 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
     public AiModelConnectionTestResultVO testModelConnection(AiModel model) {
         AiModel validatedModel = aiModelCatalogService.normalizeForRuntime(model);
         try {
-            OpenAiChatModel chatModel = OpenAiChatModel.builder()
+            OpenAiChatModel.OpenAiChatModelBuilder builder = OpenAiChatModel.builder()
                     .apiKey(validatedModel.getApiKey())
                     .baseUrl(validatedModel.getBaseUrl())
                     .modelName(validatedModel.getModelId())
-                    .maxTokens(Math.min(validatedModel.getMaxTokens(), 256))
                     .temperature(validatedModel.getTemperature())
                     .logRequests(false)
-                    .logResponses(false)
-                    .build();
+                    .logResponses(false);
+            applyTestMaxTokens(builder, validatedModel);
+            OpenAiChatModel chatModel = builder.build();
 
             String response = chatModel.chat("Hello, this is a connection test. Reply with 'OK' only.");
             log.info("模型连接测试成功，模型={}，响应={}", validatedModel.getModelName(), response);
@@ -214,6 +214,21 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
             return "模型认证失败，请检查 API Key 是否正确，或当前账号是否具备该模型权限";
         }
         return StrUtil.blankToDefault(rawMessage, "模型连接测试失败，请检查配置");
+    }
+
+    private void applyTestMaxTokens(OpenAiChatModel.OpenAiChatModelBuilder builder, AiModel model) {
+        int maxTokens = Math.min(model.getMaxTokens(), 256);
+        if (isXiaomiMimoModel(model)) {
+            builder.maxCompletionTokens(maxTokens);
+            return;
+        }
+        builder.maxTokens(maxTokens);
+    }
+
+    private boolean isXiaomiMimoModel(AiModel model) {
+        String provider = model.getProvider() != null ? model.getProvider().toLowerCase() : "";
+        String modelId = model.getModelId() != null ? model.getModelId().toLowerCase() : "";
+        return provider.equals("xiaomi") || modelId.startsWith("mimo-v2");
     }
 
     /**

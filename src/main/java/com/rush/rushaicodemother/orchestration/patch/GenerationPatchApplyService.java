@@ -32,7 +32,13 @@ public class GenerationPatchApplyService {
             PatchOperation.ACTION_ADD,
             PatchOperation.ACTION_MODIFY,
             PatchOperation.ACTION_REPLACE,
-            PatchOperation.ACTION_DELETE
+            PatchOperation.ACTION_DELETE,
+            PatchOperation.ACTION_INSERT_BEFORE_MARKER,
+            PatchOperation.ACTION_INSERT_AFTER_MARKER,
+            PatchOperation.ACTION_GO_ADD_IMPORT,
+            PatchOperation.ACTION_GO_APPEND_TO_FUNCTION,
+            PatchOperation.ACTION_GO_ADD_STRUCT_FIELDS,
+            PatchOperation.ACTION_APPEND_SQL_MIGRATION
     );
 
     private final GenerationOrchestrationMetricsCollector metricsCollector;
@@ -224,6 +230,29 @@ public class GenerationPatchApplyService {
                             StandardOpenOption.TRUNCATE_EXISTING
                     );
                 }
+                case PatchOperation.ACTION_INSERT_BEFORE_MARKER, PatchOperation.ACTION_INSERT_AFTER_MARKER -> {
+                    String originalContent = Files.readString(operation.targetPath(), StandardCharsets.UTF_8);
+                    String marker = patchOperation.oldContent();
+                    String snippet = patchOperation.newContent();
+                    String replacement = PatchOperation.ACTION_INSERT_BEFORE_MARKER.equals(operation.action())
+                            ? snippet + System.lineSeparator() + marker
+                            : marker + System.lineSeparator() + snippet;
+                    String modifiedContent = originalContent.replace(marker, replacement);
+                    Files.writeString(
+                            operation.targetPath(),
+                            modifiedContent,
+                            StandardCharsets.UTF_8,
+                            StandardOpenOption.WRITE,
+                            StandardOpenOption.TRUNCATE_EXISTING
+                    );
+                }
+                case PatchOperation.ACTION_GO_ADD_IMPORT -> writeStructuredGoImport(operation.targetPath(), patchOperation.newContent());
+                case PatchOperation.ACTION_GO_APPEND_TO_FUNCTION -> writeGoFunctionAppend(
+                        operation.targetPath(), patchOperation.oldContent(), patchOperation.newContent());
+                case PatchOperation.ACTION_GO_ADD_STRUCT_FIELDS -> writeGoStructFields(
+                        operation.targetPath(), patchOperation.oldContent(), patchOperation.newContent());
+                case PatchOperation.ACTION_APPEND_SQL_MIGRATION -> writeSqlMigrationAppend(
+                        operation.targetPath(), patchOperation.newContent());
                 case PatchOperation.ACTION_DELETE -> Files.delete(operation.targetPath());
                 default -> throw new IllegalStateException("Unsupported patch action: " + operation.action());
             }
@@ -259,6 +288,38 @@ public class GenerationPatchApplyService {
                 return "read_target_failed";
             }
         }
+        if (PatchOperation.ACTION_INSERT_BEFORE_MARKER.equals(action)
+                || PatchOperation.ACTION_INSERT_AFTER_MARKER.equals(action)) {
+            if (StrUtil.isBlank(operation.oldContent()) || operation.newContent() == null) {
+                return "marker_content_missing";
+            }
+            if (!Files.isRegularFile(targetPath)) {
+                return "marker_target_missing";
+            }
+            try {
+                String originalContent = Files.readString(targetPath, StandardCharsets.UTF_8);
+                return originalContent.contains(operation.oldContent()) ? "" : "marker_not_found";
+            } catch (IOException e) {
+                return "read_target_failed";
+            }
+        }
+        if (PatchOperation.ACTION_GO_ADD_IMPORT.equals(action)) {
+            return validateStructuredTarget(targetPath, operation.newContent(), ".go", "go_import_content_missing");
+        }
+        if (PatchOperation.ACTION_GO_APPEND_TO_FUNCTION.equals(action)
+                || PatchOperation.ACTION_GO_ADD_STRUCT_FIELDS.equals(action)) {
+            if (StrUtil.isBlank(operation.oldContent()) || StrUtil.isBlank(operation.newContent())) {
+                return "go_structured_content_missing";
+            }
+            return validateStructuredTarget(targetPath, operation.newContent(), ".go", "go_structured_target_missing");
+        }
+        if (PatchOperation.ACTION_APPEND_SQL_MIGRATION.equals(action)) {
+            String blocker = validateStructuredTarget(targetPath, operation.newContent(), ".sql", "sql_migration_content_missing");
+            if (StrUtil.isNotBlank(blocker)) {
+                return blocker;
+            }
+            return containsDangerousSql(operation.newContent()) ? "dangerous_sql_migration" : "";
+        }
         if (PatchOperation.ACTION_DELETE.equals(action)) {
             return Files.isRegularFile(targetPath) ? "" : "delete_target_missing";
         }
@@ -268,11 +329,135 @@ public class GenerationPatchApplyService {
     private boolean isPlanned(ChangePlan changePlan, String action, String normalizedPath) {
         return switch (action) {
             case PatchOperation.ACTION_ADD -> changePlan.addFiles().contains(normalizedPath);
-            case PatchOperation.ACTION_MODIFY, PatchOperation.ACTION_REPLACE ->
+            case PatchOperation.ACTION_MODIFY,
+                 PatchOperation.ACTION_REPLACE,
+                 PatchOperation.ACTION_INSERT_BEFORE_MARKER,
+                 PatchOperation.ACTION_INSERT_AFTER_MARKER,
+                 PatchOperation.ACTION_GO_ADD_IMPORT,
+                 PatchOperation.ACTION_GO_APPEND_TO_FUNCTION,
+                 PatchOperation.ACTION_GO_ADD_STRUCT_FIELDS,
+                 PatchOperation.ACTION_APPEND_SQL_MIGRATION ->
                     changePlan.modifyFiles().contains(normalizedPath);
             case PatchOperation.ACTION_DELETE -> changePlan.deleteFiles().contains(normalizedPath);
             default -> false;
         };
+    }
+
+    private void writeStructuredGoImport(Path targetPath, String importPath) throws IOException {
+        String normalizedImport = StrUtil.blankToDefault(importPath, "").trim();
+        String quotedImport = "\"" + normalizedImport.replace("\"", "") + "\"";
+        String content = Files.readString(targetPath, StandardCharsets.UTF_8);
+        if (content.contains(quotedImport)) {
+            return;
+        }
+        if (content.contains("import (\n")) {
+            content = content.replace("import (\n", "import (\n\t" + quotedImport + "\n");
+        } else if (content.matches("(?s).*import\\s+\"[^\"]+\".*")) {
+            content = content.replaceFirst("import\\s+\"([^\"]+)\"", "import (\n\t\"$1\"\n\t" + quotedImport + "\n)");
+        } else {
+            int packageLineEnd = content.indexOf('\n');
+            if (packageLineEnd < 0) {
+                throw new IOException("invalid_go_file_missing_package_line");
+            }
+            content = content.substring(0, packageLineEnd + 1)
+                    + "\nimport " + quotedImport + "\n"
+                    + content.substring(packageLineEnd + 1);
+        }
+        Files.writeString(targetPath, content, StandardCharsets.UTF_8, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    private void writeGoFunctionAppend(Path targetPath, String functionName, String snippet) throws IOException {
+        String content = Files.readString(targetPath, StandardCharsets.UTF_8);
+        int funcIndex = content.indexOf("func " + functionName);
+        if (funcIndex < 0) {
+            funcIndex = content.indexOf("func (" + functionName);
+        }
+        if (funcIndex < 0) {
+            throw new IOException("go_function_not_found:" + functionName);
+        }
+        int bodyStart = content.indexOf('{', funcIndex);
+        int bodyEnd = findMatchingBrace(content, bodyStart);
+        if (bodyStart < 0 || bodyEnd < 0) {
+            throw new IOException("go_function_body_not_found:" + functionName);
+        }
+        String normalizedSnippet = ensureTrailingNewline(snippet);
+        String updated = content.substring(0, bodyEnd)
+                + "\n" + normalizedSnippet
+                + content.substring(bodyEnd);
+        Files.writeString(targetPath, updated, StandardCharsets.UTF_8, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    private void writeGoStructFields(Path targetPath, String structName, String fields) throws IOException {
+        String content = Files.readString(targetPath, StandardCharsets.UTF_8);
+        int structIndex = content.indexOf("type " + structName + " struct");
+        if (structIndex < 0) {
+            throw new IOException("go_struct_not_found:" + structName);
+        }
+        int bodyStart = content.indexOf('{', structIndex);
+        int bodyEnd = findMatchingBrace(content, bodyStart);
+        if (bodyStart < 0 || bodyEnd < 0) {
+            throw new IOException("go_struct_body_not_found:" + structName);
+        }
+        String normalizedFields = ensureTrailingNewline(fields);
+        String updated = content.substring(0, bodyEnd)
+                + normalizedFields
+                + content.substring(bodyEnd);
+        Files.writeString(targetPath, updated, StandardCharsets.UTF_8, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    private void writeSqlMigrationAppend(Path targetPath, String migrationSql) throws IOException {
+        String content = Files.readString(targetPath, StandardCharsets.UTF_8);
+        String normalizedMigration = ensureTrailingNewline(migrationSql);
+        if (content.contains(normalizedMigration.trim())) {
+            return;
+        }
+        String updated = ensureTrailingNewline(content)
+                + "\n-- @AI_GENERATED_MIGRATION\n"
+                + normalizedMigration;
+        Files.writeString(targetPath, updated, StandardCharsets.UTF_8, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    private int findMatchingBrace(String content, int openBraceIndex) {
+        if (openBraceIndex < 0) {
+            return -1;
+        }
+        int depth = 0;
+        for (int i = openBraceIndex; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private String validateStructuredTarget(Path targetPath, String content, String extension, String missingReason) {
+        if (StrUtil.isBlank(content)) {
+            return missingReason;
+        }
+        if (!Files.isRegularFile(targetPath)) {
+            return "structured_target_missing";
+        }
+        return targetPath.getFileName().toString().endsWith(extension) ? "" : "structured_target_extension_mismatch";
+    }
+
+    private boolean containsDangerousSql(String sql) {
+        String normalized = StrUtil.blankToDefault(sql, "").toLowerCase();
+        return normalized.contains("drop table")
+                || normalized.contains("drop database")
+                || normalized.contains("truncate table")
+                || normalized.contains("delete from users")
+                || normalized.contains("pragma writable_schema");
+    }
+
+    private String ensureTrailingNewline(String value) {
+        String normalized = StrUtil.blankToDefault(value, "").stripTrailing();
+        return normalized.isEmpty() ? "" : normalized + System.lineSeparator();
     }
 
     private String normalizePath(String path) {

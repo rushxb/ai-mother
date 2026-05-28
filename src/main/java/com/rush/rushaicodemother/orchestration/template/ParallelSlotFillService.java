@@ -1,10 +1,13 @@
 package com.rush.rushaicodemother.orchestration.template;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -22,13 +25,16 @@ public class ParallelSlotFillService {
 
     private final VueProjectTemplateBootstrapService vueTemplateBootstrapService;
     private final BackendProjectTemplateBootstrapService backendTemplateBootstrapService;
+    private final FullStackPortAllocator fullStackPortAllocator;
     private final TemplateSlotFillService slotFillService;
 
     public ParallelSlotFillService(VueProjectTemplateBootstrapService vueTemplateBootstrapService,
                                     BackendProjectTemplateBootstrapService backendTemplateBootstrapService,
+                                    FullStackPortAllocator fullStackPortAllocator,
                                     TemplateSlotFillService slotFillService) {
         this.vueTemplateBootstrapService = vueTemplateBootstrapService;
         this.backendTemplateBootstrapService = backendTemplateBootstrapService;
+        this.fullStackPortAllocator = fullStackPortAllocator;
         this.slotFillService = slotFillService;
     }
 
@@ -55,6 +61,8 @@ public class ParallelSlotFillService {
                         () -> backendTemplateBootstrapService.bootstrapIfNecessary(appId),
                         executor
                 );
+            } else if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+                return executeFullStackInParallel(appId, userMessage, executor);
             } else {
                 log.warn("不支持的代码生成类型: {}", codeGenType);
                 return new ParallelSlotFillResult(null, null, false);
@@ -81,6 +89,93 @@ public class ParallelSlotFillService {
             log.warn("并行 Slot Fill 失败: {}", e.getMessage());
             return new ParallelSlotFillResult(null, null, false);
         }
+    }
+
+    private ParallelSlotFillResult executeFullStackInParallel(Long appId,
+                                                              String userMessage,
+                                                              ExecutorService executor) {
+        try {
+            FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(appId);
+            Path workspaceRoot = Path.of(fullStackContext.workspaceRoot());
+            String frontendTemplateId = vueTemplateBootstrapService.selectTemplateId(userMessage);
+            String backendTemplateId = "go-sqlite-backend-basic";
+
+            CompletableFuture<?> frontendBootstrapFuture = CompletableFuture.supplyAsync(
+                    () -> vueTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("frontend"), userMessage),
+                    executor
+            );
+            CompletableFuture<?> backendBootstrapFuture = CompletableFuture.supplyAsync(
+                    () -> backendTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("backend")),
+                    executor
+            );
+            CompletableFuture<SlotFillResult> frontendSlotFuture = CompletableFuture.supplyAsync(
+                    () -> slotFillService.fillSlots(frontendTemplateId, appId, userMessage),
+                    executor
+            );
+            CompletableFuture<SlotFillResult> backendSlotFuture = CompletableFuture.supplyAsync(
+                    () -> slotFillService.fillSlots(backendTemplateId, appId, userMessage),
+                    executor
+            );
+
+            CompletableFuture.allOf(frontendBootstrapFuture, backendBootstrapFuture, frontendSlotFuture, backendSlotFuture).join();
+
+            SlotFillResult frontendResult = frontendSlotFuture.get();
+            SlotFillResult backendResult = backendSlotFuture.get();
+            List<PatchOperation> operations = new ArrayList<>();
+            List<String> filledSlots = new ArrayList<>();
+            List<String> skippedSlots = new ArrayList<>();
+            int totalChars = 0;
+            if (frontendResult != null) {
+                operations.addAll(prefixOperations("frontend/", frontendResult.patchOperations()));
+                filledSlots.addAll(prefixSlotIds("frontend:", frontendResult.filledSlots()));
+                skippedSlots.addAll(prefixSlotIds("frontend:", frontendResult.skippedSlots()));
+                totalChars += frontendResult.totalChars();
+            }
+            if (backendResult != null) {
+                operations.addAll(prefixOperations("backend/", backendResult.patchOperations()));
+                filledSlots.addAll(prefixSlotIds("backend:", backendResult.filledSlots()));
+                skippedSlots.addAll(prefixSlotIds("backend:", backendResult.skippedSlots()));
+                totalChars += backendResult.totalChars();
+            }
+            if (operations.isEmpty()) {
+                return new ParallelSlotFillResult(null, null, false);
+            }
+            SlotFillResult combined = new SlotFillResult(
+                    frontendTemplateId + "+" + backendTemplateId,
+                    filledSlots,
+                    operations,
+                    "全栈模板已复制，前后端 slots 已并行填充",
+                    totalChars,
+                    skippedSlots,
+                    fullStackContext.toPayload()
+            );
+            return new ParallelSlotFillResult(null, combined, true);
+        } catch (Exception e) {
+            log.warn("全栈并行 Slot Fill 失败: {}", e.getMessage());
+            return new ParallelSlotFillResult(null, null, false);
+        }
+    }
+
+    private List<PatchOperation> prefixOperations(String prefix, List<PatchOperation> operations) {
+        if (operations == null || operations.isEmpty()) {
+            return List.of();
+        }
+        return operations.stream()
+                .map(operation -> new PatchOperation(
+                        operation.action(),
+                        prefix + operation.relativePath(),
+                        operation.content(),
+                        operation.oldContent(),
+                        operation.newContent()
+                ))
+                .toList();
+    }
+
+    private List<String> prefixSlotIds(String prefix, List<String> slotIds) {
+        if (slotIds == null || slotIds.isEmpty()) {
+            return List.of();
+        }
+        return slotIds.stream().map(slotId -> prefix + slotId).toList();
     }
 
     /**

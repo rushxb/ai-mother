@@ -22,6 +22,10 @@ public class SupportedAiModelVO {
 
     private String defaultBaseUrl;
 
+    private String defaultProtocol;
+
+    private List<String> supportedProtocols;
+
     private List<String> supportedModelTypes;
 
     private String defaultModelType;

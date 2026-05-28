@@ -113,11 +113,17 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         if (context.getTargetType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.FULL_STACK_PROJECT) {
             appendFullStackContext(lines, context);
         }
+        appendApiContractContext(lines, context);
         if (StrUtil.isNotBlank(templateId)) {
             lines.add("");
             if (context.getTargetType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.FULL_STACK_PROJECT) {
                 lines.add("【模板基线】当前全栈工程已基于模板 " + templateId + " 初始化，前端位于 frontend/，Go + SQLite 后端位于 backend/。");
                 lines.add("前端只通过 import.meta.env.VITE_API_BASE_URL 访问后端；后端监听 SERVER_ADDR，容器化仅预留 Dockerfile/docker-compose/.env.example，不自动运行服务。");
+                appendBackendTemplateStrategy(lines, "backend/");
+            } else if (context.getTargetType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.BACKEND_PROJECT) {
+                lines.add("【模板基线】当前 Go + SQLite 后端工程已基于模板 " + templateId + " 初始化。");
+                lines.add("优先改造 cmd/server、internal/domain、internal/modules/sample 和 sql/schema.sql，保留 config/database/middleware/response/validator 等稳定基础设施。");
+                appendBackendTemplateStrategy(lines, "");
             } else {
                 lines.add("【模板基线】当前 Vue 工程已基于模板 " + templateId + " 初始化。");
                 lines.add("优先改造模板内的 src/data、src/pages、src/views、src/components 和 src/styles，保留 package.json、vite.config.js、index.html、src/main.js、src/router/index.js 等稳定工程入口。");
@@ -165,6 +171,26 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         lines.add("backendServerAddr=" + artifactStringValue(context, "full_stack_context", "backendServerAddr", ""));
         lines.add("要求：前端文件路径必须以 frontend/ 开头，后端文件路径必须以 backend/ 开头。");
         lines.add("要求：前端 API baseURL 只能读取 VITE_API_BASE_URL；后端端口只能读取 SERVER_ADDR。");
+    }
+
+    private void appendApiContractContext(List<String> lines, GenerationAgentContext context) {
+        Object contract = context.getArtifactValue("api_contract", "contract");
+        if (!(contract instanceof Map<?, ?> contractMap) || contractMap.isEmpty()) {
+            return;
+        }
+        lines.add("");
+        lines.add("【API 字段契约】");
+        lines.add("契约来源=" + artifactStringValue(context, "api_contract", "source", "planner"));
+        lines.add("要求：前端表单/列表字段、后端 DTO/VO、Repository scan 字段、SQLite schema 字段必须以该契约为准；若需求变化，先同步更新契约再改代码。");
+        lines.add(contractMap.toString());
+    }
+
+    private void appendBackendTemplateStrategy(List<String> lines, String pathPrefix) {
+        lines.add("【后端模板化策略】");
+        lines.add("- 先定义 API 契约和数据模型，再同步修改 " + pathPrefix + "internal/domain、" + pathPrefix + "internal/modules/sample/{model,repository,service,handler}.go、" + pathPrefix + "sql/schema.sql。");
+        lines.add("- Repository 必须使用 SQLite 参数化 SQL；Handler 必须使用 internal/response 统一 JSON 响应；Service 负责业务规则和中文错误消息。");
+        lines.add("- 不新增 Go Web 框架或 ORM，不改稳定基础设施文件，不硬编码密钥、私有地址、端口或数据库路径。");
+        lines.add("- 新增业务能力优先沿用模板中的 @AI_INJECT_MODULE_WIRING、@AI_INJECT_ROUTE 锚点和 RegisterRoutes 约定，避免重建工程骨架。");
     }
 
     @SuppressWarnings("unchecked")

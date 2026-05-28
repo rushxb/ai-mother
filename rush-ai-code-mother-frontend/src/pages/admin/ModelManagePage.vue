@@ -3,7 +3,7 @@
     <section class="page-head">
       <div>
         <h2 class="page-title">AI 模型管理</h2>
-        <p class="page-desc">配置和管理 AI 模型，仅允许启用当前系统已适配的模型</p>
+        <p class="page-desc">配置和管理 AI 模型，当前协议支持 OpenAI Chat Completions</p>
       </div>
       <div class="page-summary">
         <span class="summary-label">启用模型</span>
@@ -19,6 +19,8 @@
             <a-select-option value="deepseek">DeepSeek</a-select-option>
             <a-select-option value="openai">OpenAI</a-select-option>
             <a-select-option value="muskapi">MuskAPI</a-select-option>
+            <a-select-option value="xiaomi">Xiaomi MiMo</a-select-option>
+            <a-select-option value="custom">自定义</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="模型类型">
@@ -172,8 +174,18 @@
           </a-col>
         </a-row>
 
-        <a-form-item label="API 地址" name="baseUrl">
-          <a-input v-model:value="formData.baseUrl" disabled placeholder="选择模型后自动填充" />
+        <a-form-item label="API 地址" name="baseUrl" extra="可只填写域名，例如 https://token-plan-cn.xiaomimimo.com，系统会按协议自动补 /v1。">
+          <a-input
+            v-model:value="formData.baseUrl"
+            placeholder="https://token-plan-cn.xiaomimimo.com"
+            @blur="normalizeFormBaseUrl"
+          />
+        </a-form-item>
+
+        <a-form-item label="协议" name="protocol">
+          <a-select v-model:value="formData.protocol" placeholder="请选择协议">
+            <a-select-option value="openai_chat_completions">OpenAI Chat Completions</a-select-option>
+          </a-select>
         </a-form-item>
 
         <a-form-item label="API 密钥" name="apiKey">
@@ -332,6 +344,7 @@ const formData = reactive<API.AiModelAddRequest & { id?: number }>({
   modelType: 'chat',
   supportsThinking: 0,
   sortOrder: 0,
+  protocol: 'openai_chat_completions',
 })
 
 // 表单验证规则
@@ -340,6 +353,7 @@ const formRules = {
   provider: [{ required: true, message: '请选择提供商' }],
   modelId: [{ required: true, message: '请选择模型' }],
   baseUrl: [{ required: true, message: '请输入 API 地址' }],
+  protocol: [{ required: true, message: '请选择协议' }],
   modelType: [{ required: true, message: '请选择模型类型' }],
 }
 
@@ -439,7 +453,7 @@ const openEditModal = (record: API.AiModel) => {
     provider: catalogModel?.provider ?? record.provider,
     modelId: catalogModel?.modelId ?? record.modelId,
     description: record.description,
-    baseUrl: catalogModel?.defaultBaseUrl ?? record.baseUrl,
+    baseUrl: record.baseUrl ?? catalogModel?.defaultBaseUrl,
     apiKey: record.apiKey,
     maxTokens: record.maxTokens ?? catalogModel?.defaultMaxTokens,
     temperature: record.temperature ?? catalogModel?.defaultTemperature,
@@ -447,6 +461,7 @@ const openEditModal = (record: API.AiModel) => {
     modelType: record.modelType ?? catalogModel?.defaultModelType,
     supportsThinking: catalogModel?.supportsThinking ?? record.supportsThinking ?? 0,
     sortOrder: record.sortOrder,
+    protocol: getProtocolFromConfig(record.configJson) ?? catalogModel?.defaultProtocol ?? 'openai_chat_completions',
   })
   modalVisible.value = true
 }
@@ -471,6 +486,7 @@ const applyCatalogModel = (model: API.SupportedAiModelVO) => {
     temperature: model.defaultTemperature ?? 0.7,
     modelType: model.defaultModelType ?? model.supportedModelTypes?.[0] ?? 'chat',
     supportsThinking: model.supportsThinking ?? 0,
+    protocol: model.defaultProtocol ?? 'openai_chat_completions',
   })
 }
 
@@ -490,6 +506,7 @@ const resetForm = () => {
     modelType: 'chat',
     supportsThinking: 0,
     sortOrder: 0,
+    protocol: 'openai_chat_completions',
   })
   if (supportedModels.value.length > 0) {
     applyCatalogModel(supportedModels.value[0])
@@ -506,6 +523,7 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
+    normalizeFormBaseUrl()
     const submitData = {
       ...formData,
       isEnabled: formData.isEnabled ? 1 : 0,
@@ -565,6 +583,7 @@ const handleTestConnection = async (id: number | undefined) => {
 
 const handleTestCurrentConfig = async () => {
   try {
+    normalizeFormBaseUrl()
     await formRef.value?.validateFields()
   } catch {
     return
@@ -603,6 +622,7 @@ const getProviderClass = (provider?: string) => {
     deepseek: 'provider-deepseek',
     openai: 'provider-openai',
     muskapi: 'provider-custom',
+    xiaomi: 'provider-xiaomi',
   }
   return map[provider ?? ''] ?? 'provider-custom'
 }
@@ -612,6 +632,8 @@ const getProviderIcon = (provider?: string) => {
     deepseek: 'DS',
     openai: 'AI',
     muskapi: 'MK',
+    xiaomi: 'MI',
+    custom: 'CM',
   }
   return map[provider ?? ''] ?? 'CM'
 }
@@ -621,6 +643,8 @@ const getProviderLabel = (provider?: string) => {
     deepseek: 'DeepSeek',
     openai: 'OpenAI',
     muskapi: 'MuskAPI',
+    xiaomi: 'Xiaomi MiMo',
+    custom: '自定义',
   }
   return map[provider ?? ''] ?? provider
 }
@@ -630,6 +654,8 @@ const getProviderColor = (provider?: string) => {
     deepseek: 'blue',
     openai: 'green',
     muskapi: 'orange',
+    xiaomi: 'red',
+    custom: 'default',
   }
   return map[provider ?? ''] ?? 'default'
 }
@@ -666,6 +692,45 @@ const truncateUrl = (url?: string) => {
     return parsed.hostname
   } catch {
     return url.length > 30 ? url.slice(0, 30) + '...' : url
+  }
+}
+
+const normalizeFormBaseUrl = () => {
+  formData.baseUrl = normalizeOpenAiBaseUrl(formData.baseUrl)
+}
+
+const normalizeOpenAiBaseUrl = (value?: string) => {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return ''
+  }
+  try {
+    const url = new URL(trimmed)
+    const path = url.pathname.replace(/\/$/, '')
+    if (!path) {
+      url.pathname = '/v1'
+    } else if (path === '/chat/completions') {
+      url.pathname = '/v1'
+    } else if (path.endsWith('/chat/completions')) {
+      url.pathname = path.slice(0, -'/chat/completions'.length) || '/v1'
+    }
+    url.search = ''
+    url.hash = ''
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return trimmed.replace(/\/$/, '')
+  }
+}
+
+const getProtocolFromConfig = (configJson?: string) => {
+  if (!configJson) {
+    return undefined
+  }
+  try {
+    const config = JSON.parse(configJson)
+    return typeof config.protocol === 'string' ? config.protocol : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -818,6 +883,10 @@ onMounted(() => {
 
 .provider-custom {
   background: linear-gradient(135deg, #d97706, #f59e0b);
+}
+
+.provider-xiaomi {
+  background: linear-gradient(135deg, #dc2626, #f97316);
 }
 
 .model-info-text {

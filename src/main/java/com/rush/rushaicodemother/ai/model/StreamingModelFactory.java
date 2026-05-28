@@ -254,12 +254,12 @@ public class StreamingModelFactory {
                 .apiKey(dbModel.getApiKey())
                 .baseUrl(dbModel.getBaseUrl())
                 .modelName(dbModel.getModelId())
-                .maxTokens(dbModel.getMaxTokens())
                 .temperature(resolveTemperature(dbModel))
                 .logRequests(logRequests)
                 .logResponses(logResponses)
                 .listeners(List.of(aiModelMonitorListener));
 
+        applyMaxTokens(builder, dbModel);
         applyThinking(builder, dbModel, enableThinking);
 
         return builder.build();
@@ -270,11 +270,11 @@ public class StreamingModelFactory {
                 .apiKey(dbModel.getApiKey())
                 .baseUrl(dbModel.getBaseUrl())
                 .modelName(dbModel.getModelId())
-                .maxTokens(dbModel.getMaxTokens())
                 .temperature(resolveTemperature(dbModel))
                 .logRequests(routingLogRequests)
                 .logResponses(routingLogResponses);
 
+        applyMaxTokens(builder, dbModel);
         applyThinking(builder, dbModel, false);
 
         return builder.build();
@@ -286,6 +286,7 @@ public class StreamingModelFactory {
      * - DeepSeek V4 系列 (deepseek-v4-*)
      * - OpenAI o1/o3 系列
      * - Claude 3.5 Sonnet / Claude 3 Opus
+     * - Xiaomi MiMo V2 系列
      */
     private boolean isThinkingCapableModel(String modelId) {
         if (modelId == null) return false;
@@ -299,6 +300,9 @@ public class StreamingModelFactory {
         
         // Claude 3.5 Sonnet / Claude 3 Opus
         if (lower.contains("claude-3-5-sonnet") || lower.contains("claude-3-opus")) return true;
+
+        // Xiaomi MiMo V2 系列
+        if (lower.startsWith("mimo-v2")) return true;
         
         return false;
     }
@@ -311,6 +315,7 @@ public class StreamingModelFactory {
      * - OpenAI: 0-2
      * - Claude: 0-1
      * - 通义千问: 0-2
+     * - Xiaomi MiMo: 0-1.5
      * - 其他: 默认 0-1（安全范围）
      */
     private Double resolveTemperature(AiModel dbModel) {
@@ -325,6 +330,10 @@ public class StreamingModelFactory {
         // Claude 模型限制 temperature 在 0-1 范围
         if (modelId.contains("claude") || provider.contains("anthropic")) {
             return Math.min(temp, 1.0);
+        }
+
+        if (modelId.startsWith("mimo-v2") || provider.equals("xiaomi")) {
+            return Math.min(temp, 1.5);
         }
 
         // 其他模型使用原始值（OpenAI/DeepSeek/通义千问都支持 0-2）
@@ -385,6 +394,33 @@ public class StreamingModelFactory {
         if (model != null && Integer.valueOf(1).equals(model.getSupportsThinking())) {
             builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
         }
+    }
+
+    private void applyMaxTokens(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
+                                AiModel model) {
+        if (isXiaomiMimoModel(model)) {
+            builder.maxCompletionTokens(model.getMaxTokens());
+            return;
+        }
+        builder.maxTokens(model.getMaxTokens());
+    }
+
+    private void applyMaxTokens(OpenAiChatModel.OpenAiChatModelBuilder builder,
+                                AiModel model) {
+        if (isXiaomiMimoModel(model)) {
+            builder.maxCompletionTokens(model.getMaxTokens());
+            return;
+        }
+        builder.maxTokens(model.getMaxTokens());
+    }
+
+    private boolean isXiaomiMimoModel(AiModel model) {
+        if (model == null) {
+            return false;
+        }
+        String provider = model.getProvider() != null ? model.getProvider().toLowerCase() : "";
+        String modelId = model.getModelId() != null ? model.getModelId().toLowerCase() : "";
+        return provider.equals("xiaomi") || modelId.startsWith("mimo-v2");
     }
 
     private void applyThinking(OpenAiChatModel.OpenAiChatModelBuilder builder,

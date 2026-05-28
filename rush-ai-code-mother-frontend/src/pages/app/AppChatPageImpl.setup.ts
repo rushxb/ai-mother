@@ -109,6 +109,7 @@ const previewUrl = ref('')
 const previewReady = ref(false)
 const previewRefreshKey = ref(0)
 const devServerRunning = ref(false)
+const devServerStarting = ref(false)
 
 const activeWorkspaceTab = ref<WorkspaceTabKey>('preview')
 const generationPhase = ref<'idle' | 'codegen' | 'build' | 'repair' | 'done' | 'failed'>('idle')
@@ -816,8 +817,9 @@ const isVueProject = (app: API.AppVO) => {
 
 // 启动 dev server
 const startDevServerForApp = async () => {
-  if (!appId.value || !isOwner.value) return
+  if (!appId.value || !isOwner.value || devServerStarting.value) return
 
+  devServerStarting.value = true
   try {
     const res = await startDevServer({ appId: appId.value })
     if (res.data.code === 0 && res.data.data) {
@@ -834,19 +836,47 @@ const startDevServerForApp = async () => {
   } catch (error) {
     console.error('启动 dev server 失败:', error)
     // 不阻断流程，降级使用静态预览
+  } finally {
+    devServerStarting.value = false
   }
 }
 
 // 停止 dev server
-const stopDevServerForApp = async () => {
-  if (!appId.value || !devServerRunning.value) return
+const stopDevServerForApp = async (forceCleanup = false) => {
+  if (!appId.value) return
+  if (!forceCleanup && !devServerRunning.value && !devServerStarting.value) return
 
   try {
     await stopDevServer({ appId: appId.value })
     devServerRunning.value = false
+    devServerStarting.value = false
     console.log('Dev server 已停止')
   } catch (error) {
     console.error('停止 dev server 失败:', error)
+  }
+}
+
+const sendDevServerCleanupBeacon = () => {
+  if (!appId.value || !isOwner.value) {
+    return
+  }
+  const cleanupUrl = `${API_BASE_URL}/app/dev-server/stop?appId=${encodeURIComponent(String(appId.value))}`
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(cleanupUrl, new Blob([], { type: 'text/plain' }))
+      return
+    }
+  } catch (error) {
+    console.debug('sendBeacon 清理 dev server 失败:', error)
+  }
+  try {
+    void fetch(cleanupUrl, {
+      method: 'POST',
+      credentials: 'include',
+      keepalive: true,
+    })
+  } catch (error) {
+    console.debug('keepalive 清理 dev server 失败:', error)
   }
 }
 
@@ -2101,6 +2131,7 @@ onMounted(() => {
 
   // 监听 iframe 消息
   window.addEventListener('message', handleIframeMessage)
+  window.addEventListener('beforeunload', sendDevServerCleanupBeacon)
   nextTick(() => {
     updateMessageScrollState()
   })
@@ -2112,8 +2143,9 @@ onUnmounted(() => {
   stopStreamingFilePreview()
   closeActiveEventSource()
   window.removeEventListener('message', handleIframeMessage)
+  window.removeEventListener('beforeunload', sendDevServerCleanupBeacon)
   // 停止 dev server
-  stopDevServerForApp()
+  stopDevServerForApp(true)
 })
 
   return {

@@ -6,13 +6,16 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * pnpm install 统一服务
@@ -34,6 +37,9 @@ import java.util.concurrent.TimeUnit;
 public class PnpmInstallService {
 
     private static final int DEFAULT_TIMEOUT_SECONDS = 300;
+    private static final int IDLE_TIMEOUT_SECONDS = 90;
+    private static final int INSTALL_HEARTBEAT_SECONDS = 15;
+    private static final int MAX_OUTPUT_LENGTH = 12000;
 
     /**
      * Windows 平台原生包清单（pnpm --force 可能损坏这些包）
@@ -47,6 +53,9 @@ public class PnpmInstallService {
 
     /** 每个项目的安装锁，防止并发安装 */
     private final Map<String, Object> installLocks = new ConcurrentHashMap<>();
+
+    /** 当前正在执行的安装进程，key 为项目绝对路径 */
+    private final Map<String, Process> activeInstallProcesses = new ConcurrentHashMap<>();
 
     /**
      * 安装结果
@@ -144,7 +153,8 @@ public class PnpmInstallService {
      */
     private InstallResult doInstall(File projectDir, boolean force) {
         List<String> cmd = buildPnpmCommand(force);
-        log.info("执行: {} (目录: {})", String.join(" ", cmd), projectDir.getAbsolutePath());
+        String projectPath = projectDir.getAbsolutePath();
+        log.info("执行: {} (目录: {})", String.join(" ", cmd), projectPath);
 
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -155,12 +165,16 @@ public class PnpmInstallService {
             pb.environment().put("NPM_CONFIG_FUND", "false");
 
             Process process = pb.start();
-            String output = readProcessOutput(process);
-            boolean finished = process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            activeInstallProcesses.put(projectPath, process);
+            ProcessOutputCollector outputCollector = new ProcessOutputCollector(projectPath);
+            CompletableFuture<Void> outputFuture = outputCollector.start(process);
+            InstallWaitResult waitResult = waitForInstall(process, outputCollector);
+            String output = outputCollector.output();
+            waitForOutputDrainer(outputFuture);
 
-            if (!finished) {
+            if (!waitResult.finished()) {
                 process.destroyForcibly();
-                return InstallResult.failed(output, "安装超时（" + DEFAULT_TIMEOUT_SECONDS + "秒）");
+                return InstallResult.failed(output, waitResult.errorDetail());
             }
 
             int exitCode = process.exitValue();
@@ -174,6 +188,30 @@ public class PnpmInstallService {
         } catch (Exception e) {
             log.error("pnpm install 异常: {}", e.getMessage(), e);
             return InstallResult.failed("", e.getMessage());
+        } finally {
+            activeInstallProcesses.remove(projectPath);
+        }
+    }
+
+    /**
+     * 取消指定项目当前正在执行的依赖安装。
+     */
+    public boolean cancelInstall(File projectDir) {
+        if (projectDir == null) {
+            return false;
+        }
+        String projectPath = projectDir.getAbsolutePath();
+        Process process = activeInstallProcesses.remove(projectPath);
+        if (process == null) {
+            return false;
+        }
+        try {
+            process.destroyForcibly();
+            log.info("已取消项目依赖安装: {}", projectPath);
+            return true;
+        } catch (Exception e) {
+            log.warn("取消项目依赖安装失败: {}, error: {}", projectPath, e.getMessage());
+            return false;
         }
     }
 
@@ -182,11 +220,47 @@ public class PnpmInstallService {
      */
     private List<String> buildPnpmCommand(boolean force) {
         String cmd = isWindows() ? "pnpm.cmd" : "pnpm";
-        List<String> parts = new ArrayList<>(List.of(cmd, "install"));
+        List<String> parts = new ArrayList<>(List.of(
+                cmd,
+                "install",
+                "--reporter=append-only",
+                "--prefer-offline",
+                "--config.confirmModulesPurge=false"
+        ));
         if (force) {
             parts.add("--force");
         }
         return parts;
+    }
+
+    private InstallWaitResult waitForInstall(Process process, ProcessOutputCollector outputCollector) throws InterruptedException {
+        long startAt = System.nanoTime();
+        long lastHeartbeatAt = startAt;
+        while (true) {
+            if (process.waitFor(1, TimeUnit.SECONDS)) {
+                return InstallWaitResult.completed();
+            }
+
+            long now = System.nanoTime();
+            long elapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(now - startAt);
+            long idleSeconds = outputCollector.idleSeconds(now);
+
+            if (elapsedSeconds >= DEFAULT_TIMEOUT_SECONDS) {
+                log.warn("pnpm install 总超时，将终止进程，elapsed={}s, idle={}s, tail={}",
+                        elapsedSeconds, idleSeconds, outputCollector.tailForLog());
+                return InstallWaitResult.failed("安装超时（" + DEFAULT_TIMEOUT_SECONDS + "秒）");
+            }
+            if (idleSeconds >= IDLE_TIMEOUT_SECONDS) {
+                log.warn("pnpm install 长时间无输出，将终止进程，elapsed={}s, idle={}s, tail={}",
+                        elapsedSeconds, idleSeconds, outputCollector.tailForLog());
+                return InstallWaitResult.failed("安装长时间无输出（" + IDLE_TIMEOUT_SECONDS + "秒），已自动终止");
+            }
+            if (TimeUnit.NANOSECONDS.toSeconds(now - lastHeartbeatAt) >= INSTALL_HEARTBEAT_SECONDS) {
+                lastHeartbeatAt = now;
+                log.info("pnpm install 进行中，elapsed={}s, idle={}s, tail={}",
+                        elapsedSeconds, idleSeconds, outputCollector.tailForLog());
+            }
+        }
     }
 
     /**
@@ -404,7 +478,128 @@ public class PnpmInstallService {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         process.getInputStream().transferTo(buffer);
         String output = new String(buffer.toByteArray(), StandardCharsets.UTF_8);
-        return output.length() > 12000 ? output.substring(output.length() - 12000) : output;
+        return limitOutput(output);
+    }
+
+    private void waitForOutputDrainer(CompletableFuture<Void> outputFuture) {
+        try {
+            outputFuture.get(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            // 进程已结束或被杀后，输出线程最多等待 2 秒；剩余输出不影响安装判定。
+        }
+    }
+
+    private static String limitOutput(String output) {
+        if (output == null) {
+            return "";
+        }
+        return output.length() > MAX_OUTPUT_LENGTH ? output.substring(output.length() - MAX_OUTPUT_LENGTH) : output;
+    }
+
+    private record InstallWaitResult(boolean finished, String errorDetail) {
+
+        private static InstallWaitResult completed() {
+            return new InstallWaitResult(true, null);
+        }
+
+        private static InstallWaitResult failed(String errorDetail) {
+            return new InstallWaitResult(false, errorDetail);
+        }
+    }
+
+    private static class ProcessOutputCollector {
+
+        private final String projectPath;
+        private final StringBuilder output = new StringBuilder();
+        private final StringBuilder pendingLine = new StringBuilder();
+        private final AtomicLong lastOutputAt = new AtomicLong(System.nanoTime());
+
+        private ProcessOutputCollector(String projectPath) {
+            this.projectPath = projectPath;
+        }
+
+        private CompletableFuture<Void> start(Process process) {
+            return CompletableFuture.runAsync(() -> drain(process.getInputStream()));
+        }
+
+        private void drain(InputStream inputStream) {
+            byte[] buffer = new byte[1024];
+            try {
+                int read;
+                while ((read = inputStream.read(buffer)) != -1) {
+                    String chunk = new String(buffer, 0, read, StandardCharsets.UTF_8);
+                    lastOutputAt.set(System.nanoTime());
+                    appendOutput(chunk);
+                    appendLogLines(chunk);
+                }
+                flushPendingLine();
+            } catch (IOException e) {
+                flushPendingLine();
+            }
+        }
+
+        private synchronized void appendOutput(String chunk) {
+            output.append(chunk);
+            if (output.length() > MAX_OUTPUT_LENGTH) {
+                output.delete(0, output.length() - MAX_OUTPUT_LENGTH);
+            }
+        }
+
+        private synchronized String output() {
+            return output.toString();
+        }
+
+        private long idleSeconds(long nowNanos) {
+            return TimeUnit.NANOSECONDS.toSeconds(nowNanos - lastOutputAt.get());
+        }
+
+        private synchronized String tailForLog() {
+            String normalized = output.toString()
+                    .replace("\u001B", "")
+                    .replace('\r', ' ')
+                    .replace('\n', ' ')
+                    .trim();
+            if (normalized.isEmpty()) {
+                return "(暂无输出)";
+            }
+            return normalized.length() > 500 ? normalized.substring(normalized.length() - 500) : normalized;
+        }
+
+        private synchronized void appendLogLines(String chunk) {
+            String normalized = chunk.replace('\r', '\n');
+            String[] parts = normalized.split("\n", -1);
+            for (int i = 0; i < parts.length; i++) {
+                if (i == parts.length - 1) {
+                    pendingLine.append(parts[i]);
+                    trimPendingLine();
+                    continue;
+                }
+                pendingLine.append(parts[i]);
+                logLine(pendingLine.toString());
+                pendingLine.setLength(0);
+            }
+        }
+
+        private synchronized void flushPendingLine() {
+            if (pendingLine.isEmpty()) {
+                return;
+            }
+            logLine(pendingLine.toString());
+            pendingLine.setLength(0);
+        }
+
+        private void trimPendingLine() {
+            if (pendingLine.length() > 1000) {
+                pendingLine.delete(0, pendingLine.length() - 1000);
+            }
+        }
+
+        private void logLine(String line) {
+            String normalized = line.replace("\u001B", "").trim();
+            if (!normalized.isEmpty()) {
+                log.info("[pnpm-install] {} | {}", projectPath, normalized);
+            }
+        }
     }
 
     /**

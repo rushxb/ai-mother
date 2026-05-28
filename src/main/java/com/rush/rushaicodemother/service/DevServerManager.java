@@ -57,6 +57,12 @@ public class DevServerManager {
     private final Map<Long, Set<Long>> userAppServers = new ConcurrentHashMap<>();
 
     /**
+     * 应用前端项目目录映射：appId -> projectDir
+     * 用于安装依赖期间也能按 appId 主动取消命令。
+     */
+    private final Map<Long, File> appProjectDirs = new ConcurrentHashMap<>();
+
+    /**
      * 端口分配原子计数器
      */
     private final AtomicInteger portCounter = new AtomicInteger(PORT_RANGE_START);
@@ -171,15 +177,23 @@ public class DevServerManager {
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "项目目录不存在，请先生成代码");
         }
+        appProjectDirs.put(appId, projectDir);
 
         // 检查 package.json 是否存在
         File packageJson = new File(projectDir, "package.json");
         if (!packageJson.exists()) {
+            appProjectDirs.remove(appId);
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "项目缺少 package.json");
         }
 
         // 启动 dev server
-        Process process = executeDevServer(projectDir, port, appId);
+        Process process;
+        try {
+            process = executeDevServer(projectDir, port, appId);
+        } catch (RuntimeException e) {
+            appProjectDirs.remove(appId);
+            throw e;
+        }
         runningProcesses.put(appId, process);
 
         // 记录用户应用
@@ -196,6 +210,11 @@ public class DevServerManager {
      * @param userId 用户ID
      */
     public void stopDevServer(Long appId, Long userId) {
+        File projectDir = appProjectDirs.remove(appId);
+        if (projectDir != null && pnpmInstallService.cancelInstall(projectDir)) {
+            log.info("应用 {} 的依赖安装已取消", appId);
+        }
+
         Process process = runningProcesses.remove(appId);
         if (process != null) {
             process.destroyForcibly();
@@ -225,6 +244,7 @@ public class DevServerManager {
         }
         if (!process.isAlive()) {
             runningProcesses.remove(appId);
+            appProjectDirs.remove(appId);
             return false;
         }
         return true;
@@ -515,6 +535,14 @@ public class DevServerManager {
             }
         });
         runningProcesses.clear();
+        appProjectDirs.forEach((appId, projectDir) -> {
+            try {
+                pnpmInstallService.cancelInstall(projectDir);
+            } catch (Exception e) {
+                log.error("取消应用 {} 的依赖安装失败", appId, e);
+            }
+        });
+        appProjectDirs.clear();
         appPorts.clear();
         userAppServers.clear();
         errorCollectors.clear();

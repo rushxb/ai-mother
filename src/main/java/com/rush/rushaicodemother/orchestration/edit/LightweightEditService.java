@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
@@ -23,8 +24,6 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.DevServerManager;
-import com.rush.rushaicodemother.service.GenerationTraceService;
-import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,9 +51,8 @@ public class LightweightEditService {
     private final GenerationEventPublisher generationEventPublisher;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationAppStateService generationAppStateService;
-    private final GenerationTraceService generationTraceService;
+    private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final ChatHistoryService chatHistoryService;
-    private final UserCreditService userCreditService;
     private final EditValidationPolicyService editValidationPolicyService;
     private final BackgroundValidationService backgroundValidationService;
     private final EditStatePersistenceService editStatePersistenceService;
@@ -117,10 +115,10 @@ public class LightweightEditService {
             ));
 
             // 记录用户消息到聊天历史
-            chatHistoryService.addChatMessage(app.getId(), userMessage, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+            generationTaskLifecycleService.recordUserMessage(app, loginUser, userMessage);
 
             // 开始 trace
-            generationTraceService.startTask(
+            generationTaskLifecycleService.startTrace(
                     taskId, app.getId(), loginUser.getId(),
                     codeGenType, codeGenType,
                     userMessage, userMessage,
@@ -273,7 +271,7 @@ public class LightweightEditService {
                         "rejectedOperations", applyResult.rejectedOperations()
                 ));
                 generationAppStateService.markGenerationFinished(app.getId());
-                generationTraceService.completeTask(taskId, "failed", null, failedMessage);
+                generationTaskLifecycleService.completeTrace(taskId, "failed", null, failedMessage);
                 return buildFailedResult(taskId, failedMessage);
             }
 
@@ -293,10 +291,10 @@ public class LightweightEditService {
             generationAppStateService.markGenerationFinished(app.getId());
 
             // 完成 trace
-            generationTraceService.completeTask(taskId, "success", null, null);
+            generationTaskLifecycleService.completeTrace(taskId, "success", null, null);
 
             // 扣减用户积分（轻量编辑成功后）
-            userCreditService.chargeGenerationTask(taskId);
+            generationTaskLifecycleService.charge(taskId);
 
             return new LightweightEditResult(
                     taskId,
@@ -313,7 +311,7 @@ public class LightweightEditService {
                     "error", StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
             ));
             generationAppStateService.markGenerationFinished(app.getId());
-            generationTraceService.completeTask(taskId, "failed", null, null);
+            generationTaskLifecycleService.completeTrace(taskId, "failed", null, null);
             return buildFailedResult(taskId, e.getMessage());
         }
     }
@@ -443,7 +441,7 @@ public class LightweightEditService {
                 "rollbackStatus", restoreResult.status()
         ));
         generationAppStateService.markGenerationFinished(app.getId());
-        generationTraceService.completeTask(taskId, "failed", null, validationResult.message());
+        generationTaskLifecycleService.completeTrace(taskId, "failed", null, validationResult.message());
         return buildFailedResult(taskId, failedMessage);
     }
 

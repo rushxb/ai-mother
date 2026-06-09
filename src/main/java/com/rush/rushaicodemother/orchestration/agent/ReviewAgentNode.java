@@ -61,11 +61,13 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         }
         if (patchFirst && !hasChangePlan) {
             blockers.add("缺少标准化变更计划，无法执行 patch-first 生成");
-        } else if (hasChangePlan) {
+        } else if (patchFirst) {
             blockers.addAll(changePlan.validateForPatchFirst(requiresBuild, validationMode));
             if (blockers.isEmpty()) {
                 passes.add("变更计划已生成并通过契约校验");
             }
+        } else if (hasChangePlan) {
+            passes.add("完整生成计划已生成");
         }
         if (patchFirst) {
             passes.add("已启用 patch-first 计划型生成");

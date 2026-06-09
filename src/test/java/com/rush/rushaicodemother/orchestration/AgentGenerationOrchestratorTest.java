@@ -39,7 +39,7 @@ import static org.mockito.Mockito.when;
 class AgentGenerationOrchestratorTest {
 
     @Test
-    void shouldRouteToHeavyPathWhenTargetTypeUpgradesToVue() {
+    void shouldUpgradeToVueTemplateWithoutBuildFixForNewProject() {
         GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-heavy");
@@ -68,14 +68,8 @@ class AgentGenerationOrchestratorTest {
         GenerationOrchestrationResult result = orchestrator.prepare(request);
 
         assertEquals(CodeGenTypeEnum.VUE_PROJECT, result.targetType());
-        assertTrue(result.artifacts().containsKey("buildfix_plan"));
-        assertTrue(result.artifacts().containsKey("rollback_point"));
-        GenerationArtifact rollbackPoint = result.artifacts().get("rollback_point");
-        assertEquals("skipped", rollbackPoint.payload().get("status"));
-        assertEquals("no_existing_generated_code", rollbackPoint.payload().get("reason"));
-        @SuppressWarnings("unchecked")
-        Map<String, Object> buildfixPlan = result.artifacts().get("buildfix_plan").payload();
-        assertEquals(Boolean.TRUE, buildfixPlan.get("enabled"));
+        assertTrue(result.artifacts().containsKey("template_bootstrap"));
+        assertEquals(Boolean.TRUE, result.artifacts().get("template_bootstrap").payload().get("bootstrapped"));
     }
 
     @Test
@@ -92,6 +86,7 @@ class AgentGenerationOrchestratorTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue());
+        writeExistingProjectFile("shared", CodeGenTypeEnum.VUE_PROJECT, app.getId(), "src/App.vue", "<template>tool</template>");
 
         Function<String, CodeGenTypeEnum> routingFunction = prompt -> CodeGenTypeEnum.VUE_PROJECT;
         GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
@@ -125,6 +120,7 @@ class AgentGenerationOrchestratorTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        writeExistingProjectFile("metrics", CodeGenTypeEnum.HTML, app.getId(), "index.html", "<html><body>login</body></html>");
 
         GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
                 app,
@@ -259,5 +255,15 @@ class AgentGenerationOrchestratorTest {
                 new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
         );
         return new TemplateAgentNode(bootstrapService, backendBootstrapService, new FullStackPortAllocator());
+    }
+
+    private void writeExistingProjectFile(String caseName,
+                                          CodeGenTypeEnum type,
+                                          Long appId,
+                                          String relativePath,
+                                          String content) {
+        Path root = Path.of("target", "test-workspaces", "template-orchestrator", caseName,
+                "code_output", type.getValue() + "_" + appId);
+        FileUtil.writeUtf8String(content, root.resolve(relativePath).toFile());
     }
 }

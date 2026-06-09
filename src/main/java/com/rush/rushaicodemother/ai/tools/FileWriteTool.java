@@ -6,16 +6,12 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
-import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
-import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
-import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContext;
-import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
-import java.util.List;
 
 /**
  * 文件写入工具
@@ -25,13 +21,10 @@ import java.util.List;
 @Component
 public class FileWriteTool extends BaseTool {
 
-    private final GenerationPatchApplyService generationPatchApplyService;
-    private final GenerationToolExecutionContextService toolExecutionContextService;
+    private final ToolExecutionGateway toolExecutionGateway;
 
-    public FileWriteTool(GenerationPatchApplyService generationPatchApplyService,
-                         GenerationToolExecutionContextService toolExecutionContextService) {
-        this.generationPatchApplyService = generationPatchApplyService;
-        this.toolExecutionContextService = toolExecutionContextService;
+    public FileWriteTool(ToolExecutionGateway toolExecutionGateway) {
+        this.toolExecutionGateway = toolExecutionGateway;
     }
 
     @Tool("写入文件到指定路径")
@@ -65,17 +58,7 @@ public class FileWriteTool extends BaseTool {
     }
 
     private PatchApplyResult applyWithGlobalChangePlan(Long appId, Path projectRoot, PatchOperation operation) {
-        GenerationToolExecutionContext context = toolExecutionContextService.getContext(appId).orElse(null);
-        if (context == null) {
-            return PatchApplyResult.skipped(appId, "tool-write-file", projectRoot.toString(), "change_plan_missing");
-        }
-        if (context.allowsBootstrapWrite()) {
-            return generationPatchApplyService.applyWithoutChangePlan(
-                    appId, context.taskId(), projectRoot, List.of(operation), context.reason()
-            );
-        }
-        ChangePlan changePlan = context.changePlan();
-        return generationPatchApplyService.apply(appId, context.taskId(), projectRoot, changePlan, List.of(operation));
+        return toolExecutionGateway.applyPatch(appId, projectRoot, operation, "tool-write-file", "write_file");
     }
 
     @Override

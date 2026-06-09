@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -15,6 +16,10 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
+import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFailureRecoveryService;
+import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFinalizationService;
+import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationSessionCompletionService;
+import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -36,11 +41,12 @@ class AppServiceImplRegressionTest {
     void shouldIncludeLifecycleArtifactsInGenerationErrorPayload() throws Exception {
         Map<String, GenerationArtifact> artifacts = lifecycleArtifacts();
         GenerationPreparation preparation = newPreparation(artifacts, List.of(), Map.of());
-        GenerationTaskOrchestrator orchestrator = newOrchestrator(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
+        HeavyGenerationFailureRecoveryService failureRecoveryService = newFailureRecoveryService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
 
         @SuppressWarnings("unchecked")
         Map<String, Object> data = (Map<String, Object>) invoke(
-                orchestrator,
+                failureRecoveryService,
                 "buildGenerationErrorData",
                 new Class<?>[]{GenerationPreparation.class, String.class, String.class, boolean.class, Map.class},
                 preparation,
@@ -65,15 +71,23 @@ class AppServiceImplRegressionTest {
     @Test
     void shouldBuildStableLifecycleEventPayloads() throws Exception {
         GenerationPreparation preparation = newPreparation(lifecycleArtifacts(), List.of(), Map.of());
-        GenerationTaskOrchestrator orchestrator = newOrchestrator(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
+        HeavyGenerationFinalizationService finalizationService = new HeavyGenerationFinalizationService(
+                null,
+                null,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                null,
+                null
+        );
+        HeavyGenerationFailureRecoveryService failureRecoveryService = newFailureRecoveryService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
 
-        assertEventPayload(orchestrator, preparation, "buildDiffSummaryEventData",
+        assertEventPayload(finalizationService, preparation, "buildDiffSummaryEventData",
                 lifecycleArtifacts().get("diff_summary"), "diff", "created", "生成后差异摘要已生成");
-        assertEventPayload(orchestrator, preparation, "buildPatchResultEventData",
+        assertEventPayload(finalizationService, preparation, "buildPatchResultEventData",
                 lifecycleArtifacts().get("patch_result"), "patch", "applied", "Patch 实际落盘结果已对齐");
-        assertEventPayload(orchestrator, preparation, "buildCommitResultEventData",
+        assertEventPayload(finalizationService, preparation, "buildCommitResultEventData",
                 lifecycleArtifacts().get("generation_commit"), "commit", "committed", "生成结果已提交到本地 Git");
-        assertEventPayload(orchestrator, preparation, "buildRollbackRestoreEventData",
+        assertEventPayload(failureRecoveryService, preparation, "buildRollbackRestoreEventData",
                 lifecycleArtifacts().get("rollback_restore"), "rollback", "restored", "生成失败，已从本地回滚点恢复项目文件。");
     }
 
@@ -114,39 +128,33 @@ class AppServiceImplRegressionTest {
     }
 
     private GenerationTaskOrchestrator newOrchestrator(GenerationOrchestrationMetricsCollector metricsCollector) {
+        NoopGenerationTraceService traceService = new NoopGenerationTraceService();
+        NoopUserCreditService creditService = new NoopUserCreditService();
+        GenerationTaskLifecycleService lifecycleService = new GenerationTaskLifecycleService(null, traceService, creditService);
         return new GenerationTaskOrchestrator(
-                null,  // aiCodeGenTypeRoutingServiceFactory
-                null,  // aiCodeGeneratorFacade
-                null,  // appDatabaseResourceService
-                null,  // backendProjectTemplateBootstrapService
-                null,  // chatHistoryService
-                null,  // generationPerformanceSelector
-                null,  // lightweightEditService
                 null,  // generationAppStateService
-                null,  // generationCommitService
-                null,  // generationDiffSummaryService
                 null,  // generationEventPublisher
-                null,  // generationMemoryContextService
-                metricsCollector,  // generationOrchestrationMetricsCollector
-                null,  // generationOrchestrator
-                null,  // generationPatchApplyService
-                null,  // generationPatchResultService
-                null,  // generationRollbackRestoreService
+                List.of(),  // generationPipelines
+                new GenerationSessionRegistry(),  // generationSessionRegistry
+                null,  // heavyGenerationBuildValidationService
+                null,  // heavyGenerationExecutionService
+                newFailureRecoveryService(metricsCollector),  // heavyGenerationFailureRecoveryService
+                null,  // heavyGenerationFinalizationService
+                null,  // heavyGenerationPreparationService
+                new HeavyGenerationSessionCompletionService(metricsCollector, lifecycleService),  // heavyGenerationSessionCompletionService
+                lifecycleService,  // generationTaskLifecycleService
                 null,  // generationToolExecutionContextService
-                new NoopGenerationTraceService(),  // generationTraceService
-                null,  // generationWorkspaceService
-                null,  // orphanFileReviewService
-                null,  // parallelSlotFillService
-                null,  // streamHandlerExecutor
-                null,  // templateSlotFillService
-                new NoopUserCreditService(),  // userCreditService
-                null,  // vueProjectBuilder
-                null,  // vueProjectTemplateBootstrapService
-                null   // devServerValidationService
+                traceService,  // generationTraceService
+                null  // generationWorkspaceService
         );
     }
 
-    private void assertEventPayload(GenerationTaskOrchestrator orchestrator,
+    private HeavyGenerationFailureRecoveryService newFailureRecoveryService(
+            GenerationOrchestrationMetricsCollector metricsCollector) {
+        return new HeavyGenerationFailureRecoveryService(null, metricsCollector, null);
+    }
+
+    private void assertEventPayload(Object target,
                                     GenerationPreparation preparation,
                                     String methodName,
                                     GenerationArtifact artifact,
@@ -155,7 +163,7 @@ class AppServiceImplRegressionTest {
                                     String summary) throws Exception {
         @SuppressWarnings("unchecked")
         Map<String, Object> data = (Map<String, Object>) invoke(
-                orchestrator,
+                target,
                 methodName,
                 new Class<?>[]{GenerationPreparation.class, GenerationArtifact.class},
                 preparation,

@@ -43,9 +43,6 @@ public class AiModelController {
     private AiModelCatalogService aiModelCatalogService;
 
     @Resource
-    private com.rush.rushaicodemother.service.impl.AiModelServiceImpl aiModelServiceImpl;
-
-    @Resource
     private UserService userService;
 
     @Resource
@@ -165,7 +162,7 @@ public class AiModelController {
 
         Page<AiModel> page = aiModelService.page(
                 Page.of(pageNum, pageSize),
-                aiModelServiceImpl.getQueryWrapper(queryRequest)
+                aiModelService.getQueryWrapper(queryRequest)
         );
         return ResultUtils.success(page);
     }
@@ -254,6 +251,7 @@ public class AiModelController {
     }
 
     @lombok.Data
+    @lombok.EqualsAndHashCode(callSuper = false)
     public static class AiModelQueryRequest extends PageRequest {
         private String provider;
         private String modelType;

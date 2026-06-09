@@ -123,25 +123,13 @@
             <p>网站文件生成完成后将在这里展示</p>
           </div>
           <div v-if="isGenerating" class="preview-progress-overlay" :class="{ 'has-preview': Boolean(previewUrl) }">
-            <div class="preview-progress-panel">
-              <div class="preview-progress-head">
-                <a-spin size="small" />
-                <div>
-                  <strong>{{ generationStatusText }}</strong>
-                  <span>{{ generationStageDescription }}</span>
-                </div>
-              </div>
-              <div class="generation-steps">
-                <span
-                    v-for="step in generationSteps"
-                    :key="step.key"
-                    class="generation-step"
-                    :class="{ active: generationStepIndex === step.index, done: generationStepIndex > step.index }"
-                >
-                  {{ step.label }}
-                </span>
-              </div>
-            </div>
+            <GenerationActivity
+                :description="generationStageDescription"
+                :status-text="generationStatusText"
+                :step-index="generationStepIndex"
+                :steps="generationSteps"
+                variant="floating"
+            />
           </div>
           <iframe
               v-if="previewUrl"
@@ -152,8 +140,12 @@
               @load="$emit('iframeLoad')"
           ></iframe>
           <div v-else-if="isGenerating" class="preview-loading">
-            <a-spin size="large" />
-            <p>{{ generationStageDescription }}</p>
+            <GenerationActivity
+                :description="generationStageDescription"
+                :status-text="generationStatusText"
+                :step-index="generationStepIndex"
+                :steps="generationSteps"
+            />
           </div>
         </div>
       </a-tab-pane>
@@ -177,6 +169,14 @@
               <a-spin size="small" />
               <span>正在加载文件...</span>
             </div>
+            <GenerationActivity
+                v-else-if="isGenerating"
+                :description="generationStageDescription"
+                :status-text="generationStatusText"
+                :step-index="generationStepIndex"
+                :steps="generationSteps"
+                variant="sidebar"
+            />
             <div v-else-if="fileTreeData.length" class="file-tree-scroll">
               <InspiraFileTree
                   :nodes="fileTreeData"
@@ -204,7 +204,15 @@
             <span class="file-sidebar-resizer-handle" />
           </div>
           <section class="file-editor-panel">
-            <div v-if="!selectedFilePath" class="editor-placeholder">
+            <div v-if="!selectedFilePath && isGenerating" class="editor-generating">
+              <GenerationActivity
+                  :description="generationStageDescription"
+                  :status-text="generationStatusText"
+                  :step-index="generationStepIndex"
+                  :steps="generationSteps"
+              />
+            </div>
+            <div v-else-if="!selectedFilePath" class="editor-placeholder">
               <div class="placeholder-icon">
                 <FileTextOutlined />
               </div>
@@ -314,6 +322,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DatabaseWorkspace from '@/components/app/DatabaseWorkspace.vue'
 import InspiraFileTree from './InspiraFileTree.vue'
 import ChatToolbarButton from './ChatToolbarButton.vue'
+import GenerationActivity from './GenerationActivity.vue'
 import type { FileTreeNode, WorkspaceTabKey } from './types'
 
 const props = defineProps<{
@@ -683,67 +692,6 @@ onUnmounted(stopFileSidebarResize)
   max-width: min(520px, calc(100% - 36px));
 }
 
-.preview-progress-panel {
-  display: grid;
-  gap: 10px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(16px);
-}
-
-.preview-progress-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.preview-progress-head strong {
-  display: block;
-  color: #0f172a;
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.preview-progress-head span {
-  display: block;
-  margin-top: 3px;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.generation-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.generation-step {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(241, 245, 249, 0.92);
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 600;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.generation-step.active {
-  background: rgba(219, 234, 254, 0.96);
-  color: #1d4ed8;
-}
-
-.generation-step.done {
-  background: rgba(220, 252, 231, 0.94);
-  color: #15803d;
-}
-
 .preview-iframe {
   width: 100%;
   height: 100%;
@@ -970,6 +918,17 @@ onUnmounted(stopFileSidebarResize)
 
 .editor-loading {
   flex: 1;
+}
+
+.editor-generating {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(22, 119, 255, 0.08), transparent 28%),
+    radial-gradient(circle at 78% 68%, rgba(20, 184, 166, 0.08), transparent 32%),
+    #ffffff;
 }
 
 .code-editor-shell {

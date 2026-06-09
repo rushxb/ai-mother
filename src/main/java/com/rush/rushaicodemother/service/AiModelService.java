@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.service;
 
+import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
+import com.rush.rushaicodemother.controller.AiModelController.AiModelQueryRequest;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 
@@ -44,6 +46,11 @@ public interface AiModelService extends IService<AiModel> {
      * @return 模型配置
      */
     AiModel getByProviderAndModelId(String provider, String modelId);
+
+    /**
+     * 构建模型查询条件。
+     */
+    QueryWrapper getQueryWrapper(AiModelQueryRequest queryRequest);
 
     /**
      * 测试模型连接

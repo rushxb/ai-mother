@@ -72,10 +72,7 @@ public class AiCodeGeneratorServiceFactory {
             .build();
 
     /**
-     * 根据 appId 获取服务（为了兼容老逻辑）
-     *
-     * @param appId
-     * @return
+     * 根据 appId 获取 HTML 默认生成服务。
      */
     public AiCodeGeneratorService getAiCodeGeneratorService(long appId) {
         return getAiCodeGeneratorService(appId, CodeGenTypeEnum.HTML);
@@ -174,7 +171,7 @@ public class AiCodeGeneratorServiceFactory {
     /**
      * 根据性能配置选择流式模型。
      * <p>
-     * 如果没有性能配置或配置为 null，使用默认的推理模型（向后兼容）。
+     * 未指定性能配置时使用默认推理模型。
      */
     private StreamingChatModel selectStreamingModel(CodeGenTypeEnum codeGenType,
                                                      GenerationPerformanceProfile profile) {
@@ -195,14 +192,13 @@ public class AiCodeGeneratorServiceFactory {
     /**
      * 解析最大工具调用次数。
      * <p>
-     * 优先使用性能配置的值，否则使用默认值（向后兼容）。
+     * 优先使用性能配置的值，否则按生成类型使用默认工具调用上限。
      */
     private int resolveMaxToolInvocations(CodeGenTypeEnum codeGenType,
                                            GenerationPerformanceProfile profile) {
         if (profile != null) {
             return profile.maxToolInvocations();
         }
-        // 向后兼容：使用默认值
         return switch (codeGenType) {
             case FULL_STACK_PROJECT -> 32;
             case BACKEND_PROJECT -> 20;

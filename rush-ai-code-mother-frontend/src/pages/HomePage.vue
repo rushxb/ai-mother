@@ -21,6 +21,34 @@ const optimizingPrompt = ref(false)
 const animatedPlaceholder =
   '例如：帮我创建一个面向设计师的作品集网站，包含项目展示、个人介绍和联系表单...'
 const shouldShowAnimatedPlaceholder = computed(() => !userPrompt.value && !creating.value && !optimizingPrompt.value)
+const composerBusy = computed(() => creating.value || optimizingPrompt.value)
+const composerStatusText = computed(() => {
+  if (optimizingPrompt.value) {
+    return 'Optimizing'
+  }
+  if (creating.value) {
+    return 'Launching'
+  }
+  return 'Ready'
+})
+const composerFeedbackTitle = computed(() => {
+  if (optimizingPrompt.value) {
+    return '正在优化提示词'
+  }
+  if (creating.value) {
+    return '正在创建应用'
+  }
+  return ''
+})
+const composerFeedbackDescription = computed(() => {
+  if (optimizingPrompt.value) {
+    return 'AI 正在梳理需求结构、补齐页面模块与交互细节'
+  }
+  if (creating.value) {
+    return '正在建立应用骨架，完成后会自动进入对话与代码编辑器'
+  }
+  return ''
+})
 
 const myApps = ref<API.AppVO[]>([])
 const myAppsPage = reactive({
@@ -346,9 +374,9 @@ onUnmounted(() => {
               <span class="panel-kicker">New Application</span>
               <h2>描述你要生成的应用</h2>
             </div>
-            <span class="status-chip">Ready</span>
+            <span class="status-chip" :class="{ active: composerBusy }">{{ composerStatusText }}</span>
           </div>
-          <div class="input-section">
+          <div class="input-section" :class="{ busy: composerBusy }">
             <button
               v-if="shouldShowAnimatedPlaceholder"
               type="button"
@@ -366,6 +394,24 @@ onUnmounted(() => {
               class="prompt-input"
               :disabled="creating || optimizingPrompt"
             />
+            <Transition name="composer-feedback">
+              <div v-if="composerBusy" class="composer-feedback">
+                <div class="composer-feedback-visual" aria-hidden="true">
+                  <span class="feedback-ring"></span>
+                  <span class="feedback-bracket">{ }</span>
+                  <span class="feedback-line feedback-line-one"></span>
+                  <span class="feedback-line feedback-line-two"></span>
+                  <span class="feedback-line feedback-line-three"></span>
+                </div>
+                <div class="composer-feedback-copy">
+                  <strong>{{ composerFeedbackTitle }}</strong>
+                  <span>{{ composerFeedbackDescription }}</span>
+                </div>
+                <div class="composer-feedback-rail" aria-hidden="true">
+                  <span></span>
+                </div>
+              </div>
+            </Transition>
             <div class="input-footer">
               <span>{{ userPrompt.length }}/1000</span>
               <div class="input-tools">
@@ -389,7 +435,7 @@ onUnmounted(() => {
                   :disabled="optimizingPrompt || creating"
                   @click="createApp"
                 >
-                  开始生成
+                  {{ creating ? '生成中...' : '开始生成' }}
                 </ShimmerButton>
               </div>
             </div>
@@ -767,10 +813,41 @@ onUnmounted(() => {
   background: rgba(47, 128, 255, 0.1);
   font-size: 12px;
   font-weight: 600;
+  transition:
+    background 0.24s ease,
+    box-shadow 0.24s ease,
+    color 0.24s ease;
+}
+
+.status-chip.active {
+  background: rgba(47, 128, 255, 0.14);
+  box-shadow: 0 0 0 6px rgba(47, 128, 255, 0.08);
 }
 
 .input-section {
   position: relative;
+}
+
+.input-section::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 1px;
+  height: 1px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(47, 128, 255, 0.58), rgba(44, 192, 210, 0.42), transparent);
+  transform: scaleX(0.42);
+  transition:
+    opacity 0.24s ease,
+    transform 0.24s ease;
+  pointer-events: none;
+}
+
+.input-section.busy::after {
+  opacity: 1;
+  transform: scaleX(1);
+  animation: inputLightSweep 1.8s ease-in-out infinite;
 }
 
 .prompt-placeholder {
@@ -818,6 +895,13 @@ onUnmounted(() => {
   transform: translateY(-1px);
 }
 
+.input-section.busy :deep(.prompt-input.ant-input) {
+  border-color: rgba(47, 128, 255, 0.28);
+  box-shadow:
+    0 0 0 4px rgba(47, 128, 255, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
 :deep(.prompt-input.ant-input::placeholder) {
   color: transparent;
 }
@@ -839,6 +923,157 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+}
+
+.composer-feedback {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 16px;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px 14px;
+  align-items: center;
+  padding: 14px 14px 12px;
+  border: 1px solid rgba(104, 132, 175, 0.16);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.9)),
+    radial-gradient(circle at 8% 0%, rgba(47, 128, 255, 0.12), transparent 38%);
+  box-shadow:
+    0 22px 46px rgba(80, 106, 145, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px);
+}
+
+.composer-feedback-visual {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(235, 244, 255, 0.86)),
+    radial-gradient(circle at 72% 22%, rgba(44, 192, 210, 0.2), transparent 42%);
+  border: 1px solid rgba(104, 132, 175, 0.16);
+}
+
+.composer-feedback-visual::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 15px;
+  background-image:
+    linear-gradient(rgba(104, 132, 175, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(104, 132, 175, 0.12) 1px, transparent 1px);
+  background-size: 11px 11px;
+  mask-image: radial-gradient(circle, #000 35%, transparent 76%);
+}
+
+.feedback-ring {
+  position: absolute;
+  inset: 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(47, 128, 255, 0.18);
+}
+
+.feedback-ring::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  border-top-color: var(--accent);
+  border-right-color: rgba(44, 192, 210, 0.82);
+  animation: feedbackSpin 1.25s linear infinite;
+}
+
+.feedback-bracket {
+  position: relative;
+  z-index: 1;
+  color: rgba(13, 27, 42, 0.74);
+  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.feedback-line {
+  position: absolute;
+  z-index: 1;
+  left: 17px;
+  right: 17px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(47, 128, 255, 0.2), rgba(47, 128, 255, 0.86), rgba(44, 192, 210, 0.48));
+  transform-origin: left center;
+  animation: feedbackLine 1.3s ease-in-out infinite;
+}
+
+.feedback-line-one {
+  top: 17px;
+}
+
+.feedback-line-two {
+  top: 26px;
+  right: 23px;
+  animation-delay: 0.12s;
+}
+
+.feedback-line-three {
+  top: 35px;
+  right: 20px;
+  animation-delay: 0.24s;
+}
+
+.composer-feedback-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.composer-feedback-copy strong {
+  color: var(--strong-text);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.composer-feedback-copy span {
+  color: var(--soft-text);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.composer-feedback-rail {
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(104, 132, 175, 0.12);
+}
+
+.composer-feedback-rail span {
+  display: block;
+  width: 44%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(47, 128, 255, 0.12), rgba(47, 128, 255, 0.86), rgba(44, 192, 210, 0.58));
+  animation: feedbackRail 1.42s ease-in-out infinite;
+}
+
+.composer-feedback-enter-active,
+.composer-feedback-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.composer-feedback-enter-from,
+.composer-feedback-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
 }
 
 :deep(.optimize-button.ant-btn) {
@@ -1201,6 +1436,48 @@ onUnmounted(() => {
   }
 }
 
+@keyframes inputLightSweep {
+  0%,
+  100% {
+    opacity: 0.52;
+    transform: scaleX(0.52);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes feedbackSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes feedbackLine {
+  0%,
+  100% {
+    opacity: 0.36;
+    transform: scaleX(0.48);
+  }
+
+  48% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes feedbackRail {
+  0% {
+    transform: translateX(-112%);
+  }
+
+  100% {
+    transform: translateX(260%);
+  }
+}
+
 @media (max-width: 1024px) {
   .hero-section {
     grid-template-columns: 1fr;
@@ -1271,6 +1548,14 @@ onUnmounted(() => {
 
   .input-tools {
     width: 100%;
+  }
+
+  .composer-feedback {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-feedback-visual {
+    display: none;
   }
 
   :deep(.optimize-button.ant-btn),

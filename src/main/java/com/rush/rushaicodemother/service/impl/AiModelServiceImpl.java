@@ -234,6 +234,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
     /**
      * 构造查询条件
      */
+    @Override
     public QueryWrapper getQueryWrapper(AiModelQueryRequest queryRequest) {
         if (queryRequest == null) {
             return new QueryWrapper();

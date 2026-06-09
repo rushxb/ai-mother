@@ -2,9 +2,11 @@ package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FileWriteToolTest {
 
-    private static final Path TEST_OUTPUT_ROOT = Path.of("target", "test-code-output").toAbsolutePath().normalize();
+    private static final Path TEST_OUTPUT_ROOT = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR).toAbsolutePath().normalize();
 
     @Test
     void writeFileShouldRejectUnplannedPath() throws Exception {
@@ -55,6 +57,8 @@ class FileWriteToolTest {
         Files.createDirectories(projectDir.resolve("src"));
         GenerationToolExecutionContextService contextService = new GenerationToolExecutionContextService();
         contextService.bindChangePlan(appId, "task-" + appId, allowBootstrap ? "full_generation" : "patch_first", CodeGenTypeEnum.VUE_PROJECT, changePlan, allowBootstrap, "test");
-        return new FileWriteTool(new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry())), contextService);
+        GenerationPatchApplyService patchApplyService =
+                new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
+        return new FileWriteTool(new ToolExecutionGateway(patchApplyService, contextService));
     }
 }

@@ -4,8 +4,11 @@ import com.qcloud.cos.COSClient;
 import com.qcloud.cos.model.PutObjectRequest;
 import com.qcloud.cos.model.PutObjectResult;
 import com.rush.rushaicodemother.config.CosClientConfig;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -21,7 +24,7 @@ public class CosManager {
     private CosClientConfig cosClientConfig;
 
     @Resource
-    private COSClient cosClient;
+    private ObjectProvider<COSClient> cosClientProvider;
 
     /**
      * 上传对象
@@ -31,6 +34,10 @@ public class CosManager {
      * @return 上传结果
      */
     public PutObjectResult putObject(String key, File file) {
+        COSClient cosClient = cosClientProvider.getIfAvailable();
+        if (cosClient == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "对象存储未配置，无法上传文件");
+        }
         PutObjectRequest putObjectRequest = new PutObjectRequest(cosClientConfig.getBucket(), key, file);
         return cosClient.putObject(putObjectRequest);
     }

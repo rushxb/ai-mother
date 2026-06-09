@@ -68,6 +68,7 @@ public final class GenerationSession {
     }
 
     public void complete() {
+        completed.set(true);
         sink.tryEmitComplete();
     }
 

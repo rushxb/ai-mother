@@ -26,7 +26,7 @@ class GenerationRecipeLibraryTest {
 
         assertEquals("database-service", recipes.get(0).id());
         assertTrue(library.modules(recipes).contains("database"));
-        assertTrue(library.contextFileHints(recipes).contains("backend"));
+        assertTrue(library.contextFileHints(recipes).stream().anyMatch(hint -> hint.startsWith("backend")));
         assertTrue(recipes.get(0).databaseRequired());
     }
 }

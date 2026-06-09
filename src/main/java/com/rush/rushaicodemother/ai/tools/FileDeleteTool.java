@@ -5,17 +5,13 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
-import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
-import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
-import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContext;
-import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 /**
  * 文件删除工具
@@ -25,13 +21,10 @@ import java.util.List;
 @Component
 public class FileDeleteTool extends BaseTool {
 
-    private final GenerationPatchApplyService generationPatchApplyService;
-    private final GenerationToolExecutionContextService toolExecutionContextService;
+    private final ToolExecutionGateway toolExecutionGateway;
 
-    public FileDeleteTool(GenerationPatchApplyService generationPatchApplyService,
-                          GenerationToolExecutionContextService toolExecutionContextService) {
-        this.generationPatchApplyService = generationPatchApplyService;
-        this.toolExecutionContextService = toolExecutionContextService;
+    public FileDeleteTool(ToolExecutionGateway toolExecutionGateway) {
+        this.toolExecutionGateway = toolExecutionGateway;
     }
 
     @Tool("删除指定路径的文件")
@@ -74,17 +67,7 @@ public class FileDeleteTool extends BaseTool {
     }
 
     private PatchApplyResult applyWithGlobalChangePlan(Long appId, Path projectRoot, PatchOperation operation) {
-        GenerationToolExecutionContext context = toolExecutionContextService.getContext(appId).orElse(null);
-        if (context == null) {
-            return PatchApplyResult.skipped(appId, "tool-delete-file", projectRoot.toString(), "change_plan_missing");
-        }
-        if (context.allowsBootstrapWrite()) {
-            return generationPatchApplyService.applyWithoutChangePlan(
-                    appId, context.taskId(), projectRoot, List.of(operation), context.reason()
-            );
-        }
-        ChangePlan changePlan = context.changePlan();
-        return generationPatchApplyService.apply(appId, context.taskId(), projectRoot, changePlan, List.of(operation));
+        return toolExecutionGateway.applyPatch(appId, projectRoot, operation, "tool-delete-file", "delete_file");
     }
 
     /**

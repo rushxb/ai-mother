@@ -55,6 +55,9 @@ public class AiCodeGeneratorServiceFactory {
     @Resource
     private AiModelService aiModelService;
 
+    private static final int DEFAULT_CHAT_MEMORY_MESSAGES = 20;
+    private static final int HEAVY_PROJECT_MEMORY_MESSAGES = 4;
+
     /**
      * AI 服务实例缓存
      * 缓存策略：
@@ -123,14 +126,15 @@ public class AiCodeGeneratorServiceFactory {
         log.info("为 appId: {} 创建新的 AI 服务实例, codeGenType={}, profile={}",
                 appId, codeGenType, profile != null ? profile.modelTier() : "default");
         // 根据 appId 构建独立的对话记忆
+        int maxMemoryMessages = resolveMemoryMessageCount(codeGenType);
         MessageWindowChatMemory chatMemory = MessageWindowChatMemory
                 .builder()
                 .id(appId)
                 .chatMemoryStore(redisChatMemoryStore)
-                .maxMessages(20)
+                .maxMessages(maxMemoryMessages)
                 .build();
         // 从数据库中加载对话历史到记忆中
-        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, 20);
+        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, maxMemoryMessages);
         return switch (codeGenType) {
             // Vue、后端和全栈项目生成，使用工具调用和推理模型
             case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> {
@@ -203,6 +207,13 @@ public class AiCodeGeneratorServiceFactory {
             case FULL_STACK_PROJECT -> 32;
             case BACKEND_PROJECT -> 20;
             default -> 10;
+        };
+    }
+
+    private int resolveMemoryMessageCount(CodeGenTypeEnum codeGenType) {
+        return switch (codeGenType) {
+            case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> HEAVY_PROJECT_MEMORY_MESSAGES;
+            default -> DEFAULT_CHAT_MEMORY_MESSAGES;
         };
     }
 

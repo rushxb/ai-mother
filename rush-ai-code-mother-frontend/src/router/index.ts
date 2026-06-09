@@ -8,6 +8,7 @@ import AppChatPage from '@/pages/app/AppChatPage.vue'
 import AppEditPage from '@/pages/app/AppEditPage.vue'
 import ChatManagePage from "@/pages/admin/ChatManagePage.vue";
 import ModelManagePage from "@/pages/admin/ModelManagePage.vue";
+import GenerationPerformancePage from '@/pages/admin/GenerationPerformancePage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -51,6 +52,11 @@ const router = createRouter({
       path: '/admin/modelManage',
       name: '模型管理',
       component: ModelManagePage,
+    },
+    {
+      path: '/admin/generationPerformance',
+      name: '生成耗时',
+      component: GenerationPerformancePage,
     },
     {
       path: '/app/chat/:id',

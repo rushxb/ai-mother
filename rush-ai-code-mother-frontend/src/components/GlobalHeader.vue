@@ -85,6 +85,7 @@ const navItems = computed<NavItem[]>(() => {
       { label: '用户管理', path: '/admin/userManage' },
       { label: '应用管理', path: '/admin/appManage' },
       { label: '模型管理', path: '/admin/modelManage' },
+      { label: '生成耗时', path: '/admin/generationPerformance' },
     )
   }
 

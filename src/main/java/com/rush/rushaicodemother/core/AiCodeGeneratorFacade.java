@@ -18,6 +18,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.InternalServerException;
+import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.exception.TimeoutException;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.internal.ResponseHandle;
@@ -45,8 +46,9 @@ import java.util.function.Supplier;
 @Slf4j
 public class AiCodeGeneratorFacade {
 
-    private static final int MAX_STREAM_RETRIES = 2;
-    private static final Duration STREAM_RETRY_DELAY = Duration.ofSeconds(2);
+    private static final int MAX_STREAM_RETRIES = 3;
+    private static final Duration STREAM_RETRY_MIN_DELAY = Duration.ofSeconds(3);
+    private static final Duration STREAM_RETRY_MAX_DELAY = Duration.ofSeconds(20);
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
@@ -270,7 +272,9 @@ public class AiCodeGeneratorFacade {
                 ResponseHandle handle = configuredStream.startWithHandle();
                 handleConsumer.accept(handle);
             });
-        }).retryWhen(Retry.fixedDelay(MAX_STREAM_RETRIES, STREAM_RETRY_DELAY)
+        }).retryWhen(Retry.backoff(MAX_STREAM_RETRIES, STREAM_RETRY_MIN_DELAY)
+                .maxBackoff(STREAM_RETRY_MAX_DELAY)
+                .jitter(0.35)
                 .filter(error -> isRetriableStreamError(error))
                 .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> retrySignal.failure()));
     }
@@ -282,7 +286,7 @@ public class AiCodeGeneratorFacade {
         if (error instanceof NonRetriableStreamException) {
             return false;
         }
-        if (error instanceof InternalServerException || error instanceof TimeoutException) {
+        if (error instanceof RateLimitException || error instanceof InternalServerException || error instanceof TimeoutException) {
             return true;
         }
         if (error instanceof HttpException httpException) {

@@ -6,6 +6,9 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.service.GenerationContextCompressionService;
+import com.rush.rushaicodemother.service.impl.GenerationContextCompressionServiceImpl;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -19,8 +22,16 @@ import java.util.Map;
 @Component
 public class CodeAgentNode extends BaseGenerationAgentNode {
 
+    private final GenerationContextCompressionService contextCompressionService;
+
     public CodeAgentNode() {
+        this(new GenerationContextCompressionServiceImpl());
+    }
+
+    @Autowired
+    public CodeAgentNode(GenerationContextCompressionService contextCompressionService) {
         super("code", "Code", "codegen", List.of("architect"));
+        this.contextCompressionService = contextCompressionService;
     }
 
     @Override
@@ -155,7 +166,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                 lines.add((i + 1) + ". " + goals.get(i));
             }
         }
-        return String.join("\n", lines);
+        return contextCompressionService.compressFinalPrompt(String.join("\n", lines));
     }
 
     private void appendFullStackContext(List<String> lines, GenerationAgentContext context) {

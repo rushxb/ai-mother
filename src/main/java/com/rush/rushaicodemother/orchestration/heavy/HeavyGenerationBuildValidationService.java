@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
@@ -29,6 +30,7 @@ public class HeavyGenerationBuildValidationService {
     private final DevServerValidationService devServerValidationService;
     private final GenerationAppStateService generationAppStateService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
+    private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final HeavyGenerationExecutionService heavyGenerationExecutionService;
     private final HeavyGenerationFailureRecoveryService heavyGenerationFailureRecoveryService;
     private final HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService;
@@ -47,7 +49,7 @@ public class HeavyGenerationBuildValidationService {
             heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
             return false;
         }
-        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, preparation.taskId());
         if (session.isCancelled()) {
             return false;
         }
@@ -98,7 +100,7 @@ public class HeavyGenerationBuildValidationService {
                 throw e;
             }
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "自动修复完成，正在重新构建校验...", session);
-            buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+            buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, preparation.taskId());
             if (session.isCancelled()) {
                 return false;
             }
@@ -136,8 +138,15 @@ public class HeavyGenerationBuildValidationService {
             return true;
         }
         markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, stageMessage, session);
+        GenerationPerformanceMonitorService.SpanTimer span =
+                generationPerformanceMonitorService.startSpan(preparation.taskId(), "dev_server_validation");
         DevServerValidationResult dsResult = devServerValidationService.validate(
                 preparation.taskId(), appId, loginUser.getId(), projectPath);
+        if (dsResult.isPassed()) {
+            span.success();
+        } else {
+            span.failed(dsResult.summary());
+        }
         session.emit(GenerationStreamEvent.devServerValidation(dsResult.summary(), dsResult.toEventData()));
         if (session.isCancelled()) {
             return false;

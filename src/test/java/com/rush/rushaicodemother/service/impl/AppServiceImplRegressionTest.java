@@ -136,6 +136,7 @@ class AppServiceImplRegressionTest {
                 null,  // generationEventPublisher
                 List.of(),  // generationPipelines
                 new GenerationSessionRegistry(),  // generationSessionRegistry
+                null,  // generationPerformanceMonitorService
                 null,  // heavyGenerationBuildValidationService
                 null,  // heavyGenerationExecutionService
                 newFailureRecoveryService(metricsCollector),  // heavyGenerationFailureRecoveryService

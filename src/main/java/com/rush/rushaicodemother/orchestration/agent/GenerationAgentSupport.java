@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
+import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -43,36 +44,47 @@ public class GenerationAgentSupport {
     private final GenerationRecipeLibrary recipeLibrary;
     private final GenerationSkillLibrary skillLibrary;
     private final WorkspaceSemanticIndexService semanticIndexService;
+    private final GenerationContextCompressionService contextCompressionService;
     private final Path codeOutputRoot;
 
     public GenerationAgentSupport() {
-        this(new GenerationRecipeLibrary(), new GenerationSkillLibrary(), new WorkspaceSemanticIndexService());
+        this(new GenerationRecipeLibrary(), new GenerationSkillLibrary(), new WorkspaceSemanticIndexService(), null, Path.of(CODE_OUTPUT_ROOT_DIR));
     }
 
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary) {
-        this(recipeLibrary, new GenerationSkillLibrary(), new WorkspaceSemanticIndexService());
+        this(recipeLibrary, new GenerationSkillLibrary(), new WorkspaceSemanticIndexService(), null, Path.of(CODE_OUTPUT_ROOT_DIR));
     }
 
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
                                   WorkspaceSemanticIndexService semanticIndexService,
                                   Path codeOutputRoot) {
-        this(recipeLibrary, new GenerationSkillLibrary(), semanticIndexService, codeOutputRoot);
+        this(recipeLibrary, new GenerationSkillLibrary(), semanticIndexService, null, codeOutputRoot);
+    }
+
+    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
+                                  GenerationSkillLibrary skillLibrary,
+                                  WorkspaceSemanticIndexService semanticIndexService,
+                                  Path codeOutputRoot) {
+        this(recipeLibrary, skillLibrary, semanticIndexService, null, codeOutputRoot);
     }
 
     @Autowired
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
                                   GenerationSkillLibrary skillLibrary,
-                                  WorkspaceSemanticIndexService semanticIndexService) {
-        this(recipeLibrary, skillLibrary, semanticIndexService, Path.of(CODE_OUTPUT_ROOT_DIR));
+                                  WorkspaceSemanticIndexService semanticIndexService,
+                                  GenerationContextCompressionService contextCompressionService) {
+        this(recipeLibrary, skillLibrary, semanticIndexService, contextCompressionService, Path.of(CODE_OUTPUT_ROOT_DIR));
     }
 
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
                                   GenerationSkillLibrary skillLibrary,
                                   WorkspaceSemanticIndexService semanticIndexService,
+                                  GenerationContextCompressionService contextCompressionService,
                                   Path codeOutputRoot) {
         this.recipeLibrary = recipeLibrary;
         this.skillLibrary = skillLibrary;
         this.semanticIndexService = semanticIndexService;
+        this.contextCompressionService = contextCompressionService;
         this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
     }
 
@@ -365,9 +377,9 @@ public class GenerationAgentSupport {
             builder.append(readSelectedFileContext(rootDir, safeSelectedFiles));
         }
         if (builder.length() <= MAX_CONTEXT_TOTAL_CHARS) {
-            return builder.toString().trim();
+            return compressProjectContext(builder.toString().trim());
         }
-        return builder.substring(0, MAX_CONTEXT_TOTAL_CHARS).trim();
+        return compressProjectContext(builder.substring(0, MAX_CONTEXT_TOTAL_CHARS).trim());
     }
 
     private boolean shouldIndex(String relativePath) {
@@ -502,6 +514,13 @@ public class GenerationAgentSupport {
                 + "\n<!-- 文件内容过长，以上为截断后的前 "
                 + MAX_MODEL_CONTEXT_FILE_CHARS
                 + " 个字符 -->";
+    }
+
+    private String compressProjectContext(String context) {
+        if (contextCompressionService == null) {
+            return context;
+        }
+        return contextCompressionService.compressProjectContext(context);
     }
 
     private String inferIntent(String userMessage) {

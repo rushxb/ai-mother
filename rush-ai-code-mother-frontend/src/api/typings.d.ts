@@ -180,6 +180,57 @@ declare namespace API {
     message?: string
   }
 
+  type GenerationPerformanceSpanVO = {
+    stage?: string
+    status?: string
+    durationMs?: number
+    detail?: string
+  }
+
+  type GenerationPerformanceTaskVO = {
+    taskId?: string
+    appId?: string | number
+    userId?: string | number
+    route?: string
+    targetType?: string
+    status?: string
+    totalDurationMs?: number
+    startTime?: string
+    endTime?: string
+    spans?: GenerationPerformanceSpanVO[]
+  }
+
+  type GenerationPerformanceStageStatsVO = {
+    stage?: string
+    count?: number
+    avgDurationMs?: number
+    p50DurationMs?: number
+    p90DurationMs?: number
+    maxDurationMs?: number
+  }
+
+  type GenerationPerformanceSummaryVO = {
+    taskCount?: number
+    successCount?: number
+    failedCount?: number
+    runningCount?: number
+    avgTotalDurationMs?: number
+    p50TotalDurationMs?: number
+    p90TotalDurationMs?: number
+    stageStats?: GenerationPerformanceStageStatsVO[]
+    recentTasks?: GenerationPerformanceTaskVO[]
+  }
+
+  type BaseResponseGenerationPerformanceSummaryVO = {
+    code?: number
+    data?: GenerationPerformanceSummaryVO
+    message?: string
+  }
+
+  type getGenerationPerformanceSummaryParams = {
+    limit?: number
+  }
+
   type PromptOptimizeRequest = {
     prompt?: string
   }

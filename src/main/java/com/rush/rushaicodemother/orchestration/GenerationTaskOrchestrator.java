@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationBuildValidationService;
@@ -32,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -44,6 +47,7 @@ public class GenerationTaskOrchestrator {
     private final GenerationEventPublisher generationEventPublisher;
     private final List<GenerationPipeline> generationPipelines;
     private final GenerationSessionRegistry generationSessionRegistry;
+    private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final HeavyGenerationBuildValidationService heavyGenerationBuildValidationService;
     private final HeavyGenerationExecutionService heavyGenerationExecutionService;
     private final HeavyGenerationFailureRecoveryService heavyGenerationFailureRecoveryService;
@@ -89,7 +93,28 @@ public class GenerationTaskOrchestrator {
                 "reason", "pipeline_fallback_heavy_generation",
                 "codeGenType", codeGenType.getValue()
         ));
-        GenerationPreparation preparation = heavyGenerationPreparationService.prepare(app, request.message());
+        Instant prepareStartedAt = Instant.now();
+        GenerationPreparation preparation;
+        try {
+            preparation = heavyGenerationPreparationService.prepare(app, request.message());
+        } catch (Exception e) {
+            throw e;
+        }
+        generationPerformanceMonitorService.startTask(
+                preparation.taskId(),
+                app.getId(),
+                request.loginUser().getId(),
+                HeavyGenerationPipeline.ROUTE,
+                codeGenType.getValue(),
+                prepareStartedAt
+        );
+        generationPerformanceMonitorService.recordSpan(
+                preparation.taskId(),
+                "heavy_prepare",
+                "success",
+                Duration.between(prepareStartedAt, Instant.now()),
+                ""
+        );
         GenerationSession session = openGenerationSession(app.getId(), request.message(), request.loginUser(), preparation);
         startGenerationTask(app.getId(), request.loginUser(), preparation, session, request);
         return new GenerationTaskResult(preparation.taskId(), HeavyGenerationPipeline.ROUTE, pipelineRequest.workspace(), session.asFlux());
@@ -108,6 +133,9 @@ public class GenerationTaskOrchestrator {
         generationAppStateService.markGenerationFinished(appId);
         session.emitStopped();
         completeGenerationSession(session, session.preparation(), "cancelled");
+        if (session.preparation() != null) {
+            generationPerformanceMonitorService.finishTask(session.preparation().taskId(), "cancelled");
+        }
         generationSessionRegistry.remove(appId, session);
         generationToolExecutionContextService.clearContext(appId);
     }
@@ -165,7 +193,15 @@ public class GenerationTaskOrchestrator {
                 ));
                 preparation.events().forEach(session::emit);
                 markGenerationStage(appId, preparation.generatingStage(), "智能体编排完成，正在生成项目代码...");
-                heavyGenerationExecutionService.runGenerationWithAutoRepair(appId, loginUser, preparation, session);
+                GenerationPerformanceMonitorService.SpanTimer generationSpan =
+                        generationPerformanceMonitorService.startSpan(preparation.taskId(), "llm_generation");
+                try {
+                    heavyGenerationExecutionService.runGenerationWithAutoRepair(appId, loginUser, preparation, session);
+                    generationSpan.success();
+                } catch (Exception e) {
+                    generationSpan.failed(e.getMessage());
+                    throw e;
+                }
                 if (session.isCancelled()) {
                     finishCancelledGeneration(appId, session, preparation);
                     return;
@@ -187,6 +223,7 @@ public class GenerationTaskOrchestrator {
                 heavyGenerationFailureRecoveryService.emitGenerationError(appId, preparation, session, e);
                 generationAppStateService.markGenerationFinished(appId);
                 completeGenerationSession(session, preparation, "failed");
+                generationPerformanceMonitorService.finishTask(preparation.taskId(), "failed");
                 generationSessionRegistry.remove(appId, session);
                 generationToolExecutionContextService.clearContext(appId);
             } finally {
@@ -210,22 +247,37 @@ public class GenerationTaskOrchestrator {
                             .build()
             );
             String completionStatus = "success";
+            GenerationPerformanceMonitorService.SpanTimer buildSpan =
+                    generationPerformanceMonitorService.startSpan(preparation.taskId(), "build_validation");
             try {
                 boolean buildSucceeded = heavyGenerationBuildValidationService.runWithAutoRepair(
                         appId, loginUser, preparation, session);
                 if (buildSucceeded) {
-                    heavyGenerationFinalizationService.emitDiffSummaryIfAvailable(appId, preparation, session);
-                    heavyGenerationFinalizationService.emitCommitResultIfAvailable(appId, preparation, session);
+                    buildSpan.success();
+                    GenerationPerformanceMonitorService.SpanTimer finalizeSpan =
+                            generationPerformanceMonitorService.startSpan(preparation.taskId(), "finalization");
+                    try {
+                        heavyGenerationFinalizationService.emitDiffSummaryIfAvailable(appId, preparation, session);
+                        heavyGenerationFinalizationService.emitCommitResultIfAvailable(appId, preparation, session);
+                        finalizeSpan.success();
+                    } catch (Exception e) {
+                        finalizeSpan.failed(e.getMessage());
+                        throw e;
+                    }
                 } else {
                     completionStatus = "failed";
+                    buildSpan.failed("build validation failed");
                 }
             } catch (Exception e) {
                 completionStatus = "failed";
+                buildSpan.failed(e.getMessage());
                 log.error("后台构建校验失败，appId: {}", appId, e);
                 heavyGenerationFailureRecoveryService.emitGenerationError(appId, preparation, session, e);
             } finally {
                 generationAppStateService.markGenerationFinished(appId);
                 completeGenerationSession(session, preparation, session.isCancelled() ? "cancelled" : completionStatus);
+                generationPerformanceMonitorService.finishTask(
+                        preparation.taskId(), session.isCancelled() ? "cancelled" : completionStatus);
                 generationSessionRegistry.remove(appId, session);
                 generationToolExecutionContextService.clearContext(appId);
                 publishCompletion(request, preparation, completionStatus);
@@ -249,16 +301,22 @@ public class GenerationTaskOrchestrator {
                             .build()
             );
             String completionStatus = "success";
+            GenerationPerformanceMonitorService.SpanTimer finalizeSpan =
+                    generationPerformanceMonitorService.startSpan(preparation.taskId(), "finalization");
             try {
                 heavyGenerationFinalizationService.emitDiffSummaryIfAvailable(appId, preparation, session);
                 heavyGenerationFinalizationService.emitCommitResultIfAvailable(appId, preparation, session);
+                finalizeSpan.success();
             } catch (Exception e) {
                 completionStatus = "failed";
+                finalizeSpan.failed(e.getMessage());
                 log.error("后台整理生成结果失败，appId: {}", appId, e);
                 heavyGenerationFailureRecoveryService.emitGenerationError(appId, preparation, session, e);
             } finally {
                 generationAppStateService.markGenerationFinished(appId);
                 completeGenerationSession(session, preparation, session.isCancelled() ? "cancelled" : completionStatus);
+                generationPerformanceMonitorService.finishTask(
+                        preparation.taskId(), session.isCancelled() ? "cancelled" : completionStatus);
                 generationSessionRegistry.remove(appId, session);
                 generationToolExecutionContextService.clearContext(appId);
                 publishCompletion(request, preparation, completionStatus);
@@ -273,6 +331,7 @@ public class GenerationTaskOrchestrator {
         generationAppStateService.markGenerationFinished(appId);
         session.emitStopped();
         completeGenerationSession(session, preparation, "cancelled");
+        generationPerformanceMonitorService.finishTask(preparation.taskId(), "cancelled");
         generationSessionRegistry.remove(appId, session);
         generationToolExecutionContextService.clearContext(appId);
     }

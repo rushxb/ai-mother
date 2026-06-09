@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.core.builder;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.service.PnpmInstallService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +47,9 @@ public class VueProjectBuilder {
     @Resource
     private PnpmInstallService pnpmInstallService;
 
+    @Resource
+    private GenerationPerformanceMonitorService generationPerformanceMonitorService;
+
     /**
      * 异步构建 Vue 项目
      *
@@ -79,7 +83,13 @@ public class VueProjectBuilder {
      * @return 详细构建结果
      */
     public BuildResult buildProjectWithResult(String projectPath) {
-        BuildResult buildResult = doBuildProjectWithResult(projectPath);
+        BuildResult buildResult = doBuildProjectWithResult(projectPath, null);
+        rememberBuildResult(buildResult);
+        return buildResult;
+    }
+
+    public BuildResult buildProjectWithResult(String projectPath, String taskId) {
+        BuildResult buildResult = doBuildProjectWithResult(projectPath, taskId);
         rememberBuildResult(buildResult);
         return buildResult;
     }
@@ -103,7 +113,7 @@ public class VueProjectBuilder {
         }
     }
 
-    private BuildResult doBuildProjectWithResult(String projectPath) {
+    private BuildResult doBuildProjectWithResult(String projectPath, String taskId) {
         File projectDir = new File(projectPath);
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             log.error("项目目录不存在：{}", projectPath);
@@ -155,7 +165,7 @@ public class VueProjectBuilder {
             return BuildResult.reused(projectPath, installResult, buildResult);
         }
 
-        CommandResult installResult = installDependenciesIfNeeded(projectDir, currentSnapshot.dependencyFingerprint());
+        CommandResult installResult = installDependenciesIfNeeded(projectDir, currentSnapshot.dependencyFingerprint(), taskId);
         if (!installResult.success()) {
             log.error("pnpm install 执行失败：{}", projectPath);
             return BuildResult.installFailed(projectPath, installResult);
@@ -165,12 +175,12 @@ public class VueProjectBuilder {
                 && distExists && scripts.supportsLightBuild();
         boolean useDependencyRefreshBuild = dependencyOnlyChanged && scripts.supportsLightBuild();
         if (useLightBuild || useDependencyRefreshBuild) {
-            CommandResult validateResult = executeLightValidation(projectDir, scripts);
+            CommandResult validateResult = executeLightValidation(projectDir, scripts, taskId);
             if (!validateResult.success()) {
                 log.error("轻量校验执行失败：{}", projectPath);
                 return BuildResult.lightValidateFailed(projectPath, installResult, validateResult);
             }
-            CommandResult buildResult = executeLightBuild(projectDir, scripts);
+            CommandResult buildResult = executeLightBuild(projectDir, scripts, taskId);
             if (!buildResult.success()) {
                 log.error("轻量构建执行失败：{}", projectPath);
                 return BuildResult.lightBuildFailed(projectPath, installResult, buildResult);
@@ -188,7 +198,7 @@ public class VueProjectBuilder {
             return BuildResult.lightSuccess(projectPath, installResult, buildResult);
         }
 
-        CommandResult buildResult = executeFullBuild(projectDir, scripts);
+        CommandResult buildResult = executeFullBuild(projectDir, scripts, taskId);
         if (!buildResult.success()) {
             log.error("pnpm run build 执行失败：{}", projectPath);
             return BuildResult.buildFailed(projectPath, installResult, buildResult);
@@ -202,7 +212,7 @@ public class VueProjectBuilder {
         return BuildResult.success(projectPath, installResult, buildResult);
     }
 
-    private CommandResult installDependenciesIfNeeded(File projectDir, String currentDependencyFingerprint) {
+    private CommandResult installDependenciesIfNeeded(File projectDir, String currentDependencyFingerprint, String taskId) {
         try {
             File stampFile = new File(projectDir, INSTALL_STAMP_FILE);
             if (stampFile.exists()) {
@@ -212,19 +222,37 @@ public class VueProjectBuilder {
                     return CommandResult.skipped("pnpm install", "依赖未变化，已跳过 pnpm install");
                 }
             }
-            PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
-            if (result.success()) {
-                writeStamp(stampFile, currentDependencyFingerprint);
-                return CommandResult.success("pnpm install", 0, result.output());
+            GenerationPerformanceMonitorService.SpanTimer span =
+                    generationPerformanceMonitorService.startSpan(taskId, "pnpm_install");
+            try {
+                PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
+                if (result.success()) {
+                    writeStamp(stampFile, currentDependencyFingerprint);
+                    span.success();
+                    return CommandResult.success("pnpm install", 0, result.output());
+                }
+                span.failed(result.errorDetail());
+                return CommandResult.failed("pnpm install", 1, result.output());
+            } catch (Exception e) {
+                span.failed(e.getMessage());
+                throw e;
             }
-            return CommandResult.failed("pnpm install", 1, result.output());
         } catch (Exception e) {
             log.warn("依赖缓存判断失败，将执行 pnpm install: {}", e.getMessage());
-            PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
-            if (result.success()) {
-                return CommandResult.success("pnpm install", 0, result.output());
+            GenerationPerformanceMonitorService.SpanTimer span =
+                    generationPerformanceMonitorService.startSpan(taskId, "pnpm_install");
+            try {
+                PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
+                if (result.success()) {
+                    span.success();
+                    return CommandResult.success("pnpm install", 0, result.output());
+                }
+                span.failed(result.errorDetail());
+                return CommandResult.failed("pnpm install", 1, result.output());
+            } catch (Exception retryException) {
+                span.failed(retryException.getMessage());
+                return CommandResult.exception("pnpm install", retryException.getMessage());
             }
-            return CommandResult.failed("pnpm install", 1, result.output());
         }
     }
 
@@ -316,31 +344,31 @@ public class VueProjectBuilder {
         entries.add(normalizePath(relativePath) + ':' + content.length + ':' + Arrays.hashCode(content));
     }
 
-    private CommandResult executeLightValidation(File projectDir, ProjectScripts scripts) {
+    private CommandResult executeLightValidation(File projectDir, ProjectScripts scripts, String taskId) {
         String script = scripts.lightValidationScript();
         if (script == null) {
             return CommandResult.skipped("light validation", "package.json 中未找到轻量校验脚本");
         }
         log.info("执行轻量校验: pnpm run {}", script);
-        return executeCommand(projectDir, LIGHT_VALIDATE_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
+        return executeCommand("light_validate", taskId, projectDir, LIGHT_VALIDATE_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
     }
 
-    private CommandResult executeLightBuild(File projectDir, ProjectScripts scripts) {
+    private CommandResult executeLightBuild(File projectDir, ProjectScripts scripts, String taskId) {
         String script = scripts.lightBuildScript();
         if (script == null) {
             return CommandResult.exception("pnpm run build", "package.json 中未找到可用的轻量构建脚本");
         }
         log.info("执行轻量构建: pnpm run {}", script);
-        return executeCommand(projectDir, LIGHT_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
+        return executeCommand("light_build", taskId, projectDir, LIGHT_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
     }
 
-    private CommandResult executeFullBuild(File projectDir, ProjectScripts scripts) {
+    private CommandResult executeFullBuild(File projectDir, ProjectScripts scripts, String taskId) {
         String script = scripts.fullBuildScript();
         if (script == null) {
             return CommandResult.exception("pnpm run build", "package.json 中未找到可用的构建脚本");
         }
         log.info("执行全量构建: pnpm run {}", script);
-        return executeCommand(projectDir, FULL_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
+        return executeCommand("full_build", taskId, projectDir, FULL_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
     }
 
     private String buildCommand(String baseCommand) {
@@ -355,7 +383,17 @@ public class VueProjectBuilder {
     }
 
     private CommandResult executeCommand(File workingDir, int timeoutSeconds, String... commandParts) {
+        return executeCommand(null, null, workingDir, timeoutSeconds, commandParts);
+    }
+
+    private CommandResult executeCommand(String performanceStage,
+                                         String taskId,
+                                         File workingDir,
+                                         int timeoutSeconds,
+                                         String... commandParts) {
         String command = String.join(" ", commandParts);
+        GenerationPerformanceMonitorService.SpanTimer span =
+                generationPerformanceMonitorService.startSpan(taskId, performanceStage);
         try {
             log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), command);
             ProcessBuilder processBuilder = new ProcessBuilder(commandParts)
@@ -380,6 +418,7 @@ public class VueProjectBuilder {
                 process.waitFor(5, TimeUnit.SECONDS);
                 outputReader.join(TimeUnit.SECONDS.toMillis(5));
                 String output = readProcessOutput(outputBuffer);
+                span.close("timeout", command);
                 return CommandResult.timeout(command, timeoutSeconds, output);
             }
             outputReader.join(TimeUnit.SECONDS.toMillis(5));
@@ -387,15 +426,18 @@ public class VueProjectBuilder {
             int exitCode = process.exitValue();
             if (exitCode == 0) {
                 log.info("命令执行成功: {}", command);
+                span.success();
                 return CommandResult.success(command, exitCode, output);
             }
             log.error("命令执行失败，退出码: {}", exitCode);
             if (StrUtil.isNotBlank(output)) {
                 log.error("命令失败输出:\n{}", truncateForLog(output, 4000));
             }
+            span.failed(command + " exitCode=" + exitCode);
             return CommandResult.failed(command, exitCode, output);
         } catch (Exception e) {
             log.error("执行命令失败: {}, 错误信息: {}", Arrays.toString(commandParts), e.getMessage());
+            span.failed(e.getMessage());
             return CommandResult.exception(command, e.getMessage());
         }
     }

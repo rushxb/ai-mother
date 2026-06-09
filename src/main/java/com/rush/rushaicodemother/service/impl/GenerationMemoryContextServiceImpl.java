@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import jakarta.annotation.Resource;
@@ -18,12 +19,15 @@ import java.util.Locale;
 @Service
 public class GenerationMemoryContextServiceImpl implements GenerationMemoryContextService {
 
-    private static final int MAX_CONTEXT_LENGTH = 5000;
+    private static final int MAX_CONTEXT_LENGTH = 3200;
     private static final int MAX_FIELD_LENGTH = 600;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     @Resource
     private GenerationTraceService generationTraceService;
+
+    @Resource
+    private GenerationContextCompressionService generationContextCompressionService;
 
     @Override
     public String buildGenerationMemoryContext(App app, String userMessage, CodeGenTypeEnum targetType) {
@@ -45,7 +49,7 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
             appendRecentBuildLogs(lines, recentBuildLogs);
         }
         lines.add("记忆使用规则：优先满足本轮用户需求；历史记录只作为边界和失败经验；不要因为旧需求扩大本轮改动范围。");
-        return limit(String.join("\n", lines), MAX_CONTEXT_LENGTH);
+        return generationContextCompressionService.compressMemoryContext(limit(String.join("\n", lines), MAX_CONTEXT_LENGTH));
     }
 
     @Override
@@ -69,7 +73,7 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         appendBuildLogs(lines, "本任务构建记录", taskBuildLogs);
         appendBuildLogs(lines, "最近构建记录", recentBuildLogs);
         lines.add("自修规则：只读相关文件、只改直接相关代码；不要重建项目。");
-        return limit(String.join("\n", lines), MAX_CONTEXT_LENGTH);
+        return generationContextCompressionService.compressMemoryContext(limit(String.join("\n", lines), MAX_CONTEXT_LENGTH));
     }
 
     private void appendRecentTasks(List<String> lines, List<GenerationTask> recentTasks, String userMessage) {

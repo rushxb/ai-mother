@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
@@ -15,6 +16,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
@@ -27,6 +30,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
     private static final long COMPLETED_SESSION_REPLAY_SECONDS = 30;
 
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
+    private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationSessionRegistry sessionRegistry;
     private final SlotFillGenerationService slotFillGenerationService;
 
@@ -47,6 +51,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
     @Override
     public Optional<GenerationTaskResult> execute(GenerationPipelineRequest request) {
         App app = request.taskRequest().app();
+        Instant startedAt = Instant.now();
         try {
             SlotFillResult result = slotFillGenerationService.tryGenerate(app, request.taskRequest());
             if (result == null) {
@@ -55,6 +60,21 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
             log.info("模板 slot 填充路径完成，appId: {}, templateId: {}, filledSlots: {}",
                     app.getId(), result.templateId(), result.filledSlotCount());
             String taskId = "slot_fill_" + System.currentTimeMillis();
+            generationPerformanceMonitorService.startTask(
+                    taskId,
+                    app.getId(),
+                    request.taskRequest().loginUser().getId(),
+                    route(),
+                    request.codeGenType().getValue(),
+                    startedAt
+            );
+            generationPerformanceMonitorService.recordSpan(
+                    taskId,
+                    "slot_fill",
+                    "success",
+                    Duration.between(startedAt, Instant.now()),
+                    result.templateId()
+            );
             GenerationSession session = new GenerationSession(null);
             sessionRegistry.put(app.getId(), session);
             session.emit(GenerationStreamEvent.agentEvent(
@@ -69,6 +89,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
             session.complete();
             sessionRegistry.cleanupLater(app.getId(), session, COMPLETED_SESSION_REPLAY_SECONDS);
             generationTaskLifecycleService.charge(taskId);
+            generationPerformanceMonitorService.finishTask(taskId, "success");
             return Optional.of(new GenerationTaskResult(taskId, route(), request.workspace(), session.asFlux()));
         } catch (Exception e) {
             log.warn("模板 slot 填充路径异常，回退到后续生成管线，appId: {}, error: {}", app.getId(), e.getMessage());

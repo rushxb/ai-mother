@@ -165,18 +165,6 @@
             <div v-if="!isOwner" class="file-empty-state">
               仅应用创建者可以编辑文件
             </div>
-            <div v-else-if="loadingFiles" class="file-loading">
-              <a-spin size="small" />
-              <span>正在加载文件...</span>
-            </div>
-            <GenerationActivity
-                v-else-if="isGenerating"
-                :description="generationStageDescription"
-                :status-text="generationStatusText"
-                :step-index="generationStepIndex"
-                :steps="generationSteps"
-                variant="sidebar"
-            />
             <div v-else-if="fileTreeData.length" class="file-tree-scroll">
               <InspiraFileTree
                   :nodes="fileTreeData"
@@ -187,6 +175,9 @@
               >
                 <template #empty>生成代码后可在这里查看文件</template>
               </InspiraFileTree>
+            </div>
+            <div v-else-if="loadingFiles" class="file-empty-state">
+              正在读取文件目录...
             </div>
             <div v-else class="file-empty-state">
               生成代码后可在这里查看文件

@@ -125,6 +125,7 @@ class GenerationTaskOrchestratorPipelineTest {
                 null,  // generationEventPublisher
                 pipelines,
                 sessionRegistry,
+                null,  // generationPerformanceMonitorService
                 null,  // heavyGenerationBuildValidationService
                 null,  // heavyGenerationExecutionService
                 null,  // heavyGenerationFailureRecoveryService

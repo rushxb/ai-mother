@@ -16,7 +16,8 @@ class VueProjectTemplateBootstrapServiceTest {
     void shouldSelectAdminTemplateForDashboardPrompt() {
         VueProjectTemplateBootstrapService service = new VueProjectTemplateBootstrapService(
                 Path.of("target", "test-workspaces", "template-bootstrap", "select-admin"),
-                new PathMatchingResourcePatternResolver()
+                new PathMatchingResourcePatternResolver(),
+                new TemplatePreWarmService()
         );
 
         assertEquals("vue-web-admin", service.selectTemplateId("创建一个 Vue 后台管理仪表盘"));
@@ -31,7 +32,8 @@ class VueProjectTemplateBootstrapServiceTest {
         FileUtil.del(outputRoot.toFile());
         VueProjectTemplateBootstrapService service = new VueProjectTemplateBootstrapService(
                 outputRoot,
-                new PathMatchingResourcePatternResolver()
+                new PathMatchingResourcePatternResolver(),
+                new TemplatePreWarmService()
         );
 
         VueProjectTemplateBootstrapService.BootstrapResult result =

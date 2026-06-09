@@ -390,6 +390,9 @@ public class VueProjectBuilder {
                 return CommandResult.success(command, exitCode, output);
             }
             log.error("命令执行失败，退出码: {}", exitCode);
+            if (StrUtil.isNotBlank(output)) {
+                log.error("命令失败输出:\n{}", truncateForLog(output, 4000));
+            }
             return CommandResult.failed(command, exitCode, output);
         } catch (Exception e) {
             log.error("执行命令失败: {}, 错误信息: {}", Arrays.toString(commandParts), e.getMessage());
@@ -411,6 +414,13 @@ public class VueProjectBuilder {
             return normalized;
         }
         return normalized.substring(normalized.length() - MAX_LOG_CHARS);
+    }
+
+    private String truncateForLog(String content, int maxChars) {
+        if (StrUtil.isBlank(content) || content.length() <= maxChars) {
+            return StrUtil.blankToDefault(content, "");
+        }
+        return content.substring(content.length() - maxChars);
     }
 
     private ProjectState readPersistedState(File projectDir) {
@@ -741,7 +751,21 @@ public class VueProjectBuilder {
             if (result == null || StrUtil.isBlank(result.command())) {
                 return fallback;
             }
-            return result.command() + " " + fallback;
+            StringBuilder builder = new StringBuilder(result.command()).append(' ').append(fallback);
+            if (result.exitCode() != null) {
+                builder.append("，exitCode=").append(result.exitCode());
+            }
+            if (result.timeout()) {
+                builder.append("，timeout=true");
+            }
+            if (StrUtil.isNotBlank(result.errorMessage())) {
+                builder.append("，error=").append(result.errorMessage());
+            }
+            String errorSnippet = extractDiagnosticSnippet(result.output());
+            if (StrUtil.isNotBlank(errorSnippet)) {
+                builder.append("，日志: ").append(errorSnippet);
+            }
+            return builder.toString();
         }
 
         public String toDiagnosticReport() {
@@ -824,6 +848,39 @@ public class VueProjectBuilder {
             }
             String normalized = output.replace("\r", " ").replace("\n", " ").trim();
             return StrUtil.sub(normalized, 0, Math.min(normalized.length(), 300));
+        }
+
+        private static String extractDiagnosticSnippet(String output) {
+            if (StrUtil.isBlank(output)) {
+                return "";
+            }
+            String[] lines = output.replace("\r\n", "\n").replace('\r', '\n').split("\n");
+            List<String> usefulLines = Arrays.stream(lines)
+                    .map(String::trim)
+                    .filter(StrUtil::isNotBlank)
+                    .filter(line -> {
+                        String lower = line.toLowerCase(Locale.ROOT);
+                        return lower.contains("error")
+                                || lower.contains("failed")
+                                || lower.contains("syntaxerror")
+                                || lower.contains("referenceerror")
+                                || lower.contains("typeerror")
+                                || lower.contains("cannot find")
+                                || lower.contains("already been declared")
+                                || lower.contains("is not defined")
+                                || lower.contains("does not provide an export")
+                                || lower.contains("failed to resolve")
+                                || lower.contains(".vue")
+                                || lower.contains(".js")
+                                || lower.contains(".ts");
+                    })
+                    .limit(12)
+                    .toList();
+            String snippet = usefulLines.isEmpty()
+                    ? String.join("\n", Arrays.stream(lines).map(String::trim).filter(StrUtil::isNotBlank).limit(12).toList())
+                    : String.join("\n", usefulLines);
+            String normalized = snippet.replace("\r", " ").replace("\n", " | ").trim();
+            return StrUtil.sub(normalized, 0, Math.min(normalized.length(), 2000));
         }
     }
 }

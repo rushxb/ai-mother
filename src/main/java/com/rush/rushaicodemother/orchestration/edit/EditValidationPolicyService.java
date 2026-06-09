@@ -77,6 +77,14 @@ public class EditValidationPolicyService {
             List<PatchOperation> patchOperations,
             CodeGenTypeEnum codeGenType,
             EditResult.EditValidation aiValidation) {
+        return determineValidationPlan(patchOperations, codeGenType, aiValidation, null);
+    }
+
+    public EditValidationPlan determineValidationPlan(
+            List<PatchOperation> patchOperations,
+            CodeGenTypeEnum codeGenType,
+            EditResult.EditValidation aiValidation,
+            String userMessage) {
 
         if (patchOperations == null || patchOperations.isEmpty()) {
             return new EditValidationPlan(
@@ -94,6 +102,7 @@ public class EditValidationPolicyService {
 
         // 检查是否需要构建
         boolean aiSuggestedBuild = aiValidation != null && aiValidation.requiresBuild();
+        boolean userReportedRuntimeError = isRuntimeErrorRepairRequest(userMessage);
 
         // 分析变更文件
         ValidationAnalysis analysis = analyzeChangedFiles(changedFiles);
@@ -102,7 +111,10 @@ public class EditValidationPolicyService {
         EditValidationPlan.ValidationLevel level;
         String reason;
 
-        if (analysis.hasBuildRequiredFiles()) {
+        if (userReportedRuntimeError) {
+            level = EditValidationPlan.ValidationLevel.BUILD_REQUIRED;
+            reason = "用户消息包含运行时报错或语法错误，必须构建验证";
+        } else if (analysis.hasBuildRequiredFiles()) {
             level = EditValidationPlan.ValidationLevel.BUILD_REQUIRED;
             reason = "包含必须构建的文件: " + String.join(", ", analysis.buildRequiredFiles());
         } else if (changedFiles.size() > MAX_LIGHTWEIGHT_FILES) {
@@ -125,6 +137,25 @@ public class EditValidationPolicyService {
         log.debug("验证计划确定: level={}, reason={}, changedFiles={}", level, reason, changedFiles);
 
         return new EditValidationPlan(level, reason, changedFiles, aiSuggestedBuild);
+    }
+
+    public boolean isRuntimeErrorRepairRequest(String userMessage) {
+        if (StrUtil.isBlank(userMessage)) {
+            return false;
+        }
+        String lower = userMessage.toLowerCase();
+        return lower.contains("syntaxerror")
+                || lower.contains("referenceerror")
+                || lower.contains("typeerror")
+                || lower.contains("uncaught")
+                || lower.contains("failed to resolve import")
+                || lower.contains("vue router warn")
+                || lower.contains("unexpected error")
+                || lower.contains("already been declared")
+                || lower.contains("is not defined")
+                || lower.contains("cannot find module")
+                || lower.contains("报错")
+                || lower.contains("白屏");
     }
 
     /**

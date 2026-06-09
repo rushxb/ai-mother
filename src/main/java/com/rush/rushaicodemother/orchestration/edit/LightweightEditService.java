@@ -22,6 +22,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.service.DevServerManager;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
@@ -29,10 +30,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -60,6 +59,8 @@ public class LightweightEditService {
     private final BackgroundValidationService backgroundValidationService;
     private final EditStatePersistenceService editStatePersistenceService;
     private final WorkspaceSemanticIndexService workspaceSemanticIndexService;
+    private final DevServerManager devServerManager;
+    private final EditFileSnapshotService editFileSnapshotService;
 
     /**
      * 受保护的文件名前缀（不允许轻量编辑修改）
@@ -67,6 +68,7 @@ public class LightweightEditService {
     private static final java.util.Set<String> PROTECTED_FILE_NAMES = java.util.Set.of(
             "package.json", "vite.config", "go.mod", "Dockerfile", "tsconfig"
     );
+    private static final int MAX_RUNTIME_REPAIR_ROUNDS = 3;
 
     /**
      * 执行轻量编辑。
@@ -157,7 +159,7 @@ public class LightweightEditService {
             }
 
             // 4. AI 编辑
-            String projectContext = buildProjectContextString(contextPackage);
+            String projectContext = buildProjectContextString(contextPackage, app.getId(), userMessage);
             AiCodeEditService aiCodeEditService = aiCodeEditServiceFactory.createAiCodeEditService();
             EditResult editResult;
             try {
@@ -184,40 +186,25 @@ public class LightweightEditService {
 
             // 6. 应用补丁
             Path projectRoot = workspace.canonicalRootPath();
-            PatchApplyResult applyResult = generationPatchApplyService.applyWithoutChangePlan(
-                    app.getId(), taskId, projectRoot, patchOperations, "lightweight_edit"
+            boolean runtimeErrorRepair = editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage);
+            EditFileSnapshotService.EditFileSnapshot editSnapshot = runtimeErrorRepair
+                    ? editFileSnapshotService.capture(projectRoot, patchOperations)
+                    : null;
+            EditAttempt editAttempt = applyEditWithPatchRetry(
+                    request, app, taskId, projectRoot, userMessage, projectContext,
+                    editResult, patchOperations, runtimeErrorRepair, editSnapshot
             );
-            if (shouldRetryPatchApply(applyResult)) {
-                generationEventPublisher.publish(request, GenerationEventType.PATCH_APPLY, "补丁应用被拒绝，正在重新生成补丁", Map.of(
-                        "taskId", taskId,
-                        "status", applyResult.status(),
-                        "reason", StrUtil.blankToDefault(applyResult.reason(), ""),
-                        "rejectedOperations", applyResult.rejectedOperations()
-                ));
-                try {
-                    EditResult retryEditResult = retryEditAfterPatchRejection(userMessage, projectContext, applyResult);
-                    List<PatchOperation> retryPatchOperations = retryEditResult == null
-                            ? List.of()
-                            : convertToPatchOperations(retryEditResult.operations());
-                    if (!retryPatchOperations.isEmpty()) {
-                        PatchApplyResult retryApplyResult = generationPatchApplyService.applyWithoutChangePlan(
-                                app.getId(), taskId, projectRoot, retryPatchOperations, "lightweight_edit_retry"
-                        );
-                        editResult = retryEditResult;
-                        patchOperations = retryPatchOperations;
-                        applyResult = retryApplyResult;
-                    }
-                } catch (Exception e) {
-                    log.warn("轻量编辑补丁重试失败，保留首次补丁结果，appId: {}, taskId: {}", app.getId(), taskId, e);
-                }
-            }
+            editResult = editAttempt.editResult();
+            patchOperations = editAttempt.patchOperations();
+            PatchApplyResult applyResult = editAttempt.applyResult();
 
             // 发送补丁应用事件
             generationEventPublisher.publish(request, GenerationEventType.PATCH_APPLY, "补丁应用完成", Map.of(
                     "taskId", taskId,
                     "status", applyResult.status(),
                     "appliedCount", applyResult.appliedOperationCount(),
-                    "reason", StrUtil.blankToDefault(applyResult.reason(), "")
+                    "reason", StrUtil.blankToDefault(applyResult.reason(), ""),
+                    "rejectedOperations", applyResult.rejectedOperations()
             ));
 
             // 7. 增量更新索引
@@ -232,23 +219,62 @@ public class LightweightEditService {
 
             // 8. 确定验证计划
             EditValidationPlan validationPlan = editValidationPolicyService.determineValidationPlan(
-                    patchOperations, codeGenType, editResult.validation()
+                    patchOperations, codeGenType, editResult.validation(), userMessage
             );
             log.debug("验证计划: level={}, reason={}", validationPlan.level(), validationPlan.reason());
 
             // 9. 记录编辑状态
             boolean editSuccess = "applied".equals(applyResult.status());
-            editStatePersistenceService.recordEditResult(
-                    app.getId(), taskId, userMessage, patchOperations, editSuccess,
-                    editSuccess ? "" : applyResult.reason()
-            );
+            if (!runtimeErrorRepair) {
+                editStatePersistenceService.recordEditResult(
+                        app.getId(), taskId, userMessage, patchOperations, editSuccess,
+                        editSuccess ? "" : applyResult.reason()
+                );
+            }
 
-            // 10. 启动后台验证（异步，不阻塞用户）
-            if (validationPlan.requiresBackgroundValidation() && editSuccess) {
+            // 10. 启动后台验证。运行时报错修复必须同步验证，避免失败补丁污染预览项目。
+            if (validationPlan.requiresBackgroundValidation() && editSuccess && runtimeErrorRepair) {
+                RuntimeValidationOutcome validationOutcome = validateRuntimeEditWithRetries(
+                        request, app, loginUser, taskId, workspace, projectRoot, userMessage,
+                        projectContext, editResult, patchOperations, applyResult, validationPlan, editSnapshot
+                );
+                editResult = validationOutcome.editResult();
+                patchOperations = validationOutcome.patchOperations();
+                applyResult = validationOutcome.applyResult();
+                validationPlan = validationOutcome.validationPlan();
+                if (!validationOutcome.success()) {
+                    return handleRuntimeValidationFailure(
+                            request, app, loginUser, taskId, userMessage, patchOperations,
+                            validationPlan, validationOutcome.validationResult(), editSnapshot, projectRoot
+                    );
+                }
+                editStatePersistenceService.recordEditResult(
+                        app.getId(), taskId, userMessage, patchOperations, true, ""
+                );
+            } else if (validationPlan.requiresBackgroundValidation() && editSuccess) {
                 backgroundValidationService.executeBackgroundValidation(
                         taskId, app.getId(), loginUser.getId(), workspace,
                         patchOperations, validationPlan, userMessage
                 );
+            }
+
+            if (!editSuccess) {
+                String failedMessage = "补丁未应用: " + buildPatchApplyDiagnostic(applyResult);
+                if (runtimeErrorRepair) {
+                    editStatePersistenceService.recordEditResult(
+                            app.getId(), taskId, userMessage, patchOperations, false, failedMessage
+                    );
+                }
+                chatHistoryService.addChatMessage(app.getId(), failedMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                generationEventPublisher.publish(request, GenerationEventType.TASK_FAILED, "轻量编辑补丁未应用", Map.of(
+                        "taskId", taskId,
+                        "status", applyResult.status(),
+                        "reason", StrUtil.blankToDefault(applyResult.reason(), ""),
+                        "rejectedOperations", applyResult.rejectedOperations()
+                ));
+                generationAppStateService.markGenerationFinished(app.getId());
+                generationTraceService.completeTask(taskId, "failed", null, failedMessage);
+                return buildFailedResult(taskId, failedMessage);
             }
 
             // 11. 记录聊天历史（AI 回复）
@@ -290,6 +316,135 @@ public class LightweightEditService {
             generationTraceService.completeTask(taskId, "failed", null, null);
             return buildFailedResult(taskId, e.getMessage());
         }
+    }
+
+    private EditAttempt applyEditWithPatchRetry(GenerationTaskRequest request,
+                                                App app,
+                                                String taskId,
+                                                Path projectRoot,
+                                                String userMessage,
+                                                String projectContext,
+                                                EditResult editResult,
+                                                List<PatchOperation> patchOperations,
+                                                boolean runtimeErrorRepair,
+                                                EditFileSnapshotService.EditFileSnapshot editSnapshot) {
+        PatchApplyResult applyResult = generationPatchApplyService.applyWithoutChangePlan(
+                app.getId(), taskId, projectRoot, patchOperations, "lightweight_edit"
+        );
+        if (!shouldRetryPatchApply(applyResult)) {
+            return new EditAttempt(editResult, patchOperations, applyResult);
+        }
+
+        generationEventPublisher.publish(request, GenerationEventType.PATCH_APPLY, "补丁应用被拒绝，正在重新生成补丁", Map.of(
+                "taskId", taskId,
+                "status", applyResult.status(),
+                "reason", StrUtil.blankToDefault(applyResult.reason(), ""),
+                "rejectedOperations", applyResult.rejectedOperations()
+        ));
+        try {
+            EditResult retryEditResult = retryEditAfterPatchRejection(userMessage, projectContext, applyResult);
+            List<PatchOperation> retryPatchOperations = retryEditResult == null
+                    ? List.of()
+                    : convertToPatchOperations(retryEditResult.operations());
+            if (retryPatchOperations.isEmpty()) {
+                return new EditAttempt(editResult, patchOperations, applyResult);
+            }
+            if (runtimeErrorRepair) {
+                editFileSnapshotService.captureMissing(editSnapshot, retryPatchOperations);
+            }
+            PatchApplyResult retryApplyResult = generationPatchApplyService.applyWithoutChangePlan(
+                    app.getId(), taskId, projectRoot, retryPatchOperations, "lightweight_edit_retry"
+            );
+            return new EditAttempt(retryEditResult, retryPatchOperations, retryApplyResult);
+        } catch (Exception e) {
+            log.warn("轻量编辑补丁重试失败，保留首次补丁结果，appId: {}, taskId: {}", app.getId(), taskId, e);
+            return new EditAttempt(editResult, patchOperations, applyResult);
+        }
+    }
+
+    private RuntimeValidationOutcome validateRuntimeEditWithRetries(GenerationTaskRequest request,
+                                                                    App app,
+                                                                    User loginUser,
+                                                                    String taskId,
+                                                                    GenerationWorkspace workspace,
+                                                                    Path projectRoot,
+                                                                    String userMessage,
+                                                                    String projectContext,
+                                                                    EditResult editResult,
+                                                                    List<PatchOperation> patchOperations,
+                                                                    PatchApplyResult applyResult,
+                                                                    EditValidationPlan validationPlan,
+                                                                    EditFileSnapshotService.EditFileSnapshot editSnapshot) {
+        BackgroundValidationService.ValidationResult validationResult = backgroundValidationService.executeValidation(
+                taskId, app.getId(), loginUser.getId(), workspace,
+                patchOperations, validationPlan, userMessage
+        );
+        int repairRound = 2;
+        while (!validationResult.isSuccess() && repairRound <= MAX_RUNTIME_REPAIR_ROUNDS) {
+            RuntimeRetryResult retryResult = retryRuntimeErrorRepair(
+                    request,
+                    app,
+                    loginUser,
+                    taskId,
+                    workspace,
+                    projectRoot,
+                    userMessage,
+                    projectContext,
+                    validationPlan,
+                    validationResult,
+                    editSnapshot,
+                    repairRound
+            );
+            if (retryResult.success()) {
+                editResult = retryResult.editResult();
+                patchOperations = retryResult.patchOperations();
+                applyResult = retryResult.applyResult();
+                validationPlan = retryResult.validationPlan();
+                validationResult = retryResult.validationResult();
+            } else {
+                validationResult = retryResult.validationResult();
+            }
+            repairRound++;
+        }
+        return new RuntimeValidationOutcome(
+                validationResult.isSuccess(),
+                editResult,
+                patchOperations,
+                applyResult,
+                validationPlan,
+                validationResult
+        );
+    }
+
+    private LightweightEditResult handleRuntimeValidationFailure(GenerationTaskRequest request,
+                                                                 App app,
+                                                                 User loginUser,
+                                                                 String taskId,
+                                                                 String userMessage,
+                                                                 List<PatchOperation> patchOperations,
+                                                                 EditValidationPlan validationPlan,
+                                                                 BackgroundValidationService.ValidationResult validationResult,
+                                                                 EditFileSnapshotService.EditFileSnapshot editSnapshot,
+                                                                 Path projectRoot) {
+        EditFileSnapshotService.RestoreResult restoreResult = restoreRuntimeEditSnapshot(
+                request, app.getId(), taskId, editSnapshot, projectRoot
+        );
+        String failedMessage = "修复后验证未通过: " + validationResult.message();
+        chatHistoryService.addChatMessage(app.getId(), failedMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+        editStatePersistenceService.recordEditResult(
+                app.getId(), taskId, userMessage, patchOperations, false,
+                validationResult.message()
+        );
+        generationEventPublisher.publish(request, GenerationEventType.TASK_FAILED, "轻量编辑验证未通过", Map.of(
+                "taskId", taskId,
+                "status", validationResult.status(),
+                "message", StrUtil.blankToDefault(validationResult.message(), ""),
+                "validationLevel", validationPlan.level().name(),
+                "rollbackStatus", restoreResult.status()
+        ));
+        generationAppStateService.markGenerationFinished(app.getId());
+        generationTraceService.completeTask(taskId, "failed", null, validationResult.message());
+        return buildFailedResult(taskId, failedMessage);
     }
 
     /**
@@ -359,12 +514,201 @@ public class LightweightEditService {
                 1. replace.oldContent 必须逐字复制自项目上下文中的真实文件内容。
                 2. 如果无法稳定精确替换局部片段，改用 modify 覆盖完整文件，但只能覆盖确实需要修改的文件。
                 3. 不要猜测未提供内容的文件结构。
+                4. 如果拒绝操作包含 undeclared_bare_import，禁止继续 import 该包，也不要修改 package.json；改用项目已声明依赖、已有组件、CSS、Unicode 字符或内联 SVG 实现。
                 """.formatted(
                 StrUtil.blankToDefault(userMessage, ""),
                 StrUtil.blankToDefault(applyResult.reason(), ""),
-                applyResult.rejectedOperations()
+                buildPatchApplyDiagnostic(applyResult)
         );
         return aiCodeEditService.editCode(retryMessage, projectContext);
+    }
+
+    private RuntimeRetryResult retryRuntimeErrorRepair(GenerationTaskRequest request,
+                                                       App app,
+                                                       User loginUser,
+                                                       String taskId,
+                                                       GenerationWorkspace workspace,
+                                                       Path projectRoot,
+                                                       String userMessage,
+                                                       String projectContext,
+                                                       EditValidationPlan previousValidationPlan,
+                                                       BackgroundValidationService.ValidationResult previousValidationResult,
+                                                       EditFileSnapshotService.EditFileSnapshot editSnapshot,
+                                                       int round) {
+        generationEventPublisher.publish(request, GenerationEventType.REPAIR_START, "修复后验证失败，开始自动二次修复", Map.of(
+                "taskId", taskId,
+                "round", round,
+                "validationLevel", previousValidationPlan.level().name(),
+                "message", StrUtil.blankToDefault(previousValidationResult.message(), "")
+        ));
+        try {
+            String retryContext = rebuildRetryContext(workspace, userMessage, previousValidationResult, projectContext);
+            EditResult retryEditResult = retryEditAfterValidationFailure(userMessage, retryContext, previousValidationResult);
+            List<PatchOperation> retryPatchOperations = retryEditResult == null
+                    ? List.of()
+                    : convertToPatchOperations(retryEditResult.operations());
+            if (retryPatchOperations.isEmpty()) {
+                return RuntimeRetryResult.failed(previousValidationResult);
+            }
+            editFileSnapshotService.captureMissing(editSnapshot, retryPatchOperations);
+
+            PatchApplyResult retryApplyResult = generationPatchApplyService.applyWithoutChangePlan(
+                    app.getId(), taskId, projectRoot, retryPatchOperations, "lightweight_runtime_retry"
+            );
+            generationEventPublisher.publish(request, GenerationEventType.PATCH_APPLY, "自动二次修复补丁应用完成", Map.of(
+                    "taskId", taskId,
+                    "status", retryApplyResult.status(),
+                    "appliedCount", retryApplyResult.appliedOperationCount(),
+                    "reason", StrUtil.blankToDefault(retryApplyResult.reason(), ""),
+                    "rejectedOperations", retryApplyResult.rejectedOperations()
+            ));
+            if (!"applied".equals(retryApplyResult.status())) {
+                return RuntimeRetryResult.failed(BackgroundValidationService.ValidationResult.failed(
+                        taskId, "自动二次修复补丁未应用: " + buildPatchApplyDiagnostic(retryApplyResult)
+                ));
+            }
+
+            List<String> changedFiles = retryPatchOperations.stream()
+                    .map(PatchOperation::relativePath)
+                    .filter(StrUtil::isNotBlank)
+                    .toList();
+            workspaceSemanticIndexService.refreshFilesIndex(projectRoot, changedFiles);
+
+            EditValidationPlan retryValidationPlan = editValidationPolicyService.determineValidationPlan(
+                    retryPatchOperations, workspace.codeGenType(), retryEditResult.validation(), userMessage
+            );
+            BackgroundValidationService.ValidationResult retryValidationResult = backgroundValidationService.executeValidation(
+                    taskId, app.getId(), loginUser.getId(), workspace,
+                    retryPatchOperations, retryValidationPlan, userMessage
+            );
+            if (!retryValidationResult.isSuccess()) {
+                return RuntimeRetryResult.failed(retryValidationResult);
+            }
+            return RuntimeRetryResult.success(retryEditResult, retryPatchOperations, retryApplyResult, retryValidationPlan, retryValidationResult);
+        } catch (Exception e) {
+            log.warn("自动二次修复失败，appId: {}, taskId: {}, error: {}", app.getId(), taskId, e.getMessage(), e);
+            return RuntimeRetryResult.failed(BackgroundValidationService.ValidationResult.failed(
+                    taskId, "自动二次修复异常: " + StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
+            ));
+        }
+    }
+
+    private EditFileSnapshotService.RestoreResult restoreRuntimeEditSnapshot(GenerationTaskRequest request,
+                                                                             Long appId,
+                                                                             String taskId,
+                                                                             EditFileSnapshotService.EditFileSnapshot editSnapshot,
+                                                                             Path projectRoot) {
+        EditFileSnapshotService.RestoreResult restoreResult = editFileSnapshotService.restore(editSnapshot);
+        generationEventPublisher.publish(request, GenerationEventType.EDIT_ROLLBACK, "运行时修复验证失败，已回滚本次编辑", Map.of(
+                "taskId", taskId,
+                "status", restoreResult.status(),
+                "restoredFiles", restoreResult.restoredFiles(),
+                "failedFiles", restoreResult.failedFiles()
+        ));
+        if (restoreResult.restored()) {
+            workspaceSemanticIndexService.refreshFilesIndex(projectRoot, restoreResult.restoredFiles());
+            log.info("运行时修复失败后已回滚本次编辑，appId: {}, taskId: {}, files: {}",
+                    appId, taskId, restoreResult.restoredFiles().size());
+        } else {
+            log.warn("运行时修复失败后回滚未完全成功，appId: {}, taskId: {}, status: {}, failedFiles: {}",
+                    appId, taskId, restoreResult.status(), restoreResult.failedFiles());
+        }
+        return restoreResult;
+    }
+
+    private String rebuildRetryContext(GenerationWorkspace workspace,
+                                       String userMessage,
+                                       BackgroundValidationService.ValidationResult validationResult,
+                                       String fallbackContext) {
+        try {
+            String validationMessage = validationResult == null ? "" : StrUtil.blankToDefault(validationResult.message(), "");
+            List<EditFileCandidate> retryCandidates = editFileLocatorService.locate(
+                    workspace,
+                    userMessage + "\n\n修复后验证失败信息:\n" + validationMessage,
+                    workspace.codeGenType()
+            );
+            EditContextPackage retryContextPackage = editFileLocatorService.buildContextPackage(workspace, retryCandidates);
+            if (!retryContextPackage.isEmpty()) {
+                return buildProjectContextString(retryContextPackage, workspace.appId(), userMessage);
+            }
+        } catch (Exception e) {
+            log.debug("重建二次修复上下文失败: {}", e.getMessage());
+        }
+        return fallbackContext;
+    }
+
+    private EditResult retryEditAfterValidationFailure(String userMessage,
+                                                       String projectContext,
+                                                       BackgroundValidationService.ValidationResult validationResult) {
+        AiCodeEditService aiCodeEditService = aiCodeEditServiceFactory.createAiCodeEditService();
+        String retryMessage = """
+                %s
+
+                上一次修复补丁已应用，但修复后验证仍未通过。请基于下方验证失败信息做一次最小范围二次修复，只返回 JSON 编辑操作。
+
+                验证失败信息:
+                %s
+
+                约束:
+                1. 不要重复应用已经完成的修改。
+                2. 优先修复验证日志中指向的文件、变量、import 或导出。
+                3. 对 SyntaxError / already declared，必须检查同一作用域内 import、const、let、function、defineProps、解构声明是否重复。
+                4. 如果无法确定，读取上下文中同名标识符出现最多的文件并做最小修改，不要整站重写。
+                5. 不要新增项目 package.json 未声明的第三方依赖 import；如果需要图标或工具函数，优先复用现有依赖或用原生代码实现。
+                """.formatted(
+                StrUtil.blankToDefault(userMessage, ""),
+                validationResult == null ? "" : StrUtil.blankToDefault(validationResult.message(), "")
+        );
+        return aiCodeEditService.editCode(retryMessage, projectContext);
+    }
+
+    private record RuntimeRetryResult(
+            boolean success,
+            EditResult editResult,
+            List<PatchOperation> patchOperations,
+            PatchApplyResult applyResult,
+            EditValidationPlan validationPlan,
+            BackgroundValidationService.ValidationResult validationResult
+    ) {
+        private static RuntimeRetryResult success(EditResult editResult,
+                                                  List<PatchOperation> patchOperations,
+                                                  PatchApplyResult applyResult,
+                                                  EditValidationPlan validationPlan,
+                                                  BackgroundValidationService.ValidationResult validationResult) {
+            return new RuntimeRetryResult(true, editResult, patchOperations, applyResult, validationPlan, validationResult);
+        }
+
+        private static RuntimeRetryResult failed(BackgroundValidationService.ValidationResult validationResult) {
+            return new RuntimeRetryResult(false, null, List.of(), null, null, validationResult);
+        }
+    }
+
+    private record EditAttempt(
+            EditResult editResult,
+            List<PatchOperation> patchOperations,
+            PatchApplyResult applyResult
+    ) {
+    }
+
+    private record RuntimeValidationOutcome(
+            boolean success,
+            EditResult editResult,
+            List<PatchOperation> patchOperations,
+            PatchApplyResult applyResult,
+            EditValidationPlan validationPlan,
+            BackgroundValidationService.ValidationResult validationResult
+    ) {
+    }
+
+    private String buildPatchApplyDiagnostic(PatchApplyResult applyResult) {
+        if (applyResult == null) {
+            return "补丁结果不可用";
+        }
+        String reason = StrUtil.blankToDefault(applyResult.reason(), applyResult.status());
+        if (applyResult.rejectedOperations() == null || applyResult.rejectedOperations().isEmpty()) {
+            return reason;
+        }
+        return reason + "，拒绝操作: " + applyResult.rejectedOperations();
     }
 
     /**
@@ -378,8 +722,12 @@ public class LightweightEditService {
     /**
      * 构建项目上下文字符串。
      */
-    private String buildProjectContextString(EditContextPackage contextPackage) {
+    private String buildProjectContextString(EditContextPackage contextPackage, Long appId, String userMessage) {
         StringBuilder builder = new StringBuilder();
+        String recentDevServerOutput = buildRecentDevServerOutput(appId, userMessage);
+        if (StrUtil.isNotBlank(recentDevServerOutput)) {
+            builder.append(recentDevServerOutput).append("\n\n");
+        }
         if (StrUtil.isNotBlank(contextPackage.projectIndex())) {
             builder.append(contextPackage.projectIndex()).append("\n\n");
         }
@@ -406,6 +754,35 @@ public class LightweightEditService {
             builder.append("```\n").append(entry.getValue()).append("\n```\n\n");
         }
         return builder.toString();
+    }
+
+    private String buildRecentDevServerOutput(Long appId, String userMessage) {
+        if (!editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage)) {
+            return "";
+        }
+        List<String> lines = devServerManager.getRecentOutputLines(appId, 60);
+        if (lines.isEmpty()) {
+            return "";
+        }
+        List<String> usefulLines = lines.stream()
+                .filter(line -> {
+                    String lower = line.toLowerCase();
+                    return lower.contains("error")
+                            || lower.contains("warn")
+                            || lower.contains("syntaxerror")
+                            || lower.contains("referenceerror")
+                            || lower.contains("typeerror")
+                            || lower.contains("failed to resolve")
+                            || lower.contains("hmr update")
+                            || lower.contains("[vite]");
+                })
+                .limit(30)
+                .toList();
+        if (usefulLines.isEmpty()) {
+            return "";
+        }
+        return "最近 Dev Server 输出（用于复现和定位用户报错）:\n"
+                + String.join("\n", usefulLines);
     }
 
     /**

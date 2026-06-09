@@ -118,7 +118,9 @@ class AppServiceImplRegressionTest {
                 null,  // aiCodeGenTypeRoutingServiceFactory
                 null,  // aiCodeGeneratorFacade
                 null,  // appDatabaseResourceService
+                null,  // backendProjectTemplateBootstrapService
                 null,  // chatHistoryService
+                null,  // generationPerformanceSelector
                 null,  // lightweightEditService
                 null,  // generationAppStateService
                 null,  // generationCommitService
@@ -134,11 +136,13 @@ class AppServiceImplRegressionTest {
                 new NoopGenerationTraceService(),  // generationTraceService
                 null,  // generationWorkspaceService
                 null,  // orphanFileReviewService
+                null,  // parallelSlotFillService
                 null,  // streamHandlerExecutor
                 null,  // templateSlotFillService
                 new NoopUserCreditService(),  // userCreditService
                 null,  // vueProjectBuilder
-                null   // vueProjectTemplateBootstrapService
+                null,  // vueProjectTemplateBootstrapService
+                null   // devServerValidationService
         );
     }
 

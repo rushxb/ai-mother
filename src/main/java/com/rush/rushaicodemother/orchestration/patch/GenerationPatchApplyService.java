@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.orchestration.patch;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -19,6 +21,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 受 ChangePlan 约束的本地文件级补丁执行器。
@@ -39,6 +43,12 @@ public class GenerationPatchApplyService {
             PatchOperation.ACTION_GO_APPEND_TO_FUNCTION,
             PatchOperation.ACTION_GO_ADD_STRUCT_FIELDS,
             PatchOperation.ACTION_APPEND_SQL_MIGRATION
+    );
+    private static final Pattern IMPORT_SPECIFIER_PATTERN = Pattern.compile(
+            "(?:import\\s+(?:[^'\";]+\\s+from\\s+)?|export\\s+[^'\";]+\\s+from\\s+|import\\s*\\()(['\"])([^'\"]+)\\1"
+    );
+    private static final Set<String> BUILTIN_ALLOWED_BARE_IMPORTS = Set.of(
+            "vue", "vue-router", "pinia", "@vueuse/core"
     );
 
     private final GenerationOrchestrationMetricsCollector metricsCollector;
@@ -113,29 +123,19 @@ public class GenerationPatchApplyService {
         if (operations == null || operations.isEmpty()) {
             return record(PatchApplyResult.skipped(appId, taskId, projectPath, "patch_operations_empty"));
         }
+        ValidationResult validationResult = validate(normalizedRoot, null, operations);
+        if (!validationResult.rejectedOperations().isEmpty()) {
+            return record(PatchApplyResult.rejected(
+                    appId,
+                    taskId,
+                    projectPath,
+                    operations.size(),
+                    validationResult.rejectedOperations(),
+                    "patch_operation_validation_failed"
+            ));
+        }
         try {
-            List<ValidatedOperation> validOperations = new ArrayList<>();
-            for (PatchOperation operation : operations) {
-                String action = operation == null ? "" : operation.action();
-                String normalizedPath = normalizePath(operation == null ? "" : operation.relativePath());
-                if (!SUPPORTED_ACTIONS.contains(action) || StrUtil.isBlank(normalizedPath)) {
-                    return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
-                            List.of(StrUtil.blankToDefault(action, "unknown") + ":" + StrUtil.blankToDefault(normalizedPath, "") + ":unsupported_or_invalid"),
-                            "patch_operation_validation_failed"));
-                }
-                Path targetPath = normalizedRoot.resolve(normalizedPath).toAbsolutePath().normalize();
-                if (!targetPath.startsWith(normalizedRoot)) {
-                    return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
-                            List.of(action + ":" + normalizedPath + ":path_outside_project"), "patch_operation_validation_failed"));
-                }
-                String blocker = validateTarget(action, operation, targetPath);
-                if (StrUtil.isNotBlank(blocker)) {
-                    return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
-                            List.of(action + ":" + normalizedPath + ":" + blocker), "patch_operation_validation_failed"));
-                }
-                validOperations.add(new ValidatedOperation(action, normalizedPath, targetPath, operation));
-            }
-            List<String> appliedFiles = applyValidatedOperations(validOperations);
+            List<String> appliedFiles = applyValidatedOperations(validationResult.validOperations());
             return record(PatchApplyResult.applied(appId, taskId, projectPath, operations.size(), appliedFiles));
         } catch (Exception e) {
             log.warn("无计划补丁执行失败，appId: {}, taskId: {}, reason: {}", appId, taskId, reason, e);
@@ -173,11 +173,11 @@ public class GenerationPatchApplyService {
                 rejectedOperations.add(operationLabel + ":invalid_path");
                 continue;
             }
-            if (!seenPaths.add(normalizedPath)) {
+            if (changePlan != null && !seenPaths.add(normalizedPath)) {
                 rejectedOperations.add(operationLabel + ":duplicate_operation_path");
                 continue;
             }
-            if (!isPlanned(changePlan, action, normalizedPath)) {
+            if (changePlan != null && !isPlanned(changePlan, action, normalizedPath)) {
                 rejectedOperations.add(operationLabel + ":outside_change_plan");
                 continue;
             }
@@ -189,6 +189,11 @@ public class GenerationPatchApplyService {
             String blocker = validateTarget(action, operation, targetPath);
             if (StrUtil.isNotBlank(blocker)) {
                 rejectedOperations.add(operationLabel + ":" + blocker);
+                continue;
+            }
+            String dependencyBlocker = validateNoUnknownBareImports(projectRoot, action, operation, normalizedPath, targetPath);
+            if (StrUtil.isNotBlank(dependencyBlocker)) {
+                rejectedOperations.add(operationLabel + ":" + dependencyBlocker);
                 continue;
             }
             validOperations.add(new ValidatedOperation(action, normalizedPath, targetPath, operation));
@@ -455,6 +460,128 @@ public class GenerationPatchApplyService {
                 || normalized.contains("pragma writable_schema");
     }
 
+    private String validateNoUnknownBareImports(Path projectRoot,
+                                                String action,
+                                                PatchOperation operation,
+                                                String normalizedPath,
+                                                Path targetPath) {
+        if (!isFrontendSourceFile(normalizedPath) || PatchOperation.ACTION_DELETE.equals(action)) {
+            return "";
+        }
+        try {
+            ImportContentChange contentChange = previewImportContentChange(action, operation, targetPath);
+            if (contentChange == null || contentChange.afterContent() == null) {
+                return "";
+            }
+            Set<String> allowedPackages = readDeclaredPackages(projectRoot);
+            Set<String> beforePackages = extractBareImportPackages(contentChange.beforeContent());
+            Set<String> afterPackages = extractBareImportPackages(contentChange.afterContent());
+            afterPackages.removeAll(beforePackages);
+            for (String packageName : afterPackages) {
+                if (!allowedPackages.contains(packageName) && !BUILTIN_ALLOWED_BARE_IMPORTS.contains(packageName)) {
+                    return "undeclared_bare_import:" + packageName;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("校验前端裸包导入失败: {}, error: {}", normalizedPath, e.getMessage());
+        }
+        return "";
+    }
+
+    private ImportContentChange previewImportContentChange(String action, PatchOperation operation, Path targetPath) throws IOException {
+        return switch (action) {
+            case PatchOperation.ACTION_ADD -> new ImportContentChange("", operation.content());
+            case PatchOperation.ACTION_MODIFY -> {
+                String beforeContent = Files.isRegularFile(targetPath)
+                        ? Files.readString(targetPath, StandardCharsets.UTF_8)
+                        : "";
+                yield new ImportContentChange(beforeContent, operation.content());
+            }
+            case PatchOperation.ACTION_REPLACE -> {
+                String originalContent = Files.readString(targetPath, StandardCharsets.UTF_8);
+                yield new ImportContentChange(
+                        originalContent,
+                        originalContent.replace(operation.oldContent(), operation.newContent())
+                );
+            }
+            case PatchOperation.ACTION_INSERT_BEFORE_MARKER, PatchOperation.ACTION_INSERT_AFTER_MARKER -> {
+                String originalContent = Files.readString(targetPath, StandardCharsets.UTF_8);
+                String marker = operation.oldContent();
+                String snippet = operation.newContent();
+                String replacement = PatchOperation.ACTION_INSERT_BEFORE_MARKER.equals(action)
+                        ? snippet + System.lineSeparator() + marker
+                        : marker + System.lineSeparator() + snippet;
+                yield new ImportContentChange(originalContent, originalContent.replace(marker, replacement));
+            }
+            default -> null;
+        };
+    }
+
+    private Set<String> extractBareImportPackages(String content) {
+        if (StrUtil.isBlank(content)) {
+            return new LinkedHashSet<>();
+        }
+        Set<String> packages = new LinkedHashSet<>();
+        Matcher matcher = IMPORT_SPECIFIER_PATTERN.matcher(content);
+        while (matcher.find()) {
+            String packageName = barePackageName(matcher.group(2));
+            if (StrUtil.isNotBlank(packageName)) {
+                packages.add(packageName);
+            }
+        }
+        return packages;
+    }
+
+    private Set<String> readDeclaredPackages(Path projectRoot) {
+        Path packageJsonPath = projectRoot.resolve("package.json");
+        if (!Files.isRegularFile(packageJsonPath)) {
+            return Set.of();
+        }
+        try {
+            JSONObject packageJson = JSONUtil.parseObj(Files.readString(packageJsonPath, StandardCharsets.UTF_8));
+            Set<String> packages = new LinkedHashSet<>();
+            addPackageSection(packages, packageJson.getJSONObject("dependencies"));
+            addPackageSection(packages, packageJson.getJSONObject("devDependencies"));
+            addPackageSection(packages, packageJson.getJSONObject("peerDependencies"));
+            addPackageSection(packages, packageJson.getJSONObject("optionalDependencies"));
+            return packages;
+        } catch (Exception e) {
+            log.debug("读取 package.json 依赖失败: {}", e.getMessage());
+            return Set.of();
+        }
+    }
+
+    private void addPackageSection(Set<String> packages, JSONObject section) {
+        if (section != null) {
+            packages.addAll(section.keySet());
+        }
+    }
+
+    private String barePackageName(String specifier) {
+        if (StrUtil.isBlank(specifier)
+                || specifier.startsWith(".")
+                || specifier.startsWith("/")
+                || specifier.startsWith("@/")
+                || specifier.startsWith("~")) {
+            return "";
+        }
+        if (specifier.startsWith("@")) {
+            String[] parts = specifier.split("/");
+            return parts.length >= 2 ? parts[0] + "/" + parts[1] : specifier;
+        }
+        int slashIndex = specifier.indexOf('/');
+        return slashIndex < 0 ? specifier : specifier.substring(0, slashIndex);
+    }
+
+    private boolean isFrontendSourceFile(String normalizedPath) {
+        return normalizedPath.endsWith(".vue")
+                || normalizedPath.endsWith(".js")
+                || normalizedPath.endsWith(".mjs")
+                || normalizedPath.endsWith(".ts")
+                || normalizedPath.endsWith(".jsx")
+                || normalizedPath.endsWith(".tsx");
+    }
+
     private String ensureTrailingNewline(String value) {
         String normalized = StrUtil.blankToDefault(value, "").stripTrailing();
         return normalized.isEmpty() ? "" : normalized + System.lineSeparator();
@@ -488,5 +615,8 @@ public class GenerationPatchApplyService {
     }
 
     private record ValidationResult(List<ValidatedOperation> validOperations, List<String> rejectedOperations) {
+    }
+
+    private record ImportContentChange(String beforeContent, String afterContent) {
     }
 }

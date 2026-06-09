@@ -251,7 +251,8 @@ class AgentGenerationOrchestratorTest {
         FileUtil.del(root.toFile());
         VueProjectTemplateBootstrapService bootstrapService = new VueProjectTemplateBootstrapService(
                 root.resolve("code_output"),
-                new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                new org.springframework.core.io.support.PathMatchingResourcePatternResolver(),
+                new com.rush.rushaicodemother.orchestration.template.TemplatePreWarmService()
         );
         BackendProjectTemplateBootstrapService backendBootstrapService = new BackendProjectTemplateBootstrapService(
                 root.resolve("code_output"),

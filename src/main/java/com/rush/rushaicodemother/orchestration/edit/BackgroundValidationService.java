@@ -11,6 +11,8 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.DevServerManager;
 import com.rush.rushaicodemother.service.GenerationTraceService;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -35,6 +37,7 @@ public class BackgroundValidationService {
     private final EditStatePersistenceService editStatePersistenceService;
     private final VueProjectBuilder vueProjectBuilder;
     private final DevServerManager devServerManager;
+    private final DevServerValidationService devServerValidationService;
 
     /**
      * 异步执行后台验证。
@@ -57,7 +60,17 @@ public class BackgroundValidationService {
             List<PatchOperation> patchOperations,
             EditValidationPlan validationPlan,
             String userMessage) {
+        executeValidation(taskId, appId, userId, workspace, patchOperations, validationPlan, userMessage);
+    }
 
+    public ValidationResult executeValidation(
+            String taskId,
+            Long appId,
+            Long userId,
+            GenerationWorkspace workspace,
+            List<PatchOperation> patchOperations,
+            EditValidationPlan validationPlan,
+            String userMessage) {
         log.info("开始后台验证，taskId: {}, appId: {}, validationLevel: {}", taskId, appId, validationPlan.level());
 
         try {
@@ -75,8 +88,8 @@ public class BackgroundValidationService {
             ValidationResult result = switch (validationPlan.level()) {
                 case NONE -> ValidationResult.skipped(taskId, "无需验证");
                 case FAST_CHECK -> executeFastCheck(taskId, appId, workspace, patchOperations);
-                case BUILD_REQUIRED -> executeBuildValidation(taskId, appId, userId, workspace, patchOperations);
-                case HEAVY_REVIEW_REQUIRED -> executeHeavyReview(taskId, appId, userId, workspace, patchOperations);
+                case BUILD_REQUIRED -> executeBuildValidation(taskId, appId, userId, workspace, patchOperations, userMessage);
+                case HEAVY_REVIEW_REQUIRED -> executeHeavyReview(taskId, appId, userId, workspace, patchOperations, userMessage);
             };
 
             // 保存验证结果到编辑状态
@@ -92,6 +105,7 @@ public class BackgroundValidationService {
             ));
 
             log.info("后台验证完成，taskId: {}, status: {}", taskId, result.status());
+            return result;
 
         } catch (Exception e) {
             log.error("后台验证失败，taskId: {}", taskId, e);
@@ -107,6 +121,7 @@ public class BackgroundValidationService {
                     "status", "failed",
                     "error", StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
             ));
+            return failedResult;
         }
     }
 
@@ -117,7 +132,10 @@ public class BackgroundValidationService {
         log.debug("执行快速检查，taskId: {}, 文件数: {}", taskId, patchOperations.size());
 
         // 检查文件是否存在且可读
-        Path projectRoot = workspace.canonicalRootPath();
+        Path projectRoot = workspace.codeGenType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.FULL_STACK_PROJECT
+                && workspace.frontendRootPath() != null
+                ? workspace.frontendRootPath()
+                : workspace.canonicalRootPath();
         List<String> invalidFiles = patchOperations.stream()
                 .map(PatchOperation::relativePath)
                 .filter(StrUtil::isNotBlank)
@@ -158,10 +176,13 @@ public class BackgroundValidationService {
      * 导致 pnpm install --force 失败（EPERM）。
      * 因此在构建前停止 dev server，构建后重启。
      */
-    private ValidationResult executeBuildValidation(String taskId, Long appId, Long userId, GenerationWorkspace workspace, List<PatchOperation> patchOperations) {
+    private ValidationResult executeBuildValidation(String taskId, Long appId, Long userId, GenerationWorkspace workspace, List<PatchOperation> patchOperations, String userMessage) {
         log.debug("执行构建验证，taskId: {}, 文件数: {}", taskId, patchOperations.size());
 
-        Path projectRoot = workspace.canonicalRootPath();
+        Path projectRoot = workspace.codeGenType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.FULL_STACK_PROJECT
+                && workspace.frontendRootPath() != null
+                ? workspace.frontendRootPath()
+                : workspace.canonicalRootPath();
         String projectPath = projectRoot.toString();
         log.info("构建验证，项目根目录: {}", projectPath);
 
@@ -181,6 +202,15 @@ public class BackgroundValidationService {
             VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
 
             if (buildResult.success()) {
+                if (editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage)
+                        && workspace.codeGenType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.VUE_PROJECT) {
+                    DevServerValidationResult devServerValidationResult = devServerValidationService.validate(
+                            taskId, appId, userId, projectPath
+                    );
+                    if (!devServerValidationResult.isPassed()) {
+                        return ValidationResult.failed(taskId, "运行时验证失败: " + devServerValidationResult.summary());
+                    }
+                }
                 log.info("构建验证通过，taskId: {}, stage: {}", taskId, buildResult.stage());
                 return ValidationResult.success(taskId, "构建验证通过: " + buildResult.summary());
             } else {
@@ -197,6 +227,9 @@ public class BackgroundValidationService {
                     log.info("构建验证后重启 dev server，appId: {}, port: {}", appId, savedPort);
                     App app = new App();
                     app.setId(appId);
+                    if (workspace.codeGenType() != null) {
+                        app.setCodeGenType(workspace.codeGenType().getValue());
+                    }
                     if (savedPort != null) {
                         app.setDevServerPort(savedPort);
                     }
@@ -211,11 +244,11 @@ public class BackgroundValidationService {
     /**
      * 执行完整审查。
      */
-    private ValidationResult executeHeavyReview(String taskId, Long appId, Long userId, GenerationWorkspace workspace, List<PatchOperation> patchOperations) {
+    private ValidationResult executeHeavyReview(String taskId, Long appId, Long userId, GenerationWorkspace workspace, List<PatchOperation> patchOperations, String userMessage) {
         log.debug("执行完整审查，taskId: {}, 文件数: {}", taskId, patchOperations.size());
 
         // 先执行构建验证
-        ValidationResult buildResult = executeBuildValidation(taskId, appId, userId, workspace, patchOperations);
+        ValidationResult buildResult = executeBuildValidation(taskId, appId, userId, workspace, patchOperations, userMessage);
         if (!buildResult.isSuccess()) {
             return buildResult;
         }

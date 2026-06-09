@@ -17,9 +17,12 @@ import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -72,6 +75,13 @@ public class DevServerManager {
      * 用于运行时验证场景，收集 dev server 输出中的错误
      */
     private final Map<Long, DevServerErrorCollector> errorCollectors = new ConcurrentHashMap<>();
+
+    /**
+     * 应用最近 dev server 输出，供用户改修时复用 HMR / Vite 错误上下文。
+     */
+    private final Map<Long, ConcurrentLinkedDeque<String>> recentOutputLines = new ConcurrentHashMap<>();
+
+    private static final int MAX_RECENT_OUTPUT_LINES = 200;
 
     @Resource
     private PnpmInstallService pnpmInstallService;
@@ -282,6 +292,22 @@ public class DevServerManager {
     }
 
     /**
+     * 获取应用最近 dev server 输出。
+     */
+    public List<String> getRecentOutputLines(Long appId, int limit) {
+        if (appId == null || limit <= 0) {
+            return List.of();
+        }
+        ConcurrentLinkedDeque<String> lines = recentOutputLines.get(appId);
+        if (lines == null || lines.isEmpty()) {
+            return List.of();
+        }
+        List<String> snapshot = new ArrayList<>(lines);
+        int fromIndex = Math.max(0, snapshot.size() - limit);
+        return snapshot.subList(fromIndex, snapshot.size());
+    }
+
+    /**
      * 检查端口是否可用（未被占用）
      *
      * @param port 端口号
@@ -450,6 +476,7 @@ public class DevServerManager {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     log.info("[dev-server] {}", line);
+                    rememberRecentOutputLine(appId, line);
                     // 将输出行传递给错误收集器（如果已注册）
                     if (appId != null) {
                         DevServerErrorCollector collector = errorCollectors.get(appId);
@@ -464,6 +491,17 @@ public class DevServerManager {
         }, "dev-server-output-" + process.hashCode());
         drainer.setDaemon(true);
         drainer.start();
+    }
+
+    private void rememberRecentOutputLine(Long appId, String line) {
+        if (appId == null || StrUtil.isBlank(line)) {
+            return;
+        }
+        ConcurrentLinkedDeque<String> lines = recentOutputLines.computeIfAbsent(appId, unused -> new ConcurrentLinkedDeque<>());
+        lines.addLast(line);
+        while (lines.size() > MAX_RECENT_OUTPUT_LINES) {
+            lines.pollFirst();
+        }
     }
 
     /**
@@ -546,5 +584,6 @@ public class DevServerManager {
         appPorts.clear();
         userAppServers.clear();
         errorCollectors.clear();
+        recentOutputLines.clear();
     }
 }

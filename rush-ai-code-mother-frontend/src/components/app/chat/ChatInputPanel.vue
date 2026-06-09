@@ -1,4 +1,4 @@
-npm <template>
+np<template>
   <div class="input-container">
     <div class="input-wrapper">
       <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">

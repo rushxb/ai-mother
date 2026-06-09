@@ -1,10 +1,10 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
+import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,11 +20,11 @@ import static org.mockito.Mockito.when;
 
 class EditFileLocatorServiceTest {
 
-    @TempDir
     Path tempDir;
 
     @Test
     void shouldPrioritizeSelectedElementComponentOverUnrelatedFallbackFiles() throws Exception {
+        tempDir = cleanTestRoot("selected-element");
         Files.createDirectories(tempDir.resolve("src/components"));
         Files.createDirectories(tempDir.resolve("src/pages"));
         Files.createDirectories(tempDir.resolve("src/components/tres/particles"));
@@ -87,6 +87,43 @@ class EditFileLocatorServiceTest {
         assertTrue(candidates.stream().noneMatch(candidate -> candidate.relativePath().startsWith("dist/")));
         assertTrue(candidates.stream().noneMatch(candidate -> candidate.relativePath().startsWith(".ai-code-index/")));
         assertTrue(candidates.stream().noneMatch(candidate -> candidate.relativePath().startsWith("node_modle/")));
+    }
+
+    @Test
+    void shouldLocateRollupImportFailureSourceFileFromAbsolutePath() throws Exception {
+        tempDir = cleanTestRoot("rollup-import");
+        Files.createDirectories(tempDir.resolve("src/pages"));
+        Files.createDirectories(tempDir.resolve("src/components"));
+        Files.writeString(tempDir.resolve("src/pages/ShowcasePage.vue"), """
+                <script setup>
+                import { Star } from 'lucide-vue-next'
+                </script>
+                """);
+        Files.writeString(tempDir.resolve("src/main.ts"), "import './style.css'\n");
+
+        WorkspaceSemanticIndexService semanticIndexService = mock(WorkspaceSemanticIndexService.class);
+        when(semanticIndexService.suggestFiles(any(), any(), anyInt())).thenReturn(List.of());
+        EditStatePersistenceService editStatePersistenceService = mock(EditStatePersistenceService.class);
+        when(editStatePersistenceService.getRelevantRecentFiles(any(), any(), anyInt())).thenReturn(List.of());
+
+        EditFileLocatorService service = new EditFileLocatorService(
+                semanticIndexService,
+                null,
+                editStatePersistenceService
+        );
+
+        List<EditFileCandidate> candidates = service.locate(workspace(), """
+                [vite]: Rollup failed to resolve import "lucide-vue-next" from "D:/java项目/ai-code-mother/tmp/code_output/vue_project_1/src/pages/ShowcasePage.vue".
+                """, CodeGenTypeEnum.VUE_PROJECT);
+
+        assertEquals("src/pages/ShowcasePage.vue", candidates.getFirst().relativePath());
+        assertEquals("explicit_path", candidates.getFirst().matchType());
+    }
+
+    private Path cleanTestRoot(String caseName) {
+        Path root = Path.of("target", "test-workspaces", "edit-file-locator", caseName).toAbsolutePath().normalize();
+        FileUtil.del(root.toFile());
+        return root;
     }
 
     private GenerationWorkspace workspace() {

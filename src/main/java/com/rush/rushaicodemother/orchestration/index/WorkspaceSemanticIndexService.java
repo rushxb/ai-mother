@@ -118,6 +118,52 @@ public class WorkspaceSemanticIndexService {
         return suggestFiles(rootDir, query, limit);
     }
 
+    public List<String> findFilesBySymbol(Path rootDir, String symbol, int limit) {
+        if (rootDir == null || StrUtil.isBlank(symbol) || limit <= 0) {
+            return List.of();
+        }
+        String normalizedSymbol = normalize(symbol);
+        return loadOrBuild(rootDir).entries().stream()
+                .filter(entry -> entry.symbols() != null
+                        && entry.symbols().stream().anyMatch(item -> normalize(item).equals(normalizedSymbol)))
+                .sorted(Comparator.comparing(WorkspaceSemanticIndexEntry::relativePath))
+                .limit(limit)
+                .map(WorkspaceSemanticIndexEntry::relativePath)
+                .toList();
+    }
+
+    public List<String> findFilesReferencing(Path rootDir, String token, Set<String> extensionFilter, int limit) {
+        if (rootDir == null || StrUtil.isBlank(token) || limit <= 0) {
+            return List.of();
+        }
+        String normalizedToken = normalize(token);
+        Set<String> normalizedExtensions = normalizeExtensions(extensionFilter);
+        return loadOrBuild(rootDir).entries().stream()
+                .filter(entry -> normalizedExtensions.isEmpty() || normalizedExtensions.contains(entry.extension()))
+                .filter(entry -> normalize(entry.searchableText()).contains(normalizedToken))
+                .sorted(Comparator.comparing(WorkspaceSemanticIndexEntry::relativePath))
+                .limit(limit)
+                .map(WorkspaceSemanticIndexEntry::relativePath)
+                .toList();
+    }
+
+    public List<String> findFilesImporting(Path rootDir, String importTarget, int limit) {
+        if (rootDir == null || StrUtil.isBlank(importTarget) || limit <= 0) {
+            return List.of();
+        }
+        String normalizedImportTarget = normalize(importTarget);
+        return loadOrBuild(rootDir).entries().stream()
+                .filter(entry -> Set.of("vue", "js", "ts", "jsx", "tsx").contains(entry.extension()))
+                .filter(entry -> normalize(entry.contentExcerpt()).contains("from '" + normalizedImportTarget + "'")
+                        || normalize(entry.contentExcerpt()).contains("from \"" + normalizedImportTarget + "\"")
+                        || normalize(entry.contentExcerpt()).contains("import '" + normalizedImportTarget + "'")
+                        || normalize(entry.contentExcerpt()).contains("import \"" + normalizedImportTarget + "\""))
+                .sorted(Comparator.comparing(WorkspaceSemanticIndexEntry::relativePath))
+                .limit(limit)
+                .map(WorkspaceSemanticIndexEntry::relativePath)
+                .toList();
+    }
+
     public List<WorkspaceSemanticSearchHit> describeFiles(Path rootDir, List<String> relativePaths) {
         if (rootDir == null || CollUtil.isEmpty(relativePaths)) {
             return List.of();

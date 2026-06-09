@@ -51,7 +51,13 @@ public class EditFileLocatorService {
             "Route component not found in src/views:\\s*([A-Za-z0-9_.$-]+)"
     );
     private static final Pattern VITE_IMPORT_ANALYSIS_PATTERN = Pattern.compile(
-            "Failed to resolve import\\s+\"([^\"]+)\"\\s+from\\s+\"([^\"]+)\""
+            "(?i)(?:failed to resolve import|rollup failed to resolve import)\\s+\"([^\"]+)\"\\s+from\\s+\"([^\"]+)\""
+    );
+    private static final Pattern DUPLICATE_IDENTIFIER_PATTERN = Pattern.compile(
+            "Identifier\\s+['\"]([A-Za-z_$][\\w$]*)['\"]\\s+has already been declared"
+    );
+    private static final Pattern BARE_SOURCE_FILE_PATTERN = Pattern.compile(
+            "\\b([A-Za-z_$][\\w$.-]*\\.(?:vue|js|ts|jsx|tsx))\\b"
     );
     private static final Pattern SELECTED_ELEMENT_CLASS_PATTERN = Pattern.compile("\\.([A-Za-z_][\\w-]*)");
     private static final Pattern SELECTED_ELEMENT_CONTENT_PATTERN = Pattern.compile("- 当前内容:\\s*(.+)");
@@ -80,7 +86,15 @@ public class EditFileLocatorService {
             }
         }
 
-        // 2. 基于可视化编辑选中元素补充确定性上下文
+        // 2. 用户消息中包含裸文件名（如 ContactPage.vue）时，扫描真实路径
+        List<EditFileCandidate> bareFileMatches = extractBareFileNameCandidates(workspace, userMessage);
+        for (EditFileCandidate candidate : bareFileMatches) {
+            if (seenPaths.add(candidate.relativePath())) {
+                candidates.add(candidate);
+            }
+        }
+
+        // 3. 基于可视化编辑选中元素补充确定性上下文
         List<EditFileCandidate> selectedElementMatches = getSelectedElementContextFiles(workspace, userMessage);
         for (EditFileCandidate candidate : selectedElementMatches) {
             if (seenPaths.add(candidate.relativePath())) {
@@ -88,7 +102,7 @@ public class EditFileLocatorService {
             }
         }
 
-        // 3. 对常见运行时错误补充确定性上下文，避免 AI 只凭路由文件猜测真实组件名
+        // 4. 对常见运行时错误补充确定性上下文，避免 AI 只凭路由文件猜测真实组件名
         List<EditFileCandidate> diagnosticMatches = getDiagnosticContextFiles(workspace, userMessage);
         for (EditFileCandidate candidate : diagnosticMatches) {
             if (seenPaths.add(candidate.relativePath())) {
@@ -96,7 +110,7 @@ public class EditFileLocatorService {
             }
         }
 
-        // 4. 最近修改的文件提权（连续改修时优先命中刚改过的文件）
+        // 5. 最近修改的文件提权（连续改修时优先命中刚改过的文件）
         List<EditFileCandidate> recentMatches = getRecentModifiedFiles(workspace, userMessage);
         for (EditFileCandidate candidate : recentMatches) {
             if (seenPaths.add(candidate.relativePath())) {
@@ -104,7 +118,7 @@ public class EditFileLocatorService {
             }
         }
 
-        // 5. 语义索引搜索
+        // 6. 语义索引搜索
         List<EditFileCandidate> semanticMatches = searchBySemanticIndex(workspace, userMessage);
         for (EditFileCandidate candidate : semanticMatches) {
             if (seenPaths.add(candidate.relativePath())) {
@@ -112,7 +126,7 @@ public class EditFileLocatorService {
             }
         }
 
-        // 6. 按 code type 加固定入口文件兜底
+        // 7. 按 code type 加固定入口文件兜底
         List<EditFileCandidate> fallbackMatches = getFallbackFiles(workspace, codeGenType);
         for (EditFileCandidate candidate : fallbackMatches) {
             if (seenPaths.add(candidate.relativePath())) {
@@ -364,6 +378,33 @@ public class EditFileLocatorService {
         return candidates;
     }
 
+    private List<EditFileCandidate> extractBareFileNameCandidates(GenerationWorkspace workspace, String userMessage) {
+        if (workspace == null || StrUtil.isBlank(userMessage)) {
+            return List.of();
+        }
+        LinkedHashSet<String> fileNames = new LinkedHashSet<>();
+        Matcher matcher = BARE_SOURCE_FILE_PATTERN.matcher(userMessage);
+        while (matcher.find() && fileNames.size() < 8) {
+            fileNames.add(matcher.group(1));
+        }
+        if (fileNames.isEmpty()) {
+            return List.of();
+        }
+        List<EditFileCandidate> candidates = new ArrayList<>();
+        Path root = workspace.canonicalRootPath();
+        try {
+            Files.walk(root)
+                    .filter(Files::isRegularFile)
+                    .filter(path -> fileNames.contains(path.getFileName().toString()))
+                    .filter(path -> isEditableCandidatePath(root.relativize(path).toString()))
+                    .limit(MAX_CANDIDATE_FILES)
+                    .forEach(path -> addPath(candidates, workspace, path, "explicit_file_name", 205, "用户消息中明确提到的文件名"));
+        } catch (Exception e) {
+            log.debug("按裸文件名定位文件失败: {}", e.getMessage());
+        }
+        return candidates;
+    }
+
     /**
      * 使用语义索引搜索相关文件。
      */
@@ -483,7 +524,8 @@ public class EditFileLocatorService {
             }
         }
 
-        if (userMessage.contains("Failed to resolve import")) {
+        String normalizedMessage = userMessage.toLowerCase();
+        if (normalizedMessage.contains("failed to resolve import") || normalizedMessage.contains("rollup failed to resolve import")) {
             addIfExists(candidates, workspace, "src/main.js", "import_diagnostic", 195, "Vite import 错误需要检查 JS 入口");
             addIfExists(candidates, workspace, "src/main.ts", "import_diagnostic", 194, "Vite import 错误需要检查 TS 入口");
             addIfExists(candidates, workspace, "src/components/index.ts", "import_diagnostic", 150, "Vite import 错误需要检查组件导出");
@@ -497,6 +539,15 @@ public class EditFileLocatorService {
             }
         }
 
+        Matcher duplicateIdentifierMatcher = DUPLICATE_IDENTIFIER_PATTERN.matcher(userMessage);
+        if (duplicateIdentifierMatcher.find()) {
+            String identifier = duplicateIdentifierMatcher.group(1);
+            addIndexedReferenceFiles(candidates, workspace, identifier, Set.of("vue", "js", "ts", "jsx", "tsx"),
+                    "identifier_index", 235, "符号索引命中重复声明标识符");
+            addFilesContainingText(candidates, workspace, identifier, "duplicate_identifier", 220,
+                    "重复声明语法错误直接指向该标识符");
+        }
+
         if (userMessage.contains("getActivePinia()")) {
             addIfExists(candidates, workspace, "src/main.js", "pinia_diagnostic", 200, "Pinia 初始化错误需要检查 JS 入口");
             addIfExists(candidates, workspace, "src/main.ts", "pinia_diagnostic", 199, "Pinia 初始化错误需要检查 TS 入口");
@@ -507,9 +558,59 @@ public class EditFileLocatorService {
         return candidates;
     }
 
+    private void addFilesContainingText(List<EditFileCandidate> candidates,
+                                        GenerationWorkspace workspace,
+                                        String text,
+                                        String matchType,
+                                        int score,
+                                        String reason) {
+        if (workspace == null || StrUtil.isBlank(text)) {
+            return;
+        }
+        Path root = workspace.canonicalRootPath();
+        try {
+            Files.walk(root)
+                    .filter(Files::isRegularFile)
+                    .filter(path -> isIndexableFile(root.relativize(path).toString()))
+                    .filter(path -> fileContains(path, text))
+                    .limit(16)
+                    .forEach(path -> addPath(candidates, workspace, path, matchType, score, reason));
+        } catch (Exception e) {
+            log.debug("按文本定位文件失败: {}", text, e);
+        }
+    }
+
+    private void addIndexedReferenceFiles(List<EditFileCandidate> candidates,
+                                          GenerationWorkspace workspace,
+                                          String token,
+                                          Set<String> extensions,
+                                          String matchType,
+                                          int score,
+                                          String reason) {
+        try {
+            List<String> indexedMatches = workspaceSemanticIndexService.findFilesReferencing(
+                    workspace.canonicalRootPath(), token, extensions, 12
+            );
+            for (String relativePath : indexedMatches) {
+                addIfExists(candidates, workspace, relativePath, matchType, score, reason);
+            }
+        } catch (Exception e) {
+            log.debug("符号索引定位失败: {}", token, e);
+        }
+    }
+
+    private boolean fileContains(Path path, String text) {
+        try {
+            String content = FileUtil.readString(path.toFile(), StandardCharsets.UTF_8);
+            return content.contains(text);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void addImportErrorContextFiles(List<EditFileCandidate> candidates, GenerationWorkspace workspace, String importPath, String fromPath) {
         if (StrUtil.isNotBlank(fromPath)) {
-            String normalizedFromPath = fromPath.replace('\\', '/');
+            String normalizedFromPath = normalizeProjectRelativePath(fromPath);
             addIfExists(candidates, workspace, normalizedFromPath, "import_source_match", 210, "Vite import 报错直接指向的源文件");
         }
         if (StrUtil.isBlank(importPath)) {
@@ -524,6 +625,18 @@ public class EditFileLocatorService {
         if (StrUtil.isNotBlank(fileName)) {
             addMatchingByFileName(candidates, workspace, fileName);
         }
+    }
+
+    private String normalizeProjectRelativePath(String path) {
+        String normalized = StrUtil.blankToDefault(path, "").replace('\\', '/');
+        int srcIndex = normalized.indexOf("/src/");
+        if (srcIndex >= 0) {
+            return normalized.substring(srcIndex + 1);
+        }
+        if (normalized.startsWith("src/")) {
+            return normalized;
+        }
+        return normalized;
     }
 
     private void addMatchingByFileName(List<EditFileCandidate> candidates, GenerationWorkspace workspace, String fileName) {

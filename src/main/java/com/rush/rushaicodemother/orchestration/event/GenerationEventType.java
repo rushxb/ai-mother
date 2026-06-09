@@ -7,6 +7,8 @@ public enum GenerationEventType {
     EDIT_ROUTE("edit_route"),
     FILE_LOCATOR("file_locator"),
     PATCH_APPLY("patch_apply"),
+    REPAIR_START("repair_start"),
+    EDIT_ROLLBACK("edit_rollback"),
     VALIDATION_START("validation_start"),
     VALIDATION_RESULT("validation_result"),
     DEV_SERVER_VALIDATION_RESULT("dev_server_validation_result"),

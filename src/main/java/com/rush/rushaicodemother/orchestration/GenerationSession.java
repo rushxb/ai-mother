@@ -60,7 +60,7 @@ public final class GenerationSession {
         GenerationTraceService generationTraceService = traceServiceRef.get();
         if (generationTraceService != null && preparation != null) {
             generationTraceService.recordEvent(preparation.taskId(), appId, userId, event);
-        } else {
+        } else if (generationTraceService != null || preparation != null) {
             log.warn("生成事件未写入 trace，原因: traceService={}, preparation={}, eventType={}",
                     generationTraceService != null, preparation != null, event == null ? null : event.getType());
         }

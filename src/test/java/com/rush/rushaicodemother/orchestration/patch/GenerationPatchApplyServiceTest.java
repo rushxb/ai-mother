@@ -154,6 +154,88 @@ class GenerationPatchApplyServiceTest {
                 .count(), 0.001);
     }
 
+    @Test
+    void shouldRejectUndeclaredBareImportWithoutWritingFile() throws Exception {
+        Path root = cleanTestRoot("undeclared-import");
+        Files.createDirectories(root.resolve("src"));
+        Files.writeString(root.resolve("package.json"), """
+                {
+                  "dependencies": {
+                    "vue": "^3.5.0"
+                  }
+                }
+                """);
+        Files.writeString(root.resolve("src/ShowcasePage.vue"), """
+                <script setup>
+                import { Star } from 'vue'
+                </script>
+                """);
+
+        PatchApplyResult result = service.applyWithoutChangePlan(6L, "task-6", root, List.of(
+                PatchOperation.modify("src/ShowcasePage.vue", """
+                        <script setup>
+                        import { Star } from 'lucide-vue-next'
+                        </script>
+                        """)
+        ), "lightweight_runtime_retry");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains("modify:src/ShowcasePage.vue:undeclared_bare_import:lucide-vue-next"));
+        assertTrue(Files.readString(root.resolve("src/ShowcasePage.vue")).contains("from 'vue'"));
+    }
+
+    @Test
+    void shouldAllowPatchThatRemovesExistingUndeclaredBareImport() throws Exception {
+        Path root = cleanTestRoot("remove-undeclared-import");
+        Files.createDirectories(root.resolve("src/pages"));
+        Files.writeString(root.resolve("package.json"), """
+                {
+                  "dependencies": {
+                    "vue": "^3.5.0"
+                  }
+                }
+                """);
+        Files.writeString(root.resolve("src/pages/ContactPage.vue"), """
+                <script setup>
+                import { ref } from 'vue'
+                import { Mail } from 'lucide-vue-next'
+                const icon = Mail
+                </script>
+                <template>
+                  <Mail class="icon" />
+                </template>
+                """);
+
+        PatchApplyResult result = service.applyWithoutChangePlan(7L, "task-7", root, List.of(
+                PatchOperation.replace(
+                        "src/pages/ContactPage.vue",
+                        """
+                                <script setup>
+                                import { ref } from 'vue'
+                                import { Mail } from 'lucide-vue-next'
+                                const icon = Mail
+                                </script>
+                                """,
+                        """
+                                <script setup>
+                                import { ref } from 'vue'
+                                const icon = 'mail'
+                                </script>
+                                """
+                ),
+                PatchOperation.replace(
+                        "src/pages/ContactPage.vue",
+                        "<Mail class=\"icon\" />",
+                        "<span class=\"icon\">mail</span>"
+                )
+        ), "lightweight_edit_retry");
+
+        assertEquals("applied", result.status());
+        String content = Files.readString(root.resolve("src/pages/ContactPage.vue"));
+        assertFalse(content.contains("lucide-vue-next"));
+        assertTrue(content.contains("<span class=\"icon\">mail</span>"));
+    }
+
     private Path cleanTestRoot(String caseName) {
         Path root = Path.of("target", "test-workspaces", "patch-apply-service", caseName);
         FileUtil.del(root.toFile());

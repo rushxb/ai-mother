@@ -31,7 +31,8 @@ class ContextAgentNodeTemplateTest {
             TemplateAgentNode templateAgentNode = new TemplateAgentNode(
                     new com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService(
                             outputRoot,
-                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver(),
+                            new com.rush.rushaicodemother.orchestration.template.TemplatePreWarmService()
                     ),
                     new com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService(
                             outputRoot,

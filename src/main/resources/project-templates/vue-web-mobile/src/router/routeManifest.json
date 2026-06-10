@@ -1,0 +1,6 @@
+[
+  { "path": "/", "name": "home", "component": "HomeView", "title": "首页", "layout": "MainLayout" },
+  { "path": "/category", "name": "category", "component": "CategoryView", "title": "分类", "layout": "MainLayout" },
+  { "path": "/orders", "name": "orders", "component": "OrdersView", "title": "订单", "layout": "MainLayout" },
+  { "path": "/profile", "name": "profile", "component": "ProfileView", "title": "我的", "layout": "MainLayout" }
+]

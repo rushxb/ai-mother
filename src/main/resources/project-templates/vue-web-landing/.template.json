@@ -1,0 +1,19 @@
+{
+  "id": "vue-web-landing",
+  "name": "Vue Web Landing",
+  "description": "展示型官网/活动页模板，基于 Vue 3 + Vite，包含首屏、亮点、案例、流程和 FAQ。",
+  "packageManager": "pnpm",
+  "tags": ["vue", "vite", "landing", "marketing", "typescript"],
+  "entryFiles": [
+    "src/router/routeManifest.json",
+    "src/layouts/MainLayout.vue",
+    "src/views/LandingView.vue",
+    "src/data/landingData.ts",
+    "src/pages/LandingPage.vue"
+  ],
+  "optionalFiles": [
+    "src/components/LandingSection.vue",
+    "src/components/PricingCard.vue",
+    "src/components/FAQItem.vue"
+  ]
+}

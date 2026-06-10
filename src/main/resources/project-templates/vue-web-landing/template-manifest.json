@@ -1,0 +1,35 @@
+{
+  "templateId": "vue-web-landing",
+  "description": "展示型官网/活动页模板。CREATE 首次生成只填充一个完整业务数据文件，页面结构、路由、组件和构建配置由模板保证。",
+  "slots": [
+    {
+      "id": "landing_core_data",
+      "file": "src/data/landingData.ts",
+      "description": "完整 landingData.ts 业务数据文件，覆盖品牌首屏、导航、统计、亮点、案例、流程、价格、FAQ 和联系方式。",
+      "required": true,
+      "type": "data",
+      "category": "core_data",
+      "example": "export interface LandingBrand { name: string; headline: string; description: string; cta: string; secondary: string }\nexport const brand = { name: '品牌名', headline: '主标题', description: '描述', cta: '预约咨询', secondary: '查看案例' }\nexport const nav = ['亮点', '案例', '流程', '价格', 'FAQ']",
+      "dependencies": [
+        "src/pages/LandingPage.vue"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 TypeScript 文件。必须包含并导出 brand、nav、stats、highlights、cases、process、plans、faqs、contact；不要生成 Vue SFC，不要修改路由、入口、样式或 package.json。"
+    }
+  ],
+  "protectedFiles": [
+    "package.json",
+    "vite.config.js",
+    "tsconfig.json",
+    "index.html",
+    "src/main.ts",
+    "src/App.vue",
+    "src/router/index.ts",
+    "src/router/routeFactory.ts",
+    "src/router/routeManifest.json",
+    "src/views/LandingView.vue",
+    "src/pages/LandingPage.vue",
+    "src/styles/landing.css"
+  ],
+  "maxSlotsPerGeneration": 1
+}

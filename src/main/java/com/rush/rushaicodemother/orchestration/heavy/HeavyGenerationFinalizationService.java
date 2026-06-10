@@ -1,0 +1,200 @@
+package com.rush.rushaicodemother.orchestration.heavy;
+
+import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
+import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
+import com.rush.rushaicodemother.orchestration.patch.GenerationPatchResultService;
+import com.rush.rushaicodemother.orchestration.review.OrphanFileReviewService;
+import com.rush.rushaicodemother.orchestration.snapshot.GenerationCommitService;
+import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+public class HeavyGenerationFinalizationService {
+
+    private final GenerationCommitService generationCommitService;
+    private final GenerationDiffSummaryService generationDiffSummaryService;
+    private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
+    private final GenerationPatchResultService generationPatchResultService;
+    private final OrphanFileReviewService orphanFileReviewService;
+
+    public void emitDiffSummaryIfAvailable(Long appId,
+                                           GenerationPreparation preparation,
+                                           GenerationSession session) {
+        if (session.isCancelled()) {
+            return;
+        }
+        GenerationArtifact rollbackPoint = preparation.artifact("rollback_point");
+        DiffSummary summary = generationDiffSummaryService.summarize(
+                appId,
+                preparation.targetType(),
+                preparation.taskId(),
+                rollbackPoint
+        );
+        GenerationArtifact diffSummary = GenerationArtifact.of(
+                "diff_summary",
+                "Orchestrator",
+                "生成后差异摘要",
+                summary.toPayload()
+        );
+        preparation.putArtifact(diffSummary);
+        session.emit(GenerationStreamEvent.agentEvent(
+                generationDiffSummaryService.renderText(summary),
+                buildDiffSummaryEventData(preparation, diffSummary)
+        ));
+        emitPatchResultIfAvailable(appId, preparation, session, diffSummary);
+    }
+
+    public void emitCommitResultIfAvailable(Long appId,
+                                            GenerationPreparation preparation,
+                                            GenerationSession session) {
+        if (session.isCancelled()) {
+            return;
+        }
+        GenerationCommitResult commitResult = generationCommitService.commit(
+                appId,
+                preparation.taskId(),
+                preparation.artifact("diff_summary")
+        );
+        GenerationArtifact commitArtifact = GenerationArtifact.of(
+                "generation_commit",
+                "Orchestrator",
+                "生成结果本地 Git 提交",
+                commitResult.toPayload()
+        );
+        preparation.putArtifact(commitArtifact);
+        generationOrchestrationMetricsCollector.recordGenerationCommit(
+                commitResult.provider(),
+                commitResult.status(),
+                commitResult.reason()
+        );
+        session.emit(GenerationStreamEvent.agentEvent(
+                generationCommitService.renderText(commitResult),
+                buildCommitResultEventData(preparation, commitArtifact)
+        ));
+    }
+
+    public Map<String, Object> buildDiffSummaryEventData(GenerationPreparation preparation,
+                                                         GenerationArtifact diffSummary) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "diff");
+        data.put("status", diffSummary.payload().get("status"));
+        data.put("summary", "created".equals(String.valueOf(diffSummary.payload().get("status")))
+                ? "生成后差异摘要已生成"
+                : "生成后差异摘要已跳过");
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", diffSummary.payload());
+        return data;
+    }
+
+    public Map<String, Object> buildPatchResultEventData(GenerationPreparation preparation,
+                                                         GenerationArtifact patchResult) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "patch");
+        data.put("status", patchResult.payload().get("status"));
+        data.put("summary", "applied".equals(String.valueOf(patchResult.payload().get("status")))
+                ? "Patch 实际落盘结果已对齐"
+                : "Patch 实际落盘结果存在偏差或已跳过");
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", patchResult.payload());
+        return data;
+    }
+
+    public Map<String, Object> buildOrphanReviewEventData(GenerationPreparation preparation,
+                                                          GenerationArtifact orphanReview) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "orphan_review");
+        data.put("status", orphanReview.payload().get("status"));
+        data.put("summary", orphanReview.payload().get("summary"));
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", orphanReview.payload());
+        return data;
+    }
+
+    public Map<String, Object> buildCommitResultEventData(GenerationPreparation preparation,
+                                                          GenerationArtifact commitResult) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "Orchestrator");
+        data.put("stage", "commit");
+        data.put("status", commitResult.payload().get("status"));
+        data.put("summary", "committed".equals(String.valueOf(commitResult.payload().get("status")))
+                ? "生成结果已提交到本地 Git"
+                : "生成结果本地 Git 提交已跳过或失败");
+        data.put("taskId", preparation.taskId());
+        data.put("artifact", commitResult.payload());
+        return data;
+    }
+
+    private void emitPatchResultIfAvailable(Long appId,
+                                            GenerationPreparation preparation,
+                                            GenerationSession session,
+                                            GenerationArtifact diffSummary) {
+        if (session.isCancelled()) {
+            return;
+        }
+        PatchResult patchResult = generationPatchResultService.evaluate(
+                appId,
+                preparation.taskId(),
+                preparation.artifact("change_plan"),
+                diffSummary
+        );
+        GenerationArtifact patchResultArtifact = GenerationArtifact.of(
+                "patch_result",
+                "Orchestrator",
+                "Patch 实际落盘结果",
+                patchResult.toPayload()
+        );
+        preparation.putArtifact(patchResultArtifact);
+        generationOrchestrationMetricsCollector.recordPatchResult(
+                "agent",
+                patchResult.status(),
+                patchResult.reason()
+        );
+        session.emit(GenerationStreamEvent.agentEvent(
+                generationPatchResultService.renderText(patchResult),
+                buildPatchResultEventData(preparation, patchResultArtifact)
+        ));
+        emitOrphanFileReviewIfAvailable(appId, preparation, session);
+    }
+
+    private void emitOrphanFileReviewIfAvailable(Long appId,
+                                                 GenerationPreparation preparation,
+                                                 GenerationSession session) {
+        if (session.isCancelled()) {
+            return;
+        }
+        Path projectRoot = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR, preparation.targetType().getValue() + "_" + appId);
+        ChangePlan changePlan = preparation.artifact("change_plan") == null
+                ? null
+                : ChangePlan.fromPayload(preparation.artifact("change_plan").payload());
+        OrphanFileReviewService.OrphanFileReviewResult result = orphanFileReviewService.review(projectRoot, changePlan);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", result.status());
+        payload.put("orphanCandidates", result.orphanCandidates());
+        payload.put("reasons", result.reasons());
+        payload.put("deleteAllowedFiles", result.deleteAllowedFiles());
+        payload.put("summary", result.summary());
+        GenerationArtifact artifact = GenerationArtifact.of("orphan_file_review", "Orchestrator", "旧模板残留审查", payload);
+        preparation.putArtifact(artifact);
+        session.emit(GenerationStreamEvent.agentEvent(
+                result.summary(),
+                buildOrphanReviewEventData(preparation, artifact)
+        ));
+    }
+}

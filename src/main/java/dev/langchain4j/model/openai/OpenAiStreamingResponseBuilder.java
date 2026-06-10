@@ -32,6 +32,7 @@ import static java.util.stream.Collectors.toList;
 public class OpenAiStreamingResponseBuilder {
 
     private final StringBuffer contentBuilder = new StringBuffer();
+    private final StringBuffer reasoningContentBuilder = new StringBuffer();
 
     private final StringBuffer toolNameBuilder = new StringBuffer();
     private final StringBuffer toolArgumentsBuilder = new StringBuffer();
@@ -95,6 +96,11 @@ public class OpenAiStreamingResponseBuilder {
         String content = delta.content();
         if (!isNullOrEmpty(content)) {
             this.contentBuilder.append(content);
+        }
+
+        String reasoningContent = delta.reasoningContent();
+        if (!isNullOrEmpty(reasoningContent)) {
+            this.reasoningContentBuilder.append(reasoningContent);
         }
 
         if (delta.functionCall() != null) {
@@ -179,6 +185,7 @@ public class OpenAiStreamingResponseBuilder {
                 .build();
 
         String text = contentBuilder.toString();
+        String reasoningContent = reasoningContentBuilder.toString();
 
         String toolName = toolNameBuilder.toString();
         if (!toolName.isEmpty()) {
@@ -188,8 +195,8 @@ public class OpenAiStreamingResponseBuilder {
                     .build();
 
             AiMessage aiMessage = isNullOrBlank(text) ?
-                    AiMessage.from(toolExecutionRequest) :
-                    AiMessage.from(text, singletonList(toolExecutionRequest));
+                    aiMessage(singletonList(toolExecutionRequest), reasoningContent) :
+                    aiMessage(text, singletonList(toolExecutionRequest), reasoningContent);
 
             return ChatResponse.builder()
                     .aiMessage(aiMessage)
@@ -207,8 +214,8 @@ public class OpenAiStreamingResponseBuilder {
                     .collect(toList());
 
             AiMessage aiMessage = isNullOrBlank(text) ?
-                    AiMessage.from(toolExecutionRequests) :
-                    AiMessage.from(text, toolExecutionRequests);
+                    aiMessage(toolExecutionRequests, reasoningContent) :
+                    aiMessage(text, toolExecutionRequests, reasoningContent);
 
             return ChatResponse.builder()
                     .aiMessage(aiMessage)
@@ -217,7 +224,7 @@ public class OpenAiStreamingResponseBuilder {
         }
 
         if (!isNullOrBlank(text)) {
-            AiMessage aiMessage = AiMessage.from(text);
+            AiMessage aiMessage = aiMessage(text, reasoningContent);
             return ChatResponse.builder()
                     .aiMessage(aiMessage)
                     .metadata(chatResponseMetadata)
@@ -232,5 +239,23 @@ public class OpenAiStreamingResponseBuilder {
         private final StringBuffer idBuilder = new StringBuffer();
         private final StringBuffer nameBuilder = new StringBuffer();
         private final StringBuffer argumentsBuilder = new StringBuffer();
+    }
+
+    private static AiMessage aiMessage(String text, String reasoningContent) {
+        return isNullOrBlank(reasoningContent)
+                ? AiMessage.from(text)
+                : new ReasoningAiMessage(text, reasoningContent);
+    }
+
+    private static AiMessage aiMessage(List<ToolExecutionRequest> toolExecutionRequests, String reasoningContent) {
+        return isNullOrBlank(reasoningContent)
+                ? AiMessage.from(toolExecutionRequests)
+                : new ReasoningAiMessage(toolExecutionRequests, reasoningContent);
+    }
+
+    private static AiMessage aiMessage(String text, List<ToolExecutionRequest> toolExecutionRequests, String reasoningContent) {
+        return isNullOrBlank(reasoningContent)
+                ? AiMessage.from(text, toolExecutionRequests)
+                : new ReasoningAiMessage(text, toolExecutionRequests, reasoningContent);
     }
 }

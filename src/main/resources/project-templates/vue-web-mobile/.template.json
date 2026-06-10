@@ -1,0 +1,22 @@
+{
+  "id": "vue-web-mobile",
+  "name": "Vue Web Mobile",
+  "description": "移动端 H5 模板，基于 Vue 3 + Vite + Vant 4 + Pinia，适合电商、内容、活动等移动端场景。",
+  "packageManager": "pnpm",
+  "tags": ["vue", "vite", "mobile", "vant", "typescript", "pinia"],
+  "entryFiles": [
+    "src/router/routeManifest.json",
+    "src/layouts/MainLayout.vue",
+    "src/views/HomeView.vue",
+    "src/data/mock.ts",
+    "src/stores/user.ts",
+    "src/stores/cart.ts"
+  ],
+  "optionalFiles": [
+    "src/pages/CategoryPage.vue",
+    "src/pages/CartPage.vue",
+    "src/pages/UserPage.vue",
+    "src/components/ProductCard.vue",
+    "src/components/BannerSwipe.vue"
+  ]
+}

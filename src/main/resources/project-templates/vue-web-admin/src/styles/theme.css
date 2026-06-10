@@ -1,0 +1,18 @@
+:root {
+  --bg: #eef1f5;
+  --sidebar: #101820;
+  --surface: #ffffff;
+  --surface-soft: #f6f8fb;
+  --text: #18212c;
+  --muted: #6b7480;
+  --line: #dce2ea;
+  --primary: #1769aa;
+  --success: #19784d;
+  --warning: #c56a14;
+  --radius: 8px;
+  --shadow: 0 14px 34px rgba(24, 33, 44, 0.08);
+
+  /* @AI_INJECT_STYLE_VARIABLES */
+}
+
+/* @AI_INJECT_STYLES */

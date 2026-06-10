@@ -1,0 +1,459 @@
+{
+  "templateId": "vue-web-mobile",
+  "description": "移动端 H5，基于 Vue 3 + Vite + Vant 4 + vaul-vue + motion-v + TresJS + Lenis，适合电商、内容、活动等移动端场景",
+  "slots": [
+    {
+      "id": "home_content",
+      "file": "src/views/HomeView.vue",
+      "description": "首页主体内容区域，包含轮播、商品列表、底部导航等移动端组件",
+      "required": true,
+      "type": "view",
+      "category": "page",
+      "example": "<template>\n  <div class=\"home\">\n    <van-swipe :autoplay=\"3000\">\n      <van-swipe-item v-for=\"banner in banners\" :key=\"banner.id\">\n        <img :src=\"banner.image\" :alt=\"banner.title\">\n      </van-swipe-item>\n    </van-swipe>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { banners } from '@/data/mock'\n</script>",
+      "dependencies": [
+        "src/data/mock.ts",
+        "src/stores/cart.ts"
+      ],
+      "styleVariables": [
+        "--color-primary",
+        "--color-bg",
+        "--tabbar-height",
+        "--safe-area-bottom"
+      ],
+      "outputFormat": "完整的 Vue SFC，使用 Vant 4 组件",
+      "aiHints": {
+        "pattern": "轮播 + 分类 + 商品列表 + 底部导航",
+        "components": [
+          "van-swipe",
+          "van-grid",
+          "van-card",
+          "van-tabbar"
+        ],
+        "hooks": [
+          "useRouter",
+          "useCartStore"
+        ]
+      }
+    },
+    {
+      "id": "theme_tokens",
+      "file": "src/styles/mobile.css",
+      "description": "主题色和基础样式变量，定义移动端的全局 CSS 变量",
+      "required": false,
+      "type": "style",
+      "category": "theme",
+      "example": ":root {\n  --color-primary: #1989fa;\n  --color-bg: #f7f8fa;\n  --tabbar-height: 50px;\n  --safe-area-bottom: env(safe-area-inset-bottom);\n}",
+      "dependencies": null,
+      "styleVariables": [
+        "--color-primary",
+        "--color-bg",
+        "--tabbar-height",
+        "--safe-area-bottom"
+      ],
+      "outputFormat": "CSS 变量定义，使用 :root 选择器"
+    },
+    {
+      "id": "mock_data",
+      "file": "src/data/mock.ts",
+      "description": "页面演示数据，包含 banners、products、categories 等内容",
+      "required": true,
+      "type": "data",
+      "category": "data",
+      "example": "export const banners = [\n  { id: 1, image: '/banner1.jpg', title: '轮播图1' }\n]\n\nexport const products = [\n  { id: 1, name: '商品名', price: 99, image: '/product1.jpg' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 常量导出，带类型定义",
+      "aiHints": {
+        "pattern": "数据结构定义 + 常量导出",
+        "types": [
+          "Banner",
+          "Product",
+          "Category",
+          "TabItem"
+        ]
+      }
+    },
+    {
+      "id": "tabbar_config",
+      "file": "src/data/tabbar.ts",
+      "description": "底部导航栏配置，定义 TabBar 的菜单项",
+      "required": false,
+      "type": "config",
+      "category": "config",
+      "example": "export const tabbar = [\n  { name: 'home', title: '首页', icon: 'home-o' },\n  { name: 'category', title: '分类', icon: 'apps-o' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "product_list",
+      "file": "src/data/products.ts",
+      "description": "商品/内容列表数据",
+      "required": false,
+      "type": "data",
+      "category": "data",
+      "example": "export const products = [\n  { id: 1, name: '商品名', price: 99, image: '/product1.jpg' }\n]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "user_store",
+      "file": "src/stores/user.ts",
+      "description": "用户状态管理，包含登录、token、用户信息",
+      "required": true,
+      "type": "store",
+      "category": "state",
+      "example": "export const useUserStore = defineStore('user', () => {\n  const token = ref('')\n  const userInfo = ref<UserInfo | null>(null)\n  \n  async function login(params: LoginParams) { ... }\n  async function logout() { ... }\n  \n  return { token, userInfo, login, logout }\n})",
+      "dependencies": [
+        "src/types/index.ts"
+      ],
+      "styleVariables": null,
+      "outputFormat": "Pinia store，使用 Composition API",
+      "aiHints": {
+        "pattern": "Pinia defineStore + ref + computed + async actions",
+        "persist": true
+      }
+    },
+    {
+      "id": "cart_store",
+      "file": "src/stores/cart.ts",
+      "description": "购物车状态管理，包含商品、数量、总价",
+      "required": false,
+      "type": "store",
+      "category": "state",
+      "example": "export const useCartStore = defineStore('cart', () => {\n  const items = ref<CartItem[]>([])\n  const totalCount = computed(() => items.value.reduce(...))\n  \n  function addItem(product: Product) { ... }\n  function removeItem(productId: number) { ... }\n  \n  return { items, totalCount, addItem, removeItem }\n})",
+      "dependencies": [
+        "src/data/mock.ts"
+      ],
+      "styleVariables": null,
+      "outputFormat": "Pinia store，使用 Composition API",
+      "aiHints": {
+        "pattern": "Pinia defineStore + ref + computed + actions",
+        "persist": true
+      }
+    },
+    {
+      "id": "drawer_example",
+      "file": "src/components/DrawerExample.vue",
+      "description": "vaul-vue 底部抽屉示例组件",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<DrawerRoot>\n  <DrawerTrigger>打开抽屉</DrawerTrigger>\n  <DrawerContent>\n    <div>抽屉内容</div>\n  </DrawerContent>\n</DrawerRoot>",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 vaul-vue",
+      "aiHints": {
+        "pattern": "底部抽屉 + 手势 + iOS 风格",
+        "components": [
+          "DrawerRoot",
+          "DrawerTrigger",
+          "DrawerContent",
+          "DrawerOverlay"
+        ],
+        "props": [
+          "shouldScaleBackground",
+          "snapPoints"
+        ]
+      }
+    },
+    {
+      "id": "basic_scene",
+      "file": "src/components/tres/BasicScene.vue",
+      "description": "TresJS 基础 3D 场景组件",
+      "required": false,
+      "type": "component",
+      "category": "3d",
+      "example": "<BasicScene>\n  <TresMesh>\n    <TresBoxGeometry />\n    <TresMeshStandardMaterial color=\"blue\" />\n  </TresMesh>\n</BasicScene>",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 @tresjs/core",
+      "aiHints": {
+        "pattern": "3D 场景 + 相机 + 光照 + 物体",
+        "components": [
+          "TresCanvas",
+          "TresPerspectiveCamera",
+          "TresAmbientLight",
+          "TresDirectionalLight"
+        ],
+        "props": [
+          "color",
+          "intensity"
+        ]
+      }
+    },
+    {
+      "id": "rotating_cube",
+      "file": "src/components/tres/RotatingCube.vue",
+      "description": "旋转立方体 3D 组件",
+      "required": false,
+      "type": "component",
+      "category": "3d",
+      "example": "<RotatingCube color=\"#00ff00\" :speed=\"1\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "Vue 组件，使用 @tresjs/core + useRenderLoop",
+      "aiHints": {
+        "pattern": "3D 物体 + 动画循环 + 材质",
+        "components": [
+          "TresCanvas",
+          "TresMesh",
+          "TresBoxGeometry",
+          "TresMeshStandardMaterial"
+        ],
+        "props": [
+          "color",
+          "speed"
+        ]
+      }
+    },
+    {
+      "id": "category_page",
+      "file": "src/views/CategoryView.vue",
+      "description": "分类/频道页，适合电商分类、服务目录、内容频道",
+      "required": false,
+      "type": "view",
+      "category": "page",
+      "example": "<template><main class=\"category-view\">分类</main></template>",
+      "dependencies": [
+        "src/data/filters.ts",
+        "src/data/products.ts"
+      ],
+      "styleVariables": [
+        "--color-primary",
+        "--color-bg"
+      ],
+      "outputFormat": "完整 Vue SFC，使用 Vant 列表、标签和筛选交互"
+    },
+    {
+      "id": "orders_page",
+      "file": "src/views/OrdersView.vue",
+      "description": "订单/预约记录页，包含状态 Tabs、列表和操作按钮",
+      "required": false,
+      "type": "view",
+      "category": "page",
+      "example": "<template><main class=\"orders-view\">订单</main></template>",
+      "dependencies": [
+        "src/data/mock.ts",
+        "src/data/booking.ts"
+      ],
+      "styleVariables": [
+        "--color-primary",
+        "--color-bg"
+      ],
+      "outputFormat": "完整 Vue SFC，使用 Vant Tabs、Card、Empty 状态"
+    },
+    {
+      "id": "profile_page",
+      "file": "src/views/ProfileView.vue",
+      "description": "个人中心/会员中心页，包含用户信息、权益、订单入口和设置",
+      "required": false,
+      "type": "view",
+      "category": "page",
+      "example": "<template><main class=\"profile-view\">我的</main></template>",
+      "dependencies": [
+        "src/stores/user.ts",
+        "src/data/member.ts"
+      ],
+      "styleVariables": [
+        "--color-primary",
+        "--color-bg"
+      ],
+      "outputFormat": "完整 Vue SFC，使用 Vant Cell、Grid、Tag"
+    },
+    {
+      "id": "mobile_campaigns",
+      "file": "src/data/campaigns.ts",
+      "description": "移动端活动、营销卡片、优惠入口数据",
+      "required": false,
+      "type": "data",
+      "category": "commerce",
+      "example": "export const campaigns = [{ title: '新人专享', subtitle: '首单立减 20 元' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "coupon_data",
+      "file": "src/data/coupons.ts",
+      "description": "优惠券、满减、配送权益数据",
+      "required": false,
+      "type": "data",
+      "category": "commerce",
+      "example": "export const coupons = [{ name: '满 199 减 30', threshold: 199, amount: 30 }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "booking_data",
+      "file": "src/data/booking.ts",
+      "description": "预约服务、时间段、门店或排班数据",
+      "required": false,
+      "type": "data",
+      "category": "booking",
+      "example": "export const services = [{ name: '到店咨询', duration: '30 分钟' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 常量导出，包含服务和时间段"
+    },
+    {
+      "id": "content_feed",
+      "file": "src/data/feed.ts",
+      "description": "内容流、资讯、文章、推荐卡片数据",
+      "required": false,
+      "type": "data",
+      "category": "content",
+      "example": "export const feedItems = [{ title: '今日精选', summary: '为你推荐值得关注的内容' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "filter_config",
+      "file": "src/data/filters.ts",
+      "description": "移动端分类、排序、筛选配置",
+      "required": false,
+      "type": "config",
+      "category": "config",
+      "example": "export const filters = [{ key: 'category', label: '分类', options: ['全部'] }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "member_benefits",
+      "file": "src/data/member.ts",
+      "description": "会员权益、积分、等级和个人中心配置",
+      "required": false,
+      "type": "data",
+      "category": "member",
+      "example": "export const memberBenefits = [{ title: '专属折扣', description: '会员享折扣' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "product_card",
+      "file": "src/components/ProductCard.vue",
+      "description": "商品/服务/内容卡片组件，适配当前业务字段和行动按钮",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<ProductCard :item=\"item\" @click=\"handleClick\" />",
+      "dependencies": null,
+      "styleVariables": [
+        "--color-primary"
+      ],
+      "outputFormat": "完整 Vue SFC，使用移动端卡片布局"
+    },
+    {
+      "id": "mobile_filter_bar",
+      "file": "src/components/MobileFilterBar.vue",
+      "description": "移动端横向筛选条组件",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<MobileFilterBar :filters=\"filters\" @change=\"handleChange\" />",
+      "dependencies": [
+        "src/data/filters.ts"
+      ],
+      "styleVariables": [
+        "--color-primary"
+      ],
+      "outputFormat": "完整 Vue SFC，使用 Vant/原生按钮实现紧凑筛选"
+    },
+    {
+      "id": "orders_view",
+      "description": "订单视图，订单列表和状态管理",
+      "outputFormat": "完整 Vue SFC",
+      "type": "view",
+      "required": false,
+      "category": "page",
+      "file": "src/views/OrdersView.vue"
+    },
+    {
+      "id": "profile_view",
+      "description": "个人中心视图，用户信息、设置入口",
+      "outputFormat": "完整 Vue SFC",
+      "type": "view",
+      "required": false,
+      "category": "page",
+      "file": "src/views/ProfileView.vue"
+    },
+    {
+      "id": "campaign_page",
+      "description": "活动/营销页面，限时折扣、拼团活动",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/CampaignPage.vue"
+    },
+    {
+      "id": "search_page",
+      "description": "搜索页面，关键词搜索、热门搜索、搜索结果",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/SearchPage.vue"
+    },
+    {
+      "id": "cart_page",
+      "description": "购物车页面，商品数量编辑、总价计算、结算",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/CartPage.vue"
+    },
+    {
+      "id": "order_list_data",
+      "description": "订单列表数据，含订单号、金额、状态",
+      "outputFormat": "TypeScript 数组导出",
+      "type": "data",
+      "required": false,
+      "category": "data",
+      "file": "src/data/orderList.ts"
+    },
+    {
+      "id": "member_profile_data",
+      "description": "会员资料数据，含昵称、等级、积分",
+      "outputFormat": "TypeScript 对象导出",
+      "type": "data",
+      "required": false,
+      "category": "data",
+      "file": "src/data/memberProfile.ts"
+    },
+    {
+      "id": "layout_main",
+      "description": "移动端主布局，含 TabBar 和内容区",
+      "outputFormat": "完整 Vue SFC",
+      "type": "layout",
+      "required": false,
+      "category": "layout",
+      "file": "src/layouts/MainLayout.vue"
+    },
+    {
+      "id": "layout_navbar",
+      "description": "移动端顶部导航，含返回、标题、操作按钮",
+      "outputFormat": "完整 Vue SFC",
+      "type": "layout",
+      "required": false,
+      "category": "layout",
+      "file": "src/layouts/Navbar.vue"
+    }
+  ],
+  "protectedFiles": [
+    "package.json",
+    "vite.config.ts",
+    "tsconfig.json",
+    "index.html",
+    "src/main.ts",
+    "src/App.vue",
+    "src/router/index.ts"
+  ],
+  "maxSlotsPerGeneration": 14
+}

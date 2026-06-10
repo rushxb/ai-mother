@@ -21,6 +21,12 @@ public interface StreamingChatResponseHandler {
     void onPartialResponse(String partialResponse);
 
     /**
+     * Invoked when the model generates a partial reasoning/thinking chunk.
+     */
+    default void onPartialThinking(String partialThinking) {
+    }
+
+    /**
      * TODO
      * TODO this callback is called as soon as partial tool is available
      * TODO can be called multiple times

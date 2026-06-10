@@ -1,0 +1,21 @@
+[
+  {
+    "path": "/",
+    "name": "home",
+    "component": "HomeView",
+    "title": "首页",
+    "layout": "MainLayout"
+  },
+  {
+    "path": "/login",
+    "name": "login",
+    "component": "LoginPage",
+    "title": "登录"
+  },
+  {
+    "path": "/403",
+    "name": "403",
+    "component": "ForbiddenPage",
+    "title": "无权限"
+  }
+]

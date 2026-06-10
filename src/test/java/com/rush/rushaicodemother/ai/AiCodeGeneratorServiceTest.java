@@ -4,10 +4,12 @@ import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
 import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
+@Tag("external")
 class AiCodeGeneratorServiceTest {
 
     @Resource

@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-class GenerationIntentRouterTest {
+class HeavyGenerationIntentAssemblerTest {
 
     @Test
     void shouldRouteSmallExistingProjectRequestToLightweightEdit() throws Exception {
@@ -32,14 +32,14 @@ class GenerationIntentRouterTest {
             when(databaseResourceService.appendGenerationInstructionIfEnabled(app, "把标题改成仪表盘"))
                     .thenReturn("把标题改成仪表盘");
             GenerationWorkspaceService workspaceService = new GenerationWorkspaceService();
-            GenerationIntentRouter router = new GenerationIntentRouter(
+            HeavyGenerationIntentAssembler assembler = new HeavyGenerationIntentAssembler(
                     mock(AiCodeGenTypeRoutingServiceFactory.class),
                     databaseResourceService,
                     new GenerationEditRouteService(workspaceService),
                     workspaceService
             );
 
-            GenerationIntentDecision decision = router.route(app, "把标题改成仪表盘");
+            HeavyGenerationIntentDecision decision = assembler.assemble(app, "把标题改成仪表盘");
 
             assertEquals(GenerationRoute.LIGHTWEIGHT_EDIT, decision.route());
             assertTrue(decision.hasGeneratedCode());

@@ -165,6 +165,17 @@
                   size="small"
                   type="text"
                   class="message-action-button"
+                  @click="copyMessageAsMarkdown(message, index)"
+              >
+                <template #icon>
+                  <CopyOutlined />
+                </template>
+                {{ copiedIndices.has(index) ? '已复制' : '复制' }}
+              </ChatToolbarButton>
+              <ChatToolbarButton
+                  size="small"
+                  type="text"
+                  class="message-action-button"
                   :disabled="isGenerating || !isOwner"
                   @click="$emit('regenerateAiMessage', index)"
               >
@@ -222,6 +233,7 @@ import { ref } from 'vue'
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
+  CopyOutlined,
   DislikeOutlined,
   DownOutlined,
   EditOutlined,
@@ -261,6 +273,23 @@ defineEmits<{
 }>()
 
 const messagesContainerRef = ref<HTMLElement>()
+const copiedIndices = ref(new Set<number>())
+
+const copyMessageAsMarkdown = async (message: ChatMessage, index: number) => {
+  const text = message.content ?? ''
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+  copiedIndices.value.add(index)
+  setTimeout(() => { copiedIndices.value.delete(index) }, 2000)
+}
 
 defineExpose({
   container: messagesContainerRef,

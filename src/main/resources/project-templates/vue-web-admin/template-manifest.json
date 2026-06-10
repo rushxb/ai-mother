@@ -10,13 +10,32 @@
       "type": "view",
       "category": "page",
       "example": "<template>\n  <div class=\"grid grid-cols-4 gap-4\">\n    <Card v-for=\"item in metrics\" :key=\"item.label\">\n      <CardHeader>\n        <CardTitle>{{ item.label }}</CardTitle>\n      </CardHeader>\n      <CardContent>\n        <div class=\"text-2xl font-bold\">{{ item.value }}</div>\n      </CardContent>\n    </Card>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { metrics } from '@/data/adminData'\n</script>",
-      "dependencies": ["src/data/adminData.ts", "src/components/ProTable.vue"],
-      "styleVariables": ["--color-primary", "--color-success", "--color-warning", "--color-danger", "--panel-bg", "--panel-radius"],
+      "dependencies": [
+        "src/data/adminData.ts",
+        "src/components/ProTable.vue"
+      ],
+      "styleVariables": [
+        "--color-primary",
+        "--color-success",
+        "--color-warning",
+        "--color-danger",
+        "--panel-bg",
+        "--panel-radius"
+      ],
       "outputFormat": "完整的 Vue SFC，使用 shadcn-vue 组件",
       "aiHints": {
         "pattern": "指标卡片 + 趋势图 + 活动列表 + 表格",
-        "components": ["Card", "CardHeader", "CardTitle", "CardContent", "Badge"],
-        "hooks": ["useRouter", "useAppStore"]
+        "components": [
+          "Card",
+          "CardHeader",
+          "CardTitle",
+          "CardContent",
+          "Badge"
+        ],
+        "hooks": [
+          "useRouter",
+          "useAppStore"
+        ]
       }
     },
     {
@@ -28,7 +47,14 @@
       "category": "theme",
       "example": ":root {\n  --color-primary: #3b82f6;\n  --color-success: #10b981;\n  --color-warning: #f59e0b;\n  --color-danger: #ef4444;\n  --panel-bg: #ffffff;\n  --panel-radius: 0.75rem;\n}",
       "dependencies": null,
-      "styleVariables": ["--color-primary", "--color-success", "--color-warning", "--color-danger", "--panel-bg", "--panel-radius"],
+      "styleVariables": [
+        "--color-primary",
+        "--color-success",
+        "--color-warning",
+        "--color-danger",
+        "--panel-bg",
+        "--panel-radius"
+      ],
       "outputFormat": "CSS 变量定义，使用 :root 选择器"
     },
     {
@@ -44,7 +70,11 @@
       "outputFormat": "TypeScript 常量导出，带类型定义",
       "aiHints": {
         "pattern": "数据结构定义 + 常量导出",
-        "types": ["DashboardMetrics", "OrderInfo", "UserInfo"]
+        "types": [
+          "DashboardMetrics",
+          "OrderInfo",
+          "UserInfo"
+        ]
       }
     },
     {
@@ -91,7 +121,10 @@
       "type": "store",
       "category": "state",
       "example": "export const useUserStore = defineStore('user', () => {\n  const token = ref('')\n  const userInfo = ref<UserInfo | null>(null)\n  \n  async function login(params: LoginParams) { ... }\n  async function logout() { ... }\n  \n  return { token, userInfo, login, logout }\n})",
-      "dependencies": ["src/services/api.ts", "src/types/index.ts"],
+      "dependencies": [
+        "src/services/api.ts",
+        "src/types/index.ts"
+      ],
       "styleVariables": null,
       "outputFormat": "Pinia store，使用 Composition API",
       "aiHints": {
@@ -123,13 +156,28 @@
       "type": "page",
       "category": "auth",
       "example": "<template>\n  <Card class=\"login-card\">\n    <CardHeader>\n      <CardTitle>登录</CardTitle>\n    </CardHeader>\n    <CardContent>\n      <form @submit=\"onSubmit\">\n        <Label>账号</Label>\n        <Input v-model=\"formData.userAccount\" />\n        <Button type=\"submit\">登录</Button>\n      </form>\n    </CardContent>\n  </Card>\n</template>",
-      "dependencies": ["src/stores/user.ts", "src/data/adminData.ts"],
+      "dependencies": [
+        "src/stores/user.ts",
+        "src/data/adminData.ts"
+      ],
       "styleVariables": null,
       "outputFormat": "完整的 Vue SFC，使用 shadcn-vue 组件",
       "aiHints": {
         "pattern": "表单 + 验证 + 路由跳转",
-        "components": ["Card", "CardHeader", "CardTitle", "CardContent", "Input", "Label", "Button"],
-        "hooks": ["useUserStore", "useRouter", "useToast"]
+        "components": [
+          "Card",
+          "CardHeader",
+          "CardTitle",
+          "CardContent",
+          "Input",
+          "Label",
+          "Button"
+        ],
+        "hooks": [
+          "useUserStore",
+          "useRouter",
+          "useToast"
+        ]
       }
     },
     {
@@ -145,7 +193,12 @@
       "outputFormat": "Vue 组件，使用 shadcn-vue",
       "aiHints": {
         "pattern": "表单 + 筛选 + 重置",
-        "components": ["Input", "Select", "Button", "Label"]
+        "components": [
+          "Input",
+          "Select",
+          "Button",
+          "Label"
+        ]
       }
     },
     {
@@ -161,7 +214,15 @@
       "outputFormat": "Vue 组件，使用 shadcn-vue",
       "aiHints": {
         "pattern": "弹窗 + 表单 + 验证",
-        "components": ["Dialog", "DialogHeader", "DialogTitle", "DialogContent", "Input", "Label", "Button"]
+        "components": [
+          "Dialog",
+          "DialogHeader",
+          "DialogTitle",
+          "DialogContent",
+          "Input",
+          "Label",
+          "Button"
+        ]
       }
     },
     {
@@ -177,9 +238,259 @@
       "outputFormat": "Vue 组件，使用原生 table + shadcn-vue 样式",
       "aiHints": {
         "pattern": "表格 + 搜索 + 分页",
-        "components": ["table", "Input", "Button", "Badge"],
-        "props": ["columns", "rows", "rowKey", "pageSize"]
+        "components": [
+          "table",
+          "Input",
+          "Button",
+          "Badge"
+        ],
+        "props": [
+          "columns",
+          "rows",
+          "rowKey",
+          "pageSize"
+        ]
       }
+    },
+    {
+      "id": "operations_data",
+      "file": "src/data/operations.ts",
+      "description": "运营队列和预警数据，适合订单、客户、工单、库存等运营后台",
+      "required": false,
+      "type": "data",
+      "category": "operations",
+      "example": "export const operationQueues = [{ label: '待处理', value: 18, tone: 'warning' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 常量导出，包含队列、预警、负责人和时间信息"
+    },
+    {
+      "id": "activity_timeline",
+      "file": "src/data/activity.ts",
+      "description": "活动时间线/操作日志数据，让首屏更贴近真实业务流",
+      "required": false,
+      "type": "data",
+      "category": "operations",
+      "example": "export const activities = [{ time: '09:00', title: '数据同步完成', description: '同步 128 条记录' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "inventory_data",
+      "file": "src/data/inventory.ts",
+      "description": "库存/SKU/余量预警数据，适合商品、仓储、设备、资源管理",
+      "required": false,
+      "type": "data",
+      "category": "commerce",
+      "example": "export const inventoryItems = [{ sku: 'SKU-001', name: '标准套餐', stock: 120, warningLine: 30 }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "calendar_data",
+      "file": "src/data/calendar.ts",
+      "description": "预约、排班、日程事件数据",
+      "required": false,
+      "type": "data",
+      "category": "booking",
+      "example": "export const calendarEvents = [{ title: '客户演示', date: '2026-06-10', period: '10:00-11:00' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "content_data",
+      "file": "src/data/content.ts",
+      "description": "文章、公告、知识库、素材等内容管理数据",
+      "required": false,
+      "type": "data",
+      "category": "content",
+      "example": "export const contentItems = [{ title: '产品更新公告', category: '公告', status: '已发布' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "report_data",
+      "file": "src/data/reports.ts",
+      "description": "报表指标和趋势序列数据，适合运营分析看板",
+      "required": false,
+      "type": "data",
+      "category": "analytics",
+      "example": "export const reportCards = [{ label: '转化率', value: '18.6%', trend: '+2.1%' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 常量导出，包含指标卡和趋势序列"
+    },
+    {
+      "id": "permission_matrix",
+      "file": "src/data/permissions.ts",
+      "description": "角色权限矩阵数据，适合 RBAC、菜单权限、操作权限展示",
+      "required": false,
+      "type": "data",
+      "category": "settings",
+      "example": "export const permissionMatrix = [{ role: '管理员', dashboard: true, settings: true }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "bulk_actions",
+      "file": "src/components/BulkActions.vue",
+      "description": "批量导入、导出、删除、审批等操作条组件",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<BulkActions @import=\"handleImport\" @export=\"handleExport\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "完整 Vue SFC，适配当前业务动作"
+    },
+    {
+      "id": "advanced_filters",
+      "file": "src/components/AdvancedFilters.vue",
+      "description": "高级筛选组件，支持状态、日期、负责人、标签等组合筛选",
+      "required": false,
+      "type": "component",
+      "category": "ui",
+      "example": "<AdvancedFilters :filters=\"filters\" @change=\"handleFilterChange\" />",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "完整 Vue SFC，使用紧凑表单布局"
+    },
+    {
+      "id": "settings_page",
+      "file": "src/pages/SettingsPage.vue",
+      "description": "系统设置页，包含基础配置、通知偏好、权限摘要和保存状态",
+      "required": false,
+      "type": "page",
+      "category": "settings",
+      "example": "<template><main class=\"settings-page\">系统设置</main></template>",
+      "dependencies": [
+        "src/data/permissions.ts",
+        "src/stores/app.ts"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 Vue SFC，使用后台紧凑布局"
+    },
+    {
+      "id": "orders_page",
+      "description": "订单管理页面，含订单列表、状态筛选、金额统计",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/OrdersPage.vue"
+    },
+    {
+      "id": "users_page",
+      "description": "用户管理页面，含用户列表、搜索、CRUD 表单弹窗",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/UsersPage.vue"
+    },
+    {
+      "id": "content_page",
+      "description": "内容管理页面，适合文章/博客/产品内容管理",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/ContentPage.vue"
+    },
+    {
+      "id": "reports_page",
+      "description": "报表分析页面，含图表、趋势、数据导出",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/ReportsPage.vue"
+    },
+    {
+      "id": "calendar_page",
+      "description": "日历/排班页面，适合预约管理、任务排期",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/CalendarPage.vue"
+    },
+    {
+      "id": "inventory_page",
+      "description": "库存管理页面，含库存列表、入库出库操作",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/InventoryPage.vue"
+    },
+    {
+      "id": "operations_page",
+      "description": "运营管理页面，含活动管理、运营数据概览",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/OperationsPage.vue"
+    },
+    {
+      "id": "layout_main",
+      "description": "主布局，含侧边栏和内容区",
+      "outputFormat": "完整 Vue SFC",
+      "type": "layout",
+      "required": false,
+      "category": "layout",
+      "file": "src/layouts/MainLayout.vue"
+    },
+    {
+      "id": "layout_sidebar",
+      "description": "侧边栏导航，含菜单项和折叠逻辑",
+      "outputFormat": "完整 Vue SFC",
+      "type": "layout",
+      "required": false,
+      "category": "layout",
+      "file": "src/layouts/Sidebar.vue"
+    },
+    {
+      "id": "layout_navbar",
+      "description": "顶部导航栏，含面包屑、用户信息、通知",
+      "outputFormat": "完整 Vue SFC",
+      "type": "layout",
+      "required": false,
+      "category": "layout",
+      "file": "src/layouts/Navbar.vue"
+    },
+    {
+      "id": "api_service",
+      "description": "API 接口定义，含所有业务接口函数",
+      "outputFormat": "TypeScript 函数导出",
+      "type": "service",
+      "required": false,
+      "category": "api",
+      "file": "src/services/api.ts"
+    },
+    {
+      "id": "request_service",
+      "description": "请求工具封装，含拦截器、错误处理、Token 注入",
+      "outputFormat": "TypeScript 工具导出",
+      "type": "service",
+      "required": false,
+      "category": "api",
+      "file": "src/services/request.ts"
+    },
+    {
+      "id": "type_definitions",
+      "description": "TypeScript 类型定义，含业务实体和接口类型",
+      "outputFormat": "TypeScript 接口导出",
+      "type": "config",
+      "required": false,
+      "category": "types",
+      "file": "src/types/index.ts"
     }
   ],
   "protectedFiles": [
@@ -191,5 +502,5 @@
     "src/App.vue",
     "src/router/index.ts"
   ],
-  "maxSlotsPerGeneration": 8
+  "maxSlotsPerGeneration": 16
 }

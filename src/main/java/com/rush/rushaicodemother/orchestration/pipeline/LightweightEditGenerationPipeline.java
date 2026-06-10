@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditResult;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +43,7 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
 
     @Override
     public boolean supports(GenerationPipelineRequest request) {
-        return true;
+        return request.modeIs(GenerationMode.LIGHT_EDIT);
     }
 
     @Override
@@ -60,7 +61,8 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                     request.taskRequest().loginUser().getId(),
                     editResult.route(),
                     request.codeGenType().getValue(),
-                    startedAt
+                    startedAt,
+                    request.modeDecision()
             );
             generationPerformanceMonitorService.recordSpan(
                     editResult.taskId(),
@@ -79,7 +81,13 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
             sessionRegistry.put(app.getId(), session);
             session.emit(GenerationStreamEvent.agentEvent(
                     editResult.summary(),
-                    Map.of("route", editResult.route(), "taskId", editResult.taskId(), "status", editResult.validationResult())
+                    Map.of(
+                            "route", editResult.route(),
+                            "mode", request.modeDecision().mode().name(),
+                            "routerReason", request.modeDecision().reason(),
+                            "taskId", editResult.taskId(),
+                            "status", editResult.validationResult()
+                    )
             ));
             session.complete();
             sessionRegistry.cleanupLater(app.getId(), session, COMPLETED_SESSION_REPLAY_SECONDS);
@@ -88,7 +96,7 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("轻量编辑路径异常，回退到后续生成管线，appId: {}, error: {}", app.getId(), e.getMessage());
+            log.warn("轻量编辑路径异常，等待编排器按 fallbackPolicy 处理，appId: {}, error: {}", app.getId(), e.getMessage());
             return Optional.empty();
         }
     }

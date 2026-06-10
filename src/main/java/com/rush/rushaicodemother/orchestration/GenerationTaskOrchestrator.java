@@ -24,6 +24,10 @@ import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycle
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipeline;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.pipeline.HeavyGenerationPipeline;
+import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -57,6 +61,7 @@ public class GenerationTaskOrchestrator {
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
     private final GenerationTraceService generationTraceService;
+    private final GenerationModeRouter generationModeRouter;
     private final GenerationWorkspaceService generationWorkspaceService;
 
     public GenerationTaskResult start(GenerationTaskRequest request) {
@@ -67,21 +72,59 @@ public class GenerationTaskOrchestrator {
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
-        GenerationPipelineRequest pipelineRequest = new GenerationPipelineRequest(request, codeGenType, workspace);
+        GenerationModeDecision decision = generationModeRouter.route(request, codeGenType, workspace);
+        GenerationPipelineRequest pipelineRequest = new GenerationPipelineRequest(request, codeGenType, workspace, decision);
         synchronized (generationSessionRegistry.lock(app.getId())) {
             resetResidualGenerationState(app.getId());
             generationSessionRegistry.assertNoActiveSession(app.getId());
-            for (GenerationPipeline pipeline : generationPipelines) {
-                if (!pipeline.supports(pipelineRequest)) {
-                    continue;
-                }
-                var result = pipeline.execute(pipelineRequest);
-                if (result.isPresent()) {
-                    return result.get();
-                }
-            }
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "没有可用的生成管线");
+            return dispatchRoutedPipeline(pipelineRequest);
         }
+    }
+
+    private GenerationTaskResult dispatchRoutedPipeline(GenerationPipelineRequest pipelineRequest) {
+        for (GenerationPipeline pipeline : generationPipelines) {
+            if (!pipeline.supports(pipelineRequest)) {
+                continue;
+            }
+            var result = pipeline.execute(pipelineRequest);
+            if (result.isPresent()) {
+                return result.get();
+            }
+            return handleRoutedPipelineFallback(pipelineRequest, pipeline);
+        }
+        if (pipelineRequest.modeDecision().mode() == GenerationMode.HEAVY_EXPERT) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "没有可用的专家生成管线");
+        }
+        return handleRoutedPipelineFallback(pipelineRequest, null);
+    }
+
+    private GenerationTaskResult handleRoutedPipelineFallback(GenerationPipelineRequest pipelineRequest,
+                                                             GenerationPipeline failedPipeline) {
+        GenerationModeDecision decision = pipelineRequest.modeDecision();
+        if (decision.mode() == GenerationMode.CREATE) {
+            String route = failedPipeline == null ? decision.route() : failedPipeline.route();
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    "CREATE 模板生成未完成，首次生成不会在生成前或生成中升级 Heavy: " + route);
+        }
+        if (decision.fallbackPolicy() != FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT) {
+            String route = failedPipeline == null ? decision.route() : failedPipeline.route();
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成模式没有可用管线: " + route);
+        }
+        String failedRoute = failedPipeline == null ? decision.route() : failedPipeline.route();
+        String reason = "pipeline_failed_or_unavailable:" + failedRoute;
+        generationEventPublisher.publish(pipelineRequest.taskRequest(), GenerationEventType.TASK_ROUTE, "生成路径升级为专家模式", Map.of(
+                "mode", GenerationMode.HEAVY_EXPERT.name(),
+                "route", HeavyGenerationPipeline.ROUTE,
+                "routerReason", decision.reason(),
+                "fallbackReason", reason
+        ));
+        GenerationModeDecision fallbackDecision = decision.withFallback(GenerationMode.HEAVY_EXPERT, reason);
+        return startHeavyGeneration(new GenerationPipelineRequest(
+                pipelineRequest.taskRequest(),
+                pipelineRequest.codeGenType(),
+                pipelineRequest.workspace(),
+                fallbackDecision
+        ));
     }
 
     public GenerationTaskResult startHeavyGeneration(GenerationPipelineRequest pipelineRequest) {
@@ -89,8 +132,10 @@ public class GenerationTaskOrchestrator {
         App app = request.app();
         CodeGenTypeEnum codeGenType = pipelineRequest.codeGenType();
         generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用重型生成路径", Map.of(
-                "route", HeavyGenerationPipeline.ROUTE,
-                "reason", "pipeline_fallback_heavy_generation",
+                "mode", pipelineRequest.modeDecision().mode().name(),
+                "route", pipelineRequest.modeDecision().route(),
+                "reason", pipelineRequest.modeDecision().reason(),
+                "fallbackReason", pipelineRequest.modeDecision().fallbackReason(),
                 "codeGenType", codeGenType.getValue()
         ));
         Instant prepareStartedAt = Instant.now();
@@ -104,9 +149,10 @@ public class GenerationTaskOrchestrator {
                 preparation.taskId(),
                 app.getId(),
                 request.loginUser().getId(),
-                HeavyGenerationPipeline.ROUTE,
+                pipelineRequest.modeDecision().route(),
                 codeGenType.getValue(),
-                prepareStartedAt
+                prepareStartedAt,
+                pipelineRequest.modeDecision()
         );
         generationPerformanceMonitorService.recordSpan(
                 preparation.taskId(),
@@ -117,7 +163,7 @@ public class GenerationTaskOrchestrator {
         );
         GenerationSession session = openGenerationSession(app.getId(), request.message(), request.loginUser(), preparation);
         startGenerationTask(app.getId(), request.loginUser(), preparation, session, request);
-        return new GenerationTaskResult(preparation.taskId(), HeavyGenerationPipeline.ROUTE, pipelineRequest.workspace(), session.asFlux());
+        return new GenerationTaskResult(preparation.taskId(), pipelineRequest.modeDecision().route(), pipelineRequest.workspace(), session.asFlux());
     }
 
     public Flux<GenerationStreamEvent> getStream(Long appId) {

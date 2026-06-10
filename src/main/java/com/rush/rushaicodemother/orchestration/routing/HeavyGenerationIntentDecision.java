@@ -3,9 +3,9 @@ package com.rush.rushaicodemother.orchestration.routing;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 
 /**
- * Unified routing decision for a generation request.
+ * Heavy generation input assembled after the top-level mode router selected HEAVY_EXPERT.
  */
-public record GenerationIntentDecision(
+public record HeavyGenerationIntentDecision(
         String route,
         String reason,
         double confidence,

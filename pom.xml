@@ -28,7 +28,8 @@
     </scm>
     <properties>
         <java.version>21</java.version>
-        <skipTests>true</skipTests>
+        <skipTests>false</skipTests>
+        <excludedGroups>external</excludedGroups>
         <surefire.reportsDirectory>${project.build.directory}/surefire-reports</surefire.reportsDirectory>
     </properties>
     <!-- 多环境配置：dev 开发 / prod 生产 -->
@@ -166,6 +167,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <skip>${skipTests}</skip>
+                    <excludedGroups>${excludedGroups}</excludedGroups>
                     <reportsDirectory>${surefire.reportsDirectory}</reportsDirectory>
                 </configuration>
             </plugin>

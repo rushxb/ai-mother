@@ -10,13 +10,31 @@
       "type": "view",
       "category": "page",
       "example": "<template>\n  <section id=\"hero\" class=\"hero\">\n    <div class=\"hero-copy\">\n      <span class=\"eyebrow\">{{ hero.eyebrow }}</span>\n      <h1>{{ hero.title }}</h1>\n      <p>{{ hero.description }}</p>\n    </div>\n  </section>\n</template>\n\n<script setup lang=\"ts\">\nimport { hero } from '@/data/siteData'\n</script>",
-      "dependencies": ["src/data/siteData.ts", "src/components/inspira/GradientText.vue"],
-      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text", "--spacing-md", "--radius-md"],
+      "dependencies": [
+        "src/data/siteData.ts",
+        "src/components/inspira/GradientText.vue"
+      ],
+      "styleVariables": [
+        "--color-primary",
+        "--color-secondary",
+        "--color-bg",
+        "--color-text",
+        "--spacing-md",
+        "--radius-md"
+      ],
       "outputFormat": "完整的 Vue SFC，包含 <template>、<script setup lang=\"ts\">、<style scoped>",
       "aiHints": {
         "pattern": "Hero + 3D 场景 + 内容卡片 + 流程 + 联系区",
-        "components": ["GradientText", "AnimateOnScroll", "ParticleField", "BasicScene"],
-        "hooks": ["useRouter", "useAppStore"]
+        "components": [
+          "GradientText",
+          "AnimateOnScroll",
+          "ParticleField",
+          "BasicScene"
+        ],
+        "hooks": [
+          "useRouter",
+          "useAppStore"
+        ]
       }
     },
     {
@@ -28,7 +46,14 @@
       "category": "theme",
       "example": ":root {\n  --color-primary: #3b82f6;\n  --color-secondary: #8b5cf6;\n  --color-bg: #ffffff;\n  --color-text: #1f2937;\n  --spacing-md: 1rem;\n  --radius-md: 0.5rem;\n}",
       "dependencies": null,
-      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text", "--spacing-md", "--radius-md"],
+      "styleVariables": [
+        "--color-primary",
+        "--color-secondary",
+        "--color-bg",
+        "--color-text",
+        "--spacing-md",
+        "--radius-md"
+      ],
       "outputFormat": "CSS 变量定义，使用 :root 选择器"
     },
     {
@@ -44,7 +69,12 @@
       "outputFormat": "TypeScript 常量导出，带类型定义",
       "aiHints": {
         "pattern": "数据结构定义 + 常量导出",
-        "types": ["SiteInfo", "HeroData", "FeatureItem", "CardItem"]
+        "types": [
+          "SiteInfo",
+          "HeroData",
+          "FeatureItem",
+          "CardItem"
+        ]
       }
     },
     {
@@ -79,7 +109,10 @@
       "type": "store",
       "category": "state",
       "example": "export const useUserStore = defineStore('user', () => {\n  const token = ref('')\n  const userInfo = ref<UserInfo | null>(null)\n  \n  async function login(params: LoginParams) { ... }\n  async function logout() { ... }\n  \n  return { token, userInfo, login, logout }\n})",
-      "dependencies": ["src/services/api.ts", "src/types/index.ts"],
+      "dependencies": [
+        "src/services/api.ts",
+        "src/types/index.ts"
+      ],
       "styleVariables": null,
       "outputFormat": "Pinia store，使用 Composition API",
       "aiHints": {
@@ -111,13 +144,28 @@
       "type": "page",
       "category": "auth",
       "example": "<template>\n  <Card class=\"login-card\">\n    <CardHeader>\n      <CardTitle>登录</CardTitle>\n    </CardHeader>\n    <CardContent>\n      <form @submit=\"onSubmit\">\n        <Label>账号</Label>\n        <Input v-model=\"formData.userAccount\" />\n        <Button type=\"submit\">登录</Button>\n      </form>\n    </CardContent>\n  </Card>\n</template>",
-      "dependencies": ["src/stores/user.ts", "src/data/siteData.ts"],
+      "dependencies": [
+        "src/stores/user.ts",
+        "src/data/siteData.ts"
+      ],
       "styleVariables": null,
       "outputFormat": "完整的 Vue SFC，使用 shadcn-vue 组件",
       "aiHints": {
         "pattern": "表单 + 验证 + 路由跳转",
-        "components": ["Card", "CardHeader", "CardTitle", "CardContent", "Input", "Label", "Button"],
-        "hooks": ["useUserStore", "useRouter", "useToast"]
+        "components": [
+          "Card",
+          "CardHeader",
+          "CardTitle",
+          "CardContent",
+          "Input",
+          "Label",
+          "Button"
+        ],
+        "hooks": [
+          "useUserStore",
+          "useRouter",
+          "useToast"
+        ]
       }
     },
     {
@@ -133,7 +181,12 @@
       "outputFormat": "Vue 组件，使用 shadcn-vue",
       "aiHints": {
         "pattern": "表单 + 筛选 + 重置",
-        "components": ["Input", "Select", "Button", "Label"]
+        "components": [
+          "Input",
+          "Select",
+          "Button",
+          "Label"
+        ]
       }
     },
     {
@@ -149,7 +202,15 @@
       "outputFormat": "Vue 组件，使用 shadcn-vue",
       "aiHints": {
         "pattern": "弹窗 + 表单 + 验证",
-        "components": ["Dialog", "DialogHeader", "DialogTitle", "DialogContent", "Input", "Label", "Button"]
+        "components": [
+          "Dialog",
+          "DialogHeader",
+          "DialogTitle",
+          "DialogContent",
+          "Input",
+          "Label",
+          "Button"
+        ]
       }
     },
     {
@@ -165,8 +226,18 @@
       "outputFormat": "Vue 组件，使用原生 table + shadcn-vue 样式",
       "aiHints": {
         "pattern": "表格 + 搜索 + 分页",
-        "components": ["table", "Input", "Button", "Badge"],
-        "props": ["columns", "rows", "rowKey", "pageSize"]
+        "components": [
+          "table",
+          "Input",
+          "Button",
+          "Badge"
+        ],
+        "props": [
+          "columns",
+          "rows",
+          "rowKey",
+          "pageSize"
+        ]
       }
     },
     {
@@ -182,8 +253,16 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core",
       "aiHints": {
         "pattern": "3D 场景 + 相机 + 光照 + 物体",
-        "components": ["TresCanvas", "TresPerspectiveCamera", "TresAmbientLight", "TresDirectionalLight"],
-        "props": ["color", "intensity"]
+        "components": [
+          "TresCanvas",
+          "TresPerspectiveCamera",
+          "TresAmbientLight",
+          "TresDirectionalLight"
+        ],
+        "props": [
+          "color",
+          "intensity"
+        ]
       }
     },
     {
@@ -199,8 +278,16 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + useRenderLoop",
       "aiHints": {
         "pattern": "3D 物体 + 动画循环 + 材质",
-        "components": ["TresCanvas", "TresMesh", "TresBoxGeometry", "TresMeshStandardMaterial"],
-        "props": ["color", "speed"]
+        "components": [
+          "TresCanvas",
+          "TresMesh",
+          "TresBoxGeometry",
+          "TresMeshStandardMaterial"
+        ],
+        "props": [
+          "color",
+          "speed"
+        ]
       }
     },
     {
@@ -216,8 +303,17 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + 粒子系统",
       "aiHints": {
         "pattern": "3D 粒子 + 球体分布 + 旋转动画",
-        "components": ["TresCanvas", "TresGroup", "TresMesh", "TresSphereGeometry"],
-        "props": ["color", "count", "speed"]
+        "components": [
+          "TresCanvas",
+          "TresGroup",
+          "TresMesh",
+          "TresSphereGeometry"
+        ],
+        "props": [
+          "color",
+          "count",
+          "speed"
+        ]
       }
     },
     {
@@ -233,7 +329,10 @@
       "outputFormat": "Vue 组件，使用 Tailwind CSS 渐变",
       "aiHints": {
         "pattern": "渐变文字 + 尺寸 + 动画",
-        "props": ["size", "class"]
+        "props": [
+          "size",
+          "class"
+        ]
       }
     },
     {
@@ -249,7 +348,10 @@
       "outputFormat": "Vue 组件，使用 IntersectionObserver",
       "aiHints": {
         "pattern": "滚动动画 + 延迟 + 淡入",
-        "props": ["delay", "class"]
+        "props": [
+          "delay",
+          "class"
+        ]
       }
     },
     {
@@ -265,7 +367,11 @@
       "outputFormat": "Vue 组件，使用 CSS 动画",
       "aiHints": {
         "pattern": "粒子背景 + 浮动动画 + 随机分布",
-        "props": ["color", "count", "class"]
+        "props": [
+          "color",
+          "count",
+          "class"
+        ]
       }
     },
     {
@@ -281,7 +387,11 @@
       "outputFormat": "Vue 组件，使用 setInterval",
       "aiHints": {
         "pattern": "打字机 + 光标闪烁 + 逐字显示",
-        "props": ["text", "delay", "class"]
+        "props": [
+          "text",
+          "delay",
+          "class"
+        ]
       }
     },
     {
@@ -297,7 +407,10 @@
       "outputFormat": "Vue 组件，使用 CSS 渐变 + 动画",
       "aiHints": {
         "pattern": "发光球体 + 渐变 + 旋转动画",
-        "props": ["size", "class"]
+        "props": [
+          "size",
+          "class"
+        ]
       }
     },
     {
@@ -313,8 +426,15 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + UnrealBloomPass",
       "aiHints": {
         "pattern": "辉光 + 后处理 + 发光材质",
-        "components": ["TresEffectComposer", "TresUnrealBloomPass"],
-        "props": ["intensity", "threshold", "radius"]
+        "components": [
+          "TresEffectComposer",
+          "TresUnrealBloomPass"
+        ],
+        "props": [
+          "intensity",
+          "threshold",
+          "radius"
+        ]
       }
     },
     {
@@ -330,7 +450,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + MeshPhysicalMaterial",
       "aiHints": {
         "pattern": "玻璃 + 折射 + 透明 + 清漆",
-        "props": ["color", "opacity", "roughness"]
+        "props": [
+          "color",
+          "opacity",
+          "roughness"
+        ]
       }
     },
     {
@@ -346,7 +470,12 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + SpotLight + Fog",
       "aiHints": {
         "pattern": "体积光 + 聚光灯 + 雾 + 阴影",
-        "props": ["color", "intensity", "angle", "penumbra"]
+        "props": [
+          "color",
+          "intensity",
+          "angle",
+          "penumbra"
+        ]
       }
     },
     {
@@ -362,7 +491,9 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + MeshMatcapMaterial",
       "aiHints": {
         "pattern": "Matcap + 材质贴图 + 高级质感",
-        "props": ["matcapUrl"]
+        "props": [
+          "matcapUrl"
+        ]
       }
     },
     {
@@ -378,7 +509,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + RGBELoader + envMap",
       "aiHints": {
         "pattern": "环境反射 + HDR + 金属材质",
-        "props": ["environmentUrl", "metalness", "roughness"]
+        "props": [
+          "environmentUrl",
+          "metalness",
+          "roughness"
+        ]
       }
     },
     {
@@ -394,7 +529,10 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + scroll event",
       "aiHints": {
         "pattern": "滚动驱动 + 相机移动 + 电影叙事",
-        "props": ["speed", "offset"]
+        "props": [
+          "speed",
+          "offset"
+        ]
       }
     },
     {
@@ -410,7 +548,10 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + mousemove event",
       "aiHints": {
         "pattern": "鼠标视差 + 3D晃动 + 打破平面",
-        "props": ["intensity", "ease"]
+        "props": [
+          "intensity",
+          "ease"
+        ]
       }
     },
     {
@@ -426,8 +567,14 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + raycaster events",
       "aiHints": {
         "pattern": "射线交互 + 悬浮 + 点击 + 缩放动画",
-        "props": ["color", "hoverColor"],
-        "events": ["hover", "click"]
+        "props": [
+          "color",
+          "hoverColor"
+        ],
+        "events": [
+          "hover",
+          "click"
+        ]
       }
     },
     {
@@ -443,7 +590,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + 物理模拟",
       "aiHints": {
         "pattern": "重力 + 碰撞 + 弹跳 + 粒子",
-        "props": ["count", "gravity", "bounce"]
+        "props": [
+          "count",
+          "gravity",
+          "bounce"
+        ]
       }
     },
     {
@@ -459,7 +610,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + 相机动画",
       "aiHints": {
         "pattern": "相机转场 + 飞行动画 + 缓动函数",
-        "props": ["duration", "from", "to"]
+        "props": [
+          "duration",
+          "from",
+          "to"
+        ]
       }
     },
     {
@@ -475,7 +630,12 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + Points + BufferGeometry",
       "aiHints": {
         "pattern": "粒子群 + 点阵 + 流动动画",
-        "props": ["count", "color", "size", "speed"]
+        "props": [
+          "count",
+          "color",
+          "size",
+          "speed"
+        ]
       }
     },
     {
@@ -491,7 +651,10 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + morphTargets",
       "aiHints": {
         "pattern": "形态畸变 + 变形动画 + morphTargets",
-        "props": ["color", "speed"]
+        "props": [
+          "color",
+          "speed"
+        ]
       }
     },
     {
@@ -507,7 +670,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + InstancedMesh",
       "aiHints": {
         "pattern": "高性能群集 + 实例化渲染 + 独立动画",
-        "props": ["count", "color", "size"]
+        "props": [
+          "count",
+          "color",
+          "size"
+        ]
       }
     },
     {
@@ -523,7 +690,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + 自定义 ShaderMaterial",
       "aiHints": {
         "pattern": "液态流体 + 着色器 + 波动动画",
-        "props": ["color", "speed", "intensity"]
+        "props": [
+          "color",
+          "speed",
+          "intensity"
+        ]
       }
     },
     {
@@ -539,7 +710,13 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + TextGeometry",
       "aiHints": {
         "pattern": "3D文字 + 厚度 + 阴影 + 旋转",
-        "props": ["text", "color", "size", "depth", "fontUrl"]
+        "props": [
+          "text",
+          "color",
+          "size",
+          "depth",
+          "fontUrl"
+        ]
       }
     },
     {
@@ -555,7 +732,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + GlitchPass",
       "aiHints": {
         "pattern": "故障艺术 + 电磁干扰 + 画面撕裂",
-        "props": ["delay", "duration", "strength"]
+        "props": [
+          "delay",
+          "duration",
+          "strength"
+        ]
       }
     },
     {
@@ -571,7 +752,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + BokehPass",
       "aiHints": {
         "pattern": "景深虚化 + 焦点 + 模糊",
-        "props": ["focus", "aperture", "maxblur"]
+        "props": [
+          "focus",
+          "aperture",
+          "maxblur"
+        ]
       }
     },
     {
@@ -587,7 +772,11 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + ShaderPass",
       "aiHints": {
         "pattern": "字符滤镜 + 矩阵代码 + 极客风格",
-        "props": ["characters", "fontSize", "color"]
+        "props": [
+          "characters",
+          "fontSize",
+          "color"
+        ]
       }
     },
     {
@@ -603,7 +792,10 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + ShaderPass",
       "aiHints": {
         "pattern": "运动模糊 + 高速运动 + 平滑",
-        "props": ["intensity", "samples"]
+        "props": [
+          "intensity",
+          "samples"
+        ]
       }
     },
     {
@@ -619,8 +811,131 @@
       "outputFormat": "Vue 组件，使用 @tresjs/core + ShaderPass",
       "aiHints": {
         "pattern": "色散 + 色彩溢出 + 胶片感",
-        "props": ["offset", "angle"]
+        "props": [
+          "offset",
+          "angle"
+        ]
       }
+    },
+    {
+      "id": "detail_page",
+      "file": "src/pages/DetailPage.vue",
+      "description": "详情页/内容详情/商品详情页面，承接列表或首页卡片点击",
+      "required": false,
+      "type": "page",
+      "category": "page",
+      "example": "<template><main class=\"detail-page\">详情</main></template>",
+      "dependencies": [
+        "src/data/siteData.ts"
+      ],
+      "styleVariables": [
+        "--color-primary",
+        "--color-bg",
+        "--color-text"
+      ],
+      "outputFormat": "完整 Vue SFC，包含详情头部、关键字段、行动按钮和相关推荐"
+    },
+    {
+      "id": "content_data",
+      "file": "src/data/content.ts",
+      "description": "博客、作品、知识库、活动等内容列表数据",
+      "required": false,
+      "type": "data",
+      "category": "content",
+      "example": "export const contentItems = [{ title: '精选内容', summary: '围绕主题展示内容' }]",
+      "dependencies": null,
+      "styleVariables": null,
+      "outputFormat": "TypeScript 数组导出"
+    },
+    {
+      "id": "about_page",
+      "description": "关于我们页面，团队介绍、品牌故事",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/AboutPage.vue"
+    },
+    {
+      "id": "home_page",
+      "description": "主页/仪表盘页面",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/HomePage.vue"
+    },
+    {
+      "id": "content_page",
+      "description": "内容列表页面，适合博客、知识库、文章列表",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/ContentPage.vue"
+    },
+    {
+      "id": "gallery_page",
+      "description": "图库/作品展示页面，瀑布流或网格布局",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/GalleryPage.vue"
+    },
+    {
+      "id": "contact_page",
+      "description": "联系我们页面，含表单和联系方式",
+      "outputFormat": "完整 Vue SFC",
+      "type": "page",
+      "required": false,
+      "category": "page",
+      "file": "src/pages/ContactPage.vue"
+    },
+    {
+      "id": "about_data",
+      "description": "关于我们数据，含团队介绍、品牌故事",
+      "outputFormat": "TypeScript 对象导出",
+      "type": "data",
+      "required": false,
+      "category": "data",
+      "file": "src/data/about.ts"
+    },
+    {
+      "id": "detail_data",
+      "description": "详情页模板数据，含标题、副标题、段落结构",
+      "outputFormat": "TypeScript 对象导出",
+      "type": "data",
+      "required": false,
+      "category": "data",
+      "file": "src/data/detail.ts"
+    },
+    {
+      "id": "categories_data",
+      "description": "分类数据，含分类名称和数量统计",
+      "outputFormat": "TypeScript 数组导出",
+      "type": "data",
+      "required": false,
+      "category": "data",
+      "file": "src/data/categories.ts"
+    },
+    {
+      "id": "layout_sidebar",
+      "description": "侧边栏导航组件",
+      "outputFormat": "完整 Vue SFC",
+      "type": "layout",
+      "required": false,
+      "category": "layout",
+      "file": "src/layouts/Sidebar.vue"
+    },
+    {
+      "id": "api_service",
+      "description": "API 接口定义",
+      "outputFormat": "TypeScript 函数导出",
+      "type": "service",
+      "required": false,
+      "category": "api",
+      "file": "src/services/api.ts"
     }
   ],
   "protectedFiles": [
@@ -632,5 +947,5 @@
     "src/App.vue",
     "src/router/index.ts"
   ],
-  "maxSlotsPerGeneration": 8
+  "maxSlotsPerGeneration": 16
 }

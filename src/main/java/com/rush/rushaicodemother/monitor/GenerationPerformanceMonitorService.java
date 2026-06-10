@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.vo.GenerationPerformanceSpanVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceStageStatsVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceSummaryVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceTaskVO;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -34,11 +35,21 @@ public class GenerationPerformanceMonitorService {
     }
 
     public void startTask(String taskId, Long appId, Long userId, String route, String targetType, Instant startAt) {
+        startTask(taskId, appId, userId, route, targetType, startAt, null);
+    }
+
+    public void startTask(String taskId,
+                          Long appId,
+                          Long userId,
+                          String route,
+                          String targetType,
+                          Instant startAt,
+                          GenerationModeDecision decision) {
         if (StrUtil.isBlank(taskId)) {
             return;
         }
         TaskRecord record = new TaskRecord(taskId, appId, userId, normalize(route), normalize(targetType),
-                startAt == null ? Instant.now() : startAt);
+                startAt == null ? Instant.now() : startAt, decision);
         TaskRecord previous = taskRecords.put(taskId, record);
         if (previous == null) {
             taskOrder.addFirst(taskId);
@@ -75,6 +86,28 @@ public class GenerationPerformanceMonitorService {
             return;
         }
         record.finish(normalize(status));
+    }
+
+    public void recordCreateTelemetry(String taskId, Map<String, Object> telemetry) {
+        if (StrUtil.isBlank(taskId) || telemetry == null || telemetry.isEmpty()) {
+            return;
+        }
+        TaskRecord record = taskRecords.get(taskId);
+        if (record == null) {
+            return;
+        }
+        record.recordCreateTelemetry(telemetry);
+    }
+
+    public void recordRuntimeTelemetry(String taskId, Map<String, Object> telemetry) {
+        if (StrUtil.isBlank(taskId) || telemetry == null || telemetry.isEmpty()) {
+            return;
+        }
+        TaskRecord record = taskRecords.get(taskId);
+        if (record == null) {
+            return;
+        }
+        record.recordRuntimeTelemetry(telemetry);
     }
 
     public GenerationPerformanceSummaryVO getSummary(Integer limit) {
@@ -159,7 +192,7 @@ public class GenerationPerformanceMonitorService {
         }
     }
 
-    private String normalize(String value) {
+    private static String normalize(String value) {
         return StrUtil.blankToDefault(value, "unknown").trim().toLowerCase().replaceAll("\\s+", "_");
     }
 
@@ -211,17 +244,35 @@ public class GenerationPerformanceMonitorService {
         private final String route;
         private final String targetType;
         private final Instant startAt;
+        private final String mode;
+        private final String routerReason;
+        private final String fallbackPolicy;
+        private final String fallbackReason;
+        private final String validationLevel;
         private final List<SpanRecord> spans = new ArrayList<>();
+        private volatile CreateTelemetryRecord createTelemetry = CreateTelemetryRecord.empty();
+        private volatile RuntimeTelemetryRecord runtimeTelemetry = RuntimeTelemetryRecord.empty();
         private volatile String status = "running";
         private volatile Instant endAt;
 
-        private TaskRecord(String taskId, Long appId, Long userId, String route, String targetType, Instant startAt) {
+        private TaskRecord(String taskId,
+                           Long appId,
+                           Long userId,
+                           String route,
+                           String targetType,
+                           Instant startAt,
+                           GenerationModeDecision decision) {
             this.taskId = taskId;
             this.appId = appId;
             this.userId = userId;
             this.route = route;
             this.targetType = targetType;
             this.startAt = startAt;
+            this.mode = decision == null ? "unknown" : normalize(decision.mode().name());
+            this.routerReason = decision == null ? "" : StrUtil.subPre(decision.reason(), 300);
+            this.fallbackPolicy = decision == null ? "unknown" : normalize(decision.fallbackPolicy().name());
+            this.fallbackReason = decision == null ? "" : StrUtil.subPre(decision.fallbackReason(), 300);
+            this.validationLevel = decision == null ? "unknown" : normalize(decision.expectedValidationLevel().name());
         }
 
         private synchronized void addSpan(SpanRecord spanRecord) {
@@ -230,6 +281,14 @@ public class GenerationPerformanceMonitorService {
 
         private synchronized List<SpanRecord> spans() {
             return List.copyOf(spans);
+        }
+
+        private void recordCreateTelemetry(Map<String, Object> telemetry) {
+            this.createTelemetry = CreateTelemetryRecord.from(telemetry);
+        }
+
+        private void recordRuntimeTelemetry(Map<String, Object> telemetry) {
+            this.runtimeTelemetry = runtimeTelemetry.merge(RuntimeTelemetryRecord.from(telemetry));
         }
 
         private void finish(String status) {
@@ -256,6 +315,24 @@ public class GenerationPerformanceMonitorService {
                     .appId(appId)
                     .userId(userId)
                     .route(route)
+                    .mode(mode)
+                    .routerReason(routerReason)
+                    .fallbackPolicy(fallbackPolicy)
+                    .fallbackReason(fallbackReason)
+                    .validationLevel(validationLevel)
+                    .baseTemplate(createTelemetry.baseTemplate())
+                    .modules(createTelemetry.modules())
+                    .slotGroupCount(createTelemetry.slotGroupCount())
+                    .aiCallCount(createTelemetry.aiCallCount())
+                    .patchCount(createTelemetry.patchCount())
+                    .validationDurationMs(createTelemetry.validationDurationMs())
+                    .createFallback(createTelemetry.fallback())
+                    .modelName(runtimeTelemetry.modelName())
+                    .firstTokenLatencyMs(runtimeTelemetry.firstTokenLatencyMs())
+                    .totalAiDurationMs(runtimeTelemetry.totalAiDurationMs())
+                    .toolCallCount(runtimeTelemetry.toolCallCount())
+                    .toolDurationMs(runtimeTelemetry.toolDurationMs())
+                    .repairRounds(runtimeTelemetry.repairRounds())
                     .targetType(targetType)
                     .status(status)
                     .totalDurationMs(totalDurationMs())
@@ -279,6 +356,118 @@ public class GenerationPerformanceMonitorService {
                     .durationMs(durationMs)
                     .detail(detail)
                     .build();
+        }
+    }
+
+    private record CreateTelemetryRecord(
+            String baseTemplate,
+            List<String> modules,
+            Integer slotGroupCount,
+            Integer aiCallCount,
+            Integer patchCount,
+            Long validationDurationMs,
+            Boolean fallback
+    ) {
+        private static CreateTelemetryRecord empty() {
+            return new CreateTelemetryRecord("", List.of(), 0, 0, 0, 0L, false);
+        }
+
+        private static CreateTelemetryRecord from(Map<String, Object> telemetry) {
+            return new CreateTelemetryRecord(
+                    stringValue(telemetry.get("baseTemplate")),
+                    stringList(telemetry.get("modules")),
+                    intValue(telemetry.get("slotGroupCount")),
+                    intValue(telemetry.get("aiCallCount")),
+                    intValue(telemetry.get("patchCount")),
+                    longValue(telemetry.get("validationDurationMs")),
+                    boolValue(telemetry.get("fallback"))
+            );
+        }
+
+        private static String stringValue(Object value) {
+            return value == null ? "" : String.valueOf(value);
+        }
+
+        private static List<String> stringList(Object value) {
+            if (value instanceof List<?> list) {
+                return list.stream().map(String::valueOf).toList();
+            }
+            return List.of();
+        }
+
+        private static Integer intValue(Object value) {
+            if (value instanceof Number number) {
+                return number.intValue();
+            }
+            try {
+                return value == null ? 0 : Integer.parseInt(String.valueOf(value));
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+
+        private static Long longValue(Object value) {
+            if (value instanceof Number number) {
+                return number.longValue();
+            }
+            try {
+                return value == null ? 0L : Long.parseLong(String.valueOf(value));
+            } catch (NumberFormatException e) {
+                return 0L;
+            }
+        }
+
+        private static Boolean boolValue(Object value) {
+            if (value instanceof Boolean bool) {
+                return bool;
+            }
+            return value != null && Boolean.parseBoolean(String.valueOf(value));
+        }
+    }
+
+    private record RuntimeTelemetryRecord(
+            String modelName,
+            Long firstTokenLatencyMs,
+            Long totalAiDurationMs,
+            Integer toolCallCount,
+            Long toolDurationMs,
+            Integer repairRounds
+    ) {
+        private static RuntimeTelemetryRecord empty() {
+            return new RuntimeTelemetryRecord("", 0L, 0L, 0, 0L, 0);
+        }
+
+        private static RuntimeTelemetryRecord from(Map<String, Object> telemetry) {
+            return new RuntimeTelemetryRecord(
+                    CreateTelemetryRecord.stringValue(telemetry.get("modelName")),
+                    CreateTelemetryRecord.longValue(telemetry.get("firstTokenLatencyMs")),
+                    CreateTelemetryRecord.longValue(telemetry.get("totalAiDurationMs")),
+                    CreateTelemetryRecord.intValue(telemetry.get("toolCallCount")),
+                    CreateTelemetryRecord.longValue(telemetry.get("toolDurationMs")),
+                    CreateTelemetryRecord.intValue(telemetry.get("repairRounds"))
+            );
+        }
+
+        private RuntimeTelemetryRecord merge(RuntimeTelemetryRecord other) {
+            if (other == null) {
+                return this;
+            }
+            return new RuntimeTelemetryRecord(
+                    StrUtil.isNotBlank(other.modelName()) ? other.modelName() : modelName,
+                    firstNonZero(other.firstTokenLatencyMs(), firstTokenLatencyMs),
+                    firstNonZero(other.totalAiDurationMs(), totalAiDurationMs),
+                    firstNonZero(other.toolCallCount(), toolCallCount),
+                    firstNonZero(other.toolDurationMs(), toolDurationMs),
+                    firstNonZero(other.repairRounds(), repairRounds)
+            );
+        }
+
+        private static Long firstNonZero(Long preferred, Long fallback) {
+            return preferred != null && preferred > 0 ? preferred : fallback;
+        }
+
+        private static Integer firstNonZero(Integer preferred, Integer fallback) {
+            return preferred != null && preferred > 0 ? preferred : fallback;
         }
     }
 }

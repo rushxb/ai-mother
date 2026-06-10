@@ -1,13 +1,20 @@
 import type { RouteRecordRaw } from 'vue-router'
-import type { RouteManifest } from '@/types'
 import routeManifest from './routeManifest.json'
+
+interface RouteManifestItem {
+  path: string
+  name: string
+  component: string
+  title?: string
+  meta?: Record<string, unknown>
+}
 
 // Dynamic import for view components
 const viewModules = import.meta.glob('@/views/*.vue')
 const pageModules = import.meta.glob('@/pages/*.vue')
 
 export function createRoutes(): RouteRecordRaw[] {
-  return (routeManifest as RouteManifest[]).map((item) => {
+  return (routeManifest as RouteManifestItem[]).map((item) => {
     const route: RouteRecordRaw = {
       path: item.path,
       name: item.name,

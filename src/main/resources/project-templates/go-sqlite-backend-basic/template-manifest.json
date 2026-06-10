@@ -120,6 +120,61 @@
       ],
       "styleVariables": null,
       "outputFormat": "完整 SQL 文件，使用 create table if not exists / create index if not exists，可保留用户与 session 基础表"
+    },
+    {
+      "id": "module_audit_log",
+      "file": "internal/modules/sample/audit.go",
+      "description": "审计日志/操作历史扩展，记录操作者、动作、目标资源和时间",
+      "required": false,
+      "type": "backend_model",
+      "category": "audit",
+      "example": "type AuditLog struct { ID int64 `json:\"id\"`; Action string `json:\"action\"`; Operator string `json:\"operator\"` }",
+      "dependencies": [
+        "internal/modules/sample/model.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 Go 文件，package sample，仅包含审计模型和必要请求/响应结构"
+    },
+    {
+      "id": "module_export_contract",
+      "file": "internal/modules/sample/export.go",
+      "description": "导入导出/批量操作请求结构，适合后台管理、报表、数据交换",
+      "required": false,
+      "type": "backend_model",
+      "category": "export",
+      "example": "type ExportRequest struct { Keyword string `json:\"keyword\"`; Fields []string `json:\"fields\"`; Format string `json:\"format\"` }",
+      "dependencies": [
+        "internal/modules/sample/model.go"
+      ],
+      "styleVariables": null,
+      "outputFormat": "完整 Go 文件，package sample，定义批量导入导出相关 DTO，不直接访问数据库"
+    },
+    {
+      "id": "module_pagination",
+      "description": "通用分页查询辅助，BuildPaginatedQuery 统一拼接 limit/offset",
+      "outputFormat": "完整 Go 文件，package sample",
+      "type": "backend_pagination",
+      "required": false,
+      "category": "persistence",
+      "file": "internal/modules/sample/pagination.go"
+    },
+    {
+      "id": "module_search",
+      "description": "全文搜索/多字段模糊查询，Search 方法支持关键词+分页",
+      "outputFormat": "完整 Go 文件，package sample",
+      "type": "backend_search",
+      "required": false,
+      "category": "business",
+      "file": "internal/modules/sample/search.go"
+    },
+    {
+      "id": "module_import_export",
+      "description": "数据导入导出，ImportFromCSV/ExportToCSV 等批量操作",
+      "outputFormat": "完整 Go 文件，package sample",
+      "type": "backend_import_export",
+      "required": false,
+      "category": "business",
+      "file": "internal/modules/sample/import_export.go"
     }
   ],
   "protectedFiles": [
@@ -136,5 +191,5 @@
     "internal/response/response.go",
     "internal/validator/validator.go"
   ],
-  "maxSlotsPerGeneration": 8
+  "maxSlotsPerGeneration": 10
 }

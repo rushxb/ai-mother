@@ -3,6 +3,12 @@ export interface LandingBrand {
   headline: string
   description: string
   cta: string
+  secondary: string
+}
+
+export interface Stat {
+  value: string
+  label: string
 }
 
 export interface Highlight {
@@ -17,17 +23,11 @@ export interface Case {
   image?: string
 }
 
-export interface Process {
-  title: string
-  text: string
-}
-
 export interface Plan {
   name: string
   price: string
+  desc: string
   features: string[]
-  cta: string
-  popular?: boolean
 }
 
 export interface FAQ {
@@ -39,8 +39,17 @@ export const brand: LandingBrand = {
   name: 'Nexa Studio',
   headline: '把复杂业务变成清晰体验',
   description: '我们专注于产品设计、技术落地和业务增长，帮助团队把想法变成真正可用的数字产品。',
-  cta: '预约咨询'
+  cta: '预约咨询',
+  secondary: '查看案例'
 }
+
+export const nav = ['亮点', '案例', '流程', '价格', 'FAQ']
+
+export const stats: Stat[] = [
+  { value: '120+', label: '交付项目' },
+  { value: '98%', label: '客户满意度' },
+  { value: '30天', label: '平均上线周期' }
+]
 
 export const highlights: Highlight[] = [
   { title: '产品设计', text: '从用户研究到交互原型，构建清晰、可用、有吸引力的产品体验。' },
@@ -54,32 +63,31 @@ export const cases: Case[] = [
   { title: '电商系统', text: '为某零售企业设计开发的电商系统，提升销售效率和用户体验。' }
 ]
 
-export const process: Process[] = [
-  { title: '需求沟通', text: '了解业务背景、目标用户、核心需求和项目目标。' },
-  { title: '方案设计', text: '制定产品方案、技术方案、项目计划和资源安排。' },
-  { title: '开发实施', text: '敏捷开发、持续集成、质量保证和进度管理。' },
-  { title: '上线运营', text: '产品上线、数据监控、用户反馈和持续优化。' }
+export const process = [
+  '需求沟通',
+  '方案设计',
+  '开发实施',
+  '上线运营'
 ]
 
 export const plans: Plan[] = [
   {
     name: '基础版',
     price: '¥9,800',
+    desc: '适合单页官网和活动页快速上线。',
     features: ['单页面设计开发', '响应式布局', '基础 SEO 优化', '3 个月技术支持'],
-    cta: '选择方案'
   },
   {
     name: '专业版',
     price: '¥29,800',
+    desc: '适合多页面官网、案例沉淀和线索转化。',
     features: ['多页面设计开发', '后台管理系统', '数据统计分析', '6 个月技术支持'],
-    cta: '选择方案',
-    popular: true
   },
   {
     name: '企业版',
     price: '¥59,800',
+    desc: '适合复杂业务展示和定制能力集成。',
     features: ['全栈解决方案', '定制功能开发', '专属技术顾问', '12 个月技术支持'],
-    cta: '联系咨询'
   }
 ]
 

@@ -1,14 +1,17 @@
 package com.rush.rushaicodemother.service.impl;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
+import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
+import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
@@ -19,11 +22,16 @@ import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFailureRecoveryService;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFinalizationService;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationSessionCompletionService;
+import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import reactor.core.publisher.Flux;
 
 import java.lang.reflect.Method;
 import java.time.Instant;
@@ -34,6 +42,10 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 class AppServiceImplRegressionTest {
 
@@ -127,6 +139,33 @@ class AppServiceImplRegressionTest {
                 .count());
     }
 
+    @Test
+    void shouldReplayStructuredGenerationEventsBeforeSessionStream() {
+        AppServiceImpl service = spy(new AppServiceImpl());
+        App app = app(1L, 2L);
+        User user = user(2L);
+        doReturn(app).when(service).getById(1L);
+        GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
+        eventPublisher.publish(
+                new GenerationTaskRequest(app, "新增搜索分页", user),
+                GenerationEventType.AGENT_EDIT_PLAN,
+                "AGENT_EDIT Plan 阶段完成",
+                Map.of("scope", "cross_module_patch")
+        );
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.getStream(1L)).thenReturn(Flux.empty());
+        ReflectionTestUtils.setField(service, "generationEventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(service, "generationTaskOrchestrator", orchestrator);
+
+        List<GenerationStreamEvent> events = service.getGenerationStream(1L, user).collectList().block();
+
+        assertNotNull(events);
+        assertEquals(1, events.size());
+        assertEquals(GenerationStreamEvent.AGENT_EVENT, events.get(0).getType());
+        assertEquals("AGENT_EDIT Plan 阶段完成", events.get(0).getText());
+        assertEquals("agent_edit_plan", events.get(0).getData().get("eventType"));
+    }
+
     private GenerationTaskOrchestrator newOrchestrator(GenerationOrchestrationMetricsCollector metricsCollector) {
         NoopGenerationTraceService traceService = new NoopGenerationTraceService();
         NoopUserCreditService creditService = new NoopUserCreditService();
@@ -146,6 +185,7 @@ class AppServiceImplRegressionTest {
                 lifecycleService,  // generationTaskLifecycleService
                 null,  // generationToolExecutionContextService
                 traceService,  // generationTraceService
+                new GenerationModeRouter(),  // generationModeRouter
                 null  // generationWorkspaceService
         );
     }
@@ -153,6 +193,20 @@ class AppServiceImplRegressionTest {
     private HeavyGenerationFailureRecoveryService newFailureRecoveryService(
             GenerationOrchestrationMetricsCollector metricsCollector) {
         return new HeavyGenerationFailureRecoveryService(null, metricsCollector, null);
+    }
+
+    private App app(Long appId, Long userId) {
+        App app = new App();
+        app.setId(appId);
+        app.setUserId(userId);
+        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
+        return app;
+    }
+
+    private User user(Long userId) {
+        User user = new User();
+        user.setId(userId);
+        return user;
     }
 
     private void assertEventPayload(Object target,

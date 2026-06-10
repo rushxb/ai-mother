@@ -40,11 +40,14 @@ public class TemplateSlotFillService {
 
     private static final int MAX_TEMPLATE_CONTEXT_CHARS = 30000;
     private static final String TEMPLATE_ROOT = "project-templates";
+    private static final String BACKEND_TEMPLATE = "go-sqlite-backend-basic";
+    private static final String BACKEND_MODULE_IMPORT_PREFIX = "backend-template/internal/modules/";
 
     private final TemplateManifestService templateManifestService;
     private final AiSlotFillServiceFactory aiSlotFillServiceFactory;
     private final PathMatchingResourcePatternResolver resourceResolver;
     private final Map<String, String> templateContentCache = new ConcurrentHashMap<>();
+    private final ThreadLocal<String> lastFailureReason = new ThreadLocal<>();
 
     @Autowired
     public TemplateSlotFillService(TemplateManifestService templateManifestService,
@@ -69,7 +72,13 @@ public class TemplateSlotFillService {
      * @return 填充结果，如果无法填充则返回 null
      */
     public SlotFillResult fillSlots(String templateId, Long appId, String userMessage) {
+        return fillSlots(templateId, appId, userMessage, null);
+    }
+
+    public SlotFillResult fillSlots(String templateId, Long appId, String userMessage, List<String> requestedSlotIds) {
+        lastFailureReason.remove();
         if (StrUtil.isBlank(templateId) || appId == null || StrUtil.isBlank(userMessage)) {
+            lastFailureReason.set("invalid_slot_fill_request");
             return null;
         }
 
@@ -77,15 +86,23 @@ public class TemplateSlotFillService {
         TemplateManifestService.TemplateManifest manifest = getOrGenerateManifest(templateId);
         if (manifest == null || manifest.slots() == null || manifest.slots().isEmpty()) {
             log.debug("模板没有 slot 定义且无法自动生成: {}", templateId);
+            lastFailureReason.set("template_manifest_slots_unavailable:" + templateId);
             return null;
         }
 
         // 2. 构建 slot 定义 JSON
         String moduleName = inferBackendModuleName(templateId, userMessage);
-        String slotDefinition = buildSlotDefinition(manifest, moduleName);
+        TemplateManifestService.TemplateManifest scopedManifest = filterManifest(manifest, requestedSlotIds);
+        if (scopedManifest.slots().isEmpty()) {
+            log.debug("模板 slot group 为空: templateId={}, requestedSlotIds={}", templateId, requestedSlotIds);
+            lastFailureReason.set("requested_slot_group_empty:" + templateId + ":" + requestedSlotIds);
+            return null;
+        }
+
+        String slotDefinition = buildSlotDefinition(scopedManifest, moduleName);
 
         // 3. 读取模板上下文（从 classpath 读取模板源文件）
-        String templateContext = buildTemplateContextFromResources(templateId, manifest);
+        String templateContext = buildTemplateContextFromResources(templateId, scopedManifest);
 
         // 4. 调用 AI 填充 slots
         SlotFillOutput aiOutput;
@@ -93,24 +110,30 @@ public class TemplateSlotFillService {
             AiSlotFillService aiService = aiSlotFillServiceFactory.createAiSlotFillService();
             aiOutput = aiService.fillSlots(userMessage, slotDefinition, templateContext);
         } catch (Exception e) {
-            log.warn("AI slot 填充失败: {}", e.getMessage());
+            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            lastFailureReason.set("ai_slot_fill_exception:" + reason);
+            log.warn("AI slot 填充失败: {}", reason);
             return null;
         }
 
         if (aiOutput == null || aiOutput.slots() == null || aiOutput.slots().isEmpty()) {
             log.warn("AI 未返回有效的 slot 填充内容");
+            lastFailureReason.set("ai_slot_fill_empty_output");
             return null;
         }
 
         // 5. 转换为 PatchOperation
-        List<PatchOperation> patchOperations = convertToPatchOperations(aiOutput.slots(), manifest, moduleName);
+        List<PatchOperation> patchOperations = convertToPatchOperations(aiOutput.slots(), scopedManifest, moduleName);
 
         // 6. 统计信息
-        List<String> filledSlots = aiOutput.slots().stream()
+        List<String> filledSlots = new ArrayList<>(aiOutput.slots().stream()
                 .map(SlotFillOutput.SlotContent::slotId)
-                .collect(Collectors.toList());
+                .toList());
+        deterministicFilledSlotIds(scopedManifest, moduleName).stream()
+                .filter(slotId -> !filledSlots.contains(slotId))
+                .forEach(filledSlots::add);
 
-        List<String> skippedSlots = manifest.slots().stream()
+        List<String> skippedSlots = scopedManifest.slots().stream()
                 .map(TemplateManifestService.TemplateSlot::id)
                 .filter(id -> !filledSlots.contains(id))
                 .collect(Collectors.toList());
@@ -124,6 +147,33 @@ public class TemplateSlotFillService {
 
         return SlotFillResult.partial(templateId, filledSlots, patchOperations,
                 aiOutput.summary(), totalChars, skippedSlots);
+    }
+
+    public String consumeLastFailureReason() {
+        String reason = lastFailureReason.get();
+        lastFailureReason.remove();
+        return StrUtil.blankToDefault(reason, "slot_fill_failed");
+    }
+
+    private TemplateManifestService.TemplateManifest filterManifest(TemplateManifestService.TemplateManifest manifest,
+                                                                    List<String> requestedSlotIds) {
+        if (requestedSlotIds == null || requestedSlotIds.isEmpty()) {
+            return manifest;
+        }
+        List<String> normalizedSlotIds = requestedSlotIds.stream()
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .toList();
+        List<TemplateManifestService.TemplateSlot> slots = manifest.slots().stream()
+                .filter(slot -> normalizedSlotIds.contains(slot.id()))
+                .toList();
+        return new TemplateManifestService.TemplateManifest(
+                manifest.templateId(),
+                manifest.description(),
+                slots,
+                manifest.protectedFiles(),
+                manifest.maxSlotsPerGeneration()
+        );
     }
 
     /**
@@ -406,6 +456,12 @@ public class TemplateSlotFillService {
 
             operations.add(toPatchOperation(templateSlot, slot.content(), moduleName));
         }
+        for (TemplateManifestService.TemplateSlot templateSlot : manifest.slots()) {
+            if (isDeterministicBackendImportSlot(templateSlot, moduleName)
+                    && operations.stream().noneMatch(operation -> sameSlotTarget(operation, templateSlot, moduleName))) {
+                operations.add(toPatchOperation(templateSlot, "", moduleName));
+            }
+        }
 
         return operations;
     }
@@ -413,7 +469,7 @@ public class TemplateSlotFillService {
     private PatchOperation toPatchOperation(TemplateManifestService.TemplateSlot slot, String content, String moduleName) {
         String file = resolveDynamicSlotFile(slot.file(), moduleName);
         if (PatchOperation.ACTION_GO_ADD_IMPORT.equals(slot.getPatchMode())) {
-            return PatchOperation.goAddImport(file, content);
+            return PatchOperation.goAddImport(file, buildBackendModuleImport(moduleName));
         }
         if (PatchOperation.ACTION_APPEND_SQL_MIGRATION.equals(slot.getPatchMode())) {
             return PatchOperation.appendSqlMigration(file, content);
@@ -442,8 +498,33 @@ public class TemplateSlotFillService {
         return file.replace("internal/modules/sample/", "internal/modules/" + moduleName + "/");
     }
 
+    private List<String> deterministicFilledSlotIds(TemplateManifestService.TemplateManifest manifest, String moduleName) {
+        return manifest.slots().stream()
+                .filter(slot -> isDeterministicBackendImportSlot(slot, moduleName))
+                .map(TemplateManifestService.TemplateSlot::id)
+                .toList();
+    }
+
+    private boolean isDeterministicBackendImportSlot(TemplateManifestService.TemplateSlot slot, String moduleName) {
+        return slot != null
+                && StrUtil.isNotBlank(moduleName)
+                && PatchOperation.ACTION_GO_ADD_IMPORT.equals(slot.getPatchMode());
+    }
+
+    private boolean sameSlotTarget(PatchOperation operation,
+                                   TemplateManifestService.TemplateSlot slot,
+                                   String moduleName) {
+        return operation != null
+                && operation.action().equals(slot.getPatchMode())
+                && operation.relativePath().equals(resolveDynamicSlotFile(slot.file(), moduleName));
+    }
+
+    private String buildBackendModuleImport(String moduleName) {
+        return BACKEND_MODULE_IMPORT_PREFIX + StrUtil.blankToDefault(moduleName, "app");
+    }
+
     private String inferBackendModuleName(String templateId, String userMessage) {
-        if (!"go-sqlite-backend-basic".equals(templateId)) {
+        if (!BACKEND_TEMPLATE.equals(templateId)) {
             return "";
         }
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);

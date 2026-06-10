@@ -36,6 +36,8 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
+import com.rush.rushaicodemother.orchestration.event.GenerationEvent;
+import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
@@ -121,6 +123,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private GenerationTaskOrchestrator generationTaskOrchestrator;
 
     @Resource
+    private GenerationEventPublisher generationEventPublisher;
+
+    @Resource
     private AppDatabaseResourceService appDatabaseResourceService;
 
     @Resource
@@ -133,6 +138,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         App app = getGenerationApp(appId, loginUser);
         userService.ensureHasCredit(loginUser.getId());
         enableDatabaseForGenerationIfNeeded(app, message);
+        generationEventPublisher.clearRecent(app.getId());
         GenerationTaskResult taskResult = generationTaskOrchestrator.start(new GenerationTaskRequest(app, message, loginUser));
         return taskResult.contentFlux();
     }
@@ -160,7 +166,19 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Override
     public Flux<GenerationStreamEvent> getGenerationStream(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
-        return generationTaskOrchestrator.getStream(app.getId());
+        Flux<GenerationStreamEvent> recentStructuredEvents = Flux.fromIterable(generationEventPublisher.recent(app.getId()))
+                .map(this::toGenerationStreamEvent);
+        return recentStructuredEvents.concatWith(generationTaskOrchestrator.getStream(app.getId()));
+    }
+
+    private GenerationStreamEvent toGenerationStreamEvent(GenerationEvent event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        if (event.data() != null) {
+            data.putAll(event.data());
+        }
+        data.put("eventType", event.type() == null ? "" : event.type().getValue());
+        data.put("occurredAt", event.occurredAt() == null ? "" : event.occurredAt().toString());
+        return GenerationStreamEvent.agentEvent(StrUtil.blankToDefault(event.message(), ""), data);
     }
 
     @Override

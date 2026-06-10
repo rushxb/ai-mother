@@ -73,7 +73,6 @@
           <ChatToolbarButton
               v-if="activeWorkspaceTab === 'files'"
               type="text"
-              :loading="loadingFiles"
               :disabled="!isOwner"
               @click="$emit('loadCodeFiles')"
           >
@@ -176,9 +175,6 @@
                 <template #empty>生成代码后可在这里查看文件</template>
               </InspiraFileTree>
             </div>
-            <div v-else-if="loadingFiles" class="file-empty-state">
-              正在读取文件目录...
-            </div>
             <div v-else class="file-empty-state">
               生成代码后可在这里查看文件
             </div>
@@ -245,11 +241,7 @@
                   {{ editorStatusText }}
                 </span>
               </div>
-              <div v-if="loadingFileContent" class="editor-loading">
-                <a-spin />
-                <span>正在读取文件...</span>
-              </div>
-              <div v-else class="code-editor-shell">
+              <div class="code-editor-shell">
                 <div class="code-pathbar">{{ selectedFilePath }}</div>
                 <div class="code-editor-frame">
                   <div ref="lineNumberGutterRef" class="code-line-numbers" aria-hidden="true">

@@ -60,6 +60,12 @@ public class GenerationEventPublisher {
         }
     }
 
+    public void clearRecent(Long appId) {
+        if (appId != null) {
+            replayEvents.remove(appId);
+        }
+    }
+
     public Flux<GenerationEvent> stream(Long appId) {
         if (appId == null) {
             return Flux.empty();

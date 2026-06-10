@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -92,6 +93,12 @@ public class StreamingModelFactory {
     @Value("${langchain4j.open-ai.routing-chat-model.log-responses:false}")
     private boolean routingLogResponses;
 
+    @Value("${langchain4j.open-ai.slot-fill-chat-model.timeout-seconds:20}")
+    private Integer slotFillTimeoutSeconds;
+
+    @Value("${langchain4j.open-ai.slot-fill-chat-model.max-retries:0}")
+    private Integer slotFillMaxRetries;
+
     /**
      * 根据性能配置创建流式模型。
      * <p>
@@ -168,6 +175,36 @@ public class StreamingModelFactory {
                 .modelName(routingModelName)
                 .maxTokens(routingMaxTokens)
                 .temperature(routingTemperature)
+                .logRequests(routingLogRequests)
+                .logResponses(routingLogResponses);
+        applyThinking(builder, routingModelName, false);
+        return builder.build();
+    }
+
+    /**
+     * 创建 CREATE slot 填充同步模型。
+     * <p>
+     * 首次生成的目标是模板驱动下快速产出，slot fill 不应该被默认 60s read timeout
+     * 和 2 次自动重试拖成数分钟等待。这里复用 routing/chat 模型来源，但使用更短超时和
+     * 可配置重试次数，失败后由 CREATE 任务直接把明确原因推送给前端。
+     */
+    public ChatModel createSlotFillChatModel() {
+        AiModel dbModel = getPreferredEnabledModel("chat");
+        if (dbModel != null) {
+            log.info("使用数据库 SlotFill 模型配置: provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
+                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
+                    normalizedSlotFillTimeoutSeconds(), normalizedSlotFillMaxRetries());
+            return createChatModelFromDb(dbModel, normalizedSlotFillTimeout(), normalizedSlotFillMaxRetries());
+        }
+        log.warn("未找到可运行的已启用 chat 模型，回退到配置文件默认 SlotFill 模型");
+        var builder = OpenAiChatModel.builder()
+                .apiKey(routingApiKey)
+                .baseUrl(routingBaseUrl)
+                .modelName(routingModelName)
+                .maxTokens(routingMaxTokens)
+                .temperature(routingTemperature)
+                .timeout(normalizedSlotFillTimeout())
+                .maxRetries(normalizedSlotFillMaxRetries())
                 .logRequests(routingLogRequests)
                 .logResponses(routingLogResponses);
         applyThinking(builder, routingModelName, false);
@@ -266,6 +303,10 @@ public class StreamingModelFactory {
     }
 
     private ChatModel createChatModelFromDb(AiModel dbModel) {
+        return createChatModelFromDb(dbModel, null, null);
+    }
+
+    private ChatModel createChatModelFromDb(AiModel dbModel, Duration timeout, Integer maxRetries) {
         var builder = OpenAiChatModel.builder()
                 .apiKey(dbModel.getApiKey())
                 .baseUrl(dbModel.getBaseUrl())
@@ -276,8 +317,32 @@ public class StreamingModelFactory {
 
         applyMaxTokens(builder, dbModel);
         applyThinking(builder, dbModel, false);
+        if (timeout != null) {
+            builder.timeout(timeout);
+        }
+        if (maxRetries != null) {
+            builder.maxRetries(maxRetries);
+        }
 
         return builder.build();
+    }
+
+    private Duration normalizedSlotFillTimeout() {
+        return Duration.ofSeconds(normalizedSlotFillTimeoutSeconds());
+    }
+
+    private int normalizedSlotFillTimeoutSeconds() {
+        if (slotFillTimeoutSeconds == null || slotFillTimeoutSeconds < 3) {
+            return 20;
+        }
+        return slotFillTimeoutSeconds;
+    }
+
+    private int normalizedSlotFillMaxRetries() {
+        if (slotFillMaxRetries == null || slotFillMaxRetries < 0) {
+            return 0;
+        }
+        return slotFillMaxRetries;
     }
 
     /**

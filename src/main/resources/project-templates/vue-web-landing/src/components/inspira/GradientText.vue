@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -18,9 +17,7 @@ const sizeClasses = {
   xl: 'text-9xl',
 }
 
-const gradientClasses = ref(
-  'bg-gradient-to-r from-primary via-purple-500 to-pink-500 bg-clip-text text-transparent'
-)
+const gradientClasses = 'bg-gradient-to-r from-primary via-purple-500 to-pink-500 bg-clip-text text-transparent'
 </script>
 
 <template>

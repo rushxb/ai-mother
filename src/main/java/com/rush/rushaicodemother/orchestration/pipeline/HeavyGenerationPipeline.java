@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.annotation.Order;
@@ -25,7 +26,7 @@ public class HeavyGenerationPipeline implements GenerationPipeline {
 
     @Override
     public boolean supports(GenerationPipelineRequest request) {
-        return true;
+        return request.modeIs(GenerationMode.HEAVY_EXPERT);
     }
 
     @Override

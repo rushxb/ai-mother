@@ -1,19 +1,19 @@
 package com.rush.rushaicodemother.orchestration.template;
 
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.create.CreateGenerationPlan;
+import com.rush.rushaicodemother.orchestration.create.CreateTemplatePlanner;
+import com.rush.rushaicodemother.orchestration.create.CreateTemplateRuntime;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
-import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.nio.file.Path;
 import java.util.Map;
 
 @Slf4j
@@ -21,101 +21,65 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SlotFillGenerationService {
 
-    private final BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService;
+    private final CreateTemplatePlanner createTemplatePlanner;
+    private final CreateTemplateRuntime createTemplateRuntime;
     private final GenerationEventPublisher generationEventPublisher;
-    private final GenerationPatchApplyService generationPatchApplyService;
-    private final ParallelSlotFillService parallelSlotFillService;
     private final TemplateSlotFillService templateSlotFillService;
-    private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
+    private final ThreadLocal<String> lastFailureReason = new ThreadLocal<>();
 
     public SlotFillResult tryGenerate(App app, GenerationTaskRequest request) {
+        return tryGenerate(app, request, null);
+    }
+
+    public SlotFillResult tryGenerate(App app, GenerationTaskRequest request, GenerationSession session) {
+        lastFailureReason.remove();
         if (app == null || request == null) {
+            lastFailureReason.set("invalid_create_request");
             return null;
         }
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         if (codeGenType == null) {
+            lastFailureReason.set("unsupported_code_gen_type");
             return null;
         }
-        String templateId = selectTemplateId(codeGenType, request.message());
-        if (StrUtil.isBlank(templateId)) {
-            log.debug("无法选择模板");
+        CreateGenerationPlan plan = createTemplatePlanner.plan(codeGenType, request.message());
+        if (plan == null || StrUtil.isBlank(plan.baseTemplateId()) || plan.slotGroups().isEmpty()) {
+            log.debug("CREATE 模板计划不可用: {}", plan == null ? "null" : plan.reason());
+            lastFailureReason.set("create_plan_unavailable");
             return null;
         }
-        if (codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT && !templateSlotFillService.supportsSlotFill(templateId)) {
-            log.debug("模板不支持 slot 填充: {}", templateId);
+        if (codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT && !templateSlotFillService.supportsSlotFill(plan.baseTemplateId())) {
+            log.debug("模板不支持 slot 填充: {}", plan.baseTemplateId());
+            lastFailureReason.set("template_slot_fill_unsupported:" + plan.baseTemplateId());
             return null;
         }
 
-        ParallelSlotFillService.ParallelSlotFillResult parallelResult =
-                parallelSlotFillService.executeInParallel(templateId, app.getId(), request.message(), codeGenType);
-        SlotFillResult result = parallelResult.success()
-                ? parallelResult.slotFillResult()
-                : tryGenerateSequential(app, request, templateId, codeGenType);
-        if (result == null || result.patchOperations() == null || result.patchOperations().isEmpty()) {
-            log.debug("Slot 填充未产生有效操作");
+        SlotFillResult result = createTemplateRuntime.generate(app, request, plan, session);
+        if (result == null) {
+            lastFailureReason.set("create_template_runtime_returned_null");
+            log.debug("CREATE 模板运行时未成功: null");
             return null;
         }
-        if (!applyPatch(app, codeGenType, result)) {
+        if (result.fallback()) {
+            lastFailureReason.set(StrUtil.blankToDefault(result.fallbackReason(), result.summary()));
+            log.debug("CREATE 模板运行时未成功: {}", result == null ? "null" : result.summary());
             return null;
         }
-        generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用模板 slot 填充路径", Map.of(
-                "route", "slot_fill",
-                "templateId", templateId,
+        generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用 CREATE 模板运行时", Map.of(
+                "route", "create_template",
+                "templateId", result.templateId(),
                 "filledSlots", result.filledSlots(),
-                "totalChars", result.totalChars()
+                "totalChars", result.totalChars(),
+                "createPlan", plan.toPayload(),
+                "telemetry", result.telemetry()
         ));
         return result;
     }
 
-    private String selectTemplateId(CodeGenTypeEnum codeGenType, String userMessage) {
-        return switch (codeGenType) {
-            case VUE_PROJECT -> vueProjectTemplateBootstrapService.selectTemplateId(userMessage);
-            case BACKEND_PROJECT -> "go-sqlite-backend-basic";
-            case FULL_STACK_PROJECT -> vueProjectTemplateBootstrapService.selectTemplateId(userMessage)
-                    + "+go-sqlite-backend-basic";
-            default -> "";
-        };
+    public String consumeLastFailureReason() {
+        String reason = lastFailureReason.get();
+        lastFailureReason.remove();
+        return StrUtil.blankToDefault(reason, "CREATE 模板生成未产生可写入的 slot patch");
     }
 
-    private SlotFillResult tryGenerateSequential(App app,
-                                                 GenerationTaskRequest request,
-                                                 String templateId,
-                                                 CodeGenTypeEnum codeGenType) {
-        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
-            VueProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
-                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), request.message());
-            if (!bootstrapResult.bootstrapped() && "workspace_exists".equals(bootstrapResult.reason())) {
-                return null;
-            }
-        } else if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
-            BackendProjectTemplateBootstrapService.BootstrapResult bootstrapResult =
-                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId());
-            if (!bootstrapResult.bootstrapped() && "workspace_exists".equals(bootstrapResult.reason())) {
-                return null;
-            }
-        } else if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            return null;
-        }
-        return templateSlotFillService.fillSlots(templateId, app.getId(), request.message());
-    }
-
-    private boolean applyPatch(App app, CodeGenTypeEnum codeGenType, SlotFillResult result) {
-        try {
-            String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
-                    + codeGenType.getValue() + "_" + app.getId();
-            Path projectRoot = Path.of(projectPath);
-            generationPatchApplyService.applyWithoutChangePlan(
-                    app.getId(),
-                    "slot_fill_" + System.currentTimeMillis(),
-                    projectRoot,
-                    result.patchOperations(),
-                    "slot_fill_generation"
-            );
-            log.info("Slot 填充 patch 应用成功: {} 个操作", result.patchOperations().size());
-            return true;
-        } catch (Exception e) {
-            log.warn("Slot 填充 patch 应用失败: {}", e.getMessage());
-            return false;
-        }
-    }
 }

@@ -25,7 +25,7 @@ public class AiSlotFillServiceFactory {
      * @return AI slot 填充服务
      */
     public AiSlotFillService createAiSlotFillService() {
-        ChatModel chatModel = streamingModelFactory.createRoutingChatModel();
+        ChatModel chatModel = streamingModelFactory.createSlotFillChatModel();
         return AiServices.builder(AiSlotFillService.class)
                 .chatModel(chatModel)
                 .build();

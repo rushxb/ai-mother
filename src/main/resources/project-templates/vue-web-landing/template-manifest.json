@@ -1,201 +1,35 @@
 {
   "templateId": "vue-web-landing",
-  "description": "展示型官网/活动页，基于 Vue 3 + Vite + Inspira UI + motion-v + Lenis，包含首屏、亮点、案例、流程和 FAQ",
+  "description": "展示型官网/活动页模板。CREATE 首次生成只填充一个完整业务数据文件，页面结构、路由、组件和构建配置由模板保证。",
   "slots": [
     {
-      "id": "hero_section",
-      "file": "src/views/LandingView.vue",
-      "description": "首屏 Hero 区域内容，包含标题、描述、行动按钮和信任数据",
-      "required": true,
-      "type": "view",
-      "category": "page",
-      "example": "<template>\n  <LandingPage />\n</template>\n\n<script setup lang=\"ts\">\nimport LandingPage from '@/pages/LandingPage.vue'\n</script>",
-      "dependencies": ["src/data/landingData.ts", "src/pages/LandingPage.vue", "src/components/inspira/GradientText.vue"],
-      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text"],
-      "outputFormat": "完整的 Vue SFC，使用 Inspira UI 组件",
-      "aiHints": {
-        "pattern": "Hero + 特性 + 案例 + 流程 + 价格 + FAQ + 联系",
-        "components": ["GradientText", "AnimateOnScroll", "ParticleField", "TypewriterEffect"],
-        "hooks": ["useRouter"]
-      }
-    },
-    {
-      "id": "theme_tokens",
-      "file": "src/styles/landing.css",
-      "description": "主题色和基础样式变量，定义落地页的全局 CSS 变量",
-      "required": false,
-      "type": "style",
-      "category": "theme",
-      "example": ":root {\n  --color-primary: #3b82f6;\n  --color-secondary: #8b5cf6;\n  --color-bg: #ffffff;\n  --color-text: #1f2937;\n}",
-      "dependencies": null,
-      "styleVariables": ["--color-primary", "--color-secondary", "--color-bg", "--color-text"],
-      "outputFormat": "CSS 变量定义，使用 :root 选择器"
-    },
-    {
-      "id": "brand_data",
+      "id": "landing_core_data",
       "file": "src/data/landingData.ts",
-      "description": "品牌信息，包含名称、标题、描述和 CTA",
+      "description": "完整 landingData.ts 业务数据文件，覆盖品牌首屏、导航、统计、亮点、案例、流程、价格、FAQ 和联系方式。",
       "required": true,
       "type": "data",
-      "category": "data",
-      "example": "export const brand = {\n  name: '品牌名',\n  headline: '主标题',\n  description: '描述',\n  cta: '行动按钮'\n}",
-      "dependencies": null,
+      "category": "core_data",
+      "example": "export interface LandingBrand { name: string; headline: string; description: string; cta: string; secondary: string }\nexport const brand = { name: '品牌名', headline: '主标题', description: '描述', cta: '预约咨询', secondary: '查看案例' }\nexport const nav = ['亮点', '案例', '流程', '价格', 'FAQ']",
+      "dependencies": [
+        "src/pages/LandingPage.vue"
+      ],
       "styleVariables": null,
-      "outputFormat": "TypeScript 常量导出，带类型定义",
-      "aiHints": {
-        "pattern": "品牌信息 + 产品亮点 + 案例 + 流程 + 价格 + FAQ",
-        "types": ["LandingBrand", "Highlight", "Case", "Process", "Plan", "FAQ"]
-      }
-    },
-    {
-      "id": "highlights_data",
-      "file": "src/data/landingData.ts",
-      "description": "产品亮点/特性数据",
-      "required": true,
-      "type": "data",
-      "category": "data",
-      "example": "export const highlights = [\n  { title: '亮点1', text: '描述1' }\n]",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "TypeScript 数组导出"
-    },
-    {
-      "id": "cases_data",
-      "file": "src/data/landingData.ts",
-      "description": "案例/客户见证数据",
-      "required": false,
-      "type": "data",
-      "category": "data",
-      "example": "export const cases = [\n  { title: '案例标题', text: '案例描述' }\n]",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "TypeScript 数组导出"
-    },
-    {
-      "id": "faq_data",
-      "file": "src/data/landingData.ts",
-      "description": "常见问题数据",
-      "required": false,
-      "type": "data",
-      "category": "data",
-      "example": "export const faqs = [\n  { q: '问题？', a: '答案' }\n]",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "TypeScript 数组导出"
-    },
-    {
-      "id": "contact_info",
-      "file": "src/data/landingData.ts",
-      "description": "联系方式和底部信息",
-      "required": false,
-      "type": "data",
-      "category": "data",
-      "example": "export const contact = {\n  email: 'contact@example.com',\n  phone: '400-xxx-xxxx'\n}",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "TypeScript 常量导出"
-    },
-    {
-      "id": "pricing_data",
-      "file": "src/data/landingData.ts",
-      "description": "价格方案数据",
-      "required": false,
-      "type": "data",
-      "category": "data",
-      "example": "export const plans = [\n  { name: '基础版', price: '¥9,800', features: ['特性1', '特性2'], cta: '选择方案' }\n]",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "TypeScript 数组导出"
-    },
-    {
-      "id": "gradient_text",
-      "file": "src/components/inspira/GradientText.vue",
-      "description": "渐变文字组件，支持多种尺寸",
-      "required": false,
-      "type": "component",
-      "category": "visual",
-      "example": "<GradientText size=\"lg\">Hello World</GradientText>",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "Vue 组件，使用 Tailwind CSS 渐变",
-      "aiHints": {
-        "pattern": "渐变文字 + 尺寸 + 动画",
-        "props": ["size", "class"]
-      }
-    },
-    {
-      "id": "animate_on_scroll",
-      "file": "src/components/inspira/AnimateOnScroll.vue",
-      "description": "滚动动画组件，元素进入视口时触发动画",
-      "required": false,
-      "type": "component",
-      "category": "visual",
-      "example": "<AnimateOnScroll :delay=\"200\">\n  <div>内容</div>\n</AnimateOnScroll>",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "Vue 组件，使用 IntersectionObserver",
-      "aiHints": {
-        "pattern": "滚动动画 + 延迟 + 淡入",
-        "props": ["delay", "class"]
-      }
-    },
-    {
-      "id": "particle_field",
-      "file": "src/components/inspira/ParticleField.vue",
-      "description": "粒子场背景组件",
-      "required": false,
-      "type": "component",
-      "category": "visual",
-      "example": "<ParticleField color=\"primary\" :count=\"100\" />",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "Vue 组件，使用 CSS 动画",
-      "aiHints": {
-        "pattern": "粒子背景 + 浮动动画 + 随机分布",
-        "props": ["color", "count", "class"]
-      }
-    },
-    {
-      "id": "typewriter_effect",
-      "file": "src/components/inspira/TypewriterEffect.vue",
-      "description": "打字机效果组件",
-      "required": false,
-      "type": "component",
-      "category": "visual",
-      "example": "<TypewriterEffect text=\"Hello World\" :delay=\"50\" />",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "Vue 组件，使用 setInterval",
-      "aiHints": {
-        "pattern": "打字机 + 光标闪烁 + 逐字显示",
-        "props": ["text", "delay", "class"]
-      }
-    },
-    {
-      "id": "glowing_orb",
-      "file": "src/components/inspira/GlowingOrb.vue",
-      "description": "发光球体组件",
-      "required": false,
-      "type": "component",
-      "category": "visual",
-      "example": "<GlowingOrb size=\"lg\" />",
-      "dependencies": null,
-      "styleVariables": null,
-      "outputFormat": "Vue 组件，使用 CSS 渐变 + 动画",
-      "aiHints": {
-        "pattern": "发光球体 + 渐变 + 旋转动画",
-        "props": ["size", "class"]
-      }
+      "outputFormat": "完整 TypeScript 文件。必须包含并导出 brand、nav、stats、highlights、cases、process、plans、faqs、contact；不要生成 Vue SFC，不要修改路由、入口、样式或 package.json。"
     }
   ],
   "protectedFiles": [
     "package.json",
-    "vite.config.ts",
+    "vite.config.js",
     "tsconfig.json",
     "index.html",
     "src/main.ts",
     "src/App.vue",
-    "src/router/index.ts"
+    "src/router/index.ts",
+    "src/router/routeFactory.ts",
+    "src/router/routeManifest.json",
+    "src/views/LandingView.vue",
+    "src/pages/LandingPage.vue",
+    "src/styles/landing.css"
   ],
-  "maxSlotsPerGeneration": 6
+  "maxSlotsPerGeneration": 1
 }

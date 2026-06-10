@@ -13,8 +13,8 @@ import com.rush.rushaicodemother.orchestration.GenerationOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
-import com.rush.rushaicodemother.orchestration.routing.GenerationIntentDecision;
-import com.rush.rushaicodemother.orchestration.routing.GenerationIntentRouter;
+import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentAssembler;
+import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentDecision;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
@@ -39,7 +39,7 @@ public class HeavyGenerationPreparationService {
     private static final int MAX_PROJECT_INDEX_FILES = 80;
     private static final int MAX_MODEL_CONTEXT_FILE_CHARS = 12000;
 
-    private final GenerationIntentRouter generationIntentRouter;
+    private final HeavyGenerationIntentAssembler heavyGenerationIntentAssembler;
     private final GenerationMemoryContextService generationMemoryContextService;
     private final GenerationOrchestrator generationOrchestrator;
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
@@ -52,7 +52,7 @@ public class HeavyGenerationPreparationService {
     }
 
     private GenerationIntent recognizeGenerationIntent(App app, String userMessage) {
-        GenerationIntentDecision decision = generationIntentRouter.route(app, userMessage);
+        HeavyGenerationIntentDecision decision = heavyGenerationIntentAssembler.assemble(app, userMessage);
         return new GenerationIntent(
                 app,
                 decision.currentType(),

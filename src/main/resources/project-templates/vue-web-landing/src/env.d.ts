@@ -14,3 +14,16 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+declare module 'mockjs' {
+  interface MockSetupOptions {
+    timeout?: string | number
+  }
+
+  interface Mockjs {
+    setup(options: MockSetupOptions): void
+  }
+
+  const Mock: Mockjs
+  export default Mock
+}

@@ -70,4 +70,28 @@ public record SlotFillResult(
     public int patchOperationCount() {
         return patchOperations != null ? patchOperations.size() : 0;
     }
+
+    public boolean fallback() {
+        Object telemetry = telemetry();
+        if (!(telemetry instanceof Map<?, ?> telemetryMap)) {
+            return false;
+        }
+        return Boolean.TRUE.equals(telemetryMap.get("fallback"));
+    }
+
+    public String fallbackReason() {
+        Object telemetry = telemetry();
+        if (!(telemetry instanceof Map<?, ?> telemetryMap)) {
+            return "";
+        }
+        Object reason = telemetryMap.get("fallbackReason");
+        return reason == null ? "" : String.valueOf(reason);
+    }
+
+    public Object telemetry() {
+        if (metadata == null) {
+            return Map.of();
+        }
+        return metadata.getOrDefault("telemetry", Map.of());
+    }
 }

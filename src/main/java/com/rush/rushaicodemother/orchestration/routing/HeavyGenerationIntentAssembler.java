@@ -22,12 +22,12 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Central place for turning a user message into a generation route decision.
+ * Assembles the legacy heavy-generation intent after GenerationModeRouter has selected HEAVY_EXPERT.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class GenerationIntentRouter {
+public class HeavyGenerationIntentAssembler {
 
     private static final List<String> BUILD_KEYWORDS = List.of(
             "build", "构建", "打包", "编译", "测试", "lint", "校验", "发布", "npm", "vite",
@@ -39,7 +39,7 @@ public class GenerationIntentRouter {
     private final GenerationEditRouteService generationEditRouteService;
     private final GenerationWorkspaceService generationWorkspaceService;
 
-    public GenerationIntentDecision route(App app, String userMessage) {
+    public HeavyGenerationIntentDecision assemble(App app, String userMessage) {
         ThrowUtils.throwIf(app == null || app.getId() == null, ErrorCode.PARAMS_ERROR, "应用参数错误");
         CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(currentType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
@@ -53,7 +53,7 @@ public class GenerationIntentRouter {
 
         GenerationEditRouteResult editRoute = generationEditRouteService.route(app, userMessage);
         if (editRoute.isLightweightEdit()) {
-            return new GenerationIntentDecision(
+            return new HeavyGenerationIntentDecision(
                     GenerationRoute.LIGHTWEIGHT_EDIT,
                     editRoute.reason(),
                     editRoute.confidence(),
@@ -69,7 +69,7 @@ public class GenerationIntentRouter {
         CodeGenTypeEnum routedType = routeTargetType(app, generationMessage, currentType);
         CodeGenTypeEnum targetType = CodeGenTypeEnum.max(currentType, routedType);
         boolean requiresBuild = requiresBuildValidation(generationMessage, currentType, targetType, hasGeneratedCode);
-        return new GenerationIntentDecision(
+        return new HeavyGenerationIntentDecision(
                 GenerationRoute.HEAVY_GENERATION,
                 editRoute.reason(),
                 editRoute.confidence(),
@@ -90,7 +90,7 @@ public class GenerationIntentRouter {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("统一意图路由失败，沿用当前模式，appId: {}", app.getId(), e);
+            log.warn("重型生成意图装配失败，沿用当前模式，appId: {}", app.getId(), e);
             return currentType;
         }
     }

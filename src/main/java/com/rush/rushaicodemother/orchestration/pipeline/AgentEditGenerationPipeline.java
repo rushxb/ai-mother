@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -57,6 +58,24 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                     "repairRounds=" + editResult.repairRounds()
             );
             if ("failed".equals(editResult.status())) {
+                if (isTransientUpstreamFailure(editResult.summary())) {
+                    GenerationSession session = new GenerationSession(null);
+                    sessionRegistry.put(app.getId(), session);
+                    session.emit(GenerationStreamEvent.generationError(
+                            editResult.summary(),
+                            Map.of(
+                                    "route", editResult.route(),
+                                    "mode", request.modeDecision().mode().name(),
+                                    "routerReason", request.modeDecision().reason(),
+                                    "taskId", editResult.taskId(),
+                                    "status", editResult.status(),
+                                    "fallbackSuppressed", true
+                            )
+                    ));
+                    session.complete();
+                    sessionRegistry.cleanupLater(app.getId(), session, COMPLETED_SESSION_REPLAY_SECONDS);
+                    return Optional.of(new GenerationTaskResult(editResult.taskId(), editResult.route(), request.workspace(), session.asFlux()));
+                }
                 return Optional.empty();
             }
             GenerationSession session = new GenerationSession(null);
@@ -79,5 +98,19 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
         } catch (Exception e) {
             return Optional.empty();
         }
+    }
+
+    private boolean isTransientUpstreamFailure(String summary) {
+        if (summary == null) {
+            return false;
+        }
+        String normalized = summary.toLowerCase(Locale.ROOT);
+        return normalized.contains("i/o error on post request")
+                || normalized.contains("read timed out")
+                || normalized.contains("sockettimeoutexception")
+                || normalized.contains("resourceaccessexception")
+                || normalized.contains("upstream timeout")
+                || normalized.contains("模型调用超时")
+                || normalized.contains("上游模型超时");
     }
 }

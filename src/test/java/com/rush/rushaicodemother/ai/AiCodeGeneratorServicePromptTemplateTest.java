@@ -36,20 +36,6 @@ class AiCodeGeneratorServicePromptTemplateTest {
         assertTrue(chatModel.lastRequestText().contains("{{ brand.headline }}"));
     }
 
-    @Test
-    void shouldRenderSlotFillSystemPromptWithoutVueExampleVariables() {
-        CapturingChatModel chatModel = new CapturingChatModel("""
-                {"summary":"ok","slots":[{"slotId":"home_content","content":"export const ok = true","reason":"test"}],"requiresBuild":false}
-                """);
-        AiSlotFillService service = AiServices.builder(AiSlotFillService.class)
-                .chatModel(chatModel)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
-                .build();
-
-        assertDoesNotThrow(() -> service.fillSlots("做一个电商首页", "[]", ""));
-        assertTrue(chatModel.lastRequestText().contains("v-text=\\\"subtitle\\\""));
-    }
-
     private static final class CapturingChatModel implements ChatModel {
 
         private final String response;

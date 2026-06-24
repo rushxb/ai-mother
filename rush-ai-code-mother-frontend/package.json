@@ -15,10 +15,13 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
+    "@ant-design/icons-vue": "^7.0.1",
     "@types/markdown-it": "^14.1.2",
     "@types/three": "^0.184.1",
+    "@vueuse/core": "^14.3.0",
     "ant-design-vue": "^4.2.6",
     "axios": "^1.11.0",
+    "dayjs": "^1.11.21",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
     "motion-v": "^2.2.1",

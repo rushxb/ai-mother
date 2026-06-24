@@ -177,9 +177,8 @@ public class DevServerManager {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "仅 Vue 项目支持 dev server 预览");
         }
 
-        // 获取或分配端口
-        int port = app.getDevServerPort() != null ? app.getDevServerPort() : allocatePort(appId);
-        appPorts.put(appId, port); // 确保 appPorts 有记录
+        // 获取或分配端口。数据库中的端口可能来自上一次 JVM，启动前必须重新确认仍可用。
+        int port = resolveStartPort(app);
 
         // 获取项目路径
         String projectPath = getProjectPath(app);
@@ -211,6 +210,22 @@ public class DevServerManager {
 
         log.info("应用 {} 的 dev server 已启动，端口: {}", appId, port);
         return port;
+    }
+
+    private int resolveStartPort(App app) {
+        Long appId = app.getId();
+        Integer preferredPort = app.getDevServerPort();
+        Integer mappedPort = appPorts.get(appId);
+        if (preferredPort != null && isPortAvailable(preferredPort)
+                && (mappedPort == null || mappedPort.equals(preferredPort))) {
+            appPorts.put(appId, preferredPort);
+            return preferredPort;
+        }
+        if (preferredPort != null) {
+            log.info("应用 {} 的端口 {} 不可用，重新分配端口", appId, preferredPort);
+        }
+        releasePort(appId);
+        return allocatePort(appId);
     }
 
     /**
@@ -385,21 +400,21 @@ public class DevServerManager {
                 File viteBin = new File(projectDir, "node_modules\\.bin\\vite.cmd");
                 if (viteBin.exists()) {
                     processBuilder = new ProcessBuilder(
-                            viteBin.getAbsolutePath(), "--port", String.valueOf(port));
+                            viteBin.getAbsolutePath(), "--port", String.valueOf(port), "--strictPort");
                 } else {
                     // fallback: 用 cmd /c 调用 npx
-                    String fullCommand = String.format("npx vite --port %d", port);
+                    String fullCommand = String.format("npx vite --port %d --strictPort", port);
                     processBuilder = new ProcessBuilder("cmd", "/c", fullCommand);
                 }
             } else {
                 File viteBin = new File(projectDir, "node_modules/.bin/vite");
                 if (viteBin.exists()) {
                     processBuilder = new ProcessBuilder(
-                            viteBin.getAbsolutePath(), "--port", String.valueOf(port));
+                            viteBin.getAbsolutePath(), "--port", String.valueOf(port), "--strictPort");
                 } else {
                     String npmCmd = isWindows() ? "pnpm.cmd" : "pnpm";
                     processBuilder = new ProcessBuilder(
-                            npmCmd, "run", "dev", "--", "--port", String.valueOf(port));
+                            npmCmd, "run", "dev", "--", "--port", String.valueOf(port), "--strictPort");
                 }
             }
             processBuilder.directory(projectDir);

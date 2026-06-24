@@ -59,10 +59,20 @@
             {{ dayjs(record.createTime).format('YYYY-MM-DD HH:mm:ss') }}
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-space>
-              <a-button ghost class="action-button" @click="openCreditModal(record)">积分</a-button>
+            <a-space class="action-space">
+              <a-button class="action-button credit-action-button" @click="openCreditModal(record)">
+                <template #icon>
+                  <PlusCircleOutlined />
+                </template>
+                积分
+              </a-button>
               <a-popconfirm title="确定要删除这个用户吗？" @confirm="doDelete(record.id)">
-                <a-button danger ghost class="action-button">删除</a-button>
+                <a-button danger ghost class="action-button delete-action-button">
+                  <template #icon>
+                    <DeleteOutlined />
+                  </template>
+                  删除
+                </a-button>
               </a-popconfirm>
             </a-space>
           </template>
@@ -99,6 +109,7 @@ import { adjustUserCredit, deleteUser, listUserVoByPage } from '@/api/userContro
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
+import { DeleteOutlined, PlusCircleOutlined } from '@ant-design/icons-vue'
 
 const columns = [
   {
@@ -129,7 +140,7 @@ const columns = [
   {
     title: '操作',
     key: 'action',
-    width: 100,
+    width: 170,
   },
 ]
 
@@ -414,8 +425,56 @@ onMounted(() => {
   border: 0;
 }
 
+.action-space {
+  display: inline-flex;
+  min-width: 148px;
+}
+
 .action-button {
+  min-width: 66px;
+  height: 32px;
   border-radius: 999px;
+  font-weight: 650;
+}
+
+:deep(.action-button.ant-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+:deep(.credit-action-button.ant-btn) {
+  border-color: rgba(37, 99, 235, 0.22);
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, #2563eb 0%, #38bdf8 100%),
+    #2563eb;
+  box-shadow:
+    0 10px 22px rgba(37, 99, 235, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
+:deep(.credit-action-button.ant-btn:hover),
+:deep(.credit-action-button.ant-btn:focus) {
+  border-color: rgba(37, 99, 235, 0.28);
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, #1d4ed8 0%, #22b8ef 100%),
+    #1d4ed8;
+  box-shadow:
+    0 14px 28px rgba(37, 99, 235, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+:deep(.delete-action-button.ant-btn) {
+  background: rgba(255, 255, 255, 0.84);
+}
+
+:deep(.delete-action-button.ant-btn:hover),
+:deep(.delete-action-button.ant-btn:focus) {
+  background: rgba(255, 241, 242, 0.96);
 }
 
 :deep(.ant-input),

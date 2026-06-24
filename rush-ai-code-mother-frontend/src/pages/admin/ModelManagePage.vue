@@ -3,11 +3,17 @@
     <section class="page-head">
       <div>
         <h2 class="page-title">AI 模型管理</h2>
-        <p class="page-desc">配置和管理 AI 模型，当前协议支持 OpenAI Chat Completions</p>
+        <p class="page-desc">配置和管理 AI 模型，生成应用前需要启用一个快速模型和一个思考模型</p>
       </div>
       <div class="page-summary">
-        <span class="summary-label">启用模型</span>
-        <span class="summary-value">{{ enabledCount }}</span>
+        <div class="summary-row">
+          <span class="summary-label">快速模型</span>
+          <span class="summary-value" :class="{ ready: hasFastModel }">{{ hasFastModel ? '已配置' : '未配置' }}</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">思考模型</span>
+          <span class="summary-value" :class="{ ready: hasThinkingModel }">{{ hasThinkingModel ? '已配置' : '未配置' }}</span>
+        </div>
       </div>
     </section>
 
@@ -25,8 +31,8 @@
         </a-form-item>
         <a-form-item label="模型类型">
           <a-select v-model:value="searchParams.modelType" allow-clear placeholder="全部" style="width: 140px">
-            <a-select-option value="chat">对话模型</a-select-option>
-            <a-select-option value="reasoning">推理模型</a-select-option>
+            <a-select-option value="chat">快速模型</a-select-option>
+            <a-select-option value="reasoning">思考模型</a-select-option>
             <a-select-option value="routing">路由模型</a-select-option>
           </a-select>
         </a-form-item>
@@ -100,10 +106,10 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space>
-              <a-button size="small" ghost class="action-button" @click="openEditModal(record)">
+              <a-button type="primary" size="small" class="action-button" @click="openEditModal(record)">
                 编辑
               </a-button>
-              <a-button size="small" ghost class="action-button" @click="handleTestConnection(record.id)">
+              <a-button size="small" class="action-button secondary-action-button" @click="handleTestConnection(record.id)">
                 测试
               </a-button>
               <a-popconfirm title="确定要删除这个模型吗？" @confirm="handleDelete(record.id)">
@@ -250,6 +256,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   addModel,
   deleteModel,
+  listEnabledModels,
   listSupportedModels,
   listModelsByPage,
   testModelConnection,
@@ -301,8 +308,8 @@ const columns = [
 
 // 展示的数据
 const data = ref<API.AiModel[]>([])
+const enabledModels = ref<API.AiModel[]>([])
 const total = ref(0)
-const enabledCount = ref(0)
 const modalVisible = ref(false)
 const isEditing = ref(false)
 const submitting = ref(false)
@@ -365,6 +372,14 @@ const currentCatalogModel = computed(() =>
 
 const currentSupportedTypes = computed(() => currentCatalogModel.value?.supportedModelTypes ?? ['chat'])
 
+const hasFastModel = computed(() =>
+  enabledModels.value.some((model) => model.modelType === 'chat'),
+)
+
+const hasThinkingModel = computed(() =>
+  enabledModels.value.some((model) => model.modelType === 'reasoning'),
+)
+
 const selectedModelKey = computed({
   get() {
     if (!formData.provider || !formData.modelId) {
@@ -397,9 +412,16 @@ const fetchData = async () => {
   if (res.data.data) {
     data.value = res.data.data.records ?? []
     total.value = res.data.data.totalRow ?? 0
-    enabledCount.value = data.value.filter((m) => m.isEnabled === 1).length
+    fetchEnabledModels()
   } else {
     message.error('获取数据失败，' + res.data.message)
+  }
+}
+
+const fetchEnabledModels = async () => {
+  const res = await listEnabledModels()
+  if (res.data.code === 0) {
+    enabledModels.value = res.data.data ?? []
   }
 }
 
@@ -662,8 +684,8 @@ const getProviderColor = (provider?: string) => {
 
 const getTypeLabel = (type?: string) => {
   const map: Record<string, string> = {
-    chat: '对话',
-    reasoning: '推理',
+    chat: '快速',
+    reasoning: '思考',
     routing: '路由',
   }
   return map[type ?? ''] ?? type
@@ -760,7 +782,7 @@ onMounted(() => {
   justify-content: flex-start;
   padding: 0 4px;
   min-height: 32px;
-  padding-right: 132px;
+  padding-right: 180px;
 }
 
 .page-title {
@@ -782,7 +804,7 @@ onMounted(() => {
   z-index: 20;
   top: -2px;
   right: 4px;
-  min-width: 112px;
+  min-width: 156px;
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.86);
@@ -791,18 +813,30 @@ onMounted(() => {
   backdrop-filter: blur(12px);
 }
 
+.summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.summary-row + .summary-row {
+  margin-top: 8px;
+}
+
 .summary-label {
-  display: block;
   font-size: 12px;
   color: #94a3b8;
 }
 
 .summary-value {
-  display: block;
-  margin-top: 2px;
-  font-size: 20px;
+  font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: #ef4444;
+}
+
+.summary-value.ready {
+  color: #16a34a;
 }
 
 .panel-card {
@@ -937,6 +971,19 @@ onMounted(() => {
 
 .action-button {
   border-radius: 999px;
+}
+
+.secondary-action-button {
+  color: #2563eb;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.secondary-action-button:hover,
+.secondary-action-button:focus {
+  color: #1d4ed8;
+  border-color: #93c5fd;
+  background: #dbeafe;
 }
 
 .model-form {

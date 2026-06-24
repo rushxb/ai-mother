@@ -106,7 +106,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
             if (result == null) {
                 String reason = StrUtil.blankToDefault(
                         slotFillGenerationService.consumeLastFailureReason(),
-                        "CREATE 模板生成未产生可写入的 slot patch，请检查模板 manifest、slot prompt 或模型返回格式"
+                        "CREATE recipe 运行时未产生可写入 patch，请检查模板 recipe、spec 归一化或本地渲染结果"
                 );
                 failCreateGeneration(
                         request,
@@ -121,7 +121,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 finishCreateGeneration(request, taskId, session, "cancelled");
                 return;
             }
-            log.info("模板 slot 填充路径完成，appId: {}, templateId: {}, filledSlots: {}",
+            log.info("CREATE recipe 路径完成，appId: {}, templateId: {}, filledScopes: {}",
                     app.getId(), result.templateId(), result.filledSlotCount());
             generationPerformanceMonitorService.recordSpan(
                     taskId,

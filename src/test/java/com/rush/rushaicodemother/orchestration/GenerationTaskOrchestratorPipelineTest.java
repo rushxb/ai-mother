@@ -90,6 +90,32 @@ class GenerationTaskOrchestratorPipelineTest {
     }
 
     @Test
+    void shouldNotEscalateAgentEditUpstreamTimeoutToHeavy() {
+        TestContext context = testContext();
+        StubPipeline timeoutAgentEditPipeline = new StubPipeline(
+                "agent_edit",
+                GenerationMode.AGENT_EDIT,
+                Optional.of(new GenerationTaskResult("agent-timeout", "agent_edit", context.workspace(), Flux.empty()))
+        );
+        StubPipeline heavyPipeline = new StubPipeline(
+                "heavy_generation",
+                GenerationMode.HEAVY_EXPERT,
+                Optional.of(new GenerationTaskResult("heavy-1", "heavy_generation", context.workspace(), Flux.empty()))
+        );
+        GenerationTaskOrchestrator orchestrator = newOrchestrator(
+                context,
+                agentEditDecision(),
+                List.of(timeoutAgentEditPipeline, heavyPipeline)
+        );
+
+        GenerationTaskResult result = orchestrator.start(context.request());
+
+        assertEquals("agent_edit", result.route());
+        assertEquals(1, timeoutAgentEditPipeline.executeCount);
+        assertEquals(0, heavyPipeline.executeCount);
+    }
+
+    @Test
     void shouldRejectNewPipelineWhenAppHasActiveSession() {
         TestContext context = testContext();
         GenerationSessionRegistry sessionRegistry = new GenerationSessionRegistry();
@@ -211,6 +237,16 @@ class GenerationTaskOrchestratorPipelineTest {
                 GenerationMode.CREATE,
                 0.9,
                 "missing workspace",
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
+                ExpectedValidationLevel.BUILD
+        );
+    }
+
+    private GenerationModeDecision agentEditDecision() {
+        return GenerationModeDecision.of(
+                GenerationMode.AGENT_EDIT,
+                0.82,
+                "existing workspace requires agent edit",
                 FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
                 ExpectedValidationLevel.BUILD
         );

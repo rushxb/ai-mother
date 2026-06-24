@@ -9,9 +9,21 @@ import AppEditPage from '@/pages/app/AppEditPage.vue'
 import ChatManagePage from "@/pages/admin/ChatManagePage.vue";
 import ModelManagePage from "@/pages/admin/ModelManagePage.vue";
 import GenerationPerformancePage from '@/pages/admin/GenerationPerformancePage.vue'
+import TokenDashboardPage from '@/pages/admin/TokenDashboardPage.vue'
+import ApiTraceDashboardPage from '@/pages/admin/ApiTraceDashboardPage.vue'
+
+// 获取动态的 history base 路径，确保在根目录或子目录（如 MCP 静态网站部署）下路由都能正常工作
+const getDynamicBaseUrl = () => {
+  const pathname = window.location.pathname;
+  if (pathname.includes('/sites/')) {
+    const match = pathname.match(/\/sites\/[^/]+\/?/);
+    return match ? match[0] : '/';
+  }
+  return '/';
+};
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(getDynamicBaseUrl()),
   routes: [
     {
       path: '/',
@@ -57,6 +69,16 @@ const router = createRouter({
       path: '/admin/generationPerformance',
       name: '生成耗时',
       component: GenerationPerformancePage,
+    },
+    {
+      path: '/admin/tokenDashboard',
+      name: 'Token 监控',
+      component: TokenDashboardPage,
+    },
+    {
+      path: '/admin/apiTraceDashboard',
+      name: '接口观测',
+      component: ApiTraceDashboardPage,
     },
     {
       path: '/app/chat/:id',

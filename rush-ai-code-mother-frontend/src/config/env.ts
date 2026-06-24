@@ -7,7 +7,7 @@ const getCurrentOrigin = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin
   }
-  return 'http://localhost:8088'
+  return 'http://localhost:91'
 }
 
 // 应用部署域名

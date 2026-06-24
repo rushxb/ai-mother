@@ -40,12 +40,14 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEvent;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
+import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.DevServerManager;
 import com.rush.rushaicodemother.service.ScreenshotService;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -92,11 +94,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             "html", "css", "js", "ts", "jsx", "tsx", "vue", "json", "md", "txt", "xml", "svg", "yml", "yaml", "go", "sql", "mod", "sum"
     );
 
-    @Value("${code.deploy-host:http://localhost:8088}")
+    @Value("${code.deploy-host:http://localhost:91}")
     private String deployHost;
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private AiModelService aiModelService;
 
     @Resource
     private ChatHistoryService chatHistoryService;
@@ -131,11 +136,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Resource
     private DevServerManager devServerManager;
 
+    @Resource
+    private JdbcTemplate jdbcTemplate;
+
     @Override
     public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
         App app = getGenerationApp(appId, loginUser);
+        aiModelService.ensureGenerationModelsConfigured();
         userService.ensureHasCredit(loginUser.getId());
         enableDatabaseForGenerationIfNeeded(app, message);
         generationEventPublisher.clearRecent(app.getId());
@@ -213,6 +222,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 参数校验
         String initPrompt = appAddRequest.getInitPrompt();
         ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
+        aiModelService.ensureGenerationModelsConfigured();
         // 构造入库对象
         App app = new App();
         BeanUtil.copyProperties(appAddRequest, app);
@@ -785,14 +795,104 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (appId <= 0) {
             return false;
         }
+        App app = this.getById(appId);
+        if (app == null) {
+            return false;
+        }
         // 先删除关联的对话历史
         try {
             chatHistoryService.deleteByAppId(appId);
         } catch (Exception e) {
             log.error("删除应用关联的对话历史失败：{}", e.getMessage());
         }
-        // 删除应用
-        return super.removeById(id);
+        cleanupAppRelatedDatabaseRows(appId);
+        try {
+            devServerManager.stopDevServer(appId, app.getUserId());
+        } catch (Exception e) {
+            log.warn("停止应用 dev server 失败，appId: {}", appId, e);
+        }
+        boolean deleted = this.mapper.hardDeleteById(appId) > 0;
+        if (deleted) {
+            cleanupAppLocalFiles(app);
+        }
+        return deleted;
+    }
+
+    private void cleanupAppRelatedDatabaseRows(Long appId) {
+        List<String> tableNames = List.of(
+                "app_capability",
+                "app_database_resource",
+                "app_git_repository",
+                "app_runtime_channel",
+                "app_analytics_config",
+                "generation_build_log",
+                "generation_model_call",
+                "generation_task"
+        );
+        for (String tableName : tableNames) {
+            try {
+                jdbcTemplate.update("delete from " + tableName + " where appId = ?", appId);
+            } catch (Exception e) {
+                log.warn("清理应用关联表失败，table: {}, appId: {}", tableName, appId, e);
+            }
+        }
+    }
+
+    private void cleanupAppLocalFiles(App app) {
+        deleteAppCodeDir(app);
+        deleteAppDeployDir(app);
+    }
+
+    private void deleteAppCodeDir(App app) {
+        if (StrUtil.isBlank(app.getCodeGenType()) || app.getId() == null) {
+            return;
+        }
+        String dirName = app.getCodeGenType() + "_" + app.getId();
+        deleteDirectoryUnderRoot(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR), dirName, "生成目录");
+    }
+
+    private void deleteAppDeployDir(App app) {
+        if (StrUtil.isBlank(app.getDeployKey())) {
+            return;
+        }
+        deleteDirectoryUnderRoot(Path.of(AppConstant.CODE_DEPLOY_ROOT_DIR), app.getDeployKey(), "部署目录");
+    }
+
+    private void deleteDirectoryUnderRoot(Path root, String childName, String label) {
+        try {
+            Path normalizedRoot = root.toAbsolutePath().normalize();
+            Path target = normalizedRoot.resolve(childName).normalize();
+            if (!target.startsWith(normalizedRoot)) {
+                log.warn("跳过删除{}，目标路径越界: {}", label, target);
+                return;
+            }
+            if (!Files.exists(target)) {
+                return;
+            }
+            deleteDirectory(target);
+            log.info("已删除应用{}: {}", label, target);
+        } catch (Exception e) {
+            log.error("删除应用{}失败: {}", label, childName, e);
+        }
+    }
+
+    private void deleteDirectory(Path target) throws java.io.IOException {
+        Files.walkFileTree(target, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws java.io.IOException {
+                Files.deleteIfExists(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, java.io.IOException exc) throws java.io.IOException {
+                if (exc != null) {
+                    throw exc;
+                }
+                Files.deleteIfExists(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 }
 

@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -49,6 +50,34 @@ class AgentEditGenerationPipelineTest {
                 any(),
                 org.mockito.ArgumentMatchers.eq("repairRounds=1")
         );
+    }
+
+    @Test
+    void shouldReturnFailedResultWhenAgentEditFailsWithUpstreamTimeout() {
+        AgentEditGenerationService service = mock(AgentEditGenerationService.class);
+        GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
+        AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(
+                service,
+                monitor,
+                new GenerationSessionRegistry()
+        );
+        GenerationPipelineRequest request = request();
+        when(service.execute(any(), any())).thenReturn(
+                new AgentEditResult(
+                        "agent-task-timeout",
+                        "agent_edit",
+                        "AGENT_EDIT 执行失败: I/O error on POST request: Read timed out",
+                        List.of(),
+                        "failed",
+                        0
+                )
+        );
+
+        var result = pipeline.execute(request);
+
+        assertTrue(result.isPresent());
+        assertEquals("agent-task-timeout", result.get().taskId());
+        assertEquals("agent_edit", result.get().route());
     }
 
     private GenerationPipelineRequest request() {

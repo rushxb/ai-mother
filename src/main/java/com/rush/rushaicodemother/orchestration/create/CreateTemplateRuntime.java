@@ -14,9 +14,8 @@ import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
-import com.rush.rushaicodemother.orchestration.template.TemplateSlotFillService;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -27,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-@RequiredArgsConstructor
 public class CreateTemplateRuntime {
 
     private static final String BACKEND_TEMPLATE = "go-sqlite-backend-basic";
@@ -35,11 +33,45 @@ public class CreateTemplateRuntime {
     private final BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService;
     private final CreatePatchMergeService createPatchMergeService;
     private final CreatePreWriteValidationService createPreWriteValidationService;
+    private final CreateSpecService createSpecService;
+    private final CreateRecipeRendererService createRecipeRendererService;
     private final FullStackPortAllocator fullStackPortAllocator;
     private final GenerationPatchApplyService generationPatchApplyService;
     private final LandingSlotFallbackRenderer landingSlotFallbackRenderer;
-    private final TemplateSlotFillService templateSlotFillService;
     private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
+
+    @Autowired
+    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
+                                 CreatePatchMergeService createPatchMergeService,
+                                 CreatePreWriteValidationService createPreWriteValidationService,
+                                 CreateSpecService createSpecService,
+                                 CreateRecipeRendererService createRecipeRendererService,
+                                 FullStackPortAllocator fullStackPortAllocator,
+                                 GenerationPatchApplyService generationPatchApplyService,
+                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
+                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService) {
+        this.backendProjectTemplateBootstrapService = backendProjectTemplateBootstrapService;
+        this.createPatchMergeService = createPatchMergeService;
+        this.createPreWriteValidationService = createPreWriteValidationService;
+        this.createSpecService = createSpecService;
+        this.createRecipeRendererService = createRecipeRendererService;
+        this.fullStackPortAllocator = fullStackPortAllocator;
+        this.generationPatchApplyService = generationPatchApplyService;
+        this.landingSlotFallbackRenderer = landingSlotFallbackRenderer;
+        this.vueProjectTemplateBootstrapService = vueProjectTemplateBootstrapService;
+    }
+
+    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
+                                 CreatePatchMergeService createPatchMergeService,
+                                 CreatePreWriteValidationService createPreWriteValidationService,
+                                 FullStackPortAllocator fullStackPortAllocator,
+                                 GenerationPatchApplyService generationPatchApplyService,
+                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
+                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService) {
+        this(backendProjectTemplateBootstrapService, createPatchMergeService, createPreWriteValidationService,
+                null, null, fullStackPortAllocator, generationPatchApplyService, landingSlotFallbackRenderer,
+                vueProjectTemplateBootstrapService);
+    }
 
     public SlotFillResult generate(App app, GenerationTaskRequest request, CreateGenerationPlan plan) {
         return generate(app, request, plan, null);
@@ -53,8 +85,8 @@ public class CreateTemplateRuntime {
         if (!bootstrapContext.success()) {
             return null;
         }
-        emitStage(session, "CREATE 模板骨架已就绪，开始按模板合批填充 slot...", Map.of(
-                "stage", "slot_fill",
+        emitStage(session, "CREATE 模板骨架已就绪，开始生成模板变量规格并本地渲染 recipe...", Map.of(
+                "stage", "create_spec_recipe",
                 "baseTemplate", plan.baseTemplateId(),
                 "originalSlotGroups", plan.slotGroups().size(),
                 "executionSlotGroups", coalesceSlotGroups(plan.slotGroups()).size(),
@@ -68,166 +100,64 @@ public class CreateTemplateRuntime {
         int aiCalls = 0;
         List<String> degradeReasons = new ArrayList<>();
         List<SlotGroup> executionGroups = coalesceSlotGroups(plan.slotGroups());
+        CreateSpecService.SpecResult createSpecResult = generateCreateSpec(request, plan, session);
+        if (createSpecResult.available()) {
+            aiCalls = 1;
+        }
         int groupIndex = 0;
         for (SlotGroup group : executionGroups) {
             groupIndex++;
-            emitStage(session, "正在填充 slot 组 " + groupIndex + "/" + executionGroups.size()
-                    + "：" + group.templateId() + "（" + group.slotIds().size() + " 个 slot）", Map.of(
-                    "stage", "slot_fill_group_started",
+            emitStage(session, "正在渲染模板变量作用域 " + groupIndex + "/" + executionGroups.size()
+                    + "：" + group.templateId() + "（" + group.slotIds().size() + " 个变量 slot）", Map.of(
+                    "stage", "recipe_group_started",
                     "groupId", group.groupId(),
                     "templateId", group.templateId(),
                     "slotIds", group.slotIds(),
                     "groupIndex", groupIndex,
                     "groupTotal", executionGroups.size()
             ));
-            SlotFillResult groupResult = templateSlotFillService.fillSlots(
-                    group.templateId(),
-                    app.getId(),
-                    request.message(),
-                    group.slotIds()
-            );
-            aiCalls++;
-            if (groupResult == null) {
-                String groupFailureReason = templateSlotFillService.consumeLastFailureReason();
-                String safeFailureReason = StrUtil.blankToDefault(groupFailureReason, "slot_fill_failed");
-                LandingSlotFallbackRenderer.LandingFallback fallback =
-                        landingSlotFallbackRenderer.fallback(request.message(), group, safeFailureReason);
-                if (fallback.available()) {
-                    operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), fallback.patchOperations()));
-                    filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), fallback.filledSlots()));
-                    totalChars += fallback.totalChars();
-                    degradeReasons.add("slot_group_fallback:" + group.templateId() + ":" + safeFailureReason);
-                    emitStage(session, "slot 组 AI 填充失败，已使用本地模板数据兜底：" + group.templateId(), Map.of(
-                            "stage", "slot_fill_group_degraded",
-                            "groupId", group.groupId(),
-                            "templateId", group.templateId(),
-                            "slotIds", group.slotIds(),
-                            "reason", safeFailureReason,
-                            "patchOperationCount", fallback.patchOperations().size()
-                    ));
-                    continue;
-                }
-                skippedSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), group.slotIds()));
-                degradeReasons.add("slot_group_skipped:" + group.templateId() + ":" + safeFailureReason);
-                emitStage(session, "slot 组 AI 填充失败，保留模板默认内容继续生成：" + group.templateId(), Map.of(
-                        "stage", "slot_fill_group_degraded",
+            CreateRecipeRendererService.RecipeRenderResult recipeResult = tryRenderRecipe(
+                    request, group, createSpecResult, session);
+            if (recipeResult.available()) {
+                operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), recipeResult.patchOperations()));
+                filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), recipeResult.filledSlots()));
+                totalChars += recipeResult.totalChars();
+                emitStage(session, "AI CREATE 规格已生成，正在使用本地 recipe 写入代码：" + group.templateId(), Map.of(
+                        "stage", "create_spec_recipe_applied",
                         "groupId", group.groupId(),
                         "templateId", group.templateId(),
                         "slotIds", group.slotIds(),
-                        "reason", safeFailureReason
+                        "variables", recipeResult.manifest() == null ? Map.of() : recipeResult.manifest().variables(),
+                        "patchOperationCount", recipeResult.patchOperations().size()
                 ));
                 continue;
             }
-            if (!groupResult.allRequiredSlotsFilled()) {
-                String reason = "required_slot_missing:" + group.templateId() + ":" + groupResult.skippedSlots();
-                LandingSlotFallbackRenderer.LandingFallback fallback =
-                        landingSlotFallbackRenderer.fallback(request.message(), group, reason);
-                if (fallback.available()) {
-                    operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), fallback.patchOperations()));
-                    filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), fallback.filledSlots()));
-                    totalChars += fallback.totalChars();
-                    degradeReasons.add("required_slot_fallback:" + group.templateId() + ":" + groupResult.skippedSlots());
-                    emitStage(session, "slot 组返回不完整，已使用本地模板数据兜底：" + group.templateId(), Map.of(
-                            "stage", "slot_fill_group_degraded",
-                            "groupId", group.groupId(),
-                            "templateId", group.templateId(),
-                            "slotIds", group.slotIds(),
-                            "reason", reason,
-                            "patchOperationCount", fallback.patchOperations().size()
-                    ));
-                    continue;
-                }
-                operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), groupResult.patchOperations()));
-                filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), groupResult.filledSlots()));
-                skippedSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), groupResult.skippedSlots()));
-                totalChars += groupResult.totalChars();
-                degradeReasons.add("required_slot_partial:" + group.templateId() + ":" + groupResult.skippedSlots());
-                emitStage(session, "slot 组返回不完整，已保留可用 patch 并继续生成：" + group.templateId(), Map.of(
-                        "stage", "slot_fill_group_degraded",
+            String reason = "recipe_unsupported:" + group.templateId() + ":" + group.slotIds();
+            LandingSlotFallbackRenderer.LandingFallback fallback =
+                    landingSlotFallbackRenderer.fallback(request.message(), group, reason);
+            if (fallback.available()) {
+                operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), fallback.patchOperations()));
+                filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), fallback.filledSlots()));
+                totalChars += fallback.totalChars();
+                degradeReasons.add("recipe_default_render:" + group.templateId() + ":" + group.slotIds());
+                emitStage(session, "recipe 未覆盖该变量作用域，已使用本地默认渲染：" + group.templateId(), Map.of(
+                        "stage", "recipe_default_rendered",
                         "groupId", group.groupId(),
                         "templateId", group.templateId(),
                         "slotIds", group.slotIds(),
                         "reason", reason,
-                        "patchOperationCount", groupResult.patchOperationCount()
+                        "patchOperationCount", fallback.patchOperations().size()
                 ));
                 continue;
             }
-            if (groupResult.patchOperations() == null || groupResult.patchOperations().isEmpty()) {
-                String reason = "slot_group_empty_patch:" + group.templateId() + ":" + group.slotIds();
-                LandingSlotFallbackRenderer.LandingFallback fallback =
-                        landingSlotFallbackRenderer.fallback(request.message(), group, reason);
-                if (fallback.available()) {
-                    operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), fallback.patchOperations()));
-                    filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), fallback.filledSlots()));
-                    totalChars += fallback.totalChars();
-                    degradeReasons.add("empty_patch_fallback:" + group.templateId() + ":" + group.slotIds());
-                    emitStage(session, "slot 组没有生成 patch，已使用本地模板数据兜底：" + group.templateId(), Map.of(
-                            "stage", "slot_fill_group_degraded",
-                            "groupId", group.groupId(),
-                            "templateId", group.templateId(),
-                            "slotIds", group.slotIds(),
-                            "reason", reason,
-                            "patchOperationCount", fallback.patchOperations().size()
-                    ));
-                    continue;
-                }
-                skippedSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), group.slotIds()));
-                degradeReasons.add("empty_patch_skipped:" + group.templateId() + ":" + group.slotIds());
-                emitStage(session, "slot 组没有生成 patch，保留模板默认内容继续生成：" + group.templateId(), Map.of(
-                        "stage", "slot_fill_group_degraded",
-                        "groupId", group.groupId(),
-                        "templateId", group.templateId(),
-                        "slotIds", group.slotIds(),
-                        "reason", reason
-                ));
-                continue;
-            }
-            if (groupResult.filledSlotCount() < group.slotIds().size()) {
-                String reason = "slot_group_incomplete:" + group.templateId() + ":" + group.slotIds();
-                LandingSlotFallbackRenderer.LandingFallback fallback =
-                        landingSlotFallbackRenderer.fallback(request.message(), group, reason);
-                if (fallback.available()) {
-                    operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), fallback.patchOperations()));
-                    filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), fallback.filledSlots()));
-                    totalChars += fallback.totalChars();
-                    degradeReasons.add("incomplete_slot_fallback:" + group.templateId() + ":" + group.slotIds());
-                    emitStage(session, "slot 组未填满，已使用本地模板数据兜底：" + group.templateId(), Map.of(
-                            "stage", "slot_fill_group_degraded",
-                            "groupId", group.groupId(),
-                            "templateId", group.templateId(),
-                            "slotIds", group.slotIds(),
-                            "reason", reason,
-                            "patchOperationCount", fallback.patchOperations().size()
-                    ));
-                    continue;
-                }
-                operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), groupResult.patchOperations()));
-                filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), groupResult.filledSlots()));
-                skippedSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), group.slotIds()));
-                totalChars += groupResult.totalChars();
-                degradeReasons.add("incomplete_slot_partial:" + group.templateId() + ":" + group.slotIds());
-                emitStage(session, "slot 组未填满，已保留可用 patch 并继续生成：" + group.templateId(), Map.of(
-                        "stage", "slot_fill_group_degraded",
-                        "groupId", group.groupId(),
-                        "templateId", group.templateId(),
-                        "slotIds", group.slotIds(),
-                        "reason", reason,
-                        "patchOperationCount", groupResult.patchOperationCount()
-                ));
-                continue;
-            }
-            operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), groupResult.patchOperations()));
-            filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), groupResult.filledSlots()));
-            skippedSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), groupResult.skippedSlots()));
-            totalChars += groupResult.totalChars();
-            emitStage(session, "slot 组填充完成：" + group.templateId()
-                    + "，已生成 " + groupResult.filledSlotCount() + " 个 slot", Map.of(
-                    "stage", "slot_fill_group_done",
+            skippedSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), group.slotIds()));
+            degradeReasons.add("recipe_skeleton_only:" + group.templateId() + ":" + group.slotIds());
+            emitStage(session, "recipe 未覆盖该变量作用域，保留模板骨架继续生成：" + group.templateId(), Map.of(
+                    "stage", "recipe_skeleton_only",
                     "groupId", group.groupId(),
                     "templateId", group.templateId(),
-                    "filledSlots", prefixSlotIds(bootstrapContext.prefixFor(group), groupResult.filledSlots()),
-                    "patchOperationCount", groupResult.patchOperationCount(),
-                    "totalChars", groupResult.totalChars()
+                    "slotIds", group.slotIds(),
+                    "reason", reason
             ));
         }
         if (operations.isEmpty()) {
@@ -236,7 +166,7 @@ public class CreateTemplateRuntime {
         }
 
         SlotPatchPlan patchPlan = createPatchMergeService.merge(operations);
-        emitStage(session, "slot 填充完成，正在执行写入前校验...", Map.of(
+        emitStage(session, "recipe 渲染完成，正在执行写入前校验...", Map.of(
                 "stage", "pre_write_validation",
                 "originalPatchCount", patchPlan.originalOperationCount(),
                 "mergedPatchCount", patchPlan.mergedOperationCount(),
@@ -278,12 +208,65 @@ public class CreateTemplateRuntime {
                 filledSlots,
                 patchPlan.operations(),
                 degradeReasons.isEmpty()
-                        ? "CREATE 模板运行时完成，已生成 " + filledSlots.size() + " 个 slot"
-                        : "CREATE 模板运行时完成，已生成 " + filledSlots.size() + " 个 slot（部分内容使用本地兜底）",
+                        ? "CREATE 模板运行时完成，已渲染 " + filledSlots.size() + " 个变量作用域"
+                        : "CREATE 模板运行时完成，已渲染 " + filledSlots.size() + " 个变量作用域（部分内容使用本地默认骨架）",
                 totalChars,
                 skippedSlots,
                 metadata
         );
+    }
+
+    private CreateSpecService.SpecResult generateCreateSpec(GenerationTaskRequest request,
+                                                            CreateGenerationPlan plan,
+                                                            GenerationSession session) {
+        if (createSpecService == null) {
+            return new CreateSpecService.SpecResult(false, null, "create_spec_service_unavailable");
+        }
+        emitStage(session, "正在生成本次 CREATE 统一规格", Map.of(
+                "stage", "create_spec_started",
+                "baseTemplate", plan.baseTemplateId(),
+                "slotGroupCount", plan.slotGroups().size()
+        ));
+        CreateSpecService.SpecResult specResult = createSpecService.generate(request.message(), plan);
+        if (!specResult.available()) {
+            emitStage(session, "CREATE 规格不可用，后续保留模板骨架", Map.of(
+                    "stage", "create_spec_degraded",
+                    "reason", specResult.reason()
+            ));
+        }
+        return specResult;
+    }
+
+    private CreateRecipeRendererService.RecipeRenderResult tryRenderRecipe(GenerationTaskRequest request,
+                                                                           SlotGroup group,
+                                                                           CreateSpecService.SpecResult specResult,
+                                                                           GenerationSession session) {
+        if (createRecipeRendererService == null) {
+            return CreateRecipeRendererService.RecipeRenderResult.empty();
+        }
+        if (!specResult.available()) {
+            emitStage(session, "CREATE 规格不可用，保留模板骨架：" + group.templateId(), Map.of(
+                    "stage", "create_spec_group_degraded",
+                    "groupId", group.groupId(),
+                    "templateId", group.templateId(),
+                    "reason", specResult.reason()
+            ));
+            return CreateRecipeRendererService.RecipeRenderResult.empty();
+        }
+        CreateRecipeRendererService.RecipeRenderResult result = createRecipeRendererService.render(
+                request.message(),
+                group,
+                specResult.spec()
+        );
+        if (!result.available()) {
+            emitStage(session, "CREATE recipe 暂未覆盖该变量作用域，后续使用本地默认或骨架：" + group.templateId(), Map.of(
+                    "stage", "create_recipe_unsupported",
+                    "groupId", group.groupId(),
+                    "templateId", group.templateId(),
+                    "slotIds", group.slotIds()
+            ));
+        }
+        return result;
     }
 
     private BootstrapContext bootstrap(App app, GenerationTaskRequest request, CreateGenerationPlan plan) {
@@ -351,13 +334,13 @@ public class CreateTemplateRuntime {
                                               int executionSlotGroupCount,
                                               List<String> degradeReasons) {
         List<String> safeDegradeReasons = degradeReasons == null || degradeReasons.isEmpty()
-                ? List.of("slot_fill_no_patch_skeleton_only")
+                ? List.of("recipe_no_patch_skeleton_only")
                 : degradeReasons;
         return new SlotFillResult(
                 plan.baseTemplateId(),
                 filledSlots,
                 List.of(),
-                "CREATE 模板骨架已生成，AI slot 未产生可写入 patch，保留模板默认内容进入构建验证",
+                "CREATE 模板骨架已生成，recipe 未产生可写入 patch，保留模板默认内容进入构建验证",
                 totalChars,
                 skippedSlots,
                 metadata(plan, bootstrapContext, aiCalls, null,

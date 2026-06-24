@@ -70,6 +70,15 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
                 .toList();
     }
 
+    @Override
+    public void ensureGenerationModelsConfigured() {
+        boolean hasFastModel = !listRunnableEnabledModelsByType("chat").isEmpty();
+        boolean hasThinkingModel = !listRunnableEnabledModelsByType("reasoning").isEmpty();
+        if (!hasFastModel || !hasThinkingModel) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "请联系系统管理员配置模型");
+        }
+    }
+
     private List<AiModel> listEnabledModelsFromDb() {
         QueryWrapper queryWrapper = new QueryWrapper();
         queryWrapper.eq("isEnabled", 1);
@@ -141,7 +150,8 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
 
         boolean enable = model.getIsEnabled() == null || model.getIsEnabled() != 1;
         if (enable) {
-            disableOtherEnabledModels(model.getId());
+            aiModelCatalogService.normalizeAndValidate(model);
+            disableOtherEnabledModels(model.getModelType(), model.getId());
             model.setIsEnabled(1);
         } else {
             model.setIsEnabled(0);
@@ -159,7 +169,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         }
         aiModelCatalogService.normalizeAndValidate(model);
         if (Integer.valueOf(1).equals(model.getIsEnabled())) {
-            disableOtherEnabledModels(null);
+            disableOtherEnabledModels(model.getModelType(), null);
         }
         boolean result = this.save(model);
         if (result) {
@@ -176,7 +186,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         }
         aiModelCatalogService.normalizeAndValidate(model);
         if (Integer.valueOf(1).equals(model.getIsEnabled())) {
-            disableOtherEnabledModels(model.getId());
+            disableOtherEnabledModels(model.getModelType(), model.getId());
         }
         boolean result = this.updateById(model);
         if (result) {
@@ -265,13 +275,14 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         return queryWrapper;
     }
 
-    private void disableOtherEnabledModels(Long excludeId) {
+    private void disableOtherEnabledModels(String modelType, Long excludeId) {
         AiModel updateEntity = new AiModel();
         updateEntity.setIsEnabled(0);
 
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("isEnabled", 1)
-                .eq("isDelete", 0);
+                .eq("isDelete", 0)
+                .eq("modelType", modelType, StrUtil.isNotBlank(modelType));
         if (excludeId != null) {
             queryWrapper.ne("id", excludeId);
         }

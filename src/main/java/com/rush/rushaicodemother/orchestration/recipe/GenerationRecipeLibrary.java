@@ -105,7 +105,7 @@ public class GenerationRecipeLibrary {
                         List.of("后端模块", "业务模块", "crud api", "rest api", "管理接口", "增删改查接口"),
                         List.of("api", "database", "backend-module"),
                         List.of("internal/domain", "internal/modules", "sql/schema.sql", "cmd/server/main.go"),
-                        List.of("模块目录命名使用 internal/modules/{name}", "先按契约确定字段，再同步 model/repository/service/handler/schema", "简单模块优先 slot-fill，复杂流程回退重型生成"),
+                        List.of("模块目录命名使用 internal/modules/{name}", "先按契约确定字段，再同步 model/repository/service/handler/schema", "简单模块优先 CREATE recipe，复杂流程回退重型生成"),
                         List.of("验证 cmd/server 装配新模块", "验证 schema 不包含危险 SQL", "验证 Handler 使用 response.OK/Error"),
                         List.of(
                                 templateFile("internal/modules/{name}/model.go", "模块字段与请求响应结构"),

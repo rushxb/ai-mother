@@ -211,6 +211,8 @@ const appDisplayName = computed(() => {
   return appInfo.value?.appName?.trim() || '网站生成器'
 })
 
+const shouldAutoStartInitialGeneration = () => route.query.autoStart === '1'
+
 const currentDeployUrl = computed(() => {
   if (deployUrl.value) {
     return deployUrl.value
@@ -910,11 +912,18 @@ const fetchAppInfo = async () => {
     }
     stopGenerationPolling()
     if (
+      shouldAutoStartInitialGeneration() &&
       latestAppInfo.initPrompt &&
       isOwner.value &&
       messages.value.length === 0 &&
       historyLoaded.value
     ) {
+      await router.replace({
+        path: route.path,
+        query: Object.fromEntries(
+          Object.entries(route.query).filter(([key]) => key !== 'autoStart'),
+        ),
+      })
       await sendInitialMessage(latestAppInfo.initPrompt)
     }
   } catch (error) {

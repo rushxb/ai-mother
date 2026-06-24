@@ -25,7 +25,7 @@ public class PromptOptimizerServiceFactory {
     @Bean
     @Scope("prototype")
     public PromptOptimizerService promptOptimizerService() {
-        ChatModel chatModel = streamingModelFactory.createPrimaryChatModel();
+        ChatModel chatModel = streamingModelFactory.createRoutingChatModel();
         return AiServices.builder(PromptOptimizerService.class)
                 .chatModel(chatModel)
                 .build();

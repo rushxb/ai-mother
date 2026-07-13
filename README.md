@@ -1,10 +1,57 @@
-﻿# Rush AI Code Mother
+﻿<div align="center">
 
-一个面向网站与应用开发场景的 AI 代码生成平台。用户可以通过自然语言创建、持续修改、实时预览并部署应用；管理员可以统一管理用户、应用、对话记录、AI 模型与生成性能数据。
+<h1>🚀 Rush AI Code Mother</h1>
+
+<h3>用一句话描述需求，让 AI 把创意变成真正可运行的应用</h3>
+
+<p>
+  <strong>智能生成 · 持续修改 · 实时预览 · 自动验证 · 一键部署</strong>
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 21" />
+  <img src="https://img.shields.io/badge/Spring_Boot-3.5.4-6DB33F?style=for-the-badge&logo=springboot&logoColor=white" alt="Spring Boot 3.5.4" />
+  <img src="https://img.shields.io/badge/LangChain4j-1.17.2-5B45FF?style=for-the-badge" alt="LangChain4j 1.17.2" />
+  <img src="https://img.shields.io/badge/Vue.js-3.5-4FC08D?style=for-the-badge&logo=vuedotjs&logoColor=white" alt="Vue 3.5" />
+  <img src="https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript 5.8" />
+</p>
+
+<p>
+  <a href="#-项目简介">项目简介</a> ·
+  <a href="#-为什么选择-rush-ai-code-mother">核心亮点</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#系统架构">系统架构</a> ·
+  <a href="#api-模块概览">API 概览</a>
+</p>
+
+</div>
+
+---
+
+## ✨ 项目简介
+
+> **Rush AI Code Mother 不只是一个代码生成器，更是一条从创意到产品的智能开发流水线。** 你只需用自然语言描述想法，它就能自动理解需求、选择合适的工程模式、生成并持续修改代码，完成依赖安装、质量检查、实时预览与一键部署，让一个模糊的灵感快速成长为真正可运行、可迭代、可交付的应用。
 
 项目采用前后端分离架构：后端基于 Spring Boot 3 与 LangChain4j，前端基于 Vue 3、TypeScript 和 Ant Design Vue。仓库内同时提供多种项目模板，并包含代码生成、文件编辑、依赖安装、构建校验、Dev Server 预览、部署和失败恢复等完整流程。
 
-## 功能特性
+## 🌟 为什么选择 Rush AI Code Mother？
+
+| 🧠 不止“生成代码” | 🛠️ 面向真实工程 | 🚀 从创意直接到交付 |
+| :---: | :---: | :---: |
+| 理解需求并智能选择生成模式，通过连续对话持续完善应用 | 自动处理文件、依赖、构建、测试、诊断与失败恢复 | 生成结果可实时预览、在线修改、打包下载并快速部署 |
+
+<div align="center">
+
+<h3>从一句需求到应用上线</h3>
+
+<p><strong>💡 描述想法　→　🧭 智能路由　→　⚙️ 工程生成　→　✅ 质量验证　→　👀 实时预览　→　🚀 一键部署</strong></p>
+
+</div>
+
+> [!TIP]
+> 无论是一个精美落地页、Vue 管理后台、移动端站点，还是带后端与数据库能力的全栈应用，都可以从同一个自然语言入口开始创建。
+
+## 🎯 功能特性
 
 ### AI 应用生成
 
@@ -138,7 +185,13 @@ flowchart LR
 启动 MySQL 后执行：
 
 ```powershell
-mysql -u root -p < sql/create_table.sql
+mysql -u root -p
+```
+
+进入 MySQL 客户端后执行：
+
+```sql
+source sql/create_table.sql;
 ```
 
 脚本会创建并使用 `rush_ai_code_mother` 数据库，同时初始化用户、应用、聊天记录、AI 模型和生成追踪等相关表。
@@ -309,7 +362,6 @@ pnpm preview
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | 生产环境前端 Origin 白名单 |
 | `CODE_DEPLOY_HOST` | `http://localhost:91` | 已部署应用的公开访问根地址 |
 | `COS_ENABLED` | `false` | 是否启用腾讯云 COS |
-| `API_DOCS_ENABLED` | `false` | 公共配置中的 API 文档开关；开发 Profile 会开启 |
 | `TEMPLATE_PRE_WARM_ENABLED` | 开发开启、生产关闭 | 是否在启动时预热模板依赖 |
 | `AI_LOG_REQUESTS` | `false` | 是否记录生成模型请求 |
 | `AI_LOG_RESPONSES` | `false` | 是否记录生成模型响应 |

@@ -13,7 +13,8 @@ dayjs.locale('zh-cn')
  */
 export const formatTime = (time: string | undefined, format = 'YYYY-MM-DD HH:mm:ss'): string => {
   if (!time) return ''
-  return dayjs(time).format(format)
+  const parsedTime = dayjs(time)
+  return parsedTime.isValid() ? parsedTime.format(format) : ''
 }
 
 /**
@@ -23,7 +24,8 @@ export const formatTime = (time: string | undefined, format = 'YYYY-MM-DD HH:mm:
  */
 export const formatRelativeTime = (time: string | undefined): string => {
   if (!time) return ''
-  return dayjs(time).fromNow()
+  const parsedTime = dayjs(time)
+  return parsedTime.isValid() ? parsedTime.fromNow() : ''
 }
 
 /**
@@ -33,5 +35,6 @@ export const formatRelativeTime = (time: string | undefined): string => {
  */
 export const formatDate = (time: string | undefined): string => {
   if (!time) return ''
-  return dayjs(time).format('YYYY-MM-DD')
+  const parsedTime = dayjs(time)
+  return parsedTime.isValid() ? parsedTime.format('YYYY-MM-DD') : ''
 }

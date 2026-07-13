@@ -1,0 +1,151 @@
+spring:
+  application:
+    name: rush-ai-code-mother-backend
+  profiles:
+    active: @spring.profiles.active@
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  session:
+    store-type: redis
+    timeout: ${SESSION_TIMEOUT:12h}
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      ttl: ${REDIS_TTL:3600}
+
+server:
+  port: ${SERVER_PORT:8123}
+  shutdown: graceful
+  servlet:
+    context-path: /api
+    session:
+      cookie:
+        http-only: true
+        same-site: ${SESSION_COOKIE_SAME_SITE:lax}
+        secure: ${SESSION_COOKIE_SECURE:false}
+        max-age: ${SESSION_COOKIE_MAX_AGE:12h}
+
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+  group-configs:
+    - group: default
+      paths-to-match: /**
+      packages-to-scan: com.rush.rushaicodemother.controller
+
+knife4j:
+  enable: ${API_DOCS_ENABLED:false}
+  setting:
+    language: zh_cn
+
+cos:
+  client:
+    enabled: ${COS_ENABLED:false}
+    host: ${COS_HOST:}
+    secret-id: ${COS_SECRET_ID:}
+    secret-key: ${COS_SECRET_KEY:}
+    region: ${COS_REGION:ap-beijing}
+    bucket: ${COS_BUCKET:}
+
+app:
+  rate-limiter:
+    key-prefix: ${RATE_LIMIT_KEY_PREFIX:rate_limit}
+    limiter-idle-ttl: ${RATE_LIMIT_IDLE_TTL:1h}
+    forwarded-header-max-length: ${RATE_LIMIT_FORWARDED_HEADER_MAX_LENGTH:4096}
+    forwarded-for-max-hops: ${RATE_LIMIT_FORWARDED_FOR_MAX_HOPS:32}
+    connection-minimum-idle-size: ${RATE_LIMIT_CONNECTION_MINIMUM_IDLE_SIZE:1}
+    connection-pool-size: ${RATE_LIMIT_CONNECTION_POOL_SIZE:10}
+    idle-connection-timeout: ${RATE_LIMIT_IDLE_CONNECTION_TIMEOUT:30s}
+    connect-timeout: ${RATE_LIMIT_CONNECT_TIMEOUT:5s}
+    response-timeout: ${RATE_LIMIT_RESPONSE_TIMEOUT:3s}
+    retry-attempts: ${RATE_LIMIT_RETRY_ATTEMPTS:3}
+    retry-interval: ${RATE_LIMIT_RETRY_INTERVAL:1500ms}
+  ai-model-runtime:
+    generation-log-requests: ${AI_LOG_REQUESTS:false}
+    generation-log-responses: ${AI_LOG_RESPONSES:false}
+    routing-log-requests: ${AI_ROUTING_LOG_REQUESTS:false}
+    routing-log-responses: ${AI_ROUTING_LOG_RESPONSES:false}
+    generation-timeout: ${AI_GENERATION_TIMEOUT:8m}
+    routing-timeout: ${AI_ROUTING_TIMEOUT:30s}
+    routing-max-retries: ${AI_ROUTING_MAX_RETRIES:0}
+    create-spec-timeout: ${AI_CREATE_SPEC_TIMEOUT:10s}
+  redis-cache:
+    default-ttl: ${REDIS_CACHE_DEFAULT_TTL:30m}
+    cache-ttl:
+      good_app_page: ${REDIS_CACHE_GOOD_APP_PAGE_TTL:5m}
+  generation-runtime:
+    task-timeout: ${GENERATION_TASK_TIMEOUT:20m}
+    model-call-timeout: ${GENERATION_MODEL_CALL_TIMEOUT:8m}
+    minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
+    max-model-attempts: ${GENERATION_MAX_MODEL_ATTEMPTS:3}
+    max-tool-writes: ${GENERATION_MAX_TOOL_WRITES:80}
+    max-build-executions: ${GENERATION_MAX_BUILD_EXECUTIONS:4}
+    max-repair-rounds: ${GENERATION_MAX_REPAIR_ROUNDS:3}
+  external-process:
+    termination-grace-period: ${EXTERNAL_PROCESS_TERMINATION_GRACE_PERIOD:2s}
+  project-command:
+    tool-script-timeout: ${PROJECT_COMMAND_TOOL_SCRIPT_TIMEOUT:5m}
+    light-validation-timeout: ${PROJECT_COMMAND_LIGHT_VALIDATION_TIMEOUT:90s}
+    light-build-timeout: ${PROJECT_COMMAND_LIGHT_BUILD_TIMEOUT:3m}
+    full-build-timeout: ${PROJECT_COMMAND_FULL_BUILD_TIMEOUT:4m}
+    idle-timeout: ${PROJECT_COMMAND_IDLE_TIMEOUT:90s}
+    heartbeat-interval: ${PROJECT_COMMAND_HEARTBEAT_INTERVAL:15s}
+    output-drain-timeout: ${PROJECT_COMMAND_OUTPUT_DRAIN_TIMEOUT:2s}
+    max-output-length: ${PROJECT_COMMAND_MAX_OUTPUT_LENGTH:12000}
+  generation-commit:
+    command-timeout: ${GENERATION_COMMIT_COMMAND_TIMEOUT:10s}
+    heartbeat-interval: ${GENERATION_COMMIT_HEARTBEAT_INTERVAL:2s}
+    output-drain-timeout: ${GENERATION_COMMIT_OUTPUT_DRAIN_TIMEOUT:2s}
+    max-output-length: ${GENERATION_COMMIT_MAX_OUTPUT_LENGTH:8000}
+    lock-stripes: ${GENERATION_COMMIT_LOCK_STRIPES:64}
+  artifact-lifecycle:
+    copy-timeout: ${ARTIFACT_COPY_TIMEOUT:15m}
+    heartbeat-interval: ${ARTIFACT_COPY_HEARTBEAT_INTERVAL:30s}
+    output-drain-timeout: ${ARTIFACT_COPY_OUTPUT_DRAIN_TIMEOUT:5s}
+    max-output-length: ${ARTIFACT_COPY_MAX_OUTPUT_LENGTH:8000}
+  dev-server:
+    proxy:
+      connect-timeout: ${DEV_SERVER_CONNECT_TIMEOUT:3s}
+      request-timeout: ${DEV_SERVER_REQUEST_TIMEOUT:30s}
+      max-request-body: ${DEV_SERVER_MAX_REQUEST_BODY:2MB}
+      max-response-body: ${DEV_SERVER_MAX_RESPONSE_BODY:25MB}
+    runtime:
+      startup-timeout: ${DEV_SERVER_STARTUP_TIMEOUT:30s}
+      readiness-poll-interval: ${DEV_SERVER_READINESS_POLL_INTERVAL:200ms}
+      validation-error-collection-window: ${DEV_SERVER_VALIDATION_ERROR_COLLECTION_WINDOW:5s}
+      output-drain-timeout: ${DEV_SERVER_OUTPUT_DRAIN_TIMEOUT:2s}
+      stop-timeout: ${DEV_SERVER_STOP_TIMEOUT:10s}
+      node-executable: ${DEV_SERVER_NODE_EXECUTABLE:node}
+      port-range-start: ${DEV_SERVER_PORT_RANGE_START:10000}
+      port-range-end: ${DEV_SERVER_PORT_RANGE_END:60000}
+      max-servers-per-user: ${DEV_SERVER_MAX_SERVERS_PER_USER:3}
+      max-output-line-length: ${DEV_SERVER_MAX_OUTPUT_LINE_LENGTH:2000}
+      max-recent-output-lines: ${DEV_SERVER_MAX_RECENT_OUTPUT_LINES:200}
+  dependency-install:
+    command-timeout: ${DEPENDENCY_INSTALL_COMMAND_TIMEOUT:5m}
+    idle-timeout: ${DEPENDENCY_INSTALL_IDLE_TIMEOUT:90s}
+    heartbeat-interval: ${DEPENDENCY_INSTALL_HEARTBEAT_INTERVAL:15s}
+    runtime-validation-timeout: ${DEPENDENCY_RUNTIME_VALIDATION_TIMEOUT:30s}
+    output-drain-timeout: ${DEPENDENCY_OUTPUT_DRAIN_TIMEOUT:2s}
+    max-attempts: ${DEPENDENCY_INSTALL_MAX_ATTEMPTS:3}
+    max-output-length: ${DEPENDENCY_INSTALL_MAX_OUTPUT_LENGTH:12000}
+    lock-stripes: ${DEPENDENCY_INSTALL_LOCK_STRIPES:64}
+  template-pre-warm:
+    max-concurrency: ${TEMPLATE_PRE_WARM_MAX_CONCURRENCY:2}
+    template-ids:
+      - vue-web-basic
+      - vue-web-admin
+      - vue-web-mobile
+      - vue-web-landing
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never

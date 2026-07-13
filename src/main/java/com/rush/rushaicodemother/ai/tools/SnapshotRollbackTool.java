@@ -10,7 +10,7 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -26,12 +26,12 @@ import java.util.List;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class SnapshotRollbackTool extends BaseTool {
 
     private static final DateTimeFormatter SNAPSHOT_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
-    @Resource
-    private GenerationToolExecutionContextService toolExecutionContextService;
+    private final GenerationToolExecutionContextService toolExecutionContextService;
 
     @Tool("创建项目快照、列出快照、回滚到指定快照、删除快照。进行较大范围改动前建议先创建快照。")
     public String manageSnapshot(
@@ -74,7 +74,7 @@ public class SnapshotRollbackTool extends BaseTool {
         }
         ProjectWorkspaceSupport.copyProject(projectPath, snapshotPath);
         long fileCount = ProjectWorkspaceSupport.listProjectFiles(snapshotPath).size();
-        String taskId = toolExecutionContextService == null ? null : toolExecutionContextService.getContext(appId)
+        String taskId = toolExecutionContextService.getContext(appId)
                 .map(context -> context.taskId())
                 .orElse(null);
         ManualSnapshot artifact = new ManualSnapshot(

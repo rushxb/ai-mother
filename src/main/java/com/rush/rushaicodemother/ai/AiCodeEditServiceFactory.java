@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.ai;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,10 +15,10 @@ import org.springframework.context.annotation.Scope;
  */
 @Slf4j
 @Configuration
+@RequiredArgsConstructor
 public class AiCodeEditServiceFactory {
 
-    @Resource
-    private StreamingModelFactory streamingModelFactory;
+    private final StreamingModelFactory streamingModelFactory;
 
     /**
      * 创建 AI 代码编辑服务实例。

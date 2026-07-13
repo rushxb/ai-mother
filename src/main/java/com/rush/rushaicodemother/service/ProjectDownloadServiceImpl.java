@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.service;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.core.util.ZipUtil;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
@@ -9,26 +8,41 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.FileFilter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
+/**
+ * 项目源码压缩下载服务。
+ *
+ * <p>压缩过程不跟随符号链接，并对每个归档条目执行真实路径和名称校验，
+ * 防止通过软链接、路径穿越或响应头注入读取非项目文件。</p>
+ */
 @Service
 @Slf4j
 public class ProjectDownloadServiceImpl implements ProjectDownloadService {
 
-    /**
-     * 需要过滤的文件和目录名称
-     */
+    private static final Pattern DOWNLOAD_FILE_NAME_PATTERN =
+            Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
+
     private static final Set<String> IGNORED_NAMES = Set.of(
             "node_modules",
             ".git",
             "dist",
             "build",
-            ".DS_Store",
+            ".ds_store",
             ".env",
             "target",
             ".mvn",
@@ -36,65 +50,134 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
             ".vscode"
     );
 
-    /**
-     * 需要过滤的文件扩展名
-     */
     private static final Set<String> IGNORED_EXTENSIONS = Set.of(
             ".log",
             ".tmp",
             ".cache"
     );
 
-
     @Override
-    public void downloadProjectAsZip(String projectPath, String downloadFileName, HttpServletResponse response) {
-        // 基础校验
-        ThrowUtils.throwIf(StrUtil.isBlank(projectPath), ErrorCode.PARAMS_ERROR, "项目路径不能为空");
-        ThrowUtils.throwIf(StrUtil.isBlank(downloadFileName), ErrorCode.PARAMS_ERROR, "下载文件名不能为空");
-        File projectDir = new File(projectPath);
-        ThrowUtils.throwIf(!projectDir.exists(), ErrorCode.PARAMS_ERROR, "项目路径不存在");
-        ThrowUtils.throwIf(!projectDir.isDirectory(), ErrorCode.PARAMS_ERROR, "项目路径不是一个目录");
-        log.info("开始打包下载项目: {} -> {}.zip", projectPath, downloadFileName);
-        // 设置 HTTP 响应头
-        response.setStatus(HttpServletResponse.SC_OK);
-        response.setContentType("application/zip");
-        response.addHeader("Content-Disposition",
-                String.format("attachment; filename=\"%s.zip\"", downloadFileName));
-        // 定义文件过滤器
-        FileFilter filter = file -> isPathAllowed(projectDir.toPath(), file.toPath());
-        // 压缩
-        try {
-            // 使用 Hutool 的 ZipUtil 直接将过滤后的目录压缩到响应输出流
-            ZipUtil.zip(response.getOutputStream(), StandardCharsets.UTF_8, false, filter, projectDir);
-            log.info("打包下载项目成功: {} -> {}.zip", projectPath, downloadFileName);
-        } catch (IOException e) {
-            log.error("打包下载项目失败", e);
+    public void downloadProjectAsZip(String projectPath,
+                                     String downloadFileName,
+                                     HttpServletResponse response) {
+        ThrowUtils.throwIf(StrUtil.isBlank(projectPath),
+                ErrorCode.PARAMS_ERROR, "项目路径不能为空");
+        ThrowUtils.throwIf(StrUtil.isBlank(downloadFileName),
+                ErrorCode.PARAMS_ERROR, "下载文件名不能为空");
+        ThrowUtils.throwIf(!DOWNLOAD_FILE_NAME_PATTERN.matcher(downloadFileName).matches(),
+                ErrorCode.PARAMS_ERROR, "下载文件名不合法");
+        ThrowUtils.throwIf(response == null, ErrorCode.PARAMS_ERROR, "HTTP 响应不能为空");
+
+        Path projectRoot = resolveProjectRoot(projectPath);
+        configureResponse(response, downloadFileName);
+        log.info("开始打包下载项目: {} -> {}.zip", projectRoot, downloadFileName);
+
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(
+                response.getOutputStream(), StandardCharsets.UTF_8)) {
+            Files.walkFileTree(projectRoot, new ProjectZipVisitor(projectRoot, zipOutputStream));
+            zipOutputStream.finish();
+            log.info("打包下载项目成功: {} -> {}.zip", projectRoot, downloadFileName);
+        } catch (IOException exception) {
+            log.error("打包下载项目失败: {}", projectRoot, exception);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "打包下载项目失败");
         }
     }
 
-    /**
-     * 校验路径是否允许包含在压缩包中
-     *
-     * @param projectRoot 项目根目录
-     * @param fullPath    完整路径
-     * @return 是否允许
-     */
-    private boolean isPathAllowed(Path projectRoot, Path fullPath) {
-        // 获取相对路径
-        Path relativePath = projectRoot.relativize(fullPath);
-        // 检查路径中的每一部分是否符合要求
+    private Path resolveProjectRoot(String projectPath) {
+        try {
+            Path declaredRoot = Path.of(projectPath).toAbsolutePath().normalize();
+            Path realRoot = declaredRoot.toRealPath();
+            ThrowUtils.throwIf(!Files.isDirectory(realRoot, LinkOption.NOFOLLOW_LINKS),
+                    ErrorCode.PARAMS_ERROR, "项目路径不是一个目录");
+            return realRoot;
+        } catch (InvalidPathException exception) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "项目路径不合法");
+        } catch (IOException exception) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "项目路径不存在或不可访问");
+        }
+    }
+
+    private void configureResponse(HttpServletResponse response, String downloadFileName) {
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setContentType("application/zip");
+        response.setHeader("Content-Disposition",
+                String.format("attachment; filename=\"%s.zip\"", downloadFileName));
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.setHeader("Cache-Control", "no-store");
+    }
+
+    private boolean isPathAllowed(Path projectRoot, Path candidate) {
+        Path normalizedCandidate = candidate.toAbsolutePath().normalize();
+        if (!normalizedCandidate.startsWith(projectRoot)) {
+            return false;
+        }
+        Path relativePath = projectRoot.relativize(normalizedCandidate);
         for (Path part : relativePath) {
-            String partName = part.toString();
-            // 检查是否在忽略名称列表中
-            if (IGNORED_NAMES.contains(partName)) {
+            String normalizedName = part.toString().toLowerCase(Locale.ROOT);
+            if (IGNORED_NAMES.contains(normalizedName)) {
                 return false;
             }
-            // 检查是否以忽略扩展名结尾
-            if (IGNORED_EXTENSIONS.stream().anyMatch(ext -> partName.toLowerCase().endsWith(ext))) {
+            if (IGNORED_EXTENSIONS.stream().anyMatch(normalizedName::endsWith)) {
                 return false;
             }
         }
         return true;
+    }
+
+    private final class ProjectZipVisitor extends SimpleFileVisitor<Path> {
+
+        private final Path projectRoot;
+        private final ZipOutputStream zipOutputStream;
+
+        private ProjectZipVisitor(Path projectRoot, ZipOutputStream zipOutputStream) {
+            this.projectRoot = projectRoot;
+            this.zipOutputStream = zipOutputStream;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
+                throws IOException {
+            if (!directory.equals(projectRoot)
+                    && (Files.isSymbolicLink(directory) || !isPathAllowed(projectRoot, directory))) {
+                return FileVisitResult.SKIP_SUBTREE;
+            }
+            Path realDirectory = directory.toRealPath();
+            return realDirectory.startsWith(projectRoot)
+                    ? FileVisitResult.CONTINUE
+                    : FileVisitResult.SKIP_SUBTREE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+            if (Files.isSymbolicLink(file)
+                    || !attributes.isRegularFile()
+                    || !isPathAllowed(projectRoot, file)) {
+                return FileVisitResult.CONTINUE;
+            }
+            Path realFile = file.toRealPath();
+            if (!realFile.startsWith(projectRoot)
+                    || !Files.isRegularFile(realFile, LinkOption.NOFOLLOW_LINKS)) {
+                return FileVisitResult.CONTINUE;
+            }
+            writeEntry(realFile, attributes);
+            return FileVisitResult.CONTINUE;
+        }
+
+        private void writeEntry(Path realFile, BasicFileAttributes attributes) throws IOException {
+            String entryName = projectRoot.relativize(realFile)
+                    .toString()
+                    .replace('\\', '/');
+            if (entryName.isBlank() || entryName.startsWith("/") || entryName.contains("../")) {
+                throw new IOException("非法 ZIP 条目路径: " + entryName);
+            }
+            ZipEntry entry = new ZipEntry(entryName);
+            entry.setLastModifiedTime(attributes.lastModifiedTime());
+            zipOutputStream.putNextEntry(entry);
+            try (InputStream inputStream = Files.newInputStream(realFile, LinkOption.NOFOLLOW_LINKS)) {
+                inputStream.transferTo(zipOutputStream);
+            } finally {
+                zipOutputStream.closeEntry();
+            }
+        }
     }
 }

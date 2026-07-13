@@ -1,11 +1,11 @@
 package com.rush.rushaicodemother.service.impl;
 
-import cn.hutool.json.JSONUtil;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
-import com.rush.rushaicodemother.controller.AiModelController.AiModelQueryRequest;
+import com.rush.rushaicodemother.common.query.SortFieldWhitelist;
 import com.rush.rushaicodemother.constant.RedisKeyConstant;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelQueryRequest;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.AiModelMapper;
@@ -14,39 +14,48 @@ import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 import com.rush.rushaicodemother.service.AiModelCatalogService;
 import com.rush.rushaicodemother.service.AiModelService;
 import dev.langchain4j.model.openai.OpenAiChatModel;
-import jakarta.annotation.Resource;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * AI 模型配置 服务层实现。
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> implements AiModelService {
 
-    private static final Duration ENABLED_MODEL_CACHE_TTL = Duration.ofHours(6);
+    private static final SortFieldWhitelist SORT_FIELDS = SortFieldWhitelist.of("sortOrder", Map.of(
+            "modelName", "modelName",
+            "provider", "provider",
+            "modelId", "modelId",
+            "modelType", "modelType",
+            "isEnabled", "isEnabled",
+            "sortOrder", "sortOrder",
+            "createTime", "createTime",
+            "updateTime", "updateTime"
+    ));
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final AiModelCatalogService aiModelCatalogService;
 
-    @Resource
-    private AiModelCatalogService aiModelCatalogService;
+    private final StringRedisTemplate stringRedisTemplate;
+
+    @PostConstruct
+    public void purgeLegacySensitiveCache() {
+        evictEnabledModelCache();
+    }
 
     @Override
     public List<AiModel> listEnabledModels() {
-        List<AiModel> cachedModels = getEnabledModelsFromCache();
-        if (cachedModels != null) {
-            return cachedModels;
-        }
-        List<AiModel> models = listEnabledModelsFromDb();
-        refreshEnabledModelCache(models);
-        return models;
+        // 运行时模型配置包含密钥，禁止写入 Redis 等共享缓存。
+        return listEnabledModelsFromDb();
     }
 
     @Override
@@ -68,6 +77,15 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         return listRunnableEnabledModels().stream()
                 .filter(model -> StrUtil.equals(model.getModelType(), modelType))
                 .toList();
+    }
+
+    @Override
+    public void ensureGenerationModelsConfigured() {
+        boolean hasFastModel = !listRunnableEnabledModelsByType("chat").isEmpty();
+        boolean hasThinkingModel = !listRunnableEnabledModelsByType("reasoning").isEmpty();
+        if (!hasFastModel || !hasThinkingModel) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "请联系系统管理员配置模型");
+        }
     }
 
     private List<AiModel> listEnabledModelsFromDb() {
@@ -126,7 +144,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
             log.error("模型连接测试失败，模型={}，错误={}", validatedModel.getModelName(), e.getMessage(), e);
             return AiModelConnectionTestResultVO.builder()
                     .success(false)
-                    .message(resolveConnectionErrorMessage(e))
+                    .message(AiModelConnectionErrorMessageResolver.resolve(e))
                     .build();
         }
     }
@@ -141,13 +159,14 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
 
         boolean enable = model.getIsEnabled() == null || model.getIsEnabled() != 1;
         if (enable) {
-            disableOtherEnabledModels(model.getId());
+            aiModelCatalogService.normalizeAndValidate(model);
+            disableOtherEnabledModels(model.getModelType(), model.getId());
             model.setIsEnabled(1);
         } else {
             model.setIsEnabled(0);
         }
         this.updateById(model);
-        refreshEnabledModelCache();
+        evictEnabledModelCache();
         return model;
     }
 
@@ -159,11 +178,11 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         }
         aiModelCatalogService.normalizeAndValidate(model);
         if (Integer.valueOf(1).equals(model.getIsEnabled())) {
-            disableOtherEnabledModels(null);
+            disableOtherEnabledModels(model.getModelType(), null);
         }
         boolean result = this.save(model);
         if (result) {
-            refreshEnabledModelCache();
+            evictEnabledModelCache();
         }
         return result;
     }
@@ -174,13 +193,29 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         if (model == null || model.getId() == null) {
             return false;
         }
-        aiModelCatalogService.normalizeAndValidate(model);
-        if (Integer.valueOf(1).equals(model.getIsEnabled())) {
-            disableOtherEnabledModels(model.getId());
+        AiModel existingModel = this.getById(model.getId());
+        if (existingModel == null) {
+            return false;
         }
-        boolean result = this.updateById(model);
+
+        // null 表示字段未提交；空白 API Key 表示保留原密钥。管理端响应不会回传密钥原文。
+        String existingApiKey = existingModel.getApiKey();
+        cn.hutool.core.bean.BeanUtil.copyProperties(
+                model,
+                existingModel,
+                cn.hutool.core.bean.copier.CopyOptions.create().ignoreNullValue()
+        );
+        if (StrUtil.isBlank(model.getApiKey())) {
+            existingModel.setApiKey(existingApiKey);
+        }
+
+        aiModelCatalogService.normalizeAndValidate(existingModel);
+        if (Integer.valueOf(1).equals(existingModel.getIsEnabled())) {
+            disableOtherEnabledModels(existingModel.getModelType(), existingModel.getId());
+        }
+        boolean result = this.updateById(existingModel);
         if (result) {
-            refreshEnabledModelCache();
+            evictEnabledModelCache();
         }
         return result;
     }
@@ -193,27 +228,19 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         }
         boolean result = this.removeById(modelId);
         if (result) {
-            refreshEnabledModelCache();
+            evictEnabledModelCache();
         }
         return result;
     }
 
     @Override
     public void evictEnabledModelCache() {
-        stringRedisTemplate.delete(RedisKeyConstant.AI_MODEL_ENABLED_LIST);
-    }
-
-    private String resolveConnectionErrorMessage(Exception e) {
-        String rawMessage = e.getMessage();
-        if (StrUtil.containsIgnoreCase(rawMessage, "Unexpected character ('<'")
-                || StrUtil.containsIgnoreCase(rawMessage, "text/html")) {
-            return "模型接口返回了 HTML 而不是 JSON，请检查是否使用了受支持的官方接口地址，或当前网关被拦截";
+        // 新版本不再缓存运行时密钥；这里同时清理旧版本可能遗留的明文缓存。
+        try {
+            stringRedisTemplate.delete(RedisKeyConstant.AI_MODEL_ENABLED_LIST);
+        } catch (Exception e) {
+            log.warn("Failed to remove legacy AI model cache", e);
         }
-        if (StrUtil.containsIgnoreCase(rawMessage, "401")
-                || StrUtil.containsIgnoreCase(rawMessage, "403")) {
-            return "模型认证失败，请检查 API Key 是否正确，或当前账号是否具备该模型权限";
-        }
-        return StrUtil.blankToDefault(rawMessage, "模型连接测试失败，请检查配置");
     }
 
     private void applyTestMaxTokens(OpenAiChatModel.OpenAiChatModelBuilder builder, AiModel model) {
@@ -244,7 +271,7 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         String modelType = queryRequest.getModelType();
         Integer isEnabled = queryRequest.getIsEnabled();
         String keyword = queryRequest.getKeyword();
-        String sortField = queryRequest.getSortField();
+        String sortField = SORT_FIELDS.resolve(queryRequest.getSortField());
         String sortOrder = queryRequest.getSortOrder();
 
         QueryWrapper queryWrapper = QueryWrapper.create()
@@ -265,13 +292,14 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         return queryWrapper;
     }
 
-    private void disableOtherEnabledModels(Long excludeId) {
+    private void disableOtherEnabledModels(String modelType, Long excludeId) {
         AiModel updateEntity = new AiModel();
         updateEntity.setIsEnabled(0);
 
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("isEnabled", 1)
-                .eq("isDelete", 0);
+                .eq("isDelete", 0)
+                .eq("modelType", modelType, StrUtil.isNotBlank(modelType));
         if (excludeId != null) {
             queryWrapper.ne("id", excludeId);
         }
@@ -279,33 +307,5 @@ public class AiModelServiceImpl extends ServiceImpl<AiModelMapper, AiModel> impl
         this.mapper.updateByQuery(updateEntity, queryWrapper);
     }
 
-    private List<AiModel> getEnabledModelsFromCache() {
-        String cachedJson = stringRedisTemplate.opsForValue().get(RedisKeyConstant.AI_MODEL_ENABLED_LIST);
-        if (StrUtil.isBlank(cachedJson)) {
-            return null;
-        }
-        try {
-            return JSONUtil.toList(cachedJson, AiModel.class);
-        } catch (Exception e) {
-            log.warn("解析启用模型缓存失败，将回退数据库查询并清理缓存", e);
-            evictEnabledModelCache();
-            return null;
-        }
-    }
 
-    private void refreshEnabledModelCache() {
-        refreshEnabledModelCache(listEnabledModelsFromDb());
-    }
-
-    private void refreshEnabledModelCache(List<AiModel> models) {
-        if (models == null || models.isEmpty()) {
-            evictEnabledModelCache();
-            return;
-        }
-        stringRedisTemplate.opsForValue().set(
-                RedisKeyConstant.AI_MODEL_ENABLED_LIST,
-                JSONUtil.toJsonStr(models),
-                ENABLED_MODEL_CACHE_TTL
-        );
-    }
 }

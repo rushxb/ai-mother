@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.review;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -15,6 +16,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 @Component
+@Slf4j
 public class OrphanFileReviewService {
 
     private static final Set<String> REVIEW_EXTENSIONS = Set.of("vue", "js", "ts", "css", "scss", "json");
@@ -55,7 +57,14 @@ public class OrphanFileReviewService {
             String summary = orphanCandidates.isEmpty() ? "未发现疑似旧模板残留" : "发现疑似旧模板残留文件";
             return new OrphanFileReviewResult(status, orphanCandidates, reasons, deleteAllowed, summary);
         } catch (Exception e) {
-            return new OrphanFileReviewResult("skipped", List.of(), List.of(), List.of(), "旧模板残留审查失败: " + e.getMessage());
+            log.warn("旧模板残留审查失败，projectRoot={}", projectRoot, e);
+            return new OrphanFileReviewResult(
+                    "skipped",
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    "旧模板残留审查失败，请稍后重试"
+            );
         }
     }
 

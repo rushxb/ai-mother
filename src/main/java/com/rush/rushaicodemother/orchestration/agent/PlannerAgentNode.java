@@ -122,7 +122,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         contract.put("endpoints", inferredDomain.get("endpoints"));
         contract.put("schemaTables", inferredDomain.get("schemaTables"));
         contract.put("notes", List.of(
-                "首阶段只生成最小契约骨架，具体字段由 slot-fill 或代码生成器从用户需求中补齐",
+                "首阶段只生成最小契约骨架，具体字段由 CREATE spec 和本地 recipe 从用户需求中补齐",
                 "从前端升级全栈时，优先从现有 API 调用、mock 数据、表单字段、表格列反推字段契约",
                 "字段命名需同步覆盖 frontend DTO、backend request/response、repository scan 和 SQLite schema"
         ));

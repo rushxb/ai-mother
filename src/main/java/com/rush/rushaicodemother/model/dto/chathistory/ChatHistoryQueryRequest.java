@@ -1,49 +1,41 @@
 package com.rush.rushaicodemother.model.dto.chathistory;
 
 import com.rush.rushaicodemother.common.PageRequest;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 对话历史查询请求
+ * 对话历史分页查询条件。
  */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class ChatHistoryQueryRequest extends PageRequest implements Serializable {
 
-    /**
-     * id
-     */
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+    @Positive
     private Long id;
 
-    /**
-     * 消息内容
-     */
+    @Size(max = 500)
     private String message;
 
-    /**
-     * 消息类型（user/ai）
-     */
+    @Pattern(regexp = "user|ai", message = "消息类型仅支持 user 或 ai")
     private String messageType;
 
-    /**
-     * 应用id
-     */
+    @Positive
     private Long appId;
 
-    /**
-     * 创建用户id
-     */
+    @Positive
     private Long userId;
 
-    /**
-     * 游标查询 - 最后一条记录的创建时间
-     * 用于分页查询，获取早于此时间的记录
-     */
+    /** 游标分页时，返回早于该时间的记录。 */
     private LocalDateTime lastCreateTime;
-
-    private static final long serialVersionUID = 1L;
 }

@@ -104,7 +104,7 @@ public class GenerationPatchApplyService {
                     taskId,
                     projectPath,
                     operations.size(),
-                    List.of("executor:" + e.getMessage()),
+                    List.of("executor:patch_apply_failed"),
                     "patch_apply_failed"
             ));
         }
@@ -140,7 +140,7 @@ public class GenerationPatchApplyService {
         } catch (Exception e) {
             log.warn("无计划补丁执行失败，appId: {}, taskId: {}, reason: {}", appId, taskId, reason, e);
             return record(PatchApplyResult.rejected(appId, taskId, projectPath, operations.size(),
-                    List.of("executor:" + e.getMessage()), "patch_apply_failed"));
+                    List.of("executor:patch_apply_failed"), "patch_apply_failed"));
         }
     }
 

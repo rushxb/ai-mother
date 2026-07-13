@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.ai;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
@@ -12,10 +12,10 @@ import org.springframework.context.annotation.Scope;
  * 应用标题生成服务工厂
  */
 @Configuration
+@RequiredArgsConstructor
 public class AppNameGeneratorServiceFactory {
 
-    @Resource
-    private StreamingModelFactory streamingModelFactory;
+    private final StreamingModelFactory streamingModelFactory;
 
     /**
      * 创建应用标题生成服务实例

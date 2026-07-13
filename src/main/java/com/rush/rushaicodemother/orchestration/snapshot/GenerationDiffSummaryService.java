@@ -74,7 +74,13 @@ public class GenerationDiffSummaryService {
             return summarizePaths(appId, taskId, basePath, currentPath);
         } catch (Exception e) {
             log.warn("生成后差异摘要失败，appId: {}, taskId: {}", appId, taskId, e);
-            return DiffSummary.skipped(appId, taskId, basePath.toString(), currentPath.toString(), "diff_summary_failed:" + e.getMessage());
+            return DiffSummary.skipped(
+                    appId,
+                    taskId,
+                    basePath.toString(),
+                    currentPath.toString(),
+                    "diff_summary_failed"
+            );
         }
     }
 

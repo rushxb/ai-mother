@@ -1,10 +1,8 @@
 import type { AiMessageSegment, AgentEventView, BuildResultView, ChatMessage, FileIconMeta, FileTreeNode } from '@/components/app/chat/types'
+import type { GenerationStreamEvent } from './chat/domain/generationEvents'
 
-export interface GenerationStreamEvent {
-  type: string
-  text?: string
-  data?: Record<string, any>
-}
+export type { GenerationStreamEvent } from './chat/domain/generationEvents'
+export { parseGenerationStreamEvent } from './chat/domain/generationEvents'
 
 export const codeLanguageAliasMap: Record<string, string> = {
   html: 'xml',
@@ -100,18 +98,6 @@ export const parseBuildResult = (content: string): BuildResultView | undefined =
   }
 }
 
-export const parseGenerationStreamEvent = (event: MessageEvent): GenerationStreamEvent | undefined => {
-  if (!event.data) {
-    return undefined
-  }
-  try {
-    return JSON.parse(event.data) as GenerationStreamEvent
-  } catch (error) {
-    console.error('解析生成事件失败:', error, event.data)
-    return undefined
-  }
-}
-
 export const normalizeAgentStatus = (status: unknown): AgentEventView['status'] => {
   if (status === 'pending' || status === 'running' || status === 'done' || status === 'failed') {
     return status
@@ -142,7 +128,9 @@ export const upsertAgentEvent = (targetMessage: ChatMessage, streamEvent: Genera
     taskId: data.taskId ? String(data.taskId) : undefined,
     qualityGate: data.qualityGate ? String(data.qualityGate) : undefined,
     recoverable: Boolean(data.recoverable),
-    artifact: data.artifact && typeof data.artifact === 'object' ? data.artifact : undefined,
+    artifact: data.artifact && typeof data.artifact === 'object' && !Array.isArray(data.artifact)
+      ? data.artifact as Record<string, unknown>
+      : undefined,
   }
   const events = targetMessage.agentEvents ? [...targetMessage.agentEvents] : []
   const existingIndex = events.findIndex((item) => {
@@ -386,11 +374,6 @@ export const buildModifiedFilePreview = (currentContent: string, oldContent: str
     initialContent: targetContent.slice(0, prefixLength),
     targetContent,
   }
-}
-
-export const getStringFromEventData = (data: Record<string, any> | undefined, key: string) => {
-  const value = data?.[key]
-  return typeof value === 'string' ? value : ''
 }
 
 export const appendPreviewCacheBuster = (url: string) => {

@@ -1,25 +1,34 @@
-### CUSTOM ###
-application-local.yml
-application-prod.yml
-tmp
+### Local secrets and runtime overrides ###
+src/main/resources/application-local.yml
+src/main/resources/application-*.local.yml
+.env
+.env.*
+!.env.example
+tmp/
 
-HELP.md
+### Build output ###
 target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+build/
+dist/
+*.log
 
-### STS ###
+### Maven wrapper ###
+.mvn/wrapper/maven-wrapper.jar
+
+### Help-generated file ###
+HELP.md
+
+### Spring Tool Suite ###
 .apt_generated
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
 .sts4-cache
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 *.iws
 *.iml
 *.ipr
@@ -27,15 +36,13 @@ target/
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
-/dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 ### VS Code ###
 .vscode/
-src/main/resources/application.yml
-src/main/resources/application-prod.yml
-src/main/resources/application-prod.yml
+
+### Operating system ###
+.DS_Store
+Thumbs.db
+.gstack/

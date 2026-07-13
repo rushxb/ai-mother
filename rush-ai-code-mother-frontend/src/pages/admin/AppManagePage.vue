@@ -1,22 +1,26 @@
 <template>
-  <div id="appManagePage" class="page-shell">
-    <section class="page-head">
-      <div>
-        <h2 class="page-title">应用管理</h2>
-      </div>
-      <div class="page-summary">
-        <span class="summary-label">当前总数</span>
-        <span class="summary-value">{{ total }}</span>
-      </div>
-    </section>
+  <AdminPageFrame
+    id="appManagePage"
+    eyebrow="APPLICATION OPERATIONS"
+    title="应用管理"
+    description="集中管理应用资产、生成进度、部署状态与精选策略，保持平台内容清晰可控。"
+  >
+    <template #actions>
+      <AdminSummaryBadge label="应用总数" :value="total" tone="blue" />
+    </template>
 
-    <a-card class="panel-card" :bordered="false">
+    <AdminFilterPanel description="通过名称、创建者和生成类型组合筛选，快速定位应用资产。">
       <a-form class="toolbar-form" layout="inline" :model="searchParams" @finish="doSearch">
         <a-form-item label="应用名称">
           <a-input v-model:value="searchParams.appName" allow-clear placeholder="输入应用名称" />
         </a-form-item>
         <a-form-item label="创建者">
-          <a-input v-model:value="searchParams.userId" allow-clear placeholder="输入用户ID" />
+          <a-input-number
+            v-model:value="searchParams.userId"
+            :min="1"
+            :precision="0"
+            placeholder="输入用户 ID"
+          />
         </a-form-item>
         <a-form-item label="生成类型">
           <a-select
@@ -41,12 +45,22 @@
           </a-space>
         </a-form-item>
       </a-form>
-    </a-card>
+    </AdminFilterPanel>
 
-    <a-card class="panel-card table-card" :bordered="false">
+    <AdminDataPanel title="应用资产" description="同步展示生成状态、部署时间、创建者和运营优先级。">
+      <a-alert
+        v-if="loadError"
+        type="error"
+        show-icon
+        closable
+        :message="loadError"
+        class="load-error"
+        @close="loadError = ''"
+      />
       <a-table
         :columns="columns"
         :data-source="data"
+        :loading="loading"
         :pagination="pagination"
         :scroll="{ x: 1200 }"
         :row-key="getAppRowKey"
@@ -80,7 +94,11 @@
             <a-tag class="soft-tag" color="blue">{{ formatCodeGenType(record.codeGenType) }}</a-tag>
           </template>
           <template v-else-if="column.dataIndex === 'generationState'">
-            <div v-if="record.isGenerating" class="generation-state-chip" :class="getGenerationStateClass(record)">
+            <div
+              v-if="record.isGenerating"
+              class="generation-state-chip"
+              :class="getGenerationStateClass(record)"
+            >
               <span class="generation-state-chip__dot"></span>
               <span>{{ getGenerationStateText(record) }}</span>
             </div>
@@ -104,27 +122,48 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="8">
-              <a-button type="primary" size="small" class="action-button" @click="editApp(record)">
+              <a-button
+                type="primary"
+                size="small"
+                class="action-button"
+                :disabled="isAppBusy(record.id)"
+                @click="editApp(record)"
+              >
                 编辑
               </a-button>
               <a-button
                 type="default"
                 size="small"
                 class="action-button"
+                :loading="isUpdatingFeatured(record.id)"
+                :disabled="isDeletingApp(record.id)"
                 @click="toggleFeatured(record)"
                 :class="{ 'featured-btn': record.priority === 99 }"
               >
                 {{ record.priority === 99 ? '取消精选' : '精选' }}
               </a-button>
-              <a-popconfirm title="确定要删除这个应用吗？" @confirm="deleteApp(record.id)">
-                <a-button danger size="small" ghost class="action-button">删除</a-button>
+              <a-popconfirm
+                title="确定要删除这个应用吗？"
+                :disabled="isAppBusy(record.id)"
+                @confirm="deleteApp(record.id)"
+              >
+                <a-button
+                  danger
+                  size="small"
+                  ghost
+                  class="action-button"
+                  :loading="isDeletingApp(record.id)"
+                  :disabled="isUpdatingFeatured(record.id)"
+                >
+                  删除
+                </a-button>
               </a-popconfirm>
             </a-space>
           </template>
         </template>
       </a-table>
-    </a-card>
-  </div>
+    </AdminDataPanel>
+  </AdminPageFrame>
 </template>
 
 <script lang="ts" setup>
@@ -137,157 +176,109 @@ import { formatTime } from '@/utils/time'
 import UserInfo from '@/components/UserInfo.vue'
 import { DEFAULT_APP_COVER } from '@/constants/appDefaults'
 import { normalizeImageUrl } from '@/utils/url'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import AdminPageFrame from '@/components/admin/AdminPageFrame.vue'
+import AdminFilterPanel from '@/components/admin/AdminFilterPanel.vue'
+import AdminDataPanel from '@/components/admin/AdminDataPanel.vue'
+import AdminSummaryBadge from '@/components/admin/AdminSummaryBadge.vue'
 
 const router = useRouter()
+const { loading, begin, isLatest, end } = useLatestRequest()
 
 const getAppCover = (cover?: string) => normalizeImageUrl(cover) || DEFAULT_APP_COVER
 const getGenerationStateText = (app: API.AppVO) => {
-  if (app.generatingStage === 'build') {
-    return '构建中'
-  }
-  if (app.generatingStage === 'repair') {
-    return '修复中'
-  }
-  if (app.generatingStage === 'agent') {
-    return '编排中'
-  }
-  if (app.generatingStage === 'update') {
-    return '改修中'
-  }
+  if (app.generatingStage === 'build') return '构建中'
+  if (app.generatingStage === 'repair') return '修复中'
+  if (app.generatingStage === 'agent') return '编排中'
+  if (app.generatingStage === 'update') return '改修中'
   return '创建中'
 }
 
 const getGenerationStateClass = (app: API.AppVO) => {
-  if (app.generatingStage === 'build') {
-    return 'is-build'
-  }
-  if (app.generatingStage === 'repair') {
-    return 'is-repair'
-  }
-  if (app.generatingStage === 'agent') {
-    return 'is-agent'
-  }
+  if (app.generatingStage === 'build') return 'is-build'
+  if (app.generatingStage === 'repair') return 'is-repair'
+  if (app.generatingStage === 'agent') return 'is-agent'
   return app.generatingStage === 'update' ? 'is-update' : 'is-create'
 }
 
 const columns = [
-  {
-    title: '应用信息',
-    dataIndex: 'appInfo',
-    width: 230,
-    fixed: 'left',
-  },
-  {
-    title: 'ID',
-    dataIndex: 'id',
-    width: 80,
-  },
-  {
-    title: '封面',
-    dataIndex: 'cover',
-    width: 100,
-  },
-  {
-    title: '初始提示词',
-    dataIndex: 'initPrompt',
-    width: 200,
-  },
-  {
-    title: '生成类型',
-    dataIndex: 'codeGenType',
-    width: 100,
-  },
-  {
-    title: '进度',
-    dataIndex: 'generationState',
-    width: 110,
-  },
-  {
-    title: '优先级',
-    dataIndex: 'priority',
-    width: 80,
-  },
-  {
-    title: '部署时间',
-    dataIndex: 'deployedTime',
-    width: 160,
-  },
-  {
-    title: '创建者',
-    dataIndex: 'user',
-    width: 120,
-  },
-  {
-    title: '创建时间',
-    dataIndex: 'createTime',
-    width: 160,
-  },
-  {
-    title: '操作',
-    key: 'action',
-    width: 200,
-    fixed: 'right',
-  },
+  { title: '应用信息', dataIndex: 'appInfo', width: 230, fixed: 'left' },
+  { title: 'ID', dataIndex: 'id', width: 80 },
+  { title: '封面', dataIndex: 'cover', width: 100 },
+  { title: '初始提示词', dataIndex: 'initPrompt', width: 200 },
+  { title: '生成类型', dataIndex: 'codeGenType', width: 100 },
+  { title: '进度', dataIndex: 'generationState', width: 110 },
+  { title: '优先级', dataIndex: 'priority', width: 80 },
+  { title: '部署时间', dataIndex: 'deployedTime', width: 160 },
+  { title: '创建者', dataIndex: 'user', width: 120 },
+  { title: '创建时间', dataIndex: 'createTime', width: 160 },
+  { title: '操作', key: 'action', width: 200, fixed: 'right' },
 ]
 
-// 数据
 const data = ref<API.AppVO[]>([])
 const total = ref(0)
+const loadError = ref('')
+const updatingFeaturedIds = ref<Set<number>>(new Set())
+const deletingAppIds = ref<Set<number>>(new Set())
+const searchParams = reactive<API.AppQueryRequest>({ pageNum: 1, pageSize: 10 })
 
-// 搜索条件
-const searchParams = reactive<API.AppQueryRequest>({
-  pageNum: 1,
-  pageSize: 10,
-})
+const getAppRowKey = (record: API.AppVO) =>
+  record.id ?? `${record.userId ?? 'user'}-${record.createTime ?? 'time'}`
+const normalizeAppId = (value: string | number | undefined) => {
+  const appId = Number(value)
+  return Number.isSafeInteger(appId) && appId > 0 ? appId : null
+}
+const isUpdatingFeatured = (id?: string | number) => {
+  const appId = normalizeAppId(id)
+  return appId !== null && updatingFeaturedIds.value.has(appId)
+}
+const isDeletingApp = (id?: string | number) => {
+  const appId = normalizeAppId(id)
+  return appId !== null && deletingAppIds.value.has(appId)
+}
+const isAppBusy = (id?: string | number) => isUpdatingFeatured(id) || isDeletingApp(id)
 
-const getAppRowKey = (record: API.AppVO) => record.id ?? ''
-
-// 获取数据
 const fetchData = async () => {
+  const requestId = begin()
+  loadError.value = ''
   try {
-    const res = await listAppVoByPageByAdmin({
-      ...searchParams,
-    })
-    if (res.data.data) {
+    const res = await listAppVoByPageByAdmin({ ...searchParams })
+    if (!isLatest(requestId)) return
+
+    if (res.data.code === 0 && res.data.data) {
       data.value = res.data.data.records ?? []
       total.value = res.data.data.totalRow ?? 0
-    } else {
-      message.error('获取数据失败，' + res.data.message)
+      return
     }
+    loadError.value = `获取应用列表失败：${res.data.message || '服务异常'}`
+    message.error(loadError.value)
   } catch (error) {
-    console.error('获取数据失败：', error)
-    message.error('获取数据失败')
+    if (!isLatest(requestId)) return
+    console.error('Failed to load apps', error)
+    loadError.value = '获取应用列表失败，请检查网络后重试'
+    message.error(loadError.value)
+  } finally {
+    end(requestId)
   }
 }
 
-// 页面加载时请求一次
-onMounted(() => {
-  fetchData()
-})
+const pagination = computed(() => ({
+  current: searchParams.pageNum ?? 1,
+  pageSize: searchParams.pageSize ?? 10,
+  total: total.value,
+  showSizeChanger: true,
+  showTotal: (count: number) => `共 ${count} 条`,
+}))
 
-// 分页参数
-const pagination = computed(() => {
-  return {
-    current: searchParams.pageNum ?? 1,
-    pageSize: searchParams.pageSize ?? 10,
-    total: total.value,
-    showSizeChanger: true,
-    showTotal: (total: number) => `共 ${total} 条`,
-  }
-})
-
-// 表格变化处理
-const doTableChange = (page: { current: number; pageSize: number }) => {
-  searchParams.pageNum = page.current
-  searchParams.pageSize = page.pageSize
-  fetchData()
+const doTableChange = (page: { current?: number; pageSize?: number }) => {
+  searchParams.pageNum = page.current ?? 1
+  searchParams.pageSize = page.pageSize ?? 10
+  void fetchData()
 }
 
-// 搜索
 const doSearch = () => {
-  // 重置页码
   searchParams.pageNum = 1
-  fetchData()
+  void fetchData()
 }
 
 const resetSearch = () => {
@@ -295,169 +286,84 @@ const resetSearch = () => {
   searchParams.userId = undefined
   searchParams.codeGenType = undefined
   searchParams.pageNum = 1
-  fetchData()
+  void fetchData()
 }
 
-// 编辑应用
 const editApp = (app: API.AppVO) => {
-  router.push(`/app/edit/${app.id}`)
+  const appId = normalizeAppId(app.id)
+  if (!appId || isAppBusy(appId)) {
+    if (!appId) message.warning('应用 ID 无效')
+    return
+  }
+  void router.push({ name: 'app-edit', params: { id: String(appId) } })
 }
 
-// 切换精选状态
 const toggleFeatured = async (app: API.AppVO) => {
-  if (!app.id) return
+  const appId = normalizeAppId(app.id)
+  if (!appId || isAppBusy(appId)) return
 
   const newPriority = app.priority === 99 ? 0 : 99
-
+  updatingFeaturedIds.value = new Set(updatingFeaturedIds.value).add(appId)
   try {
-    const res = await updateAppByAdmin({
-      id: app.id,
-      priority: newPriority,
-    })
-
-    if (res.data.code === 0) {
-      message.success(newPriority === 99 ? '已设为精选' : '已取消精选')
-      // 刷新数据
-      fetchData()
-    } else {
-      message.error('操作失败：' + res.data.message)
+    const res = await updateAppByAdmin({ id: appId, priority: newPriority })
+    if (res.data.code !== 0) {
+      message.error(`操作失败：${res.data.message || '服务异常'}`)
+      return
     }
+    message.success(newPriority === 99 ? '已设为精选' : '已取消精选')
+    await fetchData()
   } catch (error) {
-    console.error('操作失败：', error)
-    message.error('操作失败')
+    console.error('Failed to update featured state', error)
+    message.error('操作失败，请检查网络后重试')
+  } finally {
+    const nextIds = new Set(updatingFeaturedIds.value)
+    nextIds.delete(appId)
+    updatingFeaturedIds.value = nextIds
   }
 }
 
-// 删除应用
-const deleteApp = async (id: number | undefined) => {
-  if (!id) return
+const deleteApp = async (rawId?: string | number) => {
+  const id = normalizeAppId(rawId)
+  if (!id || isAppBusy(id)) return
 
+  deletingAppIds.value = new Set(deletingAppIds.value).add(id)
   try {
     const res = await deleteAppByAdmin({ id })
-    if (res.data.code === 0) {
-      message.success('删除成功')
-      // 刷新数据
-      fetchData()
-    } else {
-      message.error('删除失败：' + res.data.message)
+    if (res.data.code !== 0) {
+      message.error(`删除失败：${res.data.message || '服务异常'}`)
+      return
     }
+    if (data.value.length === 1 && (searchParams.pageNum ?? 1) > 1) {
+      searchParams.pageNum = (searchParams.pageNum ?? 1) - 1
+    }
+    message.success('删除成功')
+    await fetchData()
   } catch (error) {
-    console.error('删除失败：', error)
-    message.error('删除失败')
+    console.error('Failed to delete app', error)
+    message.error('删除失败，请检查网络后重试')
+  } finally {
+    const nextIds = new Set(deletingAppIds.value)
+    nextIds.delete(id)
+    deletingAppIds.value = nextIds
   }
 }
+
+onMounted(() => {
+  void fetchData()
+})
 </script>
 
 <style scoped>
-#appManagePage {
-  padding: 8px 24px 24px;
-  background: #f5f7fb;
-  margin-top: 0;
-}
-
-.page-shell {
-  display: grid;
-  gap: 14px;
-}
-
-.page-head {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  padding: 0 4px;
-  min-height: 32px;
-  padding-right: 132px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.2;
-  color: #0f172a;
-  font-weight: 700;
-}
-
-.page-summary {
-  position: absolute;
-  z-index: 20;
-  top: -2px;
-  right: 4px;
-  min-width: 112px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.1);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  backdrop-filter: blur(12px);
-}
-
-.summary-label {
-  display: block;
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.summary-value {
-  display: block;
-  margin-top: 2px;
-  font-size: 20px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.panel-card {
-  border-radius: 18px;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.06);
-  border: 1px solid rgba(148, 163, 184, 0.12);
-}
-
-.toolbar-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 8px;
-  align-items: center;
-}
-
-.table-card :deep(.ant-card-body) {
-  padding-top: 8px;
-}
-
-.table-card :deep(.ant-table) {
-  background: transparent;
-}
-
-.table-card :deep(.ant-table-container) {
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.table-card :deep(.ant-table-thead > tr > th) {
-  background: #f8fafc;
-  color: #475569;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-}
-
-.table-card :deep(.ant-table-tbody > tr > td) {
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-  vertical-align: middle;
-}
-
-.table-card :deep(.ant-table-tbody > tr:hover > td) {
-  background: rgba(59, 130, 246, 0.035);
-}
-
 .app-info-cell {
   min-width: 0;
 }
 
 .app-name {
-  color: #0f172a;
-  font-weight: 600;
-  white-space: nowrap;
   overflow: hidden;
+  color: var(--color-ink-strong);
+  font-weight: 680;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-meta {
@@ -465,48 +371,52 @@ const deleteApp = async (id: number | undefined) => {
   align-items: center;
   gap: 6px;
   margin-top: 4px;
-  color: #94a3b8;
-  font-size: 12px;
+  color: #91a0b2;
+  font-size: 11px;
 }
 
 .app-meta-divider {
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .prompt-text {
   max-width: 200px;
   overflow: hidden;
+  color: #41556c;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #334155;
 }
 
-.text-gray {
-  color: #94a3b8;
+.text-gray,
+.generation-state-idle {
+  color: #91a0b2;
 }
 
 .featured-btn {
-  background: #faad14;
-  border-color: #faad14;
-  color: white;
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, #e9a521, #f4c44f);
+  box-shadow: 0 8px 18px rgba(220, 155, 29, 0.18);
 }
 
-.featured-btn:hover {
-  background: #d48806;
-  border-color: #d48806;
+.featured-btn:hover,
+.featured-btn:focus {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, #d99213, #edb637);
 }
 
 .soft-tag {
-  border-radius: 999px;
   border: 0;
+  border-radius: 999px;
 }
 
 .priority-text {
-  color: #475569;
+  color: #526579;
 }
 
 .action-button {
-  border-radius: 999px;
+  border-radius: 10px;
 }
 
 .generation-state-chip {
@@ -514,12 +424,12 @@ const deleteApp = async (id: number | undefined) => {
   align-items: center;
   gap: 7px;
   padding: 6px 11px;
-  border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
   background: rgba(248, 250, 252, 0.82);
   color: #526579;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0.02em;
 }
 
@@ -552,27 +462,10 @@ const deleteApp = async (id: number | undefined) => {
   animation: statePulse 1.9s ease-in-out infinite;
 }
 
-.generation-state-idle {
-  color: #9aa5b1;
-}
-
-:deep(.ant-table-tbody > tr > td) {
-  vertical-align: middle;
-}
-
 :deep(.cover-image .ant-image-img) {
-  border-radius: 16px;
+  border-radius: 13px;
   object-fit: cover;
-}
-
-:deep(.ant-input),
-:deep(.ant-select-selector),
-:deep(.ant-btn) {
-  border-radius: 999px !important;
-}
-
-:deep(.ant-form-item) {
-  margin-bottom: 0;
+  box-shadow: 0 8px 20px rgba(63, 88, 120, 0.12);
 }
 
 @keyframes statePulse {
@@ -581,26 +474,16 @@ const deleteApp = async (id: number | undefined) => {
     transform: scale(1);
     opacity: 0.58;
   }
+
   50% {
     transform: scale(1.18);
     opacity: 1;
   }
 }
 
-@media (max-width: 768px) {
-  #appManagePage {
-    padding: 8px 16px 16px;
-  }
-
-  .page-head {
-    min-height: 0;
-    flex-direction: column;
-    padding-right: 4px;
-  }
-
-  .page-summary {
-    position: static;
-    width: 100%;
+@media (prefers-reduced-motion: reduce) {
+  .generation-state-chip__dot {
+    animation: none;
   }
 }
 </style>

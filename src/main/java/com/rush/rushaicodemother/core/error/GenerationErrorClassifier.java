@@ -12,6 +12,10 @@ public final class GenerationErrorClassifier {
 
     public static final String CATEGORY_UNKNOWN = "unknown";
     public static final String CATEGORY_MODEL_QUOTA = "model_quota";
+    public static final String CATEGORY_MODEL_RATE_LIMIT = "model_rate_limit";
+    public static final String CATEGORY_MODEL_AUTH = "model_auth";
+    public static final String CATEGORY_MODEL_TIMEOUT = "model_timeout";
+    public static final String CATEGORY_MODEL_UNAVAILABLE = "model_unavailable";
     public static final String CATEGORY_CODEGEN_EMPTY = "codegen_empty";
     public static final String CATEGORY_DEPENDENCY = "dependency";
     public static final String CATEGORY_BUILD = "build";
@@ -21,6 +25,16 @@ public final class GenerationErrorClassifier {
 
     private static final String MODEL_QUOTA_MESSAGE =
             "AI 模型服务额度不足，请检查模型服务账户余额或更换可用模型后重试。";
+    private static final String MODEL_RATE_LIMIT_MESSAGE = "AI 模型服务请求过于频繁，请稍后重试。";
+    private static final String MODEL_AUTH_MESSAGE = "AI 模型服务认证失败，请联系管理员检查模型配置。";
+    private static final String MODEL_TIMEOUT_MESSAGE = "上游模型超时，请稍后重试。";
+    private static final String MODEL_UNAVAILABLE_MESSAGE = "AI 模型服务暂时不可用，请稍后重试。";
+    private static final String CODEGEN_EMPTY_MESSAGE = "未生成有效项目代码，请重试。";
+    private static final String DEPENDENCY_MESSAGE = "项目依赖处理失败，请稍后重试。";
+    private static final String BUILD_MESSAGE = "项目构建失败，请检查生成代码后重试。";
+    private static final String ROUTING_MESSAGE = "项目路由验证失败，请检查路由配置后重试。";
+    private static final String PERMISSION_MESSAGE = "项目文件访问失败，请检查项目权限后重试。";
+    private static final String GENERIC_MESSAGE = "代码生成失败，请稍后重试。";
 
     private GenerationErrorClassifier() {
     }
@@ -31,7 +45,7 @@ public final class GenerationErrorClassifier {
 
     public static GenerationError classify(String errorMessage) {
         if (StrUtil.isBlank(errorMessage)) {
-            return new GenerationError(CATEGORY_UNKNOWN, "生成失败", true);
+            return new GenerationError(CATEGORY_UNKNOWN, GENERIC_MESSAGE, true);
         }
         String normalized = errorMessage.toLowerCase(Locale.ROOT);
         if (containsAny(normalized,
@@ -46,11 +60,29 @@ public final class GenerationErrorClassifier {
                 "欠费")) {
             return new GenerationError(CATEGORY_MODEL_QUOTA, MODEL_QUOTA_MESSAGE, false);
         }
+        if (containsAny(normalized, "429", "too many requests", "rate limit")) {
+            return new GenerationError(CATEGORY_MODEL_RATE_LIMIT, MODEL_RATE_LIMIT_MESSAGE, true);
+        }
+        if (containsAny(normalized, "401", "403", "unauthorized", "invalid api key", "authentication")) {
+            return new GenerationError(CATEGORY_MODEL_AUTH, MODEL_AUTH_MESSAGE, false);
+        }
+        if (containsAny(normalized,
+                "read timed out",
+                "sockettimeoutexception",
+                "resourceaccessexception",
+                "upstream timeout",
+                "模型调用超时",
+                "上游模型超时")) {
+            return new GenerationError(CATEGORY_MODEL_TIMEOUT, MODEL_TIMEOUT_MESSAGE, true);
+        }
+        if (containsAny(normalized, "503", "service unavailable", "connection refused")) {
+            return new GenerationError(CATEGORY_MODEL_UNAVAILABLE, MODEL_UNAVAILABLE_MESSAGE, true);
+        }
         if (containsAny(normalized,
                 "未产出项目",
                 "未产出有效项目文件",
                 "missing generated project")) {
-            return new GenerationError(CATEGORY_CODEGEN_EMPTY, errorMessage, true);
+            return new GenerationError(CATEGORY_CODEGEN_EMPTY, CODEGEN_EMPTY_MESSAGE, true);
         }
         if (containsAny(normalized,
                 "pnpm install",
@@ -59,7 +91,7 @@ public final class GenerationErrorClassifier {
                 "dependency",
                 "module not found",
                 "failed to resolve import")) {
-            return new GenerationError(CATEGORY_DEPENDENCY, errorMessage, true);
+            return new GenerationError(CATEGORY_DEPENDENCY, DEPENDENCY_MESSAGE, true);
         }
         if (containsAny(normalized,
                 "pnpm run build",
@@ -68,19 +100,19 @@ public final class GenerationErrorClassifier {
                 "编译",
                 "vite",
                 "vue")) {
-            return new GenerationError(CATEGORY_BUILD, errorMessage, true);
+            return new GenerationError(CATEGORY_BUILD, BUILD_MESSAGE, true);
         }
         if (containsAny(normalized, "router", "404", "history")) {
-            return new GenerationError(CATEGORY_ROUTING, errorMessage, true);
+            return new GenerationError(CATEGORY_ROUTING, ROUTING_MESSAGE, true);
         }
         if (containsAny(normalized,
                 "permission",
                 "权限",
                 "illegal",
                 "非法路径")) {
-            return new GenerationError(CATEGORY_PERMISSION, errorMessage, false);
+            return new GenerationError(CATEGORY_PERMISSION, PERMISSION_MESSAGE, false);
         }
-        return new GenerationError(CATEGORY_RUNTIME, errorMessage, true);
+        return new GenerationError(CATEGORY_RUNTIME, GENERIC_MESSAGE, true);
     }
 
     private static boolean containsAny(String text, String... keywords) {

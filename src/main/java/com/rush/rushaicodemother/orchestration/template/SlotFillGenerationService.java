@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.create.CreateGenerationPlan;
+import com.rush.rushaicodemother.orchestration.create.CreateRecipeRendererService;
 import com.rush.rushaicodemother.orchestration.create.CreateTemplatePlanner;
 import com.rush.rushaicodemother.orchestration.create.CreateTemplateRuntime;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
@@ -23,8 +24,8 @@ public class SlotFillGenerationService {
 
     private final CreateTemplatePlanner createTemplatePlanner;
     private final CreateTemplateRuntime createTemplateRuntime;
+    private final CreateRecipeRendererService createRecipeRendererService;
     private final GenerationEventPublisher generationEventPublisher;
-    private final TemplateSlotFillService templateSlotFillService;
     private final ThreadLocal<String> lastFailureReason = new ThreadLocal<>();
 
     public SlotFillResult tryGenerate(App app, GenerationTaskRequest request) {
@@ -48,9 +49,9 @@ public class SlotFillGenerationService {
             lastFailureReason.set("create_plan_unavailable");
             return null;
         }
-        if (codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT && !templateSlotFillService.supportsSlotFill(plan.baseTemplateId())) {
-            log.debug("模板不支持 slot 填充: {}", plan.baseTemplateId());
-            lastFailureReason.set("template_slot_fill_unsupported:" + plan.baseTemplateId());
+        if (codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT && !createRecipeRendererService.supportsTemplate(plan.baseTemplateId())) {
+            log.debug("模板不支持 CREATE recipe 渲染: {}", plan.baseTemplateId());
+            lastFailureReason.set("create_recipe_unsupported:" + plan.baseTemplateId());
             return null;
         }
 

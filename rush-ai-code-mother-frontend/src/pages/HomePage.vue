@@ -4,12 +4,22 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { Motion } from 'motion-v'
 import { useLoginUserStore } from '@/stores/loginUser'
-import { addApp, copyApp, listMyAppVoByPage, listGoodAppVoByPage, optimizePrompt } from '@/api/appController'
+import {
+  addApp,
+  copyApp,
+  deleteApp,
+  listMyAppVoByPage,
+  listGoodAppVoByPage,
+  optimizePrompt,
+} from '@/api/appController'
 import { getDeployUrl } from '@/config/env'
 import { normalizeImageUrl } from '@/utils/url'
 import { DEFAULT_APP_COVER, DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 import { BulbOutlined } from '@ant-design/icons-vue'
 import { fadeUp, staggerChild, hoverLift } from '@/composables/useMotionPresets'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { openInNewTab } from '@/utils/browser'
+import AmbientTechCanvas from '@/components/visual/AmbientTechCanvas.vue'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
@@ -20,7 +30,9 @@ const creating = ref(false)
 const optimizingPrompt = ref(false)
 const animatedPlaceholder =
   '例如：帮我创建一个面向设计师的作品集网站，包含项目展示、个人介绍和联系表单...'
-const shouldShowAnimatedPlaceholder = computed(() => !userPrompt.value && !creating.value && !optimizingPrompt.value)
+const shouldShowAnimatedPlaceholder = computed(
+  () => !userPrompt.value && !creating.value && !optimizingPrompt.value,
+)
 const composerBusy = computed(() => creating.value || optimizingPrompt.value)
 const composerStatusText = computed(() => {
   if (optimizingPrompt.value) {
@@ -64,7 +76,27 @@ const featuredAppsPage = reactive({
   total: 0,
 })
 
+const {
+  loading: myAppsLoading,
+  begin: beginMyAppsRequest,
+  isLatest: isLatestMyAppsRequest,
+  end: endMyAppsRequest,
+} = useLatestRequest()
+const {
+  loading: featuredAppsLoading,
+  begin: beginFeaturedAppsRequest,
+  isLatest: isLatestFeaturedAppsRequest,
+  end: endFeaturedAppsRequest,
+} = useLatestRequest()
+const myAppsError = ref('')
+const featuredAppsError = ref('')
+
 const copyingAppIds = ref<Set<string>>(new Set())
+const deletingAppIds = ref<Set<string>>(new Set())
+const retiringAppIds = ref<Set<string>>(new Set())
+const deleteModalOpen = ref(false)
+const pendingDeleteApp = ref<API.AppVO | null>(null)
+const deletePhase = ref<'confirm' | 'deleting' | 'done'>('confirm')
 
 const showcasePalette = [
   '运营工作台',
@@ -114,6 +146,18 @@ const focusPromptInput = () => {
   promptInputRef.value?.focus?.()
 }
 
+/**
+ * 响应全局命令中心的“新建应用”动作。
+ * 使用浏览器事件解耦顶栏与首页，避免共享组件直接依赖页面实例。
+ */
+const focusComposerFromCommand = () => {
+  focusPromptInput()
+  promptInputRef.value?.$el?.scrollIntoView?.({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'center',
+  })
+}
+
 const createApp = async () => {
   const prompt = userPrompt.value.trim()
   if (!prompt) {
@@ -136,7 +180,7 @@ const createApp = async () => {
     if (res.data.code === 0 && res.data.data) {
       message.success('应用创建成功')
       const appId = String(res.data.data)
-      await router.push(`/app/chat/${appId}`)
+      await router.push(`/app/chat/${appId}?autoStart=1`)
     } else {
       message.error('创建失败：' + res.data.message)
     }
@@ -149,7 +193,8 @@ const createApp = async () => {
 }
 
 const optimizeUserPrompt = async () => {
-  const prompt = userPrompt.value.trim()
+  const sourcePrompt = userPrompt.value
+  const prompt = sourcePrompt.trim()
   if (!prompt || creating.value || optimizingPrompt.value) {
     return
   }
@@ -162,18 +207,20 @@ const optimizeUserPrompt = async () => {
 
   optimizingPrompt.value = true
   try {
-    const res = await optimizePrompt({
-      prompt,
-    })
+    const res = await optimizePrompt({ prompt })
     if (res.data.code === 0 && res.data.data) {
+      if (userPrompt.value !== sourcePrompt) {
+        message.info('你已修改输入，本次优化结果未覆盖当前内容')
+        return
+      }
       userPrompt.value = res.data.data
       message.success('提示词已优化')
       return
     }
     message.error('优化失败：' + (res.data.message || '请重试'))
   } catch (error) {
-    console.error('优化提示词失败：', error)
-    message.error('优化失败，请重试')
+    console.error('Failed to optimize prompt', error)
+    message.error('优化失败，请检查网络后重试')
   } finally {
     optimizingPrompt.value = false
   }
@@ -181,9 +228,14 @@ const optimizeUserPrompt = async () => {
 
 const loadMyApps = async () => {
   if (!loginUserStore.loginUser.id) {
+    myApps.value = []
+    myAppsPage.total = 0
+    myAppsError.value = ''
     return
   }
 
+  const requestId = beginMyAppsRequest()
+  myAppsError.value = ''
   try {
     const res = await listMyAppVoByPage({
       pageNum: myAppsPage.current,
@@ -191,17 +243,26 @@ const loadMyApps = async () => {
       sortField: 'createTime',
       sortOrder: 'desc',
     })
+    if (!isLatestMyAppsRequest(requestId)) return
 
     if (res.data.code === 0 && res.data.data) {
-      myApps.value = res.data.data.records || []
-      myAppsPage.total = res.data.data.totalRow || 0
+      myApps.value = res.data.data.records ?? []
+      myAppsPage.total = res.data.data.totalRow ?? 0
+      return
     }
+    myAppsError.value = `加载我的作品失败：${res.data.message || '服务异常'}`
   } catch (error) {
-    console.error('加载我的应用失败：', error)
+    if (!isLatestMyAppsRequest(requestId)) return
+    console.error('Failed to load my apps', error)
+    myAppsError.value = '加载我的作品失败，请检查网络后重试'
+  } finally {
+    endMyAppsRequest(requestId)
   }
 }
 
 const loadFeaturedApps = async () => {
+  const requestId = beginFeaturedAppsRequest()
+  featuredAppsError.value = ''
   try {
     const res = await listGoodAppVoByPage({
       pageNum: featuredAppsPage.current,
@@ -209,13 +270,20 @@ const loadFeaturedApps = async () => {
       sortField: 'createTime',
       sortOrder: 'desc',
     })
+    if (!isLatestFeaturedAppsRequest(requestId)) return
 
     if (res.data.code === 0 && res.data.data) {
-      featuredApps.value = res.data.data.records || []
-      featuredAppsPage.total = res.data.data.totalRow || 0
+      featuredApps.value = res.data.data.records ?? []
+      featuredAppsPage.total = res.data.data.totalRow ?? 0
+      return
     }
+    featuredAppsError.value = `加载精选案例失败：${res.data.message || '服务异常'}`
   } catch (error) {
-    console.error('加载精选应用失败：', error)
+    if (!isLatestFeaturedAppsRequest(requestId)) return
+    console.error('Failed to load featured apps', error)
+    featuredAppsError.value = '加载精选案例失败，请检查网络后重试'
+  } finally {
+    endFeaturedAppsRequest(requestId)
   }
 }
 
@@ -226,9 +294,13 @@ const viewChat = (appId: string | number | undefined) => {
 }
 
 const viewWork = (app: API.AppVO) => {
-  if (app.deployKey) {
-    const url = getDeployUrl(app.deployKey)
-    window.open(url, '_blank')
+  if (!app.deployKey) {
+    message.warning('该应用尚未部署')
+    return
+  }
+
+  if (!openInNewTab(getDeployUrl(app.deployKey))) {
+    message.warning('无法打开预览，请检查浏览器弹窗设置')
   }
 }
 
@@ -243,11 +315,19 @@ const isCopyingApp = (app: API.AppVO) => {
   return Boolean(app.id && copyingAppIds.value.has(String(app.id)))
 }
 
+const isDeletingApp = (app: API.AppVO) => {
+  return Boolean(app.id && deletingAppIds.value.has(String(app.id)))
+}
+
+const isRetiringApp = (app: API.AppVO) => {
+  return Boolean(app.id && retiringAppIds.value.has(String(app.id)))
+}
+
 const getAppImage = (app: API.AppVO) => normalizeImageUrl(app.cover) || DEFAULT_APP_COVER
 
 const getAppAuthor = (app: API.AppVO, fallback = '未知用户') => app.user?.userName || fallback
 
-const getAppSummary = (app: API.AppVO, index: number) => {
+const getAppSummary = (app: API.AppVO) => {
   const source = (app.initPrompt || '').trim()
   if (source) {
     return source.length > 54 ? `${source.slice(0, 54)}...` : source
@@ -261,7 +341,7 @@ const featuredCarouselItems = computed(() =>
     title: app.appName || '未命名案例',
     category: showcasePalette[index % showcasePalette.length],
     src: getAppImage(app),
-    summary: getAppSummary(app, index),
+    summary: getAppSummary(app),
     app,
   })),
 )
@@ -271,13 +351,63 @@ const workspaceCards = computed(() =>
     id: String(app.id ?? index),
     title: app.appName || '未命名应用',
     author: getAppAuthor(app),
-    summary: getAppSummary(app, index),
+    summary: getAppSummary(app),
     imageUrl: getAppImage(app),
     avatar: app.user?.userAvatar || DEFAULT_USER_AVATAR,
     status: app.isGenerating ? '生成中' : app.deployKey ? '已部署' : '草稿',
     app,
   })),
 )
+
+const pendingDeleteSummary = computed(() => {
+  if (!pendingDeleteApp.value) {
+    return ''
+  }
+  return getAppSummary(pendingDeleteApp.value)
+})
+
+let disposed = false
+const pendingTimeouts = new Map<number, () => void>()
+
+const scheduleTimeout = (callback: () => void, delayMs: number) => {
+  const timerId = window.setTimeout(() => {
+    pendingTimeouts.delete(timerId)
+    callback()
+  }, delayMs)
+  pendingTimeouts.set(timerId, () => undefined)
+  return timerId
+}
+
+const waitForTimeout = (delayMs: number) =>
+  new Promise<void>((resolve) => {
+    const timerId = window.setTimeout(() => {
+      pendingTimeouts.delete(timerId)
+      resolve()
+    }, delayMs)
+    pendingTimeouts.set(timerId, resolve)
+  })
+
+const openDeleteModal = (app: API.AppVO) => {
+  if (!app.id || isDeletingApp(app)) {
+    return
+  }
+  pendingDeleteApp.value = app
+  deletePhase.value = 'confirm'
+  deleteModalOpen.value = true
+}
+
+const closeDeleteModal = () => {
+  if (deletePhase.value === 'deleting') {
+    return
+  }
+  deleteModalOpen.value = false
+  scheduleTimeout(() => {
+    if (!deleteModalOpen.value) {
+      pendingDeleteApp.value = null
+      deletePhase.value = 'confirm'
+    }
+  }, 240)
+}
 
 const copyFeaturedApp = async (app: API.AppVO) => {
   if (!loginUserStore.loginUser.id) {
@@ -290,6 +420,9 @@ const copyFeaturedApp = async (app: API.AppVO) => {
     return
   }
   const appId = String(app.id)
+  if (copyingAppIds.value.has(appId)) {
+    return
+  }
   copyingAppIds.value = new Set(copyingAppIds.value).add(appId)
   try {
     const res = await copyApp({
@@ -298,7 +431,7 @@ const copyFeaturedApp = async (app: API.AppVO) => {
     if (res.data.code === 0 && res.data.data) {
       message.success('复制成功，已加入我的作品')
       await loadMyApps()
-      await router.push(`/app/chat/${res.data.data}`)
+      await router.push(`/app/chat/${res.data.data}?view=1`)
     } else {
       message.error('复制失败：' + res.data.message)
     }
@@ -309,6 +442,46 @@ const copyFeaturedApp = async (app: API.AppVO) => {
     const nextIds = new Set(copyingAppIds.value)
     nextIds.delete(appId)
     copyingAppIds.value = nextIds
+  }
+}
+
+const deleteMyApp = async (app = pendingDeleteApp.value) => {
+  if (!app?.id) {
+    message.error('应用ID不存在')
+    return
+  }
+  const appId = String(app.id)
+  deletePhase.value = 'deleting'
+  deletingAppIds.value = new Set(deletingAppIds.value).add(appId)
+  try {
+    const res = await deleteApp({ id: app.id })
+    if (res.data.code === 0 && res.data.data) {
+      deletePhase.value = 'done'
+      retiringAppIds.value = new Set(retiringAppIds.value).add(appId)
+      if (myApps.value.length === 1 && myAppsPage.current > 1) {
+        myAppsPage.current -= 1
+      }
+      await waitForTimeout(420)
+      if (disposed) return
+      myApps.value = myApps.value.filter((item) => String(item.id) !== appId)
+      await loadMyApps()
+      message.success('作品和本地文件已删除')
+      scheduleTimeout(closeDeleteModal, 360)
+    } else {
+      deletePhase.value = 'confirm'
+      message.error('删除失败：' + (res.data.message || '请重试'))
+    }
+  } catch (error) {
+    console.error('删除应用失败：', error)
+    deletePhase.value = 'confirm'
+    message.error('删除失败，请重试')
+  } finally {
+    const nextIds = new Set(deletingAppIds.value)
+    nextIds.delete(appId)
+    deletingAppIds.value = nextIds
+    const nextRetiringIds = new Set(retiringAppIds.value)
+    nextRetiringIds.delete(appId)
+    retiringAppIds.value = nextRetiringIds
   }
 }
 
@@ -323,18 +496,27 @@ const handleMouseMove = (e: MouseEvent) => {
 }
 
 onMounted(() => {
-  loadMyApps()
-  loadFeaturedApps()
+  void loadMyApps()
+  void loadFeaturedApps()
   document.addEventListener('mousemove', handleMouseMove)
+  window.addEventListener('rush:focus-composer', focusComposerFromCommand)
 })
 
 onUnmounted(() => {
+  disposed = true
   document.removeEventListener('mousemove', handleMouseMove)
+  window.removeEventListener('rush:focus-composer', focusComposerFromCommand)
+  pendingTimeouts.forEach((onCancel, timerId) => {
+    window.clearTimeout(timerId)
+    onCancel()
+  })
+  pendingTimeouts.clear()
 })
 </script>
 
 <template>
   <div id="homePage">
+    <AmbientTechCanvas class="home-tech-canvas" :density="72" />
     <div class="ambient-grid"></div>
     <div class="ambient-glow glow-one"></div>
     <div class="ambient-glow glow-two"></div>
@@ -353,7 +535,8 @@ onUnmounted(() => {
           </Motion>
           <Motion as="div" v-bind="staggerChild(2, 0.08)">
             <p class="hero-description">
-              用自然语言描述目标，系统会为你创建应用骨架并进入对话调试流程，适合快速验证 MVP、内部工具和演示项目。
+              用自然语言描述目标，系统会为你创建应用骨架并进入对话调试流程，适合快速验证
+              MVP、内部工具和演示项目。
             </p>
           </Motion>
           <Motion as="div" v-bind="staggerChild(3, 0.08)">
@@ -374,7 +557,9 @@ onUnmounted(() => {
               <span class="panel-kicker">New Application</span>
               <h2>描述你要生成的应用</h2>
             </div>
-            <span class="status-chip" :class="{ active: composerBusy }">{{ composerStatusText }}</span>
+            <span class="status-chip" :class="{ active: composerBusy }">{{
+              composerStatusText
+            }}</span>
           </div>
           <div class="input-section" :class="{ busy: composerBusy }">
             <button
@@ -470,13 +655,28 @@ onUnmounted(() => {
             <p>继续编辑最近创建的应用，或进入只读对话查看生成过程。</p>
           </div>
         </Motion>
-        <div v-if="workspaceCards.length" class="workspace-grid">
+        <div v-if="myAppsLoading" class="empty-panel" role="status">
+          <strong>正在加载作品</strong>
+          <span>请稍候...</span>
+        </div>
+        <div v-else-if="myAppsError" class="empty-panel">
+          <strong>我的作品加载失败</strong>
+          <span>{{ myAppsError }}</span>
+          <a-button type="primary" @click="loadMyApps">重试</a-button>
+        </div>
+        <TransitionGroup
+          v-else-if="workspaceCards.length"
+          name="workspace-card-flow"
+          tag="div"
+          class="workspace-grid"
+        >
           <Motion
             v-for="(item, index) in workspaceCards"
             :key="item.id"
             as="article"
             v-bind="{ ...staggerChild(index, 0.1), ...hoverLift }"
             class="workspace-card"
+            :class="{ 'is-retiring': isRetiringApp(item.app), 'is-busy': isDeletingApp(item.app) }"
           >
             <GlowingEffect class="workspace-glow">
               <DirectionAwareHover
@@ -491,7 +691,11 @@ onUnmounted(() => {
                   <strong>{{ item.title }}</strong>
                   <p>{{ item.author }}</p>
                   <div class="workspace-card-actions">
-                    <button type="button" class="workspace-action workspace-action--primary" @click="viewChat(item.app.id)">
+                    <button
+                      type="button"
+                      class="workspace-action workspace-action--primary"
+                      @click="viewChat(item.app.id)"
+                    >
                       查看对话
                     </button>
                     <button
@@ -502,17 +706,28 @@ onUnmounted(() => {
                     >
                       在线预览
                     </button>
+                    <button
+                      type="button"
+                      class="workspace-action workspace-action--danger"
+                      :disabled="isDeletingApp(item.app)"
+                      @click="openDeleteModal(item.app)"
+                    >
+                      {{ isDeletingApp(item.app) ? '清理中' : '删除' }}
+                    </button>
                   </div>
                 </div>
               </DirectionAwareHover>
             </GlowingEffect>
           </Motion>
-        </div>
+        </TransitionGroup>
         <div v-else class="empty-panel">
           <strong>还没有作品</strong>
           <span>在上方输入需求并生成第一个应用。</span>
         </div>
-        <div v-if="myAppsPage.total > myAppsPage.pageSize" class="pagination-wrapper">
+        <div
+          v-if="!myAppsLoading && !myAppsError && myAppsPage.total > myAppsPage.pageSize"
+          class="pagination-wrapper"
+        >
           <a-pagination
             v-model:current="myAppsPage.current"
             v-model:page-size="myAppsPage.pageSize"
@@ -534,11 +749,28 @@ onUnmounted(() => {
             <p>参考优秀案例的结构、交互和页面组织方式。</p>
           </div>
         </Motion>
-        <div v-if="featuredCarouselItems.length" class="featured-carousel-wrap">
+        <div v-if="featuredAppsLoading" class="empty-panel" role="status">
+          <strong>正在加载精选案例</strong>
+          <span>请稍候...</span>
+        </div>
+        <div v-else-if="featuredAppsError" class="empty-panel">
+          <strong>精选案例加载失败</strong>
+          <span>{{ featuredAppsError }}</span>
+          <a-button type="primary" @click="loadFeaturedApps">重试</a-button>
+        </div>
+        <div v-else-if="featuredCarouselItems.length" class="featured-carousel-wrap">
           <AppleCardCarousel>
-            <AppleCarouselItem v-for="(item, index) in featuredCarouselItems" :key="item.id" :index="index">
+            <AppleCarouselItem
+              v-for="(item, index) in featuredCarouselItems"
+              :key="item.id"
+              :index="index"
+            >
               <AppleCard :card="item" :index="index">
-                <div class="featured-modal-body">
+                <div
+                  class="featured-modal-body"
+                  :class="{ 'is-copying': isCopyingApp(item.app) }"
+                  :aria-busy="isCopyingApp(item.app)"
+                >
                   <Lens class="featured-modal-lens" :lens-size="180" :zoom-factor="1.65">
                     <img :src="item.src" :alt="item.title" class="featured-modal-image" />
                   </Lens>
@@ -546,19 +778,63 @@ onUnmounted(() => {
                     <span>{{ item.category }}</span>
                     <p>{{ item.summary }}</p>
                     <div class="featured-modal-actions">
-                      <button type="button" class="workspace-action workspace-action--primary" @click="viewWork(item.app)">
+                      <button
+                        type="button"
+                        class="workspace-action workspace-action--primary"
+                        @click="viewWork(item.app)"
+                      >
                         预览
                       </button>
                       <button
                         type="button"
-                        class="workspace-action"
-                        :disabled="isCopyingApp(item.app)"
-                        @click="isOwnApp(item.app) ? viewChat(item.app.id) : copyFeaturedApp(item.app)"
+                        class="workspace-action copy-case-action"
+                        :class="{ 'is-loading': !isOwnApp(item.app) && isCopyingApp(item.app) }"
+                        :disabled="!isOwnApp(item.app) && isCopyingApp(item.app)"
+                        @click="
+                          isOwnApp(item.app) ? viewChat(item.app.id) : copyFeaturedApp(item.app)
+                        "
                       >
-                        {{ isOwnApp(item.app) ? '查看对话' : '复制案例' }}
+                        <span
+                          v-if="!isOwnApp(item.app) && isCopyingApp(item.app)"
+                          class="copy-action-orbit"
+                          aria-hidden="true"
+                        >
+                          <i></i>
+                        </span>
+                        <span>{{
+                          isOwnApp(item.app)
+                            ? '查看对话'
+                            : isCopyingApp(item.app)
+                              ? '复制中'
+                              : '复制案例'
+                        }}</span>
                       </button>
                     </div>
                   </div>
+                  <Transition name="copy-stage">
+                    <div
+                      v-if="isCopyingApp(item.app)"
+                      class="copy-stage-overlay"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <div class="copy-stage-card">
+                        <div class="copy-stage-visual" aria-hidden="true">
+                          <span class="copy-stage-ring"></span>
+                          <span class="copy-stage-core"></span>
+                          <span class="copy-stage-pulse copy-stage-pulse-one"></span>
+                          <span class="copy-stage-pulse copy-stage-pulse-two"></span>
+                        </div>
+                        <div class="copy-stage-copy">
+                          <strong>正在复制案例</strong>
+                          <span>正在整理代码、对话记录与作品空间</span>
+                        </div>
+                        <div class="copy-stage-progress" aria-hidden="true">
+                          <span></span>
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
                 </div>
               </AppleCard>
             </AppleCarouselItem>
@@ -568,7 +844,14 @@ onUnmounted(() => {
           <strong>暂无精选案例</strong>
           <span>精选内容发布后会展示在这里。</span>
         </div>
-        <div v-if="featuredAppsPage.total > featuredAppsPage.pageSize" class="pagination-wrapper">
+        <div
+          v-if="
+            !featuredAppsLoading &&
+            !featuredAppsError &&
+            featuredAppsPage.total > featuredAppsPage.pageSize
+          "
+          class="pagination-wrapper"
+        >
           <a-pagination
             v-model:current="featuredAppsPage.current"
             v-model:page-size="featuredAppsPage.pageSize"
@@ -580,6 +863,89 @@ onUnmounted(() => {
         </div>
       </Motion>
     </main>
+
+    <Teleport to="body">
+      <Transition name="delete-modal">
+        <div
+          v-if="deleteModalOpen && pendingDeleteApp"
+          class="delete-modal-layer"
+          @click.self="closeDeleteModal"
+        >
+          <Motion as="section" class="delete-modal-card" v-bind="fadeUp(0)">
+            <GlowingEffect class="delete-modal-glow">
+              <div class="delete-modal-inner" :class="`phase-${deletePhase}`">
+                <div class="delete-modal-visual" aria-hidden="true">
+                  <BubblesBackground
+                    class="delete-bubbles"
+                    :bubble-count="18"
+                    :interactive="false"
+                    :speed="0.72"
+                    color1="#ff8aa3"
+                    color2="#ffc6d2"
+                    color3="#7dd3fc"
+                  />
+                  <div class="delete-orbit">
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <div class="delete-symbol">
+                    <span v-if="deletePhase === 'done'">✓</span>
+                    <span v-else>!</span>
+                  </div>
+                </div>
+                <div class="delete-modal-copy">
+                  <span class="delete-kicker">DELETE WORKSPACE</span>
+                  <h3>{{ deletePhase === 'done' ? '作品已清理完成' : '删除这个作品？' }}</h3>
+                  <p v-if="deletePhase === 'confirm'">
+                    将永久删除「{{
+                      pendingDeleteApp.appName || '未命名应用'
+                    }}」，并同步清理本地生成文件与部署目录。
+                  </p>
+                  <p v-else-if="deletePhase === 'deleting'">
+                    正在清理数据库记录、本地生成文件和部署产物，请稍候。
+                  </p>
+                  <p v-else>
+                    「{{ pendingDeleteApp.appName || '未命名应用' }}」已经从我的作品中移除。
+                  </p>
+                  <div v-if="deletePhase === 'confirm'" class="delete-target">
+                    <img
+                      :src="getAppImage(pendingDeleteApp)"
+                      :alt="pendingDeleteApp.appName || '待删除作品'"
+                    />
+                    <div>
+                      <strong>{{ pendingDeleteApp.appName || '未命名应用' }}</strong>
+                      <span>{{ pendingDeleteSummary }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="delete-progress" :class="{ done: deletePhase === 'done' }">
+                    <span></span>
+                  </div>
+                </div>
+                <div class="delete-modal-actions">
+                  <button
+                    type="button"
+                    class="delete-modal-button delete-modal-button--ghost"
+                    :disabled="deletePhase === 'deleting'"
+                    @click="closeDeleteModal"
+                  >
+                    {{ deletePhase === 'done' ? '关闭' : '取消' }}
+                  </button>
+                  <ShimmerButton
+                    v-if="deletePhase !== 'done'"
+                    class="delete-modal-button delete-modal-button--danger"
+                    :loading="deletePhase === 'deleting'"
+                    :disabled="deletePhase === 'deleting'"
+                    @click="deleteMyApp()"
+                  >
+                    {{ deletePhase === 'deleting' ? '清理中...' : '确认删除' }}
+                  </ShimmerButton>
+                </div>
+              </div>
+            </GlowingEffect>
+          </Motion>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -599,6 +965,14 @@ onUnmounted(() => {
     radial-gradient(circle at 18% 10%, rgba(47, 128, 255, 0.12), transparent 28%),
     radial-gradient(circle at 90% 16%, rgba(44, 192, 210, 0.14), transparent 24%),
     linear-gradient(180deg, #fbfdff 0%, #f4f8fc 48%, #edf3fa 100%);
+}
+
+.home-tech-canvas {
+  position: fixed;
+  inset: 72px 0 0;
+  z-index: 0;
+  opacity: 0.72;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.2) 78%, transparent);
 }
 
 .ambient-grid {
@@ -836,7 +1210,13 @@ onUnmounted(() => {
   top: 1px;
   height: 1px;
   opacity: 0;
-  background: linear-gradient(90deg, transparent, rgba(47, 128, 255, 0.58), rgba(44, 192, 210, 0.42), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(47, 128, 255, 0.58),
+    rgba(44, 192, 210, 0.42),
+    transparent
+  );
   transform: scaleX(0.42);
   transition:
     opacity 0.24s ease,
@@ -995,7 +1375,7 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   color: rgba(13, 27, 42, 0.74);
-  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  font-family: Consolas, 'SFMono-Regular', 'Liberation Mono', monospace;
   font-size: 14px;
   font-weight: 800;
 }
@@ -1007,7 +1387,12 @@ onUnmounted(() => {
   right: 17px;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(47, 128, 255, 0.2), rgba(47, 128, 255, 0.86), rgba(44, 192, 210, 0.48));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 128, 255, 0.2),
+    rgba(47, 128, 255, 0.86),
+    rgba(44, 192, 210, 0.48)
+  );
   transform-origin: left center;
   animation: feedbackLine 1.3s ease-in-out infinite;
 }
@@ -1059,7 +1444,12 @@ onUnmounted(() => {
   width: 44%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(47, 128, 255, 0.12), rgba(47, 128, 255, 0.86), rgba(44, 192, 210, 0.58));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 128, 255, 0.12),
+    rgba(47, 128, 255, 0.86),
+    rgba(44, 192, 210, 0.58)
+  );
   animation: feedbackRail 1.42s ease-in-out infinite;
 }
 
@@ -1199,6 +1589,7 @@ onUnmounted(() => {
 }
 
 .workspace-grid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 22px;
@@ -1225,14 +1616,18 @@ onUnmounted(() => {
   min-height: 248px;
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(234, 241, 249, 0.92)),
-    #f5f8fc;
+    linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(234, 241, 249, 0.92)), #f5f8fc;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
 }
 
 :deep(.workspace-direction-card .direction-aware-overlay) {
   background:
-    linear-gradient(180deg, rgba(5, 17, 31, 0.08) 0%, rgba(5, 17, 31, 0.56) 48%, rgba(5, 17, 31, 0.84) 100%),
+    linear-gradient(
+      180deg,
+      rgba(5, 17, 31, 0.08) 0%,
+      rgba(5, 17, 31, 0.56) 48%,
+      rgba(5, 17, 31, 0.84) 100%
+    ),
     rgba(8, 19, 32, 0.2);
   backdrop-filter: blur(2px);
 }
@@ -1256,8 +1651,7 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(13, 27, 42, 0.36), rgba(13, 27, 42, 0.58)),
-    rgba(13, 27, 42, 0.42);
+    linear-gradient(180deg, rgba(13, 27, 42, 0.36), rgba(13, 27, 42, 0.58)), rgba(13, 27, 42, 0.42);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(14px);
   text-shadow: 0 8px 24px rgba(0, 0, 0, 0.44);
@@ -1288,6 +1682,41 @@ onUnmounted(() => {
   display: flex;
   gap: 10px;
   padding-top: 6px;
+  flex-wrap: wrap;
+}
+
+.workspace-card {
+  will-change: transform, opacity, filter;
+}
+
+.workspace-card.is-busy {
+  pointer-events: none;
+}
+
+.workspace-card.is-retiring {
+  filter: saturate(0.82);
+  transform: scale(0.98) translateY(8px);
+  opacity: 0.18;
+}
+
+.workspace-card-flow-move,
+.workspace-card-flow-enter-active,
+.workspace-card-flow-leave-active {
+  transition:
+    opacity 0.34s ease,
+    transform 0.34s ease,
+    filter 0.34s ease;
+}
+
+.workspace-card-flow-enter-from,
+.workspace-card-flow-leave-to {
+  opacity: 0;
+  transform: translateY(18px) scale(0.96);
+  filter: blur(4px);
+}
+
+.workspace-card-flow-leave-active {
+  position: absolute;
 }
 
 .workspace-actions {
@@ -1338,15 +1767,325 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #2a73ff 0%, #4ab5ff 100%);
 }
 
+.workspace-action--danger {
+  color: #b42318;
+  border-color: rgba(244, 63, 94, 0.22);
+  background: rgba(254, 226, 226, 0.82);
+}
+
+.workspace-hover-copy .workspace-action--danger {
+  color: #fff1f2;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(244, 63, 94, 0.28);
+}
+
+.workspace-hover-copy .workspace-action--danger:hover:not(:disabled) {
+  background: rgba(244, 63, 94, 0.4);
+}
+
+.delete-modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.28), transparent 24%),
+    rgba(8, 16, 28, 0.46);
+  backdrop-filter: blur(18px);
+}
+
+.delete-modal-card {
+  width: min(560px, 100%);
+  border-radius: 28px;
+}
+
+.delete-modal-glow {
+  border-radius: inherit;
+}
+
+.delete-modal-inner {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: inherit;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 255, 0.9)), #ffffff;
+  box-shadow:
+    0 34px 92px rgba(15, 23, 42, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.delete-modal-inner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(244, 63, 94, 0.12), transparent 34%),
+    radial-gradient(circle at 86% 12%, rgba(47, 128, 255, 0.14), transparent 28%);
+  pointer-events: none;
+}
+
+.delete-modal-visual {
+  position: relative;
+  height: 150px;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 241, 242, 0.92), rgba(239, 248, 255, 0.84)), #f8fbff;
+}
+
+.delete-bubbles {
+  position: absolute;
+  inset: -28px -12px;
+  opacity: 0.72;
+}
+
+.delete-orbit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 116px;
+  height: 116px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(244, 63, 94, 0.22);
+  border-radius: 999px;
+  animation: deleteOrbit 7s linear infinite;
+}
+
+.delete-orbit span {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fb7185;
+  box-shadow: 0 0 26px rgba(244, 63, 94, 0.5);
+}
+
+.delete-orbit span:first-child {
+  left: 11px;
+  top: 11px;
+}
+
+.delete-orbit span:last-child {
+  right: 8px;
+  bottom: 16px;
+  width: 10px;
+  height: 10px;
+  background: #38bdf8;
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.48);
+}
+
+.delete-symbol {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  width: 68px;
+  height: 68px;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 22px;
+  color: #fff;
+  font-size: 34px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #e11d48 0%, #fb7185 100%);
+  box-shadow:
+    0 18px 36px rgba(225, 29, 72, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.phase-done .delete-symbol {
+  background: linear-gradient(135deg, #059669 0%, #2dd4bf 100%);
+  box-shadow:
+    0 18px 36px rgba(5, 150, 105, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.delete-modal-copy {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  padding: 26px 28px 0;
+}
+
+.delete-kicker {
+  color: #e11d48;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.delete-modal-copy h3 {
+  margin: 0;
+  color: var(--strong-text);
+  font-size: 28px;
+  line-height: 1.18;
+}
+
+.delete-modal-copy p {
+  margin: 0;
+  color: var(--soft-text);
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.delete-target {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(104, 132, 175, 0.16);
+  border-radius: 20px;
+  background: rgba(247, 251, 255, 0.82);
+}
+
+.delete-target img {
+  width: 76px;
+  height: 58px;
+  border-radius: 14px;
+  object-fit: cover;
+  background: #edf4fb;
+}
+
+.delete-target div {
+  min-width: 0;
+}
+
+.delete-target strong {
+  display: block;
+  overflow: hidden;
+  color: var(--strong-text);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete-target span {
+  display: -webkit-box;
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--muted-text);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.delete-progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.88);
+}
+
+.delete-progress span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #fb7185, #38bdf8);
+  animation: deleteProgress 1.08s ease-in-out infinite;
+}
+
+.delete-progress.done span {
+  width: 100%;
+  animation: none;
+  background: linear-gradient(90deg, #059669, #2dd4bf);
+}
+
+.delete-modal-actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 24px 28px 28px;
+}
+
+.delete-modal-button {
+  min-width: 116px;
+  height: 44px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.delete-modal-button--ghost {
+  border: 1px solid rgba(104, 132, 175, 0.18);
+  color: var(--strong-text);
+  background: rgba(255, 255, 255, 0.74);
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.delete-modal-button--ghost:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(47, 128, 255, 0.24);
+  background: #ffffff;
+}
+
+.delete-modal-button--ghost:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.delete-modal-button--danger {
+  --button-start: #e11d48;
+  --button-end: #fb7185;
+  --button-shadow: rgba(225, 29, 72, 0.28);
+  height: 44px;
+  min-width: 128px;
+}
+
+.delete-modal-enter-active,
+.delete-modal-leave-active {
+  transition:
+    opacity 0.24s ease,
+    backdrop-filter 0.24s ease;
+}
+
+.delete-modal-enter-from,
+.delete-modal-leave-to {
+  opacity: 0;
+  backdrop-filter: blur(0);
+}
+
+.delete-modal-enter-active .delete-modal-card,
+.delete-modal-leave-active .delete-modal-card {
+  transition:
+    transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.28s ease;
+}
+
+.delete-modal-enter-from .delete-modal-card,
+.delete-modal-leave-to .delete-modal-card {
+  opacity: 0;
+  transform: translateY(18px) scale(0.96);
+}
+
 .featured-carousel-wrap {
   position: relative;
 }
 
 .featured-modal-body {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
   gap: 24px;
   align-items: stretch;
+  overflow: hidden;
+  border-radius: 26px;
+  transition:
+    filter 0.28s ease,
+    transform 0.28s ease;
+}
+
+.featured-modal-body.is-copying {
+  filter: saturate(0.96);
 }
 
 .featured-modal-lens {
@@ -1390,6 +2129,237 @@ onUnmounted(() => {
   display: flex;
   gap: 10px;
   margin-top: 26px;
+}
+
+.copy-case-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 104px;
+  overflow: hidden;
+}
+
+.copy-case-action::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background:
+    linear-gradient(120deg, transparent 6%, rgba(255, 255, 255, 0.72) 38%, transparent 68%),
+    linear-gradient(135deg, rgba(47, 128, 255, 0.14), rgba(44, 192, 210, 0.12));
+  opacity: 0;
+  transform: translateX(-115%);
+  pointer-events: none;
+}
+
+.copy-case-action > span {
+  position: relative;
+  z-index: 1;
+}
+
+.copy-case-action.is-loading {
+  color: var(--accent-strong);
+  border-color: rgba(47, 128, 255, 0.32);
+  background: rgba(255, 255, 255, 0.94);
+  opacity: 1;
+  box-shadow:
+    0 16px 34px rgba(47, 128, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.copy-case-action.is-loading::before {
+  opacity: 1;
+  animation: copyButtonSweep 1.48s ease-in-out infinite;
+}
+
+.copy-action-orbit {
+  position: relative;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(47, 128, 255, 0.26);
+  border-radius: 999px;
+  animation: copyOrbitSpin 1s linear infinite;
+}
+
+.copy-action-orbit i {
+  position: absolute;
+  display: block;
+  top: -2px;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2f80ff, #2cc0d2);
+  box-shadow: 0 0 12px rgba(47, 128, 255, 0.58);
+  transform: translateX(-50%);
+}
+
+.copy-stage-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(247, 251, 255, 0.48), rgba(235, 245, 255, 0.36)),
+    rgba(13, 27, 42, 0.16);
+  backdrop-filter: blur(12px) saturate(1.08);
+}
+
+.copy-stage-card {
+  width: min(360px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(47, 128, 255, 0.14), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(247, 251, 255, 0.88));
+  box-shadow:
+    0 26px 68px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.copy-stage-visual {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(230, 241, 255, 0.88)),
+    radial-gradient(circle at 78% 18%, rgba(44, 192, 210, 0.28), transparent 44%);
+  border: 1px solid rgba(104, 132, 175, 0.16);
+}
+
+.copy-stage-visual::before {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border-radius: 18px;
+  background-image:
+    linear-gradient(rgba(47, 128, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47, 128, 255, 0.12) 1px, transparent 1px);
+  background-size: 10px 10px;
+  mask-image: radial-gradient(circle, #000 44%, transparent 78%);
+}
+
+.copy-stage-ring {
+  position: absolute;
+  inset: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(47, 128, 255, 0.18);
+}
+
+.copy-stage-ring::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  border-top-color: #2f80ff;
+  border-right-color: rgba(44, 192, 210, 0.86);
+  animation: copyOrbitSpin 1.05s linear infinite;
+}
+
+.copy-stage-core {
+  position: relative;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #2f80ff, #2cc0d2);
+  box-shadow:
+    0 0 18px rgba(47, 128, 255, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  animation: copyCoreFloat 1.24s ease-in-out infinite;
+}
+
+.copy-stage-pulse {
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgba(47, 128, 255, 0.18);
+  border-radius: 999px;
+  animation: copyPulse 1.6s ease-out infinite;
+}
+
+.copy-stage-pulse-two {
+  animation-delay: 0.42s;
+}
+
+.copy-stage-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.copy-stage-copy strong {
+  color: var(--strong-text);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.copy-stage-copy span {
+  color: var(--soft-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.copy-stage-progress {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(104, 132, 175, 0.12);
+}
+
+.copy-stage-progress span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(47, 128, 255, 0.14),
+    rgba(47, 128, 255, 0.9),
+    rgba(44, 192, 210, 0.62)
+  );
+  animation: copyProgressTravel 1.18s cubic-bezier(0.48, 0.02, 0.34, 1) infinite;
+}
+
+.copy-stage-enter-active,
+.copy-stage-leave-active {
+  transition:
+    opacity 0.24s ease,
+    backdrop-filter 0.24s ease;
+}
+
+.copy-stage-enter-from,
+.copy-stage-leave-to {
+  opacity: 0;
+  backdrop-filter: blur(0) saturate(1);
+}
+
+.copy-stage-enter-active .copy-stage-card,
+.copy-stage-leave-active .copy-stage-card {
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.copy-stage-enter-from .copy-stage-card,
+.copy-stage-leave-to .copy-stage-card {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
 }
 
 .empty-panel {
@@ -1478,6 +2448,84 @@ onUnmounted(() => {
   }
 }
 
+@keyframes deleteOrbit {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes deleteProgress {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  55% {
+    transform: translateX(72%);
+  }
+
+  100% {
+    transform: translateX(240%);
+  }
+}
+
+@keyframes copyButtonSweep {
+  0% {
+    transform: translateX(-115%);
+  }
+
+  58%,
+  100% {
+    transform: translateX(115%);
+  }
+}
+
+@keyframes copyOrbitSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes copyCoreFloat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-2px) scale(1.08);
+  }
+}
+
+@keyframes copyPulse {
+  0% {
+    opacity: 0.72;
+    transform: scale(0.58);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.42);
+  }
+}
+
+@keyframes copyProgressTravel {
+  0% {
+    transform: translateX(-118%);
+  }
+
+  54% {
+    transform: translateX(78%);
+  }
+
+  100% {
+    transform: translateX(260%);
+  }
+}
+
 @media (max-width: 1024px) {
   .hero-section {
     grid-template-columns: 1fr;
@@ -1537,6 +2585,10 @@ onUnmounted(() => {
     width: 100%;
   }
 
+  .workspace-card-actions .workspace-action {
+    width: 100%;
+  }
+
   .featured-modal-body {
     grid-template-columns: 1fr;
   }
@@ -1562,6 +2614,46 @@ onUnmounted(() => {
   :deep(.create-button.ant-btn) {
     flex: 1;
     min-width: 0;
+  }
+
+  .delete-modal-layer {
+    padding: 16px;
+  }
+
+  .delete-modal-card {
+    border-radius: 24px;
+  }
+
+  .delete-modal-visual {
+    height: 128px;
+  }
+
+  .delete-modal-copy {
+    padding: 22px 20px 0;
+  }
+
+  .delete-modal-copy h3 {
+    font-size: 24px;
+  }
+
+  .delete-target {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .delete-target img {
+    width: 64px;
+    height: 52px;
+  }
+
+  .delete-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 22px 20px 22px;
+  }
+
+  .delete-modal-button,
+  .delete-modal-button--danger {
+    width: 100%;
   }
 }
 </style>

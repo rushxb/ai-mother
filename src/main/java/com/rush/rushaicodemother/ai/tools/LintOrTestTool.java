@@ -4,6 +4,9 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.rush.rushaicodemother.config.ProjectCommandProperties;
+import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -25,6 +28,17 @@ public class LintOrTestTool extends BaseTool {
     private static final Set<String> ALLOWED_SCRIPT_PREFIXES = Set.of(
             "lint", "test", "type-check", "check", "build"
     );
+
+    private final ProjectCommandExecutor projectCommandExecutor;
+    private final ProjectCommandProperties projectCommandProperties;
+
+    public LintOrTestTool(
+            ProjectCommandExecutor projectCommandExecutor,
+            ProjectCommandProperties projectCommandProperties
+    ) {
+        this.projectCommandExecutor = projectCommandExecutor;
+        this.projectCommandProperties = projectCommandProperties;
+    }
 
     @Tool("执行项目中的 lint、test、type-check、build 等校验脚本，只允许运行 package.json 里已存在的白名单脚本。")
     public String runProjectCheck(
@@ -55,13 +69,16 @@ public class LintOrTestTool extends BaseTool {
             if (scripts == null || !scripts.containsKey(scriptName)) {
                 return "错误：package.json 中未找到脚本 - " + scriptName;
             }
-            NpmCommandSupport.CommandResult result = NpmCommandSupport.runCommand(
-                    projectPath, 300, NpmCommandSupport.pnpmCommand(), "run", scriptName
+            ProjectCommandResult result = projectCommandExecutor.executePnpmScript(
+                    projectPath,
+                    scriptName,
+                    projectCommandProperties.getToolScriptTimeout(),
+                    "tool-check:" + scriptName
             );
             StringBuilder builder = new StringBuilder();
             builder.append("脚本: ").append(scriptName).append('\n');
-            builder.append("命令结果: ").append(result.toSingleLineSummary()).append("\n\n");
-            builder.append(result.toReport());
+            builder.append("命令结果: ").append(toSingleLineSummary(result)).append("\n\n");
+            builder.append(toReport(result));
             return builder.toString().trim();
         } catch (IllegalArgumentException e) {
             return "错误：" + e.getMessage();
@@ -74,6 +91,38 @@ public class LintOrTestTool extends BaseTool {
     private boolean isAllowedScriptName(String scriptName) {
         return ALLOWED_SCRIPT_PREFIXES.stream()
                 .anyMatch(prefix -> scriptName.equals(prefix) || scriptName.startsWith(prefix + ":"));
+    }
+
+    private String toReport(ProjectCommandResult result) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("命令: ").append(result.command()).append('\n');
+        builder.append("结果: ").append(result.success() ? "成功" : "失败").append('\n');
+        if (result.exitCode() != null) {
+            builder.append("退出码: ").append(result.exitCode()).append('\n');
+        }
+        if (result.timedOut()) {
+            builder.append("超时: 是").append('\n');
+        }
+        if (StrUtil.isNotBlank(result.errorDetail())) {
+            builder.append("异常: ").append(result.errorDetail()).append('\n');
+        }
+        builder.append("日志:\n")
+                .append(StrUtil.isBlank(result.output()) ? "(无输出)" : result.output().trim());
+        return builder.toString();
+    }
+
+    private String toSingleLineSummary(ProjectCommandResult result) {
+        StringBuilder builder = new StringBuilder(result.success() ? "成功" : "失败");
+        if (result.exitCode() != null) {
+            builder.append("，退出码=").append(result.exitCode());
+        }
+        if (result.timedOut()) {
+            builder.append("，超时");
+        }
+        if (StrUtil.isNotBlank(result.errorDetail())) {
+            builder.append("，异常=").append(result.errorDetail());
+        }
+        return builder.toString();
     }
 
     @Override

@@ -5,6 +5,9 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.AppDatabaseResource;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 
+import java.util.Collection;
+import java.util.Map;
+
 /**
  * 应用 Database 资源服务。
  */
@@ -19,6 +22,14 @@ public interface AppDatabaseResourceService extends IService<AppDatabaseResource
      * 查询应用当前 Database 资源。
      */
     AppDatabaseResource getByAppId(Long appId);
+
+    /**
+     * 批量查询应用当前启用的 Database 资源，并按应用 ID 建立索引。
+     *
+     * @param appIds 应用 ID 集合
+     * @return 应用 ID 到资源的映射；没有启用资源的应用不出现在结果中
+     */
+    Map<Long, AppDatabaseResource> getActiveResourceMapByAppIds(Collection<Long> appIds);
 
     /**
      * 转换为前端封装类。

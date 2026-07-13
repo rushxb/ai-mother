@@ -85,12 +85,12 @@ public interface UserService extends IService<User> {
     QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest);
 
     /**
-     * 加密
+     * 使用当前安全算法生成密码哈希。
      *
-     * @param userPassword 用户密码
-     * @return 加密后的用户密码
+     * @param userPassword 原始密码
+     * @return 不可逆密码哈希
      */
-    String getEncryptPassword(String userPassword);
+    String hashPassword(String userPassword);
 
     void ensureHasCredit(Long userId);
 }

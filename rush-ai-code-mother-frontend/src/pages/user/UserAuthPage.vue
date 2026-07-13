@@ -215,8 +215,10 @@
 import { computed, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getSafeSameOriginPath } from '@/utils/safeRedirect'
 import { Motion } from 'motion-v'
-import { userLogin, userRegister } from '@/api/userController.ts'
+import { userRegister } from '@/api/userController.ts'
+import { loginAndInitializeSession } from '@/services/auth/loginSessionService'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { staggerChild } from '@/composables/useMotionPresets'
 
@@ -243,7 +245,9 @@ const registerFormState = reactive<API.UserRegisterRequest>({
 const isRegisterMode = computed(() => route.path === '/user/register')
 
 const heroTitle = computed(() =>
-  isRegisterMode.value ? '建立账号，进入你的 AI 应用工作台。' : '把想法整理成产品，而不是停留在草稿里。',
+  isRegisterMode.value
+    ? '建立账号，进入你的 AI 应用工作台。'
+    : '把想法整理成产品，而不是停留在草稿里。',
 )
 
 const heroDesc = computed(() =>
@@ -276,22 +280,7 @@ const switchMode = async (mode: AuthMode) => {
   }
 }
 
-const getSafeRedirect = () => {
-  const redirect = route.query.redirect
-  if (typeof redirect !== 'string' || !redirect) {
-    return '/'
-  }
-
-  try {
-    const targetUrl = new URL(redirect, window.location.origin)
-    if (targetUrl.origin !== window.location.origin) {
-      return '/'
-    }
-    return `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`
-  } catch {
-    return '/'
-  }
-}
+const getSafeRedirect = () => getSafeSameOriginPath(route.query.redirect)
 
 const validateCheckPassword = async () => {
   if (
@@ -310,19 +299,22 @@ const handleLoginSubmit = async (values: API.UserLoginRequest) => {
 
   loginSubmitting.value = true
   try {
-    const res = await userLogin(values)
-    if (res.data.code === 0 && res.data.data) {
-      await loginUserStore.fetchLoginUser()
-      message.success('登录成功')
-      await router.replace({
-        path: '/user/success',
-        query: {
-          redirect: getSafeRedirect(),
-        },
-      })
-    } else {
-      message.error('登录失败，' + res.data.message)
+    const result = await loginAndInitializeSession(values, loginUserStore)
+    if (!result.success) {
+      message.error(`登录失败：${result.message}`)
+      return
     }
+
+    message.success('登录成功')
+    await router.replace({
+      path: '/user/success',
+      query: {
+        redirect: getSafeRedirect(),
+      },
+    })
+  } catch (error) {
+    console.error('Failed to log in', error)
+    message.error('登录失败，请检查网络后重试')
   } finally {
     loginSubmitting.value = false
   }
@@ -345,8 +337,11 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
         query: route.query,
       })
     } else {
-      message.error('注册失败，' + res.data.message)
+      message.error(`注册失败：${res.data.message || '服务异常'}`)
     }
+  } catch (error) {
+    console.error('Failed to register', error)
+    message.error('注册失败，请检查网络后重试')
   } finally {
     registerSubmitting.value = false
   }
@@ -399,8 +394,18 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.18) 46%, rgba(255, 255, 255, 0.72)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08) 48%, rgba(255, 255, 255, 0.58)),
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.68),
+      rgba(255, 255, 255, 0.18) 46%,
+      rgba(255, 255, 255, 0.72)
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.42),
+      rgba(255, 255, 255, 0.08) 48%,
+      rgba(255, 255, 255, 0.58)
+    ),
     radial-gradient(circle at 76% 18%, rgba(255, 255, 255, 0.44), transparent 32%),
     radial-gradient(circle at 42% 92%, rgba(207, 232, 255, 0.32), transparent 36%);
 }
@@ -520,8 +525,7 @@ const handleRegisterSubmit = async (values: API.UserRegisterRequest) => {
   padding: 32px 34px 36px;
   border-radius: 29px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(249, 252, 255, 0.78)),
-    var(--panel-bg);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(249, 252, 255, 0.78)), var(--panel-bg);
   border: 1px solid var(--panel-border);
   backdrop-filter: blur(26px);
 }

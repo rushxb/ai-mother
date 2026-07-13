@@ -103,8 +103,15 @@ public class HeavyGenerationExecutionService {
                 currentPrompt = buildAutoRepairPrompt(appId, preparation, e, round + 1);
             }
         }
-        throw new BusinessException(ErrorCode.SYSTEM_ERROR,
-                lastError == null ? "生成失败" : StrUtil.blankToDefault(lastError.getMessage(), "生成失败"));
+        String publicMessage = resolvePublicGenerationFailureMessage(lastError);
+        log.error(
+                "应用生成最终失败，appId: {}, targetType: {}, taskId: {}",
+                appId,
+                preparation.targetType(),
+                preparation.taskId(),
+                lastError
+        );
+        throw new BusinessException(ErrorCode.SYSTEM_ERROR, publicMessage, lastError);
     }
 
     public void executeGenerationRound(Long appId,
@@ -126,7 +133,14 @@ public class HeavyGenerationExecutionService {
                                        long[] lastSnapshotUpdateAt,
                                        GenerationPerformanceProfile profile) {
         Flux<GenerationStreamEvent> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(
-                prompt, codeGenType, appId, session::isCancelled, session::setResponseHandle, profile);
+                prompt,
+                codeGenType,
+                appId,
+                session::isCancelled,
+                session::setCancellationHandle,
+                profile,
+                session.executionContext()
+        );
         streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenType)
                 .takeUntilOther(session.cancelSignal())
                 .doOnNext(event -> {
@@ -235,6 +249,13 @@ public class HeavyGenerationExecutionService {
 
     private String orchestrationMode(GenerationPreparation preparation) {
         return heavyGenerationSessionCompletionService.orchestrationMode(preparation);
+    }
+
+    private String resolvePublicGenerationFailureMessage(Exception failure) {
+        if (failure instanceof MissingGeneratedProjectException) {
+            return StrUtil.blankToDefault(failure.getMessage(), "代码生成失败，请稍后重试");
+        }
+        return "代码生成失败，请稍后重试";
     }
 
     private static final class MissingGeneratedProjectException extends BusinessException {

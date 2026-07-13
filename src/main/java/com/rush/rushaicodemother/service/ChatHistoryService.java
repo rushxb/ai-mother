@@ -1,14 +1,10 @@
 package com.rush.rushaicodemother.service;
 
-import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.rush.rushaicodemother.model.dto.chathistory.ChatHistoryQueryRequest;
 import com.rush.rushaicodemother.model.entity.ChatHistory;
-import com.rush.rushaicodemother.model.entity.User;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-
-import java.time.LocalDateTime;
 
 /**
  * 对话历史 服务层。
@@ -45,19 +41,6 @@ public interface ChatHistoryService extends IService<ChatHistory> {
      * @return 是否成功
      */
     boolean copyByAppId(Long sourceAppId, Long targetAppId, Long targetUserId);
-
-    /**
-     * 分页查询某 APP 的对话记录
-     *
-     * @param appId
-     * @param pageSize
-     * @param lastCreateTime
-     * @param loginUser
-     * @return
-     */
-    Page<ChatHistory> listAppChatHistoryByPage(Long appId, int pageSize,
-                                               LocalDateTime lastCreateTime,
-                                               User loginUser);
 
     /**
      * 加载对话历史到内存

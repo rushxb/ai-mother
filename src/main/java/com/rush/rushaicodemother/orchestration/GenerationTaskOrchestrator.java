@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration;
 
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
@@ -28,6 +29,8 @@ import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -61,6 +64,7 @@ public class GenerationTaskOrchestrator {
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
     private final GenerationTraceService generationTraceService;
+    private final GenerationExecutionContextService generationExecutionContextService;
     private final GenerationModeRouter generationModeRouter;
     private final GenerationWorkspaceService generationWorkspaceService;
 
@@ -176,6 +180,7 @@ public class GenerationTaskOrchestrator {
         GenerationSession session = generationSessionRegistry.get(appId);
         ThrowUtils.throwIf(session == null || !session.isActive(), ErrorCode.OPERATION_ERROR, "当前应用没有进行中的生成任务");
         session.cancel();
+        generationExecutionContextService.cancelByAppId(appId, "user_requested");
         generationAppStateService.markGenerationFinished(appId);
         session.emitStopped();
         completeGenerationSession(session, session.preparation(), "cancelled");
@@ -184,6 +189,7 @@ public class GenerationTaskOrchestrator {
         }
         generationSessionRegistry.remove(appId, session);
         generationToolExecutionContextService.clearContext(appId);
+        finishExecutionContext(session.preparation(), "cancelled");
     }
 
     private GenerationSession openGenerationSession(Long appId,
@@ -212,7 +218,9 @@ public class GenerationTaskOrchestrator {
             }
             generationAppStateService.markGenerationStarted(appId, preparation.generatingStage());
             updateGenerationPhase(appId, AppConstant.GENERATING_STAGE_AGENT, "智能体正在分析需求并规划生成策略...");
-            session = new GenerationSession(preparation);
+            GenerationExecutionContext executionContext = generationExecutionContextService.start(
+                    preparation.taskId(), appId, loginUser.getId());
+            session = new GenerationSession(preparation, executionContext);
             session.bindTraceContext(generationTraceService, appId, loginUser.getId());
             generationSessionRegistry.put(appId, session);
         }
@@ -233,6 +241,7 @@ public class GenerationTaskOrchestrator {
                             .build()
             );
             try {
+                session.throwIfCancelled();
                 generationEventPublisher.publish(request, GenerationEventType.GENERATION_START, "重型生成任务开始", Map.of(
                         "taskId", preparation.taskId(),
                         "route", HeavyGenerationPipeline.ROUTE
@@ -262,9 +271,11 @@ public class GenerationTaskOrchestrator {
                 finishCancelledGeneration(appId, session, preparation);
             } catch (Exception e) {
                 log.error("应用生成任务执行失败，appId: {}", appId, e);
+                GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
                 generationEventPublisher.publish(request, GenerationEventType.TASK_FAILED, "重型生成任务失败", Map.of(
                         "taskId", preparation.taskId(),
-                        "error", StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
+                        "category", publicError.category(),
+                        "error", publicError.message()
                 ));
                 heavyGenerationFailureRecoveryService.emitGenerationError(appId, preparation, session, e);
                 generationAppStateService.markGenerationFinished(appId);
@@ -272,6 +283,7 @@ public class GenerationTaskOrchestrator {
                 generationPerformanceMonitorService.finishTask(preparation.taskId(), "failed");
                 generationSessionRegistry.remove(appId, session);
                 generationToolExecutionContextService.clearContext(appId);
+                finishExecutionContext(preparation, "failed");
             } finally {
                 MonitorContextHolder.clearContext();
             }
@@ -296,6 +308,7 @@ public class GenerationTaskOrchestrator {
             GenerationPerformanceMonitorService.SpanTimer buildSpan =
                     generationPerformanceMonitorService.startSpan(preparation.taskId(), "build_validation");
             try {
+                session.throwIfCancelled();
                 boolean buildSucceeded = heavyGenerationBuildValidationService.runWithAutoRepair(
                         appId, loginUser, preparation, session);
                 if (buildSucceeded) {
@@ -327,6 +340,7 @@ public class GenerationTaskOrchestrator {
                 generationSessionRegistry.remove(appId, session);
                 generationToolExecutionContextService.clearContext(appId);
                 publishCompletion(request, preparation, completionStatus);
+                finishExecutionContext(preparation, session.isCancelled() ? "cancelled" : completionStatus);
                 MonitorContextHolder.clearContext();
             }
         });
@@ -350,6 +364,7 @@ public class GenerationTaskOrchestrator {
             GenerationPerformanceMonitorService.SpanTimer finalizeSpan =
                     generationPerformanceMonitorService.startSpan(preparation.taskId(), "finalization");
             try {
+                session.throwIfCancelled();
                 heavyGenerationFinalizationService.emitDiffSummaryIfAvailable(appId, preparation, session);
                 heavyGenerationFinalizationService.emitCommitResultIfAvailable(appId, preparation, session);
                 finalizeSpan.success();
@@ -366,6 +381,7 @@ public class GenerationTaskOrchestrator {
                 generationSessionRegistry.remove(appId, session);
                 generationToolExecutionContextService.clearContext(appId);
                 publishCompletion(request, preparation, completionStatus);
+                finishExecutionContext(preparation, session.isCancelled() ? "cancelled" : completionStatus);
                 MonitorContextHolder.clearContext();
             }
         });
@@ -380,6 +396,7 @@ public class GenerationTaskOrchestrator {
         generationPerformanceMonitorService.finishTask(preparation.taskId(), "cancelled");
         generationSessionRegistry.remove(appId, session);
         generationToolExecutionContextService.clearContext(appId);
+        finishExecutionContext(preparation, "cancelled");
     }
 
     private void publishCompletion(GenerationTaskRequest request, GenerationPreparation preparation, String status) {
@@ -413,6 +430,12 @@ public class GenerationTaskOrchestrator {
                                            GenerationPreparation preparation,
                                            String status) {
         heavyGenerationSessionCompletionService.complete(session, preparation, status);
+    }
+
+    private void finishExecutionContext(GenerationPreparation preparation, String status) {
+        if (preparation != null) {
+            generationExecutionContextService.finish(preparation.taskId(), status);
+        }
     }
 
     private String orchestrationMode(GenerationPreparation preparation) {

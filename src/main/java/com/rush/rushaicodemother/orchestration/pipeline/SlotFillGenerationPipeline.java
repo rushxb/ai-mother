@@ -35,6 +35,8 @@ import java.util.Optional;
 public class SlotFillGenerationPipeline implements GenerationPipeline {
 
     private static final long COMPLETED_SESSION_REPLAY_SECONDS = 30;
+    private static final String CREATE_FAILURE_MESSAGE = "CREATE 模板生成失败，请稍后重试";
+    private static final String CREATE_FAILURE_REASON = "create_generation_failed";
 
     private final GenerationAppStateService generationAppStateService;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
@@ -104,16 +106,17 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
         try {
             SlotFillResult result = slotFillGenerationService.tryGenerate(app, request.taskRequest(), session);
             if (result == null) {
-                String reason = StrUtil.blankToDefault(
+                String diagnosticReason = StrUtil.blankToDefault(
                         slotFillGenerationService.consumeLastFailureReason(),
-                        "CREATE 模板生成未产生可写入的 slot patch，请检查模板 manifest、slot prompt 或模型返回格式"
+                        "CREATE recipe 运行时未产生可写入 patch，请检查模板 recipe、spec 归一化或本地渲染结果"
                 );
+                log.warn("CREATE 模板路径未生成有效补丁，appId: {}, reason: {}", app.getId(), diagnosticReason);
                 failCreateGeneration(
                         request,
                         taskId,
                         startedAt,
                         session,
-                        reason
+                        diagnosticReason
                 );
                 return;
             }
@@ -121,7 +124,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 finishCreateGeneration(request, taskId, session, "cancelled");
                 return;
             }
-            log.info("模板 slot 填充路径完成，appId: {}, templateId: {}, filledSlots: {}",
+            log.info("CREATE recipe 路径完成，appId: {}, templateId: {}, filledScopes: {}",
                     app.getId(), result.templateId(), result.filledSlotCount());
             generationPerformanceMonitorService.recordSpan(
                     taskId,
@@ -174,8 +177,9 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
             generationTaskLifecycleService.charge(taskId);
             finishCreateGeneration(request, taskId, session, "success");
         } catch (Exception e) {
-            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            failCreateGeneration(request, taskId, startedAt, session, reason);
+            String diagnosticReason = StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName());
+            log.error("CREATE 模板路径执行失败，appId: {}, taskId: {}", app.getId(), taskId, e);
+            failCreateGeneration(request, taskId, startedAt, session, diagnosticReason);
         }
     }
 
@@ -183,24 +187,22 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                                       String taskId,
                                       Instant startedAt,
                                       GenerationSession session,
-                                      String reason) {
-        App app = request.taskRequest().app();
-        log.warn("CREATE 模板路径失败，首次生成不会在生成前/生成中升级 Heavy，appId: {}, error: {}", app.getId(), reason);
+                                      String diagnosticReason) {
         generationPerformanceMonitorService.recordSpan(
                 taskId,
                 "create_template_runtime",
                 "failed",
                 Duration.between(startedAt, Instant.now()),
-                reason
+                diagnosticReason
         );
         generationEventPublisher.publish(request.taskRequest(), GenerationEventType.TASK_FAILED, "CREATE 模板生成失败", Map.of(
                 "taskId", taskId,
                 "route", route(),
-                "reason", reason
+                "reason", CREATE_FAILURE_REASON
         ));
         session.emit(GenerationStreamEvent.generationError(
-                "CREATE 模板生成失败：" + reason,
-                Map.of("taskId", taskId, "route", route(), "reason", reason)
+                CREATE_FAILURE_MESSAGE,
+                Map.of("taskId", taskId, "route", route(), "reason", CREATE_FAILURE_REASON)
         ));
         finishCreateGeneration(request, taskId, session, "failed");
     }

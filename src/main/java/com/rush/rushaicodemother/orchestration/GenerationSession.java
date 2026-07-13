@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.orchestration;
 
+import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -19,16 +21,22 @@ public final class GenerationSession {
     private final Sinks.Many<GenerationStreamEvent> sink = Sinks.many().replay().limit(MAX_REPLAY_EVENTS);
     private final Sinks.Empty<Void> cancelSink = Sinks.empty();
     private final GenerationPreparation preparation;
+    private final GenerationExecutionContext executionContext;
     private final Instant startedAt = Instant.now();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicBoolean completed = new AtomicBoolean(false);
     private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
-    private final AtomicReference<dev.langchain4j.model.openai.internal.ResponseHandle> responseHandleRef = new AtomicReference<>();
+    private final AtomicReference<GenerationCancellationHandle> cancellationHandleRef = new AtomicReference<>();
     private Long appId;
     private Long userId;
 
     public GenerationSession(GenerationPreparation preparation) {
+        this(preparation, null);
+    }
+
+    public GenerationSession(GenerationPreparation preparation, GenerationExecutionContext executionContext) {
         this.preparation = preparation;
+        this.executionContext = executionContext;
     }
 
     public Instant startedAt() {
@@ -37,6 +45,10 @@ public final class GenerationSession {
 
     public GenerationPreparation preparation() {
         return preparation;
+    }
+
+    public GenerationExecutionContext executionContext() {
+        return executionContext;
     }
 
     public void bindTraceContext(GenerationTraceService generationTraceService, Long appId, Long userId) {
@@ -81,7 +93,10 @@ public final class GenerationSession {
 
     public void cancel() {
         if (cancelled.compareAndSet(false, true)) {
-            dev.langchain4j.model.openai.internal.ResponseHandle handle = responseHandleRef.get();
+            if (executionContext != null) {
+                executionContext.cancel("user_requested");
+            }
+            GenerationCancellationHandle handle = cancellationHandleRef.get();
             if (handle != null) {
                 handle.cancel();
             }
@@ -90,7 +105,7 @@ public final class GenerationSession {
     }
 
     public boolean isCancelled() {
-        return cancelled.get();
+        return cancelled.get() || (executionContext != null && executionContext.isCancelled());
     }
 
     public boolean isActive() {
@@ -101,16 +116,32 @@ public final class GenerationSession {
         return cancelSink.asMono().flux();
     }
 
-    public void setResponseHandle(dev.langchain4j.model.openai.internal.ResponseHandle responseHandle) {
-        responseHandleRef.set(responseHandle);
-        if (cancelled.get() && responseHandle != null) {
-            responseHandle.cancel();
+    public void setCancellationHandle(GenerationCancellationHandle cancellationHandle) {
+        GenerationCancellationHandle idempotentHandle = idempotent(cancellationHandle);
+        cancellationHandleRef.set(idempotentHandle);
+        if (cancelled.get() && idempotentHandle != null) {
+            idempotentHandle.cancel();
         }
+    }
+
+    private GenerationCancellationHandle idempotent(GenerationCancellationHandle cancellationHandle) {
+        if (cancellationHandle == null) {
+            return null;
+        }
+        AtomicBoolean cancellationInvoked = new AtomicBoolean(false);
+        return () -> {
+            if (cancellationInvoked.compareAndSet(false, true)) {
+                cancellationHandle.cancel();
+            }
+        };
     }
 
     public void throwIfCancelled() {
         if (isCancelled()) {
             throw new GenerationStoppedException();
+        }
+        if (executionContext != null) {
+            executionContext.assertCanContinue();
         }
     }
 

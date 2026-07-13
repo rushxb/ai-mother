@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.ai.AiCodeEditService;
 import com.rush.rushaicodemother.ai.AiCodeEditServiceFactory;
 import com.rush.rushaicodemother.ai.model.EditResult;
@@ -155,8 +156,9 @@ public class AgentEditGenerationService {
             return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, summary, changedFiles, "success", repairRounds);
         } catch (Exception e) {
             log.error("AGENT_EDIT 执行失败，appId: {}, taskId: {}", app.getId(), taskId, e);
+            GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
             return fail(request, app, loginUser, taskId,
-                    "AGENT_EDIT 执行失败: " + StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName()),
+                    "AGENT_EDIT 执行失败: " + publicError.message(),
                     0,
                     null
             );

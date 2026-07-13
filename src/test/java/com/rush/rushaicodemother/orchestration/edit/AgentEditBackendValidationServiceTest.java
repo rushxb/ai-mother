@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentEditBackendValidationServiceTest {
 
@@ -52,6 +54,25 @@ class AgentEditBackendValidationServiceTest {
         );
 
         assertEquals("success", result.status());
+    }
+
+    @Test
+    void shouldNotExposeFileReadExceptionDetails() throws Exception {
+        Path root = Path.of("target", "test-workspaces", "agent-edit-backend-validation", "invalid-utf8");
+        FileUtil.del(root.toFile());
+        Files.createDirectories(root.resolve("cmd/server"));
+        Files.write(root.resolve("cmd/server/main.go"), new byte[]{(byte) 0xC3, (byte) 0x28});
+
+        BackgroundValidationService.ValidationResult result = validationService.validate(
+                "task-invalid-utf8",
+                workspace(root, CodeGenTypeEnum.BACKEND_PROJECT),
+                List.of(PatchOperation.modify("cmd/server/main.go", "ignored"))
+        );
+
+        assertEquals("failed", result.status());
+        assertTrue(result.message().contains("cmd/server/main.go:读取失败"));
+        assertFalse(result.message().contains("MalformedInputException"));
+        assertFalse(result.message().contains("Input length"));
     }
 
     private GenerationWorkspace workspace(Path root, CodeGenTypeEnum codeGenType) {

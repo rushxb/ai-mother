@@ -156,7 +156,7 @@ const getRowStyle = (row: VisibleTreeRow) => ({
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: #334155;
+  color: var(--chat-ink, #2f4158);
   text-align: left;
   cursor: pointer;
   transition:
@@ -168,13 +168,13 @@ const getRowStyle = (row: VisibleTreeRow) => ({
 
 .tree-row:hover {
   background: rgba(59, 130, 246, 0.06);
-  color: #0f172a;
+  color: var(--chat-ink-strong, #102033);
 }
 
 .tree-row.selected {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.14), rgba(37, 99, 235, 0.06));
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.16);
-  color: #0f172a;
+  background: linear-gradient(90deg, rgba(47, 139, 255, 0.14), rgba(47, 139, 255, 0.055));
+  box-shadow: inset 0 0 0 1px rgba(47, 139, 255, 0.16);
+  color: var(--chat-ink-strong, #102033);
 }
 
 .tree-row:disabled {
@@ -186,7 +186,7 @@ const getRowStyle = (row: VisibleTreeRow) => ({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: var(--chat-ink-soft, #6f8198);
 }
 
 .tree-caret {
@@ -200,7 +200,7 @@ const getRowStyle = (row: VisibleTreeRow) => ({
   width: 5px;
   height: 5px;
   border-radius: 999px;
-  background: #cbd5e1;
+  background: rgba(112, 140, 175, 0.4);
 }
 
 .tree-row-icon {
@@ -298,7 +298,7 @@ const getRowStyle = (row: VisibleTreeRow) => ({
   align-items: center;
   justify-content: center;
   padding: 18px;
-  color: #64748b;
+  color: var(--chat-ink-soft, #6f8198);
   font-size: 13px;
   text-align: center;
 }

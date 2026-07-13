@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.constant.AppConstant;
@@ -59,6 +61,8 @@ class FileWriteToolTest {
         contextService.bindChangePlan(appId, "task-" + appId, allowBootstrap ? "full_generation" : "patch_first", CodeGenTypeEnum.VUE_PROJECT, changePlan, allowBootstrap, "test");
         GenerationPatchApplyService patchApplyService =
                 new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
-        return new FileWriteTool(new ToolExecutionGateway(patchApplyService, contextService));
+        return new FileWriteTool(new ToolExecutionGateway(
+            patchApplyService, contextService,
+            new GenerationExecutionContextService(new GenerationRuntimeProperties())));
     }
 }

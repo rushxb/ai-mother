@@ -1,7 +1,4 @@
-/**
- * 可视化编辑器工具类
- * 负责管理iframe内的可视化编辑功能
- */
+/** 可视化编辑器与受限 iframe 之间的消息桥。 */
 export interface ElementInfo {
   tagName: string
   id: string
@@ -22,53 +19,67 @@ export interface VisualEditorOptions {
   onElementHover?: (elementInfo: ElementInfo) => void
 }
 
+type EditorMessage = Readonly<Record<string, unknown>> & { type: string }
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+const isFiniteNumber = (value: unknown): value is number => {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+const isElementInfo = (value: unknown): value is ElementInfo => {
+  if (!isRecord(value) || !isRecord(value.rect)) {
+    return false
+  }
+  const rect = value.rect
+  return ['tagName', 'id', 'className', 'textContent', 'selector', 'pagePath'].every(
+    (key) => typeof value[key] === 'string',
+  ) && ['top', 'left', 'width', 'height'].every((key) => isFiniteNumber(rect[key]))
+}
+
+const createChannelId = () => {
+  return globalThis.crypto?.randomUUID?.() || `visual-editor-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 export class VisualEditor {
   private iframe: HTMLIFrameElement | null = null
   private isEditMode = false
-  private options: VisualEditorOptions
+  private readonly options: VisualEditorOptions
+  private channelId = createChannelId()
 
   constructor(options: VisualEditorOptions = {}) {
     this.options = options
   }
 
-  /**
-   * 初始化编辑器
-   */
   init(iframe: HTMLIFrameElement) {
+    if (this.iframe !== iframe) {
+      this.channelId = createChannelId()
+    }
     this.iframe = iframe
   }
 
-  /**
-   * 开启编辑模式
-   */
+  dispose() {
+    this.isEditMode = false
+    this.iframe = null
+    this.channelId = createChannelId()
+  }
+
   enableEditMode() {
     if (!this.iframe) {
       return
     }
     this.isEditMode = true
-    setTimeout(() => {
-      this.injectEditScript()
-    }, 300)
+    window.setTimeout(() => this.injectEditScript(), 300)
   }
 
-  /**
-   * 关闭编辑模式
-   */
   disableEditMode() {
     this.isEditMode = false
-    this.sendMessageToIframe({
-      type: 'TOGGLE_EDIT_MODE',
-      editMode: false,
-    })
-    // 清除所有编辑状态
-    this.sendMessageToIframe({
-      type: 'CLEAR_ALL_EFFECTS',
-    })
+    this.sendMessageToIframe({ type: 'TOGGLE_EDIT_MODE', editMode: false })
+    this.sendMessageToIframe({ type: 'CLEAR_ALL_EFFECTS' })
   }
 
-  /**
-   * 切换编辑模式
-   */
   toggleEditMode() {
     if (this.isEditMode) {
       this.disableEditMode()
@@ -78,372 +89,179 @@ export class VisualEditor {
     return this.isEditMode
   }
 
-  /**
-   * 强制同步状态并清理
-   */
   syncState() {
     if (!this.isEditMode) {
-      this.sendMessageToIframe({
-        type: 'CLEAR_ALL_EFFECTS',
-      })
+      this.sendMessageToIframe({ type: 'CLEAR_ALL_EFFECTS' })
     }
   }
 
-  /**
-   * 清除选中的元素
-   */
   clearSelection() {
-    this.sendMessageToIframe({
-      type: 'CLEAR_SELECTION',
-    })
+    this.sendMessageToIframe({ type: 'CLEAR_SELECTION' })
   }
 
-  /**
-   * iframe 加载完成时调用
-   */
   onIframeLoad() {
-    if (this.isEditMode) {
-      setTimeout(() => {
+    window.setTimeout(() => {
+      if (this.isEditMode) {
         this.injectEditScript()
-      }, 500)
-    } else {
-      // 确保非编辑模式时清理状态
-      setTimeout(() => {
+      } else {
         this.syncState()
-      }, 500)
-    }
-  }
-
-  /**
-   * 处理来自 iframe 的消息
-   */
-  handleIframeMessage(event: MessageEvent) {
-    const { type, data } = event.data
-    switch (type) {
-      case 'ELEMENT_SELECTED':
-        if (this.options.onElementSelected && data.elementInfo) {
-          this.options.onElementSelected(data.elementInfo)
-        }
-        break
-      case 'ELEMENT_HOVER':
-        if (this.options.onElementHover && data.elementInfo) {
-          this.options.onElementHover(data.elementInfo)
-        }
-        break
-    }
-  }
-
-  /**
-   * 向 iframe 发送消息
-   */
-  private sendMessageToIframe(message: Record<string, any>) {
-    if (this.iframe?.contentWindow) {
-      this.iframe.contentWindow.postMessage(message, '*')
-    }
-  }
-
-  /**
-   * 注入编辑脚本到 iframe
-   * 对于跨域 iframe，使用 postMessage 发送脚本内容
-   * 对于同源 iframe，直接操作 DOM 注入
-   */
-  private injectEditScript() {
-    if (!this.iframe) return
-
-    // 尝试同源注入（快速路径）
-    try {
-      if (this.iframe!.contentWindow && this.iframe!.contentDocument) {
-        // 检查是否已经注入过脚本
-        if (this.iframe!.contentDocument.getElementById('visual-edit-script')) {
-          this.sendMessageToIframe({
-            type: 'TOGGLE_EDIT_MODE',
-            editMode: true,
-          })
-          return
-        }
-
-        const script = this.generateEditScript()
-        const scriptElement = this.iframe!.contentDocument.createElement('script')
-        scriptElement.id = 'visual-edit-script'
-        scriptElement.textContent = script
-        this.iframe!.contentDocument.head.appendChild(scriptElement)
-        return
       }
-    } catch {
-      // 跨域 iframe，contentDocument 访问被阻止，使用 postMessage 方案
-    }
+    }, 500)
+  }
 
-    // 跨域方案：通过 postMessage 发送脚本内容，由 iframe 内的消息监听器执行
+  handleIframeMessage(event: MessageEvent) {
+    if (!this.iframe?.contentWindow || event.source !== this.iframe.contentWindow || !isRecord(event.data)) {
+      return
+    }
+    if (event.data.channelId !== this.channelId || typeof event.data.type !== 'string') {
+      return
+    }
+    const data = event.data.data
+    if (!isRecord(data) || !isElementInfo(data.elementInfo)) {
+      return
+    }
+    if (event.data.type === 'ELEMENT_SELECTED') {
+      this.options.onElementSelected?.(data.elementInfo)
+    } else if (event.data.type === 'ELEMENT_HOVER') {
+      this.options.onElementHover?.(data.elementInfo)
+    }
+  }
+
+  private sendMessageToIframe(message: EditorMessage) {
+    if (!this.iframe?.contentWindow) {
+      return
+    }
+    // iframe 未授予 allow-same-origin，其安全沙箱来源为 opaque origin，浏览器要求使用 *。
+    // 安全性由专属 channelId、event.source 校验和 iframe sandbox 共同保证。
+    this.iframe.contentWindow.postMessage({ ...message, channelId: this.channelId }, '*')
+  }
+
+  private injectEditScript() {
+    if (!this.iframe) {
+      return
+    }
     this.sendMessageToIframe({
       type: 'INJECT_EDIT_SCRIPT',
       script: this.generateEditScript(),
     })
-    // 同时发送开启编辑模式的消息
-    this.sendMessageToIframe({
-      type: 'TOGGLE_EDIT_MODE',
-      editMode: true,
-    })
+    this.sendMessageToIframe({ type: 'TOGGLE_EDIT_MODE', editMode: true })
   }
 
-  /**
-   * 生成编辑脚本内容
-   */
   private generateEditScript() {
+    const parentOrigin = typeof window === 'undefined' ? '' : window.location.origin
+    const serializedOrigin = JSON.stringify(parentOrigin)
+    const serializedChannelId = JSON.stringify(this.channelId)
+
     return `
-      (function() {
-        let isEditMode = true;
-        let currentHoverElement = null;
-        let currentSelectedElement = null;
+(function () {
+  const parentOrigin = ${serializedOrigin};
+  const channelId = ${serializedChannelId};
+  const bridgeKey = '__rushVisualEditorBridge';
+  const previousBridge = window[bridgeKey];
+  if (previousBridge && typeof previousBridge.dispose === 'function') previousBridge.dispose();
 
-        function injectStyles() {
-          if (document.getElementById('edit-mode-styles')) return;
-          const style = document.createElement('style');
-          style.id = 'edit-mode-styles';
-          style.textContent = \`
-            .edit-hover {
-              outline: 2px dashed #1890ff !important;
-              outline-offset: 2px !important;
-              cursor: crosshair !important;
-              transition: outline 0.2s ease !important;
-              position: relative !important;
-            }
-            .edit-hover::before {
-              content: '' !important;
-              position: absolute !important;
-              top: -4px !important;
-              left: -4px !important;
-              right: -4px !important;
-              bottom: -4px !important;
-              background: rgba(24, 144, 255, 0.02) !important;
-              pointer-events: none !important;
-              z-index: -1 !important;
-            }
-            .edit-selected {
-              outline: 3px solid #52c41a !important;
-              outline-offset: 2px !important;
-              cursor: default !important;
-              position: relative !important;
-            }
-            .edit-selected::before {
-              content: '' !important;
-              position: absolute !important;
-              top: -4px !important;
-              left: -4px !important;
-              right: -4px !important;
-              bottom: -4px !important;
-              background: rgba(82, 196, 26, 0.03) !important;
-              pointer-events: none !important;
-              z-index: -1 !important;
-            }
-          \`;
-          document.head.appendChild(style);
-        }
+  let editMode = true;
+  let hoverElement = null;
+  let selectedElement = null;
 
-        // 生成元素选择器
-        function generateSelector(element) {
-          const path = [];
-          let current = element;
-          while (current && current !== document.body) {
-            let selector = current.tagName.toLowerCase();
-            if (current.id) {
-              selector += '#' + current.id;
-              path.unshift(selector);
-              break;
-            }
-            if (current.className) {
-              const classes = current.className.split(' ').filter(c => c && !c.startsWith('edit-'));
-              if (classes.length > 0) {
-                selector += '.' + classes.join('.');
-              }
-            }
-            const siblings = Array.from(current.parentElement?.children || []);
-            const index = siblings.indexOf(current) + 1;
-            selector += ':nth-child(' + index + ')';
-            path.unshift(selector);
-            current = current.parentElement;
-          }
-          return path.join(' > ');
-        }
+  const clearHover = () => {
+    if (hoverElement) hoverElement.classList.remove('rush-edit-hover');
+    hoverElement = null;
+  };
+  const clearSelection = () => {
+    document.querySelectorAll('.rush-edit-selected').forEach((element) => element.classList.remove('rush-edit-selected'));
+    selectedElement = null;
+  };
+  const clearAll = () => {
+    editMode = false;
+    clearHover();
+    clearSelection();
+    document.getElementById('rush-edit-tip')?.remove();
+  };
 
-        // 获取元素信息
-        function getElementInfo(element) {
-          const rect = element.getBoundingClientRect();
-          // 获取 HTML 文件名后面的部分（查询参数和锚点）
-          let pagePath = window.location.search + window.location.hash;
-          // 如果没有查询参数和锚点，则显示为空
-          if (!pagePath) {
-            pagePath = '';
-          }
+  const ensureStyles = () => {
+    if (document.getElementById('rush-edit-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'rush-edit-styles';
+    style.textContent = '.rush-edit-hover{outline:2px dashed #1890ff!important;outline-offset:2px!important;cursor:crosshair!important}.rush-edit-selected{outline:3px solid #52c41a!important;outline-offset:2px!important}';
+    document.head.appendChild(style);
+  };
 
-          return {
-            tagName: element.tagName,
-            id: element.id,
-            className: element.className,
-            textContent: element.textContent?.trim().substring(0, 100) || '',
-            selector: generateSelector(element),
-            pagePath: pagePath,
-            rect: {
-              top: rect.top,
-              left: rect.left,
-              width: rect.width,
-              height: rect.height
-            }
-          };
-        }
+  const selectorFor = (element) => {
+    const path = [];
+    let current = element;
+    while (current && current !== document.body) {
+      let selector = current.tagName.toLowerCase();
+      if (current.id) {
+        path.unshift(selector + '#' + CSS.escape(current.id));
+        break;
+      }
+      const classes = Array.from(current.classList || []).filter((name) => !name.startsWith('rush-edit-')).slice(0, 3);
+      if (classes.length) selector += '.' + classes.map((name) => CSS.escape(name)).join('.');
+      const siblings = Array.from(current.parentElement?.children || []);
+      selector += ':nth-child(' + (siblings.indexOf(current) + 1) + ')';
+      path.unshift(selector);
+      current = current.parentElement;
+    }
+    return path.join(' > ');
+  };
 
-        // 清除悬浮效果
-        function clearHoverEffect() {
-          if (currentHoverElement) {
-            currentHoverElement.classList.remove('edit-hover');
-            currentHoverElement = null;
-          }
-        }
+  const elementInfoFor = (element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      tagName: String(element.tagName || ''),
+      id: String(element.id || ''),
+      className: String(element.className || ''),
+      textContent: String(element.textContent || '').trim().slice(0, 100),
+      selector: selectorFor(element),
+      pagePath: window.location.search + window.location.hash,
+      rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+    };
+  };
 
-        // 清除选中效果
-        function clearSelectedEffect() {
-          const selected = document.querySelectorAll('.edit-selected');
-          selected.forEach(el => el.classList.remove('edit-selected'));
-          currentSelectedElement = null;
-        }
+  const isSelectable = (target) => target instanceof Element && target !== document.body && target !== document.documentElement && !['SCRIPT', 'STYLE'].includes(target.tagName);
+  const onMouseOver = (event) => {
+    if (!editMode || !isSelectable(event.target) || event.target === selectedElement) return;
+    clearHover();
+    event.target.classList.add('rush-edit-hover');
+    hoverElement = event.target;
+  };
+  const onMouseOut = (event) => {
+    if (editMode && (!event.relatedTarget || !event.target.contains(event.relatedTarget))) clearHover();
+  };
+  const onClick = (event) => {
+    if (!editMode || !isSelectable(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearSelection();
+    clearHover();
+    event.target.classList.add('rush-edit-selected');
+    selectedElement = event.target;
+    window.parent.postMessage({ type: 'ELEMENT_SELECTED', channelId, data: { elementInfo: elementInfoFor(event.target) } }, parentOrigin);
+  };
+  const onMessage = (event) => {
+    if (event.source !== window.parent || event.origin !== parentOrigin || !event.data || event.data.channelId !== channelId) return;
+    switch (event.data.type) {
+      case 'TOGGLE_EDIT_MODE': editMode = event.data.editMode === true; if (!editMode) { clearHover(); clearSelection(); } break;
+      case 'CLEAR_SELECTION': clearSelection(); break;
+      case 'CLEAR_ALL_EFFECTS': clearAll(); break;
+    }
+  };
 
-        let eventListenersAdded = false;
-
-        function addEventListeners() {
-           if (eventListenersAdded) return;
-
-           const mouseoverHandler = (event) => {
-             if (!isEditMode) return;
-
-             const target = event.target;
-             if (target === currentHoverElement || target === currentSelectedElement) return;
-             if (target === document.body || target === document.documentElement) return;
-             if (target.tagName === 'SCRIPT' || target.tagName === 'STYLE') return;
-
-             clearHoverEffect();
-             target.classList.add('edit-hover');
-             currentHoverElement = target;
-           };
-
-           const mouseoutHandler = (event) => {
-             if (!isEditMode) return;
-
-             const target = event.target;
-             if (!event.relatedTarget || !target.contains(event.relatedTarget)) {
-               clearHoverEffect();
-             }
-           };
-
-           const clickHandler = (event) => {
-             if (!isEditMode) return;
-
-             event.preventDefault();
-             event.stopPropagation();
-
-             const target = event.target;
-             if (target === document.body || target === document.documentElement) return;
-             if (target.tagName === 'SCRIPT' || target.tagName === 'STYLE') return;
-
-             clearSelectedEffect();
-             clearHoverEffect();
-
-             target.classList.add('edit-selected');
-             currentSelectedElement = target;
-
-             const elementInfo = getElementInfo(target);
-             try {
-               window.parent.postMessage({
-                 type: 'ELEMENT_SELECTED',
-                 data: { elementInfo }
-               }, '*');
-             } catch {
-               // 静默处理发送失败
-             }
-           };
-
-           document.body.addEventListener('mouseover', mouseoverHandler, true);
-           document.body.addEventListener('mouseout', mouseoutHandler, true);
-           document.body.addEventListener('click', clickHandler, true);
-           eventListenersAdded = true;
-         }
-
-         function setupEventListeners() {
-           addEventListeners();
-         }
-
-        // 监听父窗口消息
-        window.addEventListener('message', (event) => {
-           const { type, editMode, script } = event.data;
-           switch (type) {
-             case 'INJECT_EDIT_SCRIPT':
-               // 跨域场景：父窗口通过 postMessage 发送脚本内容，iframe 内执行
-               if (script && !document.getElementById('visual-edit-script')) {
-                 try {
-                   const scriptElement = document.createElement('script');
-                   scriptElement.id = 'visual-edit-script';
-                   scriptElement.textContent = script;
-                   document.head.appendChild(scriptElement);
-                 } catch (e) {
-                   console.error('注入编辑脚本失败:', e);
-                 }
-               }
-               break;
-             case 'TOGGLE_EDIT_MODE':
-               isEditMode = editMode;
-               if (isEditMode) {
-                 injectStyles();
-                 setupEventListeners();
-                 showEditTip();
-               } else {
-                 clearHoverEffect();
-                 clearSelectedEffect();
-               }
-               break;
-             case 'CLEAR_SELECTION':
-               clearSelectedEffect();
-               break;
-             case 'CLEAR_ALL_EFFECTS':
-               isEditMode = false;
-               clearHoverEffect();
-               clearSelectedEffect();
-               const tip = document.getElementById('edit-tip');
-               if (tip) tip.remove();
-               break;
-           }
-         });
-
-         function showEditTip() {
-           if (document.getElementById('edit-tip')) return;
-           const tip = document.createElement('div');
-           tip.id = 'edit-tip';
-           tip.innerHTML = '🎯 编辑模式已开启<br/>悬浮查看元素，点击选中元素';
-           tip.style.cssText = \`
-             position: fixed;
-             top: 20px;
-             right: 20px;
-             background: #1890ff;
-             color: white;
-             padding: 12px 16px;
-             border-radius: 6px;
-             font-size: 14px;
-             z-index: 9999;
-             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-             animation: fadeIn 0.3s ease;
-           \`;
-           const style = document.createElement('style');
-           style.textContent = '@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }';
-           document.head.appendChild(style);
-           document.body.appendChild(tip);
-           setTimeout(() => {
-             if (tip.parentNode) {
-               tip.style.animation = 'fadeIn 0.3s ease reverse';
-               setTimeout(() => tip.remove(), 300);
-             }
-           }, 3000);
-         }
-         injectStyles();
-         setupEventListeners();
-         showEditTip();
-      })();
-    `
+  ensureStyles();
+  document.addEventListener('mouseover', onMouseOver, true);
+  document.addEventListener('mouseout', onMouseOut, true);
+  document.addEventListener('click', onClick, true);
+  window.addEventListener('message', onMessage);
+  window[bridgeKey] = {
+    dispose() {
+      clearAll();
+      document.removeEventListener('mouseover', onMouseOver, true);
+      document.removeEventListener('mouseout', onMouseOut, true);
+      document.removeEventListener('click', onClick, true);
+      window.removeEventListener('message', onMessage);
+    }
+  };
+})();`
   }
 }

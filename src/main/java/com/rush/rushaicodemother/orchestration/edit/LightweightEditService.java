@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.ai.AiCodeEditServiceFactory;
 import com.rush.rushaicodemother.ai.model.EditOperation;
 import com.rush.rushaicodemother.ai.model.EditResult;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
@@ -23,7 +24,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
-import com.rush.rushaicodemother.service.DevServerManager;
+import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -306,13 +307,15 @@ public class LightweightEditService {
 
         } catch (Exception e) {
             log.error("轻量编辑执行失败，appId: {}", app.getId(), e);
+            GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
             generationEventPublisher.publish(request, GenerationEventType.TASK_FAILED, "轻量编辑执行失败", Map.of(
                     "taskId", taskId,
-                    "error", StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
+                    "category", publicError.category(),
+                    "error", publicError.message()
             ));
             generationAppStateService.markGenerationFinished(app.getId());
             generationTaskLifecycleService.completeTrace(taskId, "failed", null, null);
-            return buildFailedResult(taskId, e.getMessage());
+            return buildFailedResult(taskId, "轻量编辑执行失败，请稍后重试");
         }
     }
 
@@ -586,7 +589,7 @@ public class LightweightEditService {
         } catch (Exception e) {
             log.warn("自动二次修复失败，appId: {}, taskId: {}, error: {}", app.getId(), taskId, e.getMessage(), e);
             return RuntimeRetryResult.failed(BackgroundValidationService.ValidationResult.failed(
-                    taskId, "自动二次修复异常: " + StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
+                    taskId, "自动二次修复执行失败，请稍后重试"
             ));
         }
     }
@@ -812,28 +815,7 @@ public class LightweightEditService {
      * 从异常中提取用户友好的错误信息。
      */
     private String extractUserFriendlyMessage(Exception e) {
-        String message = e.getMessage();
-        if (message == null) {
-            return "AI 服务调用失败，请稍后重试";
-        }
-        // 余额不足
-        if (message.contains("Insufficient Balance") || message.contains("402")) {
-            return "AI 服务账户余额不足，请联系管理员充值";
-        }
-        // 请求过多（限流）
-        if (message.contains("429") || message.contains("Too Many Requests")) {
-            return "AI 服务请求过于频繁，请稍后重试";
-        }
-        // 认证失败
-        if (message.contains("401") || message.contains("Unauthorized")) {
-            return "AI 服务认证失败，请联系管理员检查配置";
-        }
-        // 服务不可用
-        if (message.contains("503") || message.contains("Service Unavailable")) {
-            return "AI 服务暂时不可用，请稍后重试";
-        }
-        // 其他错误
-        return "AI 服务调用失败: " + message;
+        return GenerationErrorClassifier.classify(e).message();
     }
 
     /**
@@ -843,7 +825,7 @@ public class LightweightEditService {
         return new LightweightEditResult(
                 taskId,
                 GenerationEditRouteResult.ROUTE_LIGHTWEIGHT_EDIT,
-                "轻量编辑失败: " + reason,
+                "轻量编辑失败: " + StrUtil.blankToDefault(reason, "请稍后重试"),
                 List.of(),
                 "failed"
         );

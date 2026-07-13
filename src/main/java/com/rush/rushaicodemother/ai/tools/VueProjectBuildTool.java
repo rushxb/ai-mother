@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -15,10 +15,10 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class VueProjectBuildTool extends BaseTool {
 
-    @Resource
-    private VueProjectBuilder vueProjectBuilder;
+    private final VueProjectBuilder vueProjectBuilder;
 
     @Tool("执行本地 Vue 项目构建，返回 pnpm install 和 pnpm run build 的详细结果。生成完成后、构建失败后、或用户反馈项目有问题时必须优先调用此工具。")
     public String buildVueProject(

@@ -1,8 +1,10 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -14,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -22,6 +25,7 @@ import java.util.concurrent.Executors;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class GenerationDagRunner {
 
     private final GenerationOrchestrationTaskStore taskStore;
@@ -88,9 +92,17 @@ public class GenerationDagRunner {
             taskStore.save(context.getTask());
             return events;
         } catch (Exception e) {
+            Throwable failure = unwrapCompletionFailure(e);
+            GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(failure);
             context.getTask().setStatus("failed");
-            context.getTask().setFailureMessage(e.getMessage());
+            context.getTask().setFailureMessage(publicError.message());
             taskStore.save(context.getTask());
+            log.error(
+                    "DAG 编排执行失败，appId: {}, taskId: {}",
+                    context.getTask().getAppId(),
+                    context.getTask().getTaskId(),
+                    failure
+            );
             throw e;
         }
     }
@@ -103,7 +115,18 @@ public class GenerationDagRunner {
             return new NodeExecution(node, result, durationMs);
         } catch (Exception e) {
             long durationMs = Duration.between(startedAt, Instant.now()).toMillis();
-            GenerationStreamEvent failedEvent = buildEvent(context, node, "failed", e.getMessage(), null, durationMs);
+            GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
+            GenerationStreamEvent failedEvent = buildEvent(
+                    context,
+                    node,
+                    "failed",
+                    publicError.message(),
+                    Map.of(
+                            "category", publicError.category(),
+                            "recoverable", publicError.recoverable()
+                    ),
+                    durationMs
+            );
             context.getTask().getEvents().add(failedEvent);
             context.getTask().getNodeStatuses().put(node.key(), "failed");
             metricsCollector.recordNodeDuration(
@@ -116,6 +139,13 @@ public class GenerationDagRunner {
             taskStore.save(context.getTask());
             throw e;
         }
+    }
+
+    private Throwable unwrapCompletionFailure(Exception exception) {
+        if (exception instanceof CompletionException && exception.getCause() != null) {
+            return exception.getCause();
+        }
+        return exception;
     }
 
     private GenerationStreamEvent buildEvent(GenerationAgentContext context,

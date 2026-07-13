@@ -28,10 +28,27 @@
     </scm>
     <properties>
         <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <langchain4j.version>1.17.2</langchain4j.version>
+        <langchain4j.beta.version>1.17.2-beta27</langchain4j.beta.version>
         <skipTests>false</skipTests>
         <excludedGroups>external</excludedGroups>
         <surefire.reportsDirectory>${project.build.directory}/surefire-reports</surefire.reportsDirectory>
+        <argLine></argLine>
     </properties>
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keep stable and beta LangChain4j modules on the official compatible version set. -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-bom</artifactId>
+                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
     <!-- 多环境配置：dev 开发 / prod 生产 -->
     <profiles>
         <profile>
@@ -59,6 +76,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
+        <!-- 请求参数校验 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- 密码安全哈希（不引入完整 Spring Security Web 过滤链） -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
         <!-- Spring Session + Redis -->
         <dependency>
             <groupId>org.springframework.session</groupId>
@@ -74,22 +101,29 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
-            <version>1.1.0</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
-            <version>1.1.0-beta7</version>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>dev.langchain4j</groupId>
+                    <artifactId>langchain4j-http-client-jdk</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-http-client-spring-restclient</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-reactor</artifactId>
-            <version>1.1.0-beta7</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-community-redis-spring-boot-starter</artifactId>
-            <version>1.1.0-beta7</version>
+            <artifactId>langchain4j-community-redis</artifactId>
+            <version>${langchain4j.beta.version}</version>
         </dependency>
         <!-- Selenium 网页截图依赖 -->
         <dependency>
@@ -131,6 +165,17 @@
             <groupId>com.mybatis-flex</groupId>
             <artifactId>mybatis-flex-spring-boot3-starter</artifactId>
             <version>1.11.1</version>
+            <exclusions>
+                <!-- 当前工程不使用 Spring Batch；避免把批处理基础设施带入生产运行时。 -->
+                <exclusion>
+                    <groupId>org.springframework.batch</groupId>
+                    <artifactId>spring-batch-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.batch</groupId>
+                    <artifactId>spring-batch-infrastructure</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>cn.hutool</groupId>
@@ -169,6 +214,12 @@
                     <skip>${skipTests}</skip>
                     <excludedGroups>${excludedGroups}</excludedGroups>
                     <reportsDirectory>${surefire.reportsDirectory}</reportsDirectory>
+                    <systemPropertyVariables>
+                        <expectedBuildProfile>${spring.profiles.active}</expectedBuildProfile>
+                        <projectBaseDir>${project.basedir}</projectBaseDir>
+                    </systemPropertyVariables>
+                    <!-- JDK 21+ 不允许测试框架长期依赖动态自附加，预先加载 Mockito agent。 -->
+                    <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
                 </configuration>
             </plugin>
             <plugin>
@@ -187,7 +238,50 @@
                                     <version>[21,)</version>
                                     <message>This project must run with JDK 21 or newer. Current JAVA_HOME / java version is not supported.</message>
                                 </requireJavaVersion>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>dev.langchain4j:langchain4j-community-redis-spring-boot-starter</exclude>
+                                        <exclude>org.springframework.batch:spring-batch-core</exclude>
+                                        <exclude>org.springframework.batch:spring-batch-infrastructure</exclude>
+                                    </excludes>
+                                    <message>
+                                        Unused auto-configuration and batch infrastructure are prohibited in the production
+                                        runtime. Use the direct LangChain4j Redis module and keep Spring Batch excluded from
+                                        MyBatis-Flex unless the application adds an explicit batch module.
+                                    </message>
+                                </bannedDependencies>
                             </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-third-party-package-ownership</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <resourcecount property="langchain4jShadowSourceCount">
+                                    <fileset dir="${project.basedir}/src/main/java">
+                                        <include name="dev/langchain4j/**/*.java"/>
+                                    </fileset>
+                                </resourcecount>
+                                <fail message="Project sources must not shadow dev.langchain4j packages. Add project-owned adapters under com.rush.rushaicodemother instead.">
+                                    <condition>
+                                        <not>
+                                            <equals arg1="${langchain4jShadowSourceCount}" arg2="0"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

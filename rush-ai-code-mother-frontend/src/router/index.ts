@@ -1,73 +1,36 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomePage from '@/pages/HomePage.vue'
-import UserAuthPage from '@/pages/user/UserAuthPage.vue'
-import UserLoginSuccessPage from '@/pages/user/UserLoginSuccessPage.vue'
-import UserManagePage from '@/pages/admin/UserManagePage.vue'
-import AppManagePage from '@/pages/admin/AppManagePage.vue'
-import AppChatPage from '@/pages/app/AppChatPage.vue'
-import AppEditPage from '@/pages/app/AppEditPage.vue'
-import ChatManagePage from "@/pages/admin/ChatManagePage.vue";
-import ModelManagePage from "@/pages/admin/ModelManagePage.vue";
-import GenerationPerformancePage from '@/pages/admin/GenerationPerformancePage.vue'
+
+const getDynamicBaseUrl = () => {
+  if (typeof window === 'undefined') {
+    return '/'
+  }
+
+  const match = window.location.pathname.match(/\/sites\/[^/]+\/?/)
+  return match?.[0] ?? '/'
+}
+
+const adminMeta = { requiresAuth: true, requiredRole: 'admin' } as const
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(getDynamicBaseUrl()),
   routes: [
-    {
-      path: '/',
-      name: '主页',
-      component: HomePage,
-    },
-    {
-      path: '/user/login',
-      name: '用户登录',
-      component: UserAuthPage,
-    },
-    {
-      path: '/user/register',
-      name: '用户注册',
-      component: UserAuthPage,
-    },
+    { path: '/', name: 'home', component: () => import('@/pages/HomePage.vue') },
+    { path: '/user/login', name: 'user-login', component: () => import('@/pages/user/UserAuthPage.vue') },
+    { path: '/user/register', name: 'user-register', component: () => import('@/pages/user/UserAuthPage.vue') },
     {
       path: '/user/success',
-      name: '登录成功过渡',
-      component: UserLoginSuccessPage,
+      name: 'user-login-success',
+      component: () => import('@/pages/user/UserLoginSuccessPage.vue'),
+      meta: { requiresAuth: true },
     },
-    {
-      path: '/admin/userManage',
-      name: '用户管理',
-      component: UserManagePage,
-    },
-    {
-      path: '/admin/appManage',
-      name: '应用管理',
-      component: AppManagePage,
-    },
-    {
-      path: '/admin/chatManage',
-      name: '对话管理',
-      component: ChatManagePage,
-    },
-    {
-      path: '/admin/modelManage',
-      name: '模型管理',
-      component: ModelManagePage,
-    },
-    {
-      path: '/admin/generationPerformance',
-      name: '生成耗时',
-      component: GenerationPerformancePage,
-    },
-    {
-      path: '/app/chat/:id',
-      name: '应用对话',
-      component: AppChatPage,
-    },
-    {
-      path: '/app/edit/:id',
-      name: '编辑应用',
-      component: AppEditPage,
-    },
+    { path: '/admin/userManage', name: 'admin-users', component: () => import('@/pages/admin/UserManagePage.vue'), meta: adminMeta },
+    { path: '/admin/appManage', name: 'admin-apps', component: () => import('@/pages/admin/AppManagePage.vue'), meta: adminMeta },
+    { path: '/admin/chatManage', name: 'admin-chats', component: () => import('@/pages/admin/ChatManagePage.vue'), meta: adminMeta },
+    { path: '/admin/modelManage', name: 'admin-models', component: () => import('@/pages/admin/ModelManagePage.vue'), meta: adminMeta },
+    { path: '/admin/generationPerformance', name: 'admin-generation-performance', component: () => import('@/pages/admin/GenerationPerformancePage.vue'), meta: adminMeta },
+    { path: '/app/chat/:id', name: 'app-chat', component: () => import('@/pages/app/AppChatPage.vue'), meta: { requiresAuth: true } },
+    { path: '/app/edit/:id', name: 'app-edit', component: () => import('@/pages/app/AppEditPage.vue'), meta: { requiresAuth: true } },
+    { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/pages/error/NotFoundPage.vue') },
   ],
 })
 

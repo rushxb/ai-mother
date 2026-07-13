@@ -2,7 +2,6 @@ package com.rush.rushaicodemother.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
-import com.rush.rushaicodemother.model.dto.app.AppAddRequest;
 import com.rush.rushaicodemother.model.dto.app.AppCodeFileSaveRequest;
 import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
 import com.rush.rushaicodemother.model.entity.App;
@@ -10,7 +9,6 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
 import com.rush.rushaicodemother.model.vo.AppCodeFileTreeVO;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
-import com.rush.rushaicodemother.model.vo.AppVO;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import reactor.core.publisher.Flux;
 
@@ -57,15 +55,6 @@ public interface AppService extends IService<App> {
      * @return 优化后的提示词
      */
     String optimizePrompt(String prompt, User loginUser);
-
-    /**
-     * 创建应用
-     *
-     * @param appAddRequest
-     * @param loginUser
-     * @return
-     */
-    Long createApp(AppAddRequest appAddRequest, User loginUser);
 
     /**
      * 应用部署
@@ -121,39 +110,6 @@ public interface AppService extends IService<App> {
      * @return Database 资源信息
      */
     AppDatabaseResourceVO enableDatabase(Long appId, User loginUser);
-
-    /**
-     * 复制应用到当前用户，包含生成代码和对话历史，但不复制部署信息
-     *
-     * @param sourceAppId 源应用 ID
-     * @param loginUser   登录用户
-     * @return 新应用 ID
-     */
-    Long copyApp(Long sourceAppId, User loginUser);
-
-    /**
-     * 异步生成应用截图并更新封面
-     *
-     * @param appId  应用ID
-     * @param appUrl 应用访问URL
-     */
-    void generateAppScreenshotAsync(Long appId, String appUrl);
-
-    /**
-     * 获取应用封装类
-     *
-     * @param app
-     * @return
-     */
-    AppVO getAppVO(App app);
-
-    /**
-     * 获取应用封装类列表
-     *
-     * @param appList
-     * @return
-     */
-    List<AppVO> getAppVOList(List<App> appList);
 
     /**
      * 构造应用查询条件

@@ -14,6 +14,13 @@ import com.rush.rushaicodemother.service.AppDatabaseResourceService;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 应用 Database 资源服务实现。
@@ -69,6 +76,33 @@ public class AppDatabaseResourceServiceImpl
                 .eq("status", STATUS_ACTIVE)
                 .orderBy("createTime", false);
         return this.list(queryWrapper).stream().findFirst().orElse(null);
+    }
+
+    @Override
+    public Map<Long, AppDatabaseResource> getActiveResourceMapByAppIds(Collection<Long> appIds) {
+        if (appIds == null || appIds.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> validAppIds = appIds.stream()
+                .filter(Objects::nonNull)
+                .filter(appId -> appId > 0)
+                .collect(Collectors.toSet());
+        if (validAppIds.isEmpty()) {
+            return Map.of();
+        }
+        QueryWrapper queryWrapper = QueryWrapper.create()
+                .in("appId", validAppIds)
+                .eq("status", STATUS_ACTIVE)
+                .orderBy("createTime", false);
+        return this.list(queryWrapper).stream()
+                .filter(Objects::nonNull)
+                .filter(resource -> resource.getAppId() != null)
+                .collect(Collectors.toMap(
+                        AppDatabaseResource::getAppId,
+                        Function.identity(),
+                        (latest, ignored) -> latest,
+                        LinkedHashMap::new
+                ));
     }
 
     @Override

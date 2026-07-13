@@ -73,8 +73,11 @@ public class VueProjectTemplateBootstrapService {
             return BootstrapResult.skipped("", targetRoot.toString(), "workspace_exists");
         }
         String templateId = selectTemplateId(userMessage);
+        boolean workspaceCreated = false;
         try {
-            Files.createDirectories(targetRoot);
+            Files.createDirectories(targetRoot.getParent());
+            Files.createDirectory(targetRoot);
+            workspaceCreated = true;
             int fileCount = copyTemplate(templateId, targetRoot);
 
             // 尝试复制预热的 node_modules
@@ -87,8 +90,15 @@ public class VueProjectTemplateBootstrapService {
             log.info("已复制 Vue 项目模板，targetRoot: {}, templateId: {}, fileCount: {}", targetRoot, templateId, fileCount);
             return result;
         } catch (Exception e) {
+            if (workspaceCreated) {
+                TemplateWorkspaceFailureCleanup.deleteOwnedWorkspace(targetRoot, e);
+            }
             log.warn("复制 Vue 项目模板失败，targetRoot: {}, templateId: {}", targetRoot, templateId, e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "初始化 Vue 项目模板失败：" + e.getMessage());
+            throw new BusinessException(
+                    ErrorCode.SYSTEM_ERROR,
+                    "初始化 Vue 项目模板失败，请稍后重试",
+                    e
+            );
         }
     }
 

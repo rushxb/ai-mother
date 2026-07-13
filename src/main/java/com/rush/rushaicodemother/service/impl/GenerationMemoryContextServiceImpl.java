@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.GenerationTraceService;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
@@ -17,17 +17,16 @@ import java.util.List;
 import java.util.Locale;
 
 @Service
+@RequiredArgsConstructor
 public class GenerationMemoryContextServiceImpl implements GenerationMemoryContextService {
 
     private static final int MAX_CONTEXT_LENGTH = 3200;
     private static final int MAX_FIELD_LENGTH = 600;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    @Resource
-    private GenerationTraceService generationTraceService;
+    private final GenerationTraceService generationTraceService;
 
-    @Resource
-    private GenerationContextCompressionService generationContextCompressionService;
+    private final GenerationContextCompressionService generationContextCompressionService;
 
     @Override
     public String buildGenerationMemoryContext(App app, String userMessage, CodeGenTypeEnum targetType) {

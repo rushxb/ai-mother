@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/rush_ai_code_mother?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:123456}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:7}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+      - http://127.0.0.1:5173
+    allow-credentials: true
+  template-pre-warm:
+    enabled: ${TEMPLATE_PRE_WARM_ENABLED:true}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+code:
+  deploy-host: ${CODE_DEPLOY_HOST:http://localhost:91}

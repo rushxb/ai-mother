@@ -3,11 +3,11 @@
     <div ref="messagesContainerRef" class="messages-container" @scroll="$emit('scroll')">
       <div v-if="hasMoreHistory" class="load-more-container">
         <ChatToolbarButton
-            type="text"
-            class="load-more-button"
-            :loading="loadingHistory"
-            size="small"
-            @click="$emit('loadMoreHistory')"
+          type="text"
+          class="load-more-button"
+          :loading="loadingHistory"
+          size="small"
+          @click="$emit('loadMoreHistory')"
         >
           <template #icon>
             <DownOutlined />
@@ -16,28 +16,30 @@
         </ChatToolbarButton>
       </div>
       <div
-          v-for="(message, index) in messages"
-          :key="index"
-          class="message-item"
-          :class="`message-item-${message.type}`"
+        v-for="(message, index) in messages"
+        :key="message.id"
+        class="message-item"
+        :class="`message-item-${message.type}`"
       >
         <div v-if="message.type === 'user'" class="message-row message-row-user">
           <div class="message-body message-body-user">
             <div class="message-content">{{ message.content }}</div>
             <div class="message-actions message-actions-user">
               <ChatToolbarButton
-                  size="small"
-                  type="text"
-                  class="message-action-button"
-                  :disabled="isGenerating || !isOwner"
-                  @click="$emit('editUserMessage', index)"
+                size="small"
+                type="text"
+                class="message-action-button"
+                :disabled="isGenerating || !isOwner"
+                @click="$emit('editUserMessage', index)"
               >
                 <template #icon>
                   <EditOutlined />
                 </template>
                 编辑
               </ChatToolbarButton>
-              <span v-if="message.createTime" class="message-time">{{ formatMessageTime(message.createTime) }}</span>
+              <span v-if="message.createTime" class="message-time">{{
+                formatMessageTime(message.createTime)
+              }}</span>
             </div>
           </div>
           <div class="message-avatar">
@@ -51,19 +53,19 @@
           <div class="message-body message-body-ai">
             <div class="message-content">
               <div
-                  v-if="message.thinkingContent"
-                  class="thinking-block"
-                  :class="{ collapsed: message.thinkingCollapsed }"
+                v-if="message.thinkingContent"
+                class="thinking-block"
+                :class="{ collapsed: message.thinkingCollapsed }"
               >
                 <button
-                    type="button"
-                    class="thinking-header"
-                    @click="message.thinkingCollapsed = !message.thinkingCollapsed"
+                  type="button"
+                  class="thinking-header"
+                  @click="message.thinkingCollapsed = !message.thinkingCollapsed"
                 >
                   <span class="thinking-status">
                     <span
-                        class="thinking-dot"
-                        :class="{ active: message.thinkingActive && !message.thinkingCollapsed }"
+                      class="thinking-dot"
+                      :class="{ active: message.thinkingActive && !message.thinkingCollapsed }"
                     ></span>
                     {{ message.thinkingActive ? 'AI 正在思考' : '已完成思考' }}
                   </span>
@@ -75,23 +77,20 @@
               </div>
               <template v-if="message.content">
                 <template
-                    v-for="(segment, segmentIndex) in getAiMessageSegments(message)"
-                    :key="`${index}-${segmentIndex}`"
+                  v-for="(segment, segmentIndex) in getAiMessageSegments(message)"
+                  :key="`${index}-${segmentIndex}`"
                 >
-                  <MarkdownRenderer
-                      v-if="segment.type === 'markdown'"
-                      :content="segment.content"
-                  />
+                  <MarkdownRenderer v-if="segment.type === 'markdown'" :content="segment.content" />
                   <button
-                      v-else
-                      type="button"
-                      class="tool-call-file-card"
-                      :class="{ active: isToolCallFileActive(segment.filePath) }"
-                      @click="$emit('openToolCallFile', segment.filePath)"
+                    v-else
+                    type="button"
+                    class="tool-call-file-card"
+                    :class="{ active: isToolCallFileActive(segment.filePath) }"
+                    @click="$emit('openToolCallFile', segment.filePath)"
                   >
                     <span
-                        class="file-type-icon"
-                        :class="`file-type-icon-${getToolCallFileIcon(segment.filePath).type}`"
+                      class="file-type-icon"
+                      :class="`file-type-icon-${getToolCallFileIcon(segment.filePath).type}`"
                     >
                       {{ getToolCallFileIcon(segment.filePath).label }}
                     </span>
@@ -105,20 +104,27 @@
               </template>
               <div v-if="message.agentEvents?.length" class="agent-timeline">
                 <div
-                    v-for="agentEvent in message.agentEvents"
-                    :key="`${agentEvent.dagNode || agentEvent.stage}-${agentEvent.agent}-${agentEvent.status}`"
-                    class="agent-timeline-item"
-                    :class="`agent-timeline-item-${agentEvent.status}`"
+                  v-for="agentEvent in message.agentEvents"
+                  :key="`${agentEvent.dagNode || agentEvent.stage}-${agentEvent.agent}-${agentEvent.status}`"
+                  class="agent-timeline-item"
+                  :class="`agent-timeline-item-${agentEvent.status}`"
                 >
                   <span class="agent-timeline-dot"></span>
                   <div class="agent-timeline-copy">
                     <div class="agent-timeline-title">
                       <strong>{{ agentEvent.agent }}</strong>
-                      <span v-if="agentEvent.dagNode" class="agent-node-chip">{{ agentEvent.dagNode }}</span>
-                      <span v-if="agentEvent.durationMs" class="agent-duration">{{ formatDuration(agentEvent.durationMs) }}</span>
+                      <span v-if="agentEvent.dagNode" class="agent-node-chip">{{
+                        agentEvent.dagNode
+                      }}</span>
+                      <span v-if="agentEvent.durationMs" class="agent-duration">{{
+                        formatDuration(agentEvent.durationMs)
+                      }}</span>
                     </div>
                     <span>{{ agentEvent.summary }}</span>
-                    <div v-if="agentEvent.qualityGate || agentEvent.recoverable" class="agent-timeline-meta">
+                    <div
+                      v-if="agentEvent.qualityGate || agentEvent.recoverable"
+                      class="agent-timeline-meta"
+                    >
                       <span v-if="agentEvent.qualityGate">门禁：{{ agentEvent.qualityGate }}</span>
                       <span v-if="agentEvent.recoverable">可恢复</span>
                     </div>
@@ -126,28 +132,33 @@
                 </div>
               </div>
               <div
-                  v-if="message.buildResult"
-                  class="build-result-card"
-                  :class="`build-result-${message.buildResult.status}`"
+                v-if="message.buildResult"
+                class="build-result-card"
+                :class="`build-result-${message.buildResult.status}`"
               >
                 <div class="build-result-main">
                   <CheckCircleOutlined v-if="message.buildResult.status === 'success'" />
                   <CloseCircleOutlined v-else />
                   <div class="build-result-copy">
-                    <strong>{{ message.buildResult.status === 'success' ? '构建通过' : '构建失败' }}</strong>
+                    <strong>{{
+                      message.buildResult.status === 'success' ? '构建通过' : '构建失败'
+                    }}</strong>
                     <span>{{ message.buildResult.summary }}</span>
                   </div>
                 </div>
-                <a-tag class="build-stage-tag" :color="message.buildResult.status === 'success' ? 'success' : 'error'">
+                <a-tag
+                  class="build-stage-tag"
+                  :color="message.buildResult.status === 'success' ? 'success' : 'error'"
+                >
                   {{ message.buildResult.stage }}
                 </a-tag>
               </div>
               <div v-if="message.generationFailed && isOwner" class="message-retry-row">
                 <ChatToolbarButton
-                    size="small"
-                    type="text"
-                    class="message-retry-button"
-                    @click="$emit('retryLastGeneration')"
+                  size="small"
+                  type="text"
+                  class="message-retry-button"
+                  @click="$emit('retryLastGeneration')"
                 >
                   <template #icon>
                     <RedoOutlined />
@@ -162,10 +173,10 @@
             </div>
             <div class="message-actions message-actions-ai">
               <ChatToolbarButton
-                  size="small"
-                  type="text"
-                  class="message-action-button"
-                  @click="copyMessageAsMarkdown(message, index)"
+                size="small"
+                type="text"
+                class="message-action-button"
+                @click="copyMessageAsMarkdown(message, index)"
               >
                 <template #icon>
                   <CopyOutlined />
@@ -173,11 +184,11 @@
                 {{ copiedIndices.has(index) ? '已复制' : '复制' }}
               </ChatToolbarButton>
               <ChatToolbarButton
-                  size="small"
-                  type="text"
-                  class="message-action-button"
-                  :disabled="isGenerating || !isOwner"
-                  @click="$emit('regenerateAiMessage', index)"
+                size="small"
+                type="text"
+                class="message-action-button"
+                :disabled="isGenerating || !isOwner"
+                @click="$emit('regenerateAiMessage', index)"
               >
                 <template #icon>
                   <RedoOutlined />
@@ -185,11 +196,11 @@
                 重新生成
               </ChatToolbarButton>
               <ChatToolbarButton
-                  size="small"
-                  type="text"
-                  class="message-action-button"
-                  :class="{ active: message.feedback === 'like' }"
-                  @click="$emit('toggleAiFeedback', index, 'like')"
+                size="small"
+                type="text"
+                class="message-action-button"
+                :class="{ active: message.feedback === 'like' }"
+                @click="$emit('toggleAiFeedback', index, 'like')"
               >
                 <template #icon>
                   <LikeOutlined />
@@ -197,18 +208,20 @@
                 喜欢
               </ChatToolbarButton>
               <ChatToolbarButton
-                  size="small"
-                  type="text"
-                  class="message-action-button"
-                  :class="{ active: message.feedback === 'dislike' }"
-                  @click="$emit('toggleAiFeedback', index, 'dislike')"
+                size="small"
+                type="text"
+                class="message-action-button"
+                :class="{ active: message.feedback === 'dislike' }"
+                @click="$emit('toggleAiFeedback', index, 'dislike')"
               >
                 <template #icon>
                   <DislikeOutlined />
                 </template>
                 不喜欢
               </ChatToolbarButton>
-              <span v-if="message.createTime" class="message-time">{{ formatMessageTime(message.createTime) }}</span>
+              <span v-if="message.createTime" class="message-time">{{
+                formatMessageTime(message.createTime)
+              }}</span>
             </div>
           </div>
         </div>
@@ -216,10 +229,10 @@
     </div>
     <Transition name="scroll-bottom-fade">
       <button
-          v-if="showScrollToBottom"
-          type="button"
-          class="scroll-to-bottom"
-          @click="$emit('scrollToBottom')"
+        v-if="showScrollToBottom"
+        type="button"
+        class="scroll-to-bottom"
+        @click="$emit('scrollToBottom')"
       >
         <VerticalAlignBottomOutlined />
         <span class="button-label">回到底部</span>
@@ -242,6 +255,7 @@ import {
   VerticalAlignBottomOutlined,
 } from '@ant-design/icons-vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import type { AiMessageSegment, ChatMessage, FileIconMeta } from './types'
 import ChatToolbarButton from './ChatToolbarButton.vue'
 
@@ -277,18 +291,14 @@ const copiedIndices = ref(new Set<number>())
 
 const copyMessageAsMarkdown = async (message: ChatMessage, index: number) => {
   const text = message.content ?? ''
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
+  const copySucceeded = await copyTextToClipboard(text)
+  if (!copySucceeded) {
+    return
   }
   copiedIndices.value.add(index)
-  setTimeout(() => { copiedIndices.value.delete(index) }, 2000)
+  setTimeout(() => {
+    copiedIndices.value.delete(index)
+  }, 2000)
 }
 
 defineExpose({
@@ -308,7 +318,12 @@ defineExpose({
   height: 100%;
   padding: 18px 24px 80px;
   overflow-y: auto;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(47, 139, 255, 0.055), transparent 30%),
+    radial-gradient(circle at 86% 72%, rgba(60, 201, 187, 0.045), transparent 32%);
   scroll-behavior: smooth;
+  scrollbar-color: rgba(112, 140, 175, 0.35) transparent;
+  scrollbar-width: thin;
 }
 
 .scroll-to-bottom {
@@ -320,14 +335,14 @@ defineExpose({
   gap: 0;
   height: 38px;
   padding: 0 12px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
-  color: #0f172a;
+  background: var(--chat-surface, rgba(255, 255, 255, 0.9));
+  color: var(--chat-ink-strong, #102033);
   font-size: 13px;
   font-weight: 600;
   box-shadow:
-    0 14px 28px rgba(15, 23, 42, 0.1),
+    var(--chat-shadow-soft, 0 12px 30px rgba(67, 94, 130, 0.09)),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(14px);
   cursor: pointer;
@@ -386,8 +401,8 @@ defineExpose({
 }
 
 .message-item {
-  margin-bottom: 16px;
-  animation: messageRise 0.28s ease;
+  margin-bottom: 18px;
+  animation: messageRise 0.34s var(--chat-ease, ease);
 }
 
 .message-item-user + .message-item-ai,
@@ -410,7 +425,7 @@ defineExpose({
 }
 
 .message-body {
-  max-width: 70%;
+  max-width: min(76%, 760px);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -427,10 +442,12 @@ defineExpose({
 .message-content {
   max-width: 100%;
   padding: 14px 18px;
-  border-radius: 20px;
+  border-radius: 19px;
   line-height: 1.7;
   word-wrap: break-word;
-  transition: transform 0.24s ease, box-shadow 0.24s ease;
+  transition:
+    transform 0.28s var(--chat-ease, ease),
+    box-shadow 0.28s var(--chat-ease, ease);
 }
 
 .message-content:hover {
@@ -438,19 +455,23 @@ defineExpose({
 }
 
 .message-body-user .message-content {
-  background: linear-gradient(135deg, #1677ff 0%, #3b82f6 100%);
+  background: linear-gradient(
+    135deg,
+    var(--chat-primary, #2f8bff),
+    var(--chat-primary-strong, #176fdd)
+  );
   color: white;
   border-top-right-radius: 8px;
-  box-shadow: 0 14px 30px rgba(22, 119, 255, 0.2);
+  box-shadow: 0 14px 30px rgba(47, 139, 255, 0.2);
 }
 
 .message-body-ai .message-content {
-  background: rgba(255, 255, 255, 0.92);
-  color: #0f172a;
+  background: var(--chat-surface-strong, rgba(255, 255, 255, 0.97));
+  color: var(--chat-ink-strong, #102033);
   padding: 14px 18px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  border: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
   border-top-left-radius: 8px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--chat-shadow-soft, 0 12px 30px rgba(67, 94, 130, 0.09));
 }
 
 .message-body-ai .message-content > :deep(.markdown-content + .markdown-content) {
@@ -463,7 +484,7 @@ defineExpose({
   flex-wrap: wrap;
   gap: 6px;
   min-height: 24px;
-  color: #94a3b8;
+  color: var(--chat-ink-soft, #6f8198);
   font-size: 12px;
   opacity: 0;
   pointer-events: none;
@@ -489,13 +510,13 @@ defineExpose({
   height: 24px;
   padding: 0 7px;
   border-radius: 999px;
-  color: #64748b;
+  color: var(--chat-ink-soft, #6f8198);
   font-size: 12px;
 }
 
 .message-action-button.active {
-  color: #1677ff;
-  background: rgba(22, 119, 255, 0.08);
+  color: var(--chat-primary-strong, #176fdd);
+  background: rgba(47, 139, 255, 0.08);
 }
 
 .message-time {
@@ -507,9 +528,9 @@ defineExpose({
 .thinking-block {
   margin-bottom: 12px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
   border-radius: 14px;
-  background: rgba(248, 250, 252, 0.88);
+  background: var(--chat-surface-soft, rgba(246, 249, 253, 0.86));
 }
 
 .thinking-header {
@@ -522,7 +543,7 @@ defineExpose({
   padding: 8px 12px;
   border: 0;
   background: transparent;
-  color: #475569;
+  color: var(--chat-ink, #2f4158);
   font-size: 13px;
   font-weight: 600;
   text-align: left;
@@ -544,8 +565,8 @@ defineExpose({
 }
 
 .thinking-dot.active {
-  background: #1677ff;
-  box-shadow: 0 0 0 5px rgba(22, 119, 255, 0.1);
+  background: var(--chat-primary, #2f8bff);
+  box-shadow: 0 0 0 5px rgba(47, 139, 255, 0.1);
   animation: pulse 1.6s ease-in-out infinite;
 }
 
@@ -563,7 +584,7 @@ defineExpose({
   max-height: 220px;
   overflow: auto;
   padding: 0 12px 12px 27px;
-  color: #64748b;
+  color: var(--chat-ink-soft, #6f8198);
   font-size: 13px;
   line-height: 1.7;
   white-space: pre-wrap;
@@ -577,9 +598,9 @@ defineExpose({
   gap: 12px;
   margin-top: 10px;
   padding: 12px 14px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
   border-radius: 14px;
-  background: rgba(248, 250, 252, 0.82);
+  background: var(--chat-surface-soft, rgba(246, 249, 253, 0.86));
   text-align: left;
   cursor: pointer;
   transition:
@@ -591,14 +612,14 @@ defineExpose({
 
 .tool-call-file-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(22, 119, 255, 0.26);
-  background: rgba(240, 247, 255, 0.92);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+  border-color: rgba(47, 139, 255, 0.28);
+  background: rgba(239, 247, 255, 0.94);
+  box-shadow: var(--chat-shadow-soft, 0 12px 30px rgba(67, 94, 130, 0.09));
 }
 
 .tool-call-file-card.active {
-  border-color: rgba(22, 119, 255, 0.32);
-  background: rgba(240, 247, 255, 0.96);
+  border-color: rgba(47, 139, 255, 0.36);
+  background: rgba(239, 247, 255, 0.98);
 }
 
 .tool-call-file-main {
@@ -610,14 +631,14 @@ defineExpose({
 }
 
 .tool-call-file-label {
-  color: #0f172a;
+  color: var(--chat-ink-strong, #102033);
   font-size: 13px;
   font-weight: 700;
 }
 
 .tool-call-file-path {
   overflow: hidden;
-  color: #64748b;
+  color: var(--chat-ink-soft, #6f8198);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -625,7 +646,7 @@ defineExpose({
 
 .tool-call-file-action {
   flex: none;
-  color: #1677ff;
+  color: var(--chat-primary-strong, #176fdd);
   font-size: 12px;
   font-weight: 700;
 }

@@ -141,7 +141,7 @@ public class HeavyGenerationBuildValidationService {
         GenerationPerformanceMonitorService.SpanTimer span =
                 generationPerformanceMonitorService.startSpan(preparation.taskId(), "dev_server_validation");
         DevServerValidationResult dsResult = devServerValidationService.validate(
-                preparation.taskId(), appId, loginUser.getId(), projectPath);
+                preparation.taskId(), appId, loginUser.getId(), preparation.targetType());
         if (dsResult.isPassed()) {
             span.success();
         } else {

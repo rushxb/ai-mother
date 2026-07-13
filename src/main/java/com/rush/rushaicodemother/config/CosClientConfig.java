@@ -5,65 +5,31 @@ import com.qcloud.cos.ClientConfig;
 import com.qcloud.cos.auth.BasicCOSCredentials;
 import com.qcloud.cos.auth.COSCredentials;
 import com.qcloud.cos.region.Region;
-import cn.hutool.core.util.StrUtil;
-import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 
 /**
- * 腾讯云COS配置类
- * 
- * @author rush
+ * 腾讯云 COS 客户端装配。
  */
 @Configuration
-@ConfigurationProperties(prefix = "cos.client")
-@Data
+@RequiredArgsConstructor
+@EnableConfigurationProperties(CosClientProperties.class)
 public class CosClientConfig {
 
-    /**
-     * 是否启用 COS 客户端。
-     */
-    private boolean enabled;
+    private final CosClientProperties properties;
 
-    /**
-     * 域名
-     */
-    private String host;
-
-    /**
-     * secretId
-     */
-    private String secretId;
-
-    /**
-     * 密钥（注意不要泄露）
-     */
-    private String secretKey;
-
-    /**
-     * 区域
-     */
-    private String region;
-
-    /**
-     * 桶名
-     */
-    private String bucket;
-
-    @Bean
+    @Bean(destroyMethod = "shutdown")
     @ConditionalOnProperty(prefix = "cos.client", name = "enabled", havingValue = "true")
     public COSClient cosClient() {
-        if (StrUtil.hasBlank(secretId, secretKey, region, bucket)) {
-            throw new IllegalStateException("COS 配置不完整，无法初始化 COSClient");
-        }
-        // 初始化用户身份信息(secretId, secretKey)
-        COSCredentials cred = new BasicCOSCredentials(secretId, secretKey);
-        // 设置bucket的区域, COS地域的简称请参照 https://www.qcloud.com/document/product/436/6224
-        ClientConfig clientConfig = new ClientConfig(new Region(region));
-        // 生成cos客户端
-        return new COSClient(cred, clientConfig);
+        COSCredentials credentials = new BasicCOSCredentials(
+                properties.getSecretId(),
+                properties.getSecretKey()
+        );
+        ClientConfig clientConfig = new ClientConfig(new Region(properties.getRegion()));
+        return new COSClient(credentials, clientConfig);
     }
 }

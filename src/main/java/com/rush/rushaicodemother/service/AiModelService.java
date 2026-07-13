@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
-import com.rush.rushaicodemother.controller.AiModelController.AiModelQueryRequest;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelQueryRequest;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 
@@ -37,6 +37,11 @@ public interface AiModelService extends IService<AiModel> {
      * 获取指定类型的可执行启用模型
      */
     List<AiModel> listRunnableEnabledModelsByType(String modelType);
+
+    /**
+     * 校验生成应用所需的快速模型和思考模型是否已配置。
+     */
+    void ensureGenerationModelsConfigured();
 
     /**
      * 根据提供商和模型ID获取模型
@@ -74,7 +79,7 @@ public interface AiModelService extends IService<AiModel> {
     AiModel toggleModelEnabled(Long modelId);
 
     /**
-     * 新增模型，并根据启用状态维护单活模型约束。
+     * 新增模型，并根据启用状态维护同类型单活模型约束。
      *
      * @param model 模型配置
      * @return 是否保存成功
@@ -82,7 +87,7 @@ public interface AiModelService extends IService<AiModel> {
     boolean saveModel(AiModel model);
 
     /**
-     * 更新模型，并根据启用状态维护单活模型约束。
+     * 更新模型，并根据启用状态维护同类型单活模型约束。
      *
      * @param model 模型配置
      * @return 是否更新成功

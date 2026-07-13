@@ -1,5 +1,8 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.service.AiModelCatalogService;
@@ -8,10 +11,8 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import dev.langchain4j.model.openai.internal.chat.Thinking;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -25,215 +26,111 @@ import java.util.List;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class StreamingModelFactory {
 
-    @Resource
-    private AiModelMonitorListener aiModelMonitorListener;
+    private static final String MODEL_TYPE_CHAT = "chat";
+    private static final String MODEL_TYPE_REASONING = "reasoning";
 
-    @Resource
-    private AiModelService aiModelService;
+    private final AiModelMonitorListener aiModelMonitorListener;
 
-    @Resource
-    private AiModelCatalogService aiModelCatalogService;
+    private final AiModelService aiModelService;
 
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.base-url}")
-    private String reasoningBaseUrl;
+    private final AiModelCatalogService aiModelCatalogService;
 
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.api-key}")
-    private String reasoningApiKey;
+    private final AiModelRuntimeProperties runtimeProperties;
 
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.model-name}")
-    private String reasoningModelName;
-
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.max-tokens}")
-    private Integer reasoningMaxTokens;
-
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.temperature}")
-    private Double reasoningTemperature;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.base-url}")
-    private String routingBaseUrl;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.api-key}")
-    private String routingApiKey;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.model-name}")
-    private String routingModelName;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.max-tokens}")
-    private Integer routingMaxTokens;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.temperature:#{null}}")
-    private Double routingTemperature;
-
-    @Value("${langchain4j.open-ai.streaming-chat-model.base-url}")
-    private String flashBaseUrl;
-
-    @Value("${langchain4j.open-ai.streaming-chat-model.api-key}")
-    private String flashApiKey;
-
-    @Value("${langchain4j.open-ai.streaming-chat-model.model-name}")
-    private String flashModelName;
-
-    @Value("${langchain4j.open-ai.streaming-chat-model.max-tokens}")
-    private Integer flashMaxTokens;
-
-    @Value("${langchain4j.open-ai.streaming-chat-model.temperature:#{null}}")
-    private Double flashTemperature;
-
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.log-requests:false}")
-    private boolean logRequests;
-
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.log-responses:false}")
-    private boolean logResponses;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.log-requests:false}")
-    private boolean routingLogRequests;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.log-responses:false}")
-    private boolean routingLogResponses;
-
-    @Value("${langchain4j.open-ai.slot-fill-chat-model.timeout-seconds:20}")
-    private Integer slotFillTimeoutSeconds;
-
-    @Value("${langchain4j.open-ai.slot-fill-chat-model.max-retries:0}")
-    private Integer slotFillMaxRetries;
+    private final OpenAiThinkingPolicy openAiThinkingPolicy;
 
     /**
      * 根据性能配置创建流式模型。
      * <p>
-     * 优先从数据库读取模型配置，如果数据库中没有配置，则使用配置文件的默认配置。
+     * 模型配置统一从数据库读取。
      *
      * @param profile 性能配置
      * @return 流式模型实例
      */
     public StreamingChatModel createModel(GenerationPerformanceProfile profile) {
         String modelType = resolveModelType(profile.modelTier());
-        AiModel dbModel = getPreferredEnabledModel(modelType);
-
-        if (dbModel != null) {
-            log.info("使用数据库模型配置: provider={}, modelId={}, modelType={}, baseUrl={}",
-                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getModelType(), dbModel.getBaseUrl());
-            return createModelFromDb(dbModel, profile.thinkingEnabled());
-        }
-
-        log.warn("未找到可运行的已启用 {} 模型，回退到配置文件默认模型", modelType);
-        return switch (profile.modelTier()) {
-            case SPEED, BALANCED -> createFlashModel(profile.thinkingEnabled());
-            case QUALITY -> createReasoningModel(profile.thinkingEnabled());
-        };
+        AiModel dbModel = getRequiredEnabledModelByType(modelType, "生成性能配置 " + profile.modelTier());
+        log.info("使用数据库生成模型配置: provider={}, modelId={}, modelType={}, baseUrl={}, thinking={}",
+                dbModel.getProvider(), dbModel.getModelId(), dbModel.getModelType(), dbModel.getBaseUrl(),
+                profile.thinkingEnabled());
+        return createModelFromDb(dbModel, profile.thinkingEnabled());
     }
 
     /**
      * 创建普通对话流式模型。
      * <p>
-     * 优先从数据库读取 chat 类型模型，找不到时回退到配置文件默认模型。
+     * 从数据库读取 chat 类型模型。
      */
     public StreamingChatModel createChatModel() {
-        AiModel dbModel = getPreferredEnabledModel("chat");
-        if (dbModel != null) {
-            log.info("使用数据库普通模型配置: provider={}, modelId={}, baseUrl={}",
-                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
-            return createModelFromDb(dbModel, false);
-        }
-        log.warn("未找到可运行的已启用 chat 模型，回退到配置文件默认普通模型");
-        return createFlashModel(false);
+        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "普通对话/快速流式任务");
+        log.info("使用数据库快速流式模型配置: provider={}, modelId={}, baseUrl={}",
+                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
+        return createModelFromDb(dbModel, false);
     }
 
     /**
      * 创建推理流式模型。
      * <p>
-     * 优先从数据库读取 reasoning 类型模型，找不到时回退到配置文件默认推理模型。
+     * 从数据库读取 reasoning 类型模型。
      */
     public StreamingChatModel createReasoningModel() {
-        AiModel dbModel = getPreferredEnabledModel("reasoning");
-        if (dbModel != null) {
-            log.info("使用数据库推理模型配置: provider={}, modelId={}, baseUrl={}",
-                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
-            return createModelFromDb(dbModel, true);
-        }
-        log.warn("未找到可运行的已启用 reasoning 模型，回退到配置文件默认推理模型");
-        return createReasoningModel(true);
+        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_REASONING, "思考/重型生成任务");
+        log.info("使用数据库思考流式模型配置: provider={}, modelId={}, baseUrl={}",
+                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
+        return createModelFromDb(dbModel, true);
     }
 
     /**
      * 创建路由/轻量同步模型。
      * <p>
-     * 优先使用数据库 chat 类型模型，找不到时降级到配置文件中的 routing-chat-model。
+     * 使用数据库 chat 类型模型。
      */
     public ChatModel createRoutingChatModel() {
-        AiModel dbModel = getPreferredEnabledModel("chat");
-        if (dbModel != null) {
-            log.info("使用数据库路由模型配置: provider={}, modelId={}, baseUrl={}",
-                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
-            return createChatModelFromDb(dbModel);
-        }
-        log.warn("未找到可运行的已启用 chat 模型，回退到配置文件默认路由模型");
-        var builder = OpenAiChatModel.builder()
-                .apiKey(routingApiKey)
-                .baseUrl(routingBaseUrl)
-                .modelName(routingModelName)
-                .maxTokens(routingMaxTokens)
-                .temperature(routingTemperature)
-                .logRequests(routingLogRequests)
-                .logResponses(routingLogResponses);
-        applyThinking(builder, routingModelName, false);
-        return builder.build();
+        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "路由/意图/轻量同步任务");
+        log.info("使用数据库快速同步模型配置: usage=routing, provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
+                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
+                runtimeProperties.getRoutingTimeout().toSeconds(), runtimeProperties.getRoutingMaxRetries());
+        return createChatModelFromDb(
+                dbModel,
+                runtimeProperties.getRoutingTimeout(),
+                runtimeProperties.getRoutingMaxRetries(),
+                false
+        );
     }
 
     /**
-     * 创建 CREATE slot 填充同步模型。
+     * 创建 CREATE 创意规格同步模型。
      * <p>
-     * 首次生成的目标是模板驱动下快速产出，slot fill 不应该被默认 60s read timeout
-     * 和 2 次自动重试拖成数分钟等待。这里复用 routing/chat 模型来源，但使用更短超时和
-     * 可配置重试次数，失败后由 CREATE 任务直接把明确原因推送给前端。
+     * 该调用只生成小型 JSON spec，不生成代码或大 patch，因此主链路可以保持短超时。
      */
-    public ChatModel createSlotFillChatModel() {
-        AiModel dbModel = getPreferredEnabledModel("chat");
-        if (dbModel != null) {
-            log.info("使用数据库 SlotFill 模型配置: provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
-                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
-                    normalizedSlotFillTimeoutSeconds(), normalizedSlotFillMaxRetries());
-            return createChatModelFromDb(dbModel, normalizedSlotFillTimeout(), normalizedSlotFillMaxRetries());
-        }
-        log.warn("未找到可运行的已启用 chat 模型，回退到配置文件默认 SlotFill 模型");
-        var builder = OpenAiChatModel.builder()
-                .apiKey(routingApiKey)
-                .baseUrl(routingBaseUrl)
-                .modelName(routingModelName)
-                .maxTokens(routingMaxTokens)
-                .temperature(routingTemperature)
-                .timeout(normalizedSlotFillTimeout())
-                .maxRetries(normalizedSlotFillMaxRetries())
-                .logRequests(routingLogRequests)
-                .logResponses(routingLogResponses);
-        applyThinking(builder, routingModelName, false);
-        return builder.build();
+    public ChatModel createCreateSpecChatModel() {
+        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "CREATE 创意规格生成任务");
+        log.info("使用数据库 CREATE Spec 快速模型配置: provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
+                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
+                runtimeProperties.getCreateSpecTimeout().toSeconds(), 0);
+        return createChatModelFromDb(dbModel, runtimeProperties.getCreateSpecTimeout(), 0, false);
     }
 
     /**
      * 创建主同步模型。
      * <p>
-     * 优先使用数据库 reasoning 类型模型，其次 chat 类型模型，最后降级到配置文件。
+     * 使用数据库 reasoning 类型模型。
      */
     public ChatModel createPrimaryChatModel() {
-        AiModel dbModel = getPreferredEnabledModel("reasoning");
-        if (dbModel != null) {
-            log.info("使用数据库主模型配置: provider={}, modelId={}, baseUrl={}",
-                    dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
-            return createChatModelFromDb(dbModel);
-        }
-        log.warn("未找到可运行的已启用主模型，回退到配置文件默认主模型");
-        var builder = OpenAiChatModel.builder()
-                .apiKey(reasoningApiKey)
-                .baseUrl(reasoningBaseUrl)
-                .modelName(reasoningModelName)
-                .maxTokens(reasoningMaxTokens)
-                .temperature(reasoningTemperature)
-                .logRequests(logRequests)
-                .logResponses(logResponses);
-        applyThinking(builder, reasoningModelName, true);
-        return builder.build();
+        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_REASONING, "主同步思考任务");
+        log.info("使用数据库主思考模型配置: provider={}, modelId={}, baseUrl={}",
+                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
+        return createChatModelFromDb(
+                dbModel,
+                null,
+                null,
+                true,
+                runtimeProperties.isGenerationLogRequests(),
+                runtimeProperties.isGenerationLogResponses()
+        );
     }
 
     /**
@@ -241,42 +138,29 @@ public class StreamingModelFactory {
      */
     private String resolveModelType(GenerationPerformanceProfile.ModelTier modelTier) {
         return switch (modelTier) {
-            case SPEED, BALANCED -> "chat";
-            case QUALITY -> "reasoning";
+            case SPEED, BALANCED -> MODEL_TYPE_CHAT;
+            case QUALITY -> MODEL_TYPE_REASONING;
         };
     }
 
-    /**
-     * 获取指定类型的第一个启用模型
-     */
-    private AiModel getFirstEnabledModelByType(String modelType) {
+    private AiModel getRequiredEnabledModelByType(String modelType, String usage) {
         try {
             List<AiModel> models = aiModelService.listRunnableEnabledModelsByType(modelType);
             if (models.isEmpty()) {
-                return null;
+                throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                        "请联系系统管理员配置可用的" + modelTypeLabel(modelType) + "模型，用于" + usage);
             }
             return aiModelCatalogService.normalizeForRuntime(models.get(0));
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            log.warn("从数据库获取模型配置失败，将使用默认配置", e);
-            return null;
+            log.error("读取 {} 模型配置失败，usage={}", modelType, usage, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "读取 AI 模型配置失败");
         }
     }
 
-    /**
-     * 获取优先类型的启用模型；如果没有该类型，使用任意启用模型。
-     */
-    private AiModel getPreferredEnabledModel(String preferredModelType) {
-        AiModel preferredModel = getFirstEnabledModelByType(preferredModelType);
-        if (preferredModel != null) {
-            return preferredModel;
-        }
-        try {
-            List<AiModel> models = aiModelService.listRunnableEnabledModels();
-            return models.isEmpty() ? null : aiModelCatalogService.normalizeForRuntime(models.get(0));
-        } catch (Exception e) {
-            log.warn("从数据库获取启用模型配置失败，将使用默认配置", e);
-            return null;
-        }
+    private String modelTypeLabel(String modelType) {
+        return MODEL_TYPE_REASONING.equals(modelType) ? "思考" : "快速";
     }
 
     /**
@@ -292,8 +176,9 @@ public class StreamingModelFactory {
                 .baseUrl(dbModel.getBaseUrl())
                 .modelName(dbModel.getModelId())
                 .temperature(resolveTemperature(dbModel))
-                .logRequests(logRequests)
-                .logResponses(logResponses)
+                .logRequests(runtimeProperties.isGenerationLogRequests())
+                .logResponses(runtimeProperties.isGenerationLogResponses())
+                .timeout(runtimeProperties.getGenerationTimeout())
                 .listeners(List.of(aiModelMonitorListener));
 
         applyMaxTokens(builder, dbModel);
@@ -302,21 +187,40 @@ public class StreamingModelFactory {
         return builder.build();
     }
 
-    private ChatModel createChatModelFromDb(AiModel dbModel) {
-        return createChatModelFromDb(dbModel, null, null);
+    private ChatModel createChatModelFromDb(AiModel dbModel, Duration timeout, Integer maxRetries) {
+        return createChatModelFromDb(dbModel, timeout, maxRetries, false);
     }
 
-    private ChatModel createChatModelFromDb(AiModel dbModel, Duration timeout, Integer maxRetries) {
+    private ChatModel createChatModelFromDb(AiModel dbModel,
+                                            Duration timeout,
+                                            Integer maxRetries,
+                                            boolean enableThinking) {
+        return createChatModelFromDb(
+                dbModel,
+                timeout,
+                maxRetries,
+                enableThinking,
+                runtimeProperties.isRoutingLogRequests(),
+                runtimeProperties.isRoutingLogResponses()
+        );
+    }
+
+    private ChatModel createChatModelFromDb(AiModel dbModel,
+                                            Duration timeout,
+                                            Integer maxRetries,
+                                            boolean enableThinking,
+                                            boolean requestLogging,
+                                            boolean responseLogging) {
         var builder = OpenAiChatModel.builder()
                 .apiKey(dbModel.getApiKey())
                 .baseUrl(dbModel.getBaseUrl())
                 .modelName(dbModel.getModelId())
                 .temperature(resolveTemperature(dbModel))
-                .logRequests(routingLogRequests)
-                .logResponses(routingLogResponses);
+                .logRequests(requestLogging)
+                .logResponses(responseLogging);
 
         applyMaxTokens(builder, dbModel);
-        applyThinking(builder, dbModel, false);
+        applyThinking(builder, dbModel, enableThinking);
         if (timeout != null) {
             builder.timeout(timeout);
         }
@@ -325,51 +229,6 @@ public class StreamingModelFactory {
         }
 
         return builder.build();
-    }
-
-    private Duration normalizedSlotFillTimeout() {
-        return Duration.ofSeconds(normalizedSlotFillTimeoutSeconds());
-    }
-
-    private int normalizedSlotFillTimeoutSeconds() {
-        if (slotFillTimeoutSeconds == null || slotFillTimeoutSeconds < 3) {
-            return 20;
-        }
-        return slotFillTimeoutSeconds;
-    }
-
-    private int normalizedSlotFillMaxRetries() {
-        if (slotFillMaxRetries == null || slotFillMaxRetries < 0) {
-            return 0;
-        }
-        return slotFillMaxRetries;
-    }
-
-    /**
-     * 判断是否为支持 thinking 的模型
-     * 支持 thinking 的模型包括：
-     * - DeepSeek V4 系列 (deepseek-v4-*)
-     * - OpenAI o1/o3 系列
-     * - Claude 3.5 Sonnet / Claude 3 Opus
-     * - Xiaomi MiMo V2 系列
-     */
-    private boolean isThinkingCapableModel(String modelId) {
-        if (modelId == null) return false;
-        String lower = modelId.toLowerCase();
-        
-        // DeepSeek V4 系列
-        if (lower.startsWith("deepseek-v4-")) return true;
-        
-        // OpenAI o1/o3 系列
-        if (lower.startsWith("o1") || lower.startsWith("o3")) return true;
-        
-        // Claude 3.5 Sonnet / Claude 3 Opus
-        if (lower.contains("claude-3-5-sonnet") || lower.contains("claude-3-opus")) return true;
-
-        // Xiaomi MiMo V2 系列
-        if (lower.startsWith("mimo-v2")) return true;
-        
-        return false;
     }
 
     /**
@@ -405,59 +264,15 @@ public class StreamingModelFactory {
         return temp;
     }
 
-    /**
-     * 创建轻量 Flash 模型。
-     * <p>
-     * 用于首次简单生成和改修场景，响应速度快。
-     * 注意：此方法使用配置文件中的默认配置。
-     */
-    private StreamingChatModel createFlashModel(boolean enableThinking) {
-        log.debug("创建 Flash 模型, thinking={}", enableThinking);
-
-        var builder = OpenAiStreamingChatModel.builder()
-                .apiKey(flashApiKey)
-                .baseUrl(flashBaseUrl)
-                .modelName(flashModelName)
-                .maxTokens(flashMaxTokens)
-                .temperature(flashTemperature)
-                .logRequests(logRequests)
-                .logResponses(logResponses)
-                .listeners(List.of(aiModelMonitorListener));
-
-        applyThinking(builder, flashModelName, enableThinking);
-
-        return builder.build();
-    }
-
-    /**
-     * 创建推理 Reasoning 模型。
-     * <p>
-     * 用于复杂任务，开启 thinking 以获得更好的推理能力。
-     * 注意：此方法使用配置文件中的默认配置。
-     */
-    private StreamingChatModel createReasoningModel(boolean enableThinking) {
-        log.debug("创建 Reasoning 模型, thinking={}", enableThinking);
-
-        var builder = OpenAiStreamingChatModel.builder()
-                .apiKey(reasoningApiKey)
-                .baseUrl(reasoningBaseUrl)
-                .modelName(reasoningModelName)
-                .maxTokens(reasoningMaxTokens)
-                .temperature(reasoningTemperature)
-                .logRequests(logRequests)
-                .logResponses(logResponses)
-                .listeners(List.of(aiModelMonitorListener));
-
-        applyThinking(builder, reasoningModelName, enableThinking);
-
-        return builder.build();
-    }
-
     private void applyThinking(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
                                AiModel model,
                                boolean enableThinking) {
-        if (model != null && Integer.valueOf(1).equals(model.getSupportsThinking())) {
-            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        OpenAiThinkingPolicy.ThinkingConfiguration configuration =
+                openAiThinkingPolicy.resolve(model, enableThinking);
+        builder.returnThinking(configuration.returnThinking())
+                .sendThinking(configuration.sendThinking());
+        if (!configuration.customParameters().isEmpty()) {
+            builder.customParameters(configuration.customParameters());
         }
     }
 
@@ -491,24 +306,14 @@ public class StreamingModelFactory {
     private void applyThinking(OpenAiChatModel.OpenAiChatModelBuilder builder,
                                AiModel model,
                                boolean enableThinking) {
-        if (model != null && Integer.valueOf(1).equals(model.getSupportsThinking())) {
-            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        OpenAiThinkingPolicy.ThinkingConfiguration configuration =
+                openAiThinkingPolicy.resolve(model, enableThinking);
+        builder.returnThinking(configuration.returnThinking())
+                .sendThinking(configuration.sendThinking());
+        if (!configuration.customParameters().isEmpty()) {
+            builder.customParameters(configuration.customParameters());
         }
     }
 
-    private void applyThinking(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
-                               String modelName,
-                               boolean enableThinking) {
-        if (isThinkingCapableModel(modelName)) {
-            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
-        }
-    }
-
-    private void applyThinking(OpenAiChatModel.OpenAiChatModelBuilder builder,
-                               String modelName,
-                               boolean enableThinking) {
-        if (isThinkingCapableModel(modelName)) {
-            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
-        }
-    }
 }
+

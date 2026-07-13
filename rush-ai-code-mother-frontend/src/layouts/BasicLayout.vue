@@ -25,8 +25,11 @@ import GlobalHeader from '@/components/GlobalHeader.vue'
 import GlobalFooter from '@/components/GlobalFooter.vue'
 
 const route = useRoute()
-const isAuthPage = computed(() =>
-  route.path === '/user/login' || route.path === '/user/register' || route.path === '/user/success',
+const isAuthPage = computed(
+  () =>
+    route.path === '/user/login' ||
+    route.path === '/user/register' ||
+    route.path === '/user/success',
 )
 const isChatPage = computed(() => route.path.startsWith('/app/chat/'))
 const showHeader = computed(() => !isChatPage.value && route.path !== '/user/success')
@@ -40,7 +43,9 @@ const transitionName = computed(() => {
 
 <style scoped>
 .basic-layout {
-  background: #f8fafc;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(47, 139, 255, 0.055), transparent 28%),
+    var(--color-surface-soft);
   min-height: 100vh;
 }
 
@@ -60,7 +65,7 @@ const transitionName = computed(() => {
   flex: 1;
   width: 100%;
   padding: 0;
-  background: #f8fafc;
+  background: transparent;
   margin: 0;
   min-height: 0;
 }
@@ -81,9 +86,9 @@ const transitionName = computed(() => {
 .route-chat-enter-active,
 .route-chat-leave-active {
   transition:
-    opacity 0.24s ease,
-    transform 0.28s ease,
-    filter 0.28s ease;
+    opacity 0.28s var(--ease-out),
+    transform 0.34s var(--ease-out),
+    filter 0.34s var(--ease-out);
 }
 
 .route-slide-enter-from {
@@ -114,5 +119,24 @@ const transitionName = computed(() => {
 
 .route-chat-leave-to {
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-slide-enter-active,
+  .route-slide-leave-active,
+  .route-fade-enter-active,
+  .route-fade-leave-active,
+  .route-chat-enter-active,
+  .route-chat-leave-active {
+    transition: opacity 0.01ms linear;
+  }
+
+  .route-slide-enter-from,
+  .route-slide-leave-to,
+  .route-fade-enter-from,
+  .route-fade-leave-to {
+    filter: none;
+    transform: none;
+  }
 }
 </style>

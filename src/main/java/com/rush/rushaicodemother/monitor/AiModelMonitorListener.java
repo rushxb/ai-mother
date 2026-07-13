@@ -5,7 +5,7 @@ import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.listener.ChatModelRequestContext;
 import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import dev.langchain4j.model.output.TokenUsage;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 
@@ -18,6 +18,7 @@ import java.util.Map;
  * AI 模型监听器
  */
 @Component
+@RequiredArgsConstructor
 public class AiModelMonitorListener implements ChatModelListener {
 
     // 用于存储请求开始时间的键
@@ -25,11 +26,9 @@ public class AiModelMonitorListener implements ChatModelListener {
     // 用于监控上下文传递（因为请求和响应事件的触发不是同一个线程）
     private static final String MONITOR_CONTEXT_KEY = "monitor_context";
 
-    @Resource
-    private AiModelMetricsCollector aiModelMetricsCollector;
+    private final AiModelMetricsCollector aiModelMetricsCollector;
 
-    @Resource
-    private GenerationTraceService generationTraceService;
+    private final GenerationTraceService generationTraceService;
 
     @Override
     public void onRequest(ChatModelRequestContext requestContext) {

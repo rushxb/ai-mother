@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>简单网页</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      font-family: Georgia, "Times New Roman", "Microsoft YaHei", serif;
+      background: #f6f0e6;
+      color: #24201b;
+    }
+
+    main {
+      width: min(920px, 100%);
+      padding: 56px;
+      border: 1px solid #24201b;
+      background: #fffaf1;
+      box-shadow: 16px 16px 0 #24201b;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 34px;
+      height: 2px;
+      background: #c9442f;
+    }
+
+    h1 {
+      max-width: 680px;
+      font-size: clamp(42px, 8vw, 86px);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    p {
+      max-width: 620px;
+      margin-top: 24px;
+      font-size: 20px;
+      line-height: 1.8;
+      color: #5e5448;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 38px;
+    }
+
+    a,
+    button {
+      min-height: 46px;
+      border: 1px solid #24201b;
+      padding: 0 20px;
+      font: 700 15px/1 "Microsoft YaHei", sans-serif;
+      color: #24201b;
+      background: #f7d15c;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 5px 5px 0 #24201b;
+      transition: transform 160ms ease, box-shadow 160ms ease;
+    }
+
+    a {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    button {
+      background: #ffffff;
+    }
+
+    a:hover,
+    button:hover {
+      transform: translate(2px, 2px);
+      box-shadow: 3px 3px 0 #24201b;
+    }
+
+    .time {
+      margin-top: 42px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(36, 32, 27, 0.24);
+      font: 15px/1.6 "Microsoft YaHei", sans-serif;
+      color: #7b6d5d;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 18px;
+      }
+
+      main {
+        padding: 34px 24px;
+        box-shadow: 9px 9px 0 #24201b;
+      }
+
+      p {
+        font-size: 17px;
+      }
+
+      a,
+      button {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Simple HTML Page</div>
+    <h1>你好，这是一个简单网页。</h1>
+    <p>它是一个纯 HTML、CSS 和 JavaScript 页面，可以直接打开，也可以部署到静态服务上展示。</p>
+    <div class="actions">
+      <a href="https://www.example.com" target="_blank" rel="noreferrer">访问示例链接</a>
+      <button type="button" id="themeButton">切换颜色</button>
+    </div>
+    <div class="time" id="timeText"></div>
+  </main>
+  <script>
+    const themes = [
+      { page: '#f6f0e6', panel: '#fffaf1', accent: '#f7d15c' },
+      { page: '#dfe8df', panel: '#f8fff7', accent: '#9fcf91' },
+      { page: '#efe3dc', panel: '#fff8f2', accent: '#e99b78' }
+    ];
+    let themeIndex = 0;
+
+    function updateTime() {
+      const text = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+      document.getElementById('timeText').textContent = `当前时间：${text}`;
+    }
+
+    document.getElementById('themeButton').addEventListener('click', () => {
+      themeIndex = (themeIndex + 1) % themes.length;
+      const theme = themes[themeIndex];
+      document.body.style.background = theme.page;
+      document.querySelector('main').style.background = theme.panel;
+      document.querySelector('a').style.background = theme.accent;
+    });
+
+    updateTime();
+    setInterval(updateTime, 1000);
+  </script>
+</body>
+</html>

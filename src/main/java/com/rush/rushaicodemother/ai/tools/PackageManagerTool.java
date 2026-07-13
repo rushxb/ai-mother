@@ -8,10 +8,11 @@ import com.rush.rushaicodemother.ai.tools.policy.DependencyPolicyService;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
-import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -27,11 +28,19 @@ import java.nio.file.Path;
 public class PackageManagerTool extends BaseTool {
     private static final String SCRIPTS = "scripts";
 
-    @Resource
-    private DependencyPolicyService dependencyPolicyService;
+    private final DependencyPolicyService dependencyPolicyService;
+    private final ToolExecutionGateway toolExecutionGateway;
+    private final ProjectDependencyInstaller projectDependencyInstaller;
 
-    @Resource
-    private ToolExecutionGateway toolExecutionGateway;
+    public PackageManagerTool(
+            DependencyPolicyService dependencyPolicyService,
+            ToolExecutionGateway toolExecutionGateway,
+            ProjectDependencyInstaller projectDependencyInstaller
+    ) {
+        this.dependencyPolicyService = dependencyPolicyService;
+        this.toolExecutionGateway = toolExecutionGateway;
+        this.projectDependencyInstaller = projectDependencyInstaller;
+    }
 
     @Tool("管理 package.json 的依赖和 scripts，支持查看、添加、更新、删除依赖，或修改 scripts；必要时可执行 pnpm install 同步锁文件。")
     public String managePackageJson(
@@ -203,10 +212,25 @@ public class PackageManagerTool extends BaseTool {
         if (!decision.allowed()) {
             return "[pnpm install]\n依赖策略拒绝: " + decision.reason();
         }
-        NpmCommandSupport.CommandResult result = NpmCommandSupport.runCommand(
-                projectDir, 300, NpmCommandSupport.pnpmCommand(), "install", "--force"
-        );
-        return "[pnpm install]\npolicy: " + decision.reason() + "\n" + result.toReport();
+        DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(projectDir);
+        return formatInstallResult(decision, result);
+    }
+
+    private String formatInstallResult(
+            DependencyPolicyService.PolicyDecision decision,
+            DependencyInstallResult result
+    ) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("[pnpm install]\n")
+                .append("policy: ").append(decision.reason()).append('\n')
+                .append("结果: ").append(result.success() ? "成功" : "失败").append('\n')
+                .append("状态: ").append(result.status()).append('\n');
+        if (!result.success()) {
+            builder.append("异常: ").append(result.errorDetail()).append('\n');
+        }
+        builder.append("日志:\n")
+                .append(StrUtil.isBlank(result.output()) ? "(无输出)" : result.output().trim());
+        return builder.toString();
     }
 
     private String writePackageJson(Long appId, Path packageJsonPath, JSONObject packageJson, String reason) {

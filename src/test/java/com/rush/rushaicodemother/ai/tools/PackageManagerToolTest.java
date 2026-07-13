@@ -6,8 +6,9 @@ import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PackageManagerToolTest {
@@ -60,18 +62,38 @@ class PackageManagerToolTest {
         assertTrue(result.contains("reason: 渲染 markdown"));
     }
 
+    @Test
+    void installDependenciesShouldUseUnifiedProjectDependencyInstaller() throws Exception {
+        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
+        when(installer.ensureInstalled(any(Path.class)))
+                .thenReturn(DependencyInstallResult.success("依赖完整"));
+        PackageManagerTool tool = createTool(4L, installer);
+
+        String result = tool.managePackageJson(
+                "installDependencies", null, null, null, null, null, false, null, 4L
+        );
+
+        assertTrue(result.contains("状态: SUCCESS"));
+        assertTrue(result.contains("依赖完整"));
+        verify(installer).ensureInstalled(TEST_OUTPUT_ROOT.resolve("vue_project_4").toRealPath());
+    }
+
     private PackageManagerTool createTool(long appId) throws Exception {
+        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
+        when(installer.ensureInstalled(any(Path.class)))
+                .thenReturn(DependencyInstallResult.success("依赖完整"));
+        return createTool(appId, installer);
+    }
+
+    private PackageManagerTool createTool(long appId, ProjectDependencyInstaller installer) throws Exception {
         Path projectDir = TEST_OUTPUT_ROOT.resolve("vue_project_" + appId);
         FileUtil.del(projectDir.toFile());
         Files.createDirectories(projectDir);
         FileUtil.writeString("{\n  \"scripts\": {},\n  \"dependencies\": {}\n}",
                 projectDir.resolve("package.json").toFile(), StandardCharsets.UTF_8);
-        PackageManagerTool tool = new PackageManagerTool();
-        ReflectionTestUtils.setField(tool, "dependencyPolicyService", new DependencyPolicyService());
         ToolExecutionGateway gateway = mock(ToolExecutionGateway.class);
         when(gateway.applyPatch(anyLong(), any(Path.class), any(PatchOperation.class), anyString(), anyString()))
                 .thenReturn(PatchApplyResult.applied(appId, "test-package-json", projectDir.toString(), 1, java.util.List.of("package.json")));
-        ReflectionTestUtils.setField(tool, "toolExecutionGateway", gateway);
-        return tool;
+        return new PackageManagerTool(new DependencyPolicyService(), gateway, installer);
     }
 }

@@ -1,31 +1,45 @@
 <template>
-  <div id="generationPerformancePage" class="page-shell">
-    <section class="page-head">
-      <div>
-        <h2 class="page-title">生成耗时看板</h2>
-        <p class="page-desc">跟踪 AI 生成链路各阶段耗时，定位慢在模型、依赖、构建还是运行时验证</p>
-      </div>
-      <a-space>
-        <a-select v-model:value="limit" class="limit-select" @change="fetchData">
-          <a-select-option :value="20">最近 20 条</a-select-option>
-          <a-select-option :value="50">最近 50 条</a-select-option>
-          <a-select-option :value="100">最近 100 条</a-select-option>
-        </a-select>
-        <a-button type="primary" :loading="loading" @click="fetchData">刷新</a-button>
-      </a-space>
-    </section>
+  <AdminPageFrame
+    id="generationPerformancePage"
+    eyebrow="GENERATION OBSERVABILITY"
+    title="生成链路性能"
+    description="以任务、路由和生成阶段为维度观察耗时分布，快速定位模型、依赖安装、构建或运行时验证瓶颈。"
+  >
+    <template #actions>
+      <a-select v-model:value="limit" class="limit-select" @change="fetchData">
+        <a-select-option :value="20">最近 20 条</a-select-option>
+        <a-select-option :value="50">最近 50 条</a-select-option>
+        <a-select-option :value="100">最近 100 条</a-select-option>
+      </a-select>
+      <a-button type="primary" :loading="loading" @click="fetchData">刷新数据</a-button>
+    </template>
 
+    <a-alert
+      v-if="loadError"
+      type="error"
+      show-icon
+      closable
+      :message="loadError"
+      @close="loadError = ''"
+    />
     <section class="metric-grid">
-      <a-card v-for="metric in metrics" :key="metric.label" class="metric-card" :bordered="false">
-        <span class="metric-label">{{ metric.label }}</span>
-        <strong class="metric-value">{{ metric.value }}</strong>
-        <span class="metric-hint">{{ metric.hint }}</span>
-      </a-card>
+      <AdminMetricTile
+        v-for="(metric, index) in metrics"
+        :key="metric.label"
+        :label="metric.label"
+        :value="metric.value"
+        :hint="metric.hint"
+        :tone="metricTones[index]"
+      />
     </section>
 
     <a-row :gutter="[16, 16]">
       <a-col :xs="24" :xl="9">
-        <a-card class="panel-card" :bordered="false" title="阶段耗时排行">
+        <AdminDataPanel
+          class="stage-panel"
+          title="阶段耗时排行"
+          description="P90 优先暴露最影响体感的慢阶段。"
+        >
           <a-empty v-if="!stageStats.length" description="暂无阶段数据" />
           <div v-else class="stage-list">
             <div v-for="stage in stageStats" :key="stage.stage" class="stage-row">
@@ -45,10 +59,10 @@
               </div>
             </div>
           </div>
-        </a-card>
+        </AdminDataPanel>
       </a-col>
       <a-col :xs="24" :xl="15">
-        <a-card class="panel-card table-card" :bordered="false" title="最近生成任务">
+        <AdminDataPanel title="最近生成任务" description="展开任务阶段可检查单次生成的详细耗时。">
           <a-table
             :columns="columns"
             :data-source="recentTasks"
@@ -60,7 +74,9 @@
               <template v-if="column.dataIndex === 'taskId'">
                 <div class="task-cell">
                   <span class="task-id">{{ record.taskId }}</span>
-                  <span class="task-sub">App {{ record.appId ?? '-' }} / User {{ record.userId ?? '-' }}</span>
+                  <span class="task-sub"
+                    >App {{ record.appId ?? '-' }} / User {{ record.userId ?? '-' }}</span
+                  >
                 </div>
               </template>
               <template v-else-if="column.dataIndex === 'route'">
@@ -83,7 +99,11 @@
                 <a-popover trigger="click" placement="leftTop">
                   <template #content>
                     <div class="span-popover">
-                      <div v-for="span in record.spans ?? []" :key="`${span.stage}-${span.durationMs}`" class="span-row">
+                      <div
+                        v-for="span in record.spans ?? []"
+                        :key="`${span.stage}-${span.durationMs}`"
+                        class="span-row"
+                      >
                         <span>{{ formatStage(span.stage) }}</span>
                         <strong>{{ formatDuration(span.durationMs) }}</strong>
                         <a-tag class="soft-tag" :color="statusColor(span.status)">
@@ -97,20 +117,27 @@
               </template>
             </template>
           </a-table>
-        </a-card>
+        </AdminDataPanel>
       </a-col>
     </a-row>
-  </div>
+  </AdminPageFrame>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { getGenerationPerformanceSummary } from '@/api/generationPerformanceController'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { formatTime as formatDateTime } from '@/utils/time'
+import AdminPageFrame from '@/components/admin/AdminPageFrame.vue'
+import AdminMetricTile from '@/components/admin/AdminMetricTile.vue'
+import AdminDataPanel from '@/components/admin/AdminDataPanel.vue'
 
-const loading = ref(false)
+const { loading, begin, isLatest, end } = useLatestRequest()
+const loadError = ref('')
 const limit = ref(50)
 const summary = ref<API.GenerationPerformanceSummaryVO>({})
+const metricTones = ['blue', 'cyan', 'green', 'amber', 'slate'] as const
 
 const columns = [
   { title: '任务', dataIndex: 'taskId', width: 260 },
@@ -152,28 +179,40 @@ const metrics = computed(() => [
   },
 ])
 
-const maxStageP90 = computed(() => Math.max(1, ...stageStats.value.map((item) => item.p90DurationMs ?? 0)))
+const maxStageP90 = computed(() =>
+  Math.max(1, ...stageStats.value.map((item) => item.p90DurationMs ?? 0)),
+)
 
 const fetchData = async () => {
-  loading.value = true
+  const requestId = begin()
+  loadError.value = ''
   try {
     const res = await getGenerationPerformanceSummary({ limit: limit.value })
+    if (!isLatest(requestId)) return
+
     if (res.data.code === 0) {
       summary.value = res.data.data ?? {}
-    } else {
-      message.error('获取生成耗时失败，' + res.data.message)
+      return
     }
+    loadError.value = `获取生成耗时失败：${res.data.message || '服务异常'}`
+    message.error(loadError.value)
+  } catch (error) {
+    if (!isLatest(requestId)) return
+    console.error('Failed to load generation performance', error)
+    loadError.value = '获取生成耗时失败，请检查网络后重试'
+    message.error(loadError.value)
   } finally {
-    loading.value = false
+    end(requestId)
   }
 }
 
 const stagePercent = (duration?: number) => {
-  return Math.max(3, Math.round(((duration ?? 0) / maxStageP90.value) * 100))
+  if (!duration || duration < 0) return 0
+  return Math.min(100, Math.max(1, Math.round((duration / maxStageP90.value) * 100)))
 }
 
 const formatDuration = (durationMs?: number) => {
-  const value = durationMs ?? 0
+  const value = Number.isFinite(durationMs) && (durationMs ?? 0) > 0 ? (durationMs ?? 0) : 0
   if (value < 1000) return `${value}ms`
   const seconds = value / 1000
   if (seconds < 60) return `${seconds.toFixed(1)}s`
@@ -182,10 +221,7 @@ const formatDuration = (durationMs?: number) => {
   return `${minutes}m ${restSeconds}s`
 }
 
-const formatTime = (value?: string) => {
-  if (!value) return '-'
-  return value.replace('T', ' ').slice(0, 19)
-}
+const formatTime = (value?: string) => formatDateTime(value) || '-'
 
 const formatStage = (stage?: string) => {
   const map: Record<string, string> = {
@@ -244,43 +280,12 @@ const statusColor = (status?: string) => {
   return map[status ?? ''] ?? 'default'
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  void fetchData()
+})
 </script>
 
 <style scoped>
-#generationPerformancePage {
-  min-height: calc(100vh - 72px);
-  padding: 8px 24px 24px;
-  background: #f5f7fb;
-}
-
-.page-shell {
-  display: grid;
-  gap: 16px;
-}
-
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 4px;
-}
-
-.page-title {
-  margin: 0;
-  color: #0f172a;
-  font-size: 22px;
-  line-height: 1.2;
-  font-weight: 700;
-}
-
-.page-desc {
-  margin: 4px 0 0;
-  color: #64748b;
-  font-size: 14px;
-}
-
 .limit-select {
   width: 132px;
 }
@@ -291,33 +296,8 @@ onMounted(fetchData)
   gap: 14px;
 }
 
-.metric-card,
-.panel-card {
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.06);
-}
-
-.metric-card :deep(.ant-card-body) {
-  display: grid;
-  gap: 4px;
-  padding: 16px 18px;
-}
-
-.metric-label {
-  color: #64748b;
-  font-size: 13px;
-}
-
-.metric-value {
-  color: #0f172a;
-  font-size: 24px;
-  line-height: 1.15;
-}
-
-.metric-hint {
-  color: #94a3b8;
-  font-size: 12px;
+.stage-panel :deep(.data-panel-content) {
+  padding: 18px 20px 22px;
 }
 
 .stage-list {
@@ -339,34 +319,19 @@ onMounted(fetchData)
 }
 
 .stage-name {
-  color: #0f172a;
-  font-weight: 650;
+  color: var(--color-ink-strong);
+  font-weight: 680;
 }
 
 .stage-time {
-  color: #2563eb;
+  color: var(--color-primary);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 680;
 }
 
 .stage-meta {
-  color: #94a3b8;
+  color: #91a0b2;
   font-size: 12px;
-}
-
-.table-card :deep(.ant-card-body) {
-  padding-top: 6px;
-}
-
-.table-card :deep(.ant-table-container) {
-  overflow: hidden;
-  border-radius: 8px;
-}
-
-.table-card :deep(.ant-table-thead > tr > th) {
-  background: #f8fafc;
-  color: #475569;
-  font-weight: 650;
 }
 
 .task-cell {
@@ -377,7 +342,7 @@ onMounted(fetchData)
 
 .task-id {
   overflow: hidden;
-  color: #0f172a;
+  color: var(--color-ink-strong);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   text-overflow: ellipsis;
@@ -386,7 +351,7 @@ onMounted(fetchData)
 
 .task-sub,
 .time-text {
-  color: #94a3b8;
+  color: #91a0b2;
   font-size: 12px;
 }
 
@@ -416,16 +381,14 @@ onMounted(fetchData)
 }
 
 @media (max-width: 720px) {
-  #generationPerformancePage {
-    padding: 8px 16px 16px;
-  }
-
-  .page-head {
-    flex-direction: column;
-  }
-
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .stage-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 }
 </style>

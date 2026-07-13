@@ -1,29 +1,28 @@
 package com.rush.rushaicodemother.model.dto.user;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serializable;
 
 /**
- * 用户注册请求
+ * 用户注册请求。
  */
 @Data
 public class UserRegisterRequest implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 账号
-     */
+    @NotBlank
+    @Size(min = 4, max = 256)
     private String userAccount;
 
-    /**
-     * 密码
-     */
+    @NotBlank
+    @Size(min = 8, max = 72)
     private String userPassword;
 
-    /**
-     * 确认密码
-     */
+    @NotBlank
+    @Size(min = 8, max = 72)
     private String checkPassword;
 }

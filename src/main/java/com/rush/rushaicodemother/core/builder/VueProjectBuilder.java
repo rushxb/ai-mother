@@ -3,13 +3,18 @@ package com.rush.rushaicodemother.core.builder;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.rush.rushaicodemother.config.ProjectCommandProperties;
+import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
-import com.rush.rushaicodemother.service.PnpmInstallService;
-import jakarta.annotation.Resource;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
@@ -24,7 +29,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 构建 Vue 项目
@@ -33,22 +37,30 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class VueProjectBuilder {
 
-    private static final int MAX_LOG_CHARS = 12000;
     private static final String INSTALL_STAMP_FILE = ".ai-code-install.stamp";
     private static final String CRITICAL_STAMP_FILE = ".ai-code-critical.stamp";
     private static final String PRESENTATION_STAMP_FILE = ".ai-code-presentation.stamp";
-    private static final int LIGHT_VALIDATE_TIMEOUT_SECONDS = 90;
-    private static final int INSTALL_TIMEOUT_SECONDS = 300;
-    private static final int LIGHT_BUILD_TIMEOUT_SECONDS = 180;
-    private static final int FULL_BUILD_TIMEOUT_SECONDS = 240;
 
     private final Map<String, BuildResult> recentBuildResults = new ConcurrentHashMap<>();
+    private final ProjectDependencyInstaller projectDependencyInstaller;
+    private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
+    private final ProjectCommandExecutor projectCommandExecutor;
+    private final ProjectCommandProperties projectCommandProperties;
+    private final GenerationExecutionContextService executionContextService;
 
-    @Resource
-    private PnpmInstallService pnpmInstallService;
-
-    @Resource
-    private GenerationPerformanceMonitorService generationPerformanceMonitorService;
+    public VueProjectBuilder(
+            ProjectDependencyInstaller projectDependencyInstaller,
+            GenerationPerformanceMonitorService generationPerformanceMonitorService,
+            ProjectCommandExecutor projectCommandExecutor,
+            ProjectCommandProperties projectCommandProperties,
+            GenerationExecutionContextService executionContextService
+    ) {
+        this.projectDependencyInstaller = projectDependencyInstaller;
+        this.generationPerformanceMonitorService = generationPerformanceMonitorService;
+        this.projectCommandExecutor = projectCommandExecutor;
+        this.projectCommandProperties = projectCommandProperties;
+        this.executionContextService = executionContextService;
+    }
 
     /**
      * 异步构建 Vue 项目
@@ -165,6 +177,8 @@ public class VueProjectBuilder {
             return BuildResult.reused(projectPath, installResult, buildResult);
         }
 
+        executionContextService.consumeIfPresent(taskId, GenerationBudgetKind.BUILD_EXECUTION);
+
         CommandResult installResult = installDependenciesIfNeeded(projectDir, currentSnapshot.dependencyFingerprint(), taskId);
         if (!installResult.success()) {
             log.error("pnpm install 执行失败：{}", projectPath);
@@ -225,7 +239,7 @@ public class VueProjectBuilder {
             GenerationPerformanceMonitorService.SpanTimer span =
                     generationPerformanceMonitorService.startSpan(taskId, "pnpm_install");
             try {
-                PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
+                DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(projectDir.toPath(), taskId);
                 if (result.success()) {
                     writeStamp(stampFile, currentDependencyFingerprint);
                     span.success();
@@ -237,18 +251,23 @@ public class VueProjectBuilder {
                 span.failed(e.getMessage());
                 throw e;
             }
+        } catch (GenerationExecutionPolicyException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("依赖缓存判断失败，将执行 pnpm install: {}", e.getMessage());
             GenerationPerformanceMonitorService.SpanTimer span =
                     generationPerformanceMonitorService.startSpan(taskId, "pnpm_install");
             try {
-                PnpmInstallService.InstallResult result = pnpmInstallService.ensureInstalled(projectDir);
+                DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(projectDir.toPath(), taskId);
                 if (result.success()) {
                     span.success();
                     return CommandResult.success("pnpm install", 0, result.output());
                 }
                 span.failed(result.errorDetail());
                 return CommandResult.failed("pnpm install", 1, result.output());
+            } catch (GenerationExecutionPolicyException retryException) {
+                span.failed(retryException.getMessage());
+                throw retryException;
             } catch (Exception retryException) {
                 span.failed(retryException.getMessage());
                 return CommandResult.exception("pnpm install", retryException.getMessage());
@@ -350,7 +369,13 @@ public class VueProjectBuilder {
             return CommandResult.skipped("light validation", "package.json 中未找到轻量校验脚本");
         }
         log.info("执行轻量校验: pnpm run {}", script);
-        return executeCommand("light_validate", taskId, projectDir, LIGHT_VALIDATE_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
+        return executeCommand(
+                "light_validate",
+                taskId,
+                projectDir,
+                script,
+                projectCommandProperties.getLightValidationTimeout()
+        );
     }
 
     private CommandResult executeLightBuild(File projectDir, ProjectScripts scripts, String taskId) {
@@ -359,7 +384,13 @@ public class VueProjectBuilder {
             return CommandResult.exception("pnpm run build", "package.json 中未找到可用的轻量构建脚本");
         }
         log.info("执行轻量构建: pnpm run {}", script);
-        return executeCommand("light_build", taskId, projectDir, LIGHT_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
+        return executeCommand(
+                "light_build",
+                taskId,
+                projectDir,
+                script,
+                projectCommandProperties.getLightBuildTimeout()
+        );
     }
 
     private CommandResult executeFullBuild(File projectDir, ProjectScripts scripts, String taskId) {
@@ -368,101 +399,45 @@ public class VueProjectBuilder {
             return CommandResult.exception("pnpm run build", "package.json 中未找到可用的构建脚本");
         }
         log.info("执行全量构建: pnpm run {}", script);
-        return executeCommand("full_build", taskId, projectDir, FULL_BUILD_TIMEOUT_SECONDS, buildCommand("pnpm"), "run", script);
+        return executeCommand(
+                "full_build",
+                taskId,
+                projectDir,
+                script,
+                projectCommandProperties.getFullBuildTimeout()
+        );
     }
 
-    private String buildCommand(String baseCommand) {
-        if (isWindows()) {
-            return baseCommand + ".cmd";
-        }
-        return baseCommand;
-    }
-
-    private boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
-    }
-
-    private CommandResult executeCommand(File workingDir, int timeoutSeconds, String... commandParts) {
-        return executeCommand(null, null, workingDir, timeoutSeconds, commandParts);
-    }
-
-    private CommandResult executeCommand(String performanceStage,
-                                         String taskId,
-                                         File workingDir,
-                                         int timeoutSeconds,
-                                         String... commandParts) {
-        String command = String.join(" ", commandParts);
+    private CommandResult executeCommand(
+            String performanceStage,
+            String taskId,
+            File workingDir,
+            String script,
+            java.time.Duration timeout
+    ) {
         GenerationPerformanceMonitorService.SpanTimer span =
                 generationPerformanceMonitorService.startSpan(taskId, performanceStage);
         try {
-            log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), command);
-            ProcessBuilder processBuilder = new ProcessBuilder(commandParts)
-                    .directory(workingDir)
-                    .redirectErrorStream(true);
-            processBuilder.environment().put("NO_UPDATE_NOTIFIER", "1");
-            processBuilder.environment().put("NPM_CONFIG_AUDIT", "false");
-            processBuilder.environment().put("NPM_CONFIG_FUND", "false");
-            Process process = processBuilder.start();
-            ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream();
-            Thread outputReader = Thread.startVirtualThread(() -> {
-                try {
-                    process.getInputStream().transferTo(outputBuffer);
-                } catch (Exception e) {
-                    log.warn("读取命令输出失败: {}", command, e);
-                }
-            });
-            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-            if (!finished) {
-                log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
-                process.destroyForcibly();
-                process.waitFor(5, TimeUnit.SECONDS);
-                outputReader.join(TimeUnit.SECONDS.toMillis(5));
-                String output = readProcessOutput(outputBuffer);
-                span.close("timeout", command);
-                return CommandResult.timeout(command, timeoutSeconds, output);
-            }
-            outputReader.join(TimeUnit.SECONDS.toMillis(5));
-            String output = readProcessOutput(outputBuffer);
-            int exitCode = process.exitValue();
-            if (exitCode == 0) {
-                log.info("命令执行成功: {}", command);
+            ProjectCommandResult result = projectCommandExecutor.executePnpmScript(
+                    workingDir.toPath(),
+                    script,
+                    timeout,
+                    taskId,
+                    performanceStage + ":" + workingDir.getAbsolutePath()
+            );
+            if (result.success()) {
                 span.success();
-                return CommandResult.success(command, exitCode, output);
+                return CommandResult.success(result.command(), result.exitCode() == null ? 0 : result.exitCode(), result.output());
             }
-            log.error("命令执行失败，退出码: {}", exitCode);
-            if (StrUtil.isNotBlank(output)) {
-                log.error("命令失败输出:\n{}", truncateForLog(output, 4000));
-            }
-            span.failed(command + " exitCode=" + exitCode);
-            return CommandResult.failed(command, exitCode, output);
-        } catch (Exception e) {
-            log.error("执行命令失败: {}, 错误信息: {}", Arrays.toString(commandParts), e.getMessage());
-            span.failed(e.getMessage());
-            return CommandResult.exception(command, e.getMessage());
+            span.close(result.timedOut() ? "timeout" : "failed", result.command());
+            return CommandResult.fromProjectCommand(result);
+        } catch (GenerationExecutionPolicyException exception) {
+            span.failed(exception.getMessage());
+            throw exception;
+        } catch (RuntimeException exception) {
+            span.failed(exception.getMessage());
+            return CommandResult.exception("pnpm run " + script, exception.getMessage());
         }
-    }
-
-    private String readProcessOutput(ByteArrayOutputStream outputBuffer) {
-        String output = new String(outputBuffer.toByteArray(), StandardCharsets.UTF_8);
-        return truncateLog(output);
-    }
-
-    private String truncateLog(String content) {
-        if (StrUtil.isBlank(content)) {
-            return "";
-        }
-        String normalized = content.replace("\0", "");
-        if (normalized.length() <= MAX_LOG_CHARS) {
-            return normalized;
-        }
-        return normalized.substring(normalized.length() - MAX_LOG_CHARS);
-    }
-
-    private String truncateForLog(String content, int maxChars) {
-        if (StrUtil.isBlank(content) || content.length() <= maxChars) {
-            return StrUtil.blankToDefault(content, "");
-        }
-        return content.substring(content.length() - maxChars);
     }
 
     private ProjectState readPersistedState(File projectDir) {
@@ -695,16 +670,23 @@ public class VueProjectBuilder {
             return new CommandResult(command, true, exitCode, false, output, null);
         }
 
+        private static CommandResult fromProjectCommand(ProjectCommandResult result) {
+            return new CommandResult(
+                    result.command(),
+                    result.success(),
+                    result.exitCode(),
+                    result.timedOut(),
+                    result.output(),
+                    result.errorDetail()
+            );
+        }
+
         private static CommandResult skipped(String command, String output) {
             return new CommandResult(command, true, 0, false, output, null);
         }
 
         private static CommandResult failed(String command, int exitCode, String output) {
             return new CommandResult(command, false, exitCode, false, output, null);
-        }
-
-        private static CommandResult timeout(String command, int timeoutSeconds, String output) {
-            return new CommandResult(command, false, null, true, output, "命令执行超时（" + timeoutSeconds + "秒）");
         }
 
         private static CommandResult exception(String command, String errorMessage) {

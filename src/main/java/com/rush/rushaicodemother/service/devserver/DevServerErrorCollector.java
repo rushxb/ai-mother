@@ -117,21 +117,21 @@ public class DevServerErrorCollector {
     /**
      * 获取原始输出行（用于调试/日志）
      */
-    public List<String> getRawLines() {
+    public synchronized List<String> getRawLines() {
         return new ArrayList<>(rawLines);
     }
 
     /**
      * 获取总行数
      */
-    public int getLineCount() {
+    public synchronized int getLineCount() {
         return lineCount;
     }
 
     /**
      * 获取 Critical 错误数量
      */
-    public int getCriticalErrorCount() {
+    public synchronized int getCriticalErrorCount() {
         return (int) detectedErrors.values().stream()
                 .filter(e -> e.pattern().isCritical())
                 .count();
@@ -140,7 +140,7 @@ public class DevServerErrorCollector {
     /**
      * 获取 Warning 数量
      */
-    public int getWarningCount() {
+    public synchronized int getWarningCount() {
         return (int) detectedErrors.values().stream()
                 .filter(e -> !e.pattern().isCritical())
                 .count();

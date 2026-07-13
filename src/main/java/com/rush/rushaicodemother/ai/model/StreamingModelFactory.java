@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.AiModel;
@@ -10,10 +11,8 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import dev.langchain4j.model.openai.internal.chat.Thinking;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -27,45 +26,26 @@ import java.util.List;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class StreamingModelFactory {
 
     private static final String MODEL_TYPE_CHAT = "chat";
     private static final String MODEL_TYPE_REASONING = "reasoning";
 
-    @Resource
-    private AiModelMonitorListener aiModelMonitorListener;
+    private final AiModelMonitorListener aiModelMonitorListener;
 
-    @Resource
-    private AiModelService aiModelService;
+    private final AiModelService aiModelService;
 
-    @Resource
-    private AiModelCatalogService aiModelCatalogService;
+    private final AiModelCatalogService aiModelCatalogService;
 
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.log-requests:false}")
-    private boolean logRequests;
+    private final AiModelRuntimeProperties runtimeProperties;
 
-    @Value("${langchain4j.open-ai.reasoning-streaming-chat-model.log-responses:false}")
-    private boolean logResponses;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.log-requests:false}")
-    private boolean routingLogRequests;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.log-responses:false}")
-    private boolean routingLogResponses;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.timeout-seconds:30}")
-    private Integer routingTimeoutSeconds;
-
-    @Value("${langchain4j.open-ai.routing-chat-model.max-retries:0}")
-    private Integer routingMaxRetries;
-
-    @Value("${langchain4j.open-ai.create-spec-chat-model.timeout-seconds:10}")
-    private Integer createSpecTimeoutSeconds;
+    private final OpenAiThinkingPolicy openAiThinkingPolicy;
 
     /**
      * 根据性能配置创建流式模型。
      * <p>
-     * 优先从数据库读取模型配置，如果数据库中没有配置，则使用配置文件的默认配置。
+     * 模型配置统一从数据库读取。
      *
      * @param profile 性能配置
      * @return 流式模型实例
@@ -82,7 +62,7 @@ public class StreamingModelFactory {
     /**
      * 创建普通对话流式模型。
      * <p>
-     * 优先从数据库读取 chat 类型模型，找不到时回退到配置文件默认模型。
+     * 从数据库读取 chat 类型模型。
      */
     public StreamingChatModel createChatModel() {
         AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "普通对话/快速流式任务");
@@ -94,7 +74,7 @@ public class StreamingModelFactory {
     /**
      * 创建推理流式模型。
      * <p>
-     * 优先从数据库读取 reasoning 类型模型，找不到时回退到配置文件默认推理模型。
+     * 从数据库读取 reasoning 类型模型。
      */
     public StreamingChatModel createReasoningModel() {
         AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_REASONING, "思考/重型生成任务");
@@ -106,14 +86,19 @@ public class StreamingModelFactory {
     /**
      * 创建路由/轻量同步模型。
      * <p>
-     * 优先使用数据库 chat 类型模型，找不到时降级到配置文件中的 routing-chat-model。
+     * 使用数据库 chat 类型模型。
      */
     public ChatModel createRoutingChatModel() {
         AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "路由/意图/轻量同步任务");
         log.info("使用数据库快速同步模型配置: usage=routing, provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
                 dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
-                normalizedRoutingTimeoutSeconds(), normalizedRoutingMaxRetries());
-        return createChatModelFromDb(dbModel, normalizedRoutingTimeout(), normalizedRoutingMaxRetries(), false);
+                runtimeProperties.getRoutingTimeout().toSeconds(), runtimeProperties.getRoutingMaxRetries());
+        return createChatModelFromDb(
+                dbModel,
+                runtimeProperties.getRoutingTimeout(),
+                runtimeProperties.getRoutingMaxRetries(),
+                false
+        );
     }
 
     /**
@@ -125,20 +110,27 @@ public class StreamingModelFactory {
         AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "CREATE 创意规格生成任务");
         log.info("使用数据库 CREATE Spec 快速模型配置: provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
                 dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
-                normalizedCreateSpecTimeoutSeconds(), normalizedCreateSpecMaxRetries());
-        return createChatModelFromDb(dbModel, normalizedCreateSpecTimeout(), normalizedCreateSpecMaxRetries(), false);
+                runtimeProperties.getCreateSpecTimeout().toSeconds(), 0);
+        return createChatModelFromDb(dbModel, runtimeProperties.getCreateSpecTimeout(), 0, false);
     }
 
     /**
      * 创建主同步模型。
      * <p>
-     * 优先使用数据库 reasoning 类型模型，其次 chat 类型模型，最后降级到配置文件。
+     * 使用数据库 reasoning 类型模型。
      */
     public ChatModel createPrimaryChatModel() {
         AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_REASONING, "主同步思考任务");
         log.info("使用数据库主思考模型配置: provider={}, modelId={}, baseUrl={}",
                 dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
-        return createChatModelFromDb(dbModel, null, null, true, logRequests, logResponses);
+        return createChatModelFromDb(
+                dbModel,
+                null,
+                null,
+                true,
+                runtimeProperties.isGenerationLogRequests(),
+                runtimeProperties.isGenerationLogResponses()
+        );
     }
 
     /**
@@ -184,8 +176,9 @@ public class StreamingModelFactory {
                 .baseUrl(dbModel.getBaseUrl())
                 .modelName(dbModel.getModelId())
                 .temperature(resolveTemperature(dbModel))
-                .logRequests(logRequests)
-                .logResponses(logResponses)
+                .logRequests(runtimeProperties.isGenerationLogRequests())
+                .logResponses(runtimeProperties.isGenerationLogResponses())
+                .timeout(runtimeProperties.getGenerationTimeout())
                 .listeners(List.of(aiModelMonitorListener));
 
         applyMaxTokens(builder, dbModel);
@@ -202,7 +195,14 @@ public class StreamingModelFactory {
                                             Duration timeout,
                                             Integer maxRetries,
                                             boolean enableThinking) {
-        return createChatModelFromDb(dbModel, timeout, maxRetries, enableThinking, routingLogRequests, routingLogResponses);
+        return createChatModelFromDb(
+                dbModel,
+                timeout,
+                maxRetries,
+                enableThinking,
+                runtimeProperties.isRoutingLogRequests(),
+                runtimeProperties.isRoutingLogResponses()
+        );
     }
 
     private ChatModel createChatModelFromDb(AiModel dbModel,
@@ -229,39 +229,6 @@ public class StreamingModelFactory {
         }
 
         return builder.build();
-    }
-
-    private Duration normalizedRoutingTimeout() {
-        return Duration.ofSeconds(normalizedRoutingTimeoutSeconds());
-    }
-
-    private int normalizedRoutingTimeoutSeconds() {
-        if (routingTimeoutSeconds == null || routingTimeoutSeconds < 3) {
-            return 30;
-        }
-        return routingTimeoutSeconds;
-    }
-
-    private int normalizedRoutingMaxRetries() {
-        if (routingMaxRetries == null || routingMaxRetries < 0) {
-            return 0;
-        }
-        return routingMaxRetries;
-    }
-
-    private Duration normalizedCreateSpecTimeout() {
-        return Duration.ofSeconds(normalizedCreateSpecTimeoutSeconds());
-    }
-
-    private int normalizedCreateSpecTimeoutSeconds() {
-        if (createSpecTimeoutSeconds == null || createSpecTimeoutSeconds < 3) {
-            return 10;
-        }
-        return Math.min(createSpecTimeoutSeconds, 10);
-    }
-
-    private int normalizedCreateSpecMaxRetries() {
-        return 0;
     }
 
     /**
@@ -300,8 +267,12 @@ public class StreamingModelFactory {
     private void applyThinking(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
                                AiModel model,
                                boolean enableThinking) {
-        if (model != null && Integer.valueOf(1).equals(model.getSupportsThinking())) {
-            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        OpenAiThinkingPolicy.ThinkingConfiguration configuration =
+                openAiThinkingPolicy.resolve(model, enableThinking);
+        builder.returnThinking(configuration.returnThinking())
+                .sendThinking(configuration.sendThinking());
+        if (!configuration.customParameters().isEmpty()) {
+            builder.customParameters(configuration.customParameters());
         }
     }
 
@@ -335,9 +306,14 @@ public class StreamingModelFactory {
     private void applyThinking(OpenAiChatModel.OpenAiChatModelBuilder builder,
                                AiModel model,
                                boolean enableThinking) {
-        if (model != null && Integer.valueOf(1).equals(model.getSupportsThinking())) {
-            builder.thinking(enableThinking ? Thinking.enabled() : Thinking.disabled());
+        OpenAiThinkingPolicy.ThinkingConfiguration configuration =
+                openAiThinkingPolicy.resolve(model, enableThinking);
+        builder.returnThinking(configuration.returnThinking())
+                .sendThinking(configuration.sendThinking());
+        if (!configuration.customParameters().isEmpty()) {
+            builder.customParameters(configuration.customParameters());
         }
     }
 
 }
+

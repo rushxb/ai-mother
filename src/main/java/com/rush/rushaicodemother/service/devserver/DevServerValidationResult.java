@@ -84,6 +84,26 @@ public record DevServerValidationResult(
         );
     }
 
+    public static DevServerValidationResult startupFailed(
+            String taskId,
+            Long appId,
+            long durationMs,
+            String reason
+    ) {
+        String detail = reason == null || reason.isBlank() ? "未知原因" : reason;
+        return new DevServerValidationResult(
+                taskId, appId, ValidationStatus.FAILED, 1, 0, List.of(), durationMs,
+                "Dev Server 启动失败: " + detail
+        );
+    }
+
+    public static DevServerValidationResult interrupted(String taskId, Long appId, long durationMs) {
+        return new DevServerValidationResult(
+                taskId, appId, ValidationStatus.FAILED, 1, 0, List.of(), durationMs,
+                "Dev Server 运行时验证被中断"
+        );
+    }
+
     public static DevServerValidationResult timeout(String taskId, Long appId, long durationMs) {
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.TIMEOUT, 0, 0, List.of(), durationMs,

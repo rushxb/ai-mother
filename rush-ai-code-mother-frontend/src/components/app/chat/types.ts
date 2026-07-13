@@ -15,10 +15,11 @@ export interface AgentEventView {
   taskId?: string
   qualityGate?: string
   recoverable?: boolean
-  artifact?: Record<string, any>
+  artifact?: Record<string, unknown>
 }
 
 export interface ChatMessage {
+  id: string
   type: 'user' | 'ai'
   content: string
   loading?: boolean

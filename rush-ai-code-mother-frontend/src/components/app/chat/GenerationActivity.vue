@@ -45,10 +45,15 @@ const codeLines = [1, 2, 3, 4]
 
 <style scoped>
 .generation-activity {
-  --activity-accent: #1677ff;
-  --activity-ink: #0f172a;
-  --activity-muted: #64748b;
-  --activity-surface: rgba(255, 255, 255, 0.9);
+  --activity-accent: var(--chat-primary, var(--color-primary, #2f8bff));
+  --activity-accent-strong: var(
+    --chat-primary-strong,
+    var(--color-primary-strong, #176fdd)
+  );
+  --activity-secondary: var(--chat-secondary, var(--color-secondary, #3cc9bb));
+  --activity-ink: var(--chat-ink-strong, var(--color-ink-strong, #102033));
+  --activity-muted: var(--chat-ink-soft, var(--color-ink-soft, #6f8198));
+  --activity-line: var(--chat-line, var(--color-line, rgba(112, 140, 175, 0.18)));
   display: grid;
   justify-items: center;
   gap: 14px;
@@ -67,12 +72,12 @@ const codeLines = [1, 2, 3, 4]
   align-items: center;
   gap: 14px 16px;
   padding: 14px 16px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid var(--activity-line);
   border-radius: 18px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.84)),
-    radial-gradient(circle at 8% 0%, rgba(22, 119, 255, 0.12), transparent 36%);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+    radial-gradient(circle at 8% 0%, rgba(47, 139, 255, 0.12), transparent 36%);
+  box-shadow: var(--chat-shadow-soft, 0 18px 36px rgba(68, 96, 136, 0.12));
   text-align: left;
   backdrop-filter: blur(16px);
 }
@@ -92,10 +97,10 @@ const codeLines = [1, 2, 3, 4]
   border-radius: 28px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.78)),
-    radial-gradient(circle at 35% 20%, rgba(20, 184, 166, 0.18), transparent 42%);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+    radial-gradient(circle at 35% 20%, rgba(60, 201, 187, 0.18), transparent 42%);
+  border: 1px solid var(--activity-line);
   box-shadow:
-    0 18px 34px rgba(15, 23, 42, 0.08),
+    0 18px 34px rgba(68, 96, 136, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
   overflow: hidden;
 }
@@ -128,7 +133,7 @@ const codeLines = [1, 2, 3, 4]
   position: absolute;
   inset: 15px;
   border-radius: 999px;
-  border: 1px solid rgba(22, 119, 255, 0.18);
+  border: 1px solid rgba(47, 139, 255, 0.18);
 }
 
 .activity-ring::after {
@@ -138,7 +143,7 @@ const codeLines = [1, 2, 3, 4]
   border-radius: inherit;
   border: 2px solid transparent;
   border-top-color: var(--activity-accent);
-  border-right-color: rgba(20, 184, 166, 0.8);
+  border-right-color: var(--activity-secondary);
   animation: activityRotate 1.45s linear infinite;
 }
 
@@ -147,8 +152,8 @@ const codeLines = [1, 2, 3, 4]
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: #14b8a6;
-  box-shadow: 0 0 0 5px rgba(20, 184, 166, 0.12);
+  background: var(--activity-secondary);
+  box-shadow: 0 0 0 5px rgba(60, 201, 187, 0.12);
 }
 
 .activity-orbit--one {
@@ -168,7 +173,7 @@ const codeLines = [1, 2, 3, 4]
 .activity-mark {
   position: absolute;
   z-index: 1;
-  color: rgba(15, 23, 42, 0.78);
+  color: color-mix(in srgb, var(--activity-ink) 78%, transparent);
   font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
   font-size: 20px;
   font-weight: 700;
@@ -215,7 +220,12 @@ const codeLines = [1, 2, 3, 4]
   display: block;
   height: 3px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(22, 119, 255, 0.18), rgba(22, 119, 255, 0.82), rgba(20, 184, 166, 0.42));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 139, 255, 0.18),
+    var(--activity-accent),
+    rgba(60, 201, 187, 0.42)
+  );
   transform-origin: left center;
   animation: activityLine 1.36s ease-in-out calc(var(--line-index) * 0.13s) infinite;
 }
@@ -266,8 +276,8 @@ const codeLines = [1, 2, 3, 4]
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
-  background: rgba(241, 245, 249, 0.92);
-  color: #64748b;
+  background: var(--chat-surface-soft, rgba(246, 249, 253, 0.9));
+  color: var(--activity-muted);
   font-size: 12px;
   font-weight: 600;
   transition:
@@ -278,7 +288,7 @@ const codeLines = [1, 2, 3, 4]
 
 .activity-step.active {
   background: rgba(219, 234, 254, 0.96);
-  color: #1d4ed8;
+  color: var(--activity-accent-strong);
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
 }
 

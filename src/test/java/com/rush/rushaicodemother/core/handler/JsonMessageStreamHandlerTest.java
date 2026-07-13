@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.core.handler;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 
 import com.rush.rushaicodemother.ai.tools.ToolManager;
@@ -19,8 +18,7 @@ class JsonMessageStreamHandlerTest {
 
     @Test
     void handleToolCallShouldAccumulatePartialArgumentsForFilePreview() {
-        JsonMessageStreamHandler handler = new JsonMessageStreamHandler();
-        ReflectionTestUtils.setField(handler, "toolManager", mock(ToolManager.class));
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler(mock(ToolManager.class));
         Flux<GenerationStreamEvent> originFlux = Flux.just(
                 toolCall("req-1", "{\"relativeFilePath\":\"src/App.vue\",\"content\":\"hel"),
                 toolCall("req-1", "lo"),
@@ -42,8 +40,7 @@ class JsonMessageStreamHandlerTest {
 
     @Test
     void handleToolCallShouldNotExposeIncompleteFilePath() {
-        JsonMessageStreamHandler handler = new JsonMessageStreamHandler();
-        ReflectionTestUtils.setField(handler, "toolManager", mock(ToolManager.class));
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler(mock(ToolManager.class));
         Flux<GenerationStreamEvent> originFlux = Flux.just(
                 toolCall("req-2", "{\"relativeFilePath\":\"package"),
                 toolCall("req-2", ".json\",\"content\":\"{\\n")
@@ -63,8 +60,7 @@ class JsonMessageStreamHandlerTest {
 
     @Test
     void handleToolCallShouldSeparateFilesWithSameToolIndexByRequestId() {
-        JsonMessageStreamHandler handler = new JsonMessageStreamHandler();
-        ReflectionTestUtils.setField(handler, "toolManager", mock(ToolManager.class));
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler(mock(ToolManager.class));
         Flux<GenerationStreamEvent> originFlux = Flux.just(
                 toolCall("req-package", "{\"relativeFilePath\":\"package.json\",\"content\":\"{}\"}"),
                 toolCall("req-i18n", "{\"relativeFilePath\":\"src/utils/i18n.js\",\"content\":\"export"),
@@ -88,8 +84,7 @@ class JsonMessageStreamHandlerTest {
 
     @Test
     void handleGenerationStageShouldNotPersistAsBuildResult() {
-        JsonMessageStreamHandler handler = new JsonMessageStreamHandler();
-        ReflectionTestUtils.setField(handler, "toolManager", mock(ToolManager.class));
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler(mock(ToolManager.class));
         Flux<GenerationStreamEvent> originFlux = Flux.just(GenerationStreamEvent.generationStage("代码生成完成", Map.of(
                 "stage", "codegen_done",
                 "status", "transition",

@@ -18,9 +18,8 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
@@ -35,25 +34,18 @@ import java.time.Duration;
  */
 @Configuration
 @Slf4j
+@RequiredArgsConstructor
 public class AiCodeGeneratorServiceFactory {
 
-    @Resource
-    private ApplicationContext applicationContext;
+    private final RedisChatMemoryStore redisChatMemoryStore;
 
-    @Resource
-    private RedisChatMemoryStore redisChatMemoryStore;
+    private final ChatHistoryService chatHistoryService;
 
-    @Resource
-    private ChatHistoryService chatHistoryService;
+    private final ToolManager toolManager;
 
-    @Resource
-    private ToolManager toolManager;
+    private final StreamingModelFactory streamingModelFactory;
 
-    @Resource
-    private StreamingModelFactory streamingModelFactory;
-
-    @Resource
-    private AiModelService aiModelService;
+    private final AiModelService aiModelService;
 
     private static final int DEFAULT_CHAT_MEMORY_MESSAGES = 20;
     private static final int HEAVY_PROJECT_MEMORY_MESSAGES = 4;

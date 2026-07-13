@@ -446,7 +446,7 @@ declare namespace API {
     modelId?: string
     description?: string
     baseUrl?: string
-    apiKey?: string
+    apiKeyConfigured?: boolean
     maxTokens?: number
     temperature?: number
     isEnabled?: number

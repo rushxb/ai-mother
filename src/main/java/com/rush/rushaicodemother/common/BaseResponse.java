@@ -6,9 +6,9 @@ import lombok.Data;
 import java.io.Serializable;
 
 /**
- * 通过响应类
+ * Standard API response envelope.
  *
- * @param <T>
+ * @param <T> response data type
  */
 @Data
 public class BaseResponse<T> implements Serializable {

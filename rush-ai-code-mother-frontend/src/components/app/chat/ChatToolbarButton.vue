@@ -23,19 +23,19 @@ defineOptions({
   height: 38px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(255, 255, 255, 0.82);
-  color: #475569;
+  border: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
+  background: var(--chat-surface, rgba(255, 255, 255, 0.88));
+  color: var(--chat-ink, #2f4158);
   box-shadow: none;
   overflow: hidden;
   white-space: nowrap;
   transition:
-    transform 0.24s ease,
-    box-shadow 0.24s ease,
-    border-color 0.24s ease,
-    background 0.24s ease,
-    color 0.24s ease,
-    padding 0.24s ease;
+    transform 0.28s var(--chat-ease, ease),
+    box-shadow 0.28s var(--chat-ease, ease),
+    border-color 0.28s var(--chat-ease, ease),
+    background 0.28s var(--chat-ease, ease),
+    color 0.28s var(--chat-ease, ease),
+    padding 0.28s var(--chat-ease, ease);
 }
 
 .toolbar-button :deep(.ant-btn-icon) {
@@ -59,10 +59,10 @@ defineOptions({
 .toolbar-button:hover,
 .toolbar-button:focus-visible {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.96);
-  color: #0f172a;
-  border-color: rgba(148, 163, 184, 0.28);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  background: var(--chat-surface-strong, rgba(255, 255, 255, 0.97));
+  color: var(--chat-ink-strong, #102033);
+  border-color: var(--chat-line-strong, rgba(86, 120, 161, 0.28));
+  box-shadow: var(--chat-shadow-soft, 0 12px 30px rgba(67, 94, 130, 0.09));
 }
 
 .toolbar-button:hover .button-label,
@@ -74,16 +74,16 @@ defineOptions({
 }
 
 .toolbar-button.deploy-button {
-  color: #1677ff;
-  border-color: rgba(22, 119, 255, 0.16);
-  background: rgba(22, 119, 255, 0.06);
+  color: var(--chat-primary-strong, #176fdd);
+  border-color: rgba(47, 139, 255, 0.2);
+  background: rgba(47, 139, 255, 0.075);
 }
 
 .toolbar-button.deploy-button:hover,
 .toolbar-button.deploy-button:focus-visible {
-  background: rgba(22, 119, 255, 0.1);
-  border-color: rgba(22, 119, 255, 0.22);
-  box-shadow: 0 12px 24px rgba(22, 119, 255, 0.12);
+  background: rgba(47, 139, 255, 0.12);
+  border-color: rgba(47, 139, 255, 0.28);
+  box-shadow: 0 12px 26px rgba(47, 139, 255, 0.16);
 }
 
 @media (max-width: 768px) {

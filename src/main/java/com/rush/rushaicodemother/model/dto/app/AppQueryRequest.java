@@ -1,54 +1,48 @@
 package com.rush.rushaicodemother.model.dto.app;
 
 import com.rush.rushaicodemother.common.PageRequest;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.io.Serial;
 import java.io.Serializable;
 
+/**
+ * 应用分页查询条件。
+ */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class AppQueryRequest extends PageRequest implements Serializable {
 
-    /**
-     * id
-     */
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+    @Positive
     private Long id;
 
-    /**
-     * 应用名称
-     */
+    @Size(max = 256)
     private String appName;
 
-    /**
-     * 应用封面
-     */
+    @Size(max = 1024)
     private String cover;
 
-    /**
-     * 应用初始化的 prompt
-     */
+    @Size(max = 20_000)
     private String initPrompt;
 
-    /**
-     * 代码生成类型（枚举）
-     */
+    @Pattern(
+            regexp = "html|multi_file|vue_project|backend_project|full_stack_project",
+            message = "代码生成类型不合法"
+    )
     private String codeGenType;
 
-    /**
-     * 部署标识
-     */
+    @Size(max = 128)
     private String deployKey;
 
-    /**
-     * 优先级
-     */
     private Integer priority;
 
-    /**
-     * 创建用户id
-     */
+    @Positive
     private Long userId;
-
-    private static final long serialVersionUID = 1L;
-} 
+}

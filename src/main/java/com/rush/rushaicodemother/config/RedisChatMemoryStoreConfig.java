@@ -1,9 +1,8 @@
 package com.rush.rushaicodemother.config;
 
-import cn.hutool.core.util.StrUtil;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
-import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -11,27 +10,21 @@ import org.springframework.context.annotation.Configuration;
  * Redis 持久化对话记忆
  */
 @Configuration
-@ConfigurationProperties(prefix = "spring.data.redis")
-@Data
+@RequiredArgsConstructor
+@EnableConfigurationProperties(RedisChatMemoryProperties.class)
 public class RedisChatMemoryStoreConfig {
 
-    private String host;
-
-    private int port;
-
-    private String password;
-
-    private long ttl;
+    private final RedisChatMemoryProperties properties;
 
     @Bean
     public RedisChatMemoryStore redisChatMemoryStore() {
         RedisChatMemoryStore.Builder builder = RedisChatMemoryStore.builder()
-                .host(host)
-                .port(port)
-                .password(password)
-                .ttl(ttl);
-        if (StrUtil.isNotBlank(password)) {
-            builder.user("default");
+                .host(properties.getHost())
+                .port(properties.getPort())
+                .ttl(properties.getTtl());
+        if (properties.getPassword() != null && !properties.getPassword().isBlank()) {
+            builder.user("default")
+                    .password(properties.getPassword());
         }
         return builder.build();
     }

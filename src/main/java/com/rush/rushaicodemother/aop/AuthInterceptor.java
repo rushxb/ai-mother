@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.UserRoleEnum;
 import com.rush.rushaicodemother.service.UserService;
-import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -20,64 +19,60 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Component
 public class AuthInterceptor {
 
-    @Resource
-    private UserService userService;
+    private final UserService userService;
+
+    public AuthInterceptor(UserService userService) {
+        this.userService = userService;
+    }
 
     /**
-     * 执行拦截
+     * 对声明了 {@link AuthCheck} 的方法执行登录与角色校验。
      *
      * @param joinPoint 切入点
      * @param authCheck 权限校验注解
-     * @return
-     * @throws Throwable
+     * @return 被拦截方法的返回值
+     * @throws Throwable 被拦截方法抛出的异常
      */
     @Around("@annotation(authCheck)")
     public Object doInterceptor(ProceedingJoinPoint joinPoint, AuthCheck authCheck) throws Throwable {
-        String mustRole = authCheck.mustRole();
-        RequestAttributes requestAttributes = RequestContextHolder.currentRequestAttributes();
-        HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
-        // 获取当前登录用户
+        HttpServletRequest request = currentRequest();
         User loginUser = userService.getLoginUser(request);
-        UserRoleEnum mustRoleEnum = UserRoleEnum.getEnumByValue(mustRole);
-        // 不需要权限，直接放行
-        if (mustRoleEnum == null) {
+
+        String requiredRoleValue = authCheck.mustRole();
+        if (requiredRoleValue == null || requiredRoleValue.isBlank()) {
             return joinPoint.proceed();
         }
-        // 以下的代码：必须有这个权限才能通过
+
+        UserRoleEnum requiredRole = UserRoleEnum.getEnumByValue(requiredRoleValue.trim());
+        if (requiredRole == null) {
+            throw new BusinessException(
+                    ErrorCode.SYSTEM_ERROR,
+                    "AuthCheck 配置了不支持的角色: " + requiredRoleValue
+            );
+        }
+
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
         UserRoleEnum userRoleEnum = UserRoleEnum.getEnumByValue(loginUser.getUserRole());
-        // 没有权限，直接拒绝
         if (userRoleEnum == null) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
-        // 要求必须有管理员权限，但当前登录用户没有
-        if (UserRoleEnum.ADMIN.equals(mustRoleEnum) && !UserRoleEnum.ADMIN.equals(userRoleEnum)) {
+
+        if (UserRoleEnum.ADMIN.equals(requiredRole) && !UserRoleEnum.ADMIN.equals(userRoleEnum)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
-        // 通过普通用户的权限校验，放行
         return joinPoint.proceed();
     }
+
+    private HttpServletRequest currentRequest() {
+        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+        if (!(requestAttributes instanceof ServletRequestAttributes servletRequestAttributes)) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "当前线程不存在 HTTP 请求上下文");
+        }
+        return servletRequestAttributes.getRequest();
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

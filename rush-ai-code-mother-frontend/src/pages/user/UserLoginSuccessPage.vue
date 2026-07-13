@@ -44,28 +44,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getSafeSameOriginPath } from '@/utils/safeRedirect'
 
 const router = useRouter()
 const route = useRoute()
 
 let timer: ReturnType<typeof setTimeout> | null = null
 
-const getSafeRedirect = () => {
-  const redirect = route.query.redirect
-  if (typeof redirect !== 'string' || !redirect) {
-    return '/'
-  }
-
-  try {
-    const targetUrl = new URL(redirect, window.location.origin)
-    if (targetUrl.origin !== window.location.origin) {
-      return '/'
-    }
-    return `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`
-  } catch {
-    return '/'
-  }
-}
+const getSafeRedirect = () => getSafeSameOriginPath(route.query.redirect)
 
 const redirectTarget = computed(() => getSafeRedirect())
 

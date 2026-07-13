@@ -54,6 +54,15 @@ defineEmits<{
   margin: 0 20px;
 }
 
+:deep(.selected-element-alert.ant-alert) {
+  border-color: var(--chat-line, rgba(112, 140, 175, 0.18));
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(47, 139, 255, 0.07), rgba(255, 255, 255, 0.74)),
+    var(--chat-surface-soft, rgba(246, 249, 253, 0.88));
+  box-shadow: var(--chat-shadow-soft, 0 12px 30px rgba(67, 94, 130, 0.09));
+}
+
 .selected-element-info {
   display: grid;
   gap: 10px;
@@ -71,7 +80,7 @@ defineEmits<{
 }
 
 .element-item {
-  color: #475569;
+  color: var(--chat-ink, #2f4158);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -85,14 +94,14 @@ defineEmits<{
   padding: 0 8px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.05);
-  color: #0f172a;
+  color: var(--chat-ink-strong, #102033);
   font-size: 12px;
   font-weight: 600;
 }
 
 .element-tag {
-  background: rgba(22, 119, 255, 0.1);
-  color: #1677ff;
+  background: rgba(47, 139, 255, 0.1);
+  color: var(--chat-primary-strong, #176fdd);
 }
 
 .element-id {
@@ -107,7 +116,7 @@ defineEmits<{
   padding: 2px 6px;
   border-radius: 6px;
   background: rgba(15, 23, 42, 0.06);
-  color: #0f172a;
+  color: var(--chat-ink-strong, #102033);
   font-size: 12px;
 }
 

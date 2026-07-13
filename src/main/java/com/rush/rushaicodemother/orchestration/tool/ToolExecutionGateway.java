@@ -4,6 +4,8 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +21,7 @@ public class ToolExecutionGateway {
 
     private final GenerationPatchApplyService generationPatchApplyService;
     private final GenerationToolExecutionContextService toolExecutionContextService;
+    private final GenerationExecutionContextService executionContextService;
 
     public PatchApplyResult applyPatch(Long appId,
                                        Path projectRoot,
@@ -30,11 +33,13 @@ public class ToolExecutionGateway {
             return PatchApplyResult.skipped(appId, fallbackTaskId, projectRoot.toString(), "change_plan_missing");
         }
         if (context.allowsBootstrapWrite()) {
+            reserveToolWrite(context.taskId());
             return generationPatchApplyService.applyWithoutChangePlan(
                     appId, context.taskId(), projectRoot, operations, context.reason()
             );
         }
         ChangePlan changePlan = context.changePlan();
+        reserveToolWrite(context.taskId());
         return generationPatchApplyService.apply(appId, context.taskId(), projectRoot, changePlan, operations);
     }
 
@@ -45,4 +50,8 @@ public class ToolExecutionGateway {
                                        String reason) {
         return applyPatch(appId, projectRoot, List.of(operation), fallbackTaskId, reason);
     }
+    private void reserveToolWrite(String taskId) {
+        executionContextService.consumeIfPresent(taskId, GenerationBudgetKind.TOOL_WRITE);
+    }
+
 }

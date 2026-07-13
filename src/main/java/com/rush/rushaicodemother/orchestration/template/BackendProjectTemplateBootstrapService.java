@@ -55,15 +55,25 @@ public class BackendProjectTemplateBootstrapService {
         if (Files.exists(targetRoot)) {
             return BootstrapResult.skipped("", targetRoot.toString(), "workspace_exists");
         }
+        boolean workspaceCreated = false;
         try {
-            Files.createDirectories(targetRoot);
+            Files.createDirectories(targetRoot.getParent());
+            Files.createDirectory(targetRoot);
+            workspaceCreated = true;
             int fileCount = copyTemplate(targetRoot);
             BootstrapResult result = BootstrapResult.created(TEMPLATE_ID, targetRoot.toString(), fileCount);
             log.info("已复制后端项目模板，targetRoot: {}, templateId: {}, fileCount: {}", targetRoot, TEMPLATE_ID, fileCount);
             return result;
         } catch (Exception e) {
+            if (workspaceCreated) {
+                TemplateWorkspaceFailureCleanup.deleteOwnedWorkspace(targetRoot, e);
+            }
             log.warn("复制后端项目模板失败，targetRoot: {}, templateId: {}", targetRoot, TEMPLATE_ID, e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "初始化后端项目模板失败：" + e.getMessage());
+            throw new BusinessException(
+                    ErrorCode.SYSTEM_ERROR,
+                    "初始化后端项目模板失败，请稍后重试",
+                    e
+            );
         }
     }
 

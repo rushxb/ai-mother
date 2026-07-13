@@ -133,7 +133,7 @@ public class GenerationRollbackRestoreService {
                     snapshotPath.toString(),
                     projectPath.toString(),
                     backupPath.toString(),
-                    "rollback_restore_failed:" + e.getMessage()
+                    "rollback_restore_failed"
             );
         }
     }

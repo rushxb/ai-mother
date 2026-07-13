@@ -6,6 +6,8 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +23,9 @@ class ToolExecutionGatewayTest {
     private final GenerationToolExecutionContextService contextService = new GenerationToolExecutionContextService();
     private final GenerationPatchApplyService patchApplyService =
             new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
-    private final ToolExecutionGateway gateway = new ToolExecutionGateway(patchApplyService, contextService);
+    private final ToolExecutionGateway gateway = new ToolExecutionGateway(
+            patchApplyService, contextService,
+            new GenerationExecutionContextService(new GenerationRuntimeProperties()));
 
     @Test
     void shouldSkipToolWriteWithoutBoundChangePlan() throws Exception {

@@ -1,0 +1,111 @@
+package com.rush.rushaicodemother.application.app;
+
+import com.rush.rushaicodemother.constant.UserConstant;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.model.dto.app.AppAdminUpdateRequest;
+import com.rush.rushaicodemother.model.dto.app.AppUpdateRequest;
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.service.AppService;
+import com.rush.rushaicodemother.service.lifecycle.AppDeletionService;
+import com.rush.rushaicodemother.service.provisioning.AppProvisioningService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+class AppManagementApplicationServiceTest {
+
+    private AppService appService;
+    private AppProvisioningService appProvisioningService;
+    private AppDeletionService appDeletionService;
+    private AppManagementApplicationService service;
+
+    @BeforeEach
+    void setUp() {
+        appService = mock(AppService.class);
+        appProvisioningService = mock(AppProvisioningService.class);
+        appDeletionService = mock(AppDeletionService.class);
+        service = new AppManagementApplicationService(
+                appService,
+                new AppAccessPolicy(),
+                appProvisioningService,
+                appDeletionService
+        );
+    }
+
+    @Test
+    void copyMustDelegateSourceIdWithoutReadingStaleApplicationState() {
+        User actor = User.builder().id(1L).build();
+        when(appProvisioningService.copy(21L, actor)).thenReturn(31L);
+
+        Long copiedAppId = service.copy(21L, actor);
+
+        assertEquals(31L, copiedAppId);
+        verify(appProvisioningService).copy(21L, actor);
+        verifyNoInteractions(appService);
+    }
+
+    @Test
+    void nonOwnerMustNotUpdateApplication() {
+        AppUpdateRequest request = new AppUpdateRequest();
+        request.setId(21L);
+        request.setAppName("renamed");
+        when(appService.getById(21L)).thenReturn(App.builder().id(21L).userId(2L).build());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.updateName(request, User.builder().id(1L).build())
+        );
+
+        assertEquals(ErrorCode.NO_AUTH_ERROR.getCode(), exception.getCode());
+        verify(appService, never()).updateById(org.mockito.ArgumentMatchers.any(App.class));
+    }
+
+    @Test
+    void administratorCanDeleteApplicationThroughLifecycleService() {
+        App existingApp = App.builder().id(21L).userId(2L).build();
+        when(appService.getById(21L)).thenReturn(existingApp);
+        User administrator = User.builder()
+                .id(1L)
+                .userRole(UserConstant.ADMIN_ROLE)
+                .build();
+
+        service.delete(21L, administrator);
+
+        verify(appDeletionService).delete(21L);
+        verify(appService, never()).removeById(21L);
+    }
+
+    @Test
+    void administratorUpdateMustUseExplicitFieldWhitelist() {
+        AppAdminUpdateRequest request = new AppAdminUpdateRequest();
+        request.setId(21L);
+        request.setAppName("  production app  ");
+        request.setPriority(99);
+        when(appService.getById(21L)).thenReturn(
+                App.builder().id(21L).userId(2L).codeGenType("vue_project").build()
+        );
+        when(appService.updateById(org.mockito.ArgumentMatchers.any(App.class))).thenReturn(true);
+
+        service.updateAsAdministrator(request);
+
+        ArgumentCaptor<App> updateCaptor = ArgumentCaptor.forClass(App.class);
+        verify(appService).updateById(updateCaptor.capture());
+        App update = updateCaptor.getValue();
+        assertEquals(21L, update.getId());
+        assertEquals("production app", update.getAppName());
+        assertEquals(99, update.getPriority());
+        assertNull(update.getCodeGenType());
+        assertNull(update.getUserId());
+    }
+}

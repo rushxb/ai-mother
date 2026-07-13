@@ -19,16 +19,27 @@
 
       <nav class="nav-shell" aria-label="主导航">
         <div class="tabs-frame">
-          <MorphingTabs
-            v-model:activeTab="activeTab"
+          <PrimaryNavigationTabs
             class="site-tabs"
-            :tabs="navLabels"
-            :margin="10"
-            :blur-std-deviation="5"
-            @change="handleTabChange"
+            :items="navItems"
+            :current-path="route.path"
           />
         </div>
       </nav>
+
+      <div class="command-area">
+        <button
+          type="button"
+          class="command-trigger"
+          aria-label="打开工作台命令中心"
+          aria-keyshortcuts="Control+K Meta+K"
+          @click="openCommandPalette"
+        >
+          <SearchOutlined />
+          <span class="command-trigger-copy">搜索 / 命令</span>
+          <kbd>⌘K</kbd>
+        </button>
+      </div>
 
       <div class="account-area">
         <a-dropdown v-if="loginUserStore.loginUser.id" trigger="click" placement="bottomRight">
@@ -36,7 +47,9 @@
             <a-avatar :src="loginUserAvatar" size="small" />
             <span class="user-meta">
               <span class="user-name">{{ loginUserStore.loginUser.userName ?? '神秘用户' }}</span>
-              <span class="credit-badge">{{ loginUserStore.loginUser.creditBalance ?? 0 }} 积分</span>
+              <span class="credit-badge"
+                >{{ loginUserStore.loginUser.creditBalance ?? 0 }} 积分</span
+              >
             </span>
           </button>
           <template #overlay>
@@ -53,21 +66,42 @@
       </div>
     </div>
   </Motion>
+
+  <GlobalCommandPalette
+    v-model:open="commandPaletteOpen"
+    :items="commandPaletteItems"
+    @select="handleCommandSelect"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { LogoutOutlined } from '@ant-design/icons-vue'
+import {
+  AppstoreOutlined,
+  BarChartOutlined,
+  HomeOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  RobotOutlined,
+  SearchOutlined,
+  UserOutlined,
+} from '@ant-design/icons-vue'
 import { Motion } from 'motion-v'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { userLogout } from '@/api/userController.ts'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
+import GlobalCommandPalette from '@/components/navigation/GlobalCommandPalette.vue'
+import PrimaryNavigationTabs from '@/components/navigation/PrimaryNavigationTabs.vue'
+import type { CommandPaletteItem } from '@/components/navigation/commandPalette'
 
 interface NavItem {
   label: string
   path: string
+  icon?: CommandPaletteItem['icon']
+  description: string
+  keywords?: string[]
 }
 
 const loginUserStore = useLoginUserStore()
@@ -75,59 +109,165 @@ const router = useRouter()
 const route = useRoute()
 
 const loginUserAvatar = computed(() => loginUserStore.loginUser.userAvatar || DEFAULT_USER_AVATAR)
-const activeTab = ref('主页')
+const commandPaletteOpen = ref(false)
 
 const navItems = computed<NavItem[]>(() => {
-  const items: NavItem[] = [{ label: '主页', path: '/' }]
+  const items: NavItem[] = [
+    {
+      label: '主页',
+      path: '/',
+      icon: HomeOutlined,
+      description: '返回个人应用工作台和灵感案例库',
+      keywords: ['home', 'workspace', '首页', '工作台'],
+    },
+  ]
 
   if (loginUserStore.loginUser?.userRole === 'admin') {
     items.push(
-      { label: '用户管理', path: '/admin/userManage' },
-      { label: '应用管理', path: '/admin/appManage' },
-      { label: '模型管理', path: '/admin/modelManage' },
-      { label: '生成耗时', path: '/admin/generationPerformance' },
-      { label: 'Token 监控', path: '/admin/tokenDashboard' },
-      { label: '接口观测', path: '/admin/apiTraceDashboard' },
+      {
+        label: '用户管理',
+        path: '/admin/userManage',
+        icon: UserOutlined,
+        description: '管理用户、角色和账户状态',
+        keywords: ['admin', 'user', '用户'],
+      },
+      {
+        label: '应用管理',
+        path: '/admin/appManage',
+        icon: AppstoreOutlined,
+        description: '查看与治理平台应用资产',
+        keywords: ['admin', 'app', '应用'],
+      },
+      {
+        label: '模型管理',
+        path: '/admin/modelManage',
+        icon: RobotOutlined,
+        description: '维护模型供应商、能力和调用配置',
+        keywords: ['admin', 'model', '模型', 'ai'],
+      },
+      {
+        label: '生成耗时',
+        path: '/admin/generationPerformance',
+        icon: BarChartOutlined,
+        description: '分析生成链路、阶段耗时和任务状态',
+        keywords: ['admin', 'performance', '耗时', '生成'],
+      },
     )
   }
 
   return items
 })
 
-const navLabels = computed(() => navItems.value.map((item) => item.label))
+const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
+  const navigationItems: CommandPaletteItem[] = navItems.value.map((item) => ({
+    id: `navigate:${item.path}`,
+    group: '页面导航',
+    title: item.label,
+    description: item.description,
+    keywords: item.keywords,
+    icon: item.icon,
+  }))
 
-const getActiveLabel = (path: string) => {
-  const matchedItem = navItems.value.find((item) =>
-    item.path === '/' ? path === '/' : path.startsWith(item.path),
-  )
-  return matchedItem?.label ?? '主页'
+  const actionItems: CommandPaletteItem[] = [
+    {
+      id: 'action:new-app',
+      group: '快捷操作',
+      title: '新建 AI 应用',
+      description: '回到首页并聚焦需求输入框，快速开始生成',
+      keywords: ['new', 'create', 'prompt', '生成', '新建'],
+      shortcut: 'N',
+      icon: AppstoreOutlined,
+    },
+  ]
+
+  if (loginUserStore.loginUser?.userRole === 'admin') {
+    actionItems.push({
+      id: 'action:chat-history',
+      group: '快捷操作',
+      title: '对话记录管理',
+      description: '查看应用对话、生成上下文和用户反馈',
+      keywords: ['chat', 'history', '对话', '消息'],
+      icon: MessageOutlined,
+    })
+  }
+
+  if (!loginUserStore.loginUser?.id) {
+    actionItems.push({
+      id: 'navigate:/user/login',
+      group: '账户',
+      title: '登录工作台',
+      description: '进入登录页，开启个人应用生成流程',
+      keywords: ['login', 'account', '登录'],
+      icon: UserOutlined,
+    })
+  }
+
+  return [...navigationItems, ...actionItems]
+})
+
+const openCommandPalette = () => {
+  commandPaletteOpen.value = true
 }
 
-watch(
-  [() => route.path, navItems],
-  ([path]) => {
-    activeTab.value = getActiveLabel(path)
-  },
-  { immediate: true },
-)
+const focusHomeComposer = () => {
+  window.setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('rush:focus-composer'))
+  }, 180)
+}
 
-const handleTabChange = (label: string) => {
-  const target = navItems.value.find((item) => item.label === label)
-  if (target && target.path !== route.path) {
-    router.push(target.path)
+const handleCommandSelect = async (item: CommandPaletteItem) => {
+  if (item.id === 'action:new-app') {
+    if (route.path !== '/') {
+      await router.push('/')
+    }
+    focusHomeComposer()
+    return
+  }
+
+  if (item.id === 'action:chat-history') {
+    await router.push('/admin/chatManage')
+    return
+  }
+
+  if (item.id.startsWith('navigate:')) {
+    const targetPath = item.id.replace('navigate:', '')
+    if (targetPath !== route.path) {
+      await router.push(targetPath)
+    }
   }
 }
 
+const handleGlobalShortcut = (event: KeyboardEvent) => {
+  const isCommandK = (event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'k'
+  if (!isCommandK) {
+    return
+  }
+  event.preventDefault()
+  commandPaletteOpen.value = !commandPaletteOpen.value
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleGlobalShortcut)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalShortcut)
+})
+
 const doLogout = async () => {
-  const res = await userLogout()
-  if (res.data.code === 0) {
-    loginUserStore.setLoginUser({
-      userName: '未登录',
-    })
+  try {
+    const res = await userLogout()
+    if (res.data.code !== 0) {
+      message.error(`退出登录失败：${res.data.message || '服务异常'}`)
+      return
+    }
+
+    loginUserStore.setLoginUser(null)
     message.success('退出登录成功')
-    await router.push('/user/login')
-  } else {
-    message.error('退出登录失败，' + res.data.message)
+    await router.replace('/user/login')
+  } catch (error) {
+    console.error('Logout request failed', error)
+    message.error('退出登录失败，请检查网络后重试')
   }
 }
 </script>
@@ -148,13 +288,13 @@ const doLogout = async () => {
 }
 
 .header-inner {
-  max-width: 1480px;
+  max-width: var(--page-max-width, 1480px);
   height: 100%;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(210px, 300px) minmax(0, 1fr) minmax(128px, auto);
+  grid-template-columns: minmax(210px, 300px) minmax(0, 1fr) minmax(174px, auto) minmax(128px, auto);
   align-items: center;
-  gap: 18px;
+  gap: 14px;
 }
 
 .brand {
@@ -174,8 +314,7 @@ const doLogout = async () => {
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(236, 244, 255, 0.9));
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(236, 244, 255, 0.9));
   border: 1px solid rgba(126, 158, 196, 0.2);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
@@ -195,7 +334,7 @@ const doLogout = async () => {
 }
 
 .brand-kicker {
-  color: #2f8bff;
+  color: var(--color-primary, #2f8bff);
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
@@ -204,7 +343,7 @@ const doLogout = async () => {
 
 .site-title {
   overflow: hidden;
-  color: #102033;
+  color: var(--color-ink-strong, #102033);
   font-size: 17px;
   font-weight: 750;
   line-height: 1.14;
@@ -221,14 +360,8 @@ const doLogout = async () => {
 
 .tabs-frame {
   max-width: 100%;
-  padding: 4px;
+  padding: 0 2px;
   overflow-x: auto;
-  border: 1px solid rgba(126, 158, 196, 0.18);
-  border-radius: 999px;
-  background: rgba(244, 248, 253, 0.92);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.96),
-    0 10px 26px rgba(80, 114, 150, 0.08);
   scrollbar-width: none;
 }
 
@@ -241,10 +374,66 @@ const doLogout = async () => {
   max-width: none;
 }
 
+.command-area,
 .account-area {
   min-width: 0;
   display: flex;
   justify-content: flex-end;
+}
+
+.command-trigger {
+  height: 42px;
+  min-width: 174px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px 0 14px;
+  border: 1px solid rgba(126, 158, 196, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #60748d;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 24px rgba(80, 114, 150, 0.08);
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease,
+    color 0.22s ease;
+}
+
+.command-trigger:hover {
+  transform: translateY(-1px);
+  border-color: rgba(47, 139, 255, 0.28);
+  color: var(--color-primary, #2f8bff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 14px 30px rgba(80, 114, 150, 0.12);
+}
+
+.command-trigger-copy {
+  flex: 1;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-trigger kbd {
+  min-width: 32px;
+  padding: 5px 6px;
+  border: 1px solid rgba(126, 158, 196, 0.2);
+  border-radius: 8px;
+  background: rgba(237, 244, 252, 0.9);
+  color: #6f8198;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  line-height: 1;
+  text-align: center;
 }
 
 .user-trigger {
@@ -257,7 +446,7 @@ const doLogout = async () => {
   border: 1px solid rgba(126, 158, 196, 0.18);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.82);
-  color: #102033;
+  color: var(--color-ink-strong, #102033);
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
@@ -286,7 +475,7 @@ const doLogout = async () => {
 .user-name {
   max-width: 120px;
   overflow: hidden;
-  color: #102033;
+  color: var(--color-ink-strong, #102033);
   font-size: 13px;
   font-weight: 650;
   line-height: 1.1;
@@ -295,7 +484,7 @@ const doLogout = async () => {
 }
 
 .credit-badge {
-  color: #2f8bff;
+  color: var(--color-primary, #2f8bff);
   font-size: 12px;
   line-height: 1;
 }
@@ -326,8 +515,26 @@ const doLogout = async () => {
 
 :deep(.user-menu) {
   margin-top: 8px;
-  border-radius: 14px;
   overflow: hidden;
+  border-radius: 14px;
+}
+
+@media (max-width: 1180px) {
+  .header-inner {
+    grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) 42px minmax(118px, auto);
+  }
+
+  .command-trigger {
+    width: 42px;
+    min-width: 42px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .command-trigger-copy,
+  .command-trigger kbd {
+    display: none;
+  }
 }
 
 @media (max-width: 980px) {
@@ -337,10 +544,10 @@ const doLogout = async () => {
   }
 
   .header-inner {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
-      'brand account'
-      'nav nav';
+      'brand command account'
+      'nav nav nav';
     row-gap: 10px;
   }
 
@@ -352,6 +559,10 @@ const doLogout = async () => {
     grid-area: nav;
     justify-content: flex-start;
     width: 100%;
+  }
+
+  .command-area {
+    grid-area: command;
   }
 
   .account-area {
@@ -383,11 +594,13 @@ const doLogout = async () => {
     font-size: 16px;
   }
 
+  .command-trigger,
   .user-trigger {
     width: 38px;
+    min-width: 38px;
     height: 38px;
-    padding: 0;
     justify-content: center;
+    padding: 0;
   }
 
   .user-meta {
@@ -401,16 +614,6 @@ const doLogout = async () => {
 
   .site-tabs {
     width: max-content;
-  }
-
-  .tabs-frame {
-    padding: 3px;
-  }
-
-  .site-tabs :deep(.morphing-tab) {
-    height: 38px;
-    padding: 0 14px;
-    font-size: 12px;
   }
 }
 </style>

@@ -106,7 +106,7 @@ public class GenerationRollbackPointService {
                     projectPath.toString(),
                     sourceTypeValue,
                     targetTypeValue,
-                    "snapshot_create_failed:" + e.getMessage()
+                    "snapshot_create_failed"
             );
         }
     }

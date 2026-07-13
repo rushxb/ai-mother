@@ -27,4 +27,14 @@ class GenerationErrorClassifierTest {
         assertEquals(GenerationErrorClassifier.CATEGORY_DEPENDENCY, error.category());
         assertTrue(error.recoverable());
     }
+
+    @Test
+    void shouldNotExposeRawThrowableMessage() {
+        GenerationErrorClassifier.GenerationError error = GenerationErrorClassifier.classify(
+                new IllegalStateException("provider-api-key=secret-value")
+        );
+
+        assertEquals(GenerationErrorClassifier.CATEGORY_RUNTIME, error.category());
+        assertEquals("代码生成失败，请稍后重试。", error.message());
+    }
 }

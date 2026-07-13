@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.exception;
 import lombok.Getter;
 
 @Getter
-public class BusinessException extends RuntimeException{
+public class BusinessException extends RuntimeException {
 
     /**
      * 错误码
@@ -22,6 +22,11 @@ public class BusinessException extends RuntimeException{
 
     public BusinessException(ErrorCode errorCode, String message) {
         super(message);
+        this.code = errorCode.getCode();
+    }
+
+    public BusinessException(ErrorCode errorCode, String message, Throwable cause) {
+        super(message, cause);
         this.code = errorCode.getCode();
     }
 }

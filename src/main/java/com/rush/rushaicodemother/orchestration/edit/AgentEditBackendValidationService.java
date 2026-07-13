@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.edit;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 public class AgentEditBackendValidationService {
 
@@ -40,7 +42,8 @@ public class AgentEditBackendValidationService {
                     validateSql(relativePath, content, errors);
                 }
             } catch (Exception e) {
-                errors.add(relativePath + ":读取失败:" + e.getMessage());
+                log.warn("读取后端补丁文件失败，taskId: {}, relativePath: {}", taskId, relativePath, e);
+                errors.add(relativePath + ":读取失败");
             }
         }
         if (!errors.isEmpty()) {

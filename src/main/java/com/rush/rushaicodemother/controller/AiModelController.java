@@ -1,62 +1,72 @@
 package com.rush.rushaicodemother.controller;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.rush.rushaicodemother.annotation.AuthCheck;
 import com.rush.rushaicodemother.common.BaseResponse;
 import com.rush.rushaicodemother.common.DeleteRequest;
-import com.rush.rushaicodemother.common.PageRequest;
 import com.rush.rushaicodemother.common.ResultUtils;
 import com.rush.rushaicodemother.constant.UserConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
+import com.rush.rushaicodemother.model.converter.AiModelViewConverter;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelAddRequest;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelConnectionTestRequest;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelQueryRequest;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelToggleRequest;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelUpdateRequest;
 import com.rush.rushaicodemother.model.entity.AiModel;
-import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
+import com.rush.rushaicodemother.model.vo.AiModelAdminVO;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
+import com.rush.rushaicodemother.model.vo.AiModelPublicVO;
 import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
 import com.rush.rushaicodemother.service.AiModelCatalogService;
 import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.UserService;
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
-import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 /**
- * AI 模型配置 控制层。
+ * AI 模型配置控制器。
+ *
+ * <p>所有响应统一通过安全视图对象输出，禁止直接序列化包含 API Key 的持久化实体。</p>
  */
+@Validated
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/ai-model")
 public class AiModelController {
 
-    @Resource
-    private AiModelService aiModelService;
+    private final AiModelService aiModelService;
+    private final AiModelCatalogService aiModelCatalogService;
+    private final UserService userService;
+    private final AiModelViewConverter aiModelViewConverter;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    @Resource
-    private AiModelCatalogService aiModelCatalogService;
-
-    @Resource
-    private UserService userService;
-
-    @Resource
-    private ApplicationEventPublisher applicationEventPublisher;
-
-    /**
-     * 添加模型（仅管理员）
-     */
+    /** 添加模型（仅管理员）。 */
     @PostMapping("/add")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Long> addModel(@RequestBody AiModelAddRequest addRequest, HttpServletRequest request) {
-        ThrowUtils.throwIf(addRequest == null, ErrorCode.PARAMS_ERROR);
-
-        // 检查是否已存在相同的 provider + modelId
+    public BaseResponse<Long> addModel(@Valid @RequestBody AiModelAddRequest addRequest,
+                                       HttpServletRequest request) {
         AiModel existingModel = aiModelService.getByProviderAndModelId(addRequest.getProvider(), addRequest.getModelId());
         if (existingModel != null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "该模型已存在");
@@ -73,30 +83,20 @@ public class AiModelController {
         return ResultUtils.success(model.getId());
     }
 
-    /**
-     * 更新模型（仅管理员）
-     */
+    /** 更新模型（仅管理员）。API Key 为空时由服务层保留原密钥。 */
     @PostMapping("/update")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Boolean> updateModel(@RequestBody AiModelUpdateRequest updateRequest) {
-        ThrowUtils.throwIf(updateRequest == null, ErrorCode.PARAMS_ERROR);
-        ThrowUtils.throwIf(updateRequest.getId() == null || updateRequest.getId() <= 0, ErrorCode.PARAMS_ERROR);
-
-        AiModel existingModel = aiModelService.getById(updateRequest.getId());
-        ThrowUtils.throwIf(existingModel == null, ErrorCode.NOT_FOUND_ERROR, "模型不存在");
-
+    public BaseResponse<Boolean> updateModel(@Valid @RequestBody AiModelUpdateRequest updateRequest) {
         AiModel model = new AiModel();
         BeanUtil.copyProperties(updateRequest, model);
         applyProtocolConfig(model, updateRequest.getProtocol());
         boolean result = aiModelService.updateModel(model);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        ThrowUtils.throwIf(!result, ErrorCode.NOT_FOUND_ERROR, "模型不存在或更新失败");
         publishModelConfigChanged();
         return ResultUtils.success(true);
     }
 
-    /**
-     * 删除模型（仅管理员）
-     */
+    /** 删除模型（仅管理员）。 */
     @PostMapping("/delete")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> deleteModel(@RequestBody DeleteRequest deleteRequest) {
@@ -110,83 +110,75 @@ public class AiModelController {
         return ResultUtils.success(result);
     }
 
-    /**
-     * 根据 id 获取模型
-     */
+    /** 根据 ID 获取管理端模型视图。 */
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<AiModel> getModelById(long id) {
-        ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<AiModelAdminVO> getModelById(@RequestParam @Positive long id) {
         AiModel model = aiModelService.getById(id);
         ThrowUtils.throwIf(model == null, ErrorCode.NOT_FOUND_ERROR);
-        return ResultUtils.success(model);
+        return ResultUtils.success(aiModelViewConverter.toAdminVO(model));
     }
 
-    /**
-     * 获取所有启用的模型（所有用户可用）
-     */
+    /** 获取所有启用模型的公开信息。 */
     @GetMapping("/list/enabled")
-    public BaseResponse<List<AiModel>> listEnabledModels() {
-        List<AiModel> models = aiModelService.listEnabledModels();
+    public BaseResponse<List<AiModelPublicVO>> listEnabledModels() {
+        List<AiModelPublicVO> models = aiModelService.listEnabledModels().stream()
+                .map(aiModelViewConverter::toPublicVO)
+                .toList();
         return ResultUtils.success(models);
     }
 
-    /**
-     * 根据类型获取启用的模型（所有用户可用）
-     */
+    /** 根据类型获取启用模型的公开信息。 */
     @GetMapping("/list/enabled/type")
-    public BaseResponse<List<AiModel>> listEnabledModelsByType(@RequestParam String modelType) {
-        ThrowUtils.throwIf(modelType == null || modelType.isBlank(), ErrorCode.PARAMS_ERROR);
-        List<AiModel> models = aiModelService.listEnabledModelsByType(modelType);
+    public BaseResponse<List<AiModelPublicVO>> listEnabledModelsByType(
+            @RequestParam @NotBlank String modelType) {
+        List<AiModelPublicVO> models = aiModelService.listEnabledModelsByType(modelType).stream()
+                .map(aiModelViewConverter::toPublicVO)
+                .toList();
         return ResultUtils.success(models);
     }
 
-    /**
-     * 获取支持的模型目录（仅管理员）
-     */
+    /** 获取支持的模型目录（仅管理员）。 */
     @GetMapping("/catalog")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<List<SupportedAiModelVO>> listSupportedModels() {
         return ResultUtils.success(aiModelCatalogService.listSupportedModels());
     }
 
-    /**
-     * 分页获取模型列表（仅管理员）
-     */
+    /** 分页获取模型管理视图（仅管理员）。 */
     @PostMapping("/list/page")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Page<AiModel>> listModelsByPage(@RequestBody AiModelQueryRequest queryRequest) {
-        ThrowUtils.throwIf(queryRequest == null, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<Page<AiModelAdminVO>> listModelsByPage(
+            @Valid @RequestBody AiModelQueryRequest queryRequest) {
         long pageNum = queryRequest.getPageNum();
         long pageSize = queryRequest.getPageSize();
-
-        Page<AiModel> page = aiModelService.page(
+        Page<AiModel> entityPage = aiModelService.page(
                 Page.of(pageNum, pageSize),
                 aiModelService.getQueryWrapper(queryRequest)
         );
-        return ResultUtils.success(page);
+        Page<AiModelAdminVO> resultPage = new Page<>(pageNum, pageSize, entityPage.getTotalRow());
+        resultPage.setRecords(entityPage.getRecords().stream()
+                .map(aiModelViewConverter::toAdminVO)
+                .toList());
+        return ResultUtils.success(resultPage);
     }
 
-    /**
-     * 切换模型启用状态（仅管理员）
-     */
+    /** 切换模型启用状态（仅管理员）。 */
     @PostMapping("/toggle")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<AiModel> toggleModelEnabled(@RequestBody ToggleRequest toggleRequest) {
-        ThrowUtils.throwIf(toggleRequest == null || toggleRequest.getId() == null, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<AiModelAdminVO> toggleModelEnabled(
+            @Valid @RequestBody AiModelToggleRequest toggleRequest) {
         AiModel model = aiModelService.toggleModelEnabled(toggleRequest.getId());
         ThrowUtils.throwIf(model == null, ErrorCode.NOT_FOUND_ERROR);
         publishModelConfigChanged();
-        return ResultUtils.success(model);
+        return ResultUtils.success(aiModelViewConverter.toAdminVO(model));
     }
 
-    /**
-     * 测试模型连接（仅管理员）
-     */
+    /** 测试已保存模型的连接（仅管理员）。 */
     @PostMapping("/test")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Boolean> testModelConnection(@RequestBody TestRequest testRequest) {
-        ThrowUtils.throwIf(testRequest == null || testRequest.getId() == null, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<Boolean> testModelConnection(
+            @Valid @RequestBody AiModelConnectionTestRequest testRequest) {
         boolean success = aiModelService.testModelConnection(testRequest.getId());
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "模型连接测试失败，请检查配置");
@@ -194,13 +186,11 @@ public class AiModelController {
         return ResultUtils.success(true);
     }
 
-    /**
-     * 使用当前表单配置测试模型连接（仅管理员）
-     */
+    /** 使用当前表单配置测试模型连接（仅管理员）。 */
     @PostMapping("/test/config")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<AiModelConnectionTestResultVO> testModelConnectionByConfig(@RequestBody AiModelAddRequest testRequest) {
-        ThrowUtils.throwIf(testRequest == null, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<AiModelConnectionTestResultVO> testModelConnectionByConfig(
+            @Valid @RequestBody AiModelAddRequest testRequest) {
         AiModel model = new AiModel();
         BeanUtil.copyProperties(testRequest, model);
         applyProtocolConfig(model, testRequest.getProtocol());
@@ -209,64 +199,6 @@ public class AiModelController {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, result.getMessage());
         }
         return ResultUtils.success(result);
-    }
-
-    // ========== 内部请求类 ==========
-
-    @lombok.Data
-    public static class AiModelAddRequest {
-        private String modelName;
-        private String provider;
-        private String modelId;
-        private String description;
-        private String baseUrl;
-        private String apiKey;
-        private Integer maxTokens;
-        private Double temperature;
-        private Integer isEnabled;
-        private String modelType;
-        private Integer supportsThinking;
-        private Integer sortOrder;
-        private String configJson;
-        private String protocol;
-    }
-
-    @lombok.Data
-    public static class AiModelUpdateRequest {
-        private Long id;
-        private String modelName;
-        private String provider;
-        private String modelId;
-        private String description;
-        private String baseUrl;
-        private String apiKey;
-        private Integer maxTokens;
-        private Double temperature;
-        private Integer isEnabled;
-        private String modelType;
-        private Integer supportsThinking;
-        private Integer sortOrder;
-        private String configJson;
-        private String protocol;
-    }
-
-    @lombok.Data
-    @lombok.EqualsAndHashCode(callSuper = false)
-    public static class AiModelQueryRequest extends PageRequest {
-        private String provider;
-        private String modelType;
-        private Integer isEnabled;
-        private String keyword;
-    }
-
-    @lombok.Data
-    public static class ToggleRequest {
-        private Long id;
-    }
-
-    @lombok.Data
-    public static class TestRequest {
-        private Long id;
     }
 
     private void publishModelConfigChanged() {

@@ -30,7 +30,6 @@ import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 
 import java.lang.reflect.Method;
@@ -141,10 +140,8 @@ class AppServiceImplRegressionTest {
 
     @Test
     void shouldReplayStructuredGenerationEventsBeforeSessionStream() {
-        AppServiceImpl service = spy(new AppServiceImpl());
         App app = app(1L, 2L);
         User user = user(2L);
-        doReturn(app).when(service).getById(1L);
         GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
         eventPublisher.publish(
                 new GenerationTaskRequest(app, "新增搜索分页", user),
@@ -154,8 +151,11 @@ class AppServiceImplRegressionTest {
         );
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
         when(orchestrator.getStream(1L)).thenReturn(Flux.empty());
-        ReflectionTestUtils.setField(service, "generationEventPublisher", eventPublisher);
-        ReflectionTestUtils.setField(service, "generationTaskOrchestrator", orchestrator);
+        AppServiceImpl service = spy(new AppServiceImplTestFixture()
+                .withGenerationEventPublisher(eventPublisher)
+                .withGenerationTaskOrchestrator(orchestrator)
+                .createService());
+        doReturn(app).when(service).getById(1L);
 
         List<GenerationStreamEvent> events = service.getGenerationStream(1L, user).collectList().block();
 
@@ -185,6 +185,7 @@ class AppServiceImplRegressionTest {
                 lifecycleService,  // generationTaskLifecycleService
                 null,  // generationToolExecutionContextService
                 traceService,  // generationTraceService
+                null,  // generationExecutionContextService
                 new GenerationModeRouter(),  // generationModeRouter
                 null  // generationWorkspaceService
         );

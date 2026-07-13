@@ -7,7 +7,7 @@ import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.manager.CosManager;
 import com.rush.rushaicodemother.service.ScreenshotService;
 import com.rush.rushaicodemother.utils.WebScreenshotUtils;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -18,10 +18,10 @@ import java.util.UUID;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class ScreenshotServiceImpl implements ScreenshotService {
 
-    @Resource
-    private CosManager cosManager;
+    private final CosManager cosManager;
 
     @Override
     public String generateAndUploadScreenshot(String webUrl) {

@@ -27,13 +27,19 @@ const userAvatar = computed(() => props.user?.userAvatar || DEFAULT_USER_AVATAR)
 
 <style scoped>
 .user-info {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .user-name {
-  font-size: 14px;
-  color: #1a1a1a;
+  overflow: hidden;
+  color: var(--color-ink, #2f4158);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

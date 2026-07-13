@@ -5,11 +5,11 @@ import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import io.github.bonigarcia.wdm.WebDriverManager;
-import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
@@ -22,6 +22,8 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,17 +39,22 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
 
     private static final int MAX_BROWSER_LOGS = 12;
 
-    @Resource
-    private VueProjectBuilder vueProjectBuilder;
+    private final VueProjectBuilder vueProjectBuilder;
+    private final DevServerManager devServerManager;
+    private final int serverPort;
+    private final String contextPath;
 
-    @Resource
-    private LocalDevServerManager localDevServerManager;
-
-    @Value("${server.port:8123}")
-    private int serverPort;
-
-    @Value("${server.servlet.context-path:/api}")
-    private String contextPath;
+    public PreviewRuntimeDiagnosticTool(
+            VueProjectBuilder vueProjectBuilder,
+            DevServerManager devServerManager,
+            @Value("${server.port:8123}") int serverPort,
+            @Value("${server.servlet.context-path:/api}") String contextPath
+    ) {
+        this.vueProjectBuilder = vueProjectBuilder;
+        this.devServerManager = devServerManager;
+        this.serverPort = serverPort;
+        this.contextPath = contextPath;
+    }
 
     @Tool("用浏览器访问本地构建预览页或 dev server，采集页面标题、DOM 状态、首屏文本和 console 报错，用于排查白屏、路由异常、资源加载失败和运行时错误。")
     public String diagnosePreviewRuntime(
@@ -73,19 +80,17 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         }
     }
 
-    private String resolveTargetUrl(String action, String targetUrl, String relativeProjectPath, Long appId) {
+    String resolveTargetUrl(String action, String targetUrl, String relativeProjectPath, Long appId) {
+        validateDiagnosticAction(action);
         if (StrUtil.isNotBlank(targetUrl)) {
-            return targetUrl;
+            return requireLoopbackHttpUrl(targetUrl);
         }
         if ("diagnoseDevServer".equals(action)) {
-            LocalDevServerManager.DevServerSession session = localDevServerManager.getSession(appId);
-            if (session == null || !session.process().isAlive()) {
-                throw new IllegalArgumentException("当前没有运行中的开发服务器，请先调用【开发服务器日志工具】启动 dev server");
+            Integer port = devServerManager.getPort(appId);
+            if (port == null || port < 1 || port > 65535) {
+                throw new IllegalArgumentException("当前没有运行中的 Dev Server，请先调用【开发服务器日志工具】启动服务");
             }
-            return session.url();
-        }
-        if (!"diagnoseBuildPreview".equals(action)) {
-            throw new IllegalArgumentException("不支持的诊断模式 - " + action);
+            return "http://127.0.0.1:" + port + "/";
         }
         String projectPath = ToolPathSupport.resolvePath(relativeProjectPath, appId).toString();
         VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.getRecentBuildResult(projectPath);
@@ -96,7 +101,44 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
             throw new IllegalArgumentException("构建未通过，无法进行预览运行时诊断。\n" + buildResult.toDiagnosticReport());
         }
         String normalizedContextPath = normalizeContextPath(contextPath);
-        return "http://127.0.0.1:" + serverPort + normalizedContextPath + "/static/vue_project_" + appId + "/dist/";
+        String previewUrl = "http://127.0.0.1:" + serverPort + normalizedContextPath
+                + "/static/vue_project_" + appId + "/dist/";
+        return requireLoopbackHttpUrl(previewUrl);
+    }
+
+    private void validateDiagnosticAction(String action) {
+        if (!"diagnoseDevServer".equals(action) && !"diagnoseBuildPreview".equals(action)) {
+            throw new IllegalArgumentException("不支持的诊断模式 - " + action);
+        }
+    }
+
+    private String requireLoopbackHttpUrl(String rawUrl) {
+        URI uri;
+        try {
+            uri = new URI(rawUrl.trim());
+        } catch (URISyntaxException exception) {
+            throw new IllegalArgumentException("目标 URL 格式无效", exception);
+        }
+        if (!"http".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null) {
+            throw new IllegalArgumentException("运行时诊断仅允许访问本机 HTTP 地址");
+        }
+        String host = uri.getHost();
+        if (host == null) {
+            throw new IllegalArgumentException("目标 URL 缺少有效主机名");
+        }
+        String normalizedHost = host.startsWith("[") && host.endsWith("]")
+                ? host.substring(1, host.length() - 1)
+                : host;
+        if (!"localhost".equalsIgnoreCase(normalizedHost)
+                && !"127.0.0.1".equals(normalizedHost)
+                && !"::1".equals(normalizedHost)) {
+            throw new IllegalArgumentException("运行时诊断仅允许访问本机回环地址");
+        }
+        int port = uri.getPort();
+        if (port == 0 || port > 65535) {
+            throw new IllegalArgumentException("目标 URL 端口无效");
+        }
+        return uri.normalize().toASCIIString();
     }
 
     private String inspectUrl(String action, String url, Integer waitSeconds) {

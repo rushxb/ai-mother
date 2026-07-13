@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
-import com.rush.rushaicodemother.controller.AiModelController.AiModelQueryRequest;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelQueryRequest;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 

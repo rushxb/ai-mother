@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.monitor;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -16,10 +16,10 @@ import java.util.concurrent.ConcurrentMap;
  */
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class AiModelMetricsCollector {
 
-    @Resource
-    private MeterRegistry meterRegistry;
+    private final MeterRegistry meterRegistry;
 
     // 缓存已创建的指标，避免重复创建（按指标类型分离缓存）
     private final ConcurrentMap<String, Counter> requestCountersCache = new ConcurrentHashMap<>();

@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.ai;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
@@ -12,10 +12,10 @@ import org.springframework.context.annotation.Scope;
  * 提示词优化服务工厂
  */
 @Configuration
+@RequiredArgsConstructor
 public class PromptOptimizerServiceFactory {
 
-    @Resource
-    private StreamingModelFactory streamingModelFactory;
+    private final StreamingModelFactory streamingModelFactory;
 
     /**
      * 创建提示词优化服务

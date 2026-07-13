@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
@@ -9,7 +10,7 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
-import com.rush.rushaicodemother.service.DevServerManager;
+import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
@@ -109,9 +110,10 @@ public class BackgroundValidationService {
 
         } catch (Exception e) {
             log.error("后台验证失败，taskId: {}", taskId, e);
+            GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
 
             // 记录失败结果
-            ValidationResult failedResult = ValidationResult.failed(taskId, "验证异常: " + e.getMessage());
+            ValidationResult failedResult = ValidationResult.failed(taskId, "后台验证执行失败，请稍后重试");
             editStatePersistenceService.recordValidationResult(appId, taskId, failedResult);
 
             // 发送验证失败事件
@@ -119,7 +121,8 @@ public class BackgroundValidationService {
             generationEventPublisher.publish(request, GenerationEventType.VALIDATION_RESULT, "后台验证失败", Map.of(
                     "taskId", taskId,
                     "status", "failed",
-                    "error", StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
+                    "category", publicError.category(),
+                    "error", publicError.message()
             ));
             return failedResult;
         }
@@ -192,9 +195,7 @@ public class BackgroundValidationService {
         if (devServerWasRunning) {
             savedPort = devServerManager.getPort(appId);
             log.info("构建验证前停止 dev server，appId: {}, port: {}", appId, savedPort);
-            devServerManager.stopDevServer(appId, userId);
-            // 等待进程完全退出，确保文件锁释放
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            devServerManager.stopDevServer(appId);
         }
 
         try {
@@ -205,7 +206,7 @@ public class BackgroundValidationService {
                 if (editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage)
                         && workspace.codeGenType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.VUE_PROJECT) {
                     DevServerValidationResult devServerValidationResult = devServerValidationService.validate(
-                            taskId, appId, userId, projectPath
+                            taskId, appId, userId, workspace.codeGenType()
                     );
                     if (!devServerValidationResult.isPassed()) {
                         return ValidationResult.failed(taskId, "运行时验证失败: " + devServerValidationResult.summary());
@@ -219,7 +220,7 @@ public class BackgroundValidationService {
             }
         } catch (Exception e) {
             log.error("构建验证异常，taskId: {}", taskId, e);
-            return ValidationResult.failed(taskId, "构建验证异常: " + e.getMessage());
+            return ValidationResult.failed(taskId, "构建验证执行异常，请稍后重试");
         } finally {
             // 构建完成后重启 dev server
             if (devServerWasRunning) {

@@ -1,22 +1,23 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.service.DevServerManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Dev Server 运行时验证服务
- * <p>
- * 在代码生成完成后，启动 dev server 并监控其错误输出，
- * 检测运行时错误（缺失依赖、导出不存在、组件解析失败等）。
- * 验证完成后立即停止 dev server，释放资源。
+ * Dev Server 运行时验证服务。
+ *
+ * <p>启动成功即表示回环端口已经稳定就绪；本服务只在可配置的窗口内
+ * 继续收集首次编译错误，并且只停止由当前调用新建的会话。</p>
  */
 @Slf4j
 @Service
@@ -24,83 +25,50 @@ import java.util.List;
 public class DevServerValidationService {
 
     private final DevServerManager devServerManager;
+    private final DevServerRuntimeProperties runtimeProperties;
 
     /**
-     * dev server 启动超时（毫秒）
+     * 执行 Dev Server 运行时验证。
      */
-    private static final long STARTUP_TIMEOUT_MS = 20_000;
+    public DevServerValidationResult validate(
+            String taskId,
+            Long appId,
+            Long userId,
+            CodeGenTypeEnum codeGenType
+    ) {
+        validateRequest(taskId, appId, userId, codeGenType);
+        long startNanos = System.nanoTime();
+        log.info("开始 Dev Server 运行时验证，taskId: {}, appId: {}, codeGenType: {}",
+                taskId, appId, codeGenType);
 
-    /**
-     * 首次编译完成后的错误收集窗口（毫秒）
-     * Vite 首次编译后可能会有延迟的错误输出，等待一段时间收集完整
-     */
-    private static final long ERROR_COLLECTION_WINDOW_MS = 5_000;
-
-    /**
-     * 启动轮询间隔（毫秒）
-     */
-    private static final long POLL_INTERVAL_MS = 500;
-
-    /**
-     * 执行 Dev Server 运行时验证
-     *
-     * @param taskId      任务 ID
-     * @param appId       应用 ID
-     * @param userId      用户 ID
-     * @param projectPath 项目路径
-     * @return 验证结果
-     */
-    public DevServerValidationResult validate(String taskId, Long appId, Long userId, String projectPath) {
-        long startTime = System.currentTimeMillis();
-
-        log.info("开始 Dev Server 运行时验证，taskId: {}, appId: {}, projectPath: {}", taskId, appId, projectPath);
-
-        // 1. 创建错误收集器并注册到 DevServerManager
         DevServerErrorCollector collector = new DevServerErrorCollector();
         devServerManager.registerErrorCollector(appId, collector);
 
-        boolean devServerStarted = false;
+        DevServerStartResult startResult = null;
         try {
-            // 2. 启动 dev server
-            App app = buildAppForValidation(appId, projectPath);
-            int port;
+            App app = buildAppForValidation(appId, codeGenType);
             try {
-                port = devServerManager.startDevServer(app, userId);
-                devServerStarted = true;
-            } catch (BusinessException e) {
-                long elapsed = System.currentTimeMillis() - startTime;
-                if (e.getCode() == ErrorCode.NOT_FOUND_ERROR.getCode()) {
-                    return DevServerValidationResult.skipped(taskId, appId, e.getMessage());
-                }
-                return DevServerValidationResult.timeout(taskId, appId, elapsed);
-            } catch (Exception e) {
-                long elapsed = System.currentTimeMillis() - startTime;
-                log.warn("Dev Server 启动异常，taskId: {}, error: {}", taskId, e.getMessage());
-                return DevServerValidationResult.timeout(taskId, appId, elapsed);
+                startResult = devServerManager.startDevServer(app, userId);
+            } catch (BusinessException exception) {
+                return mapStartFailure(taskId, appId, startNanos, exception);
+            } catch (RuntimeException exception) {
+                log.warn("Dev Server 启动异常，taskId: {}, error: {}", taskId, exception.getMessage());
+                return DevServerValidationResult.startupFailed(
+                        taskId,
+                        appId,
+                        elapsedSince(startNanos),
+                        exception.getMessage()
+                );
             }
 
-            log.info("Dev Server 已启动，taskId: {}, port: {}，等待首次编译完成...", taskId, port);
-
-            // 3. 等待首次编译完成（端口被占用说明服务已启动）
-            boolean startupOk = waitForStartup(port, STARTUP_TIMEOUT_MS);
-            if (!startupOk) {
-                long elapsed = System.currentTimeMillis() - startTime;
-                log.warn("Dev Server 启动超时，taskId: {}", taskId);
-                return DevServerValidationResult.timeout(taskId, appId, elapsed);
+            log.info("Dev Server 已就绪，taskId: {}, port: {}，进入错误收集窗口",
+                    taskId, startResult.port());
+            if (!awaitErrorCollectionWindow(runtimeProperties.getValidationErrorCollectionWindow())) {
+                return DevServerValidationResult.interrupted(taskId, appId, elapsedSince(startNanos));
             }
 
-            // 4. 错误收集窗口：继续等待一段时间收集延迟的错误
-            log.info("Dev Server 首次编译完成，taskId: {}，进入错误收集窗口（{}ms）...", taskId, ERROR_COLLECTION_WINDOW_MS);
-            try {
-                Thread.sleep(ERROR_COLLECTION_WINDOW_MS);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-
-            // 5. 分析错误
             List<DevServerError> errors = collector.getErrors();
-            long elapsed = System.currentTimeMillis() - startTime;
-
+            long elapsed = elapsedSince(startNanos);
             log.info("Dev Server 验证完成，taskId: {}, criticalErrors: {}, warnings: {}, duration: {}ms",
                     taskId, collector.getCriticalErrorCount(), collector.getWarningCount(), elapsed);
 
@@ -111,61 +79,75 @@ public class DevServerValidationService {
                 return DevServerValidationResult.warning(taskId, appId, errors, elapsed);
             }
             return DevServerValidationResult.passed(taskId, appId, elapsed);
-
         } finally {
-            // 6. 停止 dev server（验证完毕，释放资源）
-            if (devServerStarted) {
-                try {
-                    devServerManager.stopDevServer(appId, userId);
-                    log.info("验证用 Dev Server 已停止，appId: {}", appId);
-                } catch (Exception e) {
-                    log.warn("停止验证用 Dev Server 失败，appId: {}, error: {}", appId, e.getMessage());
-                }
-            }
-            // 7. 注销错误收集器
-            devServerManager.unregisterErrorCollector(appId);
+            stopOwnedSession(appId, startResult);
+            devServerManager.unregisterErrorCollector(appId, collector);
         }
     }
 
-    /**
-     * 等待 dev server 启动（通过检查端口是否被占用）
-     */
-    private boolean waitForStartup(int port, long timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (!isPortAvailable(port)) {
-                // 端口被占用 = dev server 已启动
-                return true;
-            }
-            try {
-                Thread.sleep(POLL_INTERVAL_MS);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
+    private DevServerValidationResult mapStartFailure(
+            String taskId,
+            Long appId,
+            long startNanos,
+            BusinessException exception
+    ) {
+        long elapsed = elapsedSince(startNanos);
+        if (exception.getCode() == ErrorCode.NOT_FOUND_ERROR.getCode()) {
+            return DevServerValidationResult.skipped(taskId, appId, exception.getMessage());
         }
-        return false;
+        if (exception.getCause() instanceof DevServerStartException startException
+                && startException.reason() == DevServerStartException.Reason.STARTUP_TIMEOUT) {
+            return DevServerValidationResult.timeout(taskId, appId, elapsed);
+        }
+        return DevServerValidationResult.startupFailed(taskId, appId, elapsed, exception.getMessage());
     }
 
-    /**
-     * 检查端口是否可用（未被占用）
-     */
-    private boolean isPortAvailable(int port) {
-        try (java.net.ServerSocket serverSocket = new java.net.ServerSocket(port)) {
-            serverSocket.setReuseAddress(true);
+    private boolean awaitErrorCollectionWindow(Duration duration) {
+        try {
+            TimeUnit.NANOSECONDS.sleep(duration.toNanos());
             return true;
-        } catch (java.io.IOException e) {
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
             return false;
         }
     }
 
-    /**
-     * 构建验证用的 App 对象
-     */
-    private App buildAppForValidation(Long appId, String projectPath) {
+    private void stopOwnedSession(Long appId, DevServerStartResult startResult) {
+        if (startResult == null || !startResult.startedByCaller()) {
+            return;
+        }
+        try {
+            devServerManager.stopDevServer(appId);
+            log.info("验证用 Dev Server 已停止，appId: {}", appId);
+        } catch (RuntimeException exception) {
+            log.warn("停止验证用 Dev Server 失败，appId: {}, error: {}",
+                    appId, exception.getMessage());
+        }
+    }
+
+    private void validateRequest(String taskId, Long appId, Long userId, CodeGenTypeEnum codeGenType) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "任务 ID 不能为空");
+        }
+        if (appId == null || appId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
+        }
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户 ID 必须大于 0");
+        }
+        if (codeGenType == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "代码生成类型不能为空");
+        }
+    }
+
+    private App buildAppForValidation(Long appId, CodeGenTypeEnum codeGenType) {
         App app = new App();
         app.setId(appId);
-        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
+        app.setCodeGenType(codeGenType == null ? null : codeGenType.getValue());
         return app;
+    }
+
+    private long elapsedSince(long startNanos) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
     }
 }

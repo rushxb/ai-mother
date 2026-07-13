@@ -14,26 +14,29 @@
             {{ codeGenTypeText }}
           </a-tag>
         </div>
-        <div class="app-name-shell" :class="{ editable: canEditAppName, editing: isEditingAppName }">
+        <div
+          class="app-name-shell"
+          :class="{ editable: canEditAppName, editing: isEditingAppName }"
+        >
           <a-input
-              v-if="isEditingAppName"
-              ref="appNameInputRef"
-              :value="appNameDraft"
-              class="app-name-input"
-              :maxlength="50"
-              :bordered="false"
-              :disabled="savingAppName"
-              placeholder="请输入应用名称"
-              @update:value="$emit('update:appNameDraft', $event)"
-              @pressEnter="$emit('saveAppName')"
-              @blur="$emit('saveAppName')"
-              @keydown.esc="$emit('cancelAppNameEdit')"
+            v-if="isEditingAppName"
+            ref="appNameInputRef"
+            :value="appNameDraft"
+            class="app-name-input"
+            :maxlength="50"
+            :bordered="false"
+            :disabled="savingAppName"
+            placeholder="请输入应用名称"
+            @update:value="$emit('update:appNameDraft', $event)"
+            @pressEnter="$emit('saveAppName')"
+            @blur="$emit('saveAppName')"
+            @keydown.esc="$emit('cancelAppNameEdit')"
           />
           <h1
-              v-else
-              class="app-name"
-              :class="{ clickable: canEditAppName }"
-              @click="$emit('startEditAppName')"
+            v-else
+            class="app-name"
+            :class="{ clickable: canEditAppName }"
+            @click="$emit('startEditAppName')"
           >
             {{ appDisplayName }}
           </h1>
@@ -41,7 +44,10 @@
         </div>
       </div>
     </div>
-    <div class="generation-status" :class="{ active: isGenerating, failed: latestGenerationFailed }">
+    <div
+      class="generation-status"
+      :class="{ active: isGenerating, failed: latestGenerationFailed }"
+    >
       <span class="status-dot"></span>
       {{ generationStatusText }}
     </div>
@@ -92,12 +98,13 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 20px 14px;
+  padding: 20px 22px 16px;
 }
 
 .chat-header {
   align-items: flex-start;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  border-bottom: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.18));
 }
 
 .chat-header-main {
@@ -126,22 +133,37 @@ defineExpose({
 }
 
 .workspace-label {
+  position: relative;
   display: inline-flex;
   align-items: center;
+  gap: 7px;
   height: 28px;
   padding: 0 12px;
+  border: 1px solid rgba(47, 139, 255, 0.14);
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.05);
-  color: #475569;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  background: rgba(47, 139, 255, 0.065);
+  color: var(--chat-primary-strong, #176fdd);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.workspace-label::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--chat-secondary, #3cc9bb);
+  box-shadow: 0 0 0 4px rgba(60, 201, 187, 0.12);
+  content: '';
 }
 
 .code-gen-type-tag {
   margin: 0;
+  border-color: rgba(112, 140, 175, 0.16);
   border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--chat-ink, #2f4158);
   font-size: 12px;
   padding-inline: 10px;
 }
@@ -160,19 +182,21 @@ defineExpose({
 
 .app-name {
   margin: 0;
-  font-size: 24px;
+  font-family: var(--font-display);
+  font-size: clamp(21px, 1.55vw, 26px);
   line-height: 1.15;
-  font-weight: 700;
-  color: #0f172a;
+  font-weight: 720;
+  color: var(--chat-ink-strong, #102033);
+  letter-spacing: -0.025em;
 }
 
 .app-name.clickable {
   cursor: text;
-  transition: color 0.2s ease;
+  transition: color 0.24s var(--chat-ease, ease);
 }
 
 .app-name.clickable:hover {
-  color: #1677ff;
+  color: var(--chat-primary-strong, #176fdd);
 }
 
 .app-name-input {
@@ -185,14 +209,15 @@ defineExpose({
   border: 0;
   background: transparent;
   box-shadow: none;
-  color: #0f172a;
-  font-size: 24px;
+  color: var(--chat-ink-strong, #102033);
+  font-family: var(--font-display);
+  font-size: clamp(21px, 1.55vw, 26px);
   font-weight: 700;
   line-height: 1.15;
 }
 
 .app-name-tip {
-  color: #64748b;
+  color: var(--chat-ink-soft, #6f8198);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -204,21 +229,24 @@ defineExpose({
   height: 34px;
   padding: 0 12px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.04);
-  color: #475569;
+  border: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--chat-ink, #2f4158);
   font-size: 12px;
   font-weight: 600;
   flex: none;
 }
 
 .generation-status.active {
-  background: rgba(22, 119, 255, 0.1);
-  color: #1677ff;
+  border-color: rgba(47, 139, 255, 0.2);
+  background: rgba(47, 139, 255, 0.09);
+  color: var(--chat-primary-strong, #176fdd);
 }
 
 .generation-status.failed {
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
+  border-color: rgba(229, 72, 104, 0.2);
+  background: rgba(229, 72, 104, 0.09);
+  color: var(--chat-danger, #e54868);
 }
 
 .status-dot {
@@ -226,7 +254,7 @@ defineExpose({
   height: 8px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 6px rgba(100, 116, 139, 0.08);
+  box-shadow: 0 0 0 5px rgba(112, 140, 175, 0.09);
 }
 
 .generation-status.active .status-dot {

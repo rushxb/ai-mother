@@ -12,7 +12,7 @@ import com.rush.rushaicodemother.model.entity.GenerationModelCall;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.GenerationTraceService;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +24,7 @@ import java.util.Map;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class GenerationTraceServiceImpl implements GenerationTraceService {
 
     private static final int MAX_STAGE_LENGTH = 64;
@@ -33,14 +34,11 @@ public class GenerationTraceServiceImpl implements GenerationTraceService {
     private static final int LOG_MESSAGE_PREVIEW_LENGTH = 500;
     private static final int LOG_METADATA_PREVIEW_LENGTH = 1000;
 
-    @Resource
-    private GenerationTaskMapper generationTaskMapper;
+    private final GenerationTaskMapper generationTaskMapper;
 
-    @Resource
-    private GenerationBuildLogMapper generationBuildLogMapper;
+    private final GenerationBuildLogMapper generationBuildLogMapper;
 
-    @Resource
-    private GenerationModelCallMapper generationModelCallMapper;
+    private final GenerationModelCallMapper generationModelCallMapper;
 
     @Override
     public void startTask(String taskId,

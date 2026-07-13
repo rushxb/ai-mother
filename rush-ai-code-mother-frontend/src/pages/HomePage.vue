@@ -4,12 +4,22 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { Motion } from 'motion-v'
 import { useLoginUserStore } from '@/stores/loginUser'
-import { addApp, copyApp, deleteApp, listMyAppVoByPage, listGoodAppVoByPage, optimizePrompt } from '@/api/appController'
+import {
+  addApp,
+  copyApp,
+  deleteApp,
+  listMyAppVoByPage,
+  listGoodAppVoByPage,
+  optimizePrompt,
+} from '@/api/appController'
 import { getDeployUrl } from '@/config/env'
 import { normalizeImageUrl } from '@/utils/url'
 import { DEFAULT_APP_COVER, DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 import { BulbOutlined } from '@ant-design/icons-vue'
 import { fadeUp, staggerChild, hoverLift } from '@/composables/useMotionPresets'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { openInNewTab } from '@/utils/browser'
+import AmbientTechCanvas from '@/components/visual/AmbientTechCanvas.vue'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
@@ -20,7 +30,9 @@ const creating = ref(false)
 const optimizingPrompt = ref(false)
 const animatedPlaceholder =
   '例如：帮我创建一个面向设计师的作品集网站，包含项目展示、个人介绍和联系表单...'
-const shouldShowAnimatedPlaceholder = computed(() => !userPrompt.value && !creating.value && !optimizingPrompt.value)
+const shouldShowAnimatedPlaceholder = computed(
+  () => !userPrompt.value && !creating.value && !optimizingPrompt.value,
+)
 const composerBusy = computed(() => creating.value || optimizingPrompt.value)
 const composerStatusText = computed(() => {
   if (optimizingPrompt.value) {
@@ -63,6 +75,21 @@ const featuredAppsPage = reactive({
   pageSize: 6,
   total: 0,
 })
+
+const {
+  loading: myAppsLoading,
+  begin: beginMyAppsRequest,
+  isLatest: isLatestMyAppsRequest,
+  end: endMyAppsRequest,
+} = useLatestRequest()
+const {
+  loading: featuredAppsLoading,
+  begin: beginFeaturedAppsRequest,
+  isLatest: isLatestFeaturedAppsRequest,
+  end: endFeaturedAppsRequest,
+} = useLatestRequest()
+const myAppsError = ref('')
+const featuredAppsError = ref('')
 
 const copyingAppIds = ref<Set<string>>(new Set())
 const deletingAppIds = ref<Set<string>>(new Set())
@@ -119,6 +146,18 @@ const focusPromptInput = () => {
   promptInputRef.value?.focus?.()
 }
 
+/**
+ * 响应全局命令中心的“新建应用”动作。
+ * 使用浏览器事件解耦顶栏与首页，避免共享组件直接依赖页面实例。
+ */
+const focusComposerFromCommand = () => {
+  focusPromptInput()
+  promptInputRef.value?.$el?.scrollIntoView?.({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'center',
+  })
+}
+
 const createApp = async () => {
   const prompt = userPrompt.value.trim()
   if (!prompt) {
@@ -154,7 +193,8 @@ const createApp = async () => {
 }
 
 const optimizeUserPrompt = async () => {
-  const prompt = userPrompt.value.trim()
+  const sourcePrompt = userPrompt.value
+  const prompt = sourcePrompt.trim()
   if (!prompt || creating.value || optimizingPrompt.value) {
     return
   }
@@ -167,18 +207,20 @@ const optimizeUserPrompt = async () => {
 
   optimizingPrompt.value = true
   try {
-    const res = await optimizePrompt({
-      prompt,
-    })
+    const res = await optimizePrompt({ prompt })
     if (res.data.code === 0 && res.data.data) {
+      if (userPrompt.value !== sourcePrompt) {
+        message.info('你已修改输入，本次优化结果未覆盖当前内容')
+        return
+      }
       userPrompt.value = res.data.data
       message.success('提示词已优化')
       return
     }
     message.error('优化失败：' + (res.data.message || '请重试'))
   } catch (error) {
-    console.error('优化提示词失败：', error)
-    message.error('优化失败，请重试')
+    console.error('Failed to optimize prompt', error)
+    message.error('优化失败，请检查网络后重试')
   } finally {
     optimizingPrompt.value = false
   }
@@ -186,9 +228,14 @@ const optimizeUserPrompt = async () => {
 
 const loadMyApps = async () => {
   if (!loginUserStore.loginUser.id) {
+    myApps.value = []
+    myAppsPage.total = 0
+    myAppsError.value = ''
     return
   }
 
+  const requestId = beginMyAppsRequest()
+  myAppsError.value = ''
   try {
     const res = await listMyAppVoByPage({
       pageNum: myAppsPage.current,
@@ -196,17 +243,26 @@ const loadMyApps = async () => {
       sortField: 'createTime',
       sortOrder: 'desc',
     })
+    if (!isLatestMyAppsRequest(requestId)) return
 
     if (res.data.code === 0 && res.data.data) {
-      myApps.value = res.data.data.records || []
-      myAppsPage.total = res.data.data.totalRow || 0
+      myApps.value = res.data.data.records ?? []
+      myAppsPage.total = res.data.data.totalRow ?? 0
+      return
     }
+    myAppsError.value = `加载我的作品失败：${res.data.message || '服务异常'}`
   } catch (error) {
-    console.error('加载我的应用失败：', error)
+    if (!isLatestMyAppsRequest(requestId)) return
+    console.error('Failed to load my apps', error)
+    myAppsError.value = '加载我的作品失败，请检查网络后重试'
+  } finally {
+    endMyAppsRequest(requestId)
   }
 }
 
 const loadFeaturedApps = async () => {
+  const requestId = beginFeaturedAppsRequest()
+  featuredAppsError.value = ''
   try {
     const res = await listGoodAppVoByPage({
       pageNum: featuredAppsPage.current,
@@ -214,13 +270,20 @@ const loadFeaturedApps = async () => {
       sortField: 'createTime',
       sortOrder: 'desc',
     })
+    if (!isLatestFeaturedAppsRequest(requestId)) return
 
     if (res.data.code === 0 && res.data.data) {
-      featuredApps.value = res.data.data.records || []
-      featuredAppsPage.total = res.data.data.totalRow || 0
+      featuredApps.value = res.data.data.records ?? []
+      featuredAppsPage.total = res.data.data.totalRow ?? 0
+      return
     }
+    featuredAppsError.value = `加载精选案例失败：${res.data.message || '服务异常'}`
   } catch (error) {
-    console.error('加载精选应用失败：', error)
+    if (!isLatestFeaturedAppsRequest(requestId)) return
+    console.error('Failed to load featured apps', error)
+    featuredAppsError.value = '加载精选案例失败，请检查网络后重试'
+  } finally {
+    endFeaturedAppsRequest(requestId)
   }
 }
 
@@ -231,9 +294,13 @@ const viewChat = (appId: string | number | undefined) => {
 }
 
 const viewWork = (app: API.AppVO) => {
-  if (app.deployKey) {
-    const url = getDeployUrl(app.deployKey)
-    window.open(url, '_blank')
+  if (!app.deployKey) {
+    message.warning('该应用尚未部署')
+    return
+  }
+
+  if (!openInNewTab(getDeployUrl(app.deployKey))) {
+    message.warning('无法打开预览，请检查浏览器弹窗设置')
   }
 }
 
@@ -260,7 +327,7 @@ const getAppImage = (app: API.AppVO) => normalizeImageUrl(app.cover) || DEFAULT_
 
 const getAppAuthor = (app: API.AppVO, fallback = '未知用户') => app.user?.userName || fallback
 
-const getAppSummary = (app: API.AppVO, index: number) => {
+const getAppSummary = (app: API.AppVO) => {
   const source = (app.initPrompt || '').trim()
   if (source) {
     return source.length > 54 ? `${source.slice(0, 54)}...` : source
@@ -274,7 +341,7 @@ const featuredCarouselItems = computed(() =>
     title: app.appName || '未命名案例',
     category: showcasePalette[index % showcasePalette.length],
     src: getAppImage(app),
-    summary: getAppSummary(app, index),
+    summary: getAppSummary(app),
     app,
   })),
 )
@@ -284,7 +351,7 @@ const workspaceCards = computed(() =>
     id: String(app.id ?? index),
     title: app.appName || '未命名应用',
     author: getAppAuthor(app),
-    summary: getAppSummary(app, index),
+    summary: getAppSummary(app),
     imageUrl: getAppImage(app),
     avatar: app.user?.userAvatar || DEFAULT_USER_AVATAR,
     status: app.isGenerating ? '生成中' : app.deployKey ? '已部署' : '草稿',
@@ -296,8 +363,29 @@ const pendingDeleteSummary = computed(() => {
   if (!pendingDeleteApp.value) {
     return ''
   }
-  return getAppSummary(pendingDeleteApp.value, 0)
+  return getAppSummary(pendingDeleteApp.value)
 })
+
+let disposed = false
+const pendingTimeouts = new Map<number, () => void>()
+
+const scheduleTimeout = (callback: () => void, delayMs: number) => {
+  const timerId = window.setTimeout(() => {
+    pendingTimeouts.delete(timerId)
+    callback()
+  }, delayMs)
+  pendingTimeouts.set(timerId, () => undefined)
+  return timerId
+}
+
+const waitForTimeout = (delayMs: number) =>
+  new Promise<void>((resolve) => {
+    const timerId = window.setTimeout(() => {
+      pendingTimeouts.delete(timerId)
+      resolve()
+    }, delayMs)
+    pendingTimeouts.set(timerId, resolve)
+  })
 
 const openDeleteModal = (app: API.AppVO) => {
   if (!app.id || isDeletingApp(app)) {
@@ -313,7 +401,7 @@ const closeDeleteModal = () => {
     return
   }
   deleteModalOpen.value = false
-  window.setTimeout(() => {
+  scheduleTimeout(() => {
     if (!deleteModalOpen.value) {
       pendingDeleteApp.value = null
       deletePhase.value = 'confirm'
@@ -373,11 +461,12 @@ const deleteMyApp = async (app = pendingDeleteApp.value) => {
       if (myApps.value.length === 1 && myAppsPage.current > 1) {
         myAppsPage.current -= 1
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 420))
+      await waitForTimeout(420)
+      if (disposed) return
       myApps.value = myApps.value.filter((item) => String(item.id) !== appId)
       await loadMyApps()
       message.success('作品和本地文件已删除')
-      window.setTimeout(closeDeleteModal, 360)
+      scheduleTimeout(closeDeleteModal, 360)
     } else {
       deletePhase.value = 'confirm'
       message.error('删除失败：' + (res.data.message || '请重试'))
@@ -407,18 +496,27 @@ const handleMouseMove = (e: MouseEvent) => {
 }
 
 onMounted(() => {
-  loadMyApps()
-  loadFeaturedApps()
+  void loadMyApps()
+  void loadFeaturedApps()
   document.addEventListener('mousemove', handleMouseMove)
+  window.addEventListener('rush:focus-composer', focusComposerFromCommand)
 })
 
 onUnmounted(() => {
+  disposed = true
   document.removeEventListener('mousemove', handleMouseMove)
+  window.removeEventListener('rush:focus-composer', focusComposerFromCommand)
+  pendingTimeouts.forEach((onCancel, timerId) => {
+    window.clearTimeout(timerId)
+    onCancel()
+  })
+  pendingTimeouts.clear()
 })
 </script>
 
 <template>
   <div id="homePage">
+    <AmbientTechCanvas class="home-tech-canvas" :density="72" />
     <div class="ambient-grid"></div>
     <div class="ambient-glow glow-one"></div>
     <div class="ambient-glow glow-two"></div>
@@ -437,7 +535,8 @@ onUnmounted(() => {
           </Motion>
           <Motion as="div" v-bind="staggerChild(2, 0.08)">
             <p class="hero-description">
-              用自然语言描述目标，系统会为你创建应用骨架并进入对话调试流程，适合快速验证 MVP、内部工具和演示项目。
+              用自然语言描述目标，系统会为你创建应用骨架并进入对话调试流程，适合快速验证
+              MVP、内部工具和演示项目。
             </p>
           </Motion>
           <Motion as="div" v-bind="staggerChild(3, 0.08)">
@@ -458,7 +557,9 @@ onUnmounted(() => {
               <span class="panel-kicker">New Application</span>
               <h2>描述你要生成的应用</h2>
             </div>
-            <span class="status-chip" :class="{ active: composerBusy }">{{ composerStatusText }}</span>
+            <span class="status-chip" :class="{ active: composerBusy }">{{
+              composerStatusText
+            }}</span>
           </div>
           <div class="input-section" :class="{ busy: composerBusy }">
             <button
@@ -554,7 +655,21 @@ onUnmounted(() => {
             <p>继续编辑最近创建的应用，或进入只读对话查看生成过程。</p>
           </div>
         </Motion>
-        <TransitionGroup v-if="workspaceCards.length" name="workspace-card-flow" tag="div" class="workspace-grid">
+        <div v-if="myAppsLoading" class="empty-panel" role="status">
+          <strong>正在加载作品</strong>
+          <span>请稍候...</span>
+        </div>
+        <div v-else-if="myAppsError" class="empty-panel">
+          <strong>我的作品加载失败</strong>
+          <span>{{ myAppsError }}</span>
+          <a-button type="primary" @click="loadMyApps">重试</a-button>
+        </div>
+        <TransitionGroup
+          v-else-if="workspaceCards.length"
+          name="workspace-card-flow"
+          tag="div"
+          class="workspace-grid"
+        >
           <Motion
             v-for="(item, index) in workspaceCards"
             :key="item.id"
@@ -576,7 +691,11 @@ onUnmounted(() => {
                   <strong>{{ item.title }}</strong>
                   <p>{{ item.author }}</p>
                   <div class="workspace-card-actions">
-                    <button type="button" class="workspace-action workspace-action--primary" @click="viewChat(item.app.id)">
+                    <button
+                      type="button"
+                      class="workspace-action workspace-action--primary"
+                      @click="viewChat(item.app.id)"
+                    >
                       查看对话
                     </button>
                     <button
@@ -605,7 +724,10 @@ onUnmounted(() => {
           <strong>还没有作品</strong>
           <span>在上方输入需求并生成第一个应用。</span>
         </div>
-        <div v-if="myAppsPage.total > myAppsPage.pageSize" class="pagination-wrapper">
+        <div
+          v-if="!myAppsLoading && !myAppsError && myAppsPage.total > myAppsPage.pageSize"
+          class="pagination-wrapper"
+        >
           <a-pagination
             v-model:current="myAppsPage.current"
             v-model:page-size="myAppsPage.pageSize"
@@ -627,9 +749,22 @@ onUnmounted(() => {
             <p>参考优秀案例的结构、交互和页面组织方式。</p>
           </div>
         </Motion>
-        <div v-if="featuredCarouselItems.length" class="featured-carousel-wrap">
+        <div v-if="featuredAppsLoading" class="empty-panel" role="status">
+          <strong>正在加载精选案例</strong>
+          <span>请稍候...</span>
+        </div>
+        <div v-else-if="featuredAppsError" class="empty-panel">
+          <strong>精选案例加载失败</strong>
+          <span>{{ featuredAppsError }}</span>
+          <a-button type="primary" @click="loadFeaturedApps">重试</a-button>
+        </div>
+        <div v-else-if="featuredCarouselItems.length" class="featured-carousel-wrap">
           <AppleCardCarousel>
-            <AppleCarouselItem v-for="(item, index) in featuredCarouselItems" :key="item.id" :index="index">
+            <AppleCarouselItem
+              v-for="(item, index) in featuredCarouselItems"
+              :key="item.id"
+              :index="index"
+            >
               <AppleCard :card="item" :index="index">
                 <div
                   class="featured-modal-body"
@@ -643,7 +778,11 @@ onUnmounted(() => {
                     <span>{{ item.category }}</span>
                     <p>{{ item.summary }}</p>
                     <div class="featured-modal-actions">
-                      <button type="button" class="workspace-action workspace-action--primary" @click="viewWork(item.app)">
+                      <button
+                        type="button"
+                        class="workspace-action workspace-action--primary"
+                        @click="viewWork(item.app)"
+                      >
                         预览
                       </button>
                       <button
@@ -651,7 +790,9 @@ onUnmounted(() => {
                         class="workspace-action copy-case-action"
                         :class="{ 'is-loading': !isOwnApp(item.app) && isCopyingApp(item.app) }"
                         :disabled="!isOwnApp(item.app) && isCopyingApp(item.app)"
-                        @click="isOwnApp(item.app) ? viewChat(item.app.id) : copyFeaturedApp(item.app)"
+                        @click="
+                          isOwnApp(item.app) ? viewChat(item.app.id) : copyFeaturedApp(item.app)
+                        "
                       >
                         <span
                           v-if="!isOwnApp(item.app) && isCopyingApp(item.app)"
@@ -660,12 +801,23 @@ onUnmounted(() => {
                         >
                           <i></i>
                         </span>
-                        <span>{{ isOwnApp(item.app) ? '查看对话' : isCopyingApp(item.app) ? '复制中' : '复制案例' }}</span>
+                        <span>{{
+                          isOwnApp(item.app)
+                            ? '查看对话'
+                            : isCopyingApp(item.app)
+                              ? '复制中'
+                              : '复制案例'
+                        }}</span>
                       </button>
                     </div>
                   </div>
                   <Transition name="copy-stage">
-                    <div v-if="isCopyingApp(item.app)" class="copy-stage-overlay" role="status" aria-live="polite">
+                    <div
+                      v-if="isCopyingApp(item.app)"
+                      class="copy-stage-overlay"
+                      role="status"
+                      aria-live="polite"
+                    >
                       <div class="copy-stage-card">
                         <div class="copy-stage-visual" aria-hidden="true">
                           <span class="copy-stage-ring"></span>
@@ -692,7 +844,14 @@ onUnmounted(() => {
           <strong>暂无精选案例</strong>
           <span>精选内容发布后会展示在这里。</span>
         </div>
-        <div v-if="featuredAppsPage.total > featuredAppsPage.pageSize" class="pagination-wrapper">
+        <div
+          v-if="
+            !featuredAppsLoading &&
+            !featuredAppsError &&
+            featuredAppsPage.total > featuredAppsPage.pageSize
+          "
+          class="pagination-wrapper"
+        >
           <a-pagination
             v-model:current="featuredAppsPage.current"
             v-model:page-size="featuredAppsPage.pageSize"
@@ -707,7 +866,11 @@ onUnmounted(() => {
 
     <Teleport to="body">
       <Transition name="delete-modal">
-        <div v-if="deleteModalOpen && pendingDeleteApp" class="delete-modal-layer" @click.self="closeDeleteModal">
+        <div
+          v-if="deleteModalOpen && pendingDeleteApp"
+          class="delete-modal-layer"
+          @click.self="closeDeleteModal"
+        >
           <Motion as="section" class="delete-modal-card" v-bind="fadeUp(0)">
             <GlowingEffect class="delete-modal-glow">
               <div class="delete-modal-inner" :class="`phase-${deletePhase}`">
@@ -734,14 +897,21 @@ onUnmounted(() => {
                   <span class="delete-kicker">DELETE WORKSPACE</span>
                   <h3>{{ deletePhase === 'done' ? '作品已清理完成' : '删除这个作品？' }}</h3>
                   <p v-if="deletePhase === 'confirm'">
-                    将永久删除「{{ pendingDeleteApp.appName || '未命名应用' }}」，并同步清理本地生成文件与部署目录。
+                    将永久删除「{{
+                      pendingDeleteApp.appName || '未命名应用'
+                    }}」，并同步清理本地生成文件与部署目录。
                   </p>
                   <p v-else-if="deletePhase === 'deleting'">
                     正在清理数据库记录、本地生成文件和部署产物，请稍候。
                   </p>
-                  <p v-else>「{{ pendingDeleteApp.appName || '未命名应用' }}」已经从我的作品中移除。</p>
+                  <p v-else>
+                    「{{ pendingDeleteApp.appName || '未命名应用' }}」已经从我的作品中移除。
+                  </p>
                   <div v-if="deletePhase === 'confirm'" class="delete-target">
-                    <img :src="getAppImage(pendingDeleteApp)" :alt="pendingDeleteApp.appName || '待删除作品'" />
+                    <img
+                      :src="getAppImage(pendingDeleteApp)"
+                      :alt="pendingDeleteApp.appName || '待删除作品'"
+                    />
                     <div>
                       <strong>{{ pendingDeleteApp.appName || '未命名应用' }}</strong>
                       <span>{{ pendingDeleteSummary }}</span>
@@ -795,6 +965,14 @@ onUnmounted(() => {
     radial-gradient(circle at 18% 10%, rgba(47, 128, 255, 0.12), transparent 28%),
     radial-gradient(circle at 90% 16%, rgba(44, 192, 210, 0.14), transparent 24%),
     linear-gradient(180deg, #fbfdff 0%, #f4f8fc 48%, #edf3fa 100%);
+}
+
+.home-tech-canvas {
+  position: fixed;
+  inset: 72px 0 0;
+  z-index: 0;
+  opacity: 0.72;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.2) 78%, transparent);
 }
 
 .ambient-grid {
@@ -1032,7 +1210,13 @@ onUnmounted(() => {
   top: 1px;
   height: 1px;
   opacity: 0;
-  background: linear-gradient(90deg, transparent, rgba(47, 128, 255, 0.58), rgba(44, 192, 210, 0.42), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(47, 128, 255, 0.58),
+    rgba(44, 192, 210, 0.42),
+    transparent
+  );
   transform: scaleX(0.42);
   transition:
     opacity 0.24s ease,
@@ -1191,7 +1375,7 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   color: rgba(13, 27, 42, 0.74);
-  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+  font-family: Consolas, 'SFMono-Regular', 'Liberation Mono', monospace;
   font-size: 14px;
   font-weight: 800;
 }
@@ -1203,7 +1387,12 @@ onUnmounted(() => {
   right: 17px;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(47, 128, 255, 0.2), rgba(47, 128, 255, 0.86), rgba(44, 192, 210, 0.48));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 128, 255, 0.2),
+    rgba(47, 128, 255, 0.86),
+    rgba(44, 192, 210, 0.48)
+  );
   transform-origin: left center;
   animation: feedbackLine 1.3s ease-in-out infinite;
 }
@@ -1255,7 +1444,12 @@ onUnmounted(() => {
   width: 44%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(47, 128, 255, 0.12), rgba(47, 128, 255, 0.86), rgba(44, 192, 210, 0.58));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 128, 255, 0.12),
+    rgba(47, 128, 255, 0.86),
+    rgba(44, 192, 210, 0.58)
+  );
   animation: feedbackRail 1.42s ease-in-out infinite;
 }
 
@@ -1422,14 +1616,18 @@ onUnmounted(() => {
   min-height: 248px;
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(234, 241, 249, 0.92)),
-    #f5f8fc;
+    linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(234, 241, 249, 0.92)), #f5f8fc;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
 }
 
 :deep(.workspace-direction-card .direction-aware-overlay) {
   background:
-    linear-gradient(180deg, rgba(5, 17, 31, 0.08) 0%, rgba(5, 17, 31, 0.56) 48%, rgba(5, 17, 31, 0.84) 100%),
+    linear-gradient(
+      180deg,
+      rgba(5, 17, 31, 0.08) 0%,
+      rgba(5, 17, 31, 0.56) 48%,
+      rgba(5, 17, 31, 0.84) 100%
+    ),
     rgba(8, 19, 32, 0.2);
   backdrop-filter: blur(2px);
 }
@@ -1453,8 +1651,7 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(13, 27, 42, 0.36), rgba(13, 27, 42, 0.58)),
-    rgba(13, 27, 42, 0.42);
+    linear-gradient(180deg, rgba(13, 27, 42, 0.36), rgba(13, 27, 42, 0.58)), rgba(13, 27, 42, 0.42);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(14px);
   text-shadow: 0 8px 24px rgba(0, 0, 0, 0.44);
@@ -1613,9 +1810,7 @@ onUnmounted(() => {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: inherit;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 255, 0.9)),
-    #ffffff;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 255, 0.9)), #ffffff;
   box-shadow:
     0 34px 92px rgba(15, 23, 42, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -1636,8 +1831,7 @@ onUnmounted(() => {
   height: 150px;
   overflow: hidden;
   background:
-    linear-gradient(135deg, rgba(255, 241, 242, 0.92), rgba(239, 248, 255, 0.84)),
-    #f8fbff;
+    linear-gradient(135deg, rgba(255, 241, 242, 0.92), rgba(239, 248, 255, 0.84)), #f8fbff;
 }
 
 .delete-bubbles {
@@ -2133,7 +2327,12 @@ onUnmounted(() => {
   width: 40%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(47, 128, 255, 0.14), rgba(47, 128, 255, 0.9), rgba(44, 192, 210, 0.62));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 128, 255, 0.14),
+    rgba(47, 128, 255, 0.9),
+    rgba(44, 192, 210, 0.62)
+  );
   animation: copyProgressTravel 1.18s cubic-bezier(0.48, 0.02, 0.34, 1) infinite;
 }
 

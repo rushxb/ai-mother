@@ -13,7 +13,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.entity.UserCreditTransaction;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.UserService;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,22 +22,19 @@ import java.util.List;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class UserCreditServiceImpl implements UserCreditService {
 
     private static final String TYPE_ADMIN_ADJUST = "ADMIN_ADJUST";
     private static final String TYPE_GENERATION_CHARGE = "GENERATION_CHARGE";
 
-    @Resource
-    private UserService userService;
+    private final UserService userService;
 
-    @Resource
-    private UserCreditTransactionMapper userCreditTransactionMapper;
+    private final UserCreditTransactionMapper userCreditTransactionMapper;
 
-    @Resource
-    private GenerationTaskMapper generationTaskMapper;
+    private final GenerationTaskMapper generationTaskMapper;
 
-    @Resource
-    private GenerationModelCallMapper generationModelCallMapper;
+    private final GenerationModelCallMapper generationModelCallMapper;
 
     @Override
     public long calculateCreditCost(long totalTokens) {

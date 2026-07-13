@@ -1,44 +1,41 @@
 package com.rush.rushaicodemother.model.dto.user;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serializable;
 
 /**
- * 用户创建请求
+ * 管理员创建用户请求。
  */
 @Data
 public class UserAddRequest implements Serializable {
 
-    /**
-     * 用户昵称
-     */
+    private static final long serialVersionUID = 1L;
+
+    @Size(max = 256)
     private String userName;
 
-    /**
-     * 账号
-     */
+    @NotBlank
+    @Size(min = 4, max = 256)
     private String userAccount;
 
-    /**
-     * 用户头像
-     */
+    @NotBlank
+    @Size(min = 8, max = 72)
+    private String userPassword;
+
+    @Size(max = 1024)
     private String userAvatar;
 
-    /**
-     * 用户简介
-     */
+    @Size(max = 512)
     private String userProfile;
 
-    /**
-     * 用户角色: user, admin
-     */
+    @Pattern(regexp = "user|admin", message = "用户角色只能是 user 或 admin")
     private String userRole;
 
-    /**
-     * 用户积分余额
-     */
+    @PositiveOrZero
     private Long creditBalance;
-
-    private static final long serialVersionUID = 1L;
 }

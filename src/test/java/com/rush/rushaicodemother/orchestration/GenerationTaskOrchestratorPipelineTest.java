@@ -189,6 +189,7 @@ class GenerationTaskOrchestratorPipelineTest {
                 null,
                 null,
                 null,
+                null,
                 modeRouter,
                 context.workspaceService()
         );

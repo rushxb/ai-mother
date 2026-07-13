@@ -10,7 +10,7 @@ import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.rush.rushaicodemother.service.ChatHistoryService;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -26,10 +26,10 @@ import java.util.Set;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class JsonMessageStreamHandler {
 
-    @Resource
-    private ToolManager toolManager;
+    private final ToolManager toolManager;
 
     /**
      * 处理 TokenStream（VUE_PROJECT）

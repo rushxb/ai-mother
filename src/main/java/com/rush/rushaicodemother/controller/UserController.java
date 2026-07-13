@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.controller;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.rush.rushaicodemother.annotation.AuthCheck;
 import com.rush.rushaicodemother.common.BaseResponse;
@@ -10,194 +11,168 @@ import com.rush.rushaicodemother.constant.UserConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
-import com.rush.rushaicodemother.model.dto.user.*;
+import com.rush.rushaicodemother.model.dto.user.UserAddRequest;
+import com.rush.rushaicodemother.model.dto.user.UserCreditAdjustRequest;
+import com.rush.rushaicodemother.model.dto.user.UserLoginRequest;
+import com.rush.rushaicodemother.model.dto.user.UserQueryRequest;
+import com.rush.rushaicodemother.model.dto.user.UserRegisterRequest;
+import com.rush.rushaicodemother.model.dto.user.UserUpdateRequest;
+import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.LoginUserVO;
 import com.rush.rushaicodemother.model.vo.UserVO;
-import jakarta.annotation.Resource;
+import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
+import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.service.UserCreditService;
-import com.rush.rushaicodemother.service.UserService;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 /**
- * 用户 控制层。
- *
- *
+ * 用户接口控制器。
  */
+@Validated
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/user")
 public class UserController {
 
-    @Resource
-    private UserService userService;
+    private final UserService userService;
+    private final UserCreditService userCreditService;
 
-    @Resource
-    private UserCreditService userCreditService;
-
-    /**
-     * 用户注册
-     *
-     * @param userRegisterRequest 用户注册请求
-     * @return 注册结果
-     */
+    /** 用户注册。 */
     @PostMapping("/register")
-    public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest) {
-        ThrowUtils.throwIf(userRegisterRequest == null, ErrorCode.PARAMS_ERROR);
-        String userAccount = userRegisterRequest.getUserAccount();
-        String userPassword = userRegisterRequest.getUserPassword();
-        String checkPassword = userRegisterRequest.getCheckPassword();
-        long result = userService.userRegister(userAccount, userPassword, checkPassword);
-        return ResultUtils.success(result);
+    public BaseResponse<Long> userRegister(@Valid @RequestBody UserRegisterRequest userRegisterRequest) {
+        long userId = userService.userRegister(
+                userRegisterRequest.getUserAccount(),
+                userRegisterRequest.getUserPassword(),
+                userRegisterRequest.getCheckPassword()
+        );
+        return ResultUtils.success(userId);
     }
 
-    /**
-     * 用户登录
-     *
-     * @param userLoginRequest 用户登录请求
-     * @param request          请求对象
-     * @return 脱敏后的用户登录信息
-     */
+    /** 用户登录。 */
     @PostMapping("/login")
-    public BaseResponse<LoginUserVO> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
-        ThrowUtils.throwIf(userLoginRequest == null, ErrorCode.PARAMS_ERROR);
-        String userAccount = userLoginRequest.getUserAccount();
-        String userPassword = userLoginRequest.getUserPassword();
-        LoginUserVO loginUserVO = userService.userLogin(userAccount, userPassword, request);
+    public BaseResponse<LoginUserVO> userLogin(@Valid @RequestBody UserLoginRequest userLoginRequest,
+                                                HttpServletRequest request) {
+        LoginUserVO loginUserVO = userService.userLogin(
+                userLoginRequest.getUserAccount(),
+                userLoginRequest.getUserPassword(),
+                request
+        );
         return ResultUtils.success(loginUserVO);
     }
 
+    /** 获取当前登录用户。 */
     @GetMapping("/get/login")
     public BaseResponse<LoginUserVO> getLoginUser(HttpServletRequest request) {
         User loginUser = userService.getLoginUser(request);
         return ResultUtils.success(userService.getLoginUserVO(loginUser));
     }
 
-    /**
-     * 用户注销
-     *
-     * @param request 请求对象
-     * @return
-     */
+    /** 用户注销。 */
     @PostMapping("/logout")
     public BaseResponse<Boolean> userLogout(HttpServletRequest request) {
-        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
-        boolean result = userService.userLogout(request);
-        return ResultUtils.success(result);
+        return ResultUtils.success(userService.userLogout(request));
     }
 
-    /**
-     * 创建用户
-     */
+    /** 管理员创建用户，必须显式提供初始密码，禁止使用系统固定默认密码。 */
     @PostMapping("/add")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Long> addUser(@RequestBody UserAddRequest userAddRequest) {
-        ThrowUtils.throwIf(userAddRequest == null, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<Long> addUser(@Valid @RequestBody UserAddRequest userAddRequest) {
         User user = new User();
-        BeanUtil.copyProperties(userAddRequest, user);
-        // 默认密码 12345678
-        final String DEFAULT_PASSWORD = "12345678";
-        String encryptPassword = userService.getEncryptPassword(DEFAULT_PASSWORD);
-        user.setUserPassword(encryptPassword);
-        boolean result = userService.save(user);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        BeanUtil.copyProperties(userAddRequest, user, "userPassword");
+        user.setUserPassword(userService.hashPassword(userAddRequest.getUserPassword()));
+        user.setUserRole(StrUtil.blankToDefault(user.getUserRole(), UserConstant.DEFAULT_ROLE));
+        boolean saved = userService.save(user);
+        ThrowUtils.throwIf(!saved, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(user.getId());
     }
 
-    /**
-     * 根据 id 获取用户（仅管理员）
-     */
+    /** 管理员根据 ID 获取脱敏用户信息。 */
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<User> getUserById(long id) {
-        ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<UserVO> getUserById(@RequestParam @Positive long id) {
         User user = userService.getById(id);
         ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR);
-        return ResultUtils.success(user);
-    }
-
-    /**
-     * 根据 id 获取包装类
-     */
-    @GetMapping("/get/vo")
-    public BaseResponse<UserVO> getUserVOById(long id) {
-        BaseResponse<User> response = getUserById(id);
-        User user = response.getData();
         return ResultUtils.success(userService.getUserVO(user));
     }
 
-    /**
-     * 删除用户
-     */
+    /** 根据 ID 获取脱敏用户信息。 */
+    @GetMapping("/get/vo")
+    public BaseResponse<UserVO> getUserVOById(@RequestParam @Positive long id) {
+        User user = userService.getById(id);
+        ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR);
+        return ResultUtils.success(userService.getUserVO(user));
+    }
+
+    /** 管理员删除用户。 */
     @PostMapping("/delete")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> deleteUser(@RequestBody DeleteRequest deleteRequest) {
-        if (deleteRequest == null || deleteRequest.getId() <= 0) {
+        if (deleteRequest == null || deleteRequest.getId() == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        boolean b = userService.removeById(deleteRequest.getId());
-        return ResultUtils.success(b);
+        return ResultUtils.success(userService.removeById(deleteRequest.getId()));
     }
 
-    /**
-     * 更新用户
-     */
+    /** 管理员更新用户。 */
     @PostMapping("/update")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Boolean> updateUser(@RequestBody UserUpdateRequest userUpdateRequest) {
-        if (userUpdateRequest == null || userUpdateRequest.getId() == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR);
-        }
+    public BaseResponse<Boolean> updateUser(@Valid @RequestBody UserUpdateRequest userUpdateRequest) {
         User user = new User();
         BeanUtil.copyProperties(userUpdateRequest, user);
-        boolean result = userService.updateById(user);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        boolean updated = userService.updateById(user);
+        ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(true);
     }
 
+    /** 管理员调整用户积分。 */
     @PostMapping("/credit/adjust")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Boolean> adjustUserCredit(@RequestBody UserCreditAdjustRequest userCreditAdjustRequest, HttpServletRequest request) {
-        ThrowUtils.throwIf(userCreditAdjustRequest == null, ErrorCode.PARAMS_ERROR);
-        ThrowUtils.throwIf(userCreditAdjustRequest.getUserId() == null || userCreditAdjustRequest.getChangeAmount() == null, ErrorCode.PARAMS_ERROR);
-        ThrowUtils.throwIf(userCreditAdjustRequest.getChangeAmount() == 0, ErrorCode.PARAMS_ERROR, "积分变动不能为 0");
-        ThrowUtils.throwIf(userCreditAdjustRequest.getRemark() == null || userCreditAdjustRequest.getRemark().trim().isEmpty(), ErrorCode.PARAMS_ERROR, "调整原因不能为空");
+    public BaseResponse<Boolean> adjustUserCredit(@RequestBody UserCreditAdjustRequest adjustRequest,
+                                                   HttpServletRequest request) {
+        ThrowUtils.throwIf(adjustRequest == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(adjustRequest.getUserId() == null || adjustRequest.getChangeAmount() == null,
+                ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(adjustRequest.getChangeAmount() == 0,
+                ErrorCode.PARAMS_ERROR, "积分变动不能为 0");
+        ThrowUtils.throwIf(StrUtil.isBlank(adjustRequest.getRemark()),
+                ErrorCode.PARAMS_ERROR, "调整原因不能为空");
         User loginUser = userService.getLoginUser(request);
         userCreditService.adjustCredit(
-                userCreditAdjustRequest.getUserId(),
-                userCreditAdjustRequest.getChangeAmount(),
+                adjustRequest.getUserId(),
+                adjustRequest.getChangeAmount(),
                 "ADMIN_ADJUST",
                 null,
-                userCreditAdjustRequest.getRemark(),
+                adjustRequest.getRemark(),
                 loginUser.getId(),
                 null
         );
         return ResultUtils.success(true);
     }
 
-    /**
-     * 分页获取用户封装列表（仅管理员）
-     *
-     * @param userQueryRequest 查询请求参数
-     */
+    /** 管理员分页获取脱敏用户列表。 */
     @PostMapping("/list/page/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Page<UserVO>> listUserVOByPage(@RequestBody UserQueryRequest userQueryRequest) {
-        ThrowUtils.throwIf(userQueryRequest == null, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<Page<UserVO>> listUserVOByPage(@Valid @RequestBody UserQueryRequest userQueryRequest) {
         long pageNum = userQueryRequest.getPageNum();
         long pageSize = userQueryRequest.getPageSize();
-        Page<User> userPage = userService.page(Page.of(pageNum, pageSize),
-                userService.getQueryWrapper(userQueryRequest));
-        // 数据脱敏
-        Page<UserVO> userVOPage = new Page<>(pageNum, pageSize, userPage.getTotalRow());
+        Page<User> userPage = userService.page(
+                Page.of(pageNum, pageSize),
+                userService.getQueryWrapper(userQueryRequest)
+        );
+        Page<UserVO> resultPage = new Page<>(pageNum, pageSize, userPage.getTotalRow());
         List<UserVO> userVOList = userService.getUserVOList(userPage.getRecords());
-        userVOPage.setRecords(userVOList);
-        return ResultUtils.success(userVOPage);
+        resultPage.setRecords(userVOList);
+        return ResultUtils.success(resultPage);
     }
 }

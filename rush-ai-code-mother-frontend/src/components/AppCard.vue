@@ -1,7 +1,14 @@
 <template>
   <div class="app-card" :class="{ 'app-card--featured': featured }">
     <div class="app-preview">
-      <img :src="appCover" :alt="app.appName || '应用封面'" />
+      <img
+        :key="appCover"
+        :src="appCover"
+        :alt="app.appName || '应用封面'"
+        loading="lazy"
+        decoding="async"
+        @error="handleCoverError"
+      />
       <div v-if="statusMeta" class="generation-badge" :class="`generation-badge--${statusMeta.variant}`">
         <span class="generation-badge__dot"></span>
         <span>{{ statusMeta.label }}</span>
@@ -131,6 +138,15 @@ const handleViewWork = () => {
 
 const handleCopy = () => {
   emit('copy', props.app)
+}
+
+const handleCoverError = (event: Event) => {
+  const image = event.currentTarget
+  if (!(image instanceof HTMLImageElement) || image.dataset.fallbackApplied === 'true') {
+    return
+  }
+  image.dataset.fallbackApplied = 'true'
+  image.src = DEFAULT_APP_COVER
 }
 </script>
 
@@ -330,6 +346,17 @@ const handleCopy = () => {
   50% {
     transform: scale(1.15);
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-card:hover,
+  .app-card:hover .app-preview img {
+    transform: none;
+  }
+
+  .generation-badge__dot {
+    animation: none;
   }
 }
 

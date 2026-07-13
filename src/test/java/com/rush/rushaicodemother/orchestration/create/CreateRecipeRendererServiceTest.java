@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -177,14 +178,25 @@ class CreateRecipeRendererServiceTest {
                 result.patchOperations(), "backend_recipe_compile_test");
         assertEquals("applied", applyResult.status(), applyResult.reason() + ":" + applyResult.rejectedOperations());
 
-        Process process = new ProcessBuilder("go", "test", "./...")
+        ProcessBuilder processBuilder = new ProcessBuilder("go", "test", "./...")
                 .directory(root.toFile())
-                .redirectErrorStream(true)
-                .start();
-        boolean finished = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
+                .redirectErrorStream(true);
+        configureGoCache(processBuilder);
+        Process process = processBuilder.start();
+        boolean finished = process.waitFor(Duration.ofMinutes(2).toMillis(), TimeUnit.MILLISECONDS);
         String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         assertTrue(finished, output);
         assertEquals(0, process.exitValue(), output);
+    }
+
+    private void configureGoCache(ProcessBuilder processBuilder) throws Exception {
+        Path targetDirectory = Path.of("target").toAbsolutePath().normalize();
+        Path buildCache = Files.createDirectories(targetDirectory.resolve("go-cache"));
+        Path moduleCache = Files.createDirectories(targetDirectory.resolve("go-mod-cache"));
+        Path goPath = Files.createDirectories(targetDirectory.resolve("go-path"));
+        processBuilder.environment().put("GOCACHE", buildCache.toString());
+        processBuilder.environment().put("GOMODCACHE", moduleCache.toString());
+        processBuilder.environment().put("GOPATH", goPath.toString());
     }
 
     private boolean goAvailable() {

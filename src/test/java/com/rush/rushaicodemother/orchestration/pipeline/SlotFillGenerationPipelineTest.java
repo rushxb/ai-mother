@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -96,6 +97,32 @@ class SlotFillGenerationPipelineTest {
                 .blockFirst(Duration.ofSeconds(2))
                 .getText()
                 .contains("CREATE 模板生成失败"));
+    }
+
+    @Test
+    void shouldNotExposeCreateFailureCauseThroughStreamOrReplayEvent() {
+        SlotFillGenerationService slotFillGenerationService = mock(SlotFillGenerationService.class);
+        GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
+        SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
+                mock(GenerationAppStateService.class),
+                mock(GenerationTaskLifecycleService.class),
+                mock(GenerationPerformanceMonitorService.class),
+                mock(CreatePostGenerationValidationService.class),
+                eventPublisher,
+                new GenerationSessionRegistry(),
+                slotFillGenerationService
+        );
+        when(slotFillGenerationService.tryGenerate(any(), any(), any()))
+                .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
+
+        GenerationTaskResult result = pipeline.execute(request()).orElseThrow();
+        GenerationStreamEvent errorEvent = result.contentFlux()
+                .filter(event -> GenerationStreamEvent.GENERATION_ERROR.equals(event.getType()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertEquals("CREATE 模板生成失败，请稍后重试", errorEvent.getText());
+        assertFalse(errorEvent.getData().toString().contains("secret-value"));
+        assertFalse(eventPublisher.recent(1L).toString().contains("secret-value"));
     }
 
     private GenerationPipelineRequest request() {

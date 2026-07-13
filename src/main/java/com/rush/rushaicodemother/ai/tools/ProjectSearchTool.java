@@ -8,6 +8,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -31,6 +32,7 @@ public class ProjectSearchTool extends BaseTool {
         this(new WorkspaceSemanticIndexService());
     }
 
+    @Autowired
     public ProjectSearchTool(WorkspaceSemanticIndexService semanticIndexService) {
         this.semanticIndexService = semanticIndexService;
     }

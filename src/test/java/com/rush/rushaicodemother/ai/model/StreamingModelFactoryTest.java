@@ -1,13 +1,12 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.service.AiModelCatalogService;
 import com.rush.rushaicodemother.service.AiModelService;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
-
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -70,18 +69,13 @@ class StreamingModelFactoryTest {
     }
 
     private StreamingModelFactory factory(AiModelService modelService, AiModelCatalogService catalogService) {
-        StreamingModelFactory factory = new StreamingModelFactory();
-        ReflectionTestUtils.setField(factory, "aiModelService", modelService);
-        ReflectionTestUtils.setField(factory, "aiModelCatalogService", catalogService);
-        ReflectionTestUtils.setField(factory, "aiModelMonitorListener", mock(AiModelMonitorListener.class));
-        ReflectionTestUtils.setField(factory, "routingTimeoutSeconds", 30);
-        ReflectionTestUtils.setField(factory, "routingMaxRetries", 0);
-        ReflectionTestUtils.setField(factory, "createSpecTimeoutSeconds", 10);
-        ReflectionTestUtils.setField(factory, "routingLogRequests", false);
-        ReflectionTestUtils.setField(factory, "routingLogResponses", false);
-        ReflectionTestUtils.setField(factory, "logRequests", false);
-        ReflectionTestUtils.setField(factory, "logResponses", false);
-        return factory;
+        return new StreamingModelFactory(
+                mock(AiModelMonitorListener.class),
+                modelService,
+                catalogService,
+                new AiModelRuntimeProperties(),
+                new OpenAiThinkingPolicy()
+        );
     }
 
     private AiModel model(String modelType) {

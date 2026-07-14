@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.ai.tools.policy;
 
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.ai.tools.ToolInputException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -89,7 +90,7 @@ public class DependencyPolicyService {
         if (VALID_DEPENDENCY_TYPES.contains(trimmed)) {
             return trimmed;
         }
-        throw new IllegalArgumentException("依赖分组仅支持 dependencies 或 devDependencies");
+        throw new ToolInputException("依赖分组仅支持 dependencies 或 devDependencies");
     }
 
     private PolicyDecision validatePackageName(String packageName) {
@@ -110,8 +111,8 @@ public class DependencyPolicyService {
         try {
             String normalized = normalizeDependencyType(dependencyType);
             return PolicyDecision.allowed("dependency type approved", Map.of("dependencyType", normalized));
-        } catch (IllegalArgumentException e) {
-            return PolicyDecision.rejected(e.getMessage());
+        } catch (ToolInputException e) {
+            return PolicyDecision.rejected(e.publicMessage());
         }
     }
 

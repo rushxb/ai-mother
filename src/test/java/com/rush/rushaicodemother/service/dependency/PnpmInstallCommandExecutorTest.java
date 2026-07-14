@@ -1,10 +1,12 @@
 package com.rush.rushaicodemother.service.dependency;
 
-import com.rush.rushaicodemother.infrastructure.process.ProcessStarter;
-import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
-
 import com.rush.rushaicodemother.config.DependencyInstallProperties;
-import org.junit.jupiter.api.AfterEach;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
+import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
+import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
+import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -21,20 +23,25 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PnpmInstallCommandExecutorTest {
 
     private DependencyInstallProperties properties;
+    private ManagedProcessExecutor processExecutor;
     private ProjectProcessTerminator processTerminator;
+    private NodeToolchain nodeToolchain;
     private Path projectDirectory;
 
     @BeforeEach
@@ -42,64 +49,46 @@ class PnpmInstallCommandExecutorTest {
         projectDirectory = Files.createDirectories(
                 Path.of("target", "test-temp", "command-executor").toAbsolutePath().normalize()
         );
+        Files.writeString(projectDirectory.resolve("package.json"), "{}", StandardCharsets.UTF_8);
         properties = new DependencyInstallProperties();
         properties.setCommandTimeout(Duration.ofSeconds(1));
         properties.setIdleTimeout(Duration.ofSeconds(1));
         properties.setHeartbeatInterval(Duration.ofMillis(100));
         properties.setOutputDrainTimeout(Duration.ofMillis(100));
         properties.setMaxOutputLength(1024);
+        processExecutor = mock(ManagedProcessExecutor.class);
         processTerminator = mock(ProjectProcessTerminator.class);
-    }
-
-    @AfterEach
-    void clearInterrupt() {
-        Thread.interrupted();
+        nodeToolchain = mock(NodeToolchain.class);
+        when(nodeToolchain.pnpmExecutable()).thenReturn("pnpm");
     }
 
     @Test
-    void shouldReturnSuccessAndBuildExpectedCommand() {
-        FakeProcess process = FakeProcess.completed(0, "installed");
-        AtomicReference<ProcessBuilder> capturedBuilder = new AtomicReference<>();
-        PnpmInstallCommandExecutor executor = createExecutor(builder -> {
-            capturedBuilder.set(builder);
-            return process;
+    void shouldReturnSuccessAndBuildExpectedRequest() throws Exception {
+        AtomicReference<ManagedProcessRequest> capturedRequest = new AtomicReference<>();
+        when(processExecutor.execute(any())).thenAnswer(invocation -> {
+            ManagedProcessRequest request = invocation.getArgument(0);
+            capturedRequest.set(request);
+            return completed(0, "installed");
         });
+        PnpmInstallCommandExecutor executor = createExecutor();
 
         DependencyInstallResult result = executor.install(projectDirectory, false);
 
         assertTrue(result.success());
         assertEquals("installed", result.output());
-        assertEquals("pnpm", capturedBuilder.get().command().getFirst());
-        assertFalse(capturedBuilder.get().command().contains("--force"));
-        assertEquals("false", capturedBuilder.get().environment().get("NPM_CONFIG_AUDIT"));
-    }
-
-    @Test
-    void shouldDecodeUtf8OutputAcrossByteBoundaries() {
-        String expectedOutput = "依赖安装成功";
-        byte[] utf8Bytes = expectedOutput.getBytes(StandardCharsets.UTF_8);
-        InputStream oneByteAtATime = new ByteArrayInputStream(utf8Bytes) {
-            @Override
-            public synchronized int read(byte[] buffer, int offset, int length) {
-                return super.read(buffer, offset, Math.min(length, 1));
-            }
-        };
-        PnpmInstallCommandExecutor executor = createExecutor(
-                builder -> FakeProcess.completed(0, oneByteAtATime)
-        );
-
-        DependencyInstallResult result = executor.install(projectDirectory, false);
-
-        assertTrue(result.success());
-        assertEquals(expectedOutput, result.output());
-        assertFalse(result.output().contains("\uFFFD"));
+        assertEquals("pnpm", capturedRequest.get().command().getFirst());
+        assertFalse(capturedRequest.get().command().contains("--force"));
+        assertEquals(NodeProcessEnvironment.overrides(false), capturedRequest.get().environment());
+        assertEquals(NodeProcessEnvironment.variablesToRemove(),
+                capturedRequest.get().environmentVariablesToRemove());
+        assertEquals(projectDirectory.toAbsolutePath().normalize().toRealPath(),
+                capturedRequest.get().workingDirectory());
     }
 
     @Test
     void shouldReturnNonZeroExitCodeAsFailure() {
-        PnpmInstallCommandExecutor executor = createExecutor(
-                builder -> FakeProcess.completed(7, "install failed")
-        );
+        when(processExecutor.execute(any())).thenReturn(completed(7, "install failed"));
+        PnpmInstallCommandExecutor executor = createExecutor();
 
         DependencyInstallResult result = executor.install(projectDirectory, true);
 
@@ -109,70 +98,79 @@ class PnpmInstallCommandExecutorTest {
     }
 
     @Test
-    void shouldTerminateProcessTreeBeforeReturningTotalTimeout() {
-        properties.setCommandTimeout(Duration.ofMillis(40));
-        properties.setIdleTimeout(Duration.ofSeconds(1));
-        properties.setHeartbeatInterval(Duration.ofMillis(10));
-        FakeProcess process = FakeProcess.running();
-        when(processTerminator.terminate(process)).thenAnswer(invocation -> {
-            process.destroyForcibly();
-            return true;
-        });
-        PnpmInstallCommandExecutor executor = createExecutor(builder -> process);
+    void shouldMapManagedProcessTimeoutStatuses() {
+        when(processExecutor.execute(any()))
+                .thenReturn(failed(ManagedProcessResult.Status.TIMED_OUT, "总超时"))
+                .thenReturn(failed(ManagedProcessResult.Status.IDLE_TIMED_OUT, "空闲超时"));
+        PnpmInstallCommandExecutor executor = createExecutor();
 
-        DependencyInstallResult result = executor.install(projectDirectory, false);
+        DependencyInstallResult totalTimeout = executor.install(projectDirectory, false);
+        DependencyInstallResult idleTimeout = executor.install(projectDirectory, false);
 
-        assertEquals(DependencyInstallResult.Status.TIMED_OUT, result.status());
-        assertFalse(process.isAlive());
-        verify(processTerminator).terminate(process);
+        assertEquals(DependencyInstallResult.Status.TIMED_OUT, totalTimeout.status());
+        assertEquals("总超时", totalTimeout.errorDetail());
+        assertEquals(DependencyInstallResult.Status.IDLE_TIMED_OUT, idleTimeout.status());
+        assertEquals("空闲超时", idleTimeout.errorDetail());
     }
 
     @Test
-    void shouldTerminateProcessAfterIdleTimeout() {
-        properties.setCommandTimeout(Duration.ofSeconds(1));
-        properties.setIdleTimeout(Duration.ofMillis(40));
-        properties.setHeartbeatInterval(Duration.ofMillis(10));
-        FakeProcess process = FakeProcess.running();
-        when(processTerminator.terminate(process)).thenAnswer(invocation -> {
-            process.destroyForcibly();
-            return true;
-        });
-        PnpmInstallCommandExecutor executor = createExecutor(builder -> process);
+    void shouldNotExposeProcessStartExceptionDetails() {
+        when(processExecutor.execute(any())).thenReturn(new ManagedProcessResult(
+                ManagedProcessResult.Status.START_FAILED,
+                "pnpm install",
+                null,
+                "",
+                "",
+                "provider-api-key=secret-value"
+        ));
+        PnpmInstallCommandExecutor executor = createExecutor();
 
         DependencyInstallResult result = executor.install(projectDirectory, false);
 
-        assertEquals(DependencyInstallResult.Status.IDLE_TIMED_OUT, result.status());
-        assertFalse(process.isAlive());
+        assertEquals(DependencyInstallResult.Status.FAILED, result.status());
+        assertEquals("执行 pnpm install 失败，请检查 Node.js、pnpm 和项目配置", result.errorDetail());
+        assertFalse(result.errorDetail().contains("secret-value"));
     }
 
     @Test
-    void shouldBoundCapturedOutput() {
-        String output = "x".repeat(5000);
-        PnpmInstallCommandExecutor executor = createExecutor(
-                builder -> FakeProcess.completed(0, output)
-        );
+    void shouldRejectInvalidProjectBeforeStartingProcess() {
+        PnpmInstallCommandExecutor executor = createExecutor();
 
-        DependencyInstallResult result = executor.install(projectDirectory, false);
+        DependencyInstallResult result = executor.install(projectDirectory.resolve("missing"), false);
 
-        assertTrue(result.success());
-        assertEquals(1024, result.output().length());
+        assertEquals(DependencyInstallResult.Status.INVALID_PROJECT, result.status());
+        verify(processExecutor, never()).execute(any());
     }
 
     @Test
-    void shouldPreserveInterruptAndTerminateRunningProcess() {
-        FakeProcess process = FakeProcess.running();
-        when(processTerminator.terminate(process)).thenAnswer(invocation -> {
-            process.destroyForcibly();
-            return true;
+    void shouldReserveProjectBeforeStartingProcessToAvoidDuplicateInstallRace() throws Exception {
+        CountDownLatch firstEnteredExecutor = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger executionCount = new AtomicInteger();
+        when(processExecutor.execute(any())).thenAnswer(invocation -> {
+            executionCount.incrementAndGet();
+            firstEnteredExecutor.countDown();
+            assertTrue(releaseFirst.await(2, TimeUnit.SECONDS));
+            return completed(0, "installed");
         });
-        PnpmInstallCommandExecutor executor = createExecutor(builder -> process);
-        Thread.currentThread().interrupt();
+        PnpmInstallCommandExecutor executor = createExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<DependencyInstallResult> first = worker.submit(
+                    () -> executor.install(projectDirectory, false)
+            );
+            assertTrue(firstEnteredExecutor.await(1, TimeUnit.SECONDS));
 
-        DependencyInstallResult result = executor.install(projectDirectory, false);
+            DependencyInstallResult duplicate = executor.install(projectDirectory, false);
 
-        assertEquals(DependencyInstallResult.Status.INTERRUPTED, result.status());
-        assertTrue(Thread.currentThread().isInterrupted());
-        assertFalse(process.isAlive());
+            assertEquals(DependencyInstallResult.Status.FAILED, duplicate.status());
+            assertEquals(1, executionCount.get());
+            releaseFirst.countDown();
+            assertTrue(first.get(2, TimeUnit.SECONDS).success());
+        } finally {
+            releaseFirst.countDown();
+            worker.shutdownNow();
+        }
     }
 
     @Test
@@ -183,10 +181,17 @@ class PnpmInstallCommandExecutorTest {
             process.destroyForcibly();
             return true;
         });
-        PnpmInstallCommandExecutor executor = createExecutor(builder -> {
+        when(processExecutor.execute(any())).thenAnswer(invocation -> {
+            ManagedProcessRequest request = invocation.getArgument(0);
+            request.lifecycle().onStarted(process);
             processStarted.countDown();
-            return process;
+            while (!request.cancellationRequested().getAsBoolean()) {
+                Thread.sleep(5);
+            }
+            request.lifecycle().onFinished(process);
+            return failed(ManagedProcessResult.Status.INTERRUPTED, "外部进程已取消");
         });
+        PnpmInstallCommandExecutor executor = createExecutor();
         ExecutorService worker = Executors.newSingleThreadExecutor();
         try {
             Future<DependencyInstallResult> future = worker.submit(
@@ -199,18 +204,35 @@ class PnpmInstallCommandExecutorTest {
 
             assertEquals(DependencyInstallResult.Status.CANCELLED, result.status());
             assertFalse(process.isAlive());
+            verify(processTerminator).terminate(process);
         } finally {
             worker.shutdownNow();
         }
     }
 
-    private PnpmInstallCommandExecutor createExecutor(ProcessStarter starter) {
+    private PnpmInstallCommandExecutor createExecutor() {
         return new PnpmInstallCommandExecutor(
                 properties,
+                processExecutor,
                 processTerminator,
-                starter,
-                false
+                nodeToolchain,
+                new NodeProjectDirectoryValidator()
         );
+    }
+
+    private ManagedProcessResult completed(int exitCode, String output) {
+        return new ManagedProcessResult(
+                ManagedProcessResult.Status.COMPLETED,
+                "pnpm install",
+                exitCode,
+                output,
+                "",
+                null
+        );
+    }
+
+    private ManagedProcessResult failed(ManagedProcessResult.Status status, String errorDetail) {
+        return new ManagedProcessResult(status, "pnpm install", null, "", "", errorDetail);
     }
 
     private static final class FakeProcess extends Process {
@@ -218,34 +240,10 @@ class PnpmInstallCommandExecutorTest {
         private static final AtomicLong NEXT_PID = new AtomicLong(100_000);
 
         private final long pid = NEXT_PID.incrementAndGet();
-        private final InputStream inputStream;
-        private final CountDownLatch exitLatch = new CountDownLatch(1);
-        private volatile boolean alive;
-        private volatile int exitCode;
-
-        private FakeProcess(boolean alive, int exitCode, String output) {
-            this(alive, exitCode, new ByteArrayInputStream(output.getBytes(StandardCharsets.UTF_8)));
-        }
-
-        private FakeProcess(boolean alive, int exitCode, InputStream inputStream) {
-            this.alive = alive;
-            this.exitCode = exitCode;
-            this.inputStream = inputStream;
-            if (!alive) {
-                exitLatch.countDown();
-            }
-        }
-
-        private static FakeProcess completed(int exitCode, String output) {
-            return new FakeProcess(false, exitCode, output);
-        }
-
-        private static FakeProcess completed(int exitCode, InputStream inputStream) {
-            return new FakeProcess(false, exitCode, inputStream);
-        }
+        private volatile boolean alive = true;
 
         private static FakeProcess running() {
-            return new FakeProcess(true, 143, "");
+            return new FakeProcess();
         }
 
         @Override
@@ -255,7 +253,7 @@ class PnpmInstallCommandExecutorTest {
 
         @Override
         public InputStream getInputStream() {
-            return inputStream;
+            return new ByteArrayInputStream(new byte[0]);
         }
 
         @Override
@@ -264,14 +262,13 @@ class PnpmInstallCommandExecutorTest {
         }
 
         @Override
-        public int waitFor() throws InterruptedException {
-            exitLatch.await();
-            return exitCode;
+        public int waitFor() {
+            return 0;
         }
 
         @Override
-        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
-            return exitLatch.await(timeout, unit);
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return !alive;
         }
 
         @Override
@@ -279,17 +276,17 @@ class PnpmInstallCommandExecutorTest {
             if (alive) {
                 throw new IllegalThreadStateException("process is still alive");
             }
-            return exitCode;
+            return 137;
         }
 
         @Override
         public void destroy() {
-            finish(143);
+            alive = false;
         }
 
         @Override
         public Process destroyForcibly() {
-            finish(137);
+            alive = false;
             return this;
         }
 
@@ -301,12 +298,6 @@ class PnpmInstallCommandExecutorTest {
         @Override
         public long pid() {
             return pid;
-        }
-
-        private void finish(int code) {
-            exitCode = code;
-            alive = false;
-            exitLatch.countDown();
         }
     }
 }

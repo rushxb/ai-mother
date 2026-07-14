@@ -36,6 +36,15 @@ class DependencyInstallPropertiesTest {
     }
 
     @Test
+    void shouldRejectHeartbeatNotSmallerThanRuntimeValidationTimeout() {
+        DependencyInstallProperties properties = new DependencyInstallProperties();
+        properties.setRuntimeValidationTimeout(Duration.ofSeconds(5));
+        properties.setHeartbeatInterval(Duration.ofSeconds(5));
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
     void shouldRejectUnboundedRetryAndOutputSettings() {
         DependencyInstallProperties properties = new DependencyInstallProperties();
         properties.setMaxAttempts(6);

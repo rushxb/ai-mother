@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.context.ConfigurationPropertiesAut
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 
@@ -28,8 +29,8 @@ class TemplatePreWarmConfigurationTest {
         contextRunner
                 .withPropertyValues("app.template-pre-warm.enabled=false")
                 .run(context -> {
-                    context.assertThat().doesNotHaveBean(TemplateNodeModulesPreWarmRunner.class);
-                    context.assertThat().doesNotHaveBean(
+                    assertThat(context).doesNotHaveBean(TemplateNodeModulesPreWarmRunner.class);
+                    assertThat(context).doesNotHaveBean(
                             TemplatePreWarmConfiguration.TEMPLATE_PRE_WARM_TASK_EXECUTOR
                     );
                 });
@@ -45,7 +46,7 @@ class TemplatePreWarmConfigurationTest {
                         "app.template-pre-warm.template-ids[1]=vue-web-admin"
                 )
                 .run(context -> {
-                    context.assertThat().hasSingleBean(TemplateNodeModulesPreWarmRunner.class);
+                    assertThat(context).hasSingleBean(TemplateNodeModulesPreWarmRunner.class);
                     ThreadPoolTaskExecutor taskExecutor = context.getBean(
                             TemplatePreWarmConfiguration.TEMPLATE_PRE_WARM_TASK_EXECUTOR,
                             ThreadPoolTaskExecutor.class

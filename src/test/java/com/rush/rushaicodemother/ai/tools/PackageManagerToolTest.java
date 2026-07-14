@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -78,6 +79,41 @@ class PackageManagerToolTest {
         verify(installer).ensureInstalled(TEST_OUTPUT_ROOT.resolve("vue_project_4").toRealPath());
     }
 
+    @Test
+    void unexpectedInstallerFailureMustNotExposeInternalDetails() throws Exception {
+        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
+        when(installer.ensureInstalled(any(Path.class)))
+                .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
+        PackageManagerTool tool = createTool(5L, installer);
+
+        String result = tool.managePackageJson(
+                "installDependencies", null, null, null, null, null, false, null, 5L
+        );
+
+        assertTrue(result.contains("管理 package.json 失败"));
+        assertFalse(result.contains("secret-value"));
+    }
+
+    @Test
+    void installResultMustSanitizeCommandDiagnosticsBeforeReturningThemToTheModel() throws Exception {
+        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
+        when(installer.ensureInstalled(any(Path.class))).thenReturn(DependencyInstallResult.failed(
+                DependencyInstallResult.Status.FAILED,
+                "ERR_PNPM_FETCH_401 package @scope/demo\nregistry-token=secret-value",
+                "Authorization: Bearer installer-secret"
+        ));
+        PackageManagerTool tool = createTool(6L, installer);
+
+        String result = tool.managePackageJson(
+                "installDependencies", null, null, null, null, null, false, null, 6L
+        );
+
+        assertFalse(result.contains("secret-value"));
+        assertFalse(result.contains("installer-secret"));
+        assertTrue(result.contains("ERR_PNPM_FETCH_401"));
+        assertTrue(result.contains("@scope/demo"));
+    }
+
     private PackageManagerTool createTool(long appId) throws Exception {
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
         when(installer.ensureInstalled(any(Path.class)))
@@ -94,6 +130,11 @@ class PackageManagerToolTest {
         ToolExecutionGateway gateway = mock(ToolExecutionGateway.class);
         when(gateway.applyPatch(anyLong(), any(Path.class), any(PatchOperation.class), anyString(), anyString()))
                 .thenReturn(PatchApplyResult.applied(appId, "test-package-json", projectDir.toString(), 1, java.util.List.of("package.json")));
-        return new PackageManagerTool(new DependencyPolicyService(), gateway, installer);
+        return new PackageManagerTool(
+                new DependencyPolicyService(),
+                gateway,
+                installer,
+                ToolPathSupportTestFixture.workspaceForApp(appId)
+        );
     }
 }

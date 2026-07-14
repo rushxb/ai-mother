@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 
+import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,11 +24,7 @@ class ContextAgentNodeTemplateTest {
         Path outputRoot = Path.of("target", "test-workspaces", "template-context");
         FileUtil.del(outputRoot.toFile());
         try {
-            GenerationAgentSupport support = new GenerationAgentSupport(
-                    new com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary(),
-                    new com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService(),
-                    outputRoot
-            );
+            GenerationAgentSupport support = support(outputRoot);
             TemplateAgentNode templateAgentNode = new TemplateAgentNode(
                     new com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService(
                             outputRoot,

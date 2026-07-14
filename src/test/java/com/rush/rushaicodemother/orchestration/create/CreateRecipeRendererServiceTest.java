@@ -1,12 +1,13 @@
 package com.rush.rushaicodemother.orchestration.create;
 
 import com.rush.rushaicodemother.ai.model.CreateSpec;
-import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService;
+import com.rush.rushaicodemother.orchestration.create.recipe.CreateRecipeRendererTestFactory;
+import com.rush.rushaicodemother.orchestration.create.recipe.RecipeRenderResult;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.patch.PatchApplyServiceTestFactory;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -24,8 +25,8 @@ class CreateRecipeRendererServiceTest {
 
     @Test
     void shouldRenderBasicVueRecipeFromCreateSpec() {
-        CreateRecipeRendererService renderer = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
-        CreateRecipeRendererService.RecipeRenderResult result = renderer.render(
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+        RecipeRenderResult result = renderer.render(
                 "做一个课程展示应用",
                 new SlotGroup("basic", "vue-web-basic", "basic",
                         List.of("home_content", "mock_data", "app_config", "navigation_items", "theme_tokens"), 0),
@@ -44,8 +45,8 @@ class CreateRecipeRendererServiceTest {
 
     @Test
     void shouldRenderMobileRecipeFromCreateSpec() {
-        CreateRecipeRendererService renderer = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
-        CreateRecipeRendererService.RecipeRenderResult result = renderer.render(
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+        RecipeRenderResult result = renderer.render(
                 "做一个移动端课程预约",
                 new SlotGroup("mobile", "vue-web-mobile", "mobile",
                         List.of("home_content", "mock_data", "tabbar_config", "product_list", "theme_tokens"), 0),
@@ -64,8 +65,8 @@ class CreateRecipeRendererServiceTest {
 
     @Test
     void shouldRenderBackendCrudRecipeFromCreateSpec() {
-        CreateRecipeRendererService renderer = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
-        CreateRecipeRendererService.RecipeRenderResult result = renderer.render(
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+        RecipeRenderResult result = renderer.render(
                 "做一个课程管理后端",
                 new SlotGroup("backend", "go-sqlite-backend-basic", "backend",
                         List.of("domain_contract", "module_model", "module_repository", "module_service",
@@ -94,8 +95,8 @@ class CreateRecipeRendererServiceTest {
 
     @Test
     void shouldUseFrontendSpecKnobsInAdminRecipeOutput() {
-        CreateRecipeRendererService renderer = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
-        CreateRecipeRendererService.RecipeRenderResult result = renderer.render(
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+        RecipeRenderResult result = renderer.render(
                 "做一个课程运营后台",
                 new SlotGroup("admin", "vue-web-admin", "admin",
                         List.of("dashboard_content", "mock_data", "table_columns", "sidebar_menu",
@@ -122,8 +123,8 @@ class CreateRecipeRendererServiceTest {
     @Test
     void shouldUseBackendSwitchesAndDatabaseIndexesInBackendRecipeOutput() {
         CreateSpec switchedSpec = specWithBackendOptions(false, false, true, false, true, true, true);
-        CreateRecipeRendererService renderer = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
-        CreateRecipeRendererService.RecipeRenderResult result = renderer.render(
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+        RecipeRenderResult result = renderer.render(
                 "做一个课程管理后端",
                 new SlotGroup("backend", "go-sqlite-backend-basic", "backend",
                         List.of("module_model", "module_repository", "module_service",
@@ -163,17 +164,15 @@ class CreateRecipeRendererServiceTest {
                 new BackendProjectTemplateBootstrapService(root.getParent(), new PathMatchingResourcePatternResolver());
         bootstrapService.bootstrapIfNecessary(root);
 
-        CreateRecipeRendererService renderer = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
-        CreateRecipeRendererService.RecipeRenderResult result = renderer.render(
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+        RecipeRenderResult result = renderer.render(
                 "做一个课程管理后端",
                 new SlotGroup("backend", "go-sqlite-backend-basic", "backend",
                         List.of("domain_contract", "module_model", "module_repository", "module_service",
                                 "module_handler", "database_schema", "module_import", "server_wiring"), 0),
                 spec()
         );
-        GenerationPatchApplyService patchApplyService = new GenerationPatchApplyService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry())
-        );
+        GenerationPatchApplyService patchApplyService = PatchApplyServiceTestFactory.create();
         var applyResult = patchApplyService.applyWithoutChangePlan(1L, "backend-go-test", root,
                 result.patchOperations(), "backend_recipe_compile_test");
         assertEquals("applied", applyResult.status(), applyResult.reason() + ":" + applyResult.rejectedOperations());
@@ -210,7 +209,7 @@ class CreateRecipeRendererServiceTest {
         }
     }
 
-    private String content(CreateRecipeRendererService.RecipeRenderResult result, String path) {
+    private String content(RecipeRenderResult result, String path) {
         return result.patchOperations().stream()
                 .filter(operation -> operation.relativePath().equals(path))
                 .findFirst()
@@ -218,7 +217,7 @@ class CreateRecipeRendererServiceTest {
                 .orElse("");
     }
 
-    private String newContent(CreateRecipeRendererService.RecipeRenderResult result, String path) {
+    private String newContent(RecipeRenderResult result, String path) {
         return result.patchOperations().stream()
                 .filter(operation -> operation.relativePath().equals(path))
                 .findFirst()

@@ -31,7 +31,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <langchain4j.version>1.17.2</langchain4j.version>
-        <langchain4j.beta.version>1.17.2-beta27</langchain4j.beta.version>
         <skipTests>false</skipTests>
         <excludedGroups>external</excludedGroups>
         <surefire.reportsDirectory>${project.build.directory}/surefire-reports</surefire.reportsDirectory>
@@ -86,6 +85,11 @@
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
+        <!-- Spring Data Redis 客户端与自动配置；Session、缓存和对话记忆统一复用同一连接工厂。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
         <!-- Spring Session + Redis -->
         <dependency>
             <groupId>org.springframework.session</groupId>
@@ -120,21 +124,11 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-reactor</artifactId>
         </dependency>
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-community-redis</artifactId>
-            <version>${langchain4j.beta.version}</version>
-        </dependency>
         <!-- Selenium 网页截图依赖 -->
         <dependency>
             <groupId>org.seleniumhq.selenium</groupId>
             <artifactId>selenium-java</artifactId>
             <version>4.33.0</version>
-        </dependency>
-        <dependency>
-            <groupId>io.github.bonigarcia</groupId>
-            <artifactId>webdrivermanager</artifactId>
-            <version>6.1.0</version>
         </dependency>
         <!-- COS 对象存储依赖 -->
         <dependency>
@@ -244,11 +238,12 @@
                                         <exclude>dev.langchain4j:langchain4j-community-redis-spring-boot-starter</exclude>
                                         <exclude>org.springframework.batch:spring-batch-core</exclude>
                                         <exclude>org.springframework.batch:spring-batch-infrastructure</exclude>
+                                        <exclude>io.github.bonigarcia:webdrivermanager</exclude>
                                     </excludes>
                                     <message>
                                         Unused auto-configuration and batch infrastructure are prohibited in the production
-                                        runtime. Use the direct LangChain4j Redis module and keep Spring Batch excluded from
-                                        MyBatis-Flex unless the application adds an explicit batch module.
+                                        runtime. Use project-owned Spring Data Redis adapters and keep Spring Batch excluded
+                                        from MyBatis-Flex unless the application adds an explicit batch module.
                                     </message>
                                 </bannedDependencies>
                             </rules>
@@ -290,6 +285,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
+                    <showDeprecation>true</showDeprecation>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.event;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -39,12 +40,34 @@ public class GenerationEventPublisher {
                 Instant.now()
         );
         log.info("生成任务事件: appId={}, userId={}, type={}, message={}, data={}",
-                appId, userId, type == null ? null : type.getValue(), message, data);
+                appId,
+                userId,
+                type == null ? null : type.getValue(),
+                LogExceptionSanitizer.sanitizeValue(message, 1_000),
+                LogExceptionSanitizer.sanitizeValue(event.data(), 4_000));
         if (appId == null) {
             return;
         }
         remember(event);
         eventSinks.computeIfAbsent(appId, this::newSink).tryEmitNext(event);
+    }
+
+    /**
+     * Publishes a best-effort observability event without allowing event delivery failures to
+     * interrupt the generation workflow or prevent task lifecycle cleanup.
+     */
+    public void publishSafely(GenerationTaskRequest request,
+                              GenerationEventType type,
+                              String message,
+                              Map<String, Object> data) {
+        try {
+            publish(request, type, message, data);
+        } catch (RuntimeException exception) {
+            Long appId = request == null || request.app() == null ? null : request.app().getId();
+            log.warn("Failed to publish generation event, appId: {}, type: {}",
+                    appId, type == null ? null : type.getValue(),
+                    LogExceptionSanitizer.sanitize(exception));
+        }
     }
 
     public List<GenerationEvent> recent(Long appId) {

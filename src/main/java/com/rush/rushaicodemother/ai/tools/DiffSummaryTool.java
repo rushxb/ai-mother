@@ -3,18 +3,19 @@ package com.rush.rushaicodemother.ai.tools;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
+import java.util.List;
 
 /**
  * 变更摘要工具
@@ -24,10 +25,20 @@ import java.util.Comparator;
 public class DiffSummaryTool extends BaseTool {
 
     private final GenerationDiffSummaryService generationDiffSummaryService;
+    private final ToolWorkspaceFileService workspaceFileService;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final SnapshotNamePolicy snapshotNamePolicy;
 
-    @Autowired
-    public DiffSummaryTool(GenerationDiffSummaryService generationDiffSummaryService) {
+    public DiffSummaryTool(
+            GenerationDiffSummaryService generationDiffSummaryService,
+            ToolWorkspaceFileService workspaceFileService,
+            WorkspaceFileSystemService workspaceFileSystemService,
+            SnapshotNamePolicy snapshotNamePolicy
+    ) {
         this.generationDiffSummaryService = generationDiffSummaryService;
+        this.workspaceFileService = workspaceFileService;
+        this.workspaceFileSystemService = workspaceFileSystemService;
+        this.snapshotNamePolicy = snapshotNamePolicy;
     }
 
     @Tool("比较当前项目与快照之间的差异，或者比较两个快照之间的差异，输出新增、修改、删除文件摘要。")
@@ -44,19 +55,36 @@ public class DiffSummaryTool extends BaseTool {
     ) {
         String normalizedAction = StrUtil.blankToDefault(action, "compareLatestSnapshot");
         try {
-            Path projectPath = ToolPathSupport.resolvePath(relativeProjectPath, appId);
+            requireAppId(appId);
             Path snapshotRoot = Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR, String.valueOf(appId));
             return switch (normalizedAction) {
-                case "compareLatestSnapshot" -> compareLatestSnapshot(projectPath, snapshotRoot);
-                case "compareCurrentWithSnapshot" -> compareCurrentWithSnapshot(projectPath, snapshotRoot, baseSnapshotName);
-                case "compareSnapshots" -> compareSnapshots(snapshotRoot, baseSnapshotName, compareSnapshotName);
+                case "compareLatestSnapshot" -> compareLatestSnapshot(resolveProjectPath(appId, relativeProjectPath), snapshotRoot);
+                case "compareCurrentWithSnapshot" -> {
+                    String normalizedBaseName = validateRequiredSnapshotName(
+                            baseSnapshotName,
+                            "compareCurrentWithSnapshot 需要提供 baseSnapshotName"
+                    );
+                    yield compareCurrentWithSnapshot(
+                            resolveProjectPath(appId, relativeProjectPath),
+                            snapshotRoot,
+                            normalizedBaseName
+                    );
+                }
+                case "compareSnapshots" -> compareSnapshots(
+                        snapshotRoot,
+                        validateRequiredSnapshotName(baseSnapshotName, "compareSnapshots 需要同时提供 baseSnapshotName 和 compareSnapshotName"),
+                        validateRequiredSnapshotName(compareSnapshotName, "compareSnapshots 需要同时提供 baseSnapshotName 和 compareSnapshotName")
+                );
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
             };
-        } catch (IllegalArgumentException e) {
-            return "错误：" + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError(e);
+        } catch (SnapshotNamePolicy.ValidationException e) {
+            return renderInputError(new ToolInputException(e.getMessage(), e));
         } catch (Exception e) {
-            log.error("生成差异摘要失败，action: {}", action, e);
-            return "生成差异摘要失败: " + e.getMessage();
+            log.error("生成差异摘要失败，action: {}, exceptionType: {}",
+                    action, e.getClass().getSimpleName());
+            return "生成差异摘要失败，请稍后重试";
         }
     }
 
@@ -68,28 +96,24 @@ public class DiffSummaryTool extends BaseTool {
         return buildDiffReport(latestSnapshot, projectPath, latestSnapshot.getFileName().toString(), "current");
     }
 
-    private String compareCurrentWithSnapshot(Path projectPath, Path snapshotRoot, String baseSnapshotName) throws Exception {
-        if (StrUtil.isBlank(baseSnapshotName)) {
-            return "错误：compareCurrentWithSnapshot 需要提供 baseSnapshotName";
-        }
+    private String compareCurrentWithSnapshot(Path projectPath,
+                                              Path snapshotRoot,
+                                              String baseSnapshotName) throws Exception {
         Path baseSnapshotPath = resolveSnapshot(snapshotRoot, baseSnapshotName);
         return buildDiffReport(baseSnapshotPath, projectPath, baseSnapshotName, "current");
     }
 
     private String compareSnapshots(Path snapshotRoot, String baseSnapshotName, String compareSnapshotName) throws Exception {
-        if (StrUtil.isBlank(baseSnapshotName) || StrUtil.isBlank(compareSnapshotName)) {
-            return "错误：compareSnapshots 需要同时提供 baseSnapshotName 和 compareSnapshotName";
-        }
         Path baseSnapshotPath = resolveSnapshot(snapshotRoot, baseSnapshotName);
         Path compareSnapshotPath = resolveSnapshot(snapshotRoot, compareSnapshotName);
         return buildDiffReport(baseSnapshotPath, compareSnapshotPath, baseSnapshotName, compareSnapshotName);
     }
 
     private String buildDiffReport(Path leftRoot, Path rightRoot, String leftName, String rightName) throws Exception {
-        if (!Files.exists(leftRoot) || !Files.isDirectory(leftRoot)) {
+        if (!workspaceFileSystemService.isDirectory(leftRoot)) {
             return "错误：基准目录不存在 - " + leftName;
         }
-        if (!Files.exists(rightRoot) || !Files.isDirectory(rightRoot)) {
+        if (!workspaceFileSystemService.isDirectory(rightRoot)) {
             return "错误：对比目录不存在 - " + rightName;
         }
         DiffSummary summary = generationDiffSummaryService.summarizePaths(null, "", leftRoot, rightRoot);
@@ -101,21 +125,32 @@ public class DiffSummaryTool extends BaseTool {
     }
 
     private Path resolveLatestSnapshot(Path snapshotRoot) throws Exception {
-        if (!Files.exists(snapshotRoot) || !Files.isDirectory(snapshotRoot)) {
+        if (!workspaceFileSystemService.isDirectory(snapshotRoot)) {
             return null;
         }
-        try (var stream = Files.list(snapshotRoot)) {
-            return stream
-                    .filter(Files::isDirectory)
-                    .max(Comparator.comparingLong(path -> path.toFile().lastModified()))
-                    .orElse(null);
-        }
+        List<WorkspaceDirectoryMetadata> snapshots = workspaceFileSystemService.listChildDirectories(snapshotRoot);
+        return snapshots.isEmpty() ? null : snapshotRoot.resolve(snapshots.getFirst().name());
     }
 
     private Path resolveSnapshot(Path snapshotRoot, String snapshotName) {
-        Path snapshotPath = snapshotRoot.resolve(snapshotName).normalize();
-        ToolPathSupport.ensureWithinProject(snapshotRoot, snapshotPath);
-        return snapshotPath;
+        return snapshotRoot.resolve(snapshotName);
+    }
+
+    private Path resolveProjectPath(Long appId, String relativeProjectPath) {
+        return workspaceFileService.resolveDirectory(appId, relativeProjectPath).absolutePath();
+    }
+
+    private void requireAppId(Long appId) {
+        if (appId == null || appId <= 0) {
+            throw new ToolInputException("应用标识不能为空且必须为正数");
+        }
+    }
+
+    private String validateRequiredSnapshotName(String snapshotName, String missingMessage) {
+        if (StrUtil.isBlank(snapshotName)) {
+            throw new ToolInputException(missingMessage);
+        }
+        return snapshotNamePolicy.validateRequired(snapshotName);
     }
 
     @Override

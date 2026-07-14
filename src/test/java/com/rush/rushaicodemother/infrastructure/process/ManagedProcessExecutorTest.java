@@ -1,8 +1,12 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -14,9 +18,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -135,14 +142,96 @@ class ManagedProcessExecutorTest {
 
     @Test
     void shouldReturnStartFailureWithoutLeakingException() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ManagedProcessExecutor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
         ManagedProcessExecutor executor = executor(builder -> {
-            throw new IOException("executable missing");
+            throw new IOException("provider-api-key=secret-value");
         });
 
-        ManagedProcessResult result = executor.execute(requestBuilder().build());
+        ManagedProcessResult result;
+        try {
+            result = executor.execute(requestBuilder().build());
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
 
         assertEquals(ManagedProcessResult.Status.START_FAILED, result.status());
-        assertEquals("executable missing", result.errorDetail());
+        assertEquals("外部进程启动失败，请检查运行环境和命令配置", result.errorDetail());
+        assertFalse(result.errorDetail().contains("secret-value"));
+        String loggedContent = appender.list.stream()
+                .map(this::logEventText)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertFalse(loggedContent.contains("secret-value"));
+    }
+
+    @Test
+    void shouldRemoveEnvironmentVariablesAfterApplyingOverrides() {
+        AtomicReference<ProcessBuilder> capturedBuilder = new AtomicReference<>();
+        ManagedProcessExecutor executor = executor(builder -> {
+            capturedBuilder.set(builder);
+            return FakeProcess.completed(
+                    0,
+                    InputStream.nullInputStream(),
+                    InputStream.nullInputStream()
+            );
+        });
+
+        executor.execute(requestBuilder()
+                .environment(Map.of(
+                        "NODE_OPTIONS", "--require malicious-bootstrap.js",
+                        "SAFE_VARIABLE", "safe-value"
+                ))
+                .environmentVariablesToRemove(Set.of("NODE_OPTIONS"))
+                .build());
+
+        assertFalse(capturedBuilder.get().environment().containsKey("NODE_OPTIONS"));
+        assertEquals("safe-value", capturedBuilder.get().environment().get("SAFE_VARIABLE"));
+    }
+
+    @Test
+    void shouldRedactSensitiveCommandArgumentsInResultAndLogs() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ManagedProcessExecutor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        ManagedProcessExecutor executor = executor(builder -> FakeProcess.completed(
+                0,
+                InputStream.nullInputStream(),
+                InputStream.nullInputStream()
+        ));
+
+        ManagedProcessResult result;
+        try {
+            result = executor.execute(requestBuilder()
+                    .command(List.of(
+                            "trusted-command",
+                            "--token", "secret-value",
+                            "--api-key=other-secret"
+                    ))
+                    .build());
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        assertFalse(result.command().contains("secret-value"));
+        assertFalse(result.command().contains("other-secret"));
+        assertTrue(result.command().contains("***"));
+        String loggedContent = appender.list.stream()
+                .map(this::logEventText)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertFalse(loggedContent.contains("secret-value"));
+        assertFalse(loggedContent.contains("other-secret"));
+    }
+
+    private String logEventText(ILoggingEvent event) {
+        String throwableMessage = event.getThrowableProxy() == null
+                ? ""
+                : event.getThrowableProxy().getMessage();
+        return event.getFormattedMessage() + "\n" + throwableMessage;
     }
 
     private ManagedProcessRequest.ManagedProcessRequestBuilder requestBuilder() {

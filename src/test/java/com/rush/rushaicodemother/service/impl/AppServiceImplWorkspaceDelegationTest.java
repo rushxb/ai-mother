@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
 import com.rush.rushaicodemother.model.vo.AppCodeFileTreeVO;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.workspace.AppCodeWorkspaceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,19 +21,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 class AppServiceImplWorkspaceDelegationTest {
 
     private AppServiceImpl appService;
+    private AppPersistenceService appPersistenceService;
     private AppCodeWorkspaceService workspaceService;
 
     @BeforeEach
     void setUp() {
         AppServiceImplTestFixture fixture = new AppServiceImplTestFixture();
-        appService = spy(fixture.createService());
+        appService = fixture.createService();
+        appPersistenceService = fixture.persistenceService();
         workspaceService = fixture.workspaceService();
     }
 
@@ -41,7 +43,7 @@ class AppServiceImplWorkspaceDelegationTest {
         App app = app(11L, 21L);
         User owner = user(21L);
         List<AppCodeFileTreeVO> expectedNodes = List.of(new AppCodeFileTreeVO());
-        doReturn(app).when(appService).getById(11L);
+        doReturn(app).when(appPersistenceService).findActiveById(11L);
         doReturn(expectedNodes).when(workspaceService).listFiles(app);
 
         List<AppCodeFileTreeVO> actualNodes = appService.listAppCodeFiles(11L, owner);
@@ -55,7 +57,7 @@ class AppServiceImplWorkspaceDelegationTest {
         App app = app(12L, 22L);
         User owner = user(22L);
         AppCodeFileContentVO expectedContent = new AppCodeFileContentVO();
-        doReturn(app).when(appService).getById(12L);
+        doReturn(app).when(appPersistenceService).findActiveById(12L);
         doReturn(expectedContent).when(workspaceService).readFile(app, "src/App.vue");
 
         AppCodeFileContentVO actualContent = appService.getAppCodeFileContent(12L, "src/App.vue", owner);
@@ -72,7 +74,7 @@ class AppServiceImplWorkspaceDelegationTest {
         request.setAppId(13L);
         request.setFilePath("src/App.vue");
         request.setContent("<template>new</template>");
-        doReturn(app).when(appService).getById(13L);
+        doReturn(app).when(appPersistenceService).findActiveById(13L);
 
         Boolean saved = appService.saveAppCodeFile(request, owner);
 
@@ -88,7 +90,7 @@ class AppServiceImplWorkspaceDelegationTest {
     void shouldRejectNonOwnerBeforeWorkspaceAccess() {
         App app = app(14L, 24L);
         User otherUser = user(25L);
-        doReturn(app).when(appService).getById(14L);
+        doReturn(app).when(appPersistenceService).findActiveById(14L);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> appService.listAppCodeFiles(14L, otherUser));

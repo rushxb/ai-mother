@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ViteLauncherResolverTest {
 
@@ -33,7 +36,7 @@ class ViteLauncherResolverTest {
     @Test
     void shouldResolveProjectLocalViteWithoutShellFallback() throws IOException {
         Path projectDirectory = createProjectWithVite(tempDirectory.resolve("project"));
-        ViteLauncherResolver resolver = new ViteLauncherResolver("fixed-node");
+        ViteLauncherResolver resolver = createResolver("fixed-node");
 
         List<String> command = resolver.resolve(projectDirectory, 5180);
 
@@ -56,7 +59,7 @@ class ViteLauncherResolverTest {
 
         DevServerStartException exception = assertThrows(
                 DevServerStartException.class,
-                () -> new ViteLauncherResolver("node").resolve(projectDirectory, 5180)
+                () -> createResolver("node").resolve(projectDirectory, 5180)
         );
 
         assertEquals(DevServerStartException.Reason.INVALID_LAUNCHER, exception.reason());
@@ -72,7 +75,7 @@ class ViteLauncherResolverTest {
 
         DevServerStartException exception = assertThrows(
                 DevServerStartException.class,
-                () -> new ViteLauncherResolver("node").resolve(projectDirectory, 5180)
+                () -> createResolver("node").resolve(projectDirectory, 5180)
         );
 
         assertEquals(DevServerStartException.Reason.INVALID_LAUNCHER, exception.reason());
@@ -80,11 +83,16 @@ class ViteLauncherResolverTest {
 
     @Test
     void shouldRejectInvalidArguments() {
-        ViteLauncherResolver resolver = new ViteLauncherResolver("node");
+        ViteLauncherResolver resolver = createResolver("node");
 
         assertThrows(DevServerStartException.class, () -> resolver.resolve(null, 5180));
         assertThrows(DevServerStartException.class, () -> resolver.resolve(tempDirectory, 0));
-        assertThrows(IllegalArgumentException.class, () -> new ViteLauncherResolver("node" + '\0' + "evil"));
+    }
+
+    private ViteLauncherResolver createResolver(String nodeExecutable) {
+        NodeToolchain nodeToolchain = mock(NodeToolchain.class);
+        when(nodeToolchain.nodeExecutable()).thenReturn(nodeExecutable);
+        return new ViteLauncherResolver(nodeToolchain);
     }
 
     private Path createProjectWithVite(Path projectDirectory) throws IOException {

@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.infrastructure.screenshot.selenium.SeleniumChromeDriverFactory;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -22,6 +24,8 @@ class PreviewRuntimeDiagnosticToolTest {
         tool = new PreviewRuntimeDiagnosticTool(
                 mock(VueProjectBuilder.class),
                 devServerManager,
+                ToolPathSupportTestFixture.forApp(11L),
+                mock(SeleniumChromeDriverFactory.class),
                 8123,
                 "/api"
         );
@@ -79,5 +83,22 @@ class PreviewRuntimeDiagnosticToolTest {
         );
 
         assertEquals("http://localhost:8123/api/static/vue_project_11/dist/", url);
+    }
+
+    @Test
+    void unexpectedDiagnosticFailureMustNotExposeInternalDetails() {
+        when(devServerManager.getPort(11L))
+                .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
+
+        String result = tool.diagnosePreviewRuntime(
+                "diagnoseDevServer",
+                null,
+                null,
+                2,
+                11L
+        );
+
+        assertEquals("运行时诊断失败，请稍后重试", result);
+        assertFalse(result.contains("secret-value"));
     }
 }

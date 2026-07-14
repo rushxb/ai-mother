@@ -2,23 +2,26 @@ package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceFileMetadata;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceScan;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.stream.Stream;
 
 /**
  * 根据生成前回滚点生成非破坏性的生成后差异摘要。
@@ -28,21 +31,30 @@ import java.util.stream.Stream;
 public class GenerationDiffSummaryService {
 
     private static final int MAX_FILES = 40;
-    private static final Set<String> DEFAULT_IGNORED_NAMES = Set.of(
-            ".git", ".idea", ".vscode", "node_modules", "dist", "build", "target", "coverage"
-    );
+    private static final long MAX_DIFF_TEXT_FILE_BYTES = 2L * 1024 * 1024;
     private static final Set<String> TEXT_EXTENSIONS = Set.of(
             "vue", "js", "ts", "jsx", "tsx", "json", "css", "scss", "less", "html", "md", "txt", "yml", "yaml"
     );
 
     private final Path codeOutputRoot;
+    private final Path codeSnapshotRoot;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
 
-    public GenerationDiffSummaryService() {
-        this(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR));
+    @Autowired
+    public GenerationDiffSummaryService(WorkspaceFileSystemService workspaceFileSystemService) {
+        this(
+                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
+                Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR),
+                workspaceFileSystemService
+        );
     }
 
-    public GenerationDiffSummaryService(Path codeOutputRoot) {
+    public GenerationDiffSummaryService(Path codeOutputRoot,
+                                        Path codeSnapshotRoot,
+                                        WorkspaceFileSystemService workspaceFileSystemService) {
         this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
+        this.codeSnapshotRoot = codeSnapshotRoot.toAbsolutePath().normalize();
+        this.workspaceFileSystemService = workspaceFileSystemService;
     }
 
     public DiffSummary summarize(Long appId,
@@ -50,6 +62,9 @@ public class GenerationDiffSummaryService {
                                   String taskId,
                                   GenerationArtifact rollbackPointArtifact) {
         Path currentPath = resolveProjectPath(appId, targetType);
+        if (appId == null || appId <= 0 || targetType == null) {
+            return DiffSummary.skipped(appId, taskId, "", currentPath.toString(), "invalid_generation_context");
+        }
         if (rollbackPointArtifact == null || rollbackPointArtifact.payload() == null) {
             return DiffSummary.skipped(appId, taskId, "", currentPath.toString(), "rollback_point_missing");
         }
@@ -63,21 +78,36 @@ public class GenerationDiffSummaryService {
                     "rollback_point_not_created"
             );
         }
-        Path basePath = Path.of(String.valueOf(rollbackPayload.get("snapshotPath"))).toAbsolutePath().normalize();
-        if (!Files.isDirectory(basePath)) {
-            return DiffSummary.skipped(appId, taskId, basePath.toString(), currentPath.toString(), "base_snapshot_missing");
-        }
-        if (!Files.isDirectory(currentPath)) {
-            return DiffSummary.skipped(appId, taskId, basePath.toString(), currentPath.toString(), "current_project_missing");
-        }
-        try {
-            return summarizePaths(appId, taskId, basePath, currentPath);
-        } catch (Exception e) {
-            log.warn("生成后差异摘要失败，appId: {}, taskId: {}", appId, taskId, e);
+        String snapshotPathValue = String.valueOf(rollbackPayload.getOrDefault("snapshotPath", ""));
+        if (!matchesArtifactContext(appId, taskId, rollbackPayload)) {
             return DiffSummary.skipped(
                     appId,
                     taskId,
-                    basePath.toString(),
+                    snapshotPathValue,
+                    currentPath.toString(),
+                    "rollback_artifact_context_mismatch"
+            );
+        }
+        Path basePath;
+        try {
+            basePath = Path.of(snapshotPathValue).toAbsolutePath().normalize();
+            if (!isAllowedSnapshotPath(appId, basePath, rollbackPayload)) {
+                return DiffSummary.skipped(
+                        appId,
+                        taskId,
+                        snapshotPathValue,
+                        currentPath.toString(),
+                        "rollback_path_out_of_root"
+                );
+            }
+            return summarizePaths(appId, taskId, basePath, currentPath);
+        } catch (Exception e) {
+            log.warn("生成后差异摘要失败，appId: {}, taskId: {}, exceptionType: {}",
+                    appId, taskId, e.getClass().getSimpleName());
+            return DiffSummary.skipped(
+                    appId,
+                    taskId,
+                    snapshotPathValue,
                     currentPath.toString(),
                     "diff_summary_failed"
             );
@@ -85,10 +115,10 @@ public class GenerationDiffSummaryService {
     }
 
     public DiffSummary summarizePaths(Long appId, String taskId, Path basePath, Path currentPath) throws IOException {
-        if (!Files.isDirectory(basePath)) {
+        if (!workspaceFileSystemService.isDirectory(basePath)) {
             return DiffSummary.skipped(appId, taskId, pathToString(basePath), pathToString(currentPath), "base_snapshot_missing");
         }
-        if (!Files.isDirectory(currentPath)) {
+        if (!workspaceFileSystemService.isDirectory(currentPath)) {
             return DiffSummary.skipped(appId, taskId, pathToString(basePath), pathToString(currentPath), "current_project_missing");
         }
         return buildDiffSummary(
@@ -118,32 +148,32 @@ public class GenerationDiffSummaryService {
     }
 
     private DiffSummary buildDiffSummary(Long appId, String taskId, Path basePath, Path currentPath) throws IOException {
-        List<Path> baseFiles = listProjectFiles(basePath);
-        List<Path> currentFiles = listProjectFiles(currentPath);
+        WorkspaceScan baseScan = workspaceFileSystemService.scanProject(basePath);
+        WorkspaceScan currentScan = workspaceFileSystemService.scanProject(currentPath);
+        Map<String, WorkspaceFileMetadata> baseFiles = indexByRelativePath(baseScan);
+        Map<String, WorkspaceFileMetadata> currentFiles = indexByRelativePath(currentScan);
         Set<String> allPaths = new TreeSet<>();
-        baseFiles.forEach(path -> allPaths.add(path.toString().replace("\\", "/")));
-        currentFiles.forEach(path -> allPaths.add(path.toString().replace("\\", "/")));
+        allPaths.addAll(baseFiles.keySet());
+        allPaths.addAll(currentFiles.keySet());
         List<String> added = new ArrayList<>();
         List<String> deleted = new ArrayList<>();
         List<String> modified = new ArrayList<>();
         List<String> modifiedDetails = new ArrayList<>();
         for (String relativePath : allPaths) {
-            Path baseFile = basePath.resolve(relativePath);
-            Path currentFile = currentPath.resolve(relativePath);
-            boolean baseExists = Files.exists(baseFile);
-            boolean currentExists = Files.exists(currentFile);
-            if (!baseExists && currentExists) {
+            WorkspaceFileMetadata baseFile = baseFiles.get(relativePath);
+            WorkspaceFileMetadata currentFile = currentFiles.get(relativePath);
+            if (baseFile == null) {
                 added.add(relativePath);
                 continue;
             }
-            if (baseExists && !currentExists) {
+            if (currentFile == null) {
                 deleted.add(relativePath);
                 continue;
             }
-            if (!FileUtil.contentEquals(baseFile.toFile(), currentFile.toFile())) {
+            if (!workspaceFileSystemService.contentEquals(baseScan, baseFile, currentScan, currentFile)) {
                 modified.add(relativePath);
                 if (modifiedDetails.size() < MAX_FILES) {
-                    modifiedDetails.add(buildModifiedDetail(relativePath, baseFile, currentFile));
+                    modifiedDetails.add(buildModifiedDetail(relativePath, baseScan, baseFile, currentScan, currentFile));
                 }
             }
         }
@@ -159,13 +189,29 @@ public class GenerationDiffSummaryService {
         );
     }
 
-    private String buildModifiedDetail(String relativePath, Path baseFile, Path currentFile) {
-        String extension = FileUtil.extName(relativePath).toLowerCase();
+    private String buildModifiedDetail(String relativePath,
+                                       WorkspaceScan baseScan,
+                                       WorkspaceFileMetadata baseFile,
+                                       WorkspaceScan currentScan,
+                                       WorkspaceFileMetadata currentFile) throws IOException {
+        String extension = FileUtil.extName(relativePath).toLowerCase(Locale.ROOT);
         if (!TEXT_EXTENSIONS.contains(extension)) {
             return relativePath + " | 内容已变更";
         }
-        List<String> beforeLines = FileUtil.readLines(baseFile.toFile(), StandardCharsets.UTF_8);
-        List<String> afterLines = FileUtil.readLines(currentFile.toFile(), StandardCharsets.UTF_8);
+        List<String> beforeLines;
+        List<String> afterLines;
+        try {
+            beforeLines = workspaceFileSystemService
+                    .readUtf8(baseScan, baseFile, MAX_DIFF_TEXT_FILE_BYTES)
+                    .lines()
+                    .toList();
+            afterLines = workspaceFileSystemService
+                    .readUtf8(currentScan, currentFile, MAX_DIFF_TEXT_FILE_BYTES)
+                    .lines()
+                    .toList();
+        } catch (WorkspaceFileSystemException exception) {
+            return relativePath + " | 内容已变更";
+        }
         int prefix = commonPrefix(beforeLines, afterLines);
         int suffix = commonSuffix(beforeLines, afterLines, prefix);
         int removed = beforeLines.size() - prefix - suffix;
@@ -217,25 +263,12 @@ public class GenerationDiffSummaryService {
         }
     }
 
-    private List<Path> listProjectFiles(Path root) throws IOException {
-        try (Stream<Path> stream = Files.walk(root)) {
-            return stream
-                    .filter(Files::isRegularFile)
-                    .filter(path -> shouldInclude(root, path))
-                    .map(root::relativize)
-                    .sorted(Comparator.comparing(Path::toString))
-                    .toList();
+    private Map<String, WorkspaceFileMetadata> indexByRelativePath(WorkspaceScan scan) {
+        Map<String, WorkspaceFileMetadata> filesByPath = new LinkedHashMap<>();
+        for (WorkspaceFileMetadata file : scan.files()) {
+            filesByPath.put(file.relativePath(), file);
         }
-    }
-
-    private boolean shouldInclude(Path root, Path path) {
-        Path relative = root.equals(path) ? Path.of("") : root.relativize(path);
-        for (Path part : relative.normalize()) {
-            if (DEFAULT_IGNORED_NAMES.contains(part.toString())) {
-                return false;
-            }
-        }
-        return true;
+        return filesByPath;
     }
 
     private Path resolveProjectPath(Long appId, CodeGenTypeEnum targetType) {
@@ -249,5 +282,27 @@ public class GenerationDiffSummaryService {
 
     private String pathToString(Path path) {
         return path == null ? "" : path.toAbsolutePath().normalize().toString();
+    }
+
+    private boolean matchesArtifactContext(Long appId,
+                                           String taskId,
+                                           Map<String, Object> rollbackPayload) {
+        return taskId != null
+                && !taskId.isBlank()
+                && String.valueOf(appId).equals(String.valueOf(rollbackPayload.get("appId")))
+                && String.valueOf(taskId).equals(String.valueOf(rollbackPayload.get("taskId")));
+    }
+
+    private boolean isAllowedSnapshotPath(Long appId,
+                                          Path snapshotPath,
+                                          Map<String, Object> rollbackPayload) {
+        Path applicationSnapshotRoot = codeSnapshotRoot.resolve(String.valueOf(appId)).normalize();
+        if (!snapshotPath.startsWith(applicationSnapshotRoot)
+                || snapshotPath.equals(applicationSnapshotRoot)
+                || !applicationSnapshotRoot.equals(snapshotPath.getParent())) {
+            return false;
+        }
+        String snapshotName = String.valueOf(rollbackPayload.getOrDefault("snapshotName", ""));
+        return snapshotName.isBlank() || snapshotName.equals(snapshotPath.getFileName().toString());
     }
 }

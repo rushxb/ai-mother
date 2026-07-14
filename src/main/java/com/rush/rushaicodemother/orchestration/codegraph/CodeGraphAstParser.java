@@ -15,6 +15,8 @@ import java.util.regex.Pattern;
 @Component
 public class CodeGraphAstParser {
 
+    private static final Set<String> JAVASCRIPT_LIKE_EXTENSIONS = Set.of("vue", "js", "ts", "jsx", "tsx", "mjs");
+    private static final List<String> JAVASCRIPT_FILE_SUFFIXES = List.of(".ts", ".js", ".vue", ".tsx", ".jsx", ".mjs");
     private static final Pattern JS_IMPORT_FROM = Pattern.compile("(?m)\\bimport\\s+(?:[^;]*?\\s+from\\s+)?['\"]([^'\"]+)['\"]");
     private static final Pattern JS_EXPORT_FROM = Pattern.compile("(?m)\\bexport\\s+[^;]*?\\s+from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern JS_SYMBOL = Pattern.compile(
@@ -35,15 +37,16 @@ public class CodeGraphAstParser {
         this.syntaxValidationService = syntaxValidationService;
     }
 
-    public CodeGraphFileNode parse(Path rootDir, String relativePath, String content) {
+    public CodeGraphFileNode parse(String relativePath, String content, Set<String> knownFiles) {
         String normalizedPath = normalizePath(relativePath);
         String extension = normalizeExtension(FileUtil.extName(normalizedPath));
+        Set<String> normalizedKnownFiles = normalizeKnownFiles(knownFiles);
         List<CodeGraphImport> imports = new ArrayList<>();
         List<CodeGraphSymbol> symbols = new ArrayList<>();
-        if (Set.of("vue", "js", "ts", "jsx", "tsx", "mjs").contains(extension)) {
-            parseJavaScriptLike(rootDir, normalizedPath, content, imports, symbols);
+        if (JAVASCRIPT_LIKE_EXTENSIONS.contains(extension)) {
+            parseJavaScriptLike(normalizedPath, content, normalizedKnownFiles, imports, symbols);
         } else if ("go".equals(extension)) {
-            parseGo(rootDir, normalizedPath, content, imports, symbols);
+            parseGo(normalizedPath, content, normalizedKnownFiles, imports, symbols);
         } else if ("sql".equals(extension)) {
             parseSql(normalizedPath, content, symbols);
         }
@@ -51,14 +54,14 @@ public class CodeGraphAstParser {
         return new CodeGraphFileNode(normalizedPath, extension, imports, symbols, validation.errors());
     }
 
-    private void parseJavaScriptLike(Path rootDir,
-                                     String relativePath,
+    private void parseJavaScriptLike(String relativePath,
                                      String content,
+                                     Set<String> knownFiles,
                                      List<CodeGraphImport> imports,
                                      List<CodeGraphSymbol> symbols) {
         String scriptContent = relativePath.endsWith(".vue") ? extractScriptContent(content) : StrUtil.blankToDefault(content, "");
-        addJsImports(rootDir, relativePath, scriptContent, imports);
-        addJsImports(rootDir, relativePath, StrUtil.blankToDefault(content, ""), imports);
+        addJsImports(relativePath, scriptContent, knownFiles, imports);
+        addJsImports(relativePath, StrUtil.blankToDefault(content, ""), knownFiles, imports);
         LinkedHashSet<String> symbolNames = new LinkedHashSet<>();
         symbolNames.add(FileUtil.mainName(relativePath.substring(relativePath.lastIndexOf('/') + 1)));
         addMatches(scriptContent, JS_SYMBOL, symbolNames);
@@ -70,32 +73,35 @@ public class CodeGraphAstParser {
         }
     }
 
-    private void addJsImports(Path rootDir, String relativePath, String content, List<CodeGraphImport> imports) {
+    private void addJsImports(String relativePath,
+                              String content,
+                              Set<String> knownFiles,
+                              List<CodeGraphImport> imports) {
         var importMatcher = JS_IMPORT_FROM.matcher(StrUtil.blankToDefault(content, ""));
         while (importMatcher.find()) {
-            addImport(rootDir, relativePath, importMatcher.group(1), "js_import", imports);
+            addImport(relativePath, importMatcher.group(1), "js_import", knownFiles, imports);
         }
         var exportMatcher = JS_EXPORT_FROM.matcher(StrUtil.blankToDefault(content, ""));
         while (exportMatcher.find()) {
-            addImport(rootDir, relativePath, exportMatcher.group(1), "js_export", imports);
+            addImport(relativePath, exportMatcher.group(1), "js_export", knownFiles, imports);
         }
     }
 
-    private void parseGo(Path rootDir,
-                         String relativePath,
+    private void parseGo(String relativePath,
                          String content,
+                         Set<String> knownFiles,
                          List<CodeGraphImport> imports,
                          List<CodeGraphSymbol> symbols) {
         var blockMatcher = GO_IMPORT_BLOCK.matcher(StrUtil.blankToDefault(content, ""));
         while (blockMatcher.find()) {
             var lineMatcher = GO_IMPORT_LINE.matcher(blockMatcher.group(1));
             while (lineMatcher.find()) {
-                addImport(rootDir, relativePath, lineMatcher.group(1), "go_import", imports);
+                addImport(relativePath, lineMatcher.group(1), "go_import", knownFiles, imports);
             }
         }
         var singleMatcher = GO_IMPORT_SINGLE.matcher(StrUtil.blankToDefault(content, ""));
         while (singleMatcher.find()) {
-            addImport(rootDir, relativePath, singleMatcher.group(1), "go_import", imports);
+            addImport(relativePath, singleMatcher.group(1), "go_import", knownFiles, imports);
         }
         addSymbolMatches(relativePath, content, GO_FUNC, "go_function", symbols);
         addSymbolMatches(relativePath, content, GO_TYPE, "go_type", symbols);
@@ -106,73 +112,107 @@ public class CodeGraphAstParser {
         addSymbolMatches(relativePath, content, SQL_COLUMN, "sql_column", symbols);
     }
 
-    private void addImport(Path rootDir,
-                           String sourceFile,
+    private void addImport(String sourceFile,
                            String importedPath,
                            String kind,
+                           Set<String> knownFiles,
                            List<CodeGraphImport> imports) {
         String normalizedImport = StrUtil.blankToDefault(importedPath, "").trim();
         if (normalizedImport.isBlank()) {
             return;
         }
-        imports.add(new CodeGraphImport(sourceFile, normalizedImport, resolveImport(rootDir, sourceFile, normalizedImport), kind));
+        imports.add(new CodeGraphImport(
+                sourceFile,
+                normalizedImport,
+                resolveImport(sourceFile, normalizedImport, knownFiles),
+                kind
+        ));
     }
 
-    private String resolveImport(Path rootDir, String sourceFile, String importedPath) {
-        if (rootDir == null || StrUtil.isBlank(sourceFile) || StrUtil.isBlank(importedPath)) {
+    private String resolveImport(String sourceFile, String importedPath, Set<String> knownFiles) {
+        if (StrUtil.isBlank(sourceFile) || StrUtil.isBlank(importedPath) || knownFiles.isEmpty()) {
             return "";
         }
         String normalizedImport = importedPath.replace('\\', '/');
         if (normalizedImport.startsWith(".") || normalizedImport.startsWith("@/")) {
-            Path base = normalizedImport.startsWith("@/")
-                    ? rootDir.resolve("src").resolve(normalizedImport.substring(2))
-                    : rootDir.resolve(sourceFile).getParent().resolve(normalizedImport);
-            String resolved = resolveExistingRelative(rootDir, base.normalize());
-            return StrUtil.blankToDefault(resolved, "");
+            return resolveJavaScriptImport(sourceFile, normalizedImport, knownFiles);
         }
-        String goResolved = resolveGoInternalImport(rootDir, normalizedImport);
-        return StrUtil.blankToDefault(goResolved, "");
+        return resolveGoInternalImport(normalizedImport, knownFiles);
     }
 
-    private String resolveExistingRelative(Path rootDir, Path base) {
-        List<Path> candidates = List.of(
-                base,
-                Path.of(base.toString() + ".ts"),
-                Path.of(base.toString() + ".js"),
-                Path.of(base.toString() + ".vue"),
-                Path.of(base.toString() + ".tsx"),
-                Path.of(base.toString() + ".jsx"),
-                base.resolve("index.ts"),
-                base.resolve("index.js"),
-                base.resolve("index.vue")
-        );
-        for (Path candidate : candidates) {
-            if (java.nio.file.Files.isRegularFile(candidate)) {
-                return normalizePath(rootDir.relativize(candidate).toString());
+    private String resolveJavaScriptImport(String sourceFile, String importedPath, Set<String> knownFiles) {
+        try {
+            Path base;
+            if (importedPath.startsWith("@/")) {
+                base = Path.of("src").resolve(importedPath.substring(2));
+            } else {
+                Path sourcePath = Path.of(sourceFile);
+                Path sourceDirectory = sourcePath.getParent();
+                base = (sourceDirectory == null ? Path.of("") : sourceDirectory).resolve(importedPath);
             }
+            String normalizedBase = normalizeRelativeCandidate(base);
+            if (normalizedBase.isBlank()) {
+                return "";
+            }
+            LinkedHashSet<String> candidates = new LinkedHashSet<>();
+            candidates.add(normalizedBase);
+            JAVASCRIPT_FILE_SUFFIXES.forEach(suffix -> candidates.add(normalizedBase + suffix));
+            JAVASCRIPT_FILE_SUFFIXES.forEach(suffix -> candidates.add(normalizedBase + "/index" + suffix));
+            for (String candidate : candidates) {
+                if (knownFiles.contains(candidate)) {
+                    return candidate;
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // 非法导入路径仅作为未解析依赖处理，不能触发整个代码图构建失败。
         }
         return "";
     }
 
-    private String resolveGoInternalImport(Path rootDir, String importedPath) {
+    private String resolveGoInternalImport(String importedPath, Set<String> knownFiles) {
         int internalIndex = importedPath.indexOf("/internal/");
-        if (internalIndex < 0) {
+        String internalPath;
+        if (internalIndex >= 0) {
+            internalPath = importedPath.substring(internalIndex + 1);
+        } else if (importedPath.startsWith("internal/")) {
+            internalPath = importedPath;
+        } else {
             return "";
         }
-        String internalPath = importedPath.substring(internalIndex + 1);
-        Path directory = rootDir.resolve(internalPath);
-        if (!java.nio.file.Files.isDirectory(directory)) {
+        String directoryPrefix = normalizePath(internalPath).replaceAll("/+$", "") + "/";
+        return knownFiles.stream()
+                .filter(path -> path.startsWith(directoryPrefix))
+                .filter(path -> path.endsWith(".go"))
+                .filter(path -> path.indexOf('/', directoryPrefix.length()) < 0)
+                .sorted()
+                .findFirst()
+                .orElse("");
+    }
+
+    private Set<String> normalizeKnownFiles(Set<String> knownFiles) {
+        if (knownFiles == null || knownFiles.isEmpty()) {
+            return Set.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String knownFile : knownFiles) {
+            String normalizedPath = normalizePath(knownFile);
+            if (StrUtil.isNotBlank(normalizedPath)) {
+                normalized.add(normalizedPath);
+            }
+        }
+        return Set.copyOf(normalized);
+    }
+
+    private String normalizeRelativeCandidate(Path candidate) {
+        Path normalized = candidate.normalize();
+        String normalizedPath = normalizePath(normalized.toString());
+        if (normalized.isAbsolute()
+                || normalizedPath.equals("..")
+                || normalizedPath.startsWith("../")
+                || normalizedPath.startsWith("/")) {
             return "";
         }
-        try (var stream = java.nio.file.Files.list(directory)) {
-            return stream
-                    .filter(path -> path.getFileName().toString().endsWith(".go"))
-                    .findFirst()
-                    .map(path -> normalizePath(rootDir.relativize(path).toString()))
-                    .orElse("");
-        } catch (Exception ignored) {
-            return "";
-        }
+        return normalizedPath;
     }
 
     private void addSymbolMatches(String relativePath,

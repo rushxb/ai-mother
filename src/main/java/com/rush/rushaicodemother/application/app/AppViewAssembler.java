@@ -2,12 +2,11 @@ package com.rush.rushaicodemother.application.app;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.entity.AppDatabaseResource;
-import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.model.vo.AppVO;
 import com.rush.rushaicodemother.model.vo.UserVO;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
-import com.rush.rushaicodemother.service.UserService;
+import com.rush.rushaicodemother.service.user.UserDirectoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -27,7 +26,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AppViewAssembler {
 
-    private final UserService userService;
+    private final UserDirectoryService userDirectoryService;
     private final AppDatabaseResourceService appDatabaseResourceService;
 
     public AppVO toView(App app) {
@@ -37,14 +36,12 @@ public class AppViewAssembler {
         }
         Long appId = app.getId();
         if (appId != null) {
-            AppDatabaseResource databaseResource = appDatabaseResourceService.getByAppId(appId);
-            appVO.setDatabaseResource(appDatabaseResourceService.getResourceVO(databaseResource));
+            appVO.setDatabaseResource(appDatabaseResourceService.findActiveResourceView(appId));
         }
 
         Long userId = app.getUserId();
         if (userId != null) {
-            User user = userService.getById(userId);
-            appVO.setUser(userService.getUserVO(user));
+            appVO.setUser(userDirectoryService.findActiveUserView(userId));
         }
         return appVO;
     }
@@ -65,8 +62,8 @@ public class AppViewAssembler {
                 .map(App::getId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        Map<Long, AppDatabaseResource> databaseResourceMap =
-                appDatabaseResourceService.getActiveResourceMapByAppIds(appIds);
+        Map<Long, AppDatabaseResourceVO> databaseResourceMap =
+                appDatabaseResourceService.findActiveResourceViews(appIds);
 
         return validApps.stream()
                 .map(app -> assembleView(app, userVOMap, databaseResourceMap))
@@ -81,19 +78,12 @@ public class AppViewAssembler {
         if (userIds.isEmpty()) {
             return Map.of();
         }
-        return userService.listByIds(userIds).stream()
-                .filter(Objects::nonNull)
-                .filter(user -> user.getId() != null)
-                .collect(Collectors.toMap(
-                        User::getId,
-                        userService::getUserVO,
-                        (existing, ignored) -> existing
-                ));
+        return userDirectoryService.findActiveUserViews(userIds);
     }
 
     private AppVO assembleView(App app,
                                Map<Long, UserVO> userVOMap,
-                               Map<Long, AppDatabaseResource> databaseResourceMap) {
+                               Map<Long, AppDatabaseResourceVO> databaseResourceMap) {
         AppVO appVO = copyBaseFields(app);
         Long userId = app.getUserId();
         if (userId != null) {
@@ -101,8 +91,8 @@ public class AppViewAssembler {
         }
 
         Long appId = app.getId();
-        AppDatabaseResource databaseResource = appId == null ? null : databaseResourceMap.get(appId);
-        appVO.setDatabaseResource(appDatabaseResourceService.getResourceVO(databaseResource));
+        AppDatabaseResourceVO databaseResource = appId == null ? null : databaseResourceMap.get(appId);
+        appVO.setDatabaseResource(databaseResource);
         return appVO;
     }
 

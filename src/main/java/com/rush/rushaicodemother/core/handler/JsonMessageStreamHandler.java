@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.core.handler;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -276,7 +277,7 @@ public class JsonMessageStreamHandler {
                 parsed = true;
             }
         } catch (Exception e) {
-            log.debug("解析文件工具参数失败: {}", e.getMessage());
+            log.debug("解析文件工具参数失败: {}", LogExceptionSanitizer.sanitizeMessage(e));
         }
         if (!parsed) {
             appendPartialFileOperationData(data, arguments);

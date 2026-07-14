@@ -1,10 +1,6 @@
 package com.rush.rushaicodemother.service;
 
-import com.mybatisflex.core.query.QueryWrapper;
-import com.mybatisflex.core.service.IService;
 import com.rush.rushaicodemother.model.dto.app.AppCodeFileSaveRequest;
-import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
-import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
 import com.rush.rushaicodemother.model.vo.AppCodeFileTreeVO;
@@ -19,7 +15,7 @@ import java.util.List;
  *
  *
  */
-public interface AppService extends IService<App> {
+public interface AppService {
 
     /**
      * 通过对话生成应用代码
@@ -110,13 +106,5 @@ public interface AppService extends IService<App> {
      * @return Database 资源信息
      */
     AppDatabaseResourceVO enableDatabase(Long appId, User loginUser);
-
-    /**
-     * 构造应用查询条件
-     *
-     * @param appQueryRequest
-     * @return
-     */
-    QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest);
 
 }

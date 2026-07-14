@@ -1,14 +1,19 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
@@ -42,16 +47,42 @@ public class HeavyGenerationFailureRecoveryService {
         ));
     }
 
+
+    public void emitExecutionPolicyError(Long appId,
+                                         GenerationPreparation preparation,
+                                         GenerationSession session,
+                                         GenerationExecutionPolicyException exception) {
+        emitRollbackRestoreIfAllowed(appId, preparation, session);
+        rollbackCodeGenTypeIfNeeded(appId, preparation);
+        String category = "execution_policy";
+        String message = "生成任务因执行策略限制已终止";
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (exception instanceof GenerationDeadlineExceededException) {
+            category = "task_deadline";
+            message = "生成任务已超过总时限，请稍后重试";
+        } else if (exception instanceof GenerationBudgetExceededException budgetExceededException) {
+            category = "execution_budget";
+            message = budgetExceededException.getMessage();
+            details.put("budgetKind", budgetExceededException.budgetKind().name());
+            details.put("budgetLimit", budgetExceededException.limit());
+        }
+        session.emit(GenerationStreamEvent.generationError(
+                message,
+                buildGenerationErrorData(preparation, category, message, false, details)
+        ));
+    }
+
     public void emitBuildFailure(Long appId,
                                  GenerationPreparation preparation,
                                  GenerationSession session,
                                  String failureSummary) {
         emitRollbackRestoreIfAllowed(appId, preparation, session);
         rollbackCodeGenTypeIfNeeded(appId, preparation);
-        GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(failureSummary);
+        String publicFailureSummary = PublicDiagnosticSanitizer.sanitizeSingleLine(failureSummary, 1_200);
+        GenerationErrorClassifier.GenerationError generationError = classifyGenerationError(publicFailureSummary);
         session.emit(GenerationStreamEvent.generationError(
-                failureSummary,
-                buildGenerationErrorData(preparation, generationError, failureSummary)
+                publicFailureSummary,
+                buildGenerationErrorData(preparation, generationError, publicFailureSummary)
         ));
     }
 
@@ -91,7 +122,8 @@ public class HeavyGenerationFailureRecoveryService {
             return;
         }
         cleanupCodeDir(appId, preparation.targetType());
-        generationAppStateService.switchAppCodeGenType(appId, preparation.originalType());
+        generationAppStateService.updateOwnedCodeGenType(
+                appId, preparation.taskId(), preparation.originalType());
     }
 
     public Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
@@ -218,7 +250,7 @@ public class HeavyGenerationFailureRecoveryService {
             }
             FileUtil.del(canonicalDir);
         } catch (Exception e) {
-            log.warn("清理升级失败目录时发生异常，appId: {}, type: {}", appId, codeGenTypeEnum.getValue(), e);
+            log.warn("清理升级失败目录时发生异常，appId: {}, type: {}", appId, codeGenTypeEnum.getValue(), LogExceptionSanitizer.sanitize(e));
         }
     }
 }

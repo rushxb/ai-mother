@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.rush.rushaicodemother.mapper.AppDatabaseResourceMapper">
+
+    <resultMap id="appDatabaseResourceResultMap"
+               type="com.rush.rushaicodemother.model.entity.AppDatabaseResource">
+        <id property="id" column="id"/>
+        <result property="appId" column="appId"/>
+        <result property="userId" column="userId"/>
+        <result property="resourceId" column="resourceId"/>
+        <result property="resourceName" column="resourceName"/>
+        <result property="databaseUrl" column="databaseUrl"/>
+        <result property="dbEngine" column="dbEngine"/>
+        <result property="backendRuntime" column="backendRuntime"/>
+        <result property="sqlExecutionPolicy" column="sqlExecutionPolicy"/>
+        <result property="status" column="status"/>
+        <result property="lastUsedTime" column="lastUsedTime"/>
+        <result property="createTime" column="createTime"/>
+        <result property="updateTime" column="updateTime"/>
+        <result property="isDelete" column="isDelete"/>
+    </resultMap>
+
+    <sql id="resourceColumns">
+        id, appId, userId, resourceId, resourceName, databaseUrl, dbEngine,
+        backendRuntime, sqlExecutionPolicy, status, lastUsedTime,
+        createTime, updateTime, isDelete
+    </sql>
+
+    <!--
+        appId 和 resourceId 都有唯一索引。只有冲突行属于同一 appId 时才恢复或刷新资源，
+        避免异常 resourceId 冲突修改其他应用的数据；调用方会在写入后重新查询目标 appId，
+        以实际存在的 active 行作为成功依据。
+    -->
+    <insert id="upsertActiveResource">
+        INSERT INTO app_database_resource (
+            appId, userId, resourceId, resourceName, databaseUrl, dbEngine,
+            backendRuntime, sqlExecutionPolicy, status, lastUsedTime, isDelete
+        ) VALUES (
+            #{appId}, #{userId}, #{resourceId}, #{resourceName}, #{databaseUrl}, #{dbEngine},
+            #{backendRuntime}, #{sqlExecutionPolicy}, #{status}, #{lastUsedTime}, 0
+        ) AS incoming
+        ON DUPLICATE KEY UPDATE
+            userId = IF(app_database_resource.appId = incoming.appId,
+                        incoming.userId, app_database_resource.userId),
+            resourceId = IF(app_database_resource.appId = incoming.appId,
+                            incoming.resourceId, app_database_resource.resourceId),
+            resourceName = IF(app_database_resource.appId = incoming.appId,
+                              incoming.resourceName, app_database_resource.resourceName),
+            databaseUrl = IF(app_database_resource.appId = incoming.appId,
+                             incoming.databaseUrl, app_database_resource.databaseUrl),
+            dbEngine = IF(app_database_resource.appId = incoming.appId,
+                          incoming.dbEngine, app_database_resource.dbEngine),
+            backendRuntime = IF(app_database_resource.appId = incoming.appId,
+                                incoming.backendRuntime, app_database_resource.backendRuntime),
+            sqlExecutionPolicy = IF(app_database_resource.appId = incoming.appId,
+                                    incoming.sqlExecutionPolicy, app_database_resource.sqlExecutionPolicy),
+            status = IF(app_database_resource.appId = incoming.appId,
+                        incoming.status, app_database_resource.status),
+            lastUsedTime = IF(app_database_resource.appId = incoming.appId,
+                              incoming.lastUsedTime, app_database_resource.lastUsedTime),
+            isDelete = IF(app_database_resource.appId = incoming.appId,
+                          0, app_database_resource.isDelete),
+            updateTime = IF(app_database_resource.appId = incoming.appId,
+                            CURRENT_TIMESTAMP, app_database_resource.updateTime)
+    </insert>
+
+    <select id="selectActiveByAppId" resultMap="appDatabaseResourceResultMap">
+        SELECT <include refid="resourceColumns"/>
+        FROM app_database_resource
+        WHERE appId = #{appId}
+          AND status = 'active'
+          AND isDelete = 0
+        LIMIT 1
+    </select>
+
+    <select id="selectActiveByAppIds" resultMap="appDatabaseResourceResultMap">
+        SELECT <include refid="resourceColumns"/>
+        FROM app_database_resource
+        WHERE appId IN
+        <foreach collection="appIds" item="appId" open="(" separator="," close=")">
+            #{appId}
+        </foreach>
+          AND status = 'active'
+          AND isDelete = 0
+        ORDER BY appId ASC
+    </select>
+
+</mapper>

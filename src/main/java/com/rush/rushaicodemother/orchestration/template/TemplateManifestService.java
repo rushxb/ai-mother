@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.template;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
@@ -126,10 +127,10 @@ public class TemplateManifestService {
                 return manifest;
             }
         } catch (IOException e) {
-            log.warn("读取模板 manifest 失败: {}", manifestPath, e);
+            log.warn("读取模板 manifest 失败: {}", manifestPath, LogExceptionSanitizer.sanitize(e));
             return null;
         } catch (Exception e) {
-            log.warn("解析模板 manifest 失败: {}", manifestPath, e);
+            log.warn("解析模板 manifest 失败: {}", manifestPath, LogExceptionSanitizer.sanitize(e));
             return null;
         }
     }

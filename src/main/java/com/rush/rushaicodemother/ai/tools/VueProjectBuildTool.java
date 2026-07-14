@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.ai.tools;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
 public class VueProjectBuildTool extends BaseTool {
 
     private final VueProjectBuilder vueProjectBuilder;
+    private final ToolPathSupport toolPathSupport;
 
     @Tool("执行本地 Vue 项目构建，返回 pnpm install 和 pnpm run build 的详细结果。生成完成后、构建失败后、或用户反馈项目有问题时必须优先调用此工具。")
     public String buildVueProject(
@@ -28,12 +30,12 @@ public class VueProjectBuildTool extends BaseTool {
     ) {
         String projectPath = resolveProjectPath(relativeProjectPath, appId);
         log.info("开始执行 Vue 项目构建诊断，appId: {}, projectPath: {}", appId, projectPath);
-        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
-        return buildResult.toDiagnosticReport();
+        VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+        return buildResult.toPublicDiagnosticReport();
     }
 
     private String resolveProjectPath(String relativeProjectPath, Long appId) {
-        return ToolPathSupport.resolvePath(relativeProjectPath, appId).toString();
+        return toolPathSupport.resolvePath(relativeProjectPath, appId).toString();
     }
 
     @Override

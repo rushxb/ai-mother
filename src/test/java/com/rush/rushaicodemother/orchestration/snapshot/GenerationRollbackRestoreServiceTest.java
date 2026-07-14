@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import org.junit.jupiter.api.Test;
 
@@ -29,8 +30,17 @@ class GenerationRollbackRestoreServiceTest {
         Files.createDirectories(snapshotRoot.resolve("src"));
         Files.writeString(snapshotRoot.resolve("src/App.vue"), "stable");
 
-        GenerationArtifact artifact = new GenerationRollbackRestoreService(codeOutputRoot, codeSnapshotRoot)
-                .restoreIfAllowed(11L, "task-11", snapshotChangePlan(), rollbackPoint(snapshotRoot, projectRoot));
+        GenerationArtifact artifact = new GenerationRollbackRestoreService(
+                codeOutputRoot,
+                codeSnapshotRoot,
+                WorkspaceFileSystemTestFactory.create()
+        )
+                .restoreIfAllowed(
+                        11L,
+                        "task-11",
+                        snapshotChangePlan(),
+                        rollbackPoint(11L, "task-11", "vue_project", snapshotRoot, projectRoot)
+                );
 
         assertEquals("rollback_restore", artifact.key());
         assertEquals("restored", artifact.payload().get("status"));
@@ -55,8 +65,17 @@ class GenerationRollbackRestoreServiceTest {
         Files.createDirectories(snapshotRoot);
         Files.writeString(snapshotRoot.resolve("index.html"), "stable");
 
-        GenerationArtifact artifact = new GenerationRollbackRestoreService(codeOutputRoot, codeSnapshotRoot)
-                .restoreIfAllowed(12L, "task-12", manualChangePlan(), rollbackPoint(snapshotRoot, projectRoot));
+        GenerationArtifact artifact = new GenerationRollbackRestoreService(
+                codeOutputRoot,
+                codeSnapshotRoot,
+                WorkspaceFileSystemTestFactory.create()
+        )
+                .restoreIfAllowed(
+                        12L,
+                        "task-12",
+                        manualChangePlan(),
+                        rollbackPoint(12L, "task-12", "html", snapshotRoot, projectRoot)
+                );
 
         assertEquals("skipped", artifact.payload().get("status"));
         assertEquals("rollback_strategy_not_snapshot", artifact.payload().get("reason"));
@@ -73,11 +92,72 @@ class GenerationRollbackRestoreServiceTest {
 
         GenerationArtifact artifact = new GenerationRollbackRestoreService(
                 tempDir.resolve("code_output"),
-                tempDir.resolve("code_snapshot")
+                tempDir.resolve("code_snapshot"),
+                WorkspaceFileSystemTestFactory.create()
         ).restoreIfAllowed(13L, "task-13", snapshotChangePlan(), rollbackPoint);
 
         assertEquals("skipped", artifact.payload().get("status"));
         assertEquals("rollback_point_not_created", artifact.payload().get("reason"));
+    }
+
+    @Test
+    void shouldRejectSnapshotRootAndProjectRootArtifacts() {
+        Path tempDir = cleanTestRoot("root-boundaries");
+        Path codeOutputRoot = tempDir.resolve("code_output");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        GenerationRollbackRestoreService service = new GenerationRollbackRestoreService(
+                codeOutputRoot,
+                codeSnapshotRoot,
+                WorkspaceFileSystemTestFactory.create()
+        );
+
+        GenerationArtifact snapshotRootResult = service.restoreIfAllowed(
+                11L,
+                "task-11",
+                snapshotChangePlan(),
+                rollbackPoint(11L, "task-11", "vue_project", codeSnapshotRoot, codeOutputRoot.resolve("vue_project_11"))
+        );
+        GenerationArtifact projectRootResult = service.restoreIfAllowed(
+                11L,
+                "task-11",
+                snapshotChangePlan(),
+                rollbackPoint(
+                        11L,
+                        "task-11",
+                        "vue_project",
+                        codeSnapshotRoot.resolve("11").resolve("snapshot"),
+                        codeOutputRoot
+                )
+        );
+
+        assertEquals("rollback_path_out_of_root", snapshotRootResult.payload().get("reason"));
+        assertEquals("rollback_path_out_of_root", projectRootResult.payload().get("reason"));
+    }
+
+    @Test
+    void shouldRejectSnapshotOwnedByAnotherApplication() {
+        Path tempDir = cleanTestRoot("cross-app");
+        Path codeOutputRoot = tempDir.resolve("code_output");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        GenerationArtifact artifact = new GenerationRollbackRestoreService(
+                codeOutputRoot,
+                codeSnapshotRoot,
+                WorkspaceFileSystemTestFactory.create()
+        ).restoreIfAllowed(
+                11L,
+                "task-11",
+                snapshotChangePlan(),
+                rollbackPoint(
+                        11L,
+                        "task-11",
+                        "vue_project",
+                        codeSnapshotRoot.resolve("12").resolve("snapshot"),
+                        codeOutputRoot.resolve("vue_project_11")
+                )
+        );
+
+        assertEquals("skipped", artifact.payload().get("status"));
+        assertEquals("rollback_path_out_of_root", artifact.payload().get("reason"));
     }
 
     private GenerationArtifact snapshotChangePlan() {
@@ -100,9 +180,16 @@ class GenerationRollbackRestoreServiceTest {
         ));
     }
 
-    private GenerationArtifact rollbackPoint(Path snapshotRoot, Path projectRoot) {
+    private GenerationArtifact rollbackPoint(Long appId,
+                                             String taskId,
+                                             String sourceType,
+                                             Path snapshotRoot,
+                                             Path projectRoot) {
         return GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
                 "status", "created",
+                "appId", appId,
+                "taskId", taskId,
+                "sourceType", sourceType,
                 "snapshotPath", snapshotRoot.toString(),
                 "projectPath", projectRoot.toString()
         ));

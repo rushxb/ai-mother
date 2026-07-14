@@ -2,9 +2,16 @@ package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.config.GenerationCommitProperties;
+import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.git.GitCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.git.GitCommandResult;
+import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager;
+import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager.GitTransactionResourceException;
+import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager.GitTransactionResources;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
@@ -13,15 +20,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -31,24 +36,28 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class GenerationCommitService {
 
-    private static final String TEMPORARY_INDEX_PREFIX = "ai-code-mother-";
-    private static final String TEMPORARY_INDEX_SUFFIX = ".index";
-    private static final String TEMPORARY_HOOKS_PREFIX = "ai-code-mother-hooks-";
-
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GitCommandExecutor gitCommandExecutor;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final GitTransactionResourceManager transactionResourceManager;
     private final Path codeOutputRoot;
     private final ReentrantLock[] repositoryLocks;
+    private final int maxFilesPerCommit;
+    private final int maxPathspecBytes;
 
     @Autowired
     public GenerationCommitService(
             GenerationOrchestrationMetricsCollector metricsCollector,
             GitCommandExecutor gitCommandExecutor,
+            WorkspaceFileSystemService workspaceFileSystemService,
+            GitTransactionResourceManager transactionResourceManager,
             GenerationCommitProperties properties
     ) {
         this(
                 metricsCollector,
                 gitCommandExecutor,
+                workspaceFileSystemService,
+                transactionResourceManager,
                 Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
                 properties
         );
@@ -59,7 +68,14 @@ public class GenerationCommitService {
             GitCommandExecutor gitCommandExecutor,
             Path codeOutputRoot
     ) {
-        this(metricsCollector, gitCommandExecutor, codeOutputRoot, new GenerationCommitProperties());
+        this(
+                metricsCollector,
+                gitCommandExecutor,
+                new WorkspaceFileSystemService(new WorkspaceFileSystemProperties()),
+                new GitTransactionResourceManager(),
+                codeOutputRoot,
+                new GenerationCommitProperties()
+        );
     }
 
     GenerationCommitService(
@@ -68,10 +84,47 @@ public class GenerationCommitService {
             Path codeOutputRoot,
             GenerationCommitProperties properties
     ) {
-        this.metricsCollector = metricsCollector;
-        this.gitCommandExecutor = gitCommandExecutor;
-        this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
+        this(
+                metricsCollector,
+                gitCommandExecutor,
+                new WorkspaceFileSystemService(new WorkspaceFileSystemProperties()),
+                new GitTransactionResourceManager(),
+                codeOutputRoot,
+                properties
+        );
+    }
+
+    GenerationCommitService(
+            GenerationOrchestrationMetricsCollector metricsCollector,
+            GitCommandExecutor gitCommandExecutor,
+            WorkspaceFileSystemService workspaceFileSystemService,
+            GitTransactionResourceManager transactionResourceManager,
+            Path codeOutputRoot,
+            GenerationCommitProperties properties
+    ) {
+        this.metricsCollector = Objects.requireNonNull(metricsCollector, "metricsCollector must not be null");
+        this.gitCommandExecutor = Objects.requireNonNull(gitCommandExecutor, "gitCommandExecutor must not be null");
+        this.workspaceFileSystemService = Objects.requireNonNull(
+                workspaceFileSystemService,
+                "workspaceFileSystemService must not be null"
+        );
+        this.transactionResourceManager = Objects.requireNonNull(
+                transactionResourceManager,
+                "transactionResourceManager must not be null"
+        );
+        this.codeOutputRoot = Objects.requireNonNull(codeOutputRoot, "codeOutputRoot must not be null")
+                .toAbsolutePath()
+                .normalize();
+        Objects.requireNonNull(properties, "properties must not be null");
         this.repositoryLocks = createLocks(properties.getLockStripes());
+        this.maxFilesPerCommit = requirePositiveLimit(
+                properties.getMaxFilesPerCommit(),
+                "Git 单次提交文件数上限必须大于 0"
+        );
+        this.maxPathspecBytes = requirePositiveLimit(
+                properties.getMaxPathspecBytes(),
+                "Git pathspec 字节上限必须大于 0"
+        );
     }
 
     public GenerationArtifact commitIfAllowed(
@@ -89,18 +142,37 @@ public class GenerationCommitService {
             String taskId,
             GenerationArtifact diffSummaryArtifact
     ) {
+        if (appId == null || appId <= 0) {
+            return GenerationCommitResult.skipped(appId, taskId, "", "", "", "invalid_app_id");
+        }
+        if (StrUtil.isBlank(taskId)) {
+            return GenerationCommitResult.skipped(appId, taskId, "", "", "", "task_id_missing");
+        }
+        if (diffSummaryArtifact != null && !"diff_summary".equals(diffSummaryArtifact.key())) {
+            return GenerationCommitResult.skipped(appId, taskId, "", "", "", "diff_summary_artifact_invalid");
+        }
         Map<String, Object> diffPayload = payload(diffSummaryArtifact);
         String currentPathValue = stringValue(diffPayload.get("currentPath"));
         if (diffPayload.isEmpty()) {
             return GenerationCommitResult.skipped(appId, taskId, "", "", "", "diff_summary_missing");
+        }
+        if (!artifactContextMatches(appId, taskId, diffPayload)) {
+            return GenerationCommitResult.skipped(
+                    appId, taskId, "", "", "", "diff_summary_context_mismatch"
+            );
         }
         if (!"created".equals(stringValue(diffPayload.get("status")))) {
             return GenerationCommitResult.skipped(
                     appId, taskId, currentPathValue, "", "", "diff_summary_not_created"
             );
         }
-        List<String> changedFiles = changedFiles(diffPayload);
-        if (changedFiles.isEmpty()) {
+        ChangedFileSelection changedFileSelection = changedFiles(diffPayload);
+        if (changedFileSelection.limitExceeded()) {
+            return GenerationCommitResult.skipped(
+                    appId, taskId, "", "", "", "changed_file_limit_exceeded"
+            );
+        }
+        if (changedFileSelection.files().isEmpty()) {
             return GenerationCommitResult.skipped(appId, taskId, currentPathValue, "", "", "no_diff_files");
         }
         if (StrUtil.isBlank(currentPathValue)) {
@@ -109,7 +181,7 @@ public class GenerationCommitService {
 
         Path projectPath;
         try {
-            projectPath = requireSafeProjectPath(currentPathValue);
+            projectPath = requireSafeProjectPath(appId, currentPathValue);
         } catch (ProjectPathException exception) {
             return GenerationCommitResult.skipped(
                     appId,
@@ -122,9 +194,14 @@ public class GenerationCommitService {
         }
 
         try {
-            return commitChangedFiles(appId, taskId, projectPath, changedFiles);
+            return commitChangedFiles(appId, taskId, projectPath, changedFileSelection.files());
         } catch (Exception exception) {
-            log.warn("生成结果本地 Git 提交失败，appId: {}, taskId: {}", appId, taskId, exception);
+            log.warn(
+                    "生成结果本地 Git 提交失败，appId: {}, taskId: {}, exceptionType: {}",
+                    appId,
+                    taskId,
+                    exception.getClass().getSimpleName()
+            );
             return GenerationCommitResult.failed(
                     appId,
                     taskId,
@@ -167,17 +244,17 @@ public class GenerationCommitService {
                         projectPath.toString(),
                         "",
                         "",
-                        "git_root_lookup_failed:" + gitRootResult.errorSummary()
+                        "git_root_lookup_failed"
                 );
             }
             return GenerationCommitResult.skipped(
                     appId, taskId, projectPath.toString(), "", "", "git_repository_missing"
             );
         }
-        Path gitRoot = resolveGitDirectory(gitRootResult.stdout());
-        if (gitRoot == null || !projectPath.startsWith(gitRoot)) {
+        Path gitRoot = resolveExactDirectory(gitRootResult.stdout(), projectPath);
+        if (gitRoot == null) {
             return GenerationCommitResult.skipped(
-                    appId, taskId, projectPath.toString(), "", "", "project_not_inside_git_root"
+                    appId, taskId, projectPath.toString(), "", "", "git_repository_root_mismatch"
             );
         }
 
@@ -231,8 +308,9 @@ public class GenerationCommitService {
                 gitRoot,
                 List.of("rev-parse", "--absolute-git-dir")
         );
+        Path expectedGitDirectory = gitRoot.resolve(".git").normalize();
         Path gitDirectory = gitDirectoryResult.success()
-                ? resolveGitDirectory(gitDirectoryResult.stdout())
+                ? resolveExactDirectory(gitDirectoryResult.stdout(), expectedGitDirectory)
                 : null;
         if (gitDirectory == null) {
             if (!gitDirectoryResult.success()) {
@@ -241,7 +319,7 @@ public class GenerationCommitService {
                         taskId,
                         projectPath,
                         gitRoot,
-                        "git_directory_unavailable:",
+                        "git_directory_unavailable",
                         gitDirectoryResult
                 );
             }
@@ -251,25 +329,29 @@ public class GenerationCommitService {
                     projectPath.toString(),
                     headCommit(gitRoot),
                     currentBranch(gitRoot),
-                    "git_directory_unavailable:invalid_git_directory"
+                    "git_directory_unavailable"
             );
         }
 
-        String transactionId = UUID.randomUUID().toString();
-        Path temporaryIndex = gitDirectory.resolve(
-                TEMPORARY_INDEX_PREFIX + transactionId + TEMPORARY_INDEX_SUFFIX
-        ).normalize();
-        Path temporaryHooksDirectory = gitDirectory.resolve(
-                TEMPORARY_HOOKS_PREFIX + transactionId
-        ).normalize();
-        if (!temporaryIndex.startsWith(gitDirectory)
-                || !temporaryHooksDirectory.startsWith(gitDirectory)) {
-            throw new IOException("Git 临时资源路径越界");
+        GitTransactionResources transactionResources;
+        try {
+            transactionResources = transactionResourceManager.create(
+                    gitDirectory,
+                    gitRelativeFiles,
+                    maxPathspecBytes
+            );
+        } catch (GitTransactionResourceException exception) {
+            return GenerationCommitResult.failed(
+                    appId,
+                    taskId,
+                    projectPath.toString(),
+                    headCommit(gitRoot),
+                    currentBranch(gitRoot),
+                    mapTransactionResourceFailure(exception)
+            );
         }
-
-        Files.createDirectory(temporaryHooksDirectory);
         Map<String, String> transactionEnvironment = Map.of(
-                "GIT_INDEX_FILE", temporaryIndex.toString()
+                "GIT_INDEX_FILE", transactionResources.temporaryIndex().toString()
         );
         try {
             GitCommandResult indexResult = prepareTemporaryIndex(gitRoot, transactionEnvironment);
@@ -279,14 +361,19 @@ public class GenerationCommitService {
                         taskId,
                         projectPath,
                         gitRoot,
-                        "git_index_prepare_failed:",
+                        "git_index_prepare_failed",
                         indexResult
                 );
             }
 
             GitCommandResult stageResult = runGit(
                     gitRoot,
-                    withPathspec(List.of("add", "-A", "--"), gitRelativeFiles),
+                    List.of(
+                            "add",
+                            "-A",
+                            "--pathspec-from-file=" + transactionResources.temporaryPathspec(),
+                            "--pathspec-file-nul"
+                    ),
                     transactionEnvironment
             );
             if (!stageResult.success()) {
@@ -295,14 +382,20 @@ public class GenerationCommitService {
                         taskId,
                         projectPath,
                         gitRoot,
-                        "git_stage_failed:",
+                        "git_stage_failed",
                         stageResult
                 );
             }
 
             GitCommandResult stagedResult = runGit(
                     gitRoot,
-                    withPathspec(List.of("diff", "--cached", "--name-only", "--"), gitRelativeFiles),
+                    List.of(
+                            "diff",
+                            "--cached",
+                            "--name-only",
+                            "-z",
+                            "--output=" + transactionResources.temporaryStagedOutput()
+                    ),
                     transactionEnvironment
             );
             if (!stagedResult.success()) {
@@ -311,11 +404,26 @@ public class GenerationCommitService {
                         taskId,
                         projectPath,
                         gitRoot,
-                        "git_staged_diff_failed:",
+                        "git_staged_diff_failed",
                         stagedResult
                 );
             }
-            List<String> stagedFiles = nonBlankLines(stagedResult.stdout());
+            List<String> stagedFiles;
+            try {
+                stagedFiles = transactionResourceManager.readStagedFiles(
+                        transactionResources,
+                        maxPathspecBytes
+                );
+            } catch (GitTransactionResourceException exception) {
+                return GenerationCommitResult.failed(
+                        appId,
+                        taskId,
+                        projectPath.toString(),
+                        headCommit(gitRoot),
+                        currentBranch(gitRoot),
+                        mapTransactionResourceFailure(exception)
+                );
+            }
             if (stagedFiles.isEmpty()) {
                 return GenerationCommitResult.skipped(
                         appId,
@@ -331,7 +439,7 @@ public class GenerationCommitService {
                     gitRoot,
                     List.of(
                             "-c",
-                            "core.hooksPath=" + temporaryHooksDirectory,
+                            "core.hooksPath=" + transactionResources.temporaryHooksDirectory(),
                             "-c",
                             "commit.gpgSign=false",
                             "commit",
@@ -346,13 +454,18 @@ public class GenerationCommitService {
                         taskId,
                         projectPath,
                         gitRoot,
-                        "git_commit_failed:",
+                        "git_commit_failed",
                         commitResult
                 );
             }
             GitCommandResult mainIndexSyncResult = runGit(
                     gitRoot,
-                    withPathspec(List.of("add", "-A", "--"), gitRelativeFiles)
+                    List.of(
+                            "add",
+                            "-A",
+                            "--pathspec-from-file=" + transactionResources.temporaryPathspec(),
+                            "--pathspec-file-nul"
+                    )
             );
             if (!mainIndexSyncResult.success()) {
                 return failedCommandResult(
@@ -360,7 +473,7 @@ public class GenerationCommitService {
                         taskId,
                         projectPath,
                         gitRoot,
-                        "git_index_sync_failed_after_commit:",
+                        "git_index_sync_failed_after_commit",
                         mainIndexSyncResult
                 );
             }
@@ -373,11 +486,7 @@ public class GenerationCommitService {
                     stagedFiles
             );
         } finally {
-            deleteTemporaryGitResource(temporaryIndex.resolveSibling(
-                    temporaryIndex.getFileName() + ".lock"
-            ));
-            deleteTemporaryGitResource(temporaryIndex);
-            deleteTemporaryGitResource(temporaryHooksDirectory);
+            transactionResourceManager.cleanup(transactionResources);
         }
     }
 
@@ -399,19 +508,27 @@ public class GenerationCommitService {
             String taskId,
             Path projectPath,
             Path gitRoot,
-            String reasonPrefix,
+            String reason,
             GitCommandResult commandResult
     ) {
         if (commandResult.interrupted() || Thread.currentThread().isInterrupted()) {
             return interruptedResult(appId, taskId, projectPath);
         }
+        log.warn(
+                "Git 提交命令失败，appId: {}, taskId: {}, reason: {}, status: {}, exitCode: {}",
+                appId,
+                taskId,
+                reason,
+                commandResult.status(),
+                commandResult.exitCode()
+        );
         return GenerationCommitResult.failed(
                 appId,
                 taskId,
                 projectPath.toString(),
                 headCommit(gitRoot),
                 currentBranch(gitRoot),
-                reasonPrefix + commandResult.errorSummary()
+                reason
         );
     }
 
@@ -430,53 +547,72 @@ public class GenerationCommitService {
         );
     }
 
-    private Path requireSafeProjectPath(String currentPathValue) throws ProjectPathException {
+    private Path requireSafeProjectPath(Long appId, String currentPathValue) throws ProjectPathException {
         Path reportedPath;
         try {
             reportedPath = Path.of(currentPathValue).toAbsolutePath().normalize();
         } catch (RuntimeException exception) {
             throw new ProjectPathException("", "project_path_invalid");
         }
-        if (!Files.isDirectory(reportedPath, LinkOption.NOFOLLOW_LINKS)) {
-            throw new ProjectPathException(reportedPath.toString(), "project_path_missing");
-        }
-        if (Files.isSymbolicLink(reportedPath)) {
-            throw new ProjectPathException(reportedPath.toString(), "project_path_unsafe");
+        if (!isExpectedProjectDirectoryName(appId, reportedPath)) {
+            throw new ProjectPathException("", "project_path_context_mismatch");
         }
         try {
-            if (Files.isSymbolicLink(codeOutputRoot)
-                    || !Files.isDirectory(codeOutputRoot, LinkOption.NOFOLLOW_LINKS)) {
-                throw new ProjectPathException(reportedPath.toString(), "project_path_out_of_root");
-            }
-            Path realRoot = codeOutputRoot.toRealPath();
-            Path realProject = reportedPath.toRealPath();
-            if (!realProject.startsWith(realRoot)) {
-                throw new ProjectPathException(realProject.toString(), "project_path_out_of_root");
-            }
-            return realProject;
-        } catch (IOException | SecurityException exception) {
-            throw new ProjectPathException(reportedPath.toString(), "project_path_unavailable");
+            return workspaceFileSystemService.resolveExistingDirectChildDirectory(codeOutputRoot, reportedPath);
+        } catch (WorkspaceFileSystemException exception) {
+            String reason = switch (exception.reason()) {
+                case MISSING_DIRECTORY -> "project_path_missing";
+                case UNSAFE_SYMBOLIC_LINK -> "project_path_unsafe";
+                case INVALID_PATH -> "project_path_out_of_root";
+                default -> "project_path_unavailable";
+            };
+            throw new ProjectPathException("", reason);
+        } catch (IOException | RuntimeException exception) {
+            throw new ProjectPathException("", "project_path_unavailable");
         }
     }
 
-    private List<String> changedFiles(Map<String, Object> diffPayload) {
+    private boolean isExpectedProjectDirectoryName(Long appId, Path reportedPath) {
+        if (reportedPath.getFileName() == null) {
+            return false;
+        }
+        String directoryName = reportedPath.getFileName().toString();
+        for (CodeGenTypeEnum codeGenType : CodeGenTypeEnum.values()) {
+            if ((codeGenType.getValue() + "_" + appId).equals(directoryName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ChangedFileSelection changedFiles(Map<String, Object> diffPayload) {
         LinkedHashSet<String> files = new LinkedHashSet<>();
-        files.addAll(normalizeFiles(diffPayload.get("addedFiles")));
-        files.addAll(normalizeFiles(diffPayload.get("modifiedFiles")));
-        files.addAll(normalizeFiles(diffPayload.get("deletedFiles")));
-        return List.copyOf(files);
+        for (String payloadKey : List.of("addedFiles", "modifiedFiles", "deletedFiles")) {
+            if (addNormalizedFiles(files, diffPayload.get(payloadKey))) {
+                return new ChangedFileSelection(List.of(), true);
+            }
+        }
+        return new ChangedFileSelection(List.copyOf(files), false);
     }
 
-    private List<String> normalizeFiles(Object value) {
+    private boolean addNormalizedFiles(LinkedHashSet<String> files, Object value) {
         if (value instanceof Collection<?> collection) {
-            return collection.stream()
-                    .map(this::normalizeRelativeFile)
-                    .filter(StrUtil::isNotBlank)
-                    .distinct()
-                    .toList();
+            for (Object item : collection) {
+                if (addNormalizedFile(files, item)) {
+                    return true;
+                }
+            }
+            return false;
         }
+        return addNormalizedFile(files, value);
+    }
+
+    private boolean addNormalizedFile(LinkedHashSet<String> files, Object value) {
         String normalized = normalizeRelativeFile(value);
-        return StrUtil.isBlank(normalized) ? List.of() : List.of(normalized);
+        if (StrUtil.isNotBlank(normalized)) {
+            files.add(normalized);
+        }
+        return files.size() > maxFilesPerCommit;
     }
 
     private String normalizeRelativeFile(Object value) {
@@ -522,12 +658,6 @@ public class GenerationCommitService {
         return result.stream().distinct().toList();
     }
 
-    private List<String> withPathspec(List<String> command, List<String> pathspecs) {
-        List<String> result = new ArrayList<>(command);
-        result.addAll(pathspecs);
-        return result;
-    }
-
     private String buildCommitMessage(Long appId, String taskId) {
         String normalizedTaskId = StrUtil.blankToDefault(taskId, "unknown")
                 .replace('\r', ' ')
@@ -559,46 +689,57 @@ public class GenerationCommitService {
                 workingDirectory,
                 arguments,
                 environment,
-                "generation-commit " + workingDirectory
+                "generation-commit"
         );
     }
 
-    private Path resolveGitDirectory(String value) {
+    private Path resolveExactDirectory(String value, Path expectedDirectory) {
         if (StrUtil.isBlank(value)) {
             return null;
         }
         try {
             Path path = Path.of(value.trim()).toAbsolutePath().normalize();
-            if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) {
+            Path expected = expectedDirectory.toAbsolutePath().normalize();
+            if (!path.equals(expected) || !workspaceFileSystemService.isDirectory(path)) {
                 return null;
             }
-            return path.toRealPath();
+            return path;
         } catch (IOException | RuntimeException exception) {
             return null;
         }
     }
 
-    private List<String> nonBlankLines(String value) {
-        if (StrUtil.isBlank(value)) {
-            return List.of();
-        }
-        return value.lines()
-                .map(String::trim)
-                .filter(StrUtil::isNotBlank)
-                .distinct()
-                .toList();
-    }
-
-    private void deleteTemporaryGitResource(Path path) {
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException exception) {
-            log.warn("清理 Git 临时资源失败: {}", path, exception);
-        }
-    }
-
     private Map<String, Object> payload(GenerationArtifact artifact) {
         return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
+    }
+
+    private boolean artifactContextMatches(Long appId, String taskId, Map<String, Object> diffPayload) {
+        return Objects.equals(appId, longValue(diffPayload.get("appId")))
+                && taskId.equals(stringValue(diffPayload.get("taskId")));
+    }
+
+    private Long longValue(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(String.valueOf(value));
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private String mapTransactionResourceFailure(GitTransactionResourceException exception) {
+        return switch (exception.reason()) {
+            case PATHSPEC_LIMIT_EXCEEDED -> "git_pathspec_limit_exceeded";
+            case INVALID_PATHSPEC -> "git_pathspec_invalid";
+            case INVALID_GIT_DIRECTORY -> "git_directory_unavailable";
+            case STAGED_OUTPUT_INVALID -> "git_staged_output_invalid";
+            case RESOURCE_CREATION_FAILED -> "git_transaction_resource_creation_failed";
+        };
     }
 
     private String stringValue(Object value) {
@@ -618,6 +759,20 @@ public class GenerationCommitService {
             locks[index] = new ReentrantLock();
         }
         return locks;
+    }
+
+    private int requirePositiveLimit(int value, String message) {
+        if (value <= 0) {
+            throw new IllegalArgumentException(message);
+        }
+        return value;
+    }
+
+    private record ChangedFileSelection(List<String> files, boolean limitExceeded) {
+
+        private ChangedFileSelection {
+            files = files == null ? List.of() : List.copyOf(files);
+        }
     }
 
     private static final class ProjectPathException extends Exception {

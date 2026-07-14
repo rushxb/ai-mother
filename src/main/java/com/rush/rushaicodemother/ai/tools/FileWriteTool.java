@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
@@ -22,9 +23,14 @@ import java.nio.file.Path;
 public class FileWriteTool extends BaseTool {
 
     private final ToolExecutionGateway toolExecutionGateway;
+    private final ToolWorkspaceFileService workspaceFileService;
 
-    public FileWriteTool(ToolExecutionGateway toolExecutionGateway) {
+    public FileWriteTool(
+            ToolExecutionGateway toolExecutionGateway,
+            ToolWorkspaceFileService workspaceFileService
+    ) {
         this.toolExecutionGateway = toolExecutionGateway;
+        this.workspaceFileService = workspaceFileService;
     }
 
     @Tool("写入文件到指定路径")
@@ -36,24 +42,32 @@ public class FileWriteTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            String normalizedPath = ToolPathSupport.normalizeRelativePath(relativeFilePath);
-            Path projectRoot = ToolPathSupport.resolveProjectRoot(appId);
-            boolean exists = ToolPathSupport.resolvePath(normalizedPath, appId).toFile().exists();
+            if (content == null) {
+                throw new ToolInputException("文件内容不能为 null");
+            }
+            ToolWorkspaceFileService.ToolWorkspaceFile file =
+                    workspaceFileService.resolveFile(appId, relativeFilePath);
+            String normalizedPath = file.relativePath();
+            Path projectRoot = file.projectRoot();
+            boolean exists = workspaceFileService.exists(file);
+            if (exists && !workspaceFileService.isRegularFile(file)) {
+                return "文件写入失败: 指定路径不是普通文件 - " + normalizedPath;
+            }
             PatchOperation operation = exists
                     ? PatchOperation.modify(normalizedPath, content)
                     : PatchOperation.add(normalizedPath, content);
             PatchApplyResult result = applyWithGlobalChangePlan(appId, projectRoot, operation);
             if ("applied".equals(result.status())) {
-                log.info("成功写入文件: {}", ToolPathSupport.resolvePath(normalizedPath, appId).toAbsolutePath());
+                log.info("成功写入文件: {}", file.absolutePath());
                 return "文件写入成功: " + normalizedPath;
             }
             return "文件写入失败: " + normalizedPath + ", 原因: " + result.reason();
-        } catch (IllegalArgumentException e) {
-            return "文件写入失败: " + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError("文件写入失败: ", e);
         } catch (Exception e) {
-            String errorMessage = "文件写入失败: " + relativeFilePath + ", 错误: " + e.getMessage();
-            log.error(errorMessage, e);
-            return errorMessage;
+            log.error("文件写入失败，relativeFilePath: {}", relativeFilePath,
+                    LogExceptionSanitizer.sanitize(e));
+            return "文件写入失败，请稍后重试";
         }
     }
 

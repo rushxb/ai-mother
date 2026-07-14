@@ -3,8 +3,6 @@ package com.rush.rushaicodemother.orchestration.agent;
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
-import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import org.junit.jupiter.api.Test;
@@ -15,12 +13,13 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationAgentSupportTest {
 
-    private final GenerationAgentSupport support = new GenerationAgentSupport();
+    private final GenerationAgentSupport support = support();
 
     @Test
     void shouldSelectIntentRelevantFilesWithinFileBudget() throws Exception {
@@ -161,12 +160,7 @@ class GenerationAgentSupportTest {
                     ---
                     - 页面、路由和菜单要一起改。
                     """);
-            GenerationAgentSupport customSupport = new GenerationAgentSupport(
-                    new GenerationRecipeLibrary(),
-                    new GenerationSkillLibrary(skillRoot),
-                    new WorkspaceSemanticIndexService(),
-                    workspace
-            );
+            GenerationAgentSupport customSupport = support(new GenerationSkillLibrary(skillRoot), workspace);
 
             GenerationAgentSupport.ProjectContextPackage contextPackage = customSupport.buildProjectContextPackage(
                     app(),

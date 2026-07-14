@@ -91,6 +91,18 @@ public class App implements Serializable {
     private String generatingStage;
 
     /**
+     * 当前生成状态所有者任务 ID
+     */
+    @Column("generatingTaskId")
+    private String generatingTaskId;
+
+    /**
+     * 当前生成状态租约到期时间
+     */
+    @Column("generationLeaseUntil")
+    private LocalDateTime generationLeaseUntil;
+
+    /**
      * Vue 开发服务器端口号（预览用）
      */
     @Column("devServerPort")

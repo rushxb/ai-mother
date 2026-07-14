@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -52,7 +53,7 @@ public class DevServerValidationService {
             } catch (BusinessException exception) {
                 return mapStartFailure(taskId, appId, startNanos, exception);
             } catch (RuntimeException exception) {
-                log.warn("Dev Server 启动异常，taskId: {}, error: {}", taskId, exception.getMessage());
+                log.warn("Dev Server 启动异常，taskId: {}, error: {}", taskId, LogExceptionSanitizer.sanitizeMessage(exception));
                 return DevServerValidationResult.startupFailed(
                         taskId,
                         appId,
@@ -121,7 +122,7 @@ public class DevServerValidationService {
             log.info("验证用 Dev Server 已停止，appId: {}", appId);
         } catch (RuntimeException exception) {
             log.warn("停止验证用 Dev Server 失败，appId: {}, error: {}",
-                    appId, exception.getMessage());
+                    appId, LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 

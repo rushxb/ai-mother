@@ -13,6 +13,37 @@ import java.time.LocalDateTime;
  */
 public interface AppMapper extends BaseMapper<App> {
 
+    /** 查询一条未删除应用的完整元数据。 */
+    @Select("""
+            select id, appName, cover, initPrompt, codeGenType, deployKey, deployedTime,
+                   isGenerating, generatingMessage, generatingStage, generatingTaskId,
+                   generationLeaseUntil, devServerPort, priority,
+                   userId, editTime, createTime, updateTime, isDelete
+            from app
+            where id = #{appId} and isDelete = 0
+            """)
+    App selectActiveById(@Param("appId") Long appId);
+
+    /** 仅更新未删除应用的名称和业务编辑时间。 */
+    @Update("update app set appName = #{appName}, editTime = #{editTime} "
+            + "where id = #{appId} and isDelete = 0")
+    int updateActiveName(@Param("appId") Long appId,
+                         @Param("appName") String appName,
+                         @Param("editTime") LocalDateTime editTime);
+
+    /**
+     * 更新管理员允许修改的字段；动态字段集合由 Mapper XML 固定定义，调用方不能扩展更新范围。
+     */
+    int updateActiveAdministrationFields(@Param("appId") Long appId,
+                                         @Param("appName") String appName,
+                                         @Param("cover") String cover,
+                                         @Param("priority") Integer priority,
+                                         @Param("editTime") LocalDateTime editTime);
+
+    /** 仅更新未删除应用的 Dev Server 端口。 */
+    @Update("update app set devServerPort = #{port} where id = #{appId} and isDelete = 0")
+    int updateActiveDevServerPort(@Param("appId") Long appId, @Param("port") int port);
+
     /** 获取启动 Dev Server 所需的最小应用状态。 */
     @Select("select id, userId, codeGenType, devServerPort from app "
             + "where id = #{appId} and isDelete = 0")
@@ -43,4 +74,105 @@ public interface AppMapper extends BaseMapper<App> {
     int updateCoverForDeployment(@Param("appId") Long appId,
                                  @Param("deployedTime") LocalDateTime deployedTime,
                                  @Param("cover") String cover);
+    /** 获取应用当前生成状态所有权，用于区分记录不存在与并发占用。 */
+    @Select("select id, isGenerating, generatingTaskId, generationLeaseUntil from app "
+            + "where id = #{appId} and isDelete = 0")
+    App selectGenerationState(@Param("appId") Long appId);
+
+    /**
+     * 原子认领应用生成状态。已有状态为空、已结束、租约过期或属于同一任务时允许认领。
+     */
+    @Update("""
+            <script>
+            update app
+            set isGenerating = 1,
+                generatingMessage = '',
+                generatingStage = #{generatingStage},
+                generatingTaskId = #{taskId},
+                generationLeaseUntil = #{leaseUntil}
+                <if test="targetCodeGenType != null">
+                    , codeGenType = #{targetCodeGenType}
+                </if>
+            where id = #{appId}
+              and isDelete = 0
+              and (
+                    isGenerating = 0
+                    or generatingTaskId is null
+                    or generationLeaseUntil is null
+                    or generationLeaseUntil &lt;= #{now}
+                    or generatingTaskId = #{taskId}
+              )
+            </script>
+            """)
+    int claimGenerationState(@Param("appId") Long appId,
+                             @Param("taskId") String taskId,
+                             @Param("generatingStage") String generatingStage,
+                             @Param("targetCodeGenType") String targetCodeGenType,
+                             @Param("now") LocalDateTime now,
+                             @Param("leaseUntil") LocalDateTime leaseUntil);
+
+    /** 仅允许当前所有者更新生成阶段，并同时续租。 */
+    @Update("""
+            update app
+            set isGenerating = 1,
+                generatingStage = #{generatingStage},
+                generatingMessage = #{generatingMessage},
+                generationLeaseUntil = #{leaseUntil}
+            where id = #{appId}
+              and isDelete = 0
+              and isGenerating = 1
+              and generatingTaskId = #{taskId}
+            """)
+    int updateOwnedGenerationStage(@Param("appId") Long appId,
+                                   @Param("taskId") String taskId,
+                                   @Param("generatingStage") String generatingStage,
+                                   @Param("generatingMessage") String generatingMessage,
+                                   @Param("leaseUntil") LocalDateTime leaseUntil);
+
+    /** 仅允许当前所有者更新流式快照，并同时续租。 */
+    @Update("""
+            update app
+            set isGenerating = 1,
+                generatingMessage = #{generatingMessage},
+                generationLeaseUntil = #{leaseUntil}
+            where id = #{appId}
+              and isDelete = 0
+              and isGenerating = 1
+              and generatingTaskId = #{taskId}
+            """)
+    int updateOwnedGenerationSnapshot(@Param("appId") Long appId,
+                                      @Param("taskId") String taskId,
+                                      @Param("generatingMessage") String generatingMessage,
+                                      @Param("leaseUntil") LocalDateTime leaseUntil);
+
+    /** 仅允许当前任务所有者切换代码生成类型，并同时续租。 */
+    @Update("""
+            update app
+            set codeGenType = #{codeGenType},
+                generationLeaseUntil = #{leaseUntil}
+            where id = #{appId}
+              and isDelete = 0
+              and isGenerating = 1
+              and generatingTaskId = #{taskId}
+            """)
+    int updateOwnedCodeGenType(@Param("appId") Long appId,
+                               @Param("taskId") String taskId,
+                               @Param("codeGenType") String codeGenType,
+                               @Param("leaseUntil") LocalDateTime leaseUntil);
+
+    /** 只有当前任务所有者可以释放应用生成状态。 */
+    @Update("""
+            update app
+            set isGenerating = 0,
+                generatingMessage = '',
+                generatingStage = null,
+                generatingTaskId = null,
+                generationLeaseUntil = null
+            where id = #{appId}
+              and isDelete = 0
+              and generatingTaskId = #{taskId}
+            """)
+    int releaseOwnedGenerationState(@Param("appId") Long appId,
+                                    @Param("taskId") String taskId);
+
 }

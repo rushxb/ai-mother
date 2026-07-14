@@ -22,6 +22,12 @@ import java.util.List;
 @ConfigurationProperties(prefix = "app.rate-limiter")
 public class RateLimiterProperties {
 
+    /**
+     * 是否延迟建立 Redisson 连接。默认延迟连接，使进程启动不与 Redis 的瞬时可用性耦合；
+     * 实际限流请求仍然使用 Redis，并在 Redis 不可用时失败关闭。
+     */
+    private boolean lazyInitialization = true;
+
     @NotBlank
     @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9:_-]{0,63}")
     private String keyPrefix = "rate_limit";

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.template;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -76,7 +77,7 @@ public class TemplatePreWarmService {
                 log.info("从缓存复制 node_modules: {} -> {}", cachedModules, targetPath);
                 return true;
             } catch (Exception e) {
-                log.warn("从缓存复制 node_modules 失败: {}", e.getMessage());
+                log.warn("从缓存复制 node_modules 失败: {}", LogExceptionSanitizer.sanitizeMessage(e));
             }
         }
 
@@ -112,7 +113,7 @@ public class TemplatePreWarmService {
             FileUtil.writeString(fingerprint, stampFile, StandardCharsets.UTF_8);
             log.debug("创建依赖指纹文件: {}", stampFile.getAbsolutePath());
         } catch (Exception e) {
-            log.warn("创建依赖指纹文件失败: {}", e.getMessage());
+            log.warn("创建依赖指纹文件失败: {}", LogExceptionSanitizer.sanitizeMessage(e));
         }
     }
 

@@ -5,12 +5,13 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import org.junit.jupiter.api.Test;
 
+import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationRoutingSupportTest {
 
-    private final GenerationAgentSupport generationAgentSupport = new GenerationAgentSupport();
+    private final GenerationAgentSupport generationAgentSupport = support();
     private final GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(generationAgentSupport);
 
     @Test

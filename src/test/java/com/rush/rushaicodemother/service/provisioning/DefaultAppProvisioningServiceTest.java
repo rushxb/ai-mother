@@ -13,8 +13,8 @@ import com.rush.rushaicodemother.model.dto.app.AppAddRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +42,7 @@ import static org.mockito.Mockito.when;
 class DefaultAppProvisioningServiceTest {
 
     private AppMapper appMapper;
-    private AiModelService aiModelService;
+    private AiModelRuntimeService aiModelService;
     private BackendIntentDetector backendIntentDetector;
     private AiCodeGenTypeRoutingServiceFactory routingServiceFactory;
     private AppNameGeneratorServiceFactory appNameGeneratorServiceFactory;
@@ -56,7 +56,7 @@ class DefaultAppProvisioningServiceTest {
     @BeforeEach
     void setUp() {
         appMapper = mock(AppMapper.class);
-        aiModelService = mock(AiModelService.class);
+        aiModelService = mock(AiModelRuntimeService.class);
         backendIntentDetector = mock(BackendIntentDetector.class);
         routingServiceFactory = mock(AiCodeGenTypeRoutingServiceFactory.class);
         appNameGeneratorServiceFactory = mock(AppNameGeneratorServiceFactory.class);
@@ -171,7 +171,6 @@ class DefaultAppProvisioningServiceTest {
     void shouldCopyApplicationWithoutRuntimeOrDeploymentState() {
         App sourceApp = sourceApp();
         assignInsertedId(201L);
-        when(chatHistoryService.copyByAppId(11L, 201L, 21L)).thenReturn(true);
 
         Long targetAppId = provisioningService.copy(11L, user(21L));
 
@@ -197,7 +196,8 @@ class DefaultAppProvisioningServiceTest {
     void shouldDeleteCopiedArtifactWhenHistoryCopyFails() {
         App sourceApp = sourceApp();
         assignInsertedId(202L);
-        when(chatHistoryService.copyByAppId(11L, 202L, 21L)).thenReturn(false);
+        doThrow(new BusinessException(ErrorCode.OPERATION_ERROR, "复制应用对话失败"))
+                .when(chatHistoryService).copyByAppId(11L, 202L, 21L);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -216,7 +216,6 @@ class DefaultAppProvisioningServiceTest {
         rebuildService();
         App sourceApp = sourceApp();
         assignInsertedId(203L);
-        when(chatHistoryService.copyByAppId(11L, 203L, 21L)).thenReturn(true);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -249,7 +248,8 @@ class DefaultAppProvisioningServiceTest {
     void shouldPreserveCopyAndCleanupFailuresWhenCompensationFails() {
         App sourceApp = sourceApp();
         assignInsertedId(205L);
-        when(chatHistoryService.copyByAppId(11L, 205L, 21L)).thenReturn(false);
+        doThrow(new BusinessException(ErrorCode.OPERATION_ERROR, "复制应用对话失败"))
+                .when(chatHistoryService).copyByAppId(11L, 205L, 21L);
         BusinessException cleanupFailure = new BusinessException(ErrorCode.SYSTEM_ERROR, "cleanup failed");
         doThrow(cleanupFailure).when(artifactLifecycleService).deleteGeneratedArtifact(any(App.class));
 

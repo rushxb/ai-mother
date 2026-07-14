@@ -120,6 +120,7 @@ export default defineComponent({
     const loadingHistory = ref(false)
     const hasMoreHistory = ref(false)
     const lastCreateTime = ref<string>()
+    const lastHistoryId = ref<string | number>()
     const historyLoaded = ref(false)
     const refreshingGenerationState = ref(false)
     const lastGenerationPrompt = ref('')
@@ -873,8 +874,9 @@ export default defineComponent({
           pageSize: 10,
         }
         // 如果是加载更多，传递最后一条消息的创建时间作为游标
-        if (isLoadMore && lastCreateTime.value) {
+        if (isLoadMore && lastCreateTime.value && lastHistoryId.value) {
           params.lastCreateTime = lastCreateTime.value
+          params.lastId = lastHistoryId.value
         }
         const res = await listAppChatHistory(params)
         if (!sessionGuard.isCurrent(sessionVersion) || appId.value !== requestedAppId) {
@@ -905,12 +907,13 @@ export default defineComponent({
               // 初始加载，直接设置消息列表
               messages.value = historyMessages
             }
-            // 更新游标
-            lastCreateTime.value = chatHistories[chatHistories.length - 1]?.createTime
-            // 检查是否还有更多历史
-            hasMoreHistory.value = chatHistories.length === 10
+            lastCreateTime.value = res.data.data.nextCursorCreateTime
+            lastHistoryId.value = res.data.data.nextCursorId
+            hasMoreHistory.value = res.data.data.hasMore ?? false
           } else {
             hasMoreHistory.value = false
+            lastCreateTime.value = undefined
+            lastHistoryId.value = undefined
           }
           historyLoaded.value = true
           await nextTick()
@@ -2478,6 +2481,7 @@ export default defineComponent({
       loadingHistory.value = false
       hasMoreHistory.value = false
       lastCreateTime.value = undefined
+      lastHistoryId.value = undefined
       historyLoaded.value = false
       editingMessageIndex.value = null
 

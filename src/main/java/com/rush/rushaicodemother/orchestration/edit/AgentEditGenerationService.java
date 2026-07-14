@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.ai.AiCodeEditService;
@@ -10,8 +11,8 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
-import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
@@ -49,7 +50,6 @@ public class AgentEditGenerationService {
     private final AiCodeEditServiceFactory aiCodeEditServiceFactory;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationEventPublisher generationEventPublisher;
-    private final GenerationAppStateService generationAppStateService;
     private final GenerationTaskLifecycleService lifecycleService;
     private final ChatHistoryService chatHistoryService;
     private final WorkspaceSemanticIndexService workspaceSemanticIndexService;
@@ -76,9 +76,10 @@ public class AgentEditGenerationService {
                 modeDecision
         );
         lifecycleService.recordUserMessage(app, loginUser, userMessage);
-        lifecycleService.startTrace(taskId, app, loginUser, codeGenType, codeGenType,
-                userMessage, userMessage, true, "agent_edit", GenerationRoute.AGENT_EDIT);
-        generationAppStateService.markGenerationStarted(app.getId(), AppConstant.GENERATING_STAGE_UPDATE);
+        lifecycleService.startGeneration(
+                taskId, app, loginUser, codeGenType, codeGenType,
+                userMessage, userMessage, true, "agent_edit",
+                GenerationRoute.AGENT_EDIT, AppConstant.GENERATING_STAGE_UPDATE);
 
         try {
             AgentEditReadResult readResult = read(request, workspace, userMessage, codeGenType, taskId);
@@ -141,12 +142,11 @@ public class AgentEditGenerationService {
 
             List<String> changedFiles = patchOperations.stream().map(PatchOperation::relativePath).toList();
             workspaceSemanticIndexService.refreshFilesIndex(projectRoot, changedFiles);
-            editStatePersistenceService.recordEditResult(app.getId(), taskId, userMessage, patchOperations, true, "");
+            editStatePersistenceService.recordEditResult(app.getId(), taskId, patchOperations, true);
             String summary = buildSuccessSummary(editResult, changePlan, outcome);
             chatHistoryService.addChatMessage(app.getId(), summary, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-            lifecycleService.completeTrace(taskId, "success", null, null);
-            lifecycleService.charge(taskId);
-            generationAppStateService.markGenerationFinished(app.getId());
+            lifecycleService.completeGenerationAndCharge(
+                    taskId, app.getId(), GenerationTaskStatus.SUCCESS, null);
             generationEventPublisher.publish(request, GenerationEventType.TASK_DONE, "AGENT_EDIT 完成", Map.of(
                     "taskId", taskId,
                     "route", GenerationRoute.AGENT_EDIT,
@@ -155,7 +155,7 @@ public class AgentEditGenerationService {
             ));
             return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, summary, changedFiles, "success", repairRounds);
         } catch (Exception e) {
-            log.error("AGENT_EDIT 执行失败，appId: {}, taskId: {}", app.getId(), taskId, e);
+            log.error("AGENT_EDIT 执行失败，appId: {}, taskId: {}", app.getId(), taskId, LogExceptionSanitizer.sanitize(e));
             GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
             return fail(request, app, loginUser, taskId,
                     "AGENT_EDIT 执行失败: " + publicError.message(),
@@ -332,8 +332,8 @@ public class AgentEditGenerationService {
                 "rollbackStatus", restoreResult == null ? "" : restoreResult.status()
         ));
         chatHistoryService.addChatMessage(app.getId(), reason, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-        lifecycleService.completeTrace(taskId, "failed", null, reason);
-        generationAppStateService.markGenerationFinished(app.getId());
+        lifecycleService.completeGeneration(
+                taskId, app.getId(), GenerationTaskStatus.FAILED, reason);
         performanceMonitorService.finishTask(taskId, "failed");
         return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, reason, List.of(), "failed", repairRounds);
     }

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.create;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AiCreateSpecService;
 import com.rush.rushaicodemother.ai.AiCreateSpecServiceFactory;
@@ -60,10 +61,10 @@ public class CreateSpecService {
             CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(spec, userMessage, plan, group);
             return SpecResult.available(normalized.spec(), "ai_spec", normalized.validation());
         } catch (Exception e) {
-            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            log.warn("CREATE 规格生成失败: {}", reason);
+            String reason = "create_spec_exception";
+            log.warn("CREATE 规格生成失败，已回退到本地规格", LogExceptionSanitizer.sanitize(e));
             CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(
-                    defaults.fromRequest(userMessage, plan, group, "create_spec_exception:" + reason),
+                    defaults.fromRequest(userMessage, plan, group, reason),
                     userMessage,
                     plan,
                     group

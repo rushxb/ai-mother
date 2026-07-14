@@ -1,0 +1,88 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Rush - Backend Engineer, Full-Stack Enthusiast and AI Practitioner</title>
+  <desc id="desc">A futuristic dark technology banner with neon cyan and purple accents.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050816"/>
+      <stop offset="0.48" stop-color="#091126"/>
+      <stop offset="1" stop-color="#12091f"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#21d4fd"/>
+      <stop offset="0.5" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#f43f8c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+      <path d="M36 0H0V36" fill="none" stroke="#38bdf8" stroke-opacity="0.08" stroke-width="1"/>
+    </pattern>
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000814" flood-opacity="0.8"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="360" rx="26" fill="url(#background)"/>
+  <rect width="1200" height="360" rx="26" fill="url(#grid)"/>
+  <ellipse cx="990" cy="100" rx="300" ry="250" fill="url(#glow)"/>
+  <ellipse cx="230" cy="350" rx="330" ry="160" fill="#7c3aed" opacity="0.08"/>
+
+  <path d="M0 300 C220 230 360 350 590 270 S940 200 1200 285" fill="none" stroke="url(#neon)" stroke-opacity="0.22" stroke-width="2"/>
+  <path d="M0 314 C230 245 390 365 610 286 S950 218 1200 300" fill="none" stroke="#22d3ee" stroke-opacity="0.08" stroke-width="1"/>
+
+  <g transform="translate(825 42)" filter="url(#shadow)">
+    <circle cx="150" cy="135" r="112" fill="#071426" stroke="url(#neon)" stroke-width="2" stroke-opacity="0.9"/>
+    <circle cx="150" cy="135" r="88" fill="none" stroke="#22d3ee" stroke-width="1" stroke-dasharray="5 9" opacity="0.38"/>
+    <circle cx="150" cy="135" r="60" fill="#0b1730" stroke="#8b5cf6" stroke-width="1.5" opacity="0.95"/>
+    <path d="M116 106L86 135L116 164M184 106L214 135L184 164M164 88L137 181" fill="none" stroke="url(#neon)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" filter="url(#softGlow)"/>
+    <g fill="#22d3ee">
+      <circle cx="150" cy="23" r="5"/>
+      <circle cx="261" cy="135" r="5"/>
+      <circle cx="39" cy="135" r="5"/>
+      <circle cx="150" cy="247" r="5"/>
+    </g>
+    <g fill="#a78bfa" opacity="0.9">
+      <circle cx="72" cy="56" r="4"/>
+      <circle cx="228" cy="56" r="4"/>
+      <circle cx="72" cy="214" r="4"/>
+      <circle cx="228" cy="214" r="4"/>
+    </g>
+  </g>
+
+  <g font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif">
+    <text x="72" y="82" fill="#67e8f9" font-size="17" font-weight="700" letter-spacing="5">HELLO WORLD, I'M</text>
+    <text x="68" y="172" fill="url(#neon)" font-size="92" font-weight="900" letter-spacing="8" filter="url(#softGlow)">RUSH</text>
+    <text x="74" y="216" fill="#e2e8f0" font-size="22" font-weight="600" letter-spacing="1.5">BACKEND ENGINEER · FULL-STACK ENTHUSIAST</text>
+    <text x="74" y="250" fill="#94a3b8" font-size="18" letter-spacing="3">AI PRACTITIONER / TECH EXPLORER / SYSTEM BUILDER</text>
+  </g>
+
+  <g transform="translate(72 282)" font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700">
+    <g>
+      <rect width="118" height="34" rx="17" fill="#082f49" stroke="#22d3ee" stroke-opacity="0.55"/>
+      <text x="59" y="22" text-anchor="middle" fill="#a5f3fc">JAVA 21</text>
+    </g>
+    <g transform="translate(132 0)">
+      <rect width="146" height="34" rx="17" fill="#172554" stroke="#60a5fa" stroke-opacity="0.55"/>
+      <text x="73" y="22" text-anchor="middle" fill="#bfdbfe">SPRING CLOUD</text>
+    </g>
+    <g transform="translate(292 0)">
+      <rect width="130" height="34" rx="17" fill="#2e1065" stroke="#a78bfa" stroke-opacity="0.55"/>
+      <text x="65" y="22" text-anchor="middle" fill="#ddd6fe">AI AGENT</text>
+    </g>
+    <g transform="translate(436 0)">
+      <rect width="132" height="34" rx="17" fill="#500724" stroke="#f472b6" stroke-opacity="0.55"/>
+      <text x="66" y="22" text-anchor="middle" fill="#fbcfe8">FULL STACK</text>
+    </g>
+  </g>
+
+  <rect x="1" y="1" width="1198" height="358" rx="25" fill="none" stroke="url(#neon)" stroke-opacity="0.38" stroke-width="2"/>
+</svg>

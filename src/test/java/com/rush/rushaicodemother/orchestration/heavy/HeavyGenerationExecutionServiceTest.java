@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
@@ -31,9 +32,59 @@ import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class HeavyGenerationExecutionServiceTest {
+
+    @Test
+    void autoRepairPromptMustNotForwardRawFailureDetailsToMemoryOrModel() {
+        GenerationMemoryContextService memoryContextService = mock(GenerationMemoryContextService.class);
+        HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
+        HeavyGenerationExecutionService service = new HeavyGenerationExecutionService(
+                mock(AiCodeGeneratorFacade.class),
+                mock(ChatHistoryService.class),
+                mock(GenerationAppStateService.class),
+                memoryContextService,
+                mock(GenerationOrchestrationMetricsCollector.class),
+                mock(GenerationPerformanceSelector.class),
+                failureRecoveryService,
+                mock(HeavyGenerationSessionCompletionService.class),
+                mock(StreamHandlerExecutor.class)
+        );
+        GenerationPreparation preparation = new GenerationPreparation(
+                CodeGenTypeEnum.VUE_PROJECT,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false,
+                "create",
+                "build a page",
+                List.of(),
+                Map.of(),
+                null,
+                Map.of(),
+                "task-43"
+        );
+        RuntimeException failure = new RuntimeException("provider-api-key=secret-value");
+        GenerationErrorClassifier.GenerationError classifiedFailure = GenerationErrorClassifier.classify(failure);
+        when(failureRecoveryService.classifyGenerationError(failure)).thenReturn(classifiedFailure);
+        when(memoryContextService.buildAutoRepairMemoryContext(
+                43L,
+                "task-43",
+                classifiedFailure.message(),
+                1
+        )).thenReturn("");
+
+        String prompt = service.buildAutoRepairPrompt(43L, preparation, failure, 1);
+
+        assertTrue(prompt.contains(classifiedFailure.message()));
+        assertFalse(prompt.contains("secret-value"));
+        verify(memoryContextService).buildAutoRepairMemoryContext(
+                43L,
+                "task-43",
+                classifiedFailure.message(),
+                1
+        );
+    }
 
     @Test
     void exhaustedGenerationFailureMustHideInternalDetailsAndPreserveCause() {

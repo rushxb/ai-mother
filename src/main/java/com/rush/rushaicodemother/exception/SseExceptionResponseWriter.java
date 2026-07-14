@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.exception;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -63,7 +64,7 @@ public class SseExceptionResponseWriter {
         } catch (IOException | IllegalStateException exception) {
             // A disconnected client cannot receive a fallback JSON body after SSE output starts.
             log.warn("Failed to write SSE exception response for {}: {}",
-                    request.getRequestURI(), exception.getMessage());
+                    request.getRequestURI(), LogExceptionSanitizer.sanitizeMessage(exception));
             return true;
         }
     }

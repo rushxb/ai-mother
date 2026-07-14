@@ -118,7 +118,7 @@ class GenerationTaskOrchestratorPipelineTest {
     @Test
     void shouldRejectNewPipelineWhenAppHasActiveSession() {
         TestContext context = testContext();
-        GenerationSessionRegistry sessionRegistry = new GenerationSessionRegistry();
+        GenerationSessionRegistry sessionRegistry = new GenerationSessionRegistry(new GenerationSessionProperties());
         sessionRegistry.put(context.app().getId(), new GenerationSession(null));
         StubPipeline pipeline = new StubPipeline(
                 "lightweight_edit",
@@ -142,7 +142,7 @@ class GenerationTaskOrchestratorPipelineTest {
         GenerationSession completedSession = new GenerationSession(null);
         completedSession.complete();
         assertFalse(completedSession.isActive());
-        GenerationSessionRegistry sessionRegistry = new GenerationSessionRegistry();
+        GenerationSessionRegistry sessionRegistry = new GenerationSessionRegistry(new GenerationSessionProperties());
         sessionRegistry.put(context.app().getId(), completedSession);
         StubPipeline pipeline = new StubPipeline(
                 "lightweight_edit",
@@ -165,7 +165,7 @@ class GenerationTaskOrchestratorPipelineTest {
     private GenerationTaskOrchestrator newOrchestrator(TestContext context,
                                                        GenerationModeDecision decision,
                                                        List<GenerationPipeline> pipelines) {
-        return newOrchestrator(context, decision, pipelines, new GenerationSessionRegistry());
+        return newOrchestrator(context, decision, pipelines, new GenerationSessionRegistry(new GenerationSessionProperties()));
     }
 
     private GenerationTaskOrchestrator newOrchestrator(TestContext context,
@@ -176,19 +176,8 @@ class GenerationTaskOrchestratorPipelineTest {
         when(modeRouter.route(context.request(), CodeGenTypeEnum.VUE_PROJECT, context.workspace())).thenReturn(decision);
         return new GenerationTaskOrchestrator(
                 null,
-                null,
                 pipelines,
                 sessionRegistry,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
                 null,
                 modeRouter,
                 context.workspaceService()

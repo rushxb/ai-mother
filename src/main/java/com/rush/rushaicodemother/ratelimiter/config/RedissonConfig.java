@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.ratelimiter.config;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
+import org.redisson.config.ConstantDelay;
 import org.redisson.config.SingleServerConfig;
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -28,6 +29,7 @@ public class RedissonConfig {
     Config createConfig(RedisProperties redisProperties, RateLimiterProperties rateLimiterProperties) {
         rejectUnsupportedTopology(redisProperties);
         Config config = new Config();
+        config.setLazyInitialization(rateLimiterProperties.isLazyInitialization());
         configureSingleServer(config, redisProperties, rateLimiterProperties);
         return config;
     }
@@ -52,7 +54,7 @@ public class RedissonConfig {
                 .setConnectTimeout(toIntMillis(rateLimiterProperties.getConnectTimeout()))
                 .setTimeout(toIntMillis(rateLimiterProperties.getResponseTimeout()))
                 .setRetryAttempts(rateLimiterProperties.getRetryAttempts())
-                .setRetryInterval(toIntMillis(rateLimiterProperties.getRetryInterval()));
+                .setRetryDelay(new ConstantDelay(rateLimiterProperties.getRetryInterval()));
 
         if (StringUtils.hasText(redisProperties.getUsername())) {
             singleServer.setUsername(redisProperties.getUsername());

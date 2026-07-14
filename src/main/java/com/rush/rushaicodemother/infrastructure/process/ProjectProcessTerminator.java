@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.ExternalProcessProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -161,7 +162,7 @@ public class ProjectProcessTerminator {
         try {
             process.destroy();
         } catch (RuntimeException exception) {
-            log.debug("请求结束进程失败: pid={}, error={}", process.pid(), exception.getMessage());
+            log.debug("请求结束进程失败: pid={}, error={}", process.pid(), LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 
@@ -169,7 +170,7 @@ public class ProjectProcessTerminator {
         try {
             process.destroyForcibly();
         } catch (RuntimeException exception) {
-            log.debug("强制结束进程失败: pid={}, error={}", process.pid(), exception.getMessage());
+            log.debug("强制结束进程失败: pid={}, error={}", process.pid(), LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 

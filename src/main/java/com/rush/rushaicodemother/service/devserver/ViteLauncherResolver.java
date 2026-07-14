@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.service.devserver;
 
-import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -9,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 解析项目本地 Vite 入口，并生成不经过 shell 的 Node.js 命令。
@@ -18,18 +18,10 @@ public class ViteLauncherResolver {
 
     private static final String LOOPBACK_ADDRESS = "127.0.0.1";
 
-    private final String nodeExecutable;
+    private final NodeToolchain nodeToolchain;
 
-    @Autowired
-    public ViteLauncherResolver(DevServerRuntimeProperties properties) {
-        this(properties.getNodeExecutable());
-    }
-
-    ViteLauncherResolver(String nodeExecutable) {
-        if (nodeExecutable == null || nodeExecutable.isBlank() || nodeExecutable.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("Node.js 可执行文件配置无效");
-        }
-        this.nodeExecutable = nodeExecutable.strip();
+    public ViteLauncherResolver(NodeToolchain nodeToolchain) {
+        this.nodeToolchain = Objects.requireNonNull(nodeToolchain, "nodeToolchain must not be null");
     }
 
     public List<String> resolve(Path projectDirectory, int port) {
@@ -54,7 +46,7 @@ public class ViteLauncherResolver {
                 throw invalidLauncher("Vite 启动入口超出当前项目 node_modules");
             }
             return List.of(
-                    nodeExecutable,
+                    nodeToolchain.nodeExecutable(),
                     realViteEntry.toString(),
                     "--host", LOOPBACK_ADDRESS,
                     "--port", String.valueOf(port),

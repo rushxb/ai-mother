@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.model;
 
-import com.rush.rushaicodemother.model.entity.AiModel;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
@@ -12,8 +12,8 @@ import java.util.Map;
 @Component
 public class OpenAiThinkingPolicy {
 
-    public ThinkingConfiguration resolve(AiModel model, boolean thinkingRequested) {
-        boolean thinkingSupported = model != null && Integer.valueOf(1).equals(model.getSupportsThinking());
+    public ThinkingConfiguration resolve(AiModelRuntimeConfiguration model, boolean thinkingRequested) {
+        boolean thinkingSupported = model != null && model.supportsThinking();
         boolean thinkingEnabled = thinkingSupported && thinkingRequested;
         Map<String, Object> customParameters = thinkingSupported && isXiaomiMimoModel(model)
                 ? Map.of("thinking", Map.of("type", thinkingEnabled ? "enabled" : "disabled"))
@@ -21,9 +21,9 @@ public class OpenAiThinkingPolicy {
         return new ThinkingConfiguration(thinkingEnabled, thinkingEnabled, customParameters);
     }
 
-    private boolean isXiaomiMimoModel(AiModel model) {
-        String provider = model.getProvider() == null ? "" : model.getProvider().toLowerCase(Locale.ROOT);
-        String modelId = model.getModelId() == null ? "" : model.getModelId().toLowerCase(Locale.ROOT);
+    private boolean isXiaomiMimoModel(AiModelRuntimeConfiguration model) {
+        String provider = model.provider() == null ? "" : model.provider().toLowerCase(Locale.ROOT);
+        String modelId = model.modelId() == null ? "" : model.modelId().toLowerCase(Locale.ROOT);
         return provider.equals("xiaomi") || modelId.startsWith("mimo-v2");
     }
 

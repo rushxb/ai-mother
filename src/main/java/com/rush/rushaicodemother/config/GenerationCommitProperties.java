@@ -37,6 +37,16 @@ public class GenerationCommitProperties {
     @Max(1024)
     private int lockStripes = 64;
 
+    /** 单次生成提交允许处理的最大去重文件数。 */
+    @Min(1)
+    @Max(100_000)
+    private int maxFilesPerCommit = 20_000;
+
+    /** NUL 分隔 Git pathspec 文件允许占用的最大 UTF-8 字节数。 */
+    @Min(4096)
+    @Max(16 * 1024 * 1024)
+    private int maxPathspecBytes = 2 * 1024 * 1024;
+
     @AssertTrue(message = "Git 提交相关超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
         return Stream.of(commandTimeout, heartbeatInterval, outputDrainTimeout)

@@ -3,7 +3,8 @@ package com.rush.rushaicodemother.orchestration;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
-import com.rush.rushaicodemother.service.GenerationTraceService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -24,6 +25,7 @@ public final class GenerationSession {
     private final GenerationExecutionContext executionContext;
     private final Instant startedAt = Instant.now();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final AtomicBoolean completionStarted = new AtomicBoolean(false);
     private final AtomicBoolean completed = new AtomicBoolean(false);
     private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
     private final AtomicReference<GenerationCancellationHandle> cancellationHandleRef = new AtomicReference<>();
@@ -57,8 +59,11 @@ public final class GenerationSession {
         this.userId = userId;
     }
 
-    public boolean tryMarkCompleted() {
-        return completed.compareAndSet(false, true);
+    /**
+     * Claims terminalization for exactly one caller while still allowing it to emit the final stream event.
+     */
+    public boolean tryBeginCompletion() {
+        return completionStarted.compareAndSet(false, true);
     }
 
     public Flux<GenerationStreamEvent> asFlux() {
@@ -80,12 +85,13 @@ public final class GenerationSession {
     }
 
     public void complete() {
+        completionStarted.set(true);
         completed.set(true);
         sink.tryEmitComplete();
     }
 
     public void error(Throwable throwable) {
-        if (!tryMarkCompleted()) {
+        if (!tryBeginCompletion()) {
             return;
         }
         sink.tryEmitError(throwable);
@@ -109,7 +115,19 @@ public final class GenerationSession {
     }
 
     public boolean isActive() {
-        return !completed.get() && !cancelled.get();
+        return !completionStarted.get() && !isCancelled();
+    }
+
+    /**
+     * Reserves one unit from the task-wide budget when this session is runtime-managed.
+     * Legacy sessions without an execution context remain supported for isolated tests and old routes.
+     */
+    public int consumeBudget(GenerationBudgetKind kind) {
+        return executionContext == null ? 0 : executionContext.consume(kind);
+    }
+
+    public boolean hasRemainingBudget(GenerationBudgetKind kind) {
+        return executionContext == null || executionContext.hasRemainingBudget(kind);
     }
 
     public Flux<Void> cancelSignal() {

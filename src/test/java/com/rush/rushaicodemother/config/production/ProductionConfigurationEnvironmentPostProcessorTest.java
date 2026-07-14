@@ -118,6 +118,7 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         Map<String, Object> properties = validProductionProperties();
         properties.put("server.servlet.session.cookie.secure", "false");
         properties.put("springdoc.api-docs.enabled", "true");
+        properties.put("management.endpoint.health.probes.enabled", "false");
         properties.put("management.endpoint.health.show-details", "always");
 
         ProductionConfigurationException exception = assertThrows(
@@ -127,6 +128,7 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
 
         assertTrue(exception.getMessage().contains("server.servlet.session.cookie.secure"));
         assertTrue(exception.getMessage().contains("springdoc.api-docs.enabled"));
+        assertTrue(exception.getMessage().contains("management.endpoint.health.probes.enabled"));
         assertTrue(exception.getMessage().contains("management.endpoint.health.show-details"));
     }
 
@@ -175,6 +177,7 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         properties.put("springdoc.api-docs.enabled", "false");
         properties.put("springdoc.swagger-ui.enabled", "false");
         properties.put("knife4j.enable", "false");
+        properties.put("management.endpoint.health.probes.enabled", "true");
         properties.put("management.endpoint.health.show-details", "never");
         return properties;
     }

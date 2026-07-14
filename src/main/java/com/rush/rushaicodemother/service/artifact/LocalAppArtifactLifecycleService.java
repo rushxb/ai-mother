@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.artifact;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -395,7 +396,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         try {
             deleteTree(target);
         } catch (IOException exception) {
-            log.warn("清理{}失败: {}", label, target, exception);
+            log.warn("清理{}失败: {}", label, target, LogExceptionSanitizer.sanitize(exception));
         }
     }
 

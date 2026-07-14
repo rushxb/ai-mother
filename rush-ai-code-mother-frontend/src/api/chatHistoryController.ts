@@ -7,7 +7,7 @@ export async function listAllChatHistoryByPageForAdmin(
   body: API.ChatHistoryQueryRequest,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponsePageChatHistory>('/chatHistory/admin/list/page/vo', {
+  return request<API.BaseResponsePageChatHistoryAdminVO>('/chatHistory/admin/list/page/vo', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -24,7 +24,7 @@ export async function listAppChatHistory(
   options?: { [key: string]: any }
 ) {
   const { appId: param0, ...queryParams } = params
-  return request<API.BaseResponsePageChatHistory>(`/chatHistory/app/${param0}`, {
+  return request<API.BaseResponseChatHistoryCursorPageVO>(`/chatHistory/app/${param0}`, {
     method: 'GET',
     params: {
       // pageSize has a default value: 10

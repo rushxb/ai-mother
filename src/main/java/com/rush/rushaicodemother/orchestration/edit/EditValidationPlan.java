@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 编辑验证计划。
@@ -12,6 +13,12 @@ public record EditValidationPlan(
         List<String> changedFiles,
         boolean aiSuggestedBuild
 ) {
+
+    public EditValidationPlan {
+        level = Objects.requireNonNull(level, "validation level must not be null");
+        reason = reason == null ? "" : reason;
+        changedFiles = changedFiles == null ? List.of() : List.copyOf(changedFiles);
+    }
 
     public enum ValidationLevel {
         /**

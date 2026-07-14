@@ -4,16 +4,15 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.deployment.AppDeploymentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -21,12 +20,14 @@ import static org.mockito.Mockito.when;
 class AppServiceImplDeploymentDelegationTest {
 
     private AppServiceImpl appService;
+    private AppPersistenceService appPersistenceService;
     private AppDeploymentService deploymentService;
 
     @BeforeEach
     void setUp() {
         AppServiceImplTestFixture fixture = new AppServiceImplTestFixture();
-        appService = spy(fixture.createService());
+        appService = fixture.createService();
+        appPersistenceService = fixture.persistenceService();
         deploymentService = fixture.deploymentService();
     }
 
@@ -34,7 +35,7 @@ class AppServiceImplDeploymentDelegationTest {
     void shouldDelegateDeploymentAfterOwnershipValidation() {
         App app = app(11L, 21L);
         User owner = user(21L);
-        doReturn(app).when(appService).getById(11L);
+        when(appPersistenceService.findActiveById(11L)).thenReturn(app);
         when(deploymentService.deploy(app)).thenReturn("https://deploy.example.com/key/");
 
         String deployUrl = appService.deployApp(11L, owner);
@@ -47,7 +48,7 @@ class AppServiceImplDeploymentDelegationTest {
     void shouldDelegateSynchronizationAfterOwnershipValidation() {
         App app = app(12L, 22L);
         User owner = user(22L);
-        doReturn(app).when(appService).getById(12L);
+        when(appPersistenceService.findActiveById(12L)).thenReturn(app);
         when(deploymentService.synchronize(app)).thenReturn("https://deploy.example.com/key/");
 
         String deployUrl = appService.syncAppDeployment(12L, owner);
@@ -59,7 +60,7 @@ class AppServiceImplDeploymentDelegationTest {
     @Test
     void shouldRejectNonOwnerBeforeDeploymentModuleAccess() {
         App app = app(13L, 23L);
-        doReturn(app).when(appService).getById(13L);
+        when(appPersistenceService.findActiveById(13L)).thenReturn(app);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> appService.deployApp(13L, user(24L)));

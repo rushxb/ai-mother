@@ -1,23 +1,18 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Stream;
 
 /**
  * 失败后按 opt-in 回滚策略恢复本地快照。
@@ -26,21 +21,36 @@ import java.util.stream.Stream;
 @Component
 public class GenerationRollbackRestoreService {
 
-    private static final DateTimeFormatter BACKUP_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
-    private static final Set<String> DEFAULT_IGNORED_NAMES = Set.of(
-            ".git", ".idea", ".vscode", "node_modules", "dist", "build", "target", "coverage"
-    );
-
     private final Path codeOutputRoot;
     private final Path codeSnapshotRoot;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final SnapshotNamePolicy snapshotNamePolicy;
 
-    public GenerationRollbackRestoreService() {
-        this(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR), Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR));
+    @Autowired
+    public GenerationRollbackRestoreService(WorkspaceFileSystemService workspaceFileSystemService,
+                                            SnapshotNamePolicy snapshotNamePolicy) {
+        this(
+                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
+                Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR),
+                workspaceFileSystemService,
+                snapshotNamePolicy
+        );
     }
 
-    public GenerationRollbackRestoreService(Path codeOutputRoot, Path codeSnapshotRoot) {
+    public GenerationRollbackRestoreService(Path codeOutputRoot,
+                                            Path codeSnapshotRoot,
+                                            WorkspaceFileSystemService workspaceFileSystemService) {
+        this(codeOutputRoot, codeSnapshotRoot, workspaceFileSystemService, new SnapshotNamePolicy());
+    }
+
+    GenerationRollbackRestoreService(Path codeOutputRoot,
+                                     Path codeSnapshotRoot,
+                                     WorkspaceFileSystemService workspaceFileSystemService,
+                                     SnapshotNamePolicy snapshotNamePolicy) {
         this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
         this.codeSnapshotRoot = codeSnapshotRoot.toAbsolutePath().normalize();
+        this.workspaceFileSystemService = workspaceFileSystemService;
+        this.snapshotNamePolicy = snapshotNamePolicy;
     }
 
     public GenerationArtifact restoreIfAllowed(Long appId,
@@ -85,9 +95,23 @@ public class GenerationRollbackRestoreService {
             );
         }
 
-        Path snapshotPath = Path.of(snapshotPathValue).toAbsolutePath().normalize();
-        Path projectPath = Path.of(projectPathValue).toAbsolutePath().normalize();
-        if (!snapshotPath.startsWith(codeSnapshotRoot) || !projectPath.startsWith(codeOutputRoot)) {
+        String sourceTypeValue = stringValue(rollbackPayload.get("sourceType"));
+        if (!matchesArtifactContext(appId, taskId, rollbackPayload, sourceTypeValue)) {
+            return RollbackRestore.skipped(
+                    appId,
+                    taskId,
+                    rollbackStrategy,
+                    snapshotPathValue,
+                    projectPathValue,
+                    "rollback_artifact_context_mismatch"
+            );
+        }
+        Path snapshotPath;
+        Path projectPath;
+        try {
+            snapshotPath = Path.of(snapshotPathValue).toAbsolutePath().normalize();
+            projectPath = Path.of(projectPathValue).toAbsolutePath().normalize();
+        } catch (RuntimeException exception) {
             return RollbackRestore.skipped(
                     appId,
                     taskId,
@@ -97,24 +121,37 @@ public class GenerationRollbackRestoreService {
                     "rollback_path_out_of_root"
             );
         }
-        if (!Files.isDirectory(snapshotPath)) {
-            return RollbackRestore.skipped(appId, taskId, rollbackStrategy, snapshotPathValue, projectPathValue, "snapshot_missing");
+        if (!isAllowedSnapshotPath(appId, snapshotPath) || !isExpectedProjectPath(appId, sourceTypeValue, projectPath)) {
+            return RollbackRestore.skipped(
+                    appId,
+                    taskId,
+                    rollbackStrategy,
+                    snapshotPathValue,
+                    projectPathValue,
+                    "rollback_path_out_of_root"
+            );
         }
-        if (!Files.exists(projectPath.getParent())) {
-            return RollbackRestore.skipped(appId, taskId, rollbackStrategy, snapshotPathValue, projectPathValue, "project_parent_missing");
-        }
-
         Path backupPath = backupPath(appId, taskId);
         try {
-            String backupPathValue = "";
-            if (Files.exists(projectPath)) {
-                ensureChildOf(projectPath.getParent(), projectPath);
-                copyProject(projectPath, backupPath);
-                backupPathValue = backupPath.toString();
-                deleteProject(projectPath);
+            if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
+                return RollbackRestore.skipped(
+                        appId, taskId, rollbackStrategy, snapshotPathValue, projectPathValue, "snapshot_missing"
+                );
             }
-            copyProject(snapshotPath, projectPath);
-            int restoredFileCount = listProjectFiles(projectPath).size();
+            if (!workspaceFileSystemService.isDirectory(projectPath.getParent())) {
+                return RollbackRestore.skipped(
+                        appId, taskId, rollbackStrategy, snapshotPathValue, projectPathValue, "project_parent_missing"
+                );
+            }
+            String backupPathValue = "";
+            boolean projectExists = workspaceFileSystemService.isDirectory(projectPath);
+            if (projectExists) {
+                workspaceFileSystemService.copyDirectory(projectPath, backupPath);
+                backupPathValue = backupPath.toString();
+            }
+            WorkspaceCopyResult restoreResult = projectExists
+                    ? workspaceFileSystemService.replaceDirectory(snapshotPath, projectPath)
+                    : workspaceFileSystemService.copyDirectory(snapshotPath, projectPath);
             return RollbackRestore.restored(
                     appId,
                     taskId,
@@ -122,10 +159,11 @@ public class GenerationRollbackRestoreService {
                     snapshotPath.toString(),
                     projectPath.toString(),
                     backupPathValue,
-                    restoredFileCount
+                    restoreResult.fileCount()
             );
         } catch (Exception e) {
-            log.warn("失败后本地快照恢复失败，appId: {}, taskId: {}", appId, taskId, e);
+            log.warn("失败后本地快照恢复失败，appId: {}, taskId: {}, exceptionType: {}",
+                    appId, taskId, e.getClass().getSimpleName());
             return RollbackRestore.failed(
                     appId,
                     taskId,
@@ -140,73 +178,11 @@ public class GenerationRollbackRestoreService {
 
     private Path backupPath(Long appId, String taskId) {
         String appDir = appId == null ? "unknown" : String.valueOf(appId);
-        String normalizedTaskId = taskId == null ? "unknown" : taskId.replaceAll("[^a-zA-Z0-9_-]", "_");
-        String backupName = "failed_generation_" + normalizedTaskId + "_" + LocalDateTime.now().format(BACKUP_TIME_FORMATTER);
+        String backupName = snapshotNamePolicy.createTaskScopedName("failed_generation", taskId);
         return codeSnapshotRoot.resolve(appDir)
                 .resolve(backupName)
                 .toAbsolutePath()
                 .normalize();
-    }
-
-    private void copyProject(Path sourceRoot, Path targetRoot) throws IOException {
-        Files.createDirectories(targetRoot);
-        try (Stream<Path> stream = Files.walk(sourceRoot)) {
-            List<Path> sourcePaths = stream
-                    .filter(sourcePath -> shouldInclude(sourceRoot, sourcePath))
-                    .sorted()
-                    .toList();
-            for (Path sourcePath : sourcePaths) {
-                Path relative = sourceRoot.relativize(sourcePath);
-                Path targetPath = targetRoot.resolve(relative).toAbsolutePath().normalize();
-                ensureChildOf(targetRoot, targetPath);
-                if (Files.isDirectory(sourcePath)) {
-                    Files.createDirectories(targetPath);
-                } else {
-                    Files.createDirectories(targetPath.getParent());
-                    Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-                }
-            }
-        }
-    }
-
-    private void deleteProject(Path projectPath) throws IOException {
-        try (Stream<Path> stream = Files.walk(projectPath)) {
-            List<Path> paths = stream
-                    .sorted(Comparator.reverseOrder())
-                    .toList();
-            for (Path path : paths) {
-                Files.deleteIfExists(path);
-            }
-        }
-    }
-
-    private List<Path> listProjectFiles(Path root) throws IOException {
-        try (Stream<Path> stream = Files.walk(root)) {
-            return stream
-                    .filter(Files::isRegularFile)
-                    .filter(path -> shouldInclude(root, path))
-                    .map(root::relativize)
-                    .sorted(Comparator.comparing(Path::toString))
-                    .toList();
-        }
-    }
-
-    private boolean shouldInclude(Path root, Path path) {
-        Path relative = root.equals(path) ? Path.of("") : root.relativize(path);
-        for (Path part : relative.normalize()) {
-            if (DEFAULT_IGNORED_NAMES.contains(part.toString())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private void ensureChildOf(Path root, Path child) {
-        Path normalizedRoot = root.toAbsolutePath().normalize();
-        Path normalizedChild = child.toAbsolutePath().normalize();
-        if (!normalizedChild.startsWith(normalizedRoot)) {
-            throw new IllegalArgumentException("非法路径，超出当前项目目录范围");
-        }
     }
 
     private Map<String, Object> payload(GenerationArtifact artifact) {
@@ -215,5 +191,32 @@ public class GenerationRollbackRestoreService {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private boolean matchesArtifactContext(Long appId,
+                                           String taskId,
+                                           Map<String, Object> rollbackPayload,
+                                           String sourceTypeValue) {
+        return appId != null
+                && appId > 0
+                && taskId != null
+                && !taskId.isBlank()
+                && String.valueOf(appId).equals(stringValue(rollbackPayload.get("appId")))
+                && stringValue(taskId).equals(stringValue(rollbackPayload.get("taskId")))
+                && CodeGenTypeEnum.getEnumByValue(sourceTypeValue) != null;
+    }
+
+    private boolean isAllowedSnapshotPath(Long appId, Path snapshotPath) {
+        Path applicationSnapshotRoot = codeSnapshotRoot.resolve(String.valueOf(appId)).normalize();
+        return snapshotPath.startsWith(applicationSnapshotRoot)
+                && !snapshotPath.equals(applicationSnapshotRoot)
+                && applicationSnapshotRoot.equals(snapshotPath.getParent());
+    }
+
+    private boolean isExpectedProjectPath(Long appId, String sourceTypeValue, Path projectPath) {
+        Path expectedProjectPath = codeOutputRoot.resolve(sourceTypeValue + "_" + appId).normalize();
+        return projectPath.equals(expectedProjectPath)
+                && !projectPath.equals(codeOutputRoot)
+                && projectPath.startsWith(codeOutputRoot);
     }
 }

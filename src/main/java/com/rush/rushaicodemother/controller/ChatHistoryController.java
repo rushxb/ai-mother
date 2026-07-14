@@ -1,18 +1,15 @@
 package com.rush.rushaicodemother.controller;
 
 import com.mybatisflex.core.paginate.Page;
-import com.mybatisflex.core.query.QueryWrapper;
 import com.rush.rushaicodemother.annotation.AuthCheck;
 import com.rush.rushaicodemother.application.chathistory.ChatHistoryQueryApplicationService;
 import com.rush.rushaicodemother.common.BaseResponse;
 import com.rush.rushaicodemother.common.ResultUtils;
 import com.rush.rushaicodemother.constant.UserConstant;
-import com.rush.rushaicodemother.exception.ErrorCode;
-import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.dto.chathistory.ChatHistoryQueryRequest;
-import com.rush.rushaicodemother.model.entity.ChatHistory;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.model.vo.ChatHistoryAdminVO;
+import com.rush.rushaicodemother.model.vo.ChatHistoryCursorPageVO;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -37,7 +34,6 @@ import java.time.LocalDateTime;
 public class ChatHistoryController {
 
     private final ChatHistoryQueryApplicationService chatHistoryQueryApplicationService;
-    private final ChatHistoryService chatHistoryService;
     private final UserService userService;
 
     /**
@@ -46,19 +42,23 @@ public class ChatHistoryController {
      * @param appId          应用ID
      * @param pageSize       页面大小
      * @param lastCreateTime 最后一条记录的创建时间
+     * @param lastId         最后一条记录的 ID
      * @param request        请求
-     * @return 对话历史分页
+     * @return 对话历史游标切片
      */
     @GetMapping("/app/{appId}")
-    public BaseResponse<Page<ChatHistory>> listAppChatHistory(@Positive @PathVariable Long appId,
-                                                              @Min(1) @Max(50) @RequestParam(defaultValue = "10") int pageSize,
-                                                              @RequestParam(required = false) LocalDateTime lastCreateTime,
-                                                              HttpServletRequest request) {
+    public BaseResponse<ChatHistoryCursorPageVO> listAppChatHistory(
+            @Positive @PathVariable Long appId,
+            @Min(1) @Max(50) @RequestParam(defaultValue = "10") int pageSize,
+            @RequestParam(required = false) LocalDateTime lastCreateTime,
+            @Positive @RequestParam(required = false) Long lastId,
+            HttpServletRequest request) {
         User loginUser = userService.getLoginUser(request);
-        Page<ChatHistory> result = chatHistoryQueryApplicationService.listForApp(
+        ChatHistoryCursorPageVO result = chatHistoryQueryApplicationService.listForApp(
                 appId,
                 pageSize,
                 lastCreateTime,
+                lastId,
                 loginUser
         );
         return ResultUtils.success(result);
@@ -72,13 +72,10 @@ public class ChatHistoryController {
      */
     @PostMapping("/admin/list/page/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Page<ChatHistory>> listAllChatHistoryByPageForAdmin(@Valid @RequestBody ChatHistoryQueryRequest chatHistoryQueryRequest) {
-        ThrowUtils.throwIf(chatHistoryQueryRequest == null, ErrorCode.PARAMS_ERROR);
-        long pageNum = chatHistoryQueryRequest.getPageNum();
-        long pageSize = chatHistoryQueryRequest.getPageSize();
-        // 查询数据
-        QueryWrapper queryWrapper = chatHistoryService.getQueryWrapper(chatHistoryQueryRequest);
-        Page<ChatHistory> result = chatHistoryService.page(Page.of(pageNum, pageSize), queryWrapper);
-        return ResultUtils.success(result);
+    public BaseResponse<Page<ChatHistoryAdminVO>> listAllChatHistoryByPageForAdmin(
+            @Valid @RequestBody ChatHistoryQueryRequest chatHistoryQueryRequest) {
+        return ResultUtils.success(
+                chatHistoryQueryApplicationService.listForAdministration(chatHistoryQueryRequest)
+        );
     }
 }

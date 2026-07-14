@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.template;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -49,7 +50,7 @@ public class TemplateManifestValidationRunner implements ApplicationRunner {
                     .distinct()
                     .toList();
         } catch (Exception e) {
-            log.warn("扫描模板 manifest 失败，使用内置模板列表: {}", e.getMessage());
+            log.warn("扫描模板 manifest 失败，使用内置模板列表: {}", LogExceptionSanitizer.sanitizeMessage(e));
             return List.of("vue-web-basic", "vue-web-admin", "vue-web-landing", "vue-web-mobile", "go-sqlite-backend-basic");
         }
     }

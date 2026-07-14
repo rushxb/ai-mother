@@ -26,7 +26,8 @@ create table if not exists user
     updateTime   datetime     default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete     tinyint      default 0                 not null comment '是否删除',
     UNIQUE KEY uk_userAccount (userAccount),
-    INDEX idx_userName (userName)
+    INDEX idx_userName (userName),
+    CONSTRAINT chk_user_credit_balance_nonnegative CHECK (creditBalance >= 0)
 ) comment '用户' collate = utf8mb4_unicode_ci;
 
 -- 已有库升级可执行以下语句
@@ -39,16 +40,25 @@ create table if not exists user_credit_transaction
     userId        bigint                             not null comment '用户id',
     changeAmount  bigint                             not null comment '积分变动，正数增加，负数扣除',
     balanceAfter  bigint                             not null comment '变动后余额',
-    type          varchar(64)                        not null comment '变动类型：ADMIN_ADJUST/GENERATION_CHARGE',
-    bizId         varchar(128)                       null comment '业务id，例如 generation taskId',
-    remark        varchar(512)                       null comment '备注',
+    type          varchar(64)                        not null comment '变动类型：ACCOUNT_INITIALIZATION/ADMIN_ADJUST/GENERATION_CHARGE',
+    bizId         varchar(128)                       not null comment '业务id，例如 generation taskId',
+    remark        varchar(512)                       not null comment '备注',
     adminUserId   bigint                             null comment '管理员操作人id',
     tokenCount    bigint                             null comment '本次 token 数',
     createTime    datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     isDelete      tinyint  default 0                 not null comment '是否删除',
     UNIQUE KEY uk_type_bizId (type, bizId),
     INDEX idx_userId_createTime (userId, createTime),
-    INDEX idx_adminUserId_createTime (adminUserId, createTime)
+    INDEX idx_adminUserId_createTime (adminUserId, createTime),
+    CONSTRAINT chk_user_credit_transaction_balance_nonnegative CHECK (balanceAfter >= 0),
+    CONSTRAINT chk_user_credit_transaction_shape CHECK (
+        (type = 'ACCOUNT_INITIALIZATION' AND changeAmount > 0
+            AND adminUserId IS NOT NULL AND tokenCount IS NULL)
+        OR (type = 'ADMIN_ADJUST' AND changeAmount <> 0
+            AND adminUserId IS NOT NULL AND tokenCount IS NULL)
+        OR (type = 'GENERATION_CHARGE' AND changeAmount <= 0
+            AND adminUserId IS NULL AND tokenCount IS NOT NULL AND tokenCount >= 0)
+    )
 ) comment '用户积分流水' collate = utf8mb4_unicode_ci;
 
 -- 应用表
@@ -63,7 +73,9 @@ create table app
     deployedTime datetime                           null comment '部署时间',
     isGenerating tinyint  default 0                 not null comment '是否正在生成',
     generatingMessage mediumtext                    null comment '当前生成中的 AI 响应快照',
-    generatingStage varchar(32)                     null comment '当前生成阶段：create / update',
+    generatingStage varchar(64)                     null comment '当前生成阶段',
+    generatingTaskId varchar(128)                    null comment '当前生成状态所有者任务 ID',
+    generationLeaseUntil datetime(6)                 null comment '生成状态租约到期时间',
     priority     int      default 0                 not null comment '优先级',
     userId       bigint                             not null comment '创建用户id',
     editTime     datetime default CURRENT_TIMESTAMP not null comment '编辑时间',
@@ -72,13 +84,20 @@ create table app
     isDelete     tinyint  default 0                 not null comment '是否删除',
     UNIQUE KEY uk_deployKey (deployKey), -- 确保部署标识唯一
     INDEX idx_appName (appName),         -- 提升基于应用名称的查询性能
-    INDEX idx_userId (userId)            -- 提升基于用户 ID 的查询性能
+    INDEX idx_userId (userId),           -- 提升基于用户 ID 的查询性能
+    INDEX idx_generation_lease (isGenerating, generationLeaseUntil),
+    CONSTRAINT chk_app_generation_state_ownership CHECK (
+        (isGenerating = 0 AND generatingTaskId IS NULL AND generationLeaseUntil IS NULL)
+        OR (isGenerating = 1 AND generatingTaskId IS NOT NULL AND generationLeaseUntil IS NOT NULL)
+    )
 ) comment '应用' collate = utf8mb4_unicode_ci;
 
 -- 已有库升级可执行以下语句
 alter table app add column if not exists isGenerating tinyint default 0 not null comment '是否正在生成';
 alter table app add column if not exists generatingMessage mediumtext null comment '当前生成中的 AI 响应快照';
-alter table app add column if not exists generatingStage varchar(32) null comment '当前生成阶段：create / update';
+alter table app add column if not exists generatingStage varchar(64) null comment '当前生成阶段';
+alter table app add column if not exists generatingTaskId varchar(128) null comment '当前生成状态所有者任务 ID';
+alter table app add column if not exists generationLeaseUntil datetime(6) null comment '生成状态租约到期时间';
 alter table app add column if not exists devServerPort int null comment 'Vue 开发服务器端口号（预览用）';
 
 -- 应用能力表：统一承载 database / analytics / git / mobile 等开关状态，避免 app 主表持续膨胀
@@ -107,7 +126,7 @@ create table if not exists app_database_resource
     resourceId         varchar(128)                       not null comment 'Database 资源标识',
     resourceName       varchar(256)                       null comment 'Database 资源名称',
     databaseUrl        varchar(512)                       not null comment 'Database 访问 URL',
-    dbEngine           varchar(64) default 'SqlLite'      not null comment '数据库引擎',
+    dbEngine           varchar(64) default 'SQLite'       not null comment '数据库引擎',
     backendRuntime     varchar(64) default 'go'           not null comment '后端运行时',
     sqlExecutionPolicy varchar(64) default 'ask_every_time' not null comment 'SQL 执行策略：ask_every_time/always_allow',
     status             varchar(32) default 'active'       not null comment '状态：active/recycled/error',
@@ -181,16 +200,16 @@ create table if not exists app_analytics_config
 create table chat_history
 (
     id          bigint auto_increment comment 'id' primary key,
-    message     text                               not null comment '消息',
+    message     mediumtext                         not null comment '消息',
     messageType varchar(32)                        not null comment 'user/ai',
     appId       bigint                             not null comment '应用id',
     userId      bigint                             not null comment '创建用户id',
     createTime  datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime  datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete    tinyint  default 0                 not null comment '是否删除',
-    INDEX idx_appId (appId),                       -- 提升基于应用的查询性能
-    INDEX idx_createTime (createTime),             -- 提升基于时间的查询性能
-    INDEX idx_appId_createTime (appId, createTime) -- 游标查询核心索引
+    INDEX idx_app_history_cursor (appId, isDelete, createTime, id),
+    INDEX idx_history_user_cursor (userId, isDelete, createTime, id),
+    INDEX idx_history_admin_cursor (isDelete, createTime, id)
 ) comment '对话历史' collate = utf8mb4_unicode_ci;
 
 -- AI 生成任务主表：按 taskId 串联一次用户请求、AI 调用、工具执行、构建和自动修复
@@ -202,8 +221,9 @@ create table chat_history
         userId                  bigint                             not null comment '创建用户id',
         originalCodeGenType     varchar(64)                        null comment '原始代码生成类型',
         targetCodeGenType       varchar(64)                        null comment '目标代码生成类型',
-        status                  varchar(32) default 'running'      not null comment '状态：running/success/failed/cancelled',
+        status                  varchar(32) default 'running'      not null comment '状态：running/success/failed/cancelled/deadline_exceeded',
         stage                   varchar(64)                        null comment '当前阶段',
+        stageMessage            text                               null comment '当前阶段提示信息',
         userPrompt              mediumtext                         null comment '用户原始提示词',
         enhancedPrompt          mediumtext                         null comment '增强后的生成提示词',
         requiresBuildValidation tinyint     default 0              not null comment '是否需要构建校验',
@@ -225,15 +245,6 @@ create table chat_history
         INDEX idx_userId_createTime (userId, createTime),
         INDEX idx_status_createTime (status, createTime)
     ) comment 'AI 生成任务' collate = utf8mb4_unicode_ci;
-
--- 已有库升级可执行以下语句
-alter table generation_task add column if not exists memorySummary mediumtext null comment 'AI 可读的生成记忆摘要';
-alter table generation_task add column if not exists totalTokens bigint default 0 not null comment '任务累计 token 数';
-alter table generation_task add column if not exists creditCost bigint default 0 not null comment '任务消耗积分';
-alter table generation_task add column if not exists creditCharged tinyint default 0 not null comment '是否已结算积分';
-alter table generation_model_call add column if not exists usageSource varchar(32) default 'OFFICIAL' not null comment 'token 来源：OFFICIAL/ESTIMATED';
-drop table if exists generation_event;
-drop table if exists generation_tool_call;
 
 -- AI 生成构建日志表：保存构建校验、自动修复后的构建结果和诊断报告
 create table if not exists generation_build_log
@@ -258,9 +269,10 @@ create table if not exists generation_build_log
 
 -- AI 模型调用表：预留模型 token、耗时和元数据，用于后续接入 provider usage
 create table if not exists generation_model_call
-(
-    id               bigint auto_increment comment 'id' primary key,
-    taskId           varchar(128)                       not null comment '生成任务 ID',
+    (
+        id               bigint auto_increment comment 'id' primary key,
+        callId           varchar(36)                        not null comment '模型调用幂等 ID',
+        taskId           varchar(128)                       not null comment '生成任务 ID',
     appId            bigint                             not null comment '应用id',
     userId           bigint                             not null comment '创建用户id',
     provider         varchar(64)                        null comment '模型提供商',
@@ -272,9 +284,10 @@ create table if not exists generation_model_call
     finishReason     varchar(64)                        null comment '结束原因',
     usageSource      varchar(32) default 'OFFICIAL'     not null comment 'token 来源：OFFICIAL/ESTIMATED',
     rawMetadataJson  mediumtext                         null comment '原始元数据 JSON',
-    createTime       datetime default CURRENT_TIMESTAMP not null comment '创建时间',
-    isDelete         tinyint  default 0                 not null comment '是否删除',
-    INDEX idx_taskId_createTime (taskId, createTime),
+        createTime       datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+        isDelete         tinyint  default 0                 not null comment '是否删除',
+        UNIQUE KEY uk_callId (callId),
+        INDEX idx_taskId_createTime (taskId, createTime),
     INDEX idx_model_createTime (model, createTime),
     INDEX idx_appId_createTime (appId, createTime)
 ) comment 'AI 模型调用' collate = utf8mb4_unicode_ci;
@@ -290,7 +303,7 @@ create table if not exists ai_model
     modelId        varchar(128)                       not null comment '模型标识符，如 deepseek-v4-flash',
     description    varchar(512)                       null comment '模型描述',
     baseUrl        varchar(512)                       not null comment 'API 基础地址',
-    apiKey         varchar(512)                       null comment 'API 密钥',
+    apiKey         varchar(2048)                      null comment 'API 密钥',
     maxTokens      int      default 8192              not null comment '最大 token 数',
     temperature    double   default 0.7               null comment '温度参数',
     isEnabled      tinyint  default 1                 not null comment '是否启用：0-禁用 1-启用',
@@ -303,10 +316,21 @@ create table if not exists ai_model
     createTime     datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime     datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete       tinyint  default 0                 not null comment '是否删除',
-    UNIQUE KEY uk_provider_modelId (provider, modelId),
+    activeModelType varchar(32) generated always as
+        (case when isEnabled = 1 and isDelete = 0 then modelType else null end) stored
+        comment '启用模型类型并发唯一键',
+    activeProvider varchar(64) generated always as
+        (case when isDelete = 0 then provider else null end) stored
+        comment '未删除模型提供商唯一键',
+    activeModelId varchar(128) generated always as
+        (case when isDelete = 0 then modelId else null end) stored
+        comment '未删除模型标识唯一键',
+    UNIQUE KEY uk_active_provider_model (activeProvider, activeModelId),
+    UNIQUE KEY uk_active_model_type (activeModelType),
     INDEX idx_isEnabled (isEnabled),
     INDEX idx_userId (userId),
-    INDEX idx_modelType (modelType)
+    INDEX idx_modelType (modelType),
+    INDEX idx_modelType_enabled (modelType, isEnabled, isDelete)
 ) comment 'AI 模型配置' collate = utf8mb4_unicode_ci;
 
 -- 已有库升级可执行以下语句
@@ -315,7 +339,7 @@ alter table ai_model add column if not exists provider varchar(64) not null comm
 alter table ai_model add column if not exists modelId varchar(128) not null comment '模型标识符，如 deepseek-v4-flash';
 alter table ai_model add column if not exists description varchar(512) null comment '模型描述';
 alter table ai_model add column if not exists baseUrl varchar(512) not null comment 'API 基础地址';
-alter table ai_model add column if not exists apiKey varchar(512) null comment 'API 密钥';
+alter table ai_model add column if not exists apiKey varchar(2048) null comment 'API 密钥';
 alter table ai_model add column if not exists maxTokens int default 8192 not null comment '最大 token 数';
 alter table ai_model add column if not exists temperature double default 0.7 null comment '温度参数';
 alter table ai_model add column if not exists isEnabled tinyint default 1 not null comment '是否启用：0-禁用 1-启用';
@@ -329,5 +353,6 @@ alter table ai_model add column if not exists createTime datetime default CURREN
 alter table ai_model add column if not exists updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间';
 alter table ai_model add column if not exists isDelete tinyint default 0 not null comment '是否删除';
 
--- 如历史数据存在多个启用模型，可先全部关闭，再手动启用目标模型
--- update ai_model set isEnabled = 0 where isDelete = 0;
+-- 并发单活约束、API Key 列扩容和软删除身份唯一约束请执行版本化迁移：
+-- sql/migrations/V20260713__ai_model_write_integrity.sql
+-- sql/migrations/V20260714_2__ai_model_soft_delete_identity.sql

@@ -8,21 +8,21 @@ import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import com.rush.rushaicodemother.ai.tools.*;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
-import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.event.EventListener;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
 
@@ -37,15 +37,13 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class AiCodeGeneratorServiceFactory {
 
-    private final RedisChatMemoryStore redisChatMemoryStore;
+    private final ChatMemoryStore chatMemoryStore;
 
     private final ChatHistoryService chatHistoryService;
 
     private final ToolManager toolManager;
 
     private final StreamingModelFactory streamingModelFactory;
-
-    private final AiModelService aiModelService;
 
     private static final int DEFAULT_CHAT_MEMORY_MESSAGES = 20;
     private static final int HEAVY_PROJECT_MEMORY_MESSAGES = 4;
@@ -70,7 +68,7 @@ public class AiCodeGeneratorServiceFactory {
      * 根据 appId 获取 HTML 默认生成服务。
      */
     public AiCodeGeneratorService getAiCodeGeneratorService(long appId) {
-        return getAiCodeGeneratorService(appId, CodeGenTypeEnum.HTML);
+        return getAiCodeGeneratorService(appId, CodeGenTypeEnum.HTML, null);
     }
 
     /**
@@ -81,8 +79,7 @@ public class AiCodeGeneratorServiceFactory {
      * @return
      */
     public AiCodeGeneratorService getAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
-        String cacheKey = buildCacheKey(appId, codeGenType);
-        return serviceCache.get(cacheKey, key -> createAiCodeGeneratorService(appId, codeGenType, null));
+        return getAiCodeGeneratorService(appId, codeGenType, null);
     }
 
     /**
@@ -99,6 +96,7 @@ public class AiCodeGeneratorServiceFactory {
     public AiCodeGeneratorService getAiCodeGeneratorService(long appId,
                                                              CodeGenTypeEnum codeGenType,
                                                              GenerationPerformanceProfile profile) {
+        validateRequest(appId, codeGenType);
         // 性能配置不同时不能复用缓存
         String cacheKey = buildCacheKey(appId, codeGenType, profile);
         return serviceCache.get(cacheKey, key -> createAiCodeGeneratorService(appId, codeGenType, profile));
@@ -122,7 +120,7 @@ public class AiCodeGeneratorServiceFactory {
         MessageWindowChatMemory chatMemory = MessageWindowChatMemory
                 .builder()
                 .id(appId)
-                .chatMemoryStore(redisChatMemoryStore)
+                .chatMemoryStore(chatMemoryStore)
                 .maxMessages(maxMemoryMessages)
                 .build();
         // 从数据库中加载对话历史到记忆中
@@ -144,7 +142,7 @@ public class AiCodeGeneratorServiceFactory {
                                 ToolExecutionResultMessage.from(toolExecutionRequest,
                                         "Error: there is no tool called " + toolExecutionRequest.name())
                         )
-                        .maxSequentialToolsInvocations(maxToolInvocations)
+                        .maxToolCallingRoundTrips(maxToolInvocations)
                         .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
                         .build();
             }
@@ -177,10 +175,9 @@ public class AiCodeGeneratorServiceFactory {
         return streamingModelFactory.createModel(profile);
     }
 
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onAiModelConfigChanged(AiModelConfigChangedEvent event) {
         log.info("检测到 AI 模型配置变更，清理 AI 服务缓存");
-        aiModelService.evictEnabledModelCache();
         serviceCache.invalidateAll();
     }
 
@@ -209,21 +206,9 @@ public class AiCodeGeneratorServiceFactory {
         };
     }
 
-    /**
-     * 创建 AI 代码生成器服务
-     *
-     * @return
-     */
-    @Bean
-    public AiCodeGeneratorService aiCodeGeneratorService() {
-        return getAiCodeGeneratorService(0);
-    }
-
-    /**
-     * 构造缓存键
-     */
-    private String buildCacheKey(long appId, CodeGenTypeEnum codeGenType) {
-        return buildCacheKey(appId, codeGenType, null);
+    private void validateRequest(long appId, CodeGenTypeEnum codeGenType) {
+        ThrowUtils.throwIf(appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
+        ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "代码生成类型不能为空");
     }
 
     /**

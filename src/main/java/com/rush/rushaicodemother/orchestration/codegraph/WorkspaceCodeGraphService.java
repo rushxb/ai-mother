@@ -2,12 +2,13 @@ package com.rush.rushaicodemother.orchestration.codegraph;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.ai.tools.ProjectWorkspaceSupport;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceFileMetadata;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceScan;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -22,12 +23,15 @@ import java.util.Set;
 public class WorkspaceCodeGraphService {
 
     private static final Set<String> GRAPH_EXTENSIONS = Set.of("vue", "js", "ts", "jsx", "tsx", "mjs", "go", "sql");
-    private static final int MAX_GRAPH_FILE_BYTES = 768 * 1024;
+    private static final long MAX_GRAPH_FILE_BYTES = 768L * 1024;
 
     private final CodeGraphAstParser parser;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
 
-    public WorkspaceCodeGraphService(CodeGraphAstParser parser) {
+    public WorkspaceCodeGraphService(CodeGraphAstParser parser,
+                                     WorkspaceFileSystemService workspaceFileSystemService) {
         this.parser = parser;
+        this.workspaceFileSystemService = workspaceFileSystemService;
     }
 
     public WorkspaceCodeGraph build(Path rootDir) {
@@ -38,21 +42,28 @@ public class WorkspaceCodeGraphService {
         List<CodeGraphFileNode> files = new ArrayList<>();
         List<String> diagnostics = new ArrayList<>();
         try {
-            for (Path relativePath : ProjectWorkspaceSupport.listProjectFiles(normalizedRoot)) {
-                String normalizedRelativePath = relativePath.toString().replace('\\', '/');
-                if (!isGraphFile(normalizedRelativePath)) {
+            WorkspaceScan scan = workspaceFileSystemService.scanProject(normalizedRoot);
+            Set<String> knownFiles = scan.files().stream()
+                    .map(WorkspaceFileMetadata::relativePath)
+                    .map(path -> path.replace('\\', '/'))
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            for (WorkspaceFileMetadata file : scan.files()) {
+                if (!isGraphFile(file.relativePath()) || file.size() > MAX_GRAPH_FILE_BYTES) {
                     continue;
                 }
-                Path absolutePath = normalizedRoot.resolve(relativePath);
-                if (!Files.isRegularFile(absolutePath) || Files.size(absolutePath) > MAX_GRAPH_FILE_BYTES) {
-                    continue;
-                }
-                String content = FileUtil.readString(absolutePath.toFile(), StandardCharsets.UTF_8);
-                files.add(parser.parse(normalizedRoot, normalizedRelativePath, content));
+                String content = workspaceFileSystemService.readUtf8(scan, file, MAX_GRAPH_FILE_BYTES);
+                files.add(parser.parse(file.relativePath(), content, knownFiles));
             }
-        } catch (Exception e) {
-            log.warn("构建 Code Graph 失败，rootDir: {}", normalizedRoot, e);
-            diagnostics.add("code_graph_build_failed:" + StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName()));
+        } catch (WorkspaceFileSystemException exception) {
+            log.warn("构建 Code Graph 的工作区扫描失败，rootDir: {}, reason: {}",
+                    normalizedRoot, exception.reason());
+            diagnostics.add(isResourceLimitFailure(exception)
+                    ? "code_graph_scan_limit_exceeded"
+                    : "code_graph_build_failed");
+        } catch (Exception exception) {
+            log.warn("构建 Code Graph 失败，rootDir: {}, exceptionType: {}",
+                    normalizedRoot, exception.getClass().getSimpleName());
+            diagnostics.add("code_graph_build_failed");
         }
         return buildGraph(normalizedRoot, files, diagnostics);
     }
@@ -146,5 +157,11 @@ public class WorkspaceCodeGraphService {
                 || normalized.startsWith("internal/")
                 || normalized.startsWith("sql/")
                 || normalized.startsWith("frontend/src/"));
+    }
+
+    private boolean isResourceLimitFailure(WorkspaceFileSystemException exception) {
+        return exception.reason() == WorkspaceFileSystemException.Reason.FILE_LIMIT_EXCEEDED
+                || exception.reason() == WorkspaceFileSystemException.Reason.BYTE_LIMIT_EXCEEDED
+                || exception.reason() == WorkspaceFileSystemException.Reason.FILE_TOO_LARGE;
     }
 }

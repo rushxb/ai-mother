@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.routing;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
@@ -90,7 +91,7 @@ public class HeavyGenerationIntentAssembler {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("重型生成意图装配失败，沿用当前模式，appId: {}", app.getId(), e);
+            log.warn("重型生成意图装配失败，沿用当前模式，appId: {}", app.getId(), LogExceptionSanitizer.sanitize(e));
             return currentType;
         }
     }

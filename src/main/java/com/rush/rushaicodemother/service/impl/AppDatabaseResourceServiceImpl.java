@@ -1,124 +1,87 @@
 package com.rush.rushaicodemother.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
-import com.mybatisflex.core.query.QueryWrapper;
-import com.mybatisflex.spring.service.impl.ServiceImpl;
+import com.rush.rushaicodemother.config.AppDatabaseResourceProperties;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
-import com.rush.rushaicodemother.mapper.AppDatabaseResourceMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.AppDatabaseResource;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
+import com.rush.rushaicodemother.service.database.AppDatabaseResourcePersistenceService;
+import com.rush.rushaicodemother.service.database.AppDatabaseResourceViewConverter;
+import com.rush.rushaicodemother.service.database.NewAppDatabaseResource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 应用 Database 资源服务实现。
+ * 应用 Database 资源业务服务实现。
+ *
+ * <p>负责资源命名、供应配置和生成提示词；所有数据库读写统一委托给场景化持久化边界。</p>
  */
 @Service
-public class AppDatabaseResourceServiceImpl
-        extends ServiceImpl<AppDatabaseResourceMapper, AppDatabaseResource>
-        implements AppDatabaseResourceService {
+@RequiredArgsConstructor
+public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceService {
 
-    private static final String STATUS_ACTIVE = "active";
-    private static final String DB_ENGINE_SQL_LITE = "SqlLite";
-    private static final String BACKEND_RUNTIME_GO = "go";
-    private static final String DEFAULT_SQL_POLICY = "ask_every_time";
-    private static final String DATABASE_DOMAIN = "database.nocode.cn";
+    private static final int MAX_RESOURCE_NAME_PREFIX_LENGTH = 32;
+    private static final String RESOURCE_ID_PREFIX = "db";
+
+    private final AppDatabaseResourcePersistenceService persistenceService;
+    private final AppDatabaseResourceViewConverter viewConverter;
+    private final AppDatabaseResourceProperties properties;
 
     @Override
-    public AppDatabaseResource enableDatabase(App app) {
-        ThrowUtils.throwIf(app == null || app.getId() == null, ErrorCode.PARAMS_ERROR, "应用不存在");
-        AppDatabaseResource existed = getByAppId(app.getId());
-        if (existed != null) {
-            if (!STATUS_ACTIVE.equals(existed.getStatus())) {
-                existed.setStatus(STATUS_ACTIVE);
-                existed.setLastUsedTime(LocalDateTime.now());
-                this.updateById(existed);
-            }
-            return existed;
-        }
-        String resourceId = "db" + app.getId();
-        AppDatabaseResource resource = AppDatabaseResource.builder()
-                .appId(app.getId())
-                .userId(app.getUserId())
-                .resourceId(resourceId)
-                .resourceName(buildResourceName(app))
-                .databaseUrl("https://" + resourceId + "." + DATABASE_DOMAIN)
-                .dbEngine(DB_ENGINE_SQL_LITE)
-                .backendRuntime(BACKEND_RUNTIME_GO)
-                .sqlExecutionPolicy(DEFAULT_SQL_POLICY)
-                .status(STATUS_ACTIVE)
-                .lastUsedTime(LocalDateTime.now())
-                .build();
-        boolean saved = this.save(resource);
-        ThrowUtils.throwIf(!saved, ErrorCode.OPERATION_ERROR, "Database 资源启用失败");
-        return resource;
+    public AppDatabaseResourceVO enableDatabase(App app) {
+        validateApp(app);
+        String resourceId = RESOURCE_ID_PREFIX + app.getId();
+        NewAppDatabaseResource newResource = new NewAppDatabaseResource(
+                app.getId(),
+                app.getUserId(),
+                resourceId,
+                buildResourceName(app),
+                buildDatabaseUrl(resourceId),
+                properties.getDbEngine(),
+                properties.getBackendRuntime(),
+                properties.getSqlExecutionPolicy(),
+                LocalDateTime.now()
+        );
+        return viewConverter.toView(persistenceService.enableResource(newResource));
     }
 
     @Override
-    public AppDatabaseResource getByAppId(Long appId) {
-        if (appId == null || appId <= 0) {
+    public AppDatabaseResourceVO findActiveResourceView(Long appId) {
+        if (!isValidId(appId)) {
             return null;
         }
-        QueryWrapper queryWrapper = QueryWrapper.create()
-                .eq("appId", appId)
-                .eq("status", STATUS_ACTIVE)
-                .orderBy("createTime", false);
-        return this.list(queryWrapper).stream().findFirst().orElse(null);
+        return viewConverter.toView(persistenceService.findActiveByAppId(appId));
     }
 
     @Override
-    public Map<Long, AppDatabaseResource> getActiveResourceMapByAppIds(Collection<Long> appIds) {
-        if (appIds == null || appIds.isEmpty()) {
-            return Map.of();
-        }
-        Set<Long> validAppIds = appIds.stream()
+    public Map<Long, AppDatabaseResourceVO> findActiveResourceViews(Collection<Long> appIds) {
+        List<AppDatabaseResource> resources = persistenceService.findActiveByAppIds(appIds);
+        return resources.stream()
                 .filter(Objects::nonNull)
-                .filter(appId -> appId > 0)
-                .collect(Collectors.toSet());
-        if (validAppIds.isEmpty()) {
-            return Map.of();
-        }
-        QueryWrapper queryWrapper = QueryWrapper.create()
-                .in("appId", validAppIds)
-                .eq("status", STATUS_ACTIVE)
-                .orderBy("createTime", false);
-        return this.list(queryWrapper).stream()
-                .filter(Objects::nonNull)
-                .filter(resource -> resource.getAppId() != null)
+                .filter(resource -> isValidId(resource.getAppId()))
                 .collect(Collectors.toMap(
                         AppDatabaseResource::getAppId,
-                        Function.identity(),
-                        (latest, ignored) -> latest,
+                        viewConverter::toView,
+                        (existing, ignored) -> existing,
                         LinkedHashMap::new
                 ));
     }
 
     @Override
-    public AppDatabaseResourceVO getResourceVO(AppDatabaseResource resource) {
-        if (resource == null) {
-            return null;
-        }
-        AppDatabaseResourceVO resourceVO = new AppDatabaseResourceVO();
-        BeanUtil.copyProperties(resource, resourceVO);
-        resourceVO.setEnabled(STATUS_ACTIVE.equals(resource.getStatus()));
-        return resourceVO;
-    }
-
-    @Override
     public boolean shouldEnableForPrompt(String userMessage) {
-        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase();
+        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (StrUtil.isBlank(normalized)) {
             return false;
         }
@@ -127,34 +90,65 @@ public class AppDatabaseResourceServiceImpl
                 || normalized.contains("sqlite")
                 || normalized.contains("sqllite")
                 || normalized.contains("sql lite")
-                || (normalized.contains("后端") && (normalized.contains("数据") || normalized.contains("接口") || normalized.contains("api")))
-                || (normalized.contains("backend") && (normalized.contains("data") || normalized.contains("api") || normalized.contains("sql")));
+                || (normalized.contains("后端")
+                    && (normalized.contains("数据") || normalized.contains("接口") || normalized.contains("api")))
+                || (normalized.contains("backend")
+                    && (normalized.contains("data") || normalized.contains("api") || normalized.contains("sql")));
     }
 
     @Override
     public String appendGenerationInstructionIfEnabled(App app, String userMessage) {
-        AppDatabaseResource resource = app == null ? null : getByAppId(app.getId());
+        if (app == null || !isValidId(app.getId())) {
+            return userMessage;
+        }
+        AppDatabaseResource resource = persistenceService.findActiveByAppId(app.getId());
         if (resource == null) {
             return userMessage;
         }
         return StrUtil.blankToDefault(userMessage, "") + "\n\n" + buildDatabaseInstruction(resource);
     }
 
+    private void validateApp(App app) {
+        ThrowUtils.throwIf(app == null || !isValidId(app.getId()), ErrorCode.PARAMS_ERROR, "应用不存在");
+        ThrowUtils.throwIf(!isValidId(app.getUserId()), ErrorCode.PARAMS_ERROR, "应用所属用户不存在");
+    }
+
     private String buildResourceName(App app) {
         String appName = StrUtil.blankToDefault(app.getAppName(), "未命名应用").trim();
-        return StrUtil.sub(appName, 0, Math.min(appName.length(), 32)) + " Database";
+        int codePointCount = appName.codePointCount(0, appName.length());
+        int endIndex = codePointCount <= MAX_RESOURCE_NAME_PREFIX_LENGTH
+                ? appName.length()
+                : appName.offsetByCodePoints(0, MAX_RESOURCE_NAME_PREFIX_LENGTH);
+        String resourceNamePrefix = appName.substring(0, endIndex);
+        return resourceNamePrefix + " Database";
+    }
+
+    private String buildDatabaseUrl(String resourceId) {
+        String scheme = properties.getUrlScheme().trim().toLowerCase(Locale.ROOT);
+        String domain = properties.getDomain().trim().toLowerCase(Locale.ROOT);
+        return "%s://%s.%s".formatted(scheme, resourceId, domain);
     }
 
     private String buildDatabaseInstruction(AppDatabaseResource resource) {
         return """
                 【Database 服务接入要求】
-                当前应用已启用 Rsh Database 服务，本轮生成必须接入 Database。
-                1. 后端服务技术选型固定为 Go + SqlLite，并放在独立 backend 目录下。
+                当前应用已启用 Rush Database 服务，本轮生成必须接入 Database。
+                1. 后端服务技术选型固定为 %s + %s，并放在独立 backend 目录下。
                 2. 前端仍以现有 Vue 项目为主，通过 HTTP API 调用后端，不要把数据库读写逻辑硬编码在前端。
                 3. Database URL：%s。
                 4. SQL 执行策略：%s。涉及危险 SQL 或数据变更时，应在后端保留可审计、可确认的执行边界。
-                5. 优先生成最小可运行闭环：Go 服务入口、SqlLite 初始化、基础连接封装、示例 API、前端调用适配。
+                5. 优先生成最小可运行闭环：后端服务入口、%s 初始化、基础连接封装、示例 API、前端调用适配。
                 6. 不要破坏已有前端页面、路由、样式和构建脚本；如需新增脚本或说明，应保持工程结构清晰。
-                """.formatted(resource.getDatabaseUrl(), resource.getSqlExecutionPolicy());
+                """.formatted(
+                resource.getBackendRuntime(),
+                resource.getDbEngine(),
+                resource.getDatabaseUrl(),
+                resource.getSqlExecutionPolicy(),
+                resource.getDbEngine()
+        );
+    }
+
+    private boolean isValidId(Long id) {
+        return id != null && id > 0;
     }
 }

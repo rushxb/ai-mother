@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -10,7 +11,6 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -22,9 +22,14 @@ import java.nio.file.Path;
 public class FileModifyTool extends BaseTool {
 
     private final ToolExecutionGateway toolExecutionGateway;
+    private final ToolWorkspaceFileService workspaceFileService;
 
-    public FileModifyTool(ToolExecutionGateway toolExecutionGateway) {
+    public FileModifyTool(
+            ToolExecutionGateway toolExecutionGateway,
+            ToolWorkspaceFileService workspaceFileService
+    ) {
         this.toolExecutionGateway = toolExecutionGateway;
+        this.workspaceFileService = workspaceFileService;
     }
 
     @Tool("修改文件内容，用新内容替换指定的旧内容")
@@ -38,30 +43,40 @@ public class FileModifyTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            String normalizedPath = ToolPathSupport.normalizeRelativePath(relativeFilePath);
-            Path path = ToolPathSupport.resolvePath(normalizedPath, appId);
-            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+            validateReplacement(oldContent, newContent);
+            ToolWorkspaceFileService.ToolWorkspaceFile file =
+                    workspaceFileService.resolveFile(appId, relativeFilePath);
+            String normalizedPath = file.relativePath();
+            if (!workspaceFileService.exists(file) || !workspaceFileService.isRegularFile(file)) {
                 return "错误：文件不存在或不是文件 - " + normalizedPath;
             }
-            if (!Files.readString(path).contains(oldContent)) {
+            if (!workspaceFileService.readUtf8(file).contains(oldContent)) {
                 return "警告：文件中未找到要替换的内容，文件未修改 - " + normalizedPath;
             }
             PatchApplyResult result = applyWithGlobalChangePlan(
                     appId,
-                    ToolPathSupport.resolveProjectRoot(appId),
+                    file.projectRoot(),
                     PatchOperation.replace(normalizedPath, oldContent, newContent)
             );
             if ("applied".equals(result.status())) {
-                log.info("成功修改文件: {}", path.toAbsolutePath());
+                log.info("成功修改文件: {}", file.absolutePath());
                 return "文件修改成功: " + normalizedPath;
             }
             return "修改文件失败: " + normalizedPath + ", 原因: " + result.reason();
-        } catch (IllegalArgumentException e) {
-            return "修改文件失败: " + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError("修改文件失败: ", e);
         } catch (Exception e) {
-            String errorMessage = "修改文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
-            log.error(errorMessage, e);
-            return errorMessage;
+            log.error("修改文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
+            return "修改文件失败，请稍后重试";
+        }
+    }
+
+    private void validateReplacement(String oldContent, String newContent) {
+        if (oldContent == null || oldContent.isEmpty()) {
+            throw new ToolInputException("要替换的旧内容不能为空");
+        }
+        if (newContent == null) {
+            throw new ToolInputException("替换后的新内容不能为 null");
         }
     }
 

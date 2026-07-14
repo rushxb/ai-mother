@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -20,7 +21,8 @@ class GenerationDiffSummaryServiceTest {
     void shouldSummarizeAddedModifiedAndDeletedFiles() throws Exception {
         Path tempDir = cleanTestRoot("changes");
         Path codeOutputRoot = tempDir.resolve("code_output");
-        Path snapshotRoot = tempDir.resolve("snapshot");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        Path snapshotRoot = codeSnapshotRoot.resolve("9").resolve("pre_generation_task-9");
         Path currentRoot = codeOutputRoot.resolve("vue_project_9");
         Files.createDirectories(snapshotRoot.resolve("src"));
         Files.writeString(snapshotRoot.resolve("src/App.vue"), "<template>old</template>\n");
@@ -34,10 +36,17 @@ class GenerationDiffSummaryServiceTest {
         Files.writeString(currentRoot.resolve("node_modules/pkg/index.js"), "ignored changed\n");
         GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
                 "status", "created",
+                "appId", 9L,
+                "taskId", "task-9",
+                "snapshotName", snapshotRoot.getFileName().toString(),
                 "snapshotPath", snapshotRoot.toString()
         ));
 
-        DiffSummary summary = new GenerationDiffSummaryService(codeOutputRoot)
+        DiffSummary summary = new GenerationDiffSummaryService(
+                codeOutputRoot,
+                codeSnapshotRoot,
+                WorkspaceFileSystemTestFactory.create()
+        )
                 .summarize(9L, CodeGenTypeEnum.VUE_PROJECT, "task-9", rollbackPoint);
 
         assertEquals("created", summary.status());
@@ -59,11 +68,60 @@ class GenerationDiffSummaryServiceTest {
                 "reason", "no_existing_generated_code"
         ));
 
-        DiffSummary summary = new GenerationDiffSummaryService(tempDir)
+        DiffSummary summary = new GenerationDiffSummaryService(
+                tempDir,
+                tempDir.resolve("snapshots"),
+                WorkspaceFileSystemTestFactory.create()
+        )
                 .summarize(10L, CodeGenTypeEnum.VUE_PROJECT, "task-10", rollbackPoint);
 
         assertEquals("skipped", summary.status());
         assertEquals("rollback_point_not_created", summary.reason());
+    }
+
+    @Test
+    void shouldRejectSnapshotOutsideCurrentApplicationBoundary() {
+        Path tempDir = cleanTestRoot("cross-app");
+        Path codeOutputRoot = tempDir.resolve("code_output");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        Path anotherApplicationSnapshot = codeSnapshotRoot.resolve("12").resolve("pre_generation_task-12");
+        GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
+                "status", "created",
+                "appId", 11L,
+                "taskId", "task-11",
+                "snapshotName", anotherApplicationSnapshot.getFileName().toString(),
+                "snapshotPath", anotherApplicationSnapshot.toString()
+        ));
+
+        DiffSummary summary = new GenerationDiffSummaryService(
+                codeOutputRoot,
+                codeSnapshotRoot,
+                WorkspaceFileSystemTestFactory.create()
+        ).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
+
+        assertEquals("skipped", summary.status());
+        assertEquals("rollback_path_out_of_root", summary.reason());
+    }
+
+    @Test
+    void shouldRejectApplicationSnapshotRootAsSnapshotPath() {
+        Path tempDir = cleanTestRoot("snapshot-root");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        Path applicationSnapshotRoot = codeSnapshotRoot.resolve("11");
+        GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
+                "status", "created",
+                "appId", 11L,
+                "taskId", "task-11",
+                "snapshotPath", applicationSnapshotRoot.toString()
+        ));
+
+        DiffSummary summary = new GenerationDiffSummaryService(
+                tempDir.resolve("code_output"),
+                codeSnapshotRoot,
+                WorkspaceFileSystemTestFactory.create()
+        ).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
+
+        assertEquals("rollback_path_out_of_root", summary.reason());
     }
 
     private Path cleanTestRoot(String caseName) {

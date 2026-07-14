@@ -7,12 +7,14 @@ import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import dev.langchain4j.model.output.TokenUsage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import com.rush.rushaicodemother.service.GenerationTraceService;
+import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
+import com.rush.rushaicodemother.service.trace.GenerationModelCallCommand;
+import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * AI 模型监听器
@@ -23,6 +25,7 @@ public class AiModelMonitorListener implements ChatModelListener {
 
     // 用于存储请求开始时间的键
     private static final String REQUEST_START_TIME_KEY = "request_start_time";
+    private static final String MODEL_CALL_ID_KEY = "model_call_id";
     // 用于监控上下文传递（因为请求和响应事件的触发不是同一个线程）
     private static final String MONITOR_CONTEXT_KEY = "monitor_context";
 
@@ -34,6 +37,7 @@ public class AiModelMonitorListener implements ChatModelListener {
     public void onRequest(ChatModelRequestContext requestContext) {
         // 获取当前时间戳，但未做任何处理
         requestContext.attributes().put(REQUEST_START_TIME_KEY, Instant.now());
+        requestContext.attributes().put(MODEL_CALL_ID_KEY, UUID.randomUUID().toString());
         // 从监控上下文中获取信息
         MonitorContext monitorContext = MonitorContextHolder.getContext();
         if (monitorContext == null) {
@@ -66,9 +70,9 @@ public class AiModelMonitorListener implements ChatModelListener {
         // 记录成功请求
         aiModelMetricsCollector.recordRequest(userId, appId, taskId, modelName, "success");
         // 记录响应时间
-        recordResponseTime(attributes, userId, appId, taskId, modelName);
+        Duration responseTime = recordResponseTime(attributes, userId, appId, taskId, modelName);
         // 记录 Token 使用情况
-        recordTokenUsage(responseContext, userId, appId, taskId, modelName);
+        recordTokenUsage(responseContext, userId, appId, taskId, modelName, responseTime);
     }
 
     @Override
@@ -98,17 +102,18 @@ public class AiModelMonitorListener implements ChatModelListener {
     /**
      * 记录响应时间
      */
-    private void recordResponseTime(Map<Object, Object> attributes,
-                                    String userId,
-                                    String appId,
-                                    String taskId,
-                                    String modelName) {
+    private Duration recordResponseTime(Map<Object, Object> attributes,
+                                        String userId,
+                                        String appId,
+                                        String taskId,
+                                        String modelName) {
         Instant startTime = (Instant) attributes.get(REQUEST_START_TIME_KEY);
         if (startTime == null) {
-            return;
+            return null;
         }
         Duration responseTime = Duration.between(startTime, Instant.now());
         aiModelMetricsCollector.recordResponseTime(userId, appId, taskId, modelName, responseTime);
+        return responseTime;
     }
 
     /**
@@ -129,37 +134,58 @@ public class AiModelMonitorListener implements ChatModelListener {
                                   String userId,
                                   String appId,
                                   String taskId,
-                                  String modelName) {
+                                  String modelName,
+                                  Duration responseTime) {
         TokenUsage tokenUsage = responseContext.chatResponse().metadata().tokenUsage();
         if (tokenUsage != null) {
             aiModelMetricsCollector.recordTokenUsage(userId, appId, taskId, modelName, "input", tokenUsage.inputTokenCount());
             aiModelMetricsCollector.recordTokenUsage(userId, appId, taskId, modelName, "output", tokenUsage.outputTokenCount());
             aiModelMetricsCollector.recordTokenUsage(userId, appId, taskId, modelName, "total", tokenUsage.totalTokenCount());
-            recordGenerationModelCall(userId, appId, taskId, modelName, tokenUsage);
+            recordGenerationModelCall(responseContext, userId, appId, taskId, modelName, tokenUsage, responseTime);
         }
     }
 
-    private void recordGenerationModelCall(String userId,
+    private void recordGenerationModelCall(ChatModelResponseContext responseContext,
+                                           String userId,
                                            String appId,
                                            String taskId,
                                            String modelName,
-                                           TokenUsage tokenUsage) {
-        if ("none".equals(taskId) || "anonymous".equals(userId) || tokenUsage == null) {
+                                           TokenUsage tokenUsage,
+                                           Duration responseTime) {
+        Long parsedAppId = parsePositiveLong(appId);
+        Long parsedUserId = parsePositiveLong(userId);
+        Object callId = responseContext.attributes().get(MODEL_CALL_ID_KEY);
+        if ("none".equals(taskId)
+                || parsedAppId == null
+                || parsedUserId == null
+                || tokenUsage == null
+                || responseTime == null
+                || !(callId instanceof String callIdText)) {
             return;
         }
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("provider", "langchain4j");
-        metadata.put("model", modelName);
-        metadata.put("promptTokens", tokenUsage.inputTokenCount());
-        metadata.put("completionTokens", tokenUsage.outputTokenCount());
-        metadata.put("totalTokens", tokenUsage.totalTokenCount());
-        metadata.put("usageSource", "OFFICIAL");
-        generationTraceService.recordModelCall(taskId, parseLong(appId), parseLong(userId), metadata);
+        String finishReason = responseContext.chatResponse().metadata().finishReason() == null
+                ? null
+                : responseContext.chatResponse().metadata().finishReason().name();
+        generationTraceService.recordModelCall(new GenerationModelCallCommand(
+                callIdText,
+                taskId,
+                parsedAppId,
+                parsedUserId,
+                "langchain4j",
+                modelName,
+                tokenUsage.inputTokenCount(),
+                tokenUsage.outputTokenCount(),
+                tokenUsage.totalTokenCount(),
+                responseTime.toMillis(),
+                finishReason,
+                GenerationModelUsageSource.OFFICIAL
+        ));
     }
 
-    private Long parseLong(String value) {
+    private Long parsePositiveLong(String value) {
         try {
-            return Long.parseLong(value);
+            long parsed = Long.parseLong(value);
+            return parsed > 0 ? parsed : null;
         } catch (Exception e) {
             return null;
         }

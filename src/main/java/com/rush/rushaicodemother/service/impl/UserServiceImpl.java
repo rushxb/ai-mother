@@ -1,22 +1,20 @@
 package com.rush.rushaicodemother.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.collection.CollUtil;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
-import com.mybatisflex.core.query.QueryWrapper;
-import com.mybatisflex.spring.service.impl.ServiceImpl;
-import com.rush.rushaicodemother.common.query.SortFieldWhitelist;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
-import com.rush.rushaicodemother.mapper.UserMapper;
-import com.rush.rushaicodemother.model.dto.user.UserQueryRequest;
+import com.rush.rushaicodemother.model.dto.user.UserAddRequest;
+import com.rush.rushaicodemother.model.dto.user.UserUpdateRequest;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.UserRoleEnum;
 import com.rush.rushaicodemother.model.vo.LoginUserVO;
-import com.rush.rushaicodemother.model.vo.UserVO;
 import com.rush.rushaicodemother.security.password.PasswordHashService;
 import com.rush.rushaicodemother.security.password.PasswordVerificationResult;
+import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.UserService;
+import com.rush.rushaicodemother.service.user.UserPersistenceService;
+import com.rush.rushaicodemother.service.user.UserViewConverter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 
 import static com.rush.rushaicodemother.constant.UserConstant.USER_LOGIN_STATE;
 
@@ -37,57 +32,89 @@ import static com.rush.rushaicodemother.constant.UserConstant.USER_LOGIN_STATE;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+public class UserServiceImpl implements UserService {
 
     private static final int MIN_ACCOUNT_LENGTH = 4;
     private static final int MAX_ACCOUNT_LENGTH = 256;
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final int MAX_BCRYPT_PASSWORD_BYTES = 72;
-    private static final SortFieldWhitelist SORT_FIELDS = SortFieldWhitelist.of("createTime", Map.of(
-            "id", "id",
-            "userAccount", "userAccount",
-            "userName", "userName",
-            "userRole", "userRole",
-            "creditBalance", "creditBalance",
-            "createTime", "createTime",
-            "updateTime", "updateTime"
-    ));
-
     private final PasswordHashService passwordHashService;
+    private final UserCreditService userCreditService;
+    private final UserPersistenceService userPersistenceService;
+    private final UserViewConverter userViewConverter;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public long createUser(UserAddRequest request, Long adminUserId) {
+        if (adminUserId == null || adminUserId <= 0) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "缺少有效的管理员身份");
+        }
+        if (request == null || StrUtil.isBlank(request.getUserAccount())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户创建参数不完整");
+        }
+        validateAccount(request.getUserAccount());
+        validateRole(request.getUserRole());
+        long initialCredit = normalizeInitialCredit(request.getCreditBalance());
+
+        long userId = userPersistenceService.createUser(new UserPersistenceService.NewUser(
+                request.getUserAccount(),
+                hashPassword(request.getUserPassword()),
+                request.getUserName(),
+                request.getUserAvatar(),
+                request.getUserProfile(),
+                StrUtil.blankToDefault(request.getUserRole(), UserRoleEnum.USER.getValue()),
+                0L
+        ));
+        if (initialCredit > 0) {
+            // 先以零余额创建账户，再通过积分服务写入初始余额和流水，保证账实一致。
+            userCreditService.initializeCredit(userId, initialCredit, adminUserId);
+        }
+        return userId;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateUser(UserUpdateRequest request) {
+        if (request == null || request.getId() == null || request.getId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户 ID 不合法");
+        }
+        validateRole(request.getUserRole());
+        if (!hasEditableUserField(request)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "至少提供一个可更新字段");
+        }
+
+        userPersistenceService.updateAdministrationFields(
+                request.getId(),
+                request.getUserName(),
+                request.getUserAvatar(),
+                request.getUserProfile(),
+                request.getUserRole()
+        );
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteUser(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户 ID 不合法");
+        }
+        userPersistenceService.logicallyDelete(userId);
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
         validateRegistration(userAccount, userPassword, checkPassword);
 
-        QueryWrapper queryWrapper = QueryWrapper.create()
-                .eq("userAccount", userAccount)
-                .eq("isDelete", 0);
-        long count = this.mapper.selectCountByQuery(queryWrapper);
-        if (count > 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号重复");
-        }
-
-        User user = new User();
-        user.setUserAccount(userAccount);
-        user.setUserPassword(hashPassword(userPassword));
-        user.setUserName("神秘用户");
-        user.setUserRole(UserRoleEnum.USER.getValue());
-        boolean saved = this.save(user);
-        if (!saved) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "注册失败，请稍后重试");
-        }
-        return user.getId();
-    }
-
-    @Override
-    public LoginUserVO getLoginUserVO(User user) {
-        if (user == null) {
-            return null;
-        }
-        LoginUserVO loginUserVO = new LoginUserVO();
-        BeanUtil.copyProperties(user, loginUserVO);
-        return loginUserVO;
+        return userPersistenceService.createUser(new UserPersistenceService.NewUser(
+                userAccount,
+                hashPassword(userPassword),
+                "神秘用户",
+                null,
+                null,
+                UserRoleEnum.USER.getValue(),
+                0L
+        ));
     }
 
     @Override
@@ -95,10 +122,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public LoginUserVO userLogin(String userAccount, String userPassword, HttpServletRequest request) {
         validateLogin(userAccount, userPassword);
 
-        QueryWrapper queryWrapper = QueryWrapper.create()
-                .eq("userAccount", userAccount)
-                .eq("isDelete", 0);
-        User user = this.mapper.selectOneByQuery(queryWrapper);
+        User user = userPersistenceService.findActiveByAccount(userAccount);
         if (user == null) {
             throw invalidCredentialsException();
         }
@@ -116,7 +140,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         // Session 只保存用户 ID，避免把密码哈希等完整用户数据写入 Redis Session。
         request.getSession(true).setAttribute(USER_LOGIN_STATE, user.getId());
-        return getLoginUserVO(user);
+        return userViewConverter.toLoginUserView(user);
     }
 
     @Override
@@ -127,7 +151,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
 
-        User currentUser = this.getById(userId);
+        User currentUser = userPersistenceService.findActiveById(userId);
         if (currentUser == null) {
             session.removeAttribute(USER_LOGIN_STATE);
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
@@ -136,23 +160,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public UserVO getUserVO(User user) {
-        if (user == null) {
-            return null;
-        }
-        UserVO userVO = new UserVO();
-        BeanUtil.copyProperties(user, userVO);
-        return userVO;
+    public LoginUserVO getLoginUserView(HttpServletRequest request) {
+        return userViewConverter.toLoginUserView(getLoginUser(request));
     }
 
     @Override
-    public List<UserVO> getUserVOList(List<User> userList) {
-        if (CollUtil.isEmpty(userList)) {
-            return new ArrayList<>();
-        }
-        return userList.stream()
-                .map(this::getUserVO)
-                .toList();
+    public long getLoginUserId(HttpServletRequest request) {
+        return getLoginUser(request).getId();
     }
 
     @Override
@@ -165,55 +179,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return true;
     }
 
-    @Override
-    public QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest) {
-        if (userQueryRequest == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数为空");
-        }
-        Long id = userQueryRequest.getId();
-        String userAccount = userQueryRequest.getUserAccount();
-        String userName = userQueryRequest.getUserName();
-        String userProfile = userQueryRequest.getUserProfile();
-        String userRole = userQueryRequest.getUserRole();
-        String sortField = SORT_FIELDS.resolve(userQueryRequest.getSortField());
-        boolean ascending = "ascend".equals(userQueryRequest.getSortOrder());
-
-        return QueryWrapper.create()
-                .eq("id", id, id != null)
-                .eq("userRole", userRole, StrUtil.isNotBlank(userRole))
-                .like("userAccount", userAccount, StrUtil.isNotBlank(userAccount))
-                .like("userName", userName, StrUtil.isNotBlank(userName))
-                .like("userProfile", userProfile, StrUtil.isNotBlank(userProfile))
-                .orderBy(sortField, ascending);
-    }
-
-    @Override
-    public String hashPassword(String userPassword) {
+    private String hashPassword(String userPassword) {
         validatePasswordLength(userPassword);
         try {
             return passwordHashService.hash(userPassword);
         } catch (IllegalArgumentException exception) {
-            log.error("Password hashing failed after application-level validation", exception);
+            log.error("Password hashing failed after application-level validation",
+                    LogExceptionSanitizer.sanitize(exception));
             throw new BusinessException(
                     ErrorCode.SYSTEM_ERROR,
                     "密码安全处理失败，请稍后重试",
                     exception
             );
-        }
-    }
-
-    @Override
-    public void ensureHasCredit(Long userId) {
-        if (userId == null || userId <= 0) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
-        }
-        User user = this.getById(userId);
-        if (user == null) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
-        }
-        Long creditBalance = user.getCreditBalance();
-        if (creditBalance == null || creditBalance <= 0) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "积分不足，请联系管理员充值");
         }
     }
 
@@ -247,6 +224,29 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
     }
 
+    private void validateRole(String userRole) {
+        if (StrUtil.isNotBlank(userRole) && UserRoleEnum.getEnumByValue(userRole) == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户角色只能是 user 或 admin");
+        }
+    }
+
+    private long normalizeInitialCredit(Long creditBalance) {
+        if (creditBalance == null) {
+            return 0L;
+        }
+        if (creditBalance < 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "初始积分不能小于 0");
+        }
+        return creditBalance;
+    }
+
+    private boolean hasEditableUserField(UserUpdateRequest request) {
+        return request.getUserName() != null
+                || request.getUserAvatar() != null
+                || request.getUserProfile() != null
+                || request.getUserRole() != null;
+    }
+
     private void validatePasswordLength(String userPassword) {
         if (userPassword == null || userPassword.length() < MIN_PASSWORD_LENGTH) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码长度不能少于 8 位");
@@ -257,12 +257,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     private void upgradePasswordHash(Long userId, String rawPassword) {
-        User passwordUpdate = new User();
-        passwordUpdate.setId(userId);
-        passwordUpdate.setUserPassword(hashPassword(rawPassword));
-        if (!this.updateById(passwordUpdate)) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "登录凭据升级失败，请稍后重试");
-        }
+        userPersistenceService.updatePasswordHash(userId, hashPassword(rawPassword));
     }
 
     private Long resolveSessionUserId(HttpSession session) {

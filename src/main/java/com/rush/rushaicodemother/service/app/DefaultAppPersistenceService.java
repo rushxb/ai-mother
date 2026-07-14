@@ -1,0 +1,123 @@
+package com.rush.rushaicodemother.service.app;
+
+import com.mybatisflex.core.paginate.Page;
+import com.mybatisflex.core.query.QueryWrapper;
+import com.rush.rushaicodemother.common.query.SortFieldWhitelist;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.exception.ThrowUtils;
+import com.rush.rushaicodemother.mapper.AppMapper;
+import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
+import com.rush.rushaicodemother.model.entity.App;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+
+/** MyBatis-Flex 应用元数据持久化实现。 */
+@Service
+@RequiredArgsConstructor
+public class DefaultAppPersistenceService implements AppPersistenceService {
+
+    private static final SortFieldWhitelist SORT_FIELDS = SortFieldWhitelist.of("createTime", Map.of(
+            "id", "id",
+            "appName", "appName",
+            "priority", "priority",
+            "userId", "userId",
+            "editTime", "editTime",
+            "createTime", "createTime",
+            "updateTime", "updateTime"
+    ));
+
+    private final AppMapper appMapper;
+
+    @Override
+    public App findActiveById(Long appId) {
+        validateAppId(appId);
+        return appMapper.selectActiveById(appId);
+    }
+
+    @Override
+    public Page<App> pageActiveApps(AppQueryRequest queryRequest) {
+        ThrowUtils.throwIf(queryRequest == null, ErrorCode.PARAMS_ERROR, "查询条件不能为空");
+        ThrowUtils.throwIf(queryRequest.getPageNum() <= 0 || queryRequest.getPageSize() <= 0,
+                ErrorCode.PARAMS_ERROR, "分页参数必须大于 0");
+        return appMapper.paginate(
+                Page.of(queryRequest.getPageNum(), queryRequest.getPageSize()),
+                buildQueryWrapper(queryRequest)
+        );
+    }
+
+    @Override
+    public void updateName(Long appId, String appName, LocalDateTime editTime) {
+        validateAppId(appId);
+        ThrowUtils.throwIf(appName == null, ErrorCode.PARAMS_ERROR, "应用名称不能为空");
+        updateExactlyOne(
+                appMapper.updateActiveName(appId, appName, requireEditTime(editTime)),
+                "更新应用名称失败"
+        );
+    }
+
+    @Override
+    public void updateAdministrationFields(Long appId,
+                                           String appName,
+                                           String cover,
+                                           Integer priority,
+                                           LocalDateTime editTime) {
+        validateAppId(appId);
+        ThrowUtils.throwIf(appName == null && cover == null && priority == null,
+                ErrorCode.PARAMS_ERROR, "至少提供一个待更新字段");
+        updateExactlyOne(
+                appMapper.updateActiveAdministrationFields(
+                        appId,
+                        appName,
+                        cover,
+                        priority,
+                        requireEditTime(editTime)
+                ),
+                "管理员更新应用失败"
+        );
+    }
+
+    @Override
+    public void updateDevServerPort(Long appId, int port) {
+        validateAppId(appId);
+        ThrowUtils.throwIf(port < 1 || port > 65535, ErrorCode.PARAMS_ERROR, "Dev Server 端口不合法");
+        updateExactlyOne(
+                appMapper.updateActiveDevServerPort(appId, port),
+                "保存 Dev Server 端口失败"
+        );
+    }
+
+    private QueryWrapper buildQueryWrapper(AppQueryRequest queryRequest) {
+        String sortField = SORT_FIELDS.resolve(queryRequest.getSortField());
+        boolean ascending = "ascend".equals(queryRequest.getSortOrder());
+        return QueryWrapper.create()
+                .eq("id", queryRequest.getId())
+                .like("appName", queryRequest.getAppName())
+                .like("cover", queryRequest.getCover())
+                .like("initPrompt", queryRequest.getInitPrompt())
+                .eq("codeGenType", queryRequest.getCodeGenType())
+                .eq("deployKey", queryRequest.getDeployKey())
+                .eq("priority", queryRequest.getPriority())
+                .eq("userId", queryRequest.getUserId())
+                .eq("isDelete", 0)
+                .orderBy(sortField, ascending);
+    }
+
+    private void updateExactlyOne(int affectedRows, String failureMessage) {
+        if (affectedRows != 1) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, failureMessage);
+        }
+    }
+
+    private LocalDateTime requireEditTime(LocalDateTime editTime) {
+        ThrowUtils.throwIf(editTime == null, ErrorCode.PARAMS_ERROR, "编辑时间不能为空");
+        return editTime;
+    }
+
+    private void validateAppId(Long appId) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
+    }
+}

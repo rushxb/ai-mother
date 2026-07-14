@@ -1,9 +1,13 @@
 package com.rush.rushaicodemother.service.workspace;
 
+import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildCommandResult;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
@@ -22,6 +26,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,14 +47,18 @@ class LocalAppCodeWorkspaceServiceTest {
     private final List<Path> workspaceRoots = new ArrayList<>();
 
     private VueProjectBuilder vueProjectBuilder;
+    private WorkspaceFileSystemProperties workspaceFileSystemProperties;
     private LocalAppCodeWorkspaceService workspaceService;
 
     @BeforeEach
     void setUp() {
         vueProjectBuilder = mock(VueProjectBuilder.class);
+        workspaceFileSystemProperties = new WorkspaceFileSystemProperties();
         workspaceService = new LocalAppCodeWorkspaceService(
                 new GenerationWorkspaceService(),
-                vueProjectBuilder
+                vueProjectBuilder,
+                new WorkspaceFileSystemService(workspaceFileSystemProperties),
+                workspaceFileSystemProperties
         );
     }
 
@@ -77,6 +86,29 @@ class LocalAppCodeWorkspaceServiceTest {
                 nodes.stream().map(AppCodeFileTreeVO::getName).toList());
         assertTrue(nodes.get(0).getDirectory());
         assertFalse(nodes.get(2).getDirectory());
+    }
+
+    @Test
+    void shouldPreserveEmptyDirectoriesAndApplyConfiguredTreeDepth() throws IOException {
+        workspaceFileSystemProperties.setMaxInteractiveTreeDepth(2);
+        WorkspaceFixture fixture = createWorkspace(CodeGenTypeEnum.HTML);
+        Files.createDirectories(fixture.root().resolve("empty"));
+        Files.createDirectories(fixture.root().resolve("deep/level-two/level-three"));
+        Files.writeString(
+                fixture.root().resolve("deep/level-two/level-three/index.html"),
+                "deep",
+                StandardCharsets.UTF_8
+        );
+
+        List<AppCodeFileTreeVO> nodes = workspaceService.listFiles(fixture.app());
+
+        AppCodeFileTreeVO emptyDirectory = findNode(nodes, "empty");
+        assertTrue(emptyDirectory.getDirectory());
+        assertTrue(emptyDirectory.getChildren().isEmpty());
+        AppCodeFileTreeVO deepDirectory = findNode(nodes, "deep");
+        AppCodeFileTreeVO levelTwo = findNode(deepDirectory.getChildren(), "level-two");
+        assertTrue(levelTwo.getDirectory());
+        assertTrue(levelTwo.getChildren().isEmpty());
     }
 
     @Test
@@ -142,6 +174,19 @@ class LocalAppCodeWorkspaceServiceTest {
     }
 
     @Test
+    void shouldHonorConfiguredInteractiveFileLimit() throws IOException {
+        workspaceFileSystemProperties.setMaxInteractiveFileBytes(1_024);
+        WorkspaceFixture fixture = createWorkspace(CodeGenTypeEnum.HTML);
+        Path sourceFile = fixture.root().resolve("index.html");
+        Files.writeString(sourceFile, "old", StandardCharsets.UTF_8);
+
+        assertErrorCode(ErrorCode.OPERATION_ERROR,
+                () -> workspaceService.saveFile(fixture.app(), "index.html", "a".repeat(1_025)));
+
+        assertEquals("old", Files.readString(sourceFile, StandardCharsets.UTF_8));
+    }
+
+    @Test
     void shouldRejectSavingWhenExistingFileExceedsEditLimit() throws IOException {
         WorkspaceFixture fixture = createWorkspace(CodeGenTypeEnum.HTML);
         Path sourceFile = fixture.root().resolve("large.js");
@@ -171,10 +216,16 @@ class LocalAppCodeWorkspaceServiceTest {
         Path sourceFile = fixture.root().resolve("src").resolve("App.vue");
         Files.createDirectories(sourceFile.getParent());
         Files.writeString(sourceFile, "<template>old</template>", StandardCharsets.UTF_8);
-        VueProjectBuilder.BuildResult failedResult = new VueProjectBuilder.BuildResult(
-                false, "build", fixture.root().toString(), "构建失败", null, null
+        VueBuildCommandResult failedCommand = new VueBuildCommandResult(
+                "pnpm build", false, 1, false,
+                "src/App.vue(12,3): error TS2307: Cannot find module '@/missing'\n"
+                        + "provider-api-key=secret-value",
+                null
         );
-        VueProjectBuilder.BuildResult recoveredResult = new VueProjectBuilder.BuildResult(
+        VueBuildResult failedResult = new VueBuildResult(
+                false, "build", fixture.root().toString(), "构建失败", null, failedCommand
+        );
+        VueBuildResult recoveredResult = new VueBuildResult(
                 true, "done", fixture.root().toString(), "构建成功", null, null
         );
         when(vueProjectBuilder.buildProjectWithResult(anyString()))
@@ -184,7 +235,48 @@ class LocalAppCodeWorkspaceServiceTest {
                 () -> workspaceService.saveFile(fixture.app(), "src/App.vue", "<template>broken</template>"));
 
         assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), exception.getCode());
+        assertTrue(exception.getMessage().contains("Cannot find module"));
+        assertFalse(exception.getMessage().contains("secret-value"));
         assertEquals("<template>old</template>", Files.readString(sourceFile, StandardCharsets.UTF_8));
+        verify(vueProjectBuilder, org.mockito.Mockito.times(2))
+                .buildProjectWithResult(fixture.root().toString());
+    }
+
+    @Test
+    void shouldNotOverwriteNewerContentWhenRollbackDetectsConcurrentUpdate() throws IOException {
+        WorkspaceFixture fixture = createWorkspace(CodeGenTypeEnum.VUE_PROJECT);
+        Path sourceFile = fixture.root().resolve("src/App.vue");
+        Files.createDirectories(sourceFile.getParent());
+        Files.writeString(sourceFile, "<template>old</template>", StandardCharsets.UTF_8);
+        VueBuildResult failedResult = new VueBuildResult(
+                false, "build", fixture.root().toString(), "构建失败", null, null
+        );
+        VueBuildResult successfulResult = new VueBuildResult(
+                true, "done", fixture.root().toString(), "构建成功", null, null
+        );
+        AtomicInteger buildCalls = new AtomicInteger();
+        when(vueProjectBuilder.buildProjectWithResult(anyString())).thenAnswer(invocation -> {
+            if (buildCalls.incrementAndGet() == 1) {
+                workspaceService.saveFile(
+                        fixture.app(),
+                        "src/App.vue",
+                        "<template>newer-request</template>"
+                );
+                return failedResult;
+            }
+            return successfulResult;
+        });
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> workspaceService.saveFile(
+                fixture.app(),
+                "src/App.vue",
+                "<template>first-request</template>"
+        ));
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+        assertTrue(exception.getMessage().contains("其他请求更新"));
+        assertEquals("<template>newer-request</template>",
+                Files.readString(sourceFile, StandardCharsets.UTF_8));
         verify(vueProjectBuilder, org.mockito.Mockito.times(2))
                 .buildProjectWithResult(fixture.root().toString());
     }
@@ -197,7 +289,7 @@ class LocalAppCodeWorkspaceServiceTest {
         Files.createDirectories(sourceFile.getParent());
         Files.writeString(sourceFile, "<template>old</template>", StandardCharsets.UTF_8);
         when(vueProjectBuilder.buildProjectWithResult(anyString()))
-                .thenReturn(new VueProjectBuilder.BuildResult(
+                .thenReturn(new VueBuildResult(
                         true, "done", frontendRoot.toString(), "构建成功", null, null
                 ));
 
@@ -239,6 +331,13 @@ class LocalAppCodeWorkspaceServiceTest {
         Files.createDirectories(root);
         workspaceRoots.add(root);
         return new WorkspaceFixture(app, root);
+    }
+
+    private AppCodeFileTreeVO findNode(List<AppCodeFileTreeVO> nodes, String name) {
+        return nodes.stream()
+                .filter(node -> name.equals(node.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing file tree node: " + name));
     }
 
     private void assertErrorCode(ErrorCode expectedErrorCode, Runnable operation) {

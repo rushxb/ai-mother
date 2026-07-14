@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.template;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
@@ -68,7 +69,7 @@ public class BackendProjectTemplateBootstrapService {
             if (workspaceCreated) {
                 TemplateWorkspaceFailureCleanup.deleteOwnedWorkspace(targetRoot, e);
             }
-            log.warn("复制后端项目模板失败，targetRoot: {}, templateId: {}", targetRoot, TEMPLATE_ID, e);
+            log.warn("复制后端项目模板失败，targetRoot: {}, templateId: {}", targetRoot, TEMPLATE_ID, LogExceptionSanitizer.sanitize(e));
             throw new BusinessException(
                     ErrorCode.SYSTEM_ERROR,
                     "初始化后端项目模板失败，请稍后重试",

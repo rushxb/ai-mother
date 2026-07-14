@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.infrastructure.git;
 
 import com.rush.rushaicodemother.config.GenerationCommitProperties;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessOutputLogPolicy;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import org.springframework.stereotype.Component;
@@ -57,20 +58,30 @@ public class GitCommandExecutor {
         ));
         command.addAll(arguments);
 
-        Map<String, String> environment = new LinkedHashMap<>(CONTROLLED_ENVIRONMENT);
+        Map<String, String> environment = new LinkedHashMap<>();
         if (additionalEnvironment != null) {
             environment.putAll(additionalEnvironment);
         }
+        // Security and reproducibility settings are applied last so callers cannot override them.
+        environment.putAll(CONTROLLED_ENVIRONMENT);
+        Path isolatedConfigRoot = workingDirectory.toAbsolutePath()
+                .normalize()
+                .resolve(".ai-code-mother-git-config");
+        environment.put("GIT_CONFIG_NOSYSTEM", "1");
+        environment.put("GIT_CONFIG_GLOBAL", isolatedConfigRoot.resolve("global").toString());
+        environment.put("XDG_CONFIG_HOME", isolatedConfigRoot.resolve("xdg").toString());
         ManagedProcessResult result = processExecutor.execute(
                 ManagedProcessRequest.builder()
                         .workingDirectory(workingDirectory)
                         .command(command)
+                        .displayCommand(displayCommand(arguments))
                         .environment(environment)
                         .timeout(properties.getCommandTimeout())
                         .heartbeatInterval(properties.getHeartbeatInterval())
                         .outputDrainTimeout(properties.getOutputDrainTimeout())
                         .maxOutputLength(properties.getMaxOutputLength())
                         .redirectErrorStream(false)
+                        .outputLogPolicy(ManagedProcessOutputLogPolicy.SUMMARY)
                         .logCategory("git-command")
                         .logContext(logContext)
                         .build()
@@ -90,5 +101,37 @@ public class GitCommandExecutor {
             String logContext
     ) {
         return execute(workingDirectory, arguments, Map.of(), logContext);
+    }
+
+    private String displayCommand(List<String> arguments) {
+        if (arguments == null || arguments.isEmpty()) {
+            return "git";
+        }
+        for (int index = 0; index < arguments.size(); index++) {
+            String argument = arguments.get(index);
+            if (argument == null || argument.isBlank()) {
+                return "git";
+            }
+            if (isGlobalOptionWithSeparateValue(argument)) {
+                index++;
+                continue;
+            }
+            if (argument.startsWith("-")) {
+                continue;
+            }
+            return argument.matches("[A-Za-z0-9-]+") ? "git " + argument : "git";
+        }
+        return "git";
+    }
+
+    private boolean isGlobalOptionWithSeparateValue(String argument) {
+        return "-c".equals(argument)
+                || "-C".equals(argument)
+                || "--config-env".equals(argument)
+                || "--exec-path".equals(argument)
+                || "--git-dir".equals(argument)
+                || "--work-tree".equals(argument)
+                || "--namespace".equals(argument)
+                || "--super-prefix".equals(argument);
     }
 }

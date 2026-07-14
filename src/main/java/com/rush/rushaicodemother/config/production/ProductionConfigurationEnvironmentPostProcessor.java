@@ -35,12 +35,13 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
             "cos.client.bucket"
     );
 
-    private static final List<ExpectedPropertyValue> SECURITY_PROPERTIES = List.of(
+    private static final List<ExpectedPropertyValue> REQUIRED_PROPERTY_VALUES = List.of(
             new ExpectedPropertyValue("server.servlet.session.cookie.secure", "true"),
             new ExpectedPropertyValue("server.servlet.session.cookie.http-only", "true"),
             new ExpectedPropertyValue("springdoc.api-docs.enabled", "false"),
             new ExpectedPropertyValue("springdoc.swagger-ui.enabled", "false"),
             new ExpectedPropertyValue("knife4j.enable", "false"),
+            new ExpectedPropertyValue("management.endpoint.health.probes.enabled", "true"),
             new ExpectedPropertyValue("management.endpoint.health.show-details", "never")
     );
 
@@ -82,7 +83,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
 
     private List<String> findUnsafeProperties(ConfigurableEnvironment environment) {
         List<String> unsafeProperties = new ArrayList<>();
-        SECURITY_PROPERTIES.stream()
+        REQUIRED_PROPERTY_VALUES.stream()
                 .filter(expected -> !expected.matches(readProperty(environment, expected.propertyName())))
                 .map(ExpectedPropertyValue::description)
                 .forEach(unsafeProperties::add);

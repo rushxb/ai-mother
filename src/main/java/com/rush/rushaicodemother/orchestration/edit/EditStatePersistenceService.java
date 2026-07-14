@@ -1,297 +1,381 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 /**
- * 编辑状态持久化服务。
- * 记录最近修改文件、最近 patch 成功/失败原因、最近 build 结果、最近用户意图和命中文件。
- * 连续改修时优先召回上次相关文件，减少重新定位成本。
+ * 编辑状态服务。
+ *
+ * <p>仅持久化连续改修所需的任务标识、文件路径、结果状态和时间戳；用户消息、失败原因及
+ * 验证详情不进入本地状态文件。状态采用不可变快照，并在同一应用的条带锁内完成读取、更新、
+ * 原子保存和缓存替换，避免并发写入丢失。</p>
  */
 @Slf4j
 @Service
 public class EditStatePersistenceService {
 
-    private static final String STATE_DIRECTORY_NAME = ".ai-code-edit-state";
-    private static final String STATE_FILE_NAME = "edit-state.json";
-    private static final int MAX_RECENT_EDITS = 20;
-    private static final int MAX_RECENT_FILES = 50;
-    private static final long STATE_EXPIRY_HOURS = 24;
+    private static final Pattern SAFE_TASK_ID = Pattern.compile("[A-Za-z0-9_-]+");
+    private static final Pattern SAFE_STATUS = Pattern.compile("[a-z0-9_-]{1,32}");
+    private static final Duration MAX_CLOCK_SKEW = Duration.ofMinutes(5);
 
-    private final ConcurrentMap<String, EditState> cache = new ConcurrentHashMap<>();
+    private final EditStatePersistenceProperties properties;
+    private final LocalEditStateStore stateStore;
+    private final Cache<Long, EditStateSnapshot> cache;
+    private final ReentrantLock[] stateLocks;
+    private final Clock clock;
 
-    /**
-     * 记录编辑结果。
-     *
-     * @param appId          应用 ID
-     * @param taskId         任务 ID
-     * @param userMessage    用户消息
-     * @param patchOperations 补丁操作列表
-     * @param success        是否成功
-     * @param reason         原因（失败时）
-     */
-    public void recordEditResult(Long appId, String taskId, String userMessage, List<PatchOperation> patchOperations, boolean success, String reason) {
-        if (appId == null) {
-            return;
+    @Autowired
+    public EditStatePersistenceService(EditStatePersistenceProperties properties,
+                                       LocalEditStateStore stateStore) {
+        this(properties, stateStore, Clock.systemUTC());
+    }
+
+    EditStatePersistenceService(EditStatePersistenceProperties properties,
+                                LocalEditStateStore stateStore,
+                                Clock clock) {
+        this.properties = properties;
+        this.stateStore = stateStore;
+        this.clock = clock;
+        this.cache = Caffeine.newBuilder()
+                .maximumSize(properties.getMaxCacheEntries())
+                .expireAfterAccess(properties.getCacheExpireAfterAccess())
+                .build();
+        this.stateLocks = new ReentrantLock[properties.getLockStripes()];
+        for (int index = 0; index < stateLocks.length; index++) {
+            stateLocks[index] = new ReentrantLock();
         }
-        EditState state = getOrCreateState(appId);
-        EditRecord record = new EditRecord(
-                taskId,
-                userMessage,
-                patchOperations.stream().map(PatchOperation::relativePath).filter(StrUtil::isNotBlank).toList(),
-                success,
-                StrUtil.blankToDefault(reason, ""),
-                LocalDateTime.now()
-        );
-        state.recentEdits().add(0, record);
-        if (state.recentEdits().size() > MAX_RECENT_EDITS) {
-            state.recentEdits().removeLast();
-        }
-        // 更新最近修改文件
-        for (String filePath : record.changedFiles()) {
-            state.recentFiles().removeIf(f -> f.filePath().equals(filePath));
-            state.recentFiles().add(0, new RecentFile(filePath, LocalDateTime.now(), success));
-            if (state.recentFiles().size() > MAX_RECENT_FILES) {
-                state.recentFiles().removeLast();
-            }
-        }
-        saveState(appId, state);
-        log.debug("记录编辑结果，appId: {}, taskId: {}, success: {}", appId, taskId, success);
     }
 
     /**
-     * 记录验证结果。
-     *
-     * @param appId  应用 ID
-     * @param taskId 任务 ID
-     * @param result 验证结果
+     * 记录一次编辑结果。无效身份或路径会被忽略，存储失败不会中断编辑主流程。
      */
-    public void recordValidationResult(Long appId, String taskId, BackgroundValidationService.ValidationResult result) {
-        if (appId == null || result == null) {
+    public void recordEditResult(Long appId,
+                                 String taskId,
+                                 List<PatchOperation> patchOperations,
+                                 boolean success) {
+        String normalizedTaskId = normalizeTaskId(taskId);
+        if (!isValidAppId(appId) || normalizedTaskId == null) {
             return;
         }
-        EditState state = getOrCreateState(appId);
-        ValidationRecord record = new ValidationRecord(
-                taskId,
-                result.status(),
-                result.message(),
-                LocalDateTime.now()
-        );
-        state.recentValidations().add(0, record);
-        if (state.recentValidations().size() > MAX_RECENT_EDITS) {
-            state.recentValidations().removeLast();
+        List<String> changedFiles = extractChangedFiles(patchOperations);
+        long nowEpochMillis = clock.millis();
+
+        ReentrantLock lock = lockFor(appId);
+        lock.lock();
+        try {
+            EditStateSnapshot current = loadState(appId);
+            List<EditStateSnapshot.EditRecord> recentEdits = prependBounded(
+                    current.recentEdits(),
+                    new EditStateSnapshot.EditRecord(normalizedTaskId, success, nowEpochMillis),
+                    properties.getMaxRecentEdits()
+            );
+            List<EditStateSnapshot.RecentFile> recentFiles = updateRecentFiles(
+                    current.recentFiles(), changedFiles, success, nowEpochMillis);
+            persistAndCache(appId, new EditStateSnapshot(
+                    EditStateSnapshot.CURRENT_SCHEMA_VERSION,
+                    recentEdits,
+                    recentFiles,
+                    current.recentValidations(),
+                    nowEpochMillis
+            ));
+            log.debug("记录编辑结果，appId: {}, taskId: {}, success: {}", appId, normalizedTaskId, success);
+        } finally {
+            lock.unlock();
         }
-        saveState(appId, state);
-        log.debug("记录验证结果，appId: {}, taskId: {}, status: {}", appId, taskId, result.status());
     }
 
     /**
-     * 获取最近修改的文件列表。
-     * 连续改修时优先召回上次相关文件。
-     *
-     * @param appId 应用 ID
-     * @param limit 最大数量
-     * @return 最近修改的文件路径列表
+     * 记录后台验证的状态分类，不保存验证消息或明细。
+     */
+    public void recordValidationResult(Long appId, String taskId, String status) {
+        String normalizedTaskId = normalizeTaskId(taskId);
+        if (!isValidAppId(appId) || normalizedTaskId == null) {
+            return;
+        }
+        String normalizedStatus = normalizeStatus(status);
+        long nowEpochMillis = clock.millis();
+
+        ReentrantLock lock = lockFor(appId);
+        lock.lock();
+        try {
+            EditStateSnapshot current = loadState(appId);
+            List<EditStateSnapshot.ValidationRecord> recentValidations = prependBounded(
+                    current.recentValidations(),
+                    new EditStateSnapshot.ValidationRecord(normalizedTaskId, normalizedStatus, nowEpochMillis),
+                    properties.getMaxRecentValidations()
+            );
+            persistAndCache(appId, new EditStateSnapshot(
+                    EditStateSnapshot.CURRENT_SCHEMA_VERSION,
+                    current.recentEdits(),
+                    current.recentFiles(),
+                    recentValidations,
+                    nowEpochMillis
+            ));
+            log.debug("记录验证结果，appId: {}, taskId: {}, status: {}",
+                    appId, normalizedTaskId, normalizedStatus);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * 获取最近成功修改的文件。
      */
     public List<String> getRecentModifiedFiles(Long appId, int limit) {
-        if (appId == null) {
+        if (!isValidAppId(appId) || limit <= 0) {
             return List.of();
         }
-        EditState state = getOrCreateState(appId);
+        EditStateSnapshot state = readState(appId);
         return state.recentFiles().stream()
-                .filter(RecentFile::success)
-                .map(RecentFile::filePath)
-                .distinct()
-                .limit(limit)
+                .filter(EditStateSnapshot.RecentFile::success)
+                .map(EditStateSnapshot.RecentFile::filePath)
+                .limit(Math.min(limit, properties.getMaxRecentFiles()))
                 .toList();
     }
 
     /**
-     * 获取与用户消息相关的最近修改文件。
-     * 基于用户消息关键词匹配。
-     *
-     * @param appId       应用 ID
-     * @param userMessage 用户消息
-     * @param limit       最大数量
-     * @return 相关的文件路径列表
+     * 使用当前用户消息匹配最近成功修改的文件；历史用户消息不会被持久化。
      */
     public List<String> getRelevantRecentFiles(Long appId, String userMessage, int limit) {
-        if (appId == null || StrUtil.isBlank(userMessage)) {
+        if (!isValidAppId(appId) || StrUtil.isBlank(userMessage) || limit <= 0) {
             return List.of();
         }
-        EditState state = getOrCreateState(appId);
-        String normalizedMessage = userMessage.toLowerCase();
+        String normalizedMessage = userMessage.toLowerCase(Locale.ROOT).replace('\\', '/');
+        EditStateSnapshot state = readState(appId);
         return state.recentFiles().stream()
-                .filter(RecentFile::success)
+                .filter(EditStateSnapshot.RecentFile::success)
                 .filter(file -> isRelevantToMessage(file.filePath(), normalizedMessage))
-                .map(RecentFile::filePath)
-                .distinct()
-                .limit(limit)
+                .map(EditStateSnapshot.RecentFile::filePath)
+                .limit(Math.min(limit, properties.getMaxRecentFiles()))
                 .toList();
     }
 
     /**
-     * 获取最近编辑记录。
-     *
-     * @param appId 应用 ID
-     * @param limit 最大数量
-     * @return 最近编辑记录列表
-     */
-    public List<EditRecord> getRecentEdits(Long appId, int limit) {
-        if (appId == null) {
-            return List.of();
-        }
-        EditState state = getOrCreateState(appId);
-        return state.recentEdits().stream()
-                .limit(limit)
-                .toList();
-    }
-
-    /**
-     * 检查文件是否最近被修改过。
-     *
-     * @param appId      应用 ID
-     * @param filePath   文件路径
-     * @param withinHours 小时数
-     * @return 是否最近被修改过
+     * 判断文件是否在指定时间窗口内成功修改过。
      */
     public boolean wasRecentlyModified(Long appId, String filePath, long withinHours) {
-        if (appId == null || StrUtil.isBlank(filePath)) {
+        String normalizedFilePath = normalizeFilePath(filePath);
+        if (!isValidAppId(appId) || normalizedFilePath == null || withinHours <= 0) {
             return false;
         }
-        EditState state = getOrCreateState(appId);
+        long retentionHours = Math.max(1, properties.getStateRetention().toHours());
+        long boundedHours = Math.min(withinHours, retentionHours);
+        Instant cutoff = clock.instant().minus(Duration.ofHours(boundedHours));
+        EditStateSnapshot state = readState(appId);
         return state.recentFiles().stream()
-                .anyMatch(file -> file.filePath().equals(filePath) &&
-                        file.lastModified().isAfter(LocalDateTime.now().minusHours(withinHours)));
+                .anyMatch(file -> file.success()
+                        && file.filePath().equals(normalizedFilePath)
+                        && Instant.ofEpochMilli(file.lastModifiedEpochMillis()).isAfter(cutoff));
     }
 
-    /**
-     * 获取编辑状态。
-     */
-    private EditState getOrCreateState(Long appId) {
-        String cacheKey = String.valueOf(appId);
-        return cache.computeIfAbsent(cacheKey, key -> loadState(appId));
+    long estimatedCacheSize() {
+        cache.cleanUp();
+        return cache.estimatedSize();
     }
 
-    /**
-     * 加载编辑状态。
-     */
-    private EditState loadState(Long appId) {
-        Path stateFile = resolveStateFile(appId);
-        if (!Files.exists(stateFile)) {
-            return new EditState(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
-        }
+    private EditStateSnapshot readState(Long appId) {
+        ReentrantLock lock = lockFor(appId);
+        lock.lock();
         try {
-            String json = Files.readString(stateFile, StandardCharsets.UTF_8);
-            if (StrUtil.isBlank(json)) {
-                return new EditState(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
-            }
-            return JSONUtil.toBean(json, EditState.class);
-        } catch (Exception e) {
-            log.warn("加载编辑状态失败，appId: {}", appId, e);
-            return new EditState(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+            return loadState(appId);
+        } finally {
+            lock.unlock();
         }
     }
 
-    /**
-     * 保存编辑状态。
-     */
-    private void saveState(Long appId, EditState state) {
-        String cacheKey = String.valueOf(appId);
-        cache.put(cacheKey, state);
-        Path stateFile = resolveStateFile(appId);
-        try {
-            Files.createDirectories(stateFile.getParent());
-            String json = JSONUtil.toJsonPrettyStr(state);
-            Files.writeString(stateFile, json, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.warn("保存编辑状态失败，appId: {}", appId, e);
+    private EditStateSnapshot loadState(Long appId) {
+        EditStateSnapshot cached = cache.getIfPresent(appId);
+        if (cached != null) {
+            return cached;
         }
-    }
-
-    /**
-     * 解析状态文件路径。
-     * 使用用户主目录下的隐藏目录存储状态，确保系统重启后状态不丢失。
-     */
-    private Path resolveStateFile(Long appId) {
-        // 使用用户主目录存储状态，比临时目录更持久
-        Path homeDir = Path.of(System.getProperty("user.home"));
-        return homeDir.resolve(STATE_DIRECTORY_NAME).resolve(appId + "-" + STATE_FILE_NAME);
-    }
-
-    /**
-     * 检查文件是否与用户消息相关。
-     */
-    private boolean isRelevantToMessage(String filePath, String normalizedMessage) {
-        String normalizedPath = filePath.toLowerCase();
-        String fileName = normalizedPath.contains("/") ? normalizedPath.substring(normalizedPath.lastIndexOf('/') + 1) : normalizedPath;
-        // 移除扩展名
-        String fileNameWithoutExt = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
-        // 检查文件名是否出现在消息中
-        return normalizedMessage.contains(fileNameWithoutExt) || normalizedMessage.contains(normalizedPath);
-    }
-
-    /**
-     * 编辑状态。
-     */
-    public record EditState(
-            List<EditRecord> recentEdits,
-            List<RecentFile> recentFiles,
-            List<ValidationRecord> recentValidations
-    ) {
-        public EditState {
-            recentEdits = recentEdits == null ? new ArrayList<>() : new ArrayList<>(recentEdits);
-            recentFiles = recentFiles == null ? new ArrayList<>() : new ArrayList<>(recentFiles);
-            recentValidations = recentValidations == null ? new ArrayList<>() : new ArrayList<>(recentValidations);
+        EditStateSnapshot loaded = stateStore.load(appId);
+        EditStateSnapshot normalized = normalizeLoadedState(loaded);
+        cache.put(appId, normalized);
+        if (!normalized.equals(loaded)) {
+            stateStore.save(appId, normalized);
         }
+        return normalized;
     }
 
-    /**
-     * 编辑记录。
-     */
-    public record EditRecord(
-            String taskId,
-            String userMessage,
+    private EditStateSnapshot normalizeLoadedState(EditStateSnapshot loaded) {
+        long nowEpochMillis = clock.millis();
+        if (loaded == null || loaded.schemaVersion() != EditStateSnapshot.CURRENT_SCHEMA_VERSION) {
+            return EditStateSnapshot.empty(nowEpochMillis);
+        }
+
+        List<EditStateSnapshot.EditRecord> recentEdits = loaded.recentEdits().stream()
+                .filter(record -> record != null && normalizeTaskId(record.taskId()) != null)
+                .map(record -> new EditStateSnapshot.EditRecord(
+                        normalizeTaskId(record.taskId()),
+                        record.success(),
+                        normalizeTimestamp(record.timestampEpochMillis(), nowEpochMillis)))
+                .limit(properties.getMaxRecentEdits())
+                .toList();
+
+        Set<String> seenFiles = new HashSet<>();
+        List<EditStateSnapshot.RecentFile> recentFiles = loaded.recentFiles().stream()
+                .filter(file -> file != null)
+                .map(file -> {
+                    String normalizedPath = normalizeFilePath(file.filePath());
+                    if (normalizedPath == null || !seenFiles.add(normalizedPath)) {
+                        return null;
+                    }
+                    return new EditStateSnapshot.RecentFile(
+                            normalizedPath,
+                            normalizeTimestamp(file.lastModifiedEpochMillis(), nowEpochMillis),
+                            file.success());
+                })
+                .filter(file -> file != null)
+                .limit(properties.getMaxRecentFiles())
+                .toList();
+
+        List<EditStateSnapshot.ValidationRecord> recentValidations = loaded.recentValidations().stream()
+                .filter(record -> record != null && normalizeTaskId(record.taskId()) != null)
+                .map(record -> new EditStateSnapshot.ValidationRecord(
+                        normalizeTaskId(record.taskId()),
+                        normalizeStatus(record.status()),
+                        normalizeTimestamp(record.timestampEpochMillis(), nowEpochMillis)))
+                .limit(properties.getMaxRecentValidations())
+                .toList();
+
+        return new EditStateSnapshot(
+                EditStateSnapshot.CURRENT_SCHEMA_VERSION,
+                recentEdits,
+                recentFiles,
+                recentValidations,
+                normalizeTimestamp(loaded.updatedAtEpochMillis(), nowEpochMillis)
+        );
+    }
+
+    private List<EditStateSnapshot.RecentFile> updateRecentFiles(
+            List<EditStateSnapshot.RecentFile> currentFiles,
             List<String> changedFiles,
             boolean success,
-            String reason,
-            LocalDateTime timestamp
-    ) {
+            long nowEpochMillis) {
+        List<EditStateSnapshot.RecentFile> updated = new ArrayList<>(currentFiles);
+        for (String filePath : changedFiles) {
+            updated.removeIf(file -> file.filePath().equals(filePath));
+            updated.add(0, new EditStateSnapshot.RecentFile(filePath, nowEpochMillis, success));
+        }
+        if (updated.size() > properties.getMaxRecentFiles()) {
+            return List.copyOf(updated.subList(0, properties.getMaxRecentFiles()));
+        }
+        return List.copyOf(updated);
     }
 
-    /**
-     * 最近修改的文件。
-     */
-    public record RecentFile(
-            String filePath,
-            LocalDateTime lastModified,
-            boolean success
-    ) {
+    private List<String> extractChangedFiles(List<PatchOperation> patchOperations) {
+        if (patchOperations == null || patchOperations.isEmpty()) {
+            return List.of();
+        }
+        Set<String> seenPaths = new HashSet<>();
+        List<String> changedFiles = new ArrayList<>();
+        for (PatchOperation operation : patchOperations) {
+            if (operation == null) {
+                continue;
+            }
+            String normalizedPath = normalizeFilePath(operation.relativePath());
+            if (normalizedPath != null && seenPaths.add(normalizedPath)) {
+                changedFiles.add(normalizedPath);
+                if (changedFiles.size() >= properties.getMaxRecentFiles()) {
+                    break;
+                }
+            }
+        }
+        return List.copyOf(changedFiles);
     }
 
-    /**
-     * 验证记录。
-     */
-    public record ValidationRecord(
-            String taskId,
-            String status,
-            String message,
-            LocalDateTime timestamp
-    ) {
+    private String normalizeTaskId(String taskId) {
+        String normalized = StrUtil.trim(taskId);
+        if (StrUtil.isBlank(normalized)
+                || normalized.length() > properties.getMaxTaskIdLength()
+                || !SAFE_TASK_ID.matcher(normalized).matches()) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private String normalizeFilePath(String filePath) {
+        String normalized = StrUtil.trim(filePath);
+        if (StrUtil.isBlank(normalized)) {
+            return null;
+        }
+        normalized = normalized.replace('\\', '/');
+        if (normalized.length() > properties.getMaxFilePathLength()
+                || normalized.startsWith("/")
+                || normalized.matches("^[A-Za-z]:.*")) {
+            return null;
+        }
+        List<String> segments = new ArrayList<>();
+        for (String segment : normalized.split("/")) {
+            if (segment.isBlank() || ".".equals(segment)) {
+                continue;
+            }
+            if ("..".equals(segment)) {
+                return null;
+            }
+            segments.add(segment);
+        }
+        String result = String.join("/", segments);
+        return result.isBlank() || result.length() > properties.getMaxFilePathLength() ? null : result;
+    }
+
+    private String normalizeStatus(String status) {
+        String normalized = StrUtil.blankToDefault(status, "unknown").trim().toLowerCase(Locale.ROOT);
+        return SAFE_STATUS.matcher(normalized).matches() ? normalized : "unknown";
+    }
+
+    private boolean isRelevantToMessage(String filePath, String normalizedMessage) {
+        String normalizedPath = filePath.toLowerCase(Locale.ROOT);
+        int separatorIndex = normalizedPath.lastIndexOf('/');
+        String fileName = separatorIndex >= 0 ? normalizedPath.substring(separatorIndex + 1) : normalizedPath;
+        int extensionIndex = fileName.lastIndexOf('.');
+        String fileNameWithoutExtension = extensionIndex > 0 ? fileName.substring(0, extensionIndex) : fileName;
+        return (!fileNameWithoutExtension.isBlank() && normalizedMessage.contains(fileNameWithoutExtension))
+                || normalizedMessage.contains(normalizedPath);
+    }
+
+    private long normalizeTimestamp(long timestampEpochMillis, long nowEpochMillis) {
+        long maximumAcceptedTimestamp = nowEpochMillis + MAX_CLOCK_SKEW.toMillis();
+        if (timestampEpochMillis <= 0 || timestampEpochMillis > maximumAcceptedTimestamp) {
+            return nowEpochMillis;
+        }
+        return timestampEpochMillis;
+    }
+
+    private <T> List<T> prependBounded(List<T> current, T value, int maximumSize) {
+        List<T> updated = new ArrayList<>(Math.min(current.size() + 1, maximumSize));
+        updated.add(value);
+        int retainedCurrentItems = Math.min(current.size(), maximumSize - 1);
+        updated.addAll(current.subList(0, retainedCurrentItems));
+        return List.copyOf(updated);
+    }
+
+    private void persistAndCache(Long appId, EditStateSnapshot state) {
+        cache.put(appId, state);
+        stateStore.save(appId, state);
+    }
+
+    private ReentrantLock lockFor(Long appId) {
+        return stateLocks[Math.floorMod(Long.hashCode(appId), stateLocks.length)];
+    }
+
+    private boolean isValidAppId(Long appId) {
+        return appId != null && appId > 0;
     }
 }

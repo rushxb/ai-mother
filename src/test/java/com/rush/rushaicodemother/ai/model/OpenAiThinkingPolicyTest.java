@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.model;
 
-import com.rush.rushaicodemother.model.entity.AiModel;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -15,64 +15,43 @@ class OpenAiThinkingPolicyTest {
 
     @Test
     void unsupportedModelDoesNotEnableThinkingOrProviderParameters() {
-        AiModel model = model("deepseek", "deepseek-chat", 0);
-
-        OpenAiThinkingPolicy.ThinkingConfiguration configuration = policy.resolve(model, true);
-
-        assertFalse(configuration.returnThinking());
-        assertFalse(configuration.sendThinking());
-        assertTrue(configuration.customParameters().isEmpty());
-    }
-
-    @Test
-    void xiaomiModelReceivesEnabledThinkingParameter() {
-        AiModel model = model("xiaomi", "mimo-v2-flash", 1);
-
-        OpenAiThinkingPolicy.ThinkingConfiguration configuration = policy.resolve(model, true);
-
-        assertTrue(configuration.returnThinking());
-        assertTrue(configuration.sendThinking());
-        assertEquals(Map.of("thinking", Map.of("type", "enabled")), configuration.customParameters());
-    }
-
-    @Test
-    void xiaomiModelReceivesDisabledThinkingParameterWhenNotRequested() {
-        AiModel model = model("xiaomi", "mimo-v2-flash", 1);
-
-        OpenAiThinkingPolicy.ThinkingConfiguration configuration = policy.resolve(model, false);
+        OpenAiThinkingPolicy.ThinkingConfiguration configuration =
+                policy.resolve(model("deepseek", "deepseek-chat", false), true);
 
         assertFalse(configuration.returnThinking());
         assertFalse(configuration.sendThinking());
-        assertEquals(Map.of("thinking", Map.of("type", "disabled")), configuration.customParameters());
+        assertTrue(configuration.customParameters().isEmpty());
     }
 
     @Test
-    void deepSeekThinkingUsesOfficialFlagsWithoutXiaomiParameter() {
-        AiModel model = model("deepseek", "deepseek-reasoner", 1);
+    void xiaomiModelReceivesEnabledAndDisabledThinkingParameters() {
+        AiModelRuntimeConfiguration model = model("xiaomi", "mimo-v2-flash", true);
 
-        OpenAiThinkingPolicy.ThinkingConfiguration configuration = policy.resolve(model, true);
+        OpenAiThinkingPolicy.ThinkingConfiguration enabled = policy.resolve(model, true);
+        OpenAiThinkingPolicy.ThinkingConfiguration disabled = policy.resolve(model, false);
+
+        assertTrue(enabled.returnThinking());
+        assertTrue(enabled.sendThinking());
+        assertEquals(Map.of("thinking", Map.of("type", "enabled")), enabled.customParameters());
+        assertFalse(disabled.returnThinking());
+        assertFalse(disabled.sendThinking());
+        assertEquals(Map.of("thinking", Map.of("type", "disabled")), disabled.customParameters());
+    }
+
+    @Test
+    void nonXiaomiReasoningModelUsesOnlyOfficialThinkingFlags() {
+        OpenAiThinkingPolicy.ThinkingConfiguration configuration =
+                policy.resolve(model("openai", "o3", true), true);
 
         assertTrue(configuration.returnThinking());
         assertTrue(configuration.sendThinking());
         assertTrue(configuration.customParameters().isEmpty());
     }
 
-    @Test
-    void openAiReasoningModelDoesNotReceiveXiaomiParameter() {
-        AiModel model = model("openai", "o3", 1);
-
-        OpenAiThinkingPolicy.ThinkingConfiguration configuration = policy.resolve(model, true);
-
-        assertTrue(configuration.returnThinking());
-        assertTrue(configuration.sendThinking());
-        assertTrue(configuration.customParameters().isEmpty());
-    }
-
-    private AiModel model(String provider, String modelId, int supportsThinking) {
-        AiModel model = new AiModel();
-        model.setProvider(provider);
-        model.setModelId(modelId);
-        model.setSupportsThinking(supportsThinking);
-        return model;
+    private AiModelRuntimeConfiguration model(String provider, String modelId, boolean supportsThinking) {
+        return new AiModelRuntimeConfiguration(
+                provider, modelId, "chat", "https://models.example.com/v1",
+                "test-key", 4096, 0.7, supportsThinking
+        );
     }
 }

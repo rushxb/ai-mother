@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.index;
 
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -14,7 +15,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkspaceSemanticIndexServiceTest {
 
-    private final WorkspaceSemanticIndexService service = new WorkspaceSemanticIndexService();
+    private final WorkspaceSemanticIndexService service = new WorkspaceSemanticIndexService(
+            WorkspaceFileSystemTestFactory.create()
+    );
 
     @Test
     void shouldPersistAndSearchWorkspaceIndex() throws Exception {

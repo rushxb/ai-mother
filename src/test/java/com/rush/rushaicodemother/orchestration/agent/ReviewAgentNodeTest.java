@@ -12,12 +12,13 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.reviewAgentNode;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReviewAgentNodeTest {
 
-    private final ReviewAgentNode node = new ReviewAgentNode();
+    private final ReviewAgentNode node = reviewAgentNode();
 
     @Test
     void shouldBlockPatchFirstWithoutChangePlan() {

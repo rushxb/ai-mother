@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.codegraph;
 
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -12,7 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 class SymbolIndexServiceTest {
 
     private final WorkspaceCodeGraphService graphService = new WorkspaceCodeGraphService(
-            new CodeGraphAstParser(new StructuredSyntaxValidationService())
+            new CodeGraphAstParser(new StructuredSyntaxValidationService()),
+            WorkspaceFileSystemTestFactory.create()
     );
     private final SymbolIndexService service = new SymbolIndexService(graphService);
 

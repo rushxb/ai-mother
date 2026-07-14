@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.skill;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -145,7 +146,7 @@ public class GenerationSkillLibrary {
             log.info("已扫描 classpath 技能目录，pattern={}, 命中数量={}", CLASS_PATH_PATTERN, result.size());
             return result;
         } catch (IOException e) {
-            log.warn("扫描 classpath 技能目录失败，pattern={}", CLASS_PATH_PATTERN, e);
+            log.warn("扫描 classpath 技能目录失败，pattern={}", CLASS_PATH_PATTERN, LogExceptionSanitizer.sanitize(e));
             return List.of();
         }
     }
@@ -167,7 +168,7 @@ public class GenerationSkillLibrary {
                     .filter(Objects::nonNull)
                     .toList();
         } catch (IOException e) {
-            log.warn("扫描文件系统技能目录失败，root={}", root, e);
+            log.warn("扫描文件系统技能目录失败，root={}", root, LogExceptionSanitizer.sanitize(e));
             return List.of();
         }
     }

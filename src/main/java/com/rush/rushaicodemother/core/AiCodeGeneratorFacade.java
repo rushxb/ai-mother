@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.core;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorService;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
@@ -300,7 +301,7 @@ public class AiCodeGeneratorFacade {
                             if (sink.isCancelled() || isCancelled(cancelChecker)) {
                                 return;
                             }
-                            log.error("{} 流式生成失败，appId: {}", codeGenType.getValue(), appId, error);
+                            log.error("{} 流式生成失败，appId: {}", codeGenType.getValue(), appId, LogExceptionSanitizer.sanitize(error));
                             if (emittedAnyEvent.get()) {
                                 sink.error(new NonRetriableStreamException(error));
                                 return;
@@ -386,7 +387,7 @@ public class AiCodeGeneratorFacade {
         try {
             streamingHandle.cancel();
         } catch (RuntimeException exception) {
-            log.warn("Failed to cancel active AI stream", exception);
+            log.warn("Failed to cancel active AI stream", LogExceptionSanitizer.sanitize(exception));
         }
     }
 
@@ -478,7 +479,7 @@ public class AiCodeGeneratorFacade {
                 File saveDir = CodeFileSaverExecutor.executeSaver(parsedResult, codeGenType, appId);
                 log.info("保存成功，目录为：{}", saveDir.getAbsolutePath());
             } catch (Exception e) {
-                log.error("保存生成代码失败，appId={}, codeGenType={}", appId, codeGenType, e);
+                log.error("保存生成代码失败，appId={}, codeGenType={}", appId, codeGenType, LogExceptionSanitizer.sanitize(e));
                 throw new BusinessException(
                         ErrorCode.SYSTEM_ERROR,
                         "保存生成代码失败，请稍后重试",

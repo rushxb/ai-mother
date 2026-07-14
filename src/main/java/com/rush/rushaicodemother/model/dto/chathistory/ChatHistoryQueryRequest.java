@@ -9,7 +9,6 @@ import lombok.EqualsAndHashCode;
 
 import java.io.Serial;
 import java.io.Serializable;
-import java.time.LocalDateTime;
 
 /**
  * 对话历史分页查询条件。
@@ -36,6 +35,4 @@ public class ChatHistoryQueryRequest extends PageRequest implements Serializable
     @Positive
     private Long userId;
 
-    /** 游标分页时，返回早于该时间的记录。 */
-    private LocalDateTime lastCreateTime;
 }

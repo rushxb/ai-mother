@@ -2,12 +2,13 @@ package com.rush.rushaicodemother.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
-import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
-import com.rush.rushaicodemother.service.GenerationTraceService;
+import com.rush.rushaicodemother.service.trace.GenerationBuildTrace;
+import com.rush.rushaicodemother.service.trace.GenerationTaskTrace;
+import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -33,8 +34,8 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         if (app == null || app.getId() == null) {
             return "";
         }
-        List<GenerationTask> recentTasks = generationTraceService.listRecentTasksByAppId(app.getId(), 5);
-        List<GenerationBuildLog> recentBuildLogs = generationTraceService.listRecentBuildLogsByAppId(app.getId(), 3);
+        List<GenerationTaskTrace> recentTasks = generationTraceService.listRecentTasksByAppId(app.getId(), 5);
+        List<GenerationBuildTrace> recentBuildLogs = generationTraceService.listRecentBuildLogsByAppId(app.getId(), 3);
         if (recentTasks.isEmpty() && recentBuildLogs.isEmpty()) {
             return "";
         }
@@ -44,7 +45,7 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
                 + ", appName=" + StrUtil.blankToDefault(app.getAppName(), "未命名")
                 + ", targetType=" + (targetType == null ? StrUtil.blankToDefault(app.getCodeGenType(), "unknown") : targetType.getValue()));
         appendRecentTasks(lines, recentTasks, userMessage);
-        if (recentTasks.stream().noneMatch(task -> StrUtil.isNotBlank(task.getMemorySummary()))) {
+        if (recentTasks.stream().noneMatch(task -> StrUtil.isNotBlank(task.memorySummary()))) {
             appendRecentBuildLogs(lines, recentBuildLogs);
         }
         lines.add("记忆使用规则：优先满足本轮用户需求；历史记录只作为边界和失败经验；不要因为旧需求扩大本轮改动范围。");
@@ -56,10 +57,10 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         if (appId == null) {
             return "";
         }
-        List<GenerationBuildLog> taskBuildLogs = StrUtil.isBlank(taskId)
+        List<GenerationBuildTrace> taskBuildLogs = StrUtil.isBlank(taskId)
                 ? List.of()
                 : generationTraceService.listBuildLogsByTaskId(taskId, 3);
-        List<GenerationBuildLog> recentBuildLogs = generationTraceService.listRecentBuildLogsByAppId(appId, 3);
+        List<GenerationBuildTrace> recentBuildLogs = generationTraceService.listRecentBuildLogsByAppId(appId, 3);
         if (taskBuildLogs.isEmpty() && recentBuildLogs.isEmpty()) {
             return "";
         }
@@ -75,43 +76,50 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         return generationContextCompressionService.compressMemoryContext(limit(String.join("\n", lines), MAX_CONTEXT_LENGTH));
     }
 
-    private void appendRecentTasks(List<String> lines, List<GenerationTask> recentTasks, String userMessage) {
+    private void appendRecentTasks(List<String> lines, List<GenerationTaskTrace> recentTasks, String userMessage) {
         if (recentTasks.isEmpty()) {
             return;
         }
         lines.add("最近生成任务：");
-        for (GenerationTask task : recentTasks) {
-            String relation = isRelated(userMessage, task.getUserPrompt()) ? "相关" : "参考";
-            if (StrUtil.isNotBlank(task.getMemorySummary())) {
-                lines.add("- [" + relation + "] " + formatTime(task.getCreateTime())
-                        + " status=" + StrUtil.blankToDefault(task.getStatus(), "unknown")
-                        + ", summary=" + compact(task.getMemorySummary()));
+        for (GenerationTaskTrace task : recentTasks) {
+            String relation = isRelated(userMessage, task.userPrompt()) ? "相关" : "参考";
+            if (StrUtil.isNotBlank(task.memorySummary())) {
+                lines.add("- [" + relation + "] " + formatTime(task.createTime())
+                        + " status=" + task.status().getValue()
+                        + ", summary=" + compact(task.memorySummary()));
                 continue;
             }
-            lines.add("- [" + relation + "] " + formatTime(task.getCreateTime())
-                    + " status=" + StrUtil.blankToDefault(task.getStatus(), "unknown")
-                    + ", stage=" + StrUtil.blankToDefault(task.getStage(), "unknown")
-                    + ", prompt=" + compact(task.getUserPrompt())
-                    + formatError(task.getErrorMessage()));
+            lines.add("- [" + relation + "] " + formatTime(task.createTime())
+                    + " status=" + task.status().getValue()
+                    + ", stage=" + StrUtil.blankToDefault(task.stage(), "unknown")
+                    + ", prompt=" + compact(task.userPrompt())
+                    + formatTaskNote(task));
         }
     }
 
-    private void appendRecentBuildLogs(List<String> lines, List<GenerationBuildLog> buildLogs) {
+    private void appendRecentBuildLogs(List<String> lines, List<GenerationBuildTrace> buildLogs) {
         appendBuildLogs(lines, "最近构建诊断", buildLogs);
     }
 
-    private void appendBuildLogs(List<String> lines, String title, List<GenerationBuildLog> buildLogs) {
+    private void appendBuildLogs(List<String> lines, String title, List<GenerationBuildTrace> buildLogs) {
         if (buildLogs.isEmpty()) {
             return;
         }
         lines.add(title + "：");
-        for (GenerationBuildLog log : buildLogs) {
-            lines.add("- " + formatTime(log.getCreateTime())
-                    + " success=" + log.getSuccess()
-                    + ", stage=" + StrUtil.blankToDefault(log.getStage(), "unknown")
-                    + ", summary=" + compact(log.getSummary())
-                    + formatReport(log.getReport()));
+        for (GenerationBuildTrace log : buildLogs) {
+            lines.add("- " + formatTime(log.createTime())
+                    + " success=" + log.success()
+                    + ", stage=" + StrUtil.blankToDefault(log.stage(), "unknown")
+                    + ", summary=" + compact(log.summary())
+                    + formatReport(log.report()));
         }
+    }
+
+    private String formatTaskNote(GenerationTaskTrace task) {
+        String note = task.status() == GenerationTaskStatus.RUNNING
+                ? task.stageMessage()
+                : task.errorMessage();
+        return formatError(note);
     }
 
     private boolean isRelated(String userMessage, String historicalPrompt) {

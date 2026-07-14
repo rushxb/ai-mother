@@ -1,14 +1,13 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
-import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.patch.PatchApplyServiceTestFactory;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -22,7 +21,7 @@ class ToolExecutionGatewayTest {
 
     private final GenerationToolExecutionContextService contextService = new GenerationToolExecutionContextService();
     private final GenerationPatchApplyService patchApplyService =
-            new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
+            PatchApplyServiceTestFactory.create();
     private final ToolExecutionGateway gateway = new ToolExecutionGateway(
             patchApplyService, contextService,
             new GenerationExecutionContextService(new GenerationRuntimeProperties()));

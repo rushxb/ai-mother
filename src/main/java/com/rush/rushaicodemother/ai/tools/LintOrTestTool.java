@@ -1,10 +1,11 @@
 package com.rush.rushaicodemother.ai.tools;
 
-import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.config.ProjectCommandProperties;
+import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
 import dev.langchain4j.agent.tool.P;
@@ -13,9 +14,6 @@ import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.util.Set;
 
 /**
@@ -31,13 +29,16 @@ public class LintOrTestTool extends BaseTool {
 
     private final ProjectCommandExecutor projectCommandExecutor;
     private final ProjectCommandProperties projectCommandProperties;
+    private final ToolWorkspaceFileService workspaceFileService;
 
     public LintOrTestTool(
             ProjectCommandExecutor projectCommandExecutor,
-            ProjectCommandProperties projectCommandProperties
+            ProjectCommandProperties projectCommandProperties,
+            ToolWorkspaceFileService workspaceFileService
     ) {
         this.projectCommandExecutor = projectCommandExecutor;
         this.projectCommandProperties = projectCommandProperties;
+        this.workspaceFileService = workspaceFileService;
     }
 
     @Tool("执行项目中的 lint、test、type-check、build 等校验脚本，只允许运行 package.json 里已存在的白名单脚本。")
@@ -52,25 +53,23 @@ public class LintOrTestTool extends BaseTool {
             return "错误：script 名称不能为空";
         }
         try {
-            Path projectPath = ToolPathSupport.resolvePath(relativeProjectPath, appId);
-            File projectDir = projectPath.toFile();
-            if (!projectDir.exists() || !projectDir.isDirectory()) {
-                return "错误：项目目录不存在 - " + relativeProjectPath;
-            }
+            ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory =
+                    workspaceFileService.resolveDirectory(appId, relativeProjectPath);
             if (!isAllowedScriptName(scriptName)) {
                 return "错误：仅允许运行 lint、test、type-check、check、build 相关脚本";
             }
-            Path packageJsonPath = projectPath.resolve("package.json");
-            if (!packageJsonPath.toFile().exists()) {
+            ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile =
+                    workspaceFileService.resolveFile(projectDirectory, "package.json");
+            if (!workspaceFileService.isRegularFile(packageJsonFile)) {
                 return "错误：package.json 不存在";
             }
-            JSONObject packageJson = JSONUtil.parseObj(FileUtil.readString(packageJsonPath.toFile(), StandardCharsets.UTF_8));
+            JSONObject packageJson = JSONUtil.parseObj(workspaceFileService.readUtf8(packageJsonFile));
             JSONObject scripts = packageJson.getJSONObject("scripts");
             if (scripts == null || !scripts.containsKey(scriptName)) {
                 return "错误：package.json 中未找到脚本 - " + scriptName;
             }
             ProjectCommandResult result = projectCommandExecutor.executePnpmScript(
-                    projectPath,
+                    projectDirectory.absolutePath(),
                     scriptName,
                     projectCommandProperties.getToolScriptTimeout(),
                     "tool-check:" + scriptName
@@ -79,12 +78,12 @@ public class LintOrTestTool extends BaseTool {
             builder.append("脚本: ").append(scriptName).append('\n');
             builder.append("命令结果: ").append(toSingleLineSummary(result)).append("\n\n");
             builder.append(toReport(result));
-            return builder.toString().trim();
-        } catch (IllegalArgumentException e) {
-            return "错误：" + e.getMessage();
+            return PublicDiagnosticSanitizer.sanitizeForPublicOutput(builder.toString().trim());
+        } catch (ToolInputException e) {
+            return renderInputError(e);
         } catch (Exception e) {
-            log.error("执行项目校验失败，scriptName: {}", scriptName, e);
-            return "执行项目校验失败: " + e.getMessage();
+            log.error("执行项目校验失败，scriptName: {}", scriptName, LogExceptionSanitizer.sanitize(e));
+            return "执行项目校验失败，请稍后重试";
         }
     }
 

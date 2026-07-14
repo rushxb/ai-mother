@@ -11,8 +11,6 @@ import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -23,15 +21,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import static com.rush.rushaicodemother.constant.AppConstant.CODE_OUTPUT_ROOT_DIR;
 
 /**
  * 多智能体节点共享的辅助逻辑。
  */
-@Component
 public class GenerationAgentSupport {
 
     private static final int MAX_MODEL_CONTEXT_FILE_CHARS = 1400;
@@ -47,45 +43,24 @@ public class GenerationAgentSupport {
     private final GenerationContextCompressionService contextCompressionService;
     private final Path codeOutputRoot;
 
-    public GenerationAgentSupport() {
-        this(new GenerationRecipeLibrary(), new GenerationSkillLibrary(), new WorkspaceSemanticIndexService(), null, Path.of(CODE_OUTPUT_ROOT_DIR));
-    }
-
-    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary) {
-        this(recipeLibrary, new GenerationSkillLibrary(), new WorkspaceSemanticIndexService(), null, Path.of(CODE_OUTPUT_ROOT_DIR));
-    }
-
-    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
-                                  WorkspaceSemanticIndexService semanticIndexService,
-                                  Path codeOutputRoot) {
-        this(recipeLibrary, new GenerationSkillLibrary(), semanticIndexService, null, codeOutputRoot);
-    }
-
-    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
-                                  GenerationSkillLibrary skillLibrary,
-                                  WorkspaceSemanticIndexService semanticIndexService,
-                                  Path codeOutputRoot) {
-        this(recipeLibrary, skillLibrary, semanticIndexService, null, codeOutputRoot);
-    }
-
-    @Autowired
-    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
-                                  GenerationSkillLibrary skillLibrary,
-                                  WorkspaceSemanticIndexService semanticIndexService,
-                                  GenerationContextCompressionService contextCompressionService) {
-        this(recipeLibrary, skillLibrary, semanticIndexService, contextCompressionService, Path.of(CODE_OUTPUT_ROOT_DIR));
-    }
-
     public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
                                   GenerationSkillLibrary skillLibrary,
                                   WorkspaceSemanticIndexService semanticIndexService,
                                   GenerationContextCompressionService contextCompressionService,
                                   Path codeOutputRoot) {
-        this.recipeLibrary = recipeLibrary;
-        this.skillLibrary = skillLibrary;
-        this.semanticIndexService = semanticIndexService;
-        this.contextCompressionService = contextCompressionService;
-        this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
+        this.recipeLibrary = Objects.requireNonNull(recipeLibrary, "recipeLibrary must not be null");
+        this.skillLibrary = Objects.requireNonNull(skillLibrary, "skillLibrary must not be null");
+        this.semanticIndexService = Objects.requireNonNull(
+                semanticIndexService,
+                "semanticIndexService must not be null"
+        );
+        this.contextCompressionService = Objects.requireNonNull(
+                contextCompressionService,
+                "contextCompressionService must not be null"
+        );
+        this.codeOutputRoot = Objects.requireNonNull(codeOutputRoot, "codeOutputRoot must not be null")
+                .toAbsolutePath()
+                .normalize();
     }
 
     public boolean isComplexRequest(String userMessage) {
@@ -517,9 +492,6 @@ public class GenerationAgentSupport {
     }
 
     private String compressProjectContext(String context) {
-        if (contextCompressionService == null) {
-            return context;
-        }
         return contextCompressionService.compressProjectContext(context);
     }
 

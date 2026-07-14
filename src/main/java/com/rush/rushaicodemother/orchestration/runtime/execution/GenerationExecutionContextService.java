@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.execution;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -24,6 +25,7 @@ public class GenerationExecutionContextService {
     private final ConcurrentMap<String, GenerationExecutionContext> contextsByTaskId = new ConcurrentHashMap<>();
     private final ConcurrentMap<Long, String> taskIdsByAppId = new ConcurrentHashMap<>();
 
+    @Autowired
     public GenerationExecutionContextService(GenerationRuntimeProperties properties) {
         this(properties, Clock.systemUTC());
     }

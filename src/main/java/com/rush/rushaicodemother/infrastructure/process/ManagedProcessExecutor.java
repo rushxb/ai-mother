@@ -41,25 +41,26 @@ public class ManagedProcessExecutor {
     public ManagedProcessResult execute(ManagedProcessRequest request) {
         validateRequest(request);
         Path workingDirectory = normalizeWorkingDirectory(request.workingDirectory());
-        String commandText = String.join(" ", request.command());
+        String commandText = displayCommand(request);
         Process process = null;
         ProcessOutputCollector stdoutCollector = null;
         ProcessOutputCollector stderrCollector = null;
         List<CompletableFuture<Void>> outputCompletions = List.of();
 
-        log.info("执行外部进程: category={}, command={}, workingDirectory={}, context={}",
+        log.info("执行外部进程: category={}, command={}, context={}",
                 normalizeLogValue(request.logCategory(), "external-process"),
                 commandText,
-                workingDirectory,
-                normalizeLogValue(request.logContext(), workingDirectory.toString()));
+                normalizeLogValue(request.logContext(), "unknown"));
 
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(request.command());
             processBuilder.directory(workingDirectory.toFile());
             processBuilder.redirectErrorStream(request.redirectErrorStream());
             processBuilder.environment().putAll(request.environment());
+            request.environmentVariablesToRemove().forEach(processBuilder.environment()::remove);
 
             process = processStarter.start(processBuilder);
+            request.lifecycle().onStarted(process);
             stdoutCollector = createCollector(request, "stdout");
             List<CompletableFuture<Void>> mutableCompletions = new ArrayList<>(2);
             mutableCompletions.add(stdoutCollector.start(
@@ -118,16 +119,34 @@ public class ManagedProcessExecutor {
             );
         } catch (IOException | RuntimeException exception) {
             terminateAndDrain(process, outputCompletions, request.outputDrainTimeout());
-            log.error("启动或执行外部进程失败: command={}, workingDirectory={}, error={}",
-                    commandText, workingDirectory, exception.getMessage(), exception);
+            log.error("启动或执行外部进程失败: command={}, exceptionType={}",
+                    commandText, exception.getClass().getName());
             return result(
                     ManagedProcessResult.Status.START_FAILED,
                     commandText,
                     null,
                     stdoutCollector,
                     stderrCollector,
-                    safeMessage(exception)
+                    "外部进程启动失败，请检查运行环境和命令配置"
             );
+        } finally {
+            notifyFinished(request.lifecycle(), process, commandText);
+        }
+    }
+
+    private void notifyFinished(
+            ManagedProcessLifecycle lifecycle,
+            Process process,
+            String commandText
+    ) {
+        if (process == null) {
+            return;
+        }
+        try {
+            lifecycle.onFinished(process);
+        } catch (RuntimeException exception) {
+            log.warn("外部进程结束回调失败: command={}, exceptionType={}",
+                    commandText, exception.getClass().getName());
         }
     }
 
@@ -149,21 +168,35 @@ public class ManagedProcessExecutor {
             if (request.cancellationRequested().getAsBoolean()) {
                 return WaitOutcome.failed(
                         ManagedProcessResult.Status.INTERRUPTED,
-                        "?????????"
+                        "外部进程执行已取消"
                 );
             }
             long now = System.nanoTime();
             long elapsedNanos = now - startedAt;
             long idleNanos = idleNanos(now, stdoutCollector, stderrCollector);
             if (elapsedNanos >= timeoutNanos) {
-                logTimeout("外部进程总超时", elapsedNanos, idleNanos, stdoutCollector, stderrCollector);
+                logTimeout(
+                        "外部进程总超时",
+                        elapsedNanos,
+                        idleNanos,
+                        stdoutCollector,
+                        stderrCollector,
+                        request.outputLogPolicy()
+                );
                 return WaitOutcome.failed(
                         ManagedProcessResult.Status.TIMED_OUT,
                         "外部进程执行超过总超时 " + request.timeout()
                 );
             }
             if (idleTimeoutNanos != null && idleNanos >= idleTimeoutNanos) {
-                logTimeout("外部进程长时间无输出", elapsedNanos, idleNanos, stdoutCollector, stderrCollector);
+                logTimeout(
+                        "外部进程长时间无输出",
+                        elapsedNanos,
+                        idleNanos,
+                        stdoutCollector,
+                        stderrCollector,
+                        request.outputLogPolicy()
+                );
                 return WaitOutcome.failed(
                         ManagedProcessResult.Status.IDLE_TIMED_OUT,
                         "外部进程持续无输出超过 " + request.idleTimeout()
@@ -171,10 +204,7 @@ public class ManagedProcessExecutor {
             }
             if (now - lastHeartbeatAt >= heartbeatNanos) {
                 lastHeartbeatAt = now;
-                log.info("外部进程执行中: elapsed={}s, idle={}s, tail={}",
-                        TimeUnit.NANOSECONDS.toSeconds(elapsedNanos),
-                        TimeUnit.NANOSECONDS.toSeconds(idleNanos),
-                        outputTail(stdoutCollector, stderrCollector));
+                logHeartbeat(elapsedNanos, idleNanos, stdoutCollector, stderrCollector, request.outputLogPolicy());
             }
 
             long remainingNanos = timeoutNanos - elapsedNanos;
@@ -190,12 +220,13 @@ public class ManagedProcessExecutor {
     }
 
     private ProcessOutputCollector createCollector(ManagedProcessRequest request, String streamName) {
-        String context = normalizeLogValue(request.logContext(), request.workingDirectory().toString());
+        String context = normalizeLogValue(request.logContext(), "unknown");
         return new ProcessOutputCollector(
                 normalizeLogValue(request.logCategory(), "external-process"),
                 context + " " + streamName,
                 request.maxOutputLength(),
-                request.outputCharset()
+                request.outputCharset(),
+                request.outputLogPolicy()
         );
     }
 
@@ -267,10 +298,37 @@ public class ManagedProcessExecutor {
             long elapsedNanos,
             long idleNanos,
             ProcessOutputCollector stdoutCollector,
-            ProcessOutputCollector stderrCollector
+            ProcessOutputCollector stderrCollector,
+            ManagedProcessOutputLogPolicy outputLogPolicy
     ) {
+        if (!outputLogPolicy.isHeartbeatTailEnabled()) {
+            log.warn("{}: elapsed={}s, idle={}s",
+                    message,
+                    TimeUnit.NANOSECONDS.toSeconds(elapsedNanos),
+                    TimeUnit.NANOSECONDS.toSeconds(idleNanos));
+            return;
+        }
         log.warn("{}: elapsed={}s, idle={}s, tail={}",
                 message,
+                TimeUnit.NANOSECONDS.toSeconds(elapsedNanos),
+                TimeUnit.NANOSECONDS.toSeconds(idleNanos),
+                outputTail(stdoutCollector, stderrCollector));
+    }
+
+    private void logHeartbeat(
+            long elapsedNanos,
+            long idleNanos,
+            ProcessOutputCollector stdoutCollector,
+            ProcessOutputCollector stderrCollector,
+            ManagedProcessOutputLogPolicy outputLogPolicy
+    ) {
+        if (!outputLogPolicy.isHeartbeatTailEnabled()) {
+            log.info("外部进程执行中: elapsed={}s, idle={}s",
+                    TimeUnit.NANOSECONDS.toSeconds(elapsedNanos),
+                    TimeUnit.NANOSECONDS.toSeconds(idleNanos));
+            return;
+        }
+        log.info("外部进程执行中: elapsed={}s, idle={}s, tail={}",
                 TimeUnit.NANOSECONDS.toSeconds(elapsedNanos),
                 TimeUnit.NANOSECONDS.toSeconds(idleNanos),
                 outputTail(stdoutCollector, stderrCollector));
@@ -324,14 +382,53 @@ public class ManagedProcessExecutor {
         return collector == null ? "" : collector.output();
     }
 
-    private String safeMessage(Exception exception) {
-        return exception.getMessage() == null || exception.getMessage().isBlank()
-                ? exception.getClass().getSimpleName()
-                : exception.getMessage();
+    private String normalizeLogValue(String value, String fallback) {
+        String normalized = value == null || value.isBlank() ? fallback : value.trim();
+        return SensitiveLogSanitizer.sanitize(normalized);
     }
 
-    private String normalizeLogValue(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
+    private String displayCommand(ManagedProcessRequest request) {
+        if (request.displayCommand() != null && !request.displayCommand().isBlank()) {
+            return SensitiveLogSanitizer.sanitize(request.displayCommand().trim());
+        }
+        StringBuilder display = new StringBuilder();
+        boolean redactNext = false;
+        for (String argument : request.command()) {
+            if (!display.isEmpty()) {
+                display.append(' ');
+            }
+            String normalized = argument.trim();
+            if (redactNext) {
+                display.append("***");
+                redactNext = false;
+                continue;
+            }
+            int equalsIndex = normalized.indexOf('=');
+            String optionName = equalsIndex >= 0 ? normalized.substring(0, equalsIndex) : normalized;
+            if (isSensitiveOption(optionName)) {
+                if (equalsIndex >= 0) {
+                    display.append(optionName).append("=***");
+                } else {
+                    display.append(optionName);
+                    redactNext = true;
+                }
+                continue;
+            }
+            display.append(SensitiveLogSanitizer.sanitize(normalized));
+        }
+        return display.toString();
+    }
+
+    private boolean isSensitiveOption(String optionName) {
+        String normalized = optionName.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("password")
+                || normalized.contains("passwd")
+                || normalized.contains("token")
+                || normalized.contains("secret")
+                || normalized.contains("api-key")
+                || normalized.contains("api_key")
+                || normalized.contains("authorization")
+                || normalized.contains("credential");
     }
 
     private record WaitOutcome(

@@ -25,8 +25,6 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class AgentEditGenerationPipeline implements GenerationPipeline {
 
-    private static final long COMPLETED_SESSION_REPLAY_SECONDS = 30;
-
     private final AgentEditGenerationService agentEditGenerationService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationSessionRegistry sessionRegistry;
@@ -73,7 +71,7 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                             )
                     ));
                     session.complete();
-                    sessionRegistry.cleanupLater(app.getId(), session, COMPLETED_SESSION_REPLAY_SECONDS);
+                    sessionRegistry.retainForReplay(app.getId(), session);
                     return Optional.of(new GenerationTaskResult(editResult.taskId(), editResult.route(), request.workspace(), session.asFlux()));
                 }
                 return Optional.empty();
@@ -92,7 +90,7 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                     )
             ));
             session.complete();
-            sessionRegistry.cleanupLater(app.getId(), session, COMPLETED_SESSION_REPLAY_SECONDS);
+            sessionRegistry.retainForReplay(app.getId(), session);
             generationPerformanceMonitorService.finishTask(editResult.taskId(), "success");
             return Optional.of(new GenerationTaskResult(editResult.taskId(), editResult.route(), request.workspace(), session.asFlux()));
         } catch (Exception e) {

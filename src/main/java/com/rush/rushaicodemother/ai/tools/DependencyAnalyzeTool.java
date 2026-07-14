@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
-import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
@@ -11,9 +11,6 @@ import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,6 +20,12 @@ import java.util.List;
 @Slf4j
 @Component
 public class DependencyAnalyzeTool extends BaseTool {
+
+    private final ToolWorkspaceFileService workspaceFileService;
+
+    public DependencyAnalyzeTool(ToolWorkspaceFileService workspaceFileService) {
+        this.workspaceFileService = workspaceFileService;
+    }
 
     @Tool("分析构建日志、lint/test 日志或报错文本，判断是否是依赖缺失、版本错误、脚本缺失、别名配置问题，并给出下一步处理建议。")
     public String analyzeDependencyIssue(
@@ -36,12 +39,9 @@ public class DependencyAnalyzeTool extends BaseTool {
             return "错误：诊断日志不能为空";
         }
         try {
-            Path projectPath = ToolPathSupport.resolvePath(relativeProjectPath, appId);
-            File projectDir = projectPath.toFile();
-            if (!projectDir.exists() || !projectDir.isDirectory()) {
-                return "错误：项目目录不存在 - " + relativeProjectPath;
-            }
-            PackageContext context = loadPackageContext(projectPath);
+            ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory =
+                    workspaceFileService.resolveDirectory(appId, relativeProjectPath);
+            PackageContext context = loadPackageContext(projectDirectory);
             List<String> findings = new ArrayList<>();
             List<String> suggestions = new ArrayList<>();
             analyzeLog(diagnosticLog, context, findings, suggestions);
@@ -60,20 +60,23 @@ public class DependencyAnalyzeTool extends BaseTool {
                 suggestions.stream().distinct().forEach(item -> builder.append("- ").append(item).append('\n'));
             }
             return builder.toString().trim();
-        } catch (IllegalArgumentException e) {
-            return "错误：" + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError(e);
         } catch (Exception e) {
-            log.error("依赖问题分析失败", e);
-            return "依赖问题分析失败: " + e.getMessage();
+            log.error("依赖问题分析失败", LogExceptionSanitizer.sanitize(e));
+            return "依赖问题分析失败，请稍后重试";
         }
     }
 
-    private PackageContext loadPackageContext(Path projectPath) {
-        Path packageJsonPath = projectPath.resolve("package.json");
-        if (!packageJsonPath.toFile().exists()) {
+    private PackageContext loadPackageContext(
+            ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory
+    ) {
+        ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile =
+                workspaceFileService.resolveFile(projectDirectory, "package.json");
+        if (!workspaceFileService.isRegularFile(packageJsonFile)) {
             return new PackageContext(new JSONObject(), new JSONObject(), new JSONObject());
         }
-        JSONObject packageJson = JSONUtil.parseObj(FileUtil.readString(packageJsonPath.toFile(), StandardCharsets.UTF_8));
+        JSONObject packageJson = JSONUtil.parseObj(workspaceFileService.readUtf8(packageJsonFile));
         return new PackageContext(
                 packageJson.getJSONObject("dependencies") == null ? new JSONObject() : packageJson.getJSONObject("dependencies"),
                 packageJson.getJSONObject("devDependencies") == null ? new JSONObject() : packageJson.getJSONObject("devDependencies"),

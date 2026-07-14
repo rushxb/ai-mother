@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -78,7 +79,7 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
             zipOutputStream.finish();
             log.info("打包下载项目成功: {} -> {}.zip", projectRoot, downloadFileName);
         } catch (IOException exception) {
-            log.error("打包下载项目失败: {}", projectRoot, exception);
+            log.error("打包下载项目失败: {}", projectRoot, LogExceptionSanitizer.sanitize(exception));
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "打包下载项目失败");
         }
     }

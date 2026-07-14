@@ -8,8 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Locale;
@@ -28,16 +26,8 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
     private final ProjectProcessTerminator processTerminator;
     private final DependencyInstallProperties properties;
     private final GenerationExecutionContextService executionContextService;
+    private final NodeProjectDirectoryValidator projectDirectoryValidator;
     private final ReentrantLock[] projectLocks;
-
-    public PnpmProjectDependencyInstaller(
-            PnpmInstallCommandExecutor commandExecutor,
-            NodeModulesIntegrityService integrityService,
-            ProjectProcessTerminator processTerminator,
-            DependencyInstallProperties properties
-    ) {
-        this(commandExecutor, integrityService, processTerminator, properties, null);
-    }
 
     @Autowired
     public PnpmProjectDependencyInstaller(
@@ -45,13 +35,15 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             NodeModulesIntegrityService integrityService,
             ProjectProcessTerminator processTerminator,
             DependencyInstallProperties properties,
-            GenerationExecutionContextService executionContextService
+            GenerationExecutionContextService executionContextService,
+            NodeProjectDirectoryValidator projectDirectoryValidator
     ) {
         this.commandExecutor = commandExecutor;
         this.integrityService = integrityService;
         this.processTerminator = processTerminator;
         this.properties = properties;
         this.executionContextService = executionContextService;
+        this.projectDirectoryValidator = projectDirectoryValidator;
         this.projectLocks = createLocks(properties.getLockStripes());
     }
 
@@ -62,7 +54,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
     @Override
     public DependencyInstallResult ensureInstalled(Path projectDirectory, String taskId) {
-        ProjectValidation validation = validateProject(projectDirectory);
+        NodeProjectDirectoryValidator.Validation validation = projectDirectoryValidator.validate(projectDirectory);
         if (!validation.valid()) {
             return DependencyInstallResult.failed(
                     DependencyInstallResult.Status.INVALID_PROJECT,
@@ -111,16 +103,11 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
             log.info("开始安装项目依赖: project={}, attempt={}/{}, force={}",
                     projectPath, attempt, properties.getMaxAttempts(), force);
-            Duration attemptTimeout = executionContextService == null
-                    ? properties.getCommandTimeout()
-                    : executionContextService.clampTimeout(taskId, properties.getCommandTimeout());
-            BooleanSupplier cancellationRequested = () -> executionContextService != null
-                    && executionContextService.shouldStop(taskId);
+            Duration attemptTimeout = executionContextService.clampTimeout(taskId, properties.getCommandTimeout());
+            BooleanSupplier cancellationRequested = () -> executionContextService.shouldStop(taskId);
             DependencyInstallResult installResult = commandExecutor.install(
                     projectPath, force, attemptTimeout, cancellationRequested);
-            if (executionContextService != null) {
-                executionContextService.assertCanContinue(taskId);
-            }
+            executionContextService.assertCanContinue(taskId);
             appendAttemptOutput(combinedOutput, attempt, installResult.output());
             lastResult = installResult;
 
@@ -159,8 +146,8 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
                 log.warn("依赖安装遇到权限错误，已清理当前项目相关进程后重试: project={}, count={}",
                         projectPath, terminatedCount);
             } else {
-                log.warn("依赖安装失败，将执行有限强制重试: project={}, attempt={}, reason={}",
-                        projectPath, attempt, installResult.errorDetail());
+                log.warn("依赖安装失败，将执行有限强制重试: project={}, attempt={}, status={}",
+                        projectPath, attempt, installResult.status());
             }
             force = true;
         }
@@ -180,12 +167,12 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             integrityService.cleanCorruptedNativePackages(projectPath);
             return null;
         } catch (IOException exception) {
-            log.error("清理损坏的原生依赖失败: project={}, error={}",
-                    projectPath, exception.getMessage(), exception);
+            log.error("清理损坏的原生依赖失败: project={}, exceptionType={}",
+                    projectPath, exception.getClass().getName());
             return DependencyInstallResult.failed(
                     DependencyInstallResult.Status.INTEGRITY_FAILED,
                     limitOutput(combinedOutput.toString()),
-                    "清理损坏依赖失败: " + safeMessage(exception)
+                    "清理损坏依赖失败，请检查项目目录权限和文件占用情况"
             );
         }
     }
@@ -239,26 +226,6 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         );
     }
 
-    private ProjectValidation validateProject(Path projectDirectory) {
-        if (projectDirectory == null) {
-            return ProjectValidation.invalid("项目目录不能为空");
-        }
-        Path normalizedProject = projectDirectory.toAbsolutePath().normalize();
-        if (Files.isSymbolicLink(normalizedProject)
-                || !Files.isDirectory(normalizedProject, LinkOption.NOFOLLOW_LINKS)) {
-            return ProjectValidation.invalid("项目目录不存在或不是安全的普通目录: " + normalizedProject);
-        }
-        Path packageJson = normalizedProject.resolve("package.json");
-        if (!Files.isRegularFile(packageJson, LinkOption.NOFOLLOW_LINKS)) {
-            return ProjectValidation.invalid("项目目录缺少普通文件 package.json: " + normalizedProject);
-        }
-        try {
-            return ProjectValidation.valid(normalizedProject.toRealPath());
-        } catch (IOException exception) {
-            return ProjectValidation.invalid("无法解析项目目录: " + safeMessage(exception));
-        }
-    }
-
     private ReentrantLock lockFor(Path projectPath) {
         return projectLocks[Math.floorMod(projectPath.toString().hashCode(), projectLocks.length)];
     }
@@ -274,20 +241,4 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         return locks;
     }
 
-    private String safeMessage(Exception exception) {
-        return exception.getMessage() == null || exception.getMessage().isBlank()
-                ? exception.getClass().getSimpleName()
-                : exception.getMessage();
-    }
-
-    private record ProjectValidation(boolean valid, Path projectPath, String errorDetail) {
-
-        private static ProjectValidation valid(Path projectPath) {
-            return new ProjectValidation(true, projectPath, null);
-        }
-
-        private static ProjectValidation invalid(String errorDetail) {
-            return new ProjectValidation(false, null, errorDetail);
-        }
-    }
 }

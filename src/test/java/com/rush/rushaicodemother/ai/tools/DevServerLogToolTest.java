@@ -14,6 +14,7 @@ import org.mockito.InOrder;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -94,6 +95,17 @@ class DevServerLogToolTest {
 
         assertTrue(result.contains("应用所有者信息无效"));
         verifyNoInteractions(devServerManager);
+    }
+
+    @Test
+    void unexpectedFailureMustNotExposeInternalDetails() {
+        when(devServerManager.getPort(11L))
+                .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
+
+        String result = tool.manageDevServer("getDevServerStatus", 11L);
+
+        assertTrue(result.contains("Dev Server 操作失败"));
+        assertFalse(result.contains("secret-value"));
     }
 
     private App app(Long appId, Long userId) {

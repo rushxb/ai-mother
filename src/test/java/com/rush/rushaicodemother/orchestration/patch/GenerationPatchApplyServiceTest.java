@@ -1,12 +1,13 @@
 package com.rush.rushaicodemother.orchestration.patch;
 
 import cn.hutool.core.io.FileUtil;
-import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.config.PatchExecutionProperties;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,12 +17,16 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 
 class GenerationPatchApplyServiceTest {
 
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final GenerationPatchApplyService service =
-            new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(meterRegistry));
+            PatchApplyServiceTestFactory.create(meterRegistry);
 
     @Test
     void shouldApplyValidatedFileOperationsInsideChangePlan() throws Exception {
@@ -234,6 +239,165 @@ class GenerationPatchApplyServiceTest {
         String content = Files.readString(root.resolve("src/pages/ContactPage.vue"));
         assertFalse(content.contains("lucide-vue-next"));
         assertTrue(content.contains("<span class=\"icon\">mail</span>"));
+    }
+
+    @Test
+    void shouldRejectOversizedOperationBatchBeforeWritingAnyFile() throws Exception {
+        Path root = cleanTestRoot("operation-limit");
+        Files.createDirectories(root);
+        PatchExecutionProperties properties = new PatchExecutionProperties();
+        properties.setMaxOperations(1);
+        GenerationPatchApplyService limitedService = PatchApplyServiceTestFactory.create(properties);
+
+        PatchApplyResult result = limitedService.applyWithoutChangePlan(8L, "task-8", root, List.of(
+                PatchOperation.add("first.txt", "first"),
+                PatchOperation.add("second.txt", "second")
+        ), "resource_limit_test");
+
+        assertEquals("rejected", result.status());
+        assertEquals("patch_operation_validation_failed", result.reason());
+        assertTrue(result.rejectedOperations().contains("batch:operation_limit_exceeded"));
+        assertFalse(Files.exists(root.resolve("first.txt")));
+        assertFalse(Files.exists(root.resolve("second.txt")));
+    }
+
+    @Test
+    void shouldRejectOversizedSingleOperationAndTotalContent() throws Exception {
+        Path root = cleanTestRoot("content-limits");
+        Files.createDirectories(root);
+        PatchExecutionProperties properties = new PatchExecutionProperties();
+        properties.setMaxOperationContentChars(5);
+        properties.setMaxTotalContentChars(8);
+        GenerationPatchApplyService limitedService = PatchApplyServiceTestFactory.create(properties);
+
+        PatchApplyResult result = limitedService.applyWithoutChangePlan(9L, "task-9", root, List.of(
+                PatchOperation.add("first.txt", "123456"),
+                PatchOperation.add("second.txt", "789")
+        ), "resource_limit_test");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains("add:first.txt:operation_content_limit_exceeded"));
+        assertTrue(result.rejectedOperations().contains("batch:total_content_limit_exceeded"));
+        assertFalse(Files.exists(root.resolve("first.txt")));
+    }
+
+    @Test
+    void shouldRejectOversizedExistingFileDuringReplaceValidation() throws Exception {
+        Path root = cleanTestRoot("read-limit");
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("large.txt"), "x".repeat(1_025));
+        PatchExecutionProperties properties = new PatchExecutionProperties();
+        properties.setMaxReadableFileBytes(1_024);
+        GenerationPatchApplyService limitedService = PatchApplyServiceTestFactory.create(properties);
+
+        PatchApplyResult result = limitedService.applyWithoutChangePlan(10L, "task-10", root, List.of(
+                PatchOperation.replace("large.txt", "x", "y")
+        ), "resource_limit_test");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains("replace:large.txt:target_file_too_large"));
+        assertEquals("x".repeat(1_025), Files.readString(root.resolve("large.txt")));
+    }
+
+    @Test
+    void shouldRejectOutputAboveWriteLimitBeforeMutation() throws Exception {
+        Path root = cleanTestRoot("write-limit");
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("small.txt"), "before");
+        PatchExecutionProperties properties = new PatchExecutionProperties();
+        properties.setMaxWrittenFileBytes(1_024);
+        GenerationPatchApplyService limitedService = PatchApplyServiceTestFactory.create(properties);
+
+        PatchApplyResult result = limitedService.applyWithoutChangePlan(11L, "task-11", root, List.of(
+                PatchOperation.modify("small.txt", "x".repeat(1_025))
+        ), "resource_limit_test");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains("modify:small.txt:output_file_too_large"));
+        assertEquals("before", Files.readString(root.resolve("small.txt")));
+    }
+
+    @Test
+    void shouldRejectAddThroughSymbolicLinkDirectory() throws Exception {
+        Path root = cleanTestRoot("symbolic-link-directory");
+        Files.createDirectories(root);
+        Path outside = Files.createTempDirectory("patch-service-outside");
+        Path link = root.resolve("external");
+        try {
+            Files.createSymbolicLink(link, outside.toAbsolutePath());
+        } catch (Exception exception) {
+            Assumptions.assumeTrue(false, "Symbolic links are unavailable: " + exception.getMessage());
+        }
+
+        PatchApplyResult result = service.applyWithoutChangePlan(12L, "task-12", root, List.of(
+                PatchOperation.add("external/secret.txt", "secret")
+        ), "symbolic_link_test");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains("add:external/secret.txt:symbolic_link_not_allowed"));
+        assertFalse(Files.exists(outside.resolve("secret.txt")));
+    }
+
+    @Test
+    void shouldRejectBatchWhenRollbackSnapshotBudgetIsExceeded() throws Exception {
+        Path root = cleanTestRoot("rollback-snapshot-limit");
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("first.txt"), "a".repeat(700));
+        Files.writeString(root.resolve("second.txt"), "b".repeat(700));
+        PatchExecutionProperties properties = new PatchExecutionProperties();
+        properties.setMaxReadableFileBytes(1_024);
+        properties.setMaxRollbackSnapshotBytes(1_024);
+        GenerationPatchApplyService limitedService = PatchApplyServiceTestFactory.create(properties);
+
+        PatchApplyResult result = limitedService.applyWithoutChangePlan(13L, "task-13", root, List.of(
+                PatchOperation.modify("first.txt", "changed-first"),
+                PatchOperation.modify("second.txt", "changed-second")
+        ), "rollback_limit_test");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains("batch:rollback_snapshot_limit_exceeded"));
+        assertEquals("a".repeat(700), Files.readString(root.resolve("first.txt")));
+        assertEquals("b".repeat(700), Files.readString(root.resolve("second.txt")));
+    }
+
+    @Test
+    void shouldRollbackEarlierFilesWhenLaterMutationFails() throws Exception {
+        Path root = cleanTestRoot("batch-rollback");
+        Files.createDirectories(root);
+        PatchExecutionProperties properties = new PatchExecutionProperties();
+        PatchWorkspaceFileService workspaceFileService = spy(new PatchWorkspaceFileService(properties));
+        doThrow(new PatchWorkspaceException("simulated_write_failure"))
+                .when(workspaceFileService)
+                .writeNewUtf8(
+                        argThat(target -> target != null && "second.txt".equals(target.relativePath())),
+                        anyString()
+                );
+        PatchStructuredContentService structuredContentService = new PatchStructuredContentService();
+        GenerationPatchApplyService rollbackAwareService = new GenerationPatchApplyService(
+                new com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector(
+                        new SimpleMeterRegistry()),
+                new PatchOperationResourcePolicy(properties),
+                new PatchOperationValidator(
+                        workspaceFileService,
+                        structuredContentService,
+                        new FrontendPatchImportPolicy(workspaceFileService)
+                ),
+                new PatchOperationExecutor(
+                        workspaceFileService,
+                        structuredContentService,
+                        new PatchBatchRollbackService(workspaceFileService, properties)
+                )
+        );
+
+        PatchApplyResult result = rollbackAwareService.applyWithoutChangePlan(14L, "task-14", root, List.of(
+                PatchOperation.add("first.txt", "first"),
+                PatchOperation.add("second.txt", "second")
+        ), "rollback_test");
+
+        assertEquals("rejected", result.status());
+        assertEquals("patch_apply_failed", result.reason());
+        assertFalse(Files.exists(root.resolve("first.txt")));
+        assertFalse(Files.exists(root.resolve("second.txt")));
     }
 
     private Path cleanTestRoot(String caseName) {

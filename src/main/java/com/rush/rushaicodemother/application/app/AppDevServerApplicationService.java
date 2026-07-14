@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.DevServerStatusVO;
-import com.rush.rushaicodemother.service.AppService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import com.rush.rushaicodemother.service.devserver.DevServerStartResult;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AppDevServerApplicationService {
 
-    private final AppService appService;
+    private final AppPersistenceService appPersistenceService;
     private final DevServerManager devServerManager;
     private final AppAccessPolicy appAccessPolicy;
 
@@ -64,11 +64,7 @@ public class AppDevServerApplicationService {
         if (app.getDevServerPort() != null && app.getDevServerPort() == port) {
             return;
         }
-        App update = new App();
-        update.setId(app.getId());
-        update.setDevServerPort(port);
-        boolean updated = appService.updateById(update);
-        ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "保存 Dev Server 端口失败");
+        appPersistenceService.updateDevServerPort(app.getId(), port);
     }
 
     private void compensateStartedServer(
@@ -88,7 +84,7 @@ public class AppDevServerApplicationService {
 
     private App requireOwnedApp(Long appId, User actor, String deniedMessage) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
-        App app = appService.getById(appId);
+        App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         return appAccessPolicy.requireOwner(app, actor, deniedMessage);
     }

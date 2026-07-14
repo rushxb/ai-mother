@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -8,7 +9,6 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
-import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditResult;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -29,9 +29,6 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class LightweightEditGenerationPipeline implements GenerationPipeline {
 
-    private static final long COMPLETED_SESSION_REPLAY_SECONDS = 30;
-
-    private final GenerationAppStateService generationAppStateService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationSessionRegistry sessionRegistry;
     private final LightweightEditService lightweightEditService;
@@ -73,7 +70,6 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
             );
             log.info("轻量编辑路径完成，appId: {}, taskId: {}, route: {}", app.getId(), editResult.taskId(), editResult.route());
             if ("failed".equals(editResult.validationResult())) {
-                generationAppStateService.markGenerationFinished(app.getId());
                 generationPerformanceMonitorService.finishTask(editResult.taskId(), "failed");
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, editResult.summary());
             }
@@ -90,13 +86,13 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                     )
             ));
             session.complete();
-            sessionRegistry.cleanupLater(app.getId(), session, COMPLETED_SESSION_REPLAY_SECONDS);
+            sessionRegistry.retainForReplay(app.getId(), session);
             generationPerformanceMonitorService.finishTask(editResult.taskId(), "success");
             return Optional.of(new GenerationTaskResult(editResult.taskId(), editResult.route(), request.workspace(), session.asFlux()));
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("轻量编辑路径异常，等待编排器按 fallbackPolicy 处理，appId: {}, error: {}", app.getId(), e.getMessage());
+            log.warn("轻量编辑路径异常，等待编排器按 fallbackPolicy 处理，appId: {}, error: {}", app.getId(), LogExceptionSanitizer.sanitizeMessage(e));
             return Optional.empty();
         }
     }

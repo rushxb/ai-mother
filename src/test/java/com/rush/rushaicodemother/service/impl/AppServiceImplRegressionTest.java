@@ -2,16 +2,16 @@ package com.rush.rushaicodemother.service.impl;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
-import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
-import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
@@ -25,25 +25,28 @@ import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationSessionCompl
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
-import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
-import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
+import com.rush.rushaicodemother.service.trace.GenerationBuildTrace;
+import com.rush.rushaicodemother.service.trace.GenerationModelCallCommand;
+import com.rush.rushaicodemother.service.trace.GenerationTaskStartCommand;
+import com.rush.rushaicodemother.service.trace.GenerationTaskTrace;
+import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
 import java.lang.reflect.Method;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.Mockito.doReturn;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 class AppServiceImplRegressionTest {
@@ -103,9 +106,18 @@ class AppServiceImplRegressionTest {
     }
 
     @Test
-    void shouldRecordUserWaitMetricOnceWhenSessionCompletes() throws Exception {
+    void shouldRecordUserWaitMetricOnceWhenSessionCompletionIsClaimedOnce() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        GenerationTaskOrchestrator orchestrator = newOrchestrator(new GenerationOrchestrationMetricsCollector(meterRegistry));
+        GenerationOrchestrationMetricsCollector metricsCollector =
+                new GenerationOrchestrationMetricsCollector(meterRegistry);
+        GenerationTaskLifecycleService lifecycleService = new GenerationTaskLifecycleService(
+                mock(GenerationAppStateService.class),
+                null,
+                new NoopGenerationTraceService(),
+                new NoopUserCreditService()
+        );
+        HeavyGenerationSessionCompletionService completionService =
+                new HeavyGenerationSessionCompletionService(metricsCollector, lifecycleService);
         GenerationPreparation preparation = newPreparation(
                 lifecycleArtifacts(),
                 List.of(GenerationStreamEvent.agentEvent("route", Map.of("orchestrationMode", "light"))),
@@ -113,22 +125,10 @@ class AppServiceImplRegressionTest {
         );
         GenerationSession session = new GenerationSession(preparation);
 
-        invoke(
-                orchestrator,
-                "completeGenerationSession",
-                new Class<?>[]{GenerationSession.class, GenerationPreparation.class, String.class},
-                session,
-                preparation,
-                "success"
-        );
-        invoke(
-                orchestrator,
-                "completeGenerationSession",
-                new Class<?>[]{GenerationSession.class, GenerationPreparation.class, String.class},
-                session,
-                preparation,
-                "success"
-        );
+        assertTrue(session.tryBeginCompletion());
+        completionService.completeClaimed(1L, session, preparation, GenerationTerminalOutcome.SUCCESS);
+        session.complete();
+        assertFalse(session.tryBeginCompletion());
 
         assertEquals(1, meterRegistry.find("generation_orchestration_user_wait_duration_seconds")
                 .tag("orchestration_mode", "light")
@@ -151,11 +151,11 @@ class AppServiceImplRegressionTest {
         );
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
         when(orchestrator.getStream(1L)).thenReturn(Flux.empty());
-        AppServiceImpl service = spy(new AppServiceImplTestFixture()
+        AppServiceImplTestFixture fixture = new AppServiceImplTestFixture()
                 .withGenerationEventPublisher(eventPublisher)
-                .withGenerationTaskOrchestrator(orchestrator)
-                .createService());
-        doReturn(app).when(service).getById(1L);
+                .withGenerationTaskOrchestrator(orchestrator);
+        AppServiceImpl service = fixture.createService();
+        when(fixture.persistenceService().findActiveById(1L)).thenReturn(app);
 
         List<GenerationStreamEvent> events = service.getGenerationStream(1L, user).collectList().block();
 
@@ -164,31 +164,6 @@ class AppServiceImplRegressionTest {
         assertEquals(GenerationStreamEvent.AGENT_EVENT, events.get(0).getType());
         assertEquals("AGENT_EDIT Plan 阶段完成", events.get(0).getText());
         assertEquals("agent_edit_plan", events.get(0).getData().get("eventType"));
-    }
-
-    private GenerationTaskOrchestrator newOrchestrator(GenerationOrchestrationMetricsCollector metricsCollector) {
-        NoopGenerationTraceService traceService = new NoopGenerationTraceService();
-        NoopUserCreditService creditService = new NoopUserCreditService();
-        GenerationTaskLifecycleService lifecycleService = new GenerationTaskLifecycleService(null, traceService, creditService);
-        return new GenerationTaskOrchestrator(
-                null,  // generationAppStateService
-                null,  // generationEventPublisher
-                List.of(),  // generationPipelines
-                new GenerationSessionRegistry(),  // generationSessionRegistry
-                null,  // generationPerformanceMonitorService
-                null,  // heavyGenerationBuildValidationService
-                null,  // heavyGenerationExecutionService
-                newFailureRecoveryService(metricsCollector),  // heavyGenerationFailureRecoveryService
-                null,  // heavyGenerationFinalizationService
-                null,  // heavyGenerationPreparationService
-                new HeavyGenerationSessionCompletionService(metricsCollector, lifecycleService),  // heavyGenerationSessionCompletionService
-                lifecycleService,  // generationTaskLifecycleService
-                null,  // generationToolExecutionContextService
-                traceService,  // generationTraceService
-                null,  // generationExecutionContextService
-                new GenerationModeRouter(),  // generationModeRouter
-                null  // generationWorkspaceService
-        );
     }
 
     private HeavyGenerationFailureRecoveryService newFailureRecoveryService(
@@ -286,7 +261,7 @@ class AppServiceImplRegressionTest {
     private static class NoopGenerationTraceService implements GenerationTraceService {
 
         @Override
-        public void startTask(String taskId, Long appId, Long userId, CodeGenTypeEnum originalType, CodeGenTypeEnum targetType, String userPrompt, String enhancedPrompt, boolean requiresBuildValidation, String qualityGate, String orchestrationMode) {
+        public void startTask(GenerationTaskStartCommand command) {
         }
 
         @Override
@@ -298,7 +273,7 @@ class AppServiceImplRegressionTest {
         }
 
         @Override
-        public void completeTask(String taskId, String status, Instant startedAt, String errorMessage) {
+        public void completeTask(String taskId, GenerationTaskStatus status, String errorMessage) {
         }
 
         @Override
@@ -306,30 +281,21 @@ class AppServiceImplRegressionTest {
         }
 
         @Override
-        public void recordBuildResult(String taskId, Long appId, Long userId, GenerationStreamEvent event) {
+        public void recordModelCall(GenerationModelCallCommand command) {
         }
 
         @Override
-        public void recordModelCall(String taskId, Long appId, Long userId, Map<String, Object> metadata) {
-        }
-
-        @Override
-        public GenerationTask getByTaskId(String taskId) {
-            return null;
-        }
-
-        @Override
-        public List<GenerationTask> listRecentTasksByAppId(Long appId, int limit) {
+        public List<GenerationTaskTrace> listRecentTasksByAppId(Long appId, int limit) {
             return List.of();
         }
 
         @Override
-        public List<GenerationBuildLog> listRecentBuildLogsByAppId(Long appId, int limit) {
+        public List<GenerationBuildTrace> listRecentBuildLogsByAppId(Long appId, int limit) {
             return List.of();
         }
 
         @Override
-        public List<GenerationBuildLog> listBuildLogsByTaskId(String taskId, int limit) {
+        public List<GenerationBuildTrace> listBuildLogsByTaskId(String taskId, int limit) {
             return List.of();
         }
     }
@@ -337,12 +303,15 @@ class AppServiceImplRegressionTest {
     private static class NoopUserCreditService implements UserCreditService {
 
         @Override
-        public long calculateCreditCost(long totalTokens) {
-            return 0;
+        public void ensureHasCredit(Long userId) {
         }
 
         @Override
-        public long adjustCredit(Long userId, Long changeAmount, String type, String bizId, String remark, Long adminUserId, Long tokenCount) {
+        public void initializeCredit(Long userId, Long initialCredit, Long adminUserId) {
+        }
+
+        @Override
+        public long adjustCreditByAdmin(AdminCreditAdjustmentCommand command) {
             return 0;
         }
 

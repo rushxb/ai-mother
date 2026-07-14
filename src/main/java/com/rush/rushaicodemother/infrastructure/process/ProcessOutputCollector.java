@@ -29,12 +29,19 @@ public final class ProcessOutputCollector {
     private final String logContext;
     private final int maxOutputLength;
     private final Charset outputCharset;
+    private final ManagedProcessOutputLogPolicy outputLogPolicy;
     private final StringBuilder output = new StringBuilder();
     private final StringBuilder pendingLine = new StringBuilder();
     private final AtomicLong lastOutputAt = new AtomicLong(System.nanoTime());
 
     public ProcessOutputCollector(String logCategory, String logContext, int maxOutputLength) {
-        this(logCategory, logContext, maxOutputLength, StandardCharsets.UTF_8);
+        this(
+                logCategory,
+                logContext,
+                maxOutputLength,
+                StandardCharsets.UTF_8,
+                ManagedProcessOutputLogPolicy.STREAM
+        );
     }
 
     public ProcessOutputCollector(
@@ -43,6 +50,22 @@ public final class ProcessOutputCollector {
             int maxOutputLength,
             Charset outputCharset
     ) {
+        this(
+                logCategory,
+                logContext,
+                maxOutputLength,
+                outputCharset,
+                ManagedProcessOutputLogPolicy.STREAM
+        );
+    }
+
+    public ProcessOutputCollector(
+            String logCategory,
+            String logContext,
+            int maxOutputLength,
+            Charset outputCharset,
+            ManagedProcessOutputLogPolicy outputLogPolicy
+    ) {
         if (maxOutputLength <= 0) {
             throw new IllegalArgumentException("最大输出长度必须大于 0");
         }
@@ -50,6 +73,9 @@ public final class ProcessOutputCollector {
         this.logContext = normalizeLogValue(logContext, "unknown");
         this.maxOutputLength = maxOutputLength;
         this.outputCharset = outputCharset == null ? StandardCharsets.UTF_8 : outputCharset;
+        this.outputLogPolicy = outputLogPolicy == null
+                ? ManagedProcessOutputLogPolicy.STREAM
+                : outputLogPolicy;
     }
 
     public CompletableFuture<Void> start(Process process) {
@@ -82,7 +108,7 @@ public final class ProcessOutputCollector {
     }
 
     public synchronized String tailForLog() {
-        String normalized = output()
+        String normalized = SensitiveLogSanitizer.sanitize(output())
                 .replace("\u001B", "")
                 .replace('\r', ' ')
                 .replace('\n', ' ')
@@ -121,11 +147,17 @@ public final class ProcessOutputCollector {
                 String chunk = new String(buffer, 0, read);
                 lastOutputAt.set(System.nanoTime());
                 appendOutput(chunk);
-                appendLogLines(chunk);
+                if (outputLogPolicy.isLineLoggingEnabled()) {
+                    appendLogLines(chunk);
+                }
             }
-            flushPendingLine();
+            if (outputLogPolicy.isLineLoggingEnabled()) {
+                flushPendingLine();
+            }
         } catch (IOException exception) {
-            flushPendingLine();
+            if (outputLogPolicy.isLineLoggingEnabled()) {
+                flushPendingLine();
+            }
             throw exception;
         }
     }
@@ -167,14 +199,17 @@ public final class ProcessOutputCollector {
     }
 
     private void logLine(String line) {
-        String normalized = line.replace("\u001B", "").trim();
+        String normalized = SensitiveLogSanitizer.sanitize(line)
+                .replace("\u001B", "")
+                .trim();
         if (!normalized.isEmpty()) {
             log.info("[{}] {} | {}", logCategory, logContext, normalized);
         }
     }
 
     private static String normalizeLogValue(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
+        String normalized = value == null || value.isBlank() ? fallback : value.trim();
+        return SensitiveLogSanitizer.sanitize(normalized);
     }
 
     private static String normalizeThreadName(String value) {

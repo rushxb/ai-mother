@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -75,7 +76,7 @@ public class VisualEditorBootstrapInjector {
             log.info("已注入可视化编辑器引导脚本: {}", realIndexHtml);
         } catch (IOException exception) {
             log.warn("注入可视化编辑器引导脚本失败: path={}, error={}",
-                    indexHtml, exception.getMessage());
+                    indexHtml, LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 

@@ -37,11 +37,10 @@ class DevServerRuntimePropertiesTest {
     }
 
     @Test
-    void shouldRejectInvalidPortRangeAndNodeExecutable() {
+    void shouldRejectInvalidPortRange() {
         DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
         properties.setPortRangeStart(20000);
         properties.setPortRangeEnd(10000);
-        properties.setNodeExecutable("node\0evil");
 
         assertFalse(validator.validate(properties).isEmpty());
     }

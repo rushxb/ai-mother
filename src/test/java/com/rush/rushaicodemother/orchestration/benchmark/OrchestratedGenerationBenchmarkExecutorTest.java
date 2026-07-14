@@ -92,7 +92,12 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
         when(orchestrator.start(any())).thenAnswer(invocation -> {
             GenerationTaskRequest request = invocation.getArgument(0);
-            eventPublisher.publish(request, GenerationEventType.TASK_FAILED, "failed", Map.of("reason", "boom"));
+            eventPublisher.publish(
+                    request,
+                    GenerationEventType.TASK_FAILED,
+                    "failed",
+                    Map.of("reason", "provider-api-key=secret-value")
+            );
             return new GenerationTaskResult("bench-task-3", "agent_edit", null, Flux.never());
         });
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
@@ -102,7 +107,8 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         ));
 
         assertFalse(result.success());
-        assertEquals("boom", result.failureReason());
+        assertEquals("代码生成失败，请稍后重试。", result.failureReason());
+        assertFalse(result.failureReason().contains("secret-value"));
     }
 
     @Test
@@ -122,6 +128,43 @@ class OrchestratedGenerationBenchmarkExecutorTest {
 
         assertTrue(result.success());
         assertTrue(result.buildPassed());
+    }
+
+    @Test
+    void shouldNotExposeRawStreamFailureDetails() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-task-5",
+                "create",
+                null,
+                Flux.error(new IllegalStateException("provider-api-key=secret-value"))
+        ));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "create_bench", "CREATE", "vue_project", "生成后台", "build"
+        ));
+
+        assertFalse(result.success());
+        assertEquals("代码生成失败，请稍后重试。", result.failureReason());
+        assertFalse(result.failureReason().contains("secret-value"));
+    }
+
+    @Test
+    void shouldNotExposeRawOrchestrationFailureDetails() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenThrow(
+                new IllegalStateException("provider-api-key=secret-value")
+        );
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "create_bench", "CREATE", "vue_project", "生成后台", "build"
+        ));
+
+        assertFalse(result.success());
+        assertEquals("代码生成失败，请稍后重试。", result.failureReason());
+        assertFalse(result.failureReason().contains("secret-value"));
     }
 
     private OrchestratedGenerationBenchmarkExecutor executor(GenerationTaskOrchestrator orchestrator) {

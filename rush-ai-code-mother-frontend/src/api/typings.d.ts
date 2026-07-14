@@ -162,9 +162,15 @@ declare namespace API {
     message?: string
   }
 
-  type BaseResponsePageChatHistory = {
+  type BaseResponseChatHistoryCursorPageVO = {
     code?: number
-    data?: PageChatHistory
+    data?: ChatHistoryCursorPageVO
+    message?: string
+  }
+
+  type BaseResponsePageChatHistoryAdminVO = {
+    code?: number
+    data?: PageChatHistoryAdminVO
     message?: string
   }
 
@@ -247,7 +253,15 @@ declare namespace API {
     message?: string
   }
 
-  type ChatHistory = {
+  type ChatHistoryVO = {
+    id?: string | number
+    message?: string
+    messageType?: string
+    appId?: string | number
+    createTime?: string
+  }
+
+  type ChatHistoryAdminVO = {
     id?: string | number
     message?: string
     messageType?: string
@@ -255,7 +269,13 @@ declare namespace API {
     userId?: string | number
     createTime?: string
     updateTime?: string
-    isDelete?: number
+  }
+
+  type ChatHistoryCursorPageVO = {
+    records?: ChatHistoryVO[]
+    hasMore?: boolean
+    nextCursorCreateTime?: string
+    nextCursorId?: string | number
   }
 
   type ChatHistoryQueryRequest = {
@@ -268,7 +288,6 @@ declare namespace API {
     messageType?: string
     appId?: string | number
     userId?: string | number
-    lastCreateTime?: string
   }
 
   type chatToGenCodeParams = {
@@ -317,6 +336,7 @@ declare namespace API {
     appId: string | number
     pageSize?: number
     lastCreateTime?: string
+    lastId?: string | number
   }
 
   type LoginUserVO = {
@@ -340,8 +360,8 @@ declare namespace API {
     optimizeCountQuery?: boolean
   }
 
-  type PageChatHistory = {
-    records?: ChatHistory[]
+  type PageChatHistoryAdminVO = {
+    records?: ChatHistoryAdminVO[]
     pageNumber?: number
     pageSize?: number
     totalPage?: number
@@ -382,6 +402,7 @@ declare namespace API {
   type UserAddRequest = {
     userName?: string
     userAccount?: string
+    userPassword?: string
     userAvatar?: string
     userProfile?: string
     userRole?: string
@@ -389,6 +410,7 @@ declare namespace API {
   }
 
   type UserCreditAdjustRequest = {
+    requestId?: string
     userId?: number
     changeAmount?: number
     remark?: string
@@ -423,7 +445,6 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
-    creditBalance?: number
   }
 
   type UserVO = {

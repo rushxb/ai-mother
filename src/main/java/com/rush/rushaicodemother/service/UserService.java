@@ -1,21 +1,36 @@
 package com.rush.rushaicodemother.service;
 
-import com.mybatisflex.core.query.QueryWrapper;
-import com.mybatisflex.core.service.IService;
-import com.rush.rushaicodemother.model.dto.user.UserQueryRequest;
+import com.rush.rushaicodemother.model.dto.user.UserAddRequest;
+import com.rush.rushaicodemother.model.dto.user.UserUpdateRequest;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.LoginUserVO;
-import com.rush.rushaicodemother.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
-
-import java.util.List;
 
 /**
  * 用户 服务层。
  *
  *
  */
-public interface UserService extends IService<User> {
+public interface UserService {
+
+    /**
+     * 管理员创建用户，并在同一事务中完成初始积分入账。
+     *
+     * @param request     创建请求
+     * @param adminUserId 操作管理员 ID
+     * @return 新用户 ID
+     */
+    long createUser(UserAddRequest request, Long adminUserId);
+
+    /**
+     * 管理员更新用户可编辑资料。
+     */
+    void updateUser(UserUpdateRequest request);
+
+    /**
+     * 管理员逻辑删除用户。
+     */
+    void deleteUser(Long userId);
 
     /**
      * 用户注册
@@ -26,13 +41,6 @@ public interface UserService extends IService<User> {
      * @return 新用户 id
      */
     long userRegister(String userAccount, String userPassword, String checkPassword);
-
-    /**
-     * 获取脱敏的已登录用户信息
-     *
-     * @return
-     */
-    LoginUserVO getLoginUserVO(User user);
 
     /**
      * 用户登录
@@ -53,20 +61,14 @@ public interface UserService extends IService<User> {
     User getLoginUser(HttpServletRequest request);
 
     /**
-     * 获取脱敏后的用户信息
-     *
-     * @param user 用户信息
-     * @return
+     * 获取当前登录用户的脱敏视图。
      */
-    UserVO getUserVO(User user);
+    LoginUserVO getLoginUserView(HttpServletRequest request);
 
     /**
-     * 获取脱敏后的用户信息（分页）
-     *
-     * @param userList 用户列表
-     * @return
+     * 获取当前登录用户 ID。
      */
-    List<UserVO> getUserVOList(List<User> userList);
+    long getLoginUserId(HttpServletRequest request);
 
     /**
      * 用户注销
@@ -76,21 +78,4 @@ public interface UserService extends IService<User> {
      */
     boolean userLogout(HttpServletRequest request);
 
-    /**
-     * 根据查询条件构造数据查询参数
-     *
-     * @param userQueryRequest
-     * @return
-     */
-    QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest);
-
-    /**
-     * 使用当前安全算法生成密码哈希。
-     *
-     * @param userPassword 原始密码
-     * @return 不可逆密码哈希
-     */
-    String hashPassword(String userPassword);
-
-    void ensureHasCredit(Long userId);
 }

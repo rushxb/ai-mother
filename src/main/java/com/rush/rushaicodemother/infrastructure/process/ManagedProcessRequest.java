@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -19,23 +20,34 @@ import java.util.function.BooleanSupplier;
 public record ManagedProcessRequest(
         Path workingDirectory,
         List<String> command,
+        String displayCommand,
         Map<String, String> environment,
+        Set<String> environmentVariablesToRemove,
         Duration timeout,
         Duration idleTimeout,
         Duration heartbeatInterval,
         Duration outputDrainTimeout,
         int maxOutputLength,
         boolean redirectErrorStream,
+        ManagedProcessOutputLogPolicy outputLogPolicy,
         Charset outputCharset,
         String logCategory,
         String logContext,
-        BooleanSupplier cancellationRequested
+        BooleanSupplier cancellationRequested,
+        ManagedProcessLifecycle lifecycle
 ) {
 
     public ManagedProcessRequest {
         command = command == null ? null : List.copyOf(command);
         environment = environment == null ? Map.of() : Map.copyOf(environment);
+        environmentVariablesToRemove = environmentVariablesToRemove == null
+                ? Set.of()
+                : Set.copyOf(environmentVariablesToRemove);
+        outputLogPolicy = outputLogPolicy == null
+                ? ManagedProcessOutputLogPolicy.STREAM
+                : outputLogPolicy;
         outputCharset = outputCharset == null ? StandardCharsets.UTF_8 : outputCharset;
         cancellationRequested = cancellationRequested == null ? () -> false : cancellationRequested;
+        lifecycle = lifecycle == null ? ManagedProcessLifecycle.NO_OP : lifecycle;
     }
 }

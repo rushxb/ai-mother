@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceSelector;
@@ -17,6 +18,8 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
@@ -69,6 +72,7 @@ public class HeavyGenerationExecutionService {
         for (int round = 0; round <= maxGenerationRepairRounds; round++) {
             session.throwIfCancelled();
             if (round > 0) {
+                session.consumeBudget(GenerationBudgetKind.REPAIR_ROUND);
                 generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "generation", "started");
                 session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                         "round", round,
@@ -85,12 +89,14 @@ public class HeavyGenerationExecutionService {
                     generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "generation", "success");
                 }
                 return;
+            } catch (GenerationExecutionPolicyException e) {
+                throw e;
             } catch (Exception e) {
                 lastError = e;
                 GenerationErrorClassifier.GenerationError generationError =
                         heavyGenerationFailureRecoveryService.classifyGenerationError(e);
-                log.warn("应用生成轮次失败，appId: {}, round: {}, category: {}, error: {}",
-                        appId, round, generationError.category(), e.getMessage());
+                log.warn("应用生成轮次失败，appId: {}, round: {}, category: {}",
+                        appId, round, generationError.category(), LogExceptionSanitizer.sanitize(e));
                 if (round > 0) {
                     generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "generation", "failed");
                 }
@@ -109,7 +115,7 @@ public class HeavyGenerationExecutionService {
                 appId,
                 preparation.targetType(),
                 preparation.taskId(),
-                lastError
+                LogExceptionSanitizer.sanitize(lastError)
         );
         throw new BusinessException(ErrorCode.SYSTEM_ERROR, publicMessage, lastError);
     }
@@ -146,7 +152,8 @@ public class HeavyGenerationExecutionService {
                 .doOnNext(event -> {
                     session.throwIfCancelled();
                     appendGenerationSnapshotChunk(generatedContent, event.getText());
-                    updateGenerationSnapshotIfDue(appId, generatedContent, lastSnapshotUpdateAt);
+                    updateGenerationSnapshotIfDue(
+                            appId, session, generatedContent, lastSnapshotUpdateAt);
                     session.emit(event);
                 })
                 .doOnComplete(session::throwIfCancelled)
@@ -158,7 +165,9 @@ public class HeavyGenerationExecutionService {
                                         GenerationPreparation preparation,
                                         Exception exception,
                                         int repairRound) {
-        String errorMessage = StrUtil.blankToDefault(exception.getMessage(), "构建失败");
+        GenerationErrorClassifier.GenerationError generationError =
+                heavyGenerationFailureRecoveryService.classifyGenerationError(exception);
+        String errorMessage = generationError.message();
         String memoryContext = generationMemoryContextService.buildAutoRepairMemoryContext(
                 appId,
                 preparation == null ? null : preparation.taskId(),
@@ -181,7 +190,7 @@ public class HeavyGenerationExecutionService {
                 3. 只修改必要文件，避免无关重构。
                 4. 修复后必须调用本地构建诊断工具验证。
                 """.formatted(memorySection, repairRound,
-                heavyGenerationFailureRecoveryService.classifyGenerationError(errorMessage).category(), errorMessage);
+                generationError.category(), errorMessage);
     }
 
     private boolean isComplexPrompt(String prompt) {
@@ -227,13 +236,20 @@ public class HeavyGenerationExecutionService {
         }
     }
 
-    private void updateGenerationSnapshotIfDue(Long appId, StringBuilder generatedContent, long[] lastSnapshotUpdateAt) {
+    private void updateGenerationSnapshotIfDue(Long appId,
+                                               GenerationSession session,
+                                               StringBuilder generatedContent,
+                                               long[] lastSnapshotUpdateAt) {
         long now = System.currentTimeMillis();
         if (now - lastSnapshotUpdateAt[0] < GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS) {
             return;
         }
+        if (session == null || session.preparation() == null) {
+            throw new IllegalStateException("heavy generation session preparation is required");
+        }
         lastSnapshotUpdateAt[0] = now;
-        generationAppStateService.updateGenerationSnapshot(appId, generatedContent.toString());
+        generationAppStateService.updateOwnedGenerationSnapshot(
+                appId, session.preparation().taskId(), generatedContent.toString());
     }
 
     private void appendGenerationSnapshotChunk(StringBuilder generatedContent, String chunk) {

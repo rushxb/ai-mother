@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.exception;
 
 import com.rush.rushaicodemother.common.BaseResponse;
 import com.rush.rushaicodemother.common.ResultUtils;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import dev.langchain4j.guardrail.GuardrailException;
 import dev.langchain4j.guardrail.InputGuardrailException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -97,7 +98,7 @@ public class GlobalExceptionHandler {
     public BaseResponse<?> httpMessageNotReadableExceptionHandler(HttpMessageNotReadableException exception,
                                                                  HttpServletRequest request,
                                                                  HttpServletResponse response) {
-        log.debug("Request body is missing or malformed: {}", exception.getMessage());
+        log.debug("Request body is missing or malformed [{}]", ErrorCode.PARAMS_ERROR.getCode());
         return respond(request, response,
                 ErrorCode.PARAMS_ERROR.getCode(), ErrorCode.PARAMS_ERROR.getMessage());
     }
@@ -120,14 +121,25 @@ public class GlobalExceptionHandler {
         return respond(request, response, ErrorCode.PARAMS_ERROR.getCode(), message);
     }
 
+    @ExceptionHandler(ServiceUnavailableException.class)
+    public BaseResponse<?> serviceUnavailableExceptionHandler(ServiceUnavailableException exception,
+                                                              HttpServletRequest request,
+                                                              HttpServletResponse response) {
+        log.warn("Request processing temporarily unavailable [{}]: {}",
+                ErrorCode.SERVICE_UNAVAILABLE_ERROR.getCode(), exception.getClass().getSimpleName());
+        return respond(request, response,
+                ErrorCode.SERVICE_UNAVAILABLE_ERROR.getCode(), exception.getPublicMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public BaseResponse<?> unexpectedExceptionHandler(Exception exception,
                                                       HttpServletRequest request,
                                                       HttpServletResponse response) {
-        log.error("Unexpected request processing failure", exception);
+        log.error("Unexpected request processing failure", LogExceptionSanitizer.sanitize(exception));
         return respond(request, response,
                 ErrorCode.SYSTEM_ERROR.getCode(), ErrorCode.SYSTEM_ERROR.getMessage());
     }
+
 
     private BaseResponse<?> respond(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -167,4 +179,5 @@ public class GlobalExceptionHandler {
     private String normalizeMessage(String message, String fallback) {
         return StringUtils.hasText(message) ? message.trim() : fallback;
     }
+
 }

@@ -7,8 +7,8 @@ import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.ProjectDownloadService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,13 +26,13 @@ import java.nio.file.Path;
 @RequiredArgsConstructor
 public class AppCodeDownloadApplicationService {
 
-    private final AppService appService;
+    private final AppPersistenceService appPersistenceService;
     private final ProjectDownloadService projectDownloadService;
     private final AppAccessPolicy appAccessPolicy;
 
     public void download(Long appId, User actor, HttpServletResponse response) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 无效");
-        App app = appService.getById(appId);
+        App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         appAccessPolicy.requireOwner(app, actor, "无权限下载该应用代码");
 

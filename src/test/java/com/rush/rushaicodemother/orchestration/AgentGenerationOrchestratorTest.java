@@ -6,12 +6,10 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.GenerationAgentSupport;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
@@ -22,6 +20,7 @@ import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootst
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -29,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
+import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.codeAgentNode;
+import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.reviewAgentNode;
+import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -45,7 +47,7 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-heavy");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = new GenerationAgentSupport();
+        GenerationAgentSupport support = support();
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
@@ -79,7 +81,7 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-upgrade");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = new GenerationAgentSupport();
+        GenerationAgentSupport support = support();
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
@@ -113,7 +115,7 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-build");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = new GenerationAgentSupport();
+        GenerationAgentSupport support = support();
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
@@ -148,7 +150,7 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-metrics");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = new GenerationAgentSupport();
+        GenerationAgentSupport support = support();
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         GenerationOrchestrationMetricsCollector metricsCollector = new GenerationOrchestrationMetricsCollector(meterRegistry);
@@ -161,8 +163,8 @@ class AgentGenerationOrchestratorTest {
                 testTemplateAgentNode("metrics"),
                 new ContextAgentNode(support),
                 new ArchitectAgentNode(support),
-                new CodeAgentNode(),
-                new ReviewAgentNode(),
+                codeAgentNode(),
+                reviewAgentNode(),
                 new BuildFixAgentNode(),
                 routingSupport,
                 metricsCollector,
@@ -227,8 +229,8 @@ class AgentGenerationOrchestratorTest {
                 testTemplateAgentNode("shared"),
                 new ContextAgentNode(support),
                 new ArchitectAgentNode(support),
-                new CodeAgentNode(),
-                new ReviewAgentNode(),
+                codeAgentNode(),
+                reviewAgentNode(),
                 new BuildFixAgentNode(),
                 routingSupport,
                 metricsCollector,
@@ -239,7 +241,11 @@ class AgentGenerationOrchestratorTest {
     private GenerationRollbackPointService testRollbackPointService(String caseName) {
         Path root = Path.of("target", "test-workspaces", "rollback-orchestrator", caseName);
         FileUtil.del(root.toFile());
-        return new GenerationRollbackPointService(root.resolve("code_output"), root.resolve("code_snapshot"));
+        return new GenerationRollbackPointService(
+                root.resolve("code_output"),
+                root.resolve("code_snapshot"),
+                WorkspaceFileSystemTestFactory.create()
+        );
     }
 
     private TemplateAgentNode testTemplateAgentNode(String caseName) {

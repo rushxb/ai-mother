@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.orchestration.create.recipe.RecipeRenderResult;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
@@ -116,7 +117,7 @@ public class CreateTemplateRuntime {
                     "groupIndex", groupIndex,
                     "groupTotal", executionGroups.size()
             ));
-            CreateRecipeRendererService.RecipeRenderResult recipeResult = tryRenderRecipe(
+            RecipeRenderResult recipeResult = tryRenderRecipe(
                     request, group, createSpecResult, session);
             if (recipeResult.available()) {
                 operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), recipeResult.patchOperations()));
@@ -237,12 +238,12 @@ public class CreateTemplateRuntime {
         return specResult;
     }
 
-    private CreateRecipeRendererService.RecipeRenderResult tryRenderRecipe(GenerationTaskRequest request,
-                                                                           SlotGroup group,
-                                                                           CreateSpecService.SpecResult specResult,
-                                                                           GenerationSession session) {
+    private RecipeRenderResult tryRenderRecipe(GenerationTaskRequest request,
+                                               SlotGroup group,
+                                               CreateSpecService.SpecResult specResult,
+                                               GenerationSession session) {
         if (createRecipeRendererService == null) {
-            return CreateRecipeRendererService.RecipeRenderResult.empty();
+            return RecipeRenderResult.empty();
         }
         if (!specResult.available()) {
             emitStage(session, "CREATE 规格不可用，保留模板骨架：" + group.templateId(), Map.of(
@@ -251,9 +252,9 @@ public class CreateTemplateRuntime {
                     "templateId", group.templateId(),
                     "reason", specResult.reason()
             ));
-            return CreateRecipeRendererService.RecipeRenderResult.empty();
+            return RecipeRenderResult.empty();
         }
-        CreateRecipeRendererService.RecipeRenderResult result = createRecipeRendererService.render(
+        RecipeRenderResult result = createRecipeRendererService.render(
                 request.message(),
                 group,
                 specResult.spec()

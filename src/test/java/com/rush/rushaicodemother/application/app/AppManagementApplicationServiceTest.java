@@ -7,16 +7,16 @@ import com.rush.rushaicodemother.model.dto.app.AppAdminUpdateRequest;
 import com.rush.rushaicodemother.model.dto.app.AppUpdateRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.service.AppService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.lifecycle.AppDeletionService;
 import com.rush.rushaicodemother.service.provisioning.AppProvisioningService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,18 +25,18 @@ import static org.mockito.Mockito.when;
 
 class AppManagementApplicationServiceTest {
 
-    private AppService appService;
+    private AppPersistenceService appPersistenceService;
     private AppProvisioningService appProvisioningService;
     private AppDeletionService appDeletionService;
     private AppManagementApplicationService service;
 
     @BeforeEach
     void setUp() {
-        appService = mock(AppService.class);
+        appPersistenceService = mock(AppPersistenceService.class);
         appProvisioningService = mock(AppProvisioningService.class);
         appDeletionService = mock(AppDeletionService.class);
         service = new AppManagementApplicationService(
-                appService,
+                appPersistenceService,
                 new AppAccessPolicy(),
                 appProvisioningService,
                 appDeletionService
@@ -52,7 +52,7 @@ class AppManagementApplicationServiceTest {
 
         assertEquals(31L, copiedAppId);
         verify(appProvisioningService).copy(21L, actor);
-        verifyNoInteractions(appService);
+        verifyNoInteractions(appPersistenceService);
     }
 
     @Test
@@ -60,7 +60,8 @@ class AppManagementApplicationServiceTest {
         AppUpdateRequest request = new AppUpdateRequest();
         request.setId(21L);
         request.setAppName("renamed");
-        when(appService.getById(21L)).thenReturn(App.builder().id(21L).userId(2L).build());
+        when(appPersistenceService.findActiveById(21L))
+                .thenReturn(App.builder().id(21L).userId(2L).build());
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -68,13 +69,13 @@ class AppManagementApplicationServiceTest {
         );
 
         assertEquals(ErrorCode.NO_AUTH_ERROR.getCode(), exception.getCode());
-        verify(appService, never()).updateById(org.mockito.ArgumentMatchers.any(App.class));
+        verify(appPersistenceService, never()).updateName(any(), any(), any());
     }
 
     @Test
     void administratorCanDeleteApplicationThroughLifecycleService() {
         App existingApp = App.builder().id(21L).userId(2L).build();
-        when(appService.getById(21L)).thenReturn(existingApp);
+        when(appPersistenceService.findActiveById(21L)).thenReturn(existingApp);
         User administrator = User.builder()
                 .id(1L)
                 .userRole(UserConstant.ADMIN_ROLE)
@@ -83,7 +84,7 @@ class AppManagementApplicationServiceTest {
         service.delete(21L, administrator);
 
         verify(appDeletionService).delete(21L);
-        verify(appService, never()).removeById(21L);
+        verifyNoInteractions(appProvisioningService);
     }
 
     @Test
@@ -92,20 +93,18 @@ class AppManagementApplicationServiceTest {
         request.setId(21L);
         request.setAppName("  production app  ");
         request.setPriority(99);
-        when(appService.getById(21L)).thenReturn(
+        when(appPersistenceService.findActiveById(21L)).thenReturn(
                 App.builder().id(21L).userId(2L).codeGenType("vue_project").build()
         );
-        when(appService.updateById(org.mockito.ArgumentMatchers.any(App.class))).thenReturn(true);
 
         service.updateAsAdministrator(request);
 
-        ArgumentCaptor<App> updateCaptor = ArgumentCaptor.forClass(App.class);
-        verify(appService).updateById(updateCaptor.capture());
-        App update = updateCaptor.getValue();
-        assertEquals(21L, update.getId());
-        assertEquals("production app", update.getAppName());
-        assertEquals(99, update.getPriority());
-        assertNull(update.getCodeGenType());
-        assertNull(update.getUserId());
+        verify(appPersistenceService).updateAdministrationFields(
+                eq(21L),
+                eq("production app"),
+                isNull(),
+                eq(99),
+                any(java.time.LocalDateTime.class)
+        );
     }
 }

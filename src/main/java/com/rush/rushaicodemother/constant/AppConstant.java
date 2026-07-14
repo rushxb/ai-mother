@@ -78,6 +78,11 @@ public interface AppConstant {
     String ORCHESTRATION_TASK_ROOT_DIR = resolveRuntimePath("code.orchestration-task-root-dir", TMP_ROOT_DIR + "/orchestration_tasks");
 
     /**
+     * 连续改修编辑状态目录
+     */
+    String EDIT_STATE_ROOT_DIR = resolveRuntimePath("code.edit-state-root-dir", TMP_ROOT_DIR + "/edit_state");
+
+    /**
      * 截图临时目录
      */
     String SCREENSHOT_ROOT_DIR = resolveRuntimePath("code.screenshot-root-dir", TMP_ROOT_DIR + "/screenshots");

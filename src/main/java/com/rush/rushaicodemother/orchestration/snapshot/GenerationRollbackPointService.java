@@ -1,24 +1,19 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Stream;
 
 /**
  * 在进入真实代码生成前创建本地回滚点。
@@ -27,20 +22,36 @@ import java.util.stream.Stream;
 @Component
 public class GenerationRollbackPointService {
 
-    private static final DateTimeFormatter SNAPSHOT_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
-    private static final Set<String> DEFAULT_IGNORED_NAMES = Set.of(
-            ".git", ".idea", ".vscode", "node_modules", "dist", "build", "target", "coverage"
-    );
     private final Path codeOutputRoot;
     private final Path codeSnapshotRoot;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final SnapshotNamePolicy snapshotNamePolicy;
 
-    public GenerationRollbackPointService() {
-        this(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR), Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR));
+    @Autowired
+    public GenerationRollbackPointService(WorkspaceFileSystemService workspaceFileSystemService,
+                                          SnapshotNamePolicy snapshotNamePolicy) {
+        this(
+                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
+                Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR),
+                workspaceFileSystemService,
+                snapshotNamePolicy
+        );
     }
 
-    public GenerationRollbackPointService(Path codeOutputRoot, Path codeSnapshotRoot) {
+    public GenerationRollbackPointService(Path codeOutputRoot,
+                                          Path codeSnapshotRoot,
+                                          WorkspaceFileSystemService workspaceFileSystemService) {
+        this(codeOutputRoot, codeSnapshotRoot, workspaceFileSystemService, new SnapshotNamePolicy());
+    }
+
+    GenerationRollbackPointService(Path codeOutputRoot,
+                                   Path codeSnapshotRoot,
+                                   WorkspaceFileSystemService workspaceFileSystemService,
+                                   SnapshotNamePolicy snapshotNamePolicy) {
         this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
         this.codeSnapshotRoot = codeSnapshotRoot.toAbsolutePath().normalize();
+        this.workspaceFileSystemService = workspaceFileSystemService;
+        this.snapshotNamePolicy = snapshotNamePolicy;
     }
 
     public GenerationArtifact prepareRollbackPoint(GenerationOrchestrationRequest request,
@@ -68,26 +79,24 @@ public class GenerationRollbackPointService {
             return RollbackPoint.skipped(appId, taskId, "", "", targetTypeValue, "unknown_source_type");
         }
         Path projectPath = resolveProjectPath(appId, sourceType);
-        if (!Files.isDirectory(projectPath)) {
-            return RollbackPoint.skipped(
-                    appId,
-                    taskId,
-                    projectPath.toString(),
-                    sourceTypeValue,
-                    targetTypeValue,
-                    "project_directory_missing"
-            );
-        }
         try {
+            if (!workspaceFileSystemService.isDirectory(projectPath)) {
+                return RollbackPoint.skipped(
+                        appId,
+                        taskId,
+                        projectPath.toString(),
+                        sourceTypeValue,
+                        targetTypeValue,
+                        "project_directory_missing"
+                );
+            }
             Path snapshotRoot = codeSnapshotRoot.resolve(String.valueOf(appId))
                     .toAbsolutePath()
                     .normalize();
-            Files.createDirectories(snapshotRoot);
+            workspaceFileSystemService.ensureDirectory(snapshotRoot);
             String snapshotName = buildSnapshotName(taskId);
             Path snapshotPath = snapshotRoot.resolve(snapshotName).normalize();
-            ensureChildOf(snapshotRoot, snapshotPath);
-            copyProject(projectPath, snapshotPath);
-            int fileCount = listProjectFiles(snapshotPath).size();
+            WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
             return RollbackPoint.created(
                     appId,
                     taskId,
@@ -96,10 +105,10 @@ public class GenerationRollbackPointService {
                     projectPath.toString(),
                     sourceTypeValue,
                     targetTypeValue,
-                    fileCount
+                    copyResult.fileCount()
             );
         } catch (Exception e) {
-            log.warn("创建生成前回滚点失败，appId: {}, taskId: {}", appId, taskId, e);
+            log.warn("创建生成前回滚点失败，appId: {}, taskId: {}", appId, taskId, LogExceptionSanitizer.sanitize(e));
             return RollbackPoint.skipped(
                     appId,
                     taskId,
@@ -126,57 +135,7 @@ public class GenerationRollbackPointService {
     }
 
     private String buildSnapshotName(String taskId) {
-        String normalizedTaskId = taskId == null ? "unknown" : taskId.replaceAll("[^a-zA-Z0-9_-]", "_");
-        return "pre_generation_" + normalizedTaskId + "_" + LocalDateTime.now().format(SNAPSHOT_TIME_FORMATTER);
+        return snapshotNamePolicy.createTaskScopedName("pre_generation", taskId);
     }
 
-    private void copyProject(Path sourceRoot, Path targetRoot) throws IOException {
-        Files.createDirectories(targetRoot);
-        try (Stream<Path> stream = Files.walk(sourceRoot)) {
-            List<Path> sourcePaths = stream
-                    .filter(sourcePath -> shouldInclude(sourceRoot, sourcePath))
-                    .sorted()
-                    .toList();
-            for (Path sourcePath : sourcePaths) {
-                Path relative = sourceRoot.relativize(sourcePath);
-                Path targetPath = targetRoot.resolve(relative);
-                ensureChildOf(targetRoot, targetPath);
-                if (Files.isDirectory(sourcePath)) {
-                    Files.createDirectories(targetPath);
-                } else {
-                    Files.createDirectories(targetPath.getParent());
-                    Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-                }
-            }
-        }
-    }
-
-    private List<Path> listProjectFiles(Path root) throws IOException {
-        try (Stream<Path> stream = Files.walk(root)) {
-            return stream
-                    .filter(Files::isRegularFile)
-                    .filter(path -> shouldInclude(root, path))
-                    .map(root::relativize)
-                    .sorted(Comparator.comparing(Path::toString))
-                    .toList();
-        }
-    }
-
-    private boolean shouldInclude(Path root, Path path) {
-        Path relative = root.equals(path) ? Path.of("") : root.relativize(path);
-        for (Path part : relative.normalize()) {
-            if (DEFAULT_IGNORED_NAMES.contains(part.toString())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private void ensureChildOf(Path root, Path child) {
-        Path normalizedRoot = root.toAbsolutePath().normalize();
-        Path normalizedChild = child.toAbsolutePath().normalize();
-        if (!normalizedChild.startsWith(normalizedRoot)) {
-            throw new IllegalArgumentException("非法路径，超出当前项目目录范围");
-        }
-    }
 }

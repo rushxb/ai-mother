@@ -9,8 +9,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.Objects;
 
 /**
  * 项目脚本命令适配器，负责 pnpm 命令构造和项目命令结果语义。
@@ -22,44 +21,22 @@ public class ProjectCommandExecutor {
     private final ProjectCommandProperties properties;
     private final ManagedProcessExecutor processExecutor;
     private final GenerationExecutionContextService executionContextService;
-    private final boolean windows;
+    private final NodeToolchain nodeToolchain;
 
     @Autowired
     public ProjectCommandExecutor(
             ProjectCommandProperties properties,
             ManagedProcessExecutor processExecutor,
-            GenerationExecutionContextService executionContextService
-    ) {
-        this(properties, processExecutor, executionContextService, isWindowsOperatingSystem());
-    }
-
-    ProjectCommandExecutor(
-            ProjectCommandProperties properties,
-            ProjectProcessTerminator processTerminator,
-            ProcessStarter processStarter,
-            boolean windows
-    ) {
-        this(properties, new ManagedProcessExecutor(processTerminator, processStarter), null, windows);
-    }
-
-    ProjectCommandExecutor(
-            ProjectCommandProperties properties,
-            ManagedProcessExecutor processExecutor,
-            boolean windows
-    ) {
-        this(properties, processExecutor, null, windows);
-    }
-
-    private ProjectCommandExecutor(
-            ProjectCommandProperties properties,
-            ManagedProcessExecutor processExecutor,
             GenerationExecutionContextService executionContextService,
-            boolean windows
+            NodeToolchain nodeToolchain
     ) {
-        this.properties = properties;
-        this.processExecutor = processExecutor;
-        this.executionContextService = executionContextService;
-        this.windows = windows;
+        this.properties = Objects.requireNonNull(properties, "properties must not be null");
+        this.processExecutor = Objects.requireNonNull(processExecutor, "processExecutor must not be null");
+        this.executionContextService = Objects.requireNonNull(
+                executionContextService,
+                "executionContextService must not be null"
+        );
+        this.nodeToolchain = Objects.requireNonNull(nodeToolchain, "nodeToolchain must not be null");
     }
 
     public ProjectCommandResult executePnpmScript(
@@ -79,21 +56,17 @@ public class ProjectCommandExecutor {
             String logContext
     ) {
         if (scriptName == null || scriptName.isBlank()) {
-            throw new IllegalArgumentException("????????");
+            throw new IllegalArgumentException("脚本名称不能为空");
         }
-        Duration effectiveTimeout = executionContextService == null
-                ? commandTimeout
-                : executionContextService.clampTimeout(taskId, commandTimeout);
+        Duration effectiveTimeout = executionContextService.clampTimeout(taskId, commandTimeout);
         ProjectCommandResult result = execute(
                 projectDirectory,
-                List.of(windows ? "pnpm.cmd" : "pnpm", "run", scriptName),
+                List.of(nodeToolchain.pnpmExecutable(), "run", scriptName),
                 effectiveTimeout,
                 taskId,
                 logContext
         );
-        if (executionContextService != null) {
-            executionContextService.assertCanContinue(taskId);
-        }
+        executionContextService.assertCanContinue(taskId);
         return result;
     }
 
@@ -117,7 +90,8 @@ public class ProjectCommandExecutor {
                 ManagedProcessRequest.builder()
                         .workingDirectory(projectDirectory)
                         .command(command)
-                        .environment(controlledPnpmEnvironment())
+                        .environment(NodeProcessEnvironment.overrides(true))
+                        .environmentVariablesToRemove(NodeProcessEnvironment.variablesToRemove())
                         .timeout(commandTimeout)
                         .idleTimeout(properties.getIdleTimeout())
                         .heartbeatInterval(properties.getHeartbeatInterval())
@@ -126,15 +100,14 @@ public class ProjectCommandExecutor {
                         .redirectErrorStream(true)
                         .logCategory("project-command")
                         .logContext(logContext)
-                        .cancellationRequested(() -> executionContextService != null
-                                && executionContextService.shouldStop(taskId))
+                        .cancellationRequested(() -> executionContextService.shouldStop(taskId))
                         .build()
         );
         ProjectCommandResult result = toProjectCommandResult(managedResult);
         if (result.success()) {
-            log.info("????????: command={}", result.command());
+            log.info("项目命令执行成功: command={}", result.command());
         } else {
-            log.warn("?????????: command={}, status={}, exitCode={}",
+            log.warn("项目命令执行失败: command={}, status={}, exitCode={}",
                     result.command(), result.status(), result.exitCode());
         }
         return result;
@@ -174,18 +147,4 @@ public class ProjectCommandExecutor {
         );
     }
 
-    private Map<String, String> controlledPnpmEnvironment() {
-        return Map.of(
-                "NO_UPDATE_NOTIFIER", "1",
-                "NPM_CONFIG_AUDIT", "false",
-                "NPM_CONFIG_FUND", "false",
-                "CI", "true"
-        );
-    }
-
-    private static boolean isWindowsOperatingSystem() {
-        return System.getProperty("os.name", "")
-                .toLowerCase(Locale.ROOT)
-                .contains("windows");
-    }
 }

@@ -10,9 +10,11 @@ spring:
     timeout: ${SESSION_TIMEOUT:12h}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-  data:
-    redis:
-      ttl: ${REDIS_TTL:3600}
+
+logging:
+  level:
+    # COS SDK logs a full stack trace at INFO during normal shutdown; retain only warnings and errors.
+    com.qcloud.cos.http.DefaultCosHttpClient: ${COS_HTTP_CLIENT_LOG_LEVEL:WARN}
 
 server:
   port: ${SERVER_PORT:8123}
@@ -51,7 +53,21 @@ cos:
     bucket: ${COS_BUCKET:}
 
 app:
+  chat-memory:
+    key-prefix: ${CHAT_MEMORY_KEY_PREFIX:chat-memory:}
+    ttl-seconds: ${CHAT_MEMORY_TTL_SECONDS:${REDIS_TTL:3600}}
+    fallback-max-entries: ${CHAT_MEMORY_FALLBACK_MAX_ENTRIES:1000}
+    fallback-expire-after-access: ${CHAT_MEMORY_FALLBACK_EXPIRE_AFTER_ACCESS:2h}
+  database-resource:
+    url-scheme: ${APP_DATABASE_RESOURCE_URL_SCHEME:https}
+    domain: ${APP_DATABASE_RESOURCE_DOMAIN:database.nocode.cn}
+    db-engine: ${APP_DATABASE_RESOURCE_ENGINE:SQLite}
+    backend-runtime: ${APP_DATABASE_RESOURCE_BACKEND_RUNTIME:go}
+    sql-execution-policy: ${APP_DATABASE_RESOURCE_SQL_POLICY:ask_every_time}
+  user-credit:
+    tokens-per-credit: ${USER_CREDIT_TOKENS_PER_CREDIT:100000}
   rate-limiter:
+    lazy-initialization: ${RATE_LIMIT_LAZY_INITIALIZATION:true}
     key-prefix: ${RATE_LIMIT_KEY_PREFIX:rate_limit}
     limiter-idle-ttl: ${RATE_LIMIT_IDLE_TTL:1h}
     forwarded-header-max-length: ${RATE_LIMIT_FORWARDED_HEADER_MAX_LENGTH:4096}
@@ -84,8 +100,37 @@ app:
     max-tool-writes: ${GENERATION_MAX_TOOL_WRITES:80}
     max-build-executions: ${GENERATION_MAX_BUILD_EXECUTIONS:4}
     max-repair-rounds: ${GENERATION_MAX_REPAIR_ROUNDS:3}
+  generation-session:
+    lock-stripes: ${GENERATION_SESSION_LOCK_STRIPES:64}
+    max-tracked-sessions: ${GENERATION_SESSION_MAX_TRACKED_SESSIONS:1000}
+    completed-replay-retention: ${GENERATION_SESSION_COMPLETED_REPLAY_RETENTION:30s}
+    cleanup-interval: ${GENERATION_SESSION_CLEANUP_INTERVAL:5s}
+  generation-task-snapshot:
+    enabled: ${GENERATION_TASK_SNAPSHOT_ENABLED:true}
+    root-directory: ${GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY:${code.orchestration-task-root-dir:${code.tmp-root-dir:${code.base-dir:${user.dir}}/tmp}/orchestration_tasks}}
+    max-snapshot-bytes: ${GENERATION_TASK_SNAPSHOT_MAX_BYTES:2097152}
+    max-snapshots-per-app: ${GENERATION_TASK_SNAPSHOT_MAX_PER_APP:100}
+    retention: ${GENERATION_TASK_SNAPSHOT_RETENTION:7d}
+    lock-stripes: ${GENERATION_TASK_SNAPSHOT_LOCK_STRIPES:64}
+  edit-state:
+    enabled: ${EDIT_STATE_ENABLED:true}
+    root-directory: ${EDIT_STATE_ROOT_DIRECTORY:${code.edit-state-root-dir:${code.tmp-root-dir:${code.base-dir:${user.dir}}/tmp}/edit_state}}
+    max-cache-entries: ${EDIT_STATE_MAX_CACHE_ENTRIES:1000}
+    cache-expire-after-access: ${EDIT_STATE_CACHE_EXPIRE_AFTER_ACCESS:2h}
+    state-retention: ${EDIT_STATE_RETENTION:24h}
+    max-persisted-apps: ${EDIT_STATE_MAX_PERSISTED_APPS:10000}
+    max-state-file-bytes: ${EDIT_STATE_MAX_FILE_BYTES:1048576}
+    max-recent-edits: ${EDIT_STATE_MAX_RECENT_EDITS:20}
+    max-recent-files: ${EDIT_STATE_MAX_RECENT_FILES:50}
+    max-recent-validations: ${EDIT_STATE_MAX_RECENT_VALIDATIONS:20}
+    max-task-id-length: ${EDIT_STATE_MAX_TASK_ID_LENGTH:128}
+    max-file-path-length: ${EDIT_STATE_MAX_FILE_PATH_LENGTH:1024}
+    lock-stripes: ${EDIT_STATE_LOCK_STRIPES:64}
   external-process:
     termination-grace-period: ${EXTERNAL_PROCESS_TERMINATION_GRACE_PERIOD:2s}
+  node-toolchain:
+    node-executable: ${NODE_TOOLCHAIN_NODE_EXECUTABLE:node}
+    pnpm-executable: ${NODE_TOOLCHAIN_PNPM_EXECUTABLE:pnpm}
   project-command:
     tool-script-timeout: ${PROJECT_COMMAND_TOOL_SCRIPT_TIMEOUT:5m}
     light-validation-timeout: ${PROJECT_COMMAND_LIGHT_VALIDATION_TIMEOUT:90s}
@@ -95,12 +140,44 @@ app:
     heartbeat-interval: ${PROJECT_COMMAND_HEARTBEAT_INTERVAL:15s}
     output-drain-timeout: ${PROJECT_COMMAND_OUTPUT_DRAIN_TIMEOUT:2s}
     max-output-length: ${PROJECT_COMMAND_MAX_OUTPUT_LENGTH:12000}
+    recent-build-result-max-entries: ${PROJECT_COMMAND_RECENT_BUILD_RESULT_MAX_ENTRIES:500}
+  workspace-file-system:
+    max-files: ${WORKSPACE_MAX_FILES:${PROJECT_COMMAND_SNAPSHOT_MAX_FILES:20000}}
+    max-directory-depth: ${WORKSPACE_MAX_DIRECTORY_DEPTH:64}
+    max-scanned-bytes: ${WORKSPACE_MAX_SCANNED_BYTES:2147483648}
+    max-file-bytes: ${WORKSPACE_MAX_FILE_BYTES:${PROJECT_COMMAND_SNAPSHOT_MAX_FILE_BYTES:104857600}}
+    max-readable-file-bytes: ${WORKSPACE_MAX_READABLE_FILE_BYTES:2097152}
+    max-interactive-file-bytes: ${WORKSPACE_MAX_INTERACTIVE_FILE_BYTES:1048576}
+    max-interactive-tree-depth: ${WORKSPACE_MAX_INTERACTIVE_TREE_DEPTH:8}
+    max-copy-bytes: ${WORKSPACE_MAX_COPY_BYTES:2147483648}
+    max-persisted-file-bytes: ${WORKSPACE_MAX_PERSISTED_FILE_BYTES:67108864}
+    max-listed-directories: ${WORKSPACE_MAX_LISTED_DIRECTORIES:1000}
+  edit-locator:
+    max-candidate-files: ${EDIT_LOCATOR_MAX_CANDIDATE_FILES:8}
+    max-single-file-chars: ${EDIT_LOCATOR_MAX_SINGLE_FILE_CHARS:20480}
+    max-total-context-chars: ${EDIT_LOCATOR_MAX_TOTAL_CONTEXT_CHARS:61440}
+    max-scanned-files: ${EDIT_LOCATOR_MAX_SCANNED_FILES:20000}
+    max-readable-file-bytes: ${EDIT_LOCATOR_MAX_READABLE_FILE_BYTES:2097152}
+    max-project-index-files: ${EDIT_LOCATOR_MAX_PROJECT_INDEX_FILES:80}
+  patch-execution:
+    max-operations: ${PATCH_MAX_OPERATIONS:100}
+    max-operation-content-chars: ${PATCH_MAX_OPERATION_CONTENT_CHARS:1000000}
+    max-total-content-chars: ${PATCH_MAX_TOTAL_CONTENT_CHARS:5000000}
+    max-readable-file-bytes: ${PATCH_MAX_READABLE_FILE_BYTES:5242880}
+    max-written-file-bytes: ${PATCH_MAX_WRITTEN_FILE_BYTES:10485760}
+    max-rollback-snapshot-bytes: ${PATCH_MAX_ROLLBACK_SNAPSHOT_BYTES:20971520}
+  ai-tool-workspace:
+    max-readable-file-bytes: ${AI_TOOL_MAX_READABLE_FILE_BYTES:1048576}
+    max-directory-entries: ${AI_TOOL_MAX_DIRECTORY_ENTRIES:5000}
+    max-directory-depth: ${AI_TOOL_MAX_DIRECTORY_DEPTH:32}
   generation-commit:
     command-timeout: ${GENERATION_COMMIT_COMMAND_TIMEOUT:10s}
     heartbeat-interval: ${GENERATION_COMMIT_HEARTBEAT_INTERVAL:2s}
     output-drain-timeout: ${GENERATION_COMMIT_OUTPUT_DRAIN_TIMEOUT:2s}
     max-output-length: ${GENERATION_COMMIT_MAX_OUTPUT_LENGTH:8000}
     lock-stripes: ${GENERATION_COMMIT_LOCK_STRIPES:64}
+    max-files-per-commit: ${GENERATION_COMMIT_MAX_FILES_PER_COMMIT:20000}
+    max-pathspec-bytes: ${GENERATION_COMMIT_MAX_PATHSPEC_BYTES:2097152}
   artifact-lifecycle:
     copy-timeout: ${ARTIFACT_COPY_TIMEOUT:15m}
     heartbeat-interval: ${ARTIFACT_COPY_HEARTBEAT_INTERVAL:30s}
@@ -118,7 +195,6 @@ app:
       validation-error-collection-window: ${DEV_SERVER_VALIDATION_ERROR_COLLECTION_WINDOW:5s}
       output-drain-timeout: ${DEV_SERVER_OUTPUT_DRAIN_TIMEOUT:2s}
       stop-timeout: ${DEV_SERVER_STOP_TIMEOUT:10s}
-      node-executable: ${DEV_SERVER_NODE_EXECUTABLE:node}
       port-range-start: ${DEV_SERVER_PORT_RANGE_START:10000}
       port-range-end: ${DEV_SERVER_PORT_RANGE_END:60000}
       max-servers-per-user: ${DEV_SERVER_MAX_SERVERS_PER_USER:3}
@@ -140,6 +216,19 @@ app:
       - vue-web-admin
       - vue-web-mobile
       - vue-web-landing
+  screenshot:
+    enabled: ${SCREENSHOT_ENABLED:false}
+    chrome-driver-path: ${SCREENSHOT_CHROME_DRIVER_PATH:}
+    chrome-binary-path: ${SCREENSHOT_CHROME_BINARY_PATH:}
+    max-concurrency: ${SCREENSHOT_MAX_CONCURRENCY:2}
+    queue-capacity: ${SCREENSHOT_QUEUE_CAPACITY:16}
+    viewport-width: ${SCREENSHOT_VIEWPORT_WIDTH:1600}
+    viewport-height: ${SCREENSHOT_VIEWPORT_HEIGHT:900}
+    page-load-timeout: ${SCREENSHOT_PAGE_LOAD_TIMEOUT:30s}
+    ready-state-timeout: ${SCREENSHOT_READY_STATE_TIMEOUT:15s}
+    post-load-delay: ${SCREENSHOT_POST_LOAD_DELAY:2s}
+    compression-quality: ${SCREENSHOT_COMPRESSION_QUALITY:0.3}
+    no-sandbox: ${SCREENSHOT_NO_SANDBOX:false}
 
 management:
   endpoints:
@@ -148,4 +237,11 @@ management:
         include: health,info,prometheus
   endpoint:
     health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState,ping
+        readiness:
+          include: readinessState,db,redis
       show-details: never

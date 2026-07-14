@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.infrastructure.git;
 
 import com.rush.rushaicodemother.config.GenerationCommitProperties;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessOutputLogPolicy;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,7 @@ class GitCommandExecutorTest {
 
         GitCommandResult result = executor.execute(
                 Path.of("."),
-                List.of("status", "--short"),
+                List.of("-c", "user.useConfigOnly=true", "commit", "-m", "task-secret"),
                 "test"
         );
 
@@ -50,7 +51,15 @@ class GitCommandExecutorTest {
         assertTrue(request.command().contains("--literal-pathspecs"));
         assertEquals("0", request.environment().get("GIT_TERMINAL_PROMPT"));
         assertEquals("never", request.environment().get("GCM_INTERACTIVE"));
+        assertEquals("1", request.environment().get("GIT_CONFIG_NOSYSTEM"));
+        assertTrue(request.environment().get("GIT_CONFIG_GLOBAL")
+                .endsWith(".ai-code-mother-git-config" + java.io.File.separator + "global"));
+        assertTrue(request.environment().get("XDG_CONFIG_HOME")
+                .endsWith(".ai-code-mother-git-config" + java.io.File.separator + "xdg"));
         assertFalse(request.redirectErrorStream());
+        assertEquals(ManagedProcessOutputLogPolicy.SUMMARY, request.outputLogPolicy());
+        assertEquals("git commit", request.displayCommand());
+        assertFalse(request.displayCommand().contains("task-secret"));
         assertTrue(result.success());
     }
 }

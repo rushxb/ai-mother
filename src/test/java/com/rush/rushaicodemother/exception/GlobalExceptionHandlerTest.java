@@ -3,6 +3,11 @@ package com.rush.rushaicodemother.exception;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.common.BaseResponse;
 import com.rush.rushaicodemother.common.ResultUtils;
+import com.rush.rushaicodemother.infrastructure.redis.ChatMemoryFallbackCapacityExceededException;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.validation.Valid;
 import jakarta.validation.Validation;
 import jakarta.validation.ConstraintViolationException;
@@ -13,6 +18,8 @@ import dev.langchain4j.guardrail.InputGuardrailException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
@@ -22,10 +29,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.slf4j.LoggerFactory;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -71,6 +81,38 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void shouldNotLogMalformedRequestExceptionDetails() {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        Level originalLevel = logger.getLevel();
+        boolean originalAdditive = logger.isAdditive();
+        appender.start();
+        logger.setLevel(Level.DEBUG);
+        logger.setAdditive(false);
+        logger.addAppender(appender);
+        try {
+            exceptionHandler.httpMessageNotReadableExceptionHandler(
+                    new HttpMessageNotReadableException(
+                            "request-api-key=secret", new MockHttpInputMessage(new byte[0])),
+                    new MockHttpServletRequest(),
+                    new MockHttpServletResponse());
+        } finally {
+            logger.detachAppender(appender);
+            logger.setAdditive(originalAdditive);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
+
+        ILoggingEvent event = appender.list.stream()
+                .filter(candidate -> candidate.getFormattedMessage()
+                        .contains("Request body is missing or malformed"))
+                .findFirst()
+                .orElseThrow();
+        assertFalse(event.getFormattedMessage().contains("request-api-key"));
+        assertFalse(event.getFormattedMessage().contains("secret"));
+    }
+
+    @Test
     void shouldReturnUnifiedResponseWhenParameterTypeIsInvalid() throws Exception {
         mockMvc.perform(get("/test/number").param("id", "not-a-number"))
                 .andExpect(status().isOk())
@@ -103,12 +145,44 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void shouldHideInternalMessageForUnexpectedException() throws Exception {
-        mockMvc.perform(get("/test/unexpected"))
+    void shouldHideUnexpectedExceptionDetailsFromResponseAndLogs() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        boolean originalAdditive = logger.isAdditive();
+        appender.start();
+        logger.setAdditive(false);
+        logger.addAppender(appender);
+        try {
+            mockMvc.perform(get("/test/unexpected"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(ErrorCode.SYSTEM_ERROR.getCode()))
+                    .andExpect(jsonPath("$.message").value(ErrorCode.SYSTEM_ERROR.getMessage()))
+                    .andExpect(content().string(not(containsString("database-password"))));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setAdditive(originalAdditive);
+            appender.stop();
+        }
+
+        ILoggingEvent event = appender.list.stream()
+                .filter(candidate -> candidate.getFormattedMessage()
+                        .contains("Unexpected request processing failure"))
+                .findFirst()
+                .orElseThrow();
+        assertFalse(event.getFormattedMessage().contains("database-password"));
+        assertNotNull(event.getThrowableProxy());
+        assertFalse(event.getThrowableProxy().getMessage().contains("database-password"));
+        assertTrue(event.getThrowableProxy().getMessage().contains("java.lang.IllegalStateException"));
+    }
+
+    @Test
+    void shouldClassifyChatMemoryFallbackCapacityAsTemporarilyUnavailable() throws Exception {
+        mockMvc.perform(get("/test/chat-memory-capacity"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(ErrorCode.SYSTEM_ERROR.getCode()))
-                .andExpect(jsonPath("$.message").value(ErrorCode.SYSTEM_ERROR.getMessage()))
-                .andExpect(content().string(not(containsString("database-password"))));
+                .andExpect(jsonPath("$.code").value(ErrorCode.SERVICE_UNAVAILABLE_ERROR.getCode()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.SERVICE_UNAVAILABLE_ERROR.getMessage()))
+                .andExpect(content().string(not(containsString("fallback-max-entries"))))
+                .andExpect(content().string(not(containsString("128"))));
     }
 
     @Test
@@ -172,6 +246,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test/unexpected")
         BaseResponse<Void> unexpectedError() {
             throw new IllegalStateException("database-password=secret");
+        }
+
+        @GetMapping("/test/chat-memory-capacity")
+        BaseResponse<Void> chatMemoryCapacityExceeded() {
+            throw new ChatMemoryFallbackCapacityExceededException(128);
         }
 
         @GetMapping(value = "/app/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

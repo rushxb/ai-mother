@@ -3,7 +3,6 @@ package com.rush.rushaicodemother.config;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -37,10 +36,6 @@ public class DevServerRuntimeProperties {
 
     /** 停止启动中会话时，等待启动线程完成补偿清理的最大时长。 */
     private Duration stopTimeout = Duration.ofSeconds(10);
-
-    /** Node.js 可执行文件；生产镜像应固定其版本和解析路径。 */
-    @NotBlank
-    private String nodeExecutable = "node";
 
     /** 自动分配端口范围起点。 */
     @Min(1024)
@@ -91,10 +86,4 @@ public class DevServerRuntimeProperties {
         return portRangeStart <= portRangeEnd;
     }
 
-    @AssertTrue(message = "Node.js 可执行文件不能包含空字符")
-    public boolean isNodeExecutableSafe() {
-        return nodeExecutable != null
-                && !nodeExecutable.isBlank()
-                && nodeExecutable.indexOf('\0') < 0;
-    }
 }

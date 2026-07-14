@@ -1,7 +1,9 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
@@ -11,7 +13,6 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
-import com.rush.rushaicodemother.service.GenerationTraceService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +35,6 @@ public class BackgroundValidationService {
 
     private final EditValidationPolicyService editValidationPolicyService;
     private final GenerationEventPublisher generationEventPublisher;
-    private final GenerationTraceService generationTraceService;
     private final EditStatePersistenceService editStatePersistenceService;
     private final VueProjectBuilder vueProjectBuilder;
     private final DevServerManager devServerManager;
@@ -94,7 +94,7 @@ public class BackgroundValidationService {
             };
 
             // 保存验证结果到编辑状态
-            editStatePersistenceService.recordValidationResult(appId, taskId, result);
+            editStatePersistenceService.recordValidationResult(appId, taskId, result.status());
 
             // 发送验证结果事件
             generationEventPublisher.publish(request, GenerationEventType.VALIDATION_RESULT, "后台验证完成", Map.of(
@@ -109,12 +109,12 @@ public class BackgroundValidationService {
             return result;
 
         } catch (Exception e) {
-            log.error("后台验证失败，taskId: {}", taskId, e);
+            log.error("后台验证失败，taskId: {}", taskId, LogExceptionSanitizer.sanitize(e));
             GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
 
             // 记录失败结果
             ValidationResult failedResult = ValidationResult.failed(taskId, "后台验证执行失败，请稍后重试");
-            editStatePersistenceService.recordValidationResult(appId, taskId, failedResult);
+            editStatePersistenceService.recordValidationResult(appId, taskId, failedResult.status());
 
             // 发送验证失败事件
             GenerationTaskRequest request = createMinimalRequest(appId, userId, userMessage);
@@ -200,7 +200,7 @@ public class BackgroundValidationService {
 
         try {
             // 调用 VueProjectBuilder 执行实际构建
-            VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+            VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
 
             if (buildResult.success()) {
                 if (editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage)
@@ -213,13 +213,16 @@ public class BackgroundValidationService {
                     }
                 }
                 log.info("构建验证通过，taskId: {}, stage: {}", taskId, buildResult.stage());
-                return ValidationResult.success(taskId, "构建验证通过: " + buildResult.summary());
+                return ValidationResult.success(taskId, "构建验证通过: " + buildResult.publicSummary());
             } else {
                 log.warn("构建验证失败，taskId: {}, stage: {}, summary: {}", taskId, buildResult.stage(), buildResult.summary());
-                return ValidationResult.failed(taskId, "构建验证失败 [" + buildResult.stage() + "]: " + buildResult.summary());
+                return ValidationResult.failed(
+                        taskId,
+                        "构建验证失败 [" + buildResult.stage() + "]: " + buildResult.publicSummary()
+                );
             }
         } catch (Exception e) {
-            log.error("构建验证异常，taskId: {}", taskId, e);
+            log.error("构建验证异常，taskId: {}", taskId, LogExceptionSanitizer.sanitize(e));
             return ValidationResult.failed(taskId, "构建验证执行异常，请稍后重试");
         } finally {
             // 构建完成后重启 dev server
@@ -236,7 +239,7 @@ public class BackgroundValidationService {
                     }
                     devServerManager.startDevServer(app, userId);
                 } catch (Exception e) {
-                    log.warn("重启 dev server 失败，appId: {}, 错误: {}", appId, e.getMessage());
+                    log.warn("重启 dev server 失败，appId: {}, 错误: {}", appId, LogExceptionSanitizer.sanitizeMessage(e));
                 }
             }
         }
@@ -292,6 +295,13 @@ public class BackgroundValidationService {
             String message,
             Map<String, Object> details
     ) {
+        public ValidationResult {
+            taskId = taskId == null ? "" : taskId;
+            status = status == null ? "" : status;
+            message = message == null ? "" : message;
+            details = details == null ? Map.of() : Map.copyOf(details);
+        }
+
         public static ValidationResult success(String taskId, String message) {
             return new ValidationResult(taskId, "success", message, Map.of());
         }

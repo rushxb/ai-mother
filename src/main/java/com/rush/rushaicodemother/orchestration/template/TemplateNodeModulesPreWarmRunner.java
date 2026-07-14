@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.template;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.config.TemplatePreWarmProperties;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
@@ -79,7 +80,7 @@ public class TemplateNodeModulesPreWarmRunner {
                 taskExecutor.execute(() -> preWarmTemplate(templateId));
                 submittedTaskCount++;
             } catch (RuntimeException exception) {
-                log.warn("模板 {} 预热任务提交失败: {}", templateId, exception.getMessage());
+                log.warn("模板 {} 预热任务提交失败: {}", templateId, LogExceptionSanitizer.sanitizeMessage(exception));
             }
         }
         log.info(
@@ -135,7 +136,7 @@ public class TemplateNodeModulesPreWarmRunner {
             }
             log.info("模板 {} 预热成功", templateId);
         } catch (Exception exception) {
-            log.warn("模板 {} 预热异常: {}", templateId, exception.getMessage());
+            log.warn("模板 {} 预热异常: {}", templateId, LogExceptionSanitizer.sanitizeMessage(exception));
         } finally {
             if (tempDir != null && !retained) {
                 retainedTempDirectories.remove(tempDir);
@@ -222,7 +223,7 @@ public class TemplateNodeModulesPreWarmRunner {
                 }
             });
         } catch (IOException exception) {
-            log.warn("清理模板预热临时目录失败: path={}, error={}", directory, exception.getMessage());
+            log.warn("清理模板预热临时目录失败: path={}, error={}", directory, LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 }

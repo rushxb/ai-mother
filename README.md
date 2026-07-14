@@ -196,6 +196,10 @@ source sql/create_table.sql;
 
 脚本会创建并使用 `rush_ai_code_mother` 数据库，同时初始化用户、应用、聊天记录、AI 模型和生成追踪等相关表。
 
+已有数据库升级时，不得重新执行完整初始化脚本。请先备份数据库，再按照
+`sql/migrations/README.md` 记录的顺序执行尚未应用的迁移文件。迁移失败必须停止发布，
+尤其不得通过清空积分流水或删除完整性约束绕过账务数据问题。
+
 ### 2. 启动 Redis
 
 开发环境默认连接：
@@ -252,6 +256,10 @@ $env:SPRING_PROFILES_ACTIVE='dev,local'
 
 后端默认地址为 `http://localhost:8123/api`。
 
+大规模代码生成提交默认限制为单次 `20000` 个去重文件、Git pathspec 清单 `2097152` 字节；可分别通过
+`GENERATION_COMMIT_MAX_FILES_PER_COMMIT` 和 `GENERATION_COMMIT_MAX_PATHSPEC_BYTES` 调整。生产环境完整变量说明见
+`docs/backend-production-configuration.md`。
+
 ### 4. 创建管理员并配置 AI 模型
 
 系统不在代码库中内置真实 AI 密钥。首次启动后：
@@ -289,8 +297,10 @@ pnpm dev
 | --- | --- |
 | 前端 | `http://localhost:5173` |
 | 后端 API 根路径 | `http://localhost:8123/api` |
-| 应用健康检查 | `http://localhost:8123/api/health/` |
-| Actuator 健康检查 | `http://localhost:8123/api/actuator/health` |
+| 兼容进程存活检查 | `http://localhost:8123/api/health/` |
+| Actuator 存活探针 | `http://localhost:8123/api/actuator/health/liveness` |
+| Actuator 就绪探针 | `http://localhost:8123/api/actuator/health/readiness` |
+| Actuator 聚合健康检查 | `http://localhost:8123/api/actuator/health` |
 | Knife4j（开发环境） | `http://localhost:8123/api/doc.html` |
 | OpenAPI JSON（开发环境） | `http://localhost:8123/api/v3/api-docs` |
 | Prometheus 指标 | `http://localhost:8123/api/actuator/prometheus` |
@@ -359,12 +369,61 @@ pnpm preview
 | `REDIS_PORT` | `6379` | Redis 端口 |
 | `REDIS_DATABASE` | 开发 `7`、生产 `0` | Redis Database |
 | `REDIS_PASSWORD` | 空 | Redis 密码 |
+| `CHAT_MEMORY_TTL_SECONDS` | `3600` | Redis 对话记忆 TTL（秒） |
+| `CHAT_MEMORY_FALLBACK_MAX_ENTRIES` | `1000` | Redis 故障期间进程内回退状态总容量；待回灌变更不会被静默淘汰 |
+| `CHAT_MEMORY_FALLBACK_EXPIRE_AFTER_ACCESS` | `2h` | 已同步对话记忆副本的访问过期时间；不作用于待回灌变更 |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | 生产环境前端 Origin 白名单 |
 | `CODE_DEPLOY_HOST` | `http://localhost:91` | 已部署应用的公开访问根地址 |
 | `COS_ENABLED` | `false` | 是否启用腾讯云 COS |
 | `TEMPLATE_PRE_WARM_ENABLED` | 开发开启、生产关闭 | 是否在启动时预热模板依赖 |
 | `AI_LOG_REQUESTS` | `false` | 是否记录生成模型请求 |
 | `AI_LOG_RESPONSES` | `false` | 是否记录生成模型响应 |
+| `GENERATION_SESSION_LOCK_STRIPES` | `64` | 单实例生成启动互斥的固定条带锁数量；不会按应用 ID 增长。 |
+| `GENERATION_SESSION_MAX_TRACKED_SESSIONS` | `1000` | 单实例活动会话与短期回放会话总容量；满载时新应用生成请求明确返回服务暂不可用。 |
+| `GENERATION_SESSION_COMPLETED_REPLAY_RETENTION` | `30s` | 已完成轻量会话为 SSE 重连保留的时间，最长 `1h`。 |
+| `GENERATION_SESSION_CLEANUP_INTERVAL` | `5s` | 批量清理过期回放会话的固定周期，不得大于回放保留时间。 |
+| `GENERATION_TASK_SNAPSHOT_ENABLED` | `true` | 是否保存本机编排诊断快照；关闭后不影响数据库生成状态 |
+| `GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY` | `tmp/orchestration_tasks` | 编排诊断快照根目录 |
+| `GENERATION_TASK_SNAPSHOT_MAX_BYTES` | `2097152` | 单个编排诊断快照最大 UTF-8 字节数 |
+| `GENERATION_TASK_SNAPSHOT_MAX_PER_APP` | `100` | 单个应用最多保留的诊断快照数 |
+| `GENERATION_TASK_SNAPSHOT_RETENTION` | `7d` | 编排诊断快照保留期限 |
+| `GENERATION_TASK_SNAPSHOT_LOCK_STRIPES` | `64` | 单实例快照写入条带锁数量 |
+| `EDIT_STATE_ENABLED` | `true` | 是否将连续改修文件召回状态保存到本机；关闭后仍保留有界进程内缓存 |
+| `EDIT_STATE_ROOT_DIRECTORY` | `tmp/edit_state` | 编辑状态本地文件根目录 |
+| `EDIT_STATE_MAX_CACHE_ENTRIES` | `1000` | 单实例编辑状态缓存的最大应用数 |
+| `EDIT_STATE_CACHE_EXPIRE_AFTER_ACCESS` | `2h` | 编辑状态缓存访问过期时间，不得超过磁盘状态保留期限 |
+| `EDIT_STATE_RETENTION` | `24h` | 本地编辑状态文件保留期限 |
+| `EDIT_STATE_MAX_PERSISTED_APPS` | `10000` | 本地最多保留状态文件的应用数 |
+| `EDIT_STATE_MAX_FILE_BYTES` | `1048576` | 单个编辑状态文件最大字节数 |
+| `EDIT_STATE_MAX_RECENT_EDITS` | `20` | 单应用最多保留的最近编辑记录数 |
+| `EDIT_STATE_MAX_RECENT_FILES` | `50` | 单应用最多保留的最近文件数 |
+| `EDIT_STATE_MAX_RECENT_VALIDATIONS` | `20` | 单应用最多保留的验证状态数 |
+| `EDIT_STATE_MAX_TASK_ID_LENGTH` | `128` | 可持久化任务标识的最大长度 |
+| `EDIT_STATE_MAX_FILE_PATH_LENGTH` | `1024` | 可持久化相对文件路径的最大长度 |
+| `EDIT_STATE_LOCK_STRIPES` | `64` | 单实例同应用状态更新的条带锁数量 |
+| `WORKSPACE_MAX_FILES` | `20000` | 单次工作区扫描、快照复制或在线文件树允许处理的最大文件数。 |
+| `WORKSPACE_MAX_DIRECTORY_DEPTH` | `64` | 工作区扫描和快照复制允许进入的最大目录深度。 |
+| `WORKSPACE_MAX_SCANNED_BYTES` | `2147483648` | 单次只读工作区扫描允许累计索引的最大字节数。 |
+| `WORKSPACE_MAX_FILE_BYTES` | `104857600` | 快照复制允许处理的单文件最大字节数。 |
+| `WORKSPACE_MAX_READABLE_FILE_BYTES` | `2097152` | 语义索引、代码图和差异摘要允许读取的单文件最大字节数。 |
+| `WORKSPACE_MAX_INTERACTIVE_FILE_BYTES` | `1048576` | 在线预览和编辑允许读取或写入的单文件最大字节数。 |
+| `WORKSPACE_MAX_INTERACTIVE_TREE_DEPTH` | `8` | 在线应用代码文件树允许展示的最大目录深度。 |
+| `WORKSPACE_MAX_COPY_BYTES` | `2147483648` | 单次事务型目录复制允许写入的最大总字节数。 |
+| `WORKSPACE_MAX_PERSISTED_FILE_BYTES` | `67108864` | 工作区服务原子持久化单文件的最大字节数。 |
+| `WORKSPACE_MAX_LISTED_DIRECTORIES` | `1000` | 单次快照目录列表或在线文件树允许返回的最大目录数。 |
+| `PROJECT_COMMAND_RECENT_BUILD_RESULT_MAX_ENTRIES` | `500` | 内存中最多保留的最近 Vue 构建结果数量。 |
+| `EDIT_LOCATOR_MAX_CANDIDATE_FILES` | `8` | Maximum number of ordered edit-file candidates. |
+| `EDIT_LOCATOR_MAX_SINGLE_FILE_CHARS` | `20480` | Maximum characters contributed by one edit-context file. |
+| `EDIT_LOCATOR_MAX_TOTAL_CONTEXT_CHARS` | `61440` | Maximum total characters in one edit context package. |
+| `EDIT_LOCATOR_MAX_SCANNED_FILES` | `20000` | Maximum files visited by one edit-workspace scan. |
+| `EDIT_LOCATOR_MAX_READABLE_FILE_BYTES` | `2097152` | Maximum source file size accepted for edit-context reads. |
+| `EDIT_LOCATOR_MAX_PROJECT_INDEX_FILES` | `80` | Maximum entries included in the compact project index. |
+| `PATCH_MAX_OPERATIONS` | `100` | Maximum operations accepted in one local patch batch. |
+| `PATCH_MAX_OPERATION_CONTENT_CHARS` | `1000000` | Maximum combined content characters carried by one patch operation. |
+| `PATCH_MAX_TOTAL_CONTENT_CHARS` | `5000000` | Maximum combined content characters carried by one patch batch. |
+| `PATCH_MAX_READABLE_FILE_BYTES` | `5242880` | Maximum existing file size accepted by patch validation, mutation, and post-edit backend validation. |
+| `PATCH_MAX_WRITTEN_FILE_BYTES` | `10485760` | Maximum UTF-8 output size of one patched file. |
+| `PATCH_MAX_ROLLBACK_SNAPSHOT_BYTES` | `20971520` | Maximum in-memory pre-mutation snapshot size used for batch rollback. |
 
 更多生产环境变量、超时、限流、Dev Server 和依赖安装参数，请查看 [后端生产环境配置基线](docs/backend-production-configuration.md)。
 
@@ -386,8 +445,10 @@ pnpm preview
 
 ```text
 tmp/
-├── code_output/    # AI 生成的项目工作区
-└── code_deploy/    # 已部署的静态产物
+├── code_output/            # AI 生成的项目工作区
+├── code_deploy/            # 已部署的静态产物
+├── code_snapshot/          # 生成代码事务快照
+└── orchestration_tasks/    # 本机编排诊断快照
 ```
 
 可以通过 JVM 系统参数覆盖：
@@ -398,10 +459,18 @@ java `
   -Dcode.tmp-root-dir='D:\runtime\ai-code-mother\tmp' `
   -Dcode.output-root-dir='D:\runtime\ai-code-mother\output' `
   -Dcode.deploy-root-dir='D:\runtime\ai-code-mother\deploy' `
+  -Dcode.orchestration-task-root-dir='D:\runtime\ai-code-mother\orchestration-tasks' `
+  -Dcode.edit-state-root-dir='D:\runtime\ai-code-mother\edit-state' `
   -jar target/rush-ai-code-mother-0.0.1-SNAPSHOT.jar
 ```
 
 生产环境应为后端运行账号配置最小化的目录权限，并避免让生成目录通过符号链接指向工作区之外。
+
+生成会话注册表使用固定条带锁，不会为每个历史应用永久保留锁对象；活动会话和短期 SSE 回放会话共享显式总容量。已完成轻量会话只写入过期时间，由单个固定周期任务批量清理，不会为每次完成创建独立延迟任务。多实例容量分别计算，跨实例生成所有权仍以数据库租约为准。
+
+编排任务快照只用于节点本地诊断，不是任务生命周期的权威数据源；应用生成所有权、租约和 trace 状态以数据库为准。快照采用同目录临时文件原子替换，并受单文件大小、单应用数量和保留期限约束。多实例部署应使用各节点独立目录；只有共享存储已经保证单写者语义时才允许共享该目录。
+
+连续改修编辑状态同样是节点本地的文件召回优化，不是应用内容或任务状态的权威数据源。状态只保存安全任务标识、规范化相对路径、成功状态和时间戳，不保存原始用户消息、失败原因或验证详情；磁盘写入采用强制刷盘和原子替换，并同时限制缓存容量、文件大小、应用数量、记录数量和保留期限。多实例默认使用节点独立目录。旧版本用户主目录下的 `.ai-code-edit-state` 文件不会再读取，可在确认无需回滚旧版本后删除。
 
 ## API 模块概览
 

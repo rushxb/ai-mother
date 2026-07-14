@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
+import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.ProcessStarter;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import lombok.extern.slf4j.Slf4j;
@@ -195,8 +196,7 @@ public class DevServerProcessRunner {
     }
 
     private void configureEnvironment(Map<String, String> environment) {
-        environment.put("NO_UPDATE_NOTIFIER", "1");
-        environment.put("NPM_CONFIG_AUDIT", "false");
-        environment.put("NPM_CONFIG_FUND", "false");
+        NodeProcessEnvironment.variablesToRemove().forEach(environment::remove);
+        environment.putAll(NodeProcessEnvironment.overrides(false));
     }
 }

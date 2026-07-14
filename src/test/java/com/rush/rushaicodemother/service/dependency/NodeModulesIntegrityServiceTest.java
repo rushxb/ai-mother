@@ -1,18 +1,16 @@
 package com.rush.rushaicodemother.service.dependency;
 
-import com.rush.rushaicodemother.infrastructure.process.ProcessStarter;
-import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
-
 import com.rush.rushaicodemother.config.DependencyInstallProperties;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
+import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
+import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -21,15 +19,16 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +38,8 @@ class NodeModulesIntegrityServiceTest {
     private Path projectDirectory;
     private Path pnpmDirectory;
     private DependencyInstallProperties properties;
-    private ProjectProcessTerminator processTerminator;
+    private ManagedProcessExecutor processExecutor;
+    private NodeToolchain nodeToolchain;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -53,9 +53,13 @@ class NodeModulesIntegrityServiceTest {
 
         properties = new DependencyInstallProperties();
         properties.setRuntimeValidationTimeout(Duration.ofMillis(100));
+        properties.setHeartbeatInterval(Duration.ofMillis(10));
         properties.setOutputDrainTimeout(Duration.ofMillis(100));
         properties.setMaxOutputLength(1024);
-        processTerminator = mock(ProjectProcessTerminator.class);
+        processExecutor = mock(ManagedProcessExecutor.class);
+        nodeToolchain = mock(NodeToolchain.class);
+        when(nodeToolchain.nodeExecutable()).thenReturn("node");
+        when(processExecutor.execute(any())).thenReturn(completed(0));
     }
 
     @AfterEach
@@ -66,37 +70,43 @@ class NodeModulesIntegrityServiceTest {
 
     @Test
     void shouldAcceptCompleteNodeModulesWhenViteRuntimeLoads() {
-        NodeModulesIntegrityService service = createService(
-                builder -> FakeProcess.completed(0, ""),
-                false
-        );
+        AtomicReference<ManagedProcessRequest> capturedRequest = new AtomicReference<>();
+        when(processExecutor.execute(any())).thenAnswer(invocation -> {
+            ManagedProcessRequest request = invocation.getArgument(0);
+            capturedRequest.set(request);
+            return completed(0);
+        });
+        NodeModulesIntegrityService service = createService(false);
 
         assertTrue(service.isComplete(projectDirectory));
+        assertEquals("node", capturedRequest.get().command().getFirst());
+        assertEquals(properties.getRuntimeValidationTimeout(), capturedRequest.get().timeout());
+        assertEquals(NodeProcessEnvironment.overrides(false), capturedRequest.get().environment());
+        assertEquals(NodeProcessEnvironment.variablesToRemove(),
+                capturedRequest.get().environmentVariablesToRemove());
     }
 
     @Test
-    void shouldEnforceRuntimeValidationTimeoutBeforeReadingCanBlockForever() {
+    void shouldRejectRuntimeValidationTimeoutResult() {
         properties.setRuntimeValidationTimeout(Duration.ofMillis(30));
-        FakeProcess process = FakeProcess.running();
-        when(processTerminator.terminate(process)).thenAnswer(invocation -> {
-            process.destroyForcibly();
-            return true;
-        });
-        NodeModulesIntegrityService service = createService(builder -> process, false);
+        properties.setHeartbeatInterval(Duration.ofMillis(5));
+        when(processExecutor.execute(any())).thenReturn(new ManagedProcessResult(
+                ManagedProcessResult.Status.TIMED_OUT,
+                "node --input-type=module --eval ...",
+                null,
+                "",
+                "",
+                "外部进程执行超过总超时"
+        ));
+        NodeModulesIntegrityService service = createService(false);
 
         assertFalse(service.isComplete(projectDirectory));
-
-        verify(processTerminator).terminate(process);
-        assertFalse(process.isAlive());
     }
 
     @Test
     void shouldDetectAndCleanCorruptedWindowsNativePackage() throws IOException {
         Path packageDirectory = createCorruptedRollupPackage();
-        NodeModulesIntegrityService service = createService(
-                builder -> FakeProcess.completed(0, ""),
-                true
-        );
+        NodeModulesIntegrityService service = createService(true);
 
         assertFalse(service.isComplete(projectDirectory));
 
@@ -119,10 +129,7 @@ class NodeModulesIntegrityServiceTest {
         } catch (UnsupportedOperationException | IOException | SecurityException exception) {
             assumeTrue(false, "当前环境不允许创建符号链接");
         }
-        NodeModulesIntegrityService service = createService(
-                builder -> FakeProcess.completed(0, ""),
-                true
-        );
+        NodeModulesIntegrityService service = createService(true);
 
         service.cleanCorruptedNativePackages(projectDirectory);
 
@@ -149,10 +156,7 @@ class NodeModulesIntegrityServiceTest {
         } catch (UnsupportedOperationException | IOException | SecurityException exception) {
             assumeTrue(false, "当前环境不允许创建符号链接");
         }
-        NodeModulesIntegrityService service = createService(
-                builder -> FakeProcess.completed(0, ""),
-                true
-        );
+        NodeModulesIntegrityService service = createService(true);
 
         assertThrows(IOException.class, () -> service.cleanCorruptedNativePackages(projectDirectory));
         assertTrue(Files.exists(externalFile));
@@ -160,10 +164,7 @@ class NodeModulesIntegrityServiceTest {
 
     @Test
     void shouldRejectDeletionOutsidePnpmRoot() {
-        NodeModulesIntegrityService service = createService(
-                builder -> FakeProcess.completed(0, ""),
-                true
-        );
+        NodeModulesIntegrityService service = createService(true);
         Path outside = pnpmDirectory.resolve("..").resolve("outside");
 
         assertThrows(
@@ -186,14 +187,10 @@ class NodeModulesIntegrityServiceTest {
         } catch (UnsupportedOperationException | IOException | SecurityException exception) {
             assumeTrue(false, "当前环境不允许创建符号链接");
         }
-        NodeModulesIntegrityService service = createService(
-                builder -> {
-                    throw new AssertionError("不应启动 Vite 运行时校验");
-                },
-                false
-        );
+        NodeModulesIntegrityService service = createService(false);
 
         assertFalse(service.isComplete(projectDirectory));
+        verify(processExecutor, never()).execute(any());
     }
 
     private Path createCorruptedRollupPackage() throws IOException {
@@ -205,12 +202,23 @@ class NodeModulesIntegrityServiceTest {
         );
     }
 
-    private NodeModulesIntegrityService createService(ProcessStarter starter, boolean windows) {
+    private NodeModulesIntegrityService createService(boolean windows) {
         return new NodeModulesIntegrityService(
                 properties,
-                processTerminator,
-                starter,
+                processExecutor,
+                nodeToolchain,
                 windows
+        );
+    }
+
+    private ManagedProcessResult completed(int exitCode) {
+        return new ManagedProcessResult(
+                ManagedProcessResult.Status.COMPLETED,
+                "node --input-type=module --eval ...",
+                exitCode,
+                "",
+                "",
+                null
         );
     }
 
@@ -242,92 +250,4 @@ class NodeModulesIntegrityServiceTest {
         });
     }
 
-    private static final class FakeProcess extends Process {
-
-        private static final AtomicLong NEXT_PID = new AtomicLong(200_000);
-
-        private final long pid = NEXT_PID.incrementAndGet();
-        private final InputStream inputStream;
-        private final CountDownLatch exitLatch = new CountDownLatch(1);
-        private volatile boolean alive;
-        private volatile int exitCode;
-
-        private FakeProcess(boolean alive, int exitCode, String output) {
-            this.alive = alive;
-            this.exitCode = exitCode;
-            this.inputStream = new ByteArrayInputStream(output.getBytes(StandardCharsets.UTF_8));
-            if (!alive) {
-                exitLatch.countDown();
-            }
-        }
-
-        private static FakeProcess completed(int exitCode, String output) {
-            return new FakeProcess(false, exitCode, output);
-        }
-
-        private static FakeProcess running() {
-            return new FakeProcess(true, 143, "");
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            return new ByteArrayOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return inputStream;
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public int waitFor() throws InterruptedException {
-            exitLatch.await();
-            return exitCode;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
-            return exitLatch.await(timeout, unit);
-        }
-
-        @Override
-        public int exitValue() {
-            if (alive) {
-                throw new IllegalThreadStateException("process is still alive");
-            }
-            return exitCode;
-        }
-
-        @Override
-        public void destroy() {
-            finish(143);
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            finish(137);
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return alive;
-        }
-
-        @Override
-        public long pid() {
-            return pid;
-        }
-
-        private void finish(int code) {
-            exitCode = code;
-            alive = false;
-            exitLatch.countDown();
-        }
-    }
 }

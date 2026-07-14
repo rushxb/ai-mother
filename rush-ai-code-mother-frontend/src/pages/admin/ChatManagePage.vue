@@ -125,7 +125,7 @@ const columns = [
   { title: '操作', key: 'action', width: 110, fixed: 'right' },
 ]
 
-const data = ref<API.ChatHistory[]>([])
+const data = ref<API.ChatHistoryAdminVO[]>([])
 const total = ref(0)
 const loadError = ref('')
 const searchParams = reactive<API.ChatHistoryQueryRequest>({
@@ -133,7 +133,7 @@ const searchParams = reactive<API.ChatHistoryQueryRequest>({
   pageSize: 10,
 })
 
-const getChatRowKey = (record: API.ChatHistory) =>
+const getChatRowKey = (record: API.ChatHistoryAdminVO) =>
   record.id ?? `${record.appId ?? 'app'}-${record.userId ?? 'user'}-${record.createTime ?? 'time'}`
 
 const fetchData = async () => {

@@ -1,18 +1,13 @@
 package com.rush.rushaicodemother.service.impl;
 
 import cn.hutool.core.util.StrUtil;
-import com.mybatisflex.core.query.QueryWrapper;
-import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.rush.rushaicodemother.ai.PromptOptimizerServiceFactory;
-import com.rush.rushaicodemother.common.query.SortFieldWhitelist;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.dto.app.AppCodeFileSaveRequest;
-import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
 import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
@@ -28,17 +23,16 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEvent;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
-import com.rush.rushaicodemother.service.AiModelService;
-import com.rush.rushaicodemother.service.UserService;
+import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.deployment.AppDeploymentService;
-import com.rush.rushaicodemother.service.lifecycle.AppDeletionService;
 import com.rush.rushaicodemother.service.workspace.AppCodeWorkspaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
-import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,36 +44,25 @@ import java.util.Objects;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
+public class AppServiceImpl implements AppService {
 
-    /** API 排序字段到数据库列的显式映射，禁止客户端输入直接进入 ORDER BY。 */
-    private static final SortFieldWhitelist SORT_FIELDS = SortFieldWhitelist.of("createTime", Map.of(
-            "id", "id",
-            "appName", "appName",
-            "priority", "priority",
-            "userId", "userId",
-            "editTime", "editTime",
-            "createTime", "createTime",
-            "updateTime", "updateTime"
-    ));
-
-    private final UserService userService;
-    private final AiModelService aiModelService;
+    private final UserCreditService userCreditService;
+    private final AppPersistenceService appPersistenceService;
+    private final AiModelRuntimeService aiModelRuntimeService;
     private final PromptOptimizerServiceFactory promptOptimizerServiceFactory;
     private final GenerationTaskOrchestrator generationTaskOrchestrator;
     private final GenerationEventPublisher generationEventPublisher;
     private final AppDatabaseResourceService appDatabaseResourceService;
     private final AppCodeWorkspaceService appCodeWorkspaceService;
     private final AppDeploymentService appDeploymentService;
-    private final AppDeletionService appDeletionService;
 
     @Override
     public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
         App app = getGenerationApp(appId, loginUser);
-        aiModelService.ensureGenerationModelsConfigured();
-        userService.ensureHasCredit(loginUser.getId());
+        aiModelRuntimeService.ensureGenerationModelsConfigured();
+        userCreditService.ensureHasCredit(loginUser.getId());
         enableDatabaseForGenerationIfNeeded(app, message);
         generationEventPublisher.clearRecent(app.getId());
         GenerationTaskResult taskResult = generationTaskOrchestrator.start(new GenerationTaskRequest(app, message, loginUser));
@@ -88,7 +71,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     private App getGenerationApp(Long appId, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
-        App app = this.getById(appId);
+        App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         if (!Objects.equals(app.getUserId(), loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用");
@@ -186,72 +169,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Override
     public AppDatabaseResourceVO enableDatabase(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
-        return appDatabaseResourceService.getResourceVO(appDatabaseResourceService.enableDatabase(app));
+        return appDatabaseResourceService.enableDatabase(app);
     }
 
     private App getOwnedApp(Long appId, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
-        App app = this.getById(appId);
+        App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         if (!Objects.equals(app.getUserId(), loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用代码");
         }
         return app;
-    }
-
-    @Override
-    public QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest) {
-        if (appQueryRequest == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数为空");
-        }
-        Long id = appQueryRequest.getId();
-        String appName = appQueryRequest.getAppName();
-        String cover = appQueryRequest.getCover();
-        String initPrompt = appQueryRequest.getInitPrompt();
-        String codeGenType = appQueryRequest.getCodeGenType();
-        String deployKey = appQueryRequest.getDeployKey();
-        Integer priority = appQueryRequest.getPriority();
-        Long userId = appQueryRequest.getUserId();
-        String sortField = SORT_FIELDS.resolve(appQueryRequest.getSortField());
-        boolean ascending = "ascend".equals(appQueryRequest.getSortOrder());
-        return QueryWrapper.create()
-                .eq("id", id)
-                .like("appName", appName)
-                .like("cover", cover)
-                .like("initPrompt", initPrompt)
-                .eq("codeGenType", codeGenType)
-                .eq("deployKey", deployKey)
-                .eq("priority", priority)
-                .eq("userId", userId)
-                .orderBy(sortField, ascending);
-    }
-
-    /**
-     * IService 暴露了通用删除入口；在此统一收口到完整生命周期，禁止绕过关联数据和产物清理。
-     */
-    @Override
-    public boolean removeById(Serializable id) {
-        Long appId = parseAppId(id);
-        if (appId == null || appId <= 0) {
-            return false;
-        }
-        appDeletionService.delete(appId);
-        return true;
-    }
-
-    private Long parseAppId(Serializable id) {
-        if (id == null) {
-            return null;
-        }
-        if (id instanceof Number number) {
-            return number.longValue();
-        }
-        try {
-            return Long.parseLong(id.toString());
-        } catch (NumberFormatException exception) {
-            return null;
-        }
     }
 
 }

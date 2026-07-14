@@ -161,6 +161,7 @@ const deletingUserIds = ref<Set<number>>(new Set())
 const { loading, begin, isLatest, end } = useLatestRequest()
 
 const creditForm = reactive<API.UserCreditAdjustRequest>({
+  requestId: undefined,
   changeAmount: undefined,
   remark: '',
 })
@@ -229,6 +230,7 @@ const openCreditModal = (record: API.UserVO) => {
     return
   }
   selectedCreditUser.value = record
+  creditForm.requestId = crypto.randomUUID()
   creditForm.userId = record.id
   creditForm.changeAmount = undefined
   creditForm.remark = ''
@@ -249,6 +251,7 @@ const submitCreditAdjust = async () => {
   adjustingCredit.value = true
   try {
     const res = await adjustUserCredit({
+      requestId: creditForm.requestId,
       userId: creditForm.userId,
       changeAmount: creditForm.changeAmount,
       remark,

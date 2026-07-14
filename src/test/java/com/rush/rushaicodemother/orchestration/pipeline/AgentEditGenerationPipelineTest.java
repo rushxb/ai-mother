@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
+import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditGenerationService;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditResult;
@@ -35,7 +36,7 @@ class AgentEditGenerationPipelineTest {
         AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(
                 service,
                 monitor,
-                new GenerationSessionRegistry()
+                new GenerationSessionRegistry(new GenerationSessionProperties())
         );
         GenerationPipelineRequest request = request();
         when(service.execute(any(), any())).thenReturn(
@@ -59,7 +60,7 @@ class AgentEditGenerationPipelineTest {
         AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(
                 service,
                 monitor,
-                new GenerationSessionRegistry()
+                new GenerationSessionRegistry(new GenerationSessionProperties())
         );
         GenerationPipelineRequest request = request();
         when(service.execute(any(), any())).thenReturn(

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
@@ -167,7 +168,7 @@ public class HeavyGenerationPreparationService {
             }
             return projectIndex + "\n\n" + keyFiles;
         } catch (Exception e) {
-            log.warn("构建项目上下文失败，appId: {}, error: {}", app.getId(), e.getMessage());
+            log.warn("构建项目上下文失败，appId: {}, error: {}", app.getId(), LogExceptionSanitizer.sanitizeMessage(e));
             return "";
         }
     }
@@ -192,7 +193,7 @@ public class HeavyGenerationPreparationService {
                 }
             });
         } catch (Exception e) {
-            log.warn("构建项目索引失败: {}", e.getMessage());
+            log.warn("构建项目索引失败: {}", LogExceptionSanitizer.sanitizeMessage(e));
         }
         if (indexedFiles.isEmpty()) {
             return "";

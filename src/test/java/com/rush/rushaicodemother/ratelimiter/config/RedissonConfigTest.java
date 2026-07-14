@@ -36,6 +36,7 @@ class RedissonConfigTest {
         assertEquals(12, configured.getConnectionPoolSize());
         assertEquals(4000, configured.getConnectTimeout());
         assertEquals(2500, configured.getTimeout());
+        assertEquals(Duration.ofMillis(1500), configured.getRetryDelay().calcDelay(1));
     }
 
     @Test
@@ -66,6 +67,7 @@ class RedissonConfigTest {
         Config config = redissonConfig.createConfig(redisProperties(), limiterProperties());
 
         assertTrue(config.isSingleConfig());
+        assertTrue(config.isLazyInitialization());
     }
 
     private RedisProperties redisProperties() {

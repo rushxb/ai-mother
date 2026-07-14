@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.review;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import lombok.extern.slf4j.Slf4j;
@@ -57,7 +58,7 @@ public class OrphanFileReviewService {
             String summary = orphanCandidates.isEmpty() ? "未发现疑似旧模板残留" : "发现疑似旧模板残留文件";
             return new OrphanFileReviewResult(status, orphanCandidates, reasons, deleteAllowed, summary);
         } catch (Exception e) {
-            log.warn("旧模板残留审查失败，projectRoot={}", projectRoot, e);
+            log.warn("旧模板残留审查失败，projectRoot={}", projectRoot, LogExceptionSanitizer.sanitize(e));
             return new OrphanFileReviewResult(
                     "skipped",
                     List.of(),

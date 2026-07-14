@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.DevServerProxyProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -214,7 +215,7 @@ public class DevServerProxyService {
             response.setContentType("text/plain;charset=UTF-8");
             response.getWriter().write(message);
         } catch (IOException exception) {
-            log.debug("写入 Dev Server 代理错误响应失败", exception);
+            log.debug("写入 Dev Server 代理错误响应失败", LogExceptionSanitizer.sanitize(exception));
         }
     }
 

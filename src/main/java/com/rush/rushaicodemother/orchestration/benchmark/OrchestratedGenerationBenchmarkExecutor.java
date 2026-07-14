@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceTaskVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
@@ -11,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEvent;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
@@ -25,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchmarkExecutor {
 
     private final GenerationBenchmarkRequestFactory requestFactory;
@@ -69,7 +73,9 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                         .subscribe(
                                 event -> handleStreamEvent(event, buildObserved, buildPassed, failureReason),
                                 error -> {
-                                    failureReason.compareAndSet("", StrUtil.blankToDefault(error.getMessage(), error.getClass().getSimpleName()));
+                                    log.warn("基准任务生成流异常，benchmarkTaskId: {}", task.id(),
+                                            LogExceptionSanitizer.sanitize(error));
+                                    failureReason.compareAndSet("", safeFailureReason(error));
                                     doneLatch.countDown();
                                 },
                                 () -> {
@@ -101,6 +107,8 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     failureReason.get()
             );
         } catch (Exception e) {
+            log.warn("基准任务执行异常，benchmarkTaskId: {}", task.id(),
+                    LogExceptionSanitizer.sanitize(e));
             long durationMs = Duration.between(startedAt, Instant.now()).toMillis();
             return new GenerationBenchmarkRunResult(
                     task.id(),
@@ -112,7 +120,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     0,
                     fallback.get(),
                     0,
-                    StrUtil.blankToDefault(e.getMessage(), e.getClass().getSimpleName())
+                    safeFailureReason(e)
             );
         } finally {
             eventSubscription.dispose();
@@ -140,14 +148,14 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             boolean passed = isSuccessStatus(event.data() == null ? null : event.data().get("status"));
             buildPassed.set(passed);
             if (!passed) {
-                failureReason.compareAndSet("", eventMessage(event));
+                failureReason.compareAndSet("", safeFailureReason(eventMessage(event)));
             }
         }
         if (event.type() == GenerationEventType.TASK_DONE) {
             terminalSuccess.set(true);
             doneLatch.countDown();
         } else if (event.type() == GenerationEventType.TASK_FAILED) {
-            failureReason.compareAndSet("", eventMessage(event));
+            failureReason.compareAndSet("", safeFailureReason(eventMessage(event)));
             doneLatch.countDown();
         }
     }
@@ -165,17 +173,23 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             boolean success = boolValue(data == null ? null : data.get("success"));
             buildPassed.set(success);
             if (!success) {
-                failureReason.compareAndSet("", stringValue(data == null ? null : data.get("summary"), "build_failed"));
+                failureReason.compareAndSet("", safeFailureReason(
+                        stringValue(data == null ? null : data.get("summary"), "build_failed")
+                ));
             }
         }
         if (GenerationStreamEvent.DEV_SERVER_VALIDATION.equals(event.getType())) {
             boolean passed = boolValue(data == null ? null : data.get("passed"));
             if (!passed) {
-                failureReason.compareAndSet("", stringValue(data == null ? null : data.get("summary"), "runtime_validation_failed"));
+                failureReason.compareAndSet("", safeFailureReason(
+                        stringValue(data == null ? null : data.get("summary"), "runtime_validation_failed")
+                ));
             }
         }
         if (GenerationStreamEvent.GENERATION_ERROR.equals(event.getType())) {
-            failureReason.compareAndSet("", StrUtil.blankToDefault(event.getText(), "generation_error"));
+            failureReason.compareAndSet("", safeFailureReason(
+                    StrUtil.blankToDefault(event.getText(), "generation_error")
+            ));
         }
     }
 
@@ -230,6 +244,14 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     private String eventMessage(GenerationEvent event) {
         String reason = stringValue(event.data() == null ? null : event.data().get("reason"), "");
         return StrUtil.isNotBlank(reason) ? reason : StrUtil.blankToDefault(event.message(), "task_failed");
+    }
+
+    private String safeFailureReason(Throwable throwable) {
+        return GenerationErrorClassifier.classify(throwable).message();
+    }
+
+    private String safeFailureReason(String failureDetail) {
+        return GenerationErrorClassifier.classify(failureDetail).message();
     }
 
     private int intValue(Number value) {

@@ -4,7 +4,6 @@ import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
-import com.mybatisflex.core.keygen.KeyGenerators;
 import lombok.Data;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
@@ -28,7 +27,7 @@ public class AiModel implements Serializable {
     /**
      * id
      */
-    @Id(keyType = KeyType.Generator, value = KeyGenerators.snowFlakeId)
+    @Id(keyType = KeyType.Auto)
     private Long id;
 
     /**

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
@@ -8,10 +9,8 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -27,14 +26,14 @@ public class ProjectSearchTool extends BaseTool {
     private static final int MAX_RESULTS = 20;
 
     private final WorkspaceSemanticIndexService semanticIndexService;
+    private final ToolWorkspaceFileService workspaceFileService;
 
-    public ProjectSearchTool() {
-        this(new WorkspaceSemanticIndexService());
-    }
-
-    @Autowired
-    public ProjectSearchTool(WorkspaceSemanticIndexService semanticIndexService) {
+    public ProjectSearchTool(
+            WorkspaceSemanticIndexService semanticIndexService,
+            ToolWorkspaceFileService workspaceFileService
+    ) {
         this.semanticIndexService = semanticIndexService;
+        this.workspaceFileService = workspaceFileService;
     }
 
     @Tool("按文件名、符号或文本内容搜索当前项目，适合在排查问题、定位组件、定位路由、查找变量和引用时使用。")
@@ -51,13 +50,11 @@ public class ProjectSearchTool extends BaseTool {
             return "错误：搜索关键词不能为空";
         }
         try {
-            Path searchRoot = ToolPathSupport.resolvePath(relativeDirPath, appId);
-            if (!searchRoot.toFile().exists() || !searchRoot.toFile().isDirectory()) {
-                return "错误：搜索目录不存在 - " + relativeDirPath;
-            }
+            ToolWorkspaceFileService.ToolWorkspaceDirectory searchDirectory =
+                    workspaceFileService.resolveDirectory(appId, relativeDirPath);
             Set<String> extensionFilter = parseExtensions(extensions);
             List<WorkspaceSemanticSearchHit> hits = semanticIndexService.search(
-                    searchRoot,
+                    searchDirectory.absolutePath(),
                     keyword,
                     extensionFilter,
                     MAX_RESULTS
@@ -80,11 +77,12 @@ public class ProjectSearchTool extends BaseTool {
                         .append("内容:\n").append(hit.preview()).append('\n');
             }
             return builder.toString().trim();
-        } catch (IllegalArgumentException e) {
-            return "错误：" + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError(e);
         } catch (Exception e) {
-            log.error("项目搜索失败，keyword: {}", keyword, e);
-            return "项目搜索失败: " + e.getMessage();
+            log.error("项目搜索失败，keyword: {}",
+                    LogExceptionSanitizer.sanitizeValue(keyword, 200), LogExceptionSanitizer.sanitize(e));
+            return "项目搜索失败，请稍后重试";
         }
     }
 

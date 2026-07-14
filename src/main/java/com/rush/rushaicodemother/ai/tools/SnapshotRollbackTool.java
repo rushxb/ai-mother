@@ -1,11 +1,14 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import cn.hutool.core.date.DateUtil;
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.orchestration.artifact.ManualSnapshot;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -14,11 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -29,9 +28,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SnapshotRollbackTool extends BaseTool {
 
-    private static final DateTimeFormatter SNAPSHOT_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
-
     private final GenerationToolExecutionContextService toolExecutionContextService;
+    private final ToolWorkspaceFileService workspaceFileService;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final SnapshotNamePolicy snapshotNamePolicy;
 
     @Tool("创建项目快照、列出快照、回滚到指定快照、删除快照。进行较大范围改动前建议先创建快照。")
     public String manageSnapshot(
@@ -45,35 +45,55 @@ public class SnapshotRollbackTool extends BaseTool {
     ) {
         String normalizedAction = StrUtil.blankToDefault(action, "listSnapshots");
         try {
-            Path projectPath = ToolPathSupport.resolvePath(relativeProjectPath, appId);
-            if (!Files.exists(projectPath) || !Files.isDirectory(projectPath)) {
-                return "错误：项目目录不存在 - " + relativeProjectPath;
-            }
+            requireAppId(appId);
             Path snapshotRoot = resolveSnapshotRoot(appId);
-            Files.createDirectories(snapshotRoot);
             return switch (normalizedAction) {
-                case "createSnapshot" -> createSnapshot(projectPath, snapshotRoot, snapshotName, appId);
+                case "createSnapshot" -> {
+                    String normalizedSnapshotName = snapshotNamePolicy.resolveOrCreate(snapshotName, "snapshot");
+                    workspaceFileSystemService.ensureDirectory(snapshotRoot);
+                    yield createSnapshot(
+                            resolveProjectPath(appId, relativeProjectPath),
+                            snapshotRoot,
+                            normalizedSnapshotName,
+                            appId
+                    );
+                }
                 case "listSnapshots" -> listSnapshots(snapshotRoot);
-                case "rollbackSnapshot" -> rollbackSnapshot(projectPath, snapshotRoot, snapshotName);
-                case "deleteSnapshot" -> deleteSnapshot(snapshotRoot, snapshotName);
+                case "rollbackSnapshot" -> {
+                    String normalizedSnapshotName = validateRequiredSnapshotName(snapshotName, "回滚时必须提供快照名称");
+                    yield rollbackSnapshot(
+                            resolveProjectPath(appId, relativeProjectPath),
+                            snapshotRoot,
+                            normalizedSnapshotName
+                    );
+                }
+                case "deleteSnapshot" -> deleteSnapshot(
+                        snapshotRoot,
+                        validateRequiredSnapshotName(snapshotName, "删除时必须提供快照名称")
+                );
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
             };
-        } catch (IllegalArgumentException e) {
-            return "错误：" + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError(e);
+        } catch (SnapshotNamePolicy.ValidationException e) {
+            return renderInputError(new ToolInputException(e.getMessage(), e));
         } catch (Exception e) {
-            log.error("管理快照失败，action: {}, snapshotName: {}", action, snapshotName, e);
-            return "管理快照失败: " + e.getMessage();
+            log.error("管理快照失败，action: {}, snapshotName: {}, exceptionType: {}",
+                    action, snapshotName, e.getClass().getSimpleName());
+            return "管理快照失败，请稍后重试";
         }
     }
 
-    private String createSnapshot(Path projectPath, Path snapshotRoot, String snapshotName, Long appId) throws Exception {
-        String normalizedSnapshotName = normalizeSnapshotName(snapshotName);
+    private String createSnapshot(Path projectPath,
+                                  Path snapshotRoot,
+                                  String normalizedSnapshotName,
+                                  Long appId) throws Exception {
         Path snapshotPath = snapshotRoot.resolve(normalizedSnapshotName);
-        if (Files.exists(snapshotPath)) {
+        if (workspaceFileSystemService.isDirectory(snapshotPath)) {
             return "错误：快照名称已存在 - " + normalizedSnapshotName;
         }
-        ProjectWorkspaceSupport.copyProject(projectPath, snapshotPath);
-        long fileCount = ProjectWorkspaceSupport.listProjectFiles(snapshotPath).size();
+        WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
+        long fileCount = copyResult.fileCount();
         String taskId = toolExecutionContextService.getContext(appId)
                 .map(context -> context.taskId())
                 .orElse(null);
@@ -95,76 +115,66 @@ public class SnapshotRollbackTool extends BaseTool {
     }
 
     private String listSnapshots(Path snapshotRoot) throws Exception {
-        if (!Files.exists(snapshotRoot)) {
+        if (!workspaceFileSystemService.isDirectory(snapshotRoot)) {
             return "当前没有可用快照";
         }
-        try (var stream = Files.list(snapshotRoot)) {
-            List<Path> snapshots = stream
-                    .filter(Files::isDirectory)
-                    .sorted(Comparator.comparingLong(this::lastModifiedTime).reversed())
-                    .toList();
-            if (snapshots.isEmpty()) {
-                return "当前没有可用快照";
-            }
-            StringBuilder builder = new StringBuilder("可用快照:\n");
-            for (Path snapshot : snapshots) {
-                builder.append("- ")
-                        .append(snapshot.getFileName())
-                        .append(" | 修改时间: ")
-                        .append(DateUtil.formatDateTime(DateUtil.date(new File(snapshot.toString()).lastModified())))
-                        .append('\n');
-            }
-            return builder.toString().trim();
+        List<WorkspaceDirectoryMetadata> snapshots = workspaceFileSystemService.listChildDirectories(snapshotRoot);
+        if (snapshots.isEmpty()) {
+            return "当前没有可用快照";
         }
+        StringBuilder builder = new StringBuilder("可用快照:\n");
+        for (WorkspaceDirectoryMetadata snapshot : snapshots) {
+            builder.append("- ")
+                    .append(snapshot.name())
+                    .append(" | 修改时间: ")
+                    .append(DateUtil.formatDateTime(DateUtil.date(snapshot.lastModifiedTime())))
+                    .append('\n');
+        }
+        return builder.toString().trim();
     }
 
-    private String rollbackSnapshot(Path projectPath, Path snapshotRoot, String snapshotName) throws Exception {
-        if (StrUtil.isBlank(snapshotName)) {
-            return "错误：回滚时必须提供快照名称";
+    private String rollbackSnapshot(Path projectPath,
+                                    Path snapshotRoot,
+                                    String normalizedSnapshotName) throws Exception {
+        Path snapshotPath = snapshotRoot.resolve(normalizedSnapshotName);
+        if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
+            return "错误：快照不存在 - " + normalizedSnapshotName;
         }
-        Path snapshotPath = snapshotRoot.resolve(snapshotName).normalize();
-        ToolPathSupport.ensureWithinProject(snapshotRoot, snapshotPath);
-        if (!Files.exists(snapshotPath) || !Files.isDirectory(snapshotPath)) {
-            return "错误：快照不存在 - " + snapshotName;
-        }
-        String backupSnapshotName = "pre_rollback_" + java.time.LocalDateTime.now().format(SNAPSHOT_TIME_FORMATTER);
+        String backupSnapshotName = snapshotNamePolicy.createAutomaticName("pre_rollback");
         Path backupSnapshotPath = snapshotRoot.resolve(backupSnapshotName);
-        ProjectWorkspaceSupport.copyProject(projectPath, backupSnapshotPath);
-        ProjectWorkspaceSupport.cleanDirectory(projectPath);
-        ProjectWorkspaceSupport.copyProject(snapshotPath, projectPath);
-        return "已回滚到快照: " + snapshotName + "，并自动备份当前版本为: " + backupSnapshotName;
+        workspaceFileSystemService.copyDirectory(projectPath, backupSnapshotPath);
+        workspaceFileSystemService.replaceDirectory(snapshotPath, projectPath);
+        return "已回滚到快照: " + normalizedSnapshotName + "，并自动备份当前版本为: " + backupSnapshotName;
     }
 
-    private String deleteSnapshot(Path snapshotRoot, String snapshotName) {
-        if (StrUtil.isBlank(snapshotName)) {
-            return "错误：删除时必须提供快照名称";
+    private String deleteSnapshot(Path snapshotRoot, String normalizedSnapshotName) throws Exception {
+        Path snapshotPath = snapshotRoot.resolve(normalizedSnapshotName);
+        if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
+            return "错误：快照不存在 - " + normalizedSnapshotName;
         }
-        Path snapshotPath = snapshotRoot.resolve(snapshotName).normalize();
-        ToolPathSupport.ensureWithinProject(snapshotRoot, snapshotPath);
-        if (!Files.exists(snapshotPath) || !Files.isDirectory(snapshotPath)) {
-            return "错误：快照不存在 - " + snapshotName;
-        }
-        FileUtil.del(snapshotPath.toFile());
-        return "已删除快照: " + snapshotName;
-    }
-
-    private String normalizeSnapshotName(String snapshotName) {
-        if (StrUtil.isBlank(snapshotName)) {
-            return "snapshot_" + java.time.LocalDateTime.now().format(SNAPSHOT_TIME_FORMATTER);
-        }
-        String normalized = snapshotName.trim().replaceAll("[^a-zA-Z0-9_-]", "_");
-        if (StrUtil.isBlank(normalized)) {
-            throw new IllegalArgumentException("快照名称不能为空");
-        }
-        return normalized;
+        workspaceFileSystemService.deleteDirectory(snapshotPath);
+        return "已删除快照: " + normalizedSnapshotName;
     }
 
     private Path resolveSnapshotRoot(Long appId) {
         return Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR, String.valueOf(appId));
     }
 
-    private long lastModifiedTime(Path path) {
-        return path.toFile().lastModified();
+    private Path resolveProjectPath(Long appId, String relativeProjectPath) {
+        return workspaceFileService.resolveDirectory(appId, relativeProjectPath).absolutePath();
+    }
+
+    private void requireAppId(Long appId) {
+        if (appId == null || appId <= 0) {
+            throw new ToolInputException("应用标识不能为空且必须为正数");
+        }
+    }
+
+    private String validateRequiredSnapshotName(String snapshotName, String missingMessage) {
+        if (StrUtil.isBlank(snapshotName)) {
+            throw new ToolInputException(missingMessage);
+        }
+        return snapshotNamePolicy.validateRequired(snapshotName);
     }
 
     @Override

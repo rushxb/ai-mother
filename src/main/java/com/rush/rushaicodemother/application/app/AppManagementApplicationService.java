@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.model.dto.app.AppAdminUpdateRequest;
 import com.rush.rushaicodemother.model.dto.app.AppUpdateRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.service.AppService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.lifecycle.AppDeletionService;
 import com.rush.rushaicodemother.service.provisioning.AppProvisioningService;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +28,7 @@ public class AppManagementApplicationService {
 
     private static final int MAX_APP_NAME_LENGTH = 50;
 
-    private final AppService appService;
+    private final AppPersistenceService appPersistenceService;
     private final AppAccessPolicy appAccessPolicy;
     private final AppProvisioningService appProvisioningService;
     private final AppDeletionService appDeletionService;
@@ -47,12 +47,7 @@ public class AppManagementApplicationService {
         appAccessPolicy.requireOwner(existingApp, actor, "无权限修改该应用");
 
         String appName = normalizeRequiredName(request.getAppName());
-        App update = new App();
-        update.setId(existingApp.getId());
-        update.setAppName(appName);
-        update.setEditTime(LocalDateTime.now());
-        boolean updated = appService.updateById(update);
-        ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用失败");
+        appPersistenceService.updateName(existingApp.getId(), appName, LocalDateTime.now());
     }
 
     @CacheEvict(value = "good_app_page", allEntries = true)
@@ -65,20 +60,22 @@ public class AppManagementApplicationService {
     @CacheEvict(value = "good_app_page", allEntries = true)
     public void updateAsAdministrator(AppAdminUpdateRequest request) {
         App existingApp = requireExistingApp(request.getId());
-        App update = new App();
-        update.setId(existingApp.getId());
+        ThrowUtils.throwIf(request.getAppName() == null
+                        && request.getCover() == null
+                        && request.getPriority() == null,
+                ErrorCode.PARAMS_ERROR, "至少提供一个待更新字段");
+        String appName = null;
         if (request.getAppName() != null) {
-            update.setAppName(normalizeRequiredName(request.getAppName()));
+            appName = normalizeRequiredName(request.getAppName());
         }
-        if (request.getCover() != null) {
-            update.setCover(StrUtil.trim(request.getCover()));
-        }
-        if (request.getPriority() != null) {
-            update.setPriority(request.getPriority());
-        }
-        update.setEditTime(LocalDateTime.now());
-        boolean updated = appService.updateById(update);
-        ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用失败");
+        String cover = request.getCover() == null ? null : StrUtil.trim(request.getCover());
+        appPersistenceService.updateAdministrationFields(
+                existingApp.getId(),
+                appName,
+                cover,
+                request.getPriority(),
+                LocalDateTime.now()
+        );
     }
 
     @CacheEvict(value = "good_app_page", allEntries = true)
@@ -89,7 +86,7 @@ public class AppManagementApplicationService {
 
     private App requireExistingApp(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
-        App app = appService.getById(appId);
+        App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         return app;
     }

@@ -1,11 +1,10 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.io.FileUtil;
-import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import com.rush.rushaicodemother.orchestration.patch.PatchApplyServiceTestFactory;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -18,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 class AgentEditPatchServiceTest {
 
     private final AgentEditPatchService patchService = new AgentEditPatchService(
-            new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()))
+            PatchApplyServiceTestFactory.create()
     );
 
     @Test

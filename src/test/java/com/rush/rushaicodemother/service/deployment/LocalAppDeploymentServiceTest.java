@@ -2,15 +2,17 @@ package com.rush.rushaicodemother.service.deployment;
 
 import com.rush.rushaicodemother.config.CodeDeploymentProperties;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildCommandResult;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.service.ScreenshotService;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.artifact.DeploymentArtifactTransaction;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
+import com.rush.rushaicodemother.service.screenshot.ScreenshotService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,11 +29,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -59,6 +62,7 @@ class LocalAppDeploymentServiceTest {
         artifactService = mock(AppArtifactLifecycleService.class);
         vueProjectBuilder = mock(VueProjectBuilder.class);
         screenshotService = mock(ScreenshotService.class);
+        when(screenshotService.isEnabled()).thenReturn(true);
         appMapper = mock(AppMapper.class);
         artifactTransaction = mock(DeploymentArtifactTransaction.class);
         deploymentService = deploymentService(() -> "FixedKey1234", Runnable::run);
@@ -148,7 +152,7 @@ class LocalAppDeploymentServiceTest {
         when(appMapper.selectDeploymentState(31L)).thenReturn(app);
         when(artifactService.requireGeneratedDirectory(app)).thenReturn(generatedDirectory);
         when(vueProjectBuilder.buildProjectWithResult(generatedDirectory.toString()))
-                .thenReturn(new VueProjectBuilder.BuildResult(
+                .thenReturn(new VueBuildResult(
                         true, "done", generatedDirectory.toString(), "ok", null, null
                 ));
         when(artifactService.prepareDeployment(distDirectory, "VueKey31"))
@@ -168,15 +172,23 @@ class LocalAppDeploymentServiceTest {
         Path generatedDirectory = Files.createDirectories(tempDirectory.resolve("vue_project_41"));
         when(appMapper.selectDeploymentState(41L)).thenReturn(app);
         when(artifactService.requireGeneratedDirectory(app)).thenReturn(generatedDirectory);
+        VueBuildCommandResult failedCommand = new VueBuildCommandResult(
+                "pnpm build", false, 1, false,
+                "src/App.vue(12,3): error TS2307: Cannot find module '@/missing'\n"
+                        + "Authorization: Bearer secret-value",
+                null
+        );
         when(vueProjectBuilder.buildProjectWithResult(generatedDirectory.toString()))
-                .thenReturn(new VueProjectBuilder.BuildResult(
-                        false, "build", generatedDirectory.toString(), "compile failed", null, null
+                .thenReturn(new VueBuildResult(
+                        false, "build", generatedDirectory.toString(), "compile failed", null, failedCommand
                 ));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> deploymentService.deploy(app));
 
         assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), exception.getCode());
+        assertTrue(exception.getMessage().contains("Cannot find module"));
+        assertFalse(exception.getMessage().contains("secret-value"));
         verify(artifactService, never()).prepareDeployment(any(), any());
         verify(appMapper).selectDeploymentState(41L);
         verify(appMapper, never()).updateDeploymentMetadata(any(), any(), any());
@@ -268,7 +280,8 @@ class LocalAppDeploymentServiceTest {
 
         assertEquals(2, screenshotTasks.size());
         screenshotTasks.get(0).run();
-        verifyNoInteractions(screenshotService);
+        verify(screenshotService, times(2)).isEnabled();
+        verify(screenshotService, never()).generateAndUploadScreenshot(any());
 
         screenshotTasks.get(1).run();
         verify(screenshotService).generateAndUploadScreenshot(
@@ -277,7 +290,28 @@ class LocalAppDeploymentServiceTest {
                 eq(81L), any(LocalDateTime.class), eq("https://cdn.example.com/latest-cover.png"));
     }
 
-    private LocalAppDeploymentService deploymentService(Supplier<String> deployKeySupplier,
+    @Test
+    void shouldNotSubmitScreenshotTaskWhenScreenshotFeatureIsDisabled() throws IOException {
+        when(screenshotService.isEnabled()).thenReturn(false);
+        List<Runnable> screenshotTasks = new ArrayList<>();
+        deploymentService = deploymentService(() -> "Disabled123", screenshotTasks::add);
+        App app = app(91L, CodeGenTypeEnum.HTML, null);
+        Path generatedDirectory = Files.createDirectories(tempDirectory.resolve("html_91"));
+        when(appMapper.selectDeploymentState(91L)).thenReturn(app);
+        when(artifactService.requireGeneratedDirectory(app)).thenReturn(generatedDirectory);
+        when(artifactService.prepareDeployment(generatedDirectory, "Disabled123"))
+                .thenReturn(artifactTransaction);
+        when(appMapper.updateDeploymentMetadata(eq(91L), eq("Disabled123"), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        deploymentService.deploy(app);
+
+        assertTrue(screenshotTasks.isEmpty());
+        verify(screenshotService).isEnabled();
+        verify(screenshotService, never()).generateAndUploadScreenshot(any());
+    }
+
+    private LocalAppDeploymentService deploymentService(DeploymentKeyGenerator deploymentKeyGenerator,
                                                          Executor screenshotExecutor) {
         CodeDeploymentProperties properties = new CodeDeploymentProperties();
         properties.setDeployHost("https://deploy.example.com/static/");
@@ -288,7 +322,7 @@ class LocalAppDeploymentServiceTest {
                 appMapper,
                 properties,
                 new AppOperationLockManager(),
-                deployKeySupplier,
+                deploymentKeyGenerator,
                 screenshotExecutor
         );
     }

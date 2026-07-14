@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.model.message;
 
-import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
@@ -23,12 +23,12 @@ public class BuildResultMessage extends StreamMessage {
 
     private String report;
 
-    public BuildResultMessage(VueProjectBuilder.BuildResult buildResult) {
+    public BuildResultMessage(VueBuildResult buildResult) {
         super(StreamMessageTypeEnum.BUILD_RESULT.getValue());
         this.success = buildResult.success();
         this.stage = buildResult.stage();
-        this.projectPath = buildResult.projectPath();
-        this.summary = buildResult.summary();
-        this.report = buildResult.toDiagnosticReport();
+        this.projectPath = buildResult.publicProjectPath();
+        this.summary = buildResult.publicSummary();
+        this.report = buildResult.toPublicDiagnosticReport();
     }
 }

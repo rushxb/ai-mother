@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import lombok.RequiredArgsConstructor;
@@ -23,17 +24,29 @@ public class HeavyGenerationSessionCompletionService {
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
 
-    public void complete(GenerationSession session,
-                         GenerationPreparation preparation,
-                         String status) {
-        if (session == null || !session.tryMarkCompleted()) {
+    /**
+     * Persists terminal lifecycle data after the caller has atomically claimed session completion.
+     * Stream completion and infrastructure cleanup remain the orchestrator's responsibility.
+     */
+    public void completeClaimed(Long appId,
+                                GenerationSession session,
+                                GenerationPreparation preparation,
+                                GenerationTerminalOutcome outcome) {
+        if (session == null || preparation == null) {
             return;
         }
+        if (outcome == null) {
+            throw new IllegalArgumentException("generation terminal outcome must not be null");
+        }
+        String status = outcome.status();
         recordUserWaitMetric(session, preparation, status);
-        generationTaskLifecycleService.updateMemorySummary(preparation.taskId(), buildMemorySummary(preparation, status));
-        generationTaskLifecycleService.completeTrace(session, preparation, status, null);
-        generationTaskLifecycleService.charge(preparation.taskId());
-        session.complete();
+        generationTaskLifecycleService.completeGenerationAndCharge(
+                preparation.taskId(),
+                appId,
+                outcome.taskStatus(),
+                null,
+                buildMemorySummary(preparation, status)
+        );
     }
 
     public String orchestrationMode(GenerationPreparation preparation) {

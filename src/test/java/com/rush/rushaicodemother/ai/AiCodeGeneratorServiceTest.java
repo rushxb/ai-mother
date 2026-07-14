@@ -13,22 +13,25 @@ import org.springframework.boot.test.context.SpringBootTest;
 class AiCodeGeneratorServiceTest {
 
     @Resource
-    private AiCodeGeneratorService aiCodeGeneratorService;
+    private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
 
     @Test
     void generateHtmlCode() {
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(1L);
         HtmlCodeResult result = aiCodeGeneratorService.generateHtmlCode("做个rush的博客，不超过 20 行");
         Assertions.assertNotNull(result);
     }
 
     @Test
     void generateMultiFileCode() {
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(1L);
         MultiFileCodeResult result = aiCodeGeneratorService.generateMultiFileCode("做个rush的留言板");
         Assertions.assertNotNull(result);
     }
 
     @Test
     void testChatMemory() {
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(1L);
         HtmlCodeResult result = aiCodeGeneratorService.generateHtmlCode("做个rush的工具网站，总代码量不超过 20 行");
         Assertions.assertNotNull(result);
         result = aiCodeGeneratorService.generateHtmlCode("不要生成网站，告诉我你刚刚做了什么？");

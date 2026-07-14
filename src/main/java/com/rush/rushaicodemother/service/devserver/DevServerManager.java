@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -117,7 +118,7 @@ public class DevServerManager {
                         appId,
                         projectDirectory,
                         exception.reason(),
-                        exception
+                        LogExceptionSanitizer.sanitize(exception)
                 );
             }
             throw mapStartFailure(exception);
@@ -206,7 +207,7 @@ public class DevServerManager {
             try {
                 stopSession(session, false);
             } catch (RuntimeException exception) {
-                log.error("关闭应用 {} 的 Dev Server 失败", session.appId(), exception);
+                log.error("关闭应用 {} 的 Dev Server 失败", session.appId(), LogExceptionSanitizer.sanitize(exception));
                 processRunner.terminateProjectProcesses(session.projectDirectory());
                 cleanupSession(session, "服务关闭强制清理");
             }
@@ -325,7 +326,7 @@ public class DevServerManager {
             projectDependencyInstaller.cancel(session.projectDirectory());
         } catch (RuntimeException exception) {
             cleanupFailure = exception;
-            log.warn("取消应用 {} 的依赖安装失败", session.appId(), exception);
+            log.warn("取消应用 {} 的依赖安装失败", session.appId(), LogExceptionSanitizer.sanitize(exception));
         }
 
         StartupAwaitResult startupAwaitResult = session.awaitStartup(properties.getStopTimeout());

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class GenerationCommitServiceTest {
@@ -242,6 +244,192 @@ class GenerationCommitServiceTest {
                 .execute(any(Path.class), anyList(), anyMap(), anyString());
     }
 
+    @Test
+    void shouldRejectDiffArtifactFromAnotherGenerationContext() throws Exception {
+        Path tempRoot = cleanTestRoot("context-mismatch");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_31"));
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        GenerationCommitService service = new GenerationCommitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                31L,
+                "task-31",
+                diffArtifact(32L, projectRoot, "index.html")
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("diff_summary_context_mismatch", result.reason());
+        verifyNoInteractions(gitExecutor);
+    }
+
+    @Test
+    void shouldRejectProjectDirectoryBelongingToAnotherApplication() throws Exception {
+        Path tempRoot = cleanTestRoot("project-context-mismatch");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path anotherProject = Files.createDirectories(outputRoot.resolve("vue_project_33"));
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        GenerationCommitService service = new GenerationCommitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                32L,
+                "task-32",
+                diffArtifact(32L, anotherProject, "index.html")
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("project_path_context_mismatch", result.reason());
+        assertEquals("", result.projectPath());
+        verifyNoInteractions(gitExecutor);
+    }
+
+    @Test
+    void shouldRejectParentRepositoryInsteadOfCommittingOutsideProjectBoundary() throws Exception {
+        Path tempRoot = cleanTestRoot("parent-repository");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_34"));
+        Files.writeString(projectRoot.resolve("index.html"), "old\n");
+        initGitRepository(outputRoot);
+        String headBefore = runGitForOutput(outputRoot, "rev-parse", "HEAD").trim();
+        Files.writeString(projectRoot.resolve("index.html"), "new\n");
+        GenerationCommitService service = new GenerationCommitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitCommandExecutor(),
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                34L,
+                "task-34",
+                diffArtifact(34L, projectRoot, "index.html")
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("git_repository_root_mismatch", result.reason());
+        assertEquals(headBefore, runGitForOutput(outputRoot, "rev-parse", "HEAD").trim());
+    }
+
+    @Test
+    void shouldExposeStableReasonInsteadOfGitErrorDetails() throws Exception {
+        Path tempRoot = cleanTestRoot("git-error-sanitization");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_35"));
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString()))
+                .thenReturn(new GitCommandResult(
+                        ManagedProcessResult.Status.START_FAILED,
+                        null,
+                        "",
+                        "provider-api-key=secret-value",
+                        "failed"
+                ));
+        GenerationCommitService service = new GenerationCommitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                35L,
+                "task-35",
+                diffArtifact(35L, projectRoot, "index.html")
+        );
+
+        assertEquals("failed", result.status());
+        assertEquals("git_root_lookup_failed", result.reason());
+        assertFalse(result.toPayload().toString().contains("secret-value"));
+    }
+
+    @Test
+    void shouldRejectChangedFileCountBeyondConfiguredBoundaryBeforeGitExecution() throws Exception {
+        Path tempRoot = cleanTestRoot("file-count-limit");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path projectRoot = outputRoot.resolve("vue_project_36");
+        GenerationCommitProperties properties = new GenerationCommitProperties();
+        properties.setMaxFilesPerCommit(1);
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        GenerationCommitService service = new GenerationCommitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot,
+                properties
+        );
+        DiffSummary summary = DiffSummary.created(
+                36L,
+                "task-36",
+                tempRoot.resolve("snapshot").toString(),
+                projectRoot.toString(),
+                List.of("one.txt", "two.txt"),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+
+        GenerationCommitResult result = service.commit(
+                36L,
+                "task-36",
+                GenerationArtifact.of("diff_summary", "test", "diff", summary.toPayload())
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("changed_file_limit_exceeded", result.reason());
+        verifyNoInteractions(gitExecutor);
+    }
+
+    @Test
+    void shouldCommitLargePathSetWithoutUsingCommandLinePathspecArguments() throws Exception {
+        Path tempRoot = cleanTestRoot("large-pathspec");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path projectRoot = outputRoot.resolve("vue_project_37");
+        Files.createDirectories(projectRoot);
+        Files.writeString(projectRoot.resolve("seed.txt"), "seed\n");
+        initGitRepository(projectRoot);
+
+        List<String> generatedFiles = new ArrayList<>();
+        for (int index = 0; index < 500; index++) {
+            String relativePath = "src/generated/group-%03d/component-%03d-%s.txt"
+                    .formatted(index, index, "x".repeat(30));
+            Path file = projectRoot.resolve(relativePath);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, "generated " + index + "\n");
+            generatedFiles.add(relativePath);
+        }
+        assertTrue(generatedFiles.stream().mapToInt(String::length).sum() > 32_767);
+        DiffSummary summary = DiffSummary.created(
+                37L,
+                "task-37",
+                tempRoot.resolve("snapshot").toString(),
+                projectRoot.toString(),
+                generatedFiles,
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        GenerationCommitService service = new GenerationCommitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitCommandExecutor(),
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                37L,
+                "task-37",
+                GenerationArtifact.of("diff_summary", "test", "diff", summary.toPayload())
+        );
+
+        assertEquals("committed", result.status());
+        assertEquals(generatedFiles.size(), result.committedFileCount());
+        assertEquals(generatedFiles, result.committedFiles());
+    }
+
     private void initGitRepository(Path projectRoot) throws Exception {
         runGit(projectRoot, "init");
         runGit(projectRoot, "config", "user.email", "test@example.com");
@@ -292,6 +480,15 @@ class GenerationCommitServiceTest {
         processBuilder.environment().put("GIT_AUTHOR_EMAIL", "test@example.com");
         processBuilder.environment().put("GIT_COMMITTER_NAME", "test");
         processBuilder.environment().put("GIT_COMMITTER_EMAIL", "test@example.com");
+        processBuilder.environment().put("GIT_CONFIG_NOSYSTEM", "1");
+        processBuilder.environment().put(
+                "GIT_CONFIG_GLOBAL",
+                workingDir.resolve(".test-git-global-config").toAbsolutePath().normalize().toString()
+        );
+        processBuilder.environment().put(
+                "XDG_CONFIG_HOME",
+                workingDir.resolve(".test-git-xdg-config").toAbsolutePath().normalize().toString()
+        );
         processBuilder.redirectErrorStream(true);
         Process process = processBuilder.start();
         String output = new String(process.getInputStream().readAllBytes());

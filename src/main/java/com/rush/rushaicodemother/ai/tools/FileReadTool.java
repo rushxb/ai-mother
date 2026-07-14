@@ -1,15 +1,12 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * 文件读取工具
@@ -19,6 +16,12 @@ import java.nio.file.Path;
 @Component
 public class FileReadTool extends BaseTool {
 
+    private final ToolWorkspaceFileService workspaceFileService;
+
+    public FileReadTool(ToolWorkspaceFileService workspaceFileService) {
+        this.workspaceFileService = workspaceFileService;
+    }
+
     @Tool("读取指定路径的文件内容")
     public String readFile(
             @P("文件的相对路径")
@@ -26,17 +29,17 @@ public class FileReadTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            Path path = ToolPathSupport.resolvePath(relativeFilePath, appId);
-            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+            ToolWorkspaceFileService.ToolWorkspaceFile file =
+                    workspaceFileService.resolveFile(appId, relativeFilePath);
+            if (!workspaceFileService.exists(file) || !workspaceFileService.isRegularFile(file)) {
                 return "错误：文件不存在或不是文件 - " + relativeFilePath;
             }
-            return Files.readString(path);
-        } catch (IllegalArgumentException e) {
-            return "读取文件失败: " + e.getMessage();
-        } catch (IOException e) {
-            String errorMessage = "读取文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
-            log.error(errorMessage, e);
-            return errorMessage;
+            return workspaceFileService.readUtf8(file);
+        } catch (ToolInputException e) {
+            return renderInputError("读取文件失败: ", e);
+        } catch (Exception e) {
+            log.error("读取文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
+            return "读取文件失败，请稍后重试";
         }
     }
 

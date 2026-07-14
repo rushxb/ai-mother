@@ -1,12 +1,41 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import cn.hutool.json.JSONObject;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
 
 /**
  * 工具基类
  * 定义所有工具的通用接口
  */
 public abstract class BaseTool {
+
+    /**
+     * 输出经过显式安全标记的输入校验错误。
+     */
+    protected final String renderInputError(ToolInputException exception) {
+        return renderInputError("错误：", exception);
+    }
+
+    /**
+     * 使用工具特定前缀输出经过显式安全标记的输入校验错误。
+     */
+    protected final String renderInputError(String prefix, ToolInputException exception) {
+        String safePrefix = prefix == null ? "" : prefix;
+        return safePrefix + exception.publicMessage();
+    }
+
+    /**
+     * 业务异常只在非系统错误时保留明确业务文案；系统错误统一返回稳定文案。
+     */
+    protected final String renderBusinessError(BusinessException exception, String fallbackMessage) {
+        if (exception.getCode() == ErrorCode.SYSTEM_ERROR.getCode()
+                || exception.getMessage() == null
+                || exception.getMessage().isBlank()) {
+            return fallbackMessage;
+        }
+        return "错误：" + exception.getMessage();
+    }
 
     /**
      * 获取工具的英文名称（对应方法名）

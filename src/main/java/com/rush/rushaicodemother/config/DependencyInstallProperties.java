@@ -62,10 +62,12 @@ public class DependencyInstallProperties {
                 .allMatch(duration -> duration != null && !duration.isZero() && !duration.isNegative());
     }
 
-    @AssertTrue(message = "依赖安装心跳间隔必须小于总超时")
+    @AssertTrue(message = "依赖安装心跳间隔必须小于命令和运行时校验总超时")
     public boolean isHeartbeatIntervalSafe() {
         return commandTimeout != null
+                && runtimeValidationTimeout != null
                 && heartbeatInterval != null
-                && heartbeatInterval.compareTo(commandTimeout) < 0;
+                && heartbeatInterval.compareTo(commandTimeout) < 0
+                && heartbeatInterval.compareTo(runtimeValidationTimeout) < 0;
     }
 }

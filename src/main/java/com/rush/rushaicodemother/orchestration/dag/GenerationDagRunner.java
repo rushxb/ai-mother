@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
@@ -101,7 +102,7 @@ public class GenerationDagRunner {
                     "DAG 编排执行失败，appId: {}, taskId: {}",
                     context.getTask().getAppId(),
                     context.getTask().getTaskId(),
-                    failure
+                    LogExceptionSanitizer.sanitize(failure)
             );
             throw e;
         }

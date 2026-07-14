@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -10,7 +11,6 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -22,9 +22,14 @@ import java.nio.file.Path;
 public class FileDeleteTool extends BaseTool {
 
     private final ToolExecutionGateway toolExecutionGateway;
+    private final ToolWorkspaceFileService workspaceFileService;
 
-    public FileDeleteTool(ToolExecutionGateway toolExecutionGateway) {
+    public FileDeleteTool(
+            ToolExecutionGateway toolExecutionGateway,
+            ToolWorkspaceFileService workspaceFileService
+    ) {
         this.toolExecutionGateway = toolExecutionGateway;
+        this.workspaceFileService = workspaceFileService;
     }
 
     @Tool("删除指定路径的文件")
@@ -34,35 +39,35 @@ public class FileDeleteTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            String normalizedPath = ToolPathSupport.normalizeRelativePath(relativeFilePath);
-            Path path = ToolPathSupport.resolvePath(normalizedPath, appId);
-            if (!Files.exists(path)) {
+            ToolWorkspaceFileService.ToolWorkspaceFile file =
+                    workspaceFileService.resolveFile(appId, relativeFilePath);
+            String normalizedPath = file.relativePath();
+            if (!workspaceFileService.exists(file)) {
                 return "警告：文件不存在，无需删除 - " + normalizedPath;
             }
-            if (!Files.isRegularFile(path)) {
+            if (!workspaceFileService.isRegularFile(file)) {
                 return "错误：指定路径不是文件，无法删除 - " + normalizedPath;
             }
             // 安全检查：避免删除重要文件
-            String fileName = path.getFileName().toString();
+            String fileName = file.fileName();
             if (isImportantFile(fileName)) {
                 return "错误：不允许删除重要文件 - " + fileName;
             }
             PatchApplyResult result = applyWithGlobalChangePlan(
                     appId,
-                    ToolPathSupport.resolveProjectRoot(appId),
+                    file.projectRoot(),
                     PatchOperation.delete(normalizedPath)
             );
             if ("applied".equals(result.status())) {
-                log.info("成功删除文件: {}", path.toAbsolutePath());
+                log.info("成功删除文件: {}", file.absolutePath());
                 return "文件删除成功: " + normalizedPath;
             }
             return "删除文件失败: " + normalizedPath + ", 原因: " + result.reason();
-        } catch (IllegalArgumentException e) {
-            return "删除文件失败: " + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError("删除文件失败: ", e);
         } catch (Exception e) {
-            String errorMessage = "删除文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
-            log.error(errorMessage, e);
-            return errorMessage;
+            log.error("删除文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
+            return "删除文件失败，请稍后重试";
         }
     }
 

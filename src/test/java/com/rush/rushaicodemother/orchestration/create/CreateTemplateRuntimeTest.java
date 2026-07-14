@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.orchestration.create.recipe.CreateRecipeRendererTestFactory;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
@@ -37,7 +38,7 @@ class CreateTemplateRuntimeTest {
                 .toAbsolutePath()
                 .normalize();
         CreateSpecService createSpecService = mock(CreateSpecService.class);
-        CreateRecipeRendererService recipeRendererService = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
+        CreateRecipeRendererService recipeRendererService = CreateRecipeRendererTestFactory.create();
         GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         Path projectRoot = workspaceRoot.resolve("vue_project_1").toAbsolutePath().normalize();
@@ -84,7 +85,7 @@ class CreateTemplateRuntimeTest {
                 .toAbsolutePath()
                 .normalize();
         CreateSpecService createSpecService = mock(CreateSpecService.class);
-        CreateRecipeRendererService recipeRendererService = new CreateRecipeRendererService(new LandingSlotFallbackRenderer());
+        CreateRecipeRendererService recipeRendererService = CreateRecipeRendererTestFactory.create();
         GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         Path projectRoot = workspaceRoot.resolve("vue_project_1").toAbsolutePath().normalize();
@@ -140,7 +141,7 @@ class CreateTemplateRuntimeTest {
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
                 createSpecService,
-                new CreateRecipeRendererService(new LandingSlotFallbackRenderer()),
+                CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
                 new LandingSlotFallbackRenderer(),
@@ -179,7 +180,7 @@ class CreateTemplateRuntimeTest {
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
                 createSpecService,
-                new CreateRecipeRendererService(new LandingSlotFallbackRenderer()),
+                CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
                 new LandingSlotFallbackRenderer(),
@@ -234,7 +235,7 @@ class CreateTemplateRuntimeTest {
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
                 createSpecService,
-                new CreateRecipeRendererService(new LandingSlotFallbackRenderer()),
+                CreateRecipeRendererTestFactory.create(),
                 portAllocator,
                 patchApplyService,
                 new LandingSlotFallbackRenderer(),
@@ -274,7 +275,7 @@ class CreateTemplateRuntimeTest {
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
                 createSpecService,
-                new CreateRecipeRendererService(new LandingSlotFallbackRenderer()),
+                CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
                 new LandingSlotFallbackRenderer(),

@@ -1,31 +1,33 @@
 package com.rush.rushaicodemother.service.deployment;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.CodeDeploymentProperties;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.service.ScreenshotService;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.artifact.DeploymentArtifactTransaction;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
+import com.rush.rushaicodemother.service.screenshot.ScreenshotService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+
+import static com.rush.rushaicodemother.config.ScreenshotConfiguration.SCREENSHOT_TASK_EXECUTOR;
 
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /** 本地静态应用部署实现。 */
@@ -33,8 +35,6 @@ import java.util.regex.Pattern;
 @Slf4j
 public class LocalAppDeploymentService implements AppDeploymentService {
 
-    private static final int DEPLOY_KEY_LENGTH = 12;
-    private static final String DEPLOY_KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
     private static final Pattern DEPLOY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9]{6,64}");
 
     private final AppArtifactLifecycleService artifactLifecycleService;
@@ -42,44 +42,25 @@ public class LocalAppDeploymentService implements AppDeploymentService {
     private final ScreenshotService screenshotService;
     private final AppMapper appMapper;
     private final CodeDeploymentProperties deploymentProperties;
-    private final Supplier<String> deployKeySupplier;
+    private final DeploymentKeyGenerator deploymentKeyGenerator;
     private final Executor screenshotExecutor;
     private final AppOperationLockManager operationLockManager;
     private final ConcurrentMap<Long, String> screenshotVersions;
 
-    @Autowired
     public LocalAppDeploymentService(AppArtifactLifecycleService artifactLifecycleService,
                                      VueProjectBuilder vueProjectBuilder,
                                      ScreenshotService screenshotService,
                                      AppMapper appMapper,
                                      CodeDeploymentProperties deploymentProperties,
-                                     AppOperationLockManager operationLockManager) {
-        this(
-                artifactLifecycleService,
-                vueProjectBuilder,
-                screenshotService,
-                appMapper,
-                deploymentProperties,
-                operationLockManager,
-                secureDeployKeySupplier(),
-                task -> Thread.ofVirtual().name("app-deployment-screenshot").start(task)
-        );
-    }
-
-    LocalAppDeploymentService(AppArtifactLifecycleService artifactLifecycleService,
-                              VueProjectBuilder vueProjectBuilder,
-                              ScreenshotService screenshotService,
-                              AppMapper appMapper,
-                              CodeDeploymentProperties deploymentProperties,
-                              AppOperationLockManager operationLockManager,
-                              Supplier<String> deployKeySupplier,
-                              Executor screenshotExecutor) {
+                                     AppOperationLockManager operationLockManager,
+                                     DeploymentKeyGenerator deploymentKeyGenerator,
+                                     @Qualifier(SCREENSHOT_TASK_EXECUTOR) Executor screenshotExecutor) {
         this.artifactLifecycleService = artifactLifecycleService;
         this.vueProjectBuilder = vueProjectBuilder;
         this.screenshotService = screenshotService;
         this.appMapper = appMapper;
         this.deploymentProperties = deploymentProperties;
-        this.deployKeySupplier = deployKeySupplier;
+        this.deploymentKeyGenerator = deploymentKeyGenerator;
         this.screenshotExecutor = screenshotExecutor;
         this.operationLockManager = operationLockManager;
         this.screenshotVersions = new ConcurrentHashMap<>();
@@ -134,9 +115,11 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         app.setDeployKey(deployKey);
         app.setDeployedTime(deployedTime);
         String deployUrl = buildDeployUrl(deployKey);
-        String screenshotVersion = UUID.randomUUID().toString();
-        screenshotVersions.put(app.getId(), screenshotVersion);
-        generateScreenshotAsync(app.getId(), deployedTime, deployUrl, screenshotVersion);
+        if (screenshotService.isEnabled()) {
+            String screenshotVersion = UUID.randomUUID().toString();
+            screenshotVersions.put(app.getId(), screenshotVersion);
+            generateScreenshotAsync(app.getId(), deployedTime, deployUrl, screenshotVersion);
+        }
         return deployUrl;
     }
 
@@ -144,11 +127,11 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
             return generatedDirectory;
         }
-        VueProjectBuilder.BuildResult buildResult =
+        VueBuildResult buildResult =
                 vueProjectBuilder.buildProjectWithResult(generatedDirectory.toString());
         ThrowUtils.throwIf(buildResult == null || !buildResult.success(),
                 ErrorCode.SYSTEM_ERROR,
-                buildResult == null ? "Vue 项目构建失败" : buildResult.toFailureSummary());
+                buildResult == null ? "Vue 项目构建失败" : buildResult.toPublicFailureSummary());
         Path distDirectory = generatedDirectory.resolve("dist").normalize();
         ThrowUtils.throwIf(!distDirectory.startsWith(generatedDirectory)
                         || !Files.isDirectory(distDirectory, LinkOption.NOFOLLOW_LINKS)
@@ -173,7 +156,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
 
     private String resolveDeployKey(String existingDeployKey) {
         String deployKey = existingDeployKey == null || existingDeployKey.isBlank()
-                ? deployKeySupplier.get()
+                ? deploymentKeyGenerator.generate()
                 : existingDeployKey;
         ThrowUtils.throwIf(deployKey == null || !DEPLOY_KEY_PATTERN.matcher(deployKey).matches(),
                 ErrorCode.PARAMS_ERROR, "部署标识格式错误");
@@ -205,14 +188,14 @@ public class LocalAppDeploymentService implements AppDeploymentService {
                     }
                     updateCoverIfDeploymentIsCurrent(appId, deployedTime, screenshotUrl, screenshotVersion);
                 } catch (Exception exception) {
-                    log.error("异步生成应用部署截图失败，appId: {}, url: {}", appId, deployUrl, exception);
+                    log.error("异步生成应用部署截图失败，appId: {}, url: {}", appId, deployUrl, LogExceptionSanitizer.sanitize(exception));
                 } finally {
                     screenshotVersions.remove(appId, screenshotVersion);
                 }
             });
         } catch (RuntimeException exception) {
             screenshotVersions.remove(appId, screenshotVersion);
-            log.error("提交应用部署截图任务失败，appId: {}, url: {}", appId, deployUrl, exception);
+            log.error("提交应用部署截图任务失败，appId: {}, url: {}", appId, deployUrl, LogExceptionSanitizer.sanitize(exception));
         }
     }
 
@@ -251,16 +234,4 @@ public class LocalAppDeploymentService implements AppDeploymentService {
                 ErrorCode.PARAMS_ERROR, "应用参数错误");
     }
 
-    private static Supplier<String> secureDeployKeySupplier() {
-        SecureRandom secureRandom = new SecureRandom();
-        return () -> {
-            StringBuilder deployKey = new StringBuilder(DEPLOY_KEY_LENGTH);
-            for (int index = 0; index < DEPLOY_KEY_LENGTH; index++) {
-                deployKey.append(DEPLOY_KEY_ALPHABET.charAt(
-                        secureRandom.nextInt(DEPLOY_KEY_ALPHABET.length())
-                ));
-            }
-            return deployKey.toString();
-        };
-    }
 }

@@ -1,14 +1,12 @@
 package com.rush.rushaicodemother.application.app;
 
 import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.entity.AppDatabaseResource;
-import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.model.vo.AppVO;
 import com.rush.rushaicodemother.model.vo.UserVO;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
-import com.rush.rushaicodemother.service.UserService;
+import com.rush.rushaicodemother.service.user.UserDirectoryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,15 +28,15 @@ import static org.mockito.Mockito.when;
 
 class AppViewAssemblerTest {
 
-    private UserService userService;
+    private UserDirectoryService userDirectoryService;
     private AppDatabaseResourceService appDatabaseResourceService;
     private AppViewAssembler assembler;
 
     @BeforeEach
     void setUp() {
-        userService = mock(UserService.class);
+        userDirectoryService = mock(UserDirectoryService.class);
         appDatabaseResourceService = mock(AppDatabaseResourceService.class);
-        assembler = new AppViewAssembler(userService, appDatabaseResourceService);
+        assembler = new AppViewAssembler(userDirectoryService, appDatabaseResourceService);
     }
 
     @Test
@@ -52,8 +50,8 @@ class AppViewAssemblerTest {
         assertEquals(1L, result.getId());
         assertNull(result.getDevServerPort());
         assertNull(app.getDevServerPort());
-        verify(appDatabaseResourceService).getByAppId(1L);
-        verifyNoInteractions(userService);
+        verify(appDatabaseResourceService).findActiveResourceView(1L);
+        verifyNoInteractions(userDirectoryService);
     }
 
     @Test
@@ -65,29 +63,22 @@ class AppViewAssemblerTest {
         assertNull(result.getId());
         assertNull(result.getUser());
         assertNull(result.getDatabaseResource());
-        verifyNoInteractions(userService, appDatabaseResourceService);
+        verifyNoInteractions(userDirectoryService, appDatabaseResourceService);
     }
 
     @Test
-    void listViewAssemblyShouldBatchLoadUsersAndDatabaseResources() {
+    void listViewAssemblyShouldBatchLoadUsersAndDatabaseResourceViews() {
         App firstApp = app(1L, 10L);
         App secondApp = app(2L, 20L);
-        User firstUser = user(10L);
-        User secondUser = user(20L);
         UserVO firstUserVO = userVO(10L);
         UserVO secondUserVO = userVO(20L);
-        AppDatabaseResource firstResource = databaseResource(101L, 1L);
-        AppDatabaseResource secondResource = databaseResource(102L, 2L);
         AppDatabaseResourceVO firstResourceVO = databaseResourceVO(101L, 1L);
         AppDatabaseResourceVO secondResourceVO = databaseResourceVO(102L, 2L);
 
-        when(userService.listByIds(anyCollection())).thenReturn(List.of(firstUser, secondUser));
-        when(userService.getUserVO(firstUser)).thenReturn(firstUserVO);
-        when(userService.getUserVO(secondUser)).thenReturn(secondUserVO);
-        when(appDatabaseResourceService.getActiveResourceMapByAppIds(anyCollection()))
-                .thenReturn(Map.of(1L, firstResource, 2L, secondResource));
-        when(appDatabaseResourceService.getResourceVO(firstResource)).thenReturn(firstResourceVO);
-        when(appDatabaseResourceService.getResourceVO(secondResource)).thenReturn(secondResourceVO);
+        when(userDirectoryService.findActiveUserViews(anyCollection()))
+                .thenReturn(Map.of(10L, firstUserVO, 20L, secondUserVO));
+        when(appDatabaseResourceService.findActiveResourceViews(anyCollection()))
+                .thenReturn(Map.of(1L, firstResourceVO, 2L, secondResourceVO));
 
         List<AppVO> results = assembler.toViewList(List.of(firstApp, secondApp));
 
@@ -96,32 +87,31 @@ class AppViewAssemblerTest {
         assertSame(secondUserVO, results.get(1).getUser());
         assertSame(firstResourceVO, results.get(0).getDatabaseResource());
         assertSame(secondResourceVO, results.get(1).getDatabaseResource());
-        verify(userService, times(1)).listByIds(argThat(ids -> ids.containsAll(List.of(10L, 20L))));
-        verify(userService, never()).getById(any());
+        verify(userDirectoryService, times(1))
+                .findActiveUserViews(argThat(ids -> ids.containsAll(List.of(10L, 20L))));
+        verify(userDirectoryService, never()).findActiveUserView(any());
         verify(appDatabaseResourceService, times(1))
-                .getActiveResourceMapByAppIds(argThat(ids -> ids.containsAll(List.of(1L, 2L))));
-        verify(appDatabaseResourceService, never()).getByAppId(any());
+                .findActiveResourceViews(argThat(ids -> ids.containsAll(List.of(1L, 2L))));
+        verify(appDatabaseResourceService, never()).findActiveResourceView(any());
     }
 
     @Test
     void listViewAssemblyShouldSupportAppWithoutUserAssociation() {
         App appWithoutUser = app(1L, null);
-        when(appDatabaseResourceService.getActiveResourceMapByAppIds(anyCollection()))
-                .thenReturn(Map.of());
+        when(appDatabaseResourceService.findActiveResourceViews(anyCollection())).thenReturn(Map.of());
 
         List<AppVO> results = assembler.toViewList(List.of(appWithoutUser));
 
         assertEquals(1, results.size());
         assertNull(results.getFirst().getUser());
         assertNull(results.getFirst().getDatabaseResource());
-        verifyNoInteractions(userService);
+        verifyNoInteractions(userDirectoryService);
     }
 
     @Test
     void listViewAssemblyShouldSupportTransientAppWithoutIdentifiers() {
         App transientApp = app(null, null);
-        when(appDatabaseResourceService.getActiveResourceMapByAppIds(anyCollection()))
-                .thenReturn(Map.of());
+        when(appDatabaseResourceService.findActiveResourceViews(anyCollection())).thenReturn(Map.of());
 
         List<AppVO> results = assembler.toViewList(List.of(transientApp));
 
@@ -129,7 +119,7 @@ class AppViewAssemblerTest {
         assertNull(results.getFirst().getId());
         assertNull(results.getFirst().getUser());
         assertNull(results.getFirst().getDatabaseResource());
-        verifyNoInteractions(userService);
+        verifyNoInteractions(userDirectoryService);
     }
 
     private App app(Long id, Long userId) {
@@ -140,23 +130,10 @@ class AppViewAssemblerTest {
         return app;
     }
 
-    private User user(Long id) {
-        User user = new User();
-        user.setId(id);
-        return user;
-    }
-
     private UserVO userVO(Long id) {
         UserVO userVO = new UserVO();
         userVO.setId(id);
         return userVO;
-    }
-
-    private AppDatabaseResource databaseResource(Long id, Long appId) {
-        AppDatabaseResource resource = new AppDatabaseResource();
-        resource.setId(id);
-        resource.setAppId(appId);
-        return resource;
     }
 
     private AppDatabaseResourceVO databaseResourceVO(Long id, Long appId) {

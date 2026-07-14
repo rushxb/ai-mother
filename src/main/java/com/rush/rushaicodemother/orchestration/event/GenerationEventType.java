@@ -18,7 +18,9 @@ public enum GenerationEventType {
     DEV_SERVER_VALIDATION_RESULT("dev_server_validation_result"),
     INDEX_UPDATE("index_update"),
     TASK_DONE("task_done"),
-    TASK_FAILED("task_failed");
+    TASK_FAILED("task_failed"),
+    TASK_CANCELLED("task_cancelled"),
+    TASK_TIMED_OUT("task_timed_out");
 
     private final String value;
 

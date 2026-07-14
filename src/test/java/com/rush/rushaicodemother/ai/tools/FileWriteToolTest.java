@@ -2,14 +2,15 @@ package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.config.AiToolWorkspaceProperties;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
+import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.patch.PatchApplyServiceTestFactory;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -17,6 +18,12 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class FileWriteToolTest {
 
@@ -53,6 +60,22 @@ class FileWriteToolTest {
         assertTrue(result.contains("文件写入成功"));
     }
 
+    @Test
+    void unexpectedPatchFailureMustNotExposeInternalDetails() throws Exception {
+        long appId = 4L;
+        Path projectDir = TEST_OUTPUT_ROOT.resolve("vue_project_" + appId);
+        Files.createDirectories(projectDir.resolve("src"));
+        ToolExecutionGateway gateway = mock(ToolExecutionGateway.class);
+        when(gateway.applyPatch(anyLong(), any(Path.class), any(PatchOperation.class), anyString(), anyString()))
+                .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
+        FileWriteTool tool = new FileWriteTool(gateway, ToolPathSupportTestFixture.workspaceForApp(appId));
+
+        String result = tool.writeFile("src/App.vue", "content", appId);
+
+        assertTrue(result.contains("文件写入失败"));
+        assertFalse(result.contains("secret-value"));
+    }
+
     private FileWriteTool createTool(long appId, ChangePlan changePlan, boolean allowBootstrap) throws Exception {
         Path projectDir = TEST_OUTPUT_ROOT.resolve("vue_project_" + appId);
         cn.hutool.core.io.FileUtil.del(projectDir.toFile());
@@ -60,9 +83,17 @@ class FileWriteToolTest {
         GenerationToolExecutionContextService contextService = new GenerationToolExecutionContextService();
         contextService.bindChangePlan(appId, "task-" + appId, allowBootstrap ? "full_generation" : "patch_first", CodeGenTypeEnum.VUE_PROJECT, changePlan, allowBootstrap, "test");
         GenerationPatchApplyService patchApplyService =
-                new GenerationPatchApplyService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
-        return new FileWriteTool(new ToolExecutionGateway(
-            patchApplyService, contextService,
-            new GenerationExecutionContextService(new GenerationRuntimeProperties())));
+                PatchApplyServiceTestFactory.create();
+        return new FileWriteTool(
+                new ToolExecutionGateway(
+                        patchApplyService,
+                        contextService,
+                        new GenerationExecutionContextService(new GenerationRuntimeProperties())
+                ),
+                ToolPathSupportTestFixture.workspaceFrom(
+                        ToolPathSupportTestFixture.from(contextService),
+                        new AiToolWorkspaceProperties()
+                )
+        );
     }
 }

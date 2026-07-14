@@ -7,13 +7,13 @@ import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.review.BackendQualityReviewService;
 import com.rush.rushaicodemother.orchestration.review.VueSecurityReviewService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Review：生成前质量门禁。
@@ -24,16 +24,17 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
     private final VueSecurityReviewService vueSecurityReviewService;
     private final BackendQualityReviewService backendQualityReviewService;
 
-    public ReviewAgentNode() {
-        this(new VueSecurityReviewService(), new BackendQualityReviewService());
-    }
-
-    @Autowired
     public ReviewAgentNode(VueSecurityReviewService vueSecurityReviewService,
                            BackendQualityReviewService backendQualityReviewService) {
         super("review", "Review", "quality", List.of("code"));
-        this.vueSecurityReviewService = vueSecurityReviewService;
-        this.backendQualityReviewService = backendQualityReviewService;
+        this.vueSecurityReviewService = Objects.requireNonNull(
+                vueSecurityReviewService,
+                "vueSecurityReviewService must not be null"
+        );
+        this.backendQualityReviewService = Objects.requireNonNull(
+                backendQualityReviewService,
+                "backendQualityReviewService must not be null"
+        );
     }
 
     @Override

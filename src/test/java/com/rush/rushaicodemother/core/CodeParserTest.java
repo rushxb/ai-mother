@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.core;
 import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
 import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
 import com.rush.rushaicodemother.core.parser.HtmlCodeParser;
+import com.rush.rushaicodemother.core.parser.MultiFileCodeParser;
 import com.rush.rushaicodemother.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class CodeParserTest {
 
     private final HtmlCodeParser htmlCodeParser = new HtmlCodeParser();
+    private final MultiFileCodeParser multiFileCodeParser = new MultiFileCodeParser();
 
     @Test
     void parseHtmlCode() {
@@ -29,7 +31,7 @@ class CodeParserTest {
                 ```
                 随便写一段描述
                 """;
-        HtmlCodeResult result = CodeParser.parseHtmlCode(codeContent);
+        HtmlCodeResult result = htmlCodeParser.parseCode(codeContent);
         assertNotNull(result);
         assertNotNull(result.getHtmlCode());
     }
@@ -95,7 +97,7 @@ class CodeParserTest {
                 ```
                 文件创建完成！
                 """;
-        MultiFileCodeResult result = CodeParser.parseMultiFileCode(codeContent);
+        MultiFileCodeResult result = multiFileCodeParser.parseCode(codeContent);
         assertNotNull(result);
         assertNotNull(result.getHtmlCode());
         assertNotNull(result.getCssCode());
@@ -108,6 +110,6 @@ class CodeParserTest {
                 很抱歉，我无法还原到之前的博客内容。
                 不过我可以重新帮您生成一个新的博客页面。
                 """;
-        assertThrows(BusinessException.class, () -> CodeParser.parseMultiFileCode(plainText));
+        assertThrows(BusinessException.class, () -> multiFileCodeParser.parseCode(plainText));
     }
 }

@@ -1,9 +1,11 @@
 package com.rush.rushaicodemother.service.dependency;
 
 import com.rush.rushaicodemother.config.DependencyInstallProperties;
-import com.rush.rushaicodemother.infrastructure.process.ProcessOutputCollector;
-import com.rush.rushaicodemother.infrastructure.process.ProcessStarter;
-import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
+import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
+import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -18,8 +20,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 /** 负责 node_modules 结构、Vite 运行时及关键 Windows 原生包的完整性校验与安全修复。 */
 @Slf4j
@@ -32,27 +32,28 @@ public class NodeModulesIntegrityService {
     );
 
     private final DependencyInstallProperties properties;
-    private final ProjectProcessTerminator processTerminator;
-    private final ProcessStarter processStarter;
+    private final ManagedProcessExecutor processExecutor;
+    private final NodeToolchain nodeToolchain;
     private final boolean windows;
 
     @Autowired
     public NodeModulesIntegrityService(
             DependencyInstallProperties properties,
-            ProjectProcessTerminator processTerminator
+            ManagedProcessExecutor processExecutor,
+            NodeToolchain nodeToolchain
     ) {
-        this(properties, processTerminator, ProcessBuilder::start, isWindowsOperatingSystem());
+        this(properties, processExecutor, nodeToolchain, isWindowsOperatingSystem());
     }
 
     NodeModulesIntegrityService(
             DependencyInstallProperties properties,
-            ProjectProcessTerminator processTerminator,
-            ProcessStarter processStarter,
+            ManagedProcessExecutor processExecutor,
+            NodeToolchain nodeToolchain,
             boolean windows
     ) {
         this.properties = properties;
-        this.processTerminator = processTerminator;
-        this.processStarter = processStarter;
+        this.processExecutor = processExecutor;
+        this.nodeToolchain = nodeToolchain;
         this.windows = windows;
     }
 
@@ -140,78 +141,38 @@ public class NodeModulesIntegrityService {
 
     private boolean isViteRuntimeResolvable(Path projectDirectory) {
         List<String> command = List.of(
-                windows ? "node.exe" : "node",
+                nodeToolchain.nodeExecutable(),
                 "--input-type=module",
                 "--eval",
                 "import('vite').then(() => process.exit(0)).catch((error) => { "
                         + "console.error(error?.message || error); process.exit(1); })"
         );
-        Process process = null;
-        CompletableFuture<Void> outputCompletion = null;
-        ProcessOutputCollector outputCollector = null;
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            processBuilder.directory(projectDirectory.toFile());
-            processBuilder.redirectErrorStream(true);
-            configureEnvironment(processBuilder);
-            process = processStarter.start(processBuilder);
-            outputCollector = new ProcessOutputCollector(
-                    "dependency-validation",
-                    "vite-runtime-check " + projectDirectory,
-                    properties.getMaxOutputLength()
+            ManagedProcessResult result = processExecutor.execute(
+                    ManagedProcessRequest.builder()
+                            .workingDirectory(projectDirectory)
+                            .command(command)
+                            .environment(NodeProcessEnvironment.overrides(false))
+                            .environmentVariablesToRemove(NodeProcessEnvironment.variablesToRemove())
+                            .timeout(properties.getRuntimeValidationTimeout())
+                            .idleTimeout(null)
+                            .heartbeatInterval(properties.getHeartbeatInterval())
+                            .outputDrainTimeout(properties.getOutputDrainTimeout())
+                            .maxOutputLength(properties.getMaxOutputLength())
+                            .redirectErrorStream(true)
+                            .logCategory("dependency-validation")
+                            .logContext("vite-runtime-check " + projectDirectory)
+                            .build()
             );
-            outputCompletion = outputCollector.start(process);
-
-            boolean finished = process.waitFor(
-                    Math.max(1, properties.getRuntimeValidationTimeout().toMillis()),
-                    TimeUnit.MILLISECONDS
-            );
-            if (!finished) {
-                processTerminator.terminate(process);
-                ProcessOutputCollector.awaitCompletionPreservingInterrupt(
-                        outputCompletion,
-                        properties.getOutputDrainTimeout()
-                );
-                log.warn("Vite 运行时校验超时: project={}, timeout={}",
-                        projectDirectory, properties.getRuntimeValidationTimeout());
-                return false;
-            }
-
-            ProcessOutputCollector.awaitCompletionPreservingInterrupt(
-                    outputCompletion,
-                    properties.getOutputDrainTimeout()
-            );
-            int exitCode = process.exitValue();
-            if (exitCode != 0) {
-                log.warn("Vite 运行时校验失败: project={}, exitCode={}, output={}",
-                        projectDirectory, exitCode, outputCollector.tailForLog());
+            if (!result.exitedSuccessfully()) {
+                log.warn("Vite 运行时校验失败: project={}, status={}, exitCode={}",
+                        projectDirectory, result.status(), result.exitCode());
                 return false;
             }
             return true;
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            if (process != null) {
-                processTerminator.terminate(process);
-            }
-            if (outputCompletion != null) {
-                ProcessOutputCollector.awaitCompletionPreservingInterrupt(
-                        outputCompletion,
-                        properties.getOutputDrainTimeout()
-                );
-            }
-            log.warn("Vite 运行时校验线程被中断: project={}", projectDirectory);
-            return false;
-        } catch (IOException | RuntimeException exception) {
-            if (process != null) {
-                processTerminator.terminate(process);
-            }
-            if (outputCompletion != null) {
-                ProcessOutputCollector.awaitCompletionPreservingInterrupt(
-                        outputCompletion,
-                        properties.getOutputDrainTimeout()
-                );
-            }
-            log.warn("Vite 运行时校验异常: project={}, error={}", projectDirectory, exception.getMessage());
+        } catch (RuntimeException exception) {
+            log.warn("Vite 运行时校验异常: project={}, exceptionType={}",
+                    projectDirectory, exception.getClass().getName());
             return false;
         }
     }
@@ -236,7 +197,8 @@ public class NodeModulesIntegrityService {
             }
             return true;
         } catch (IOException exception) {
-            log.warn("检查关键原生依赖失败: path={}, error={}", pnpmDirectory, exception.getMessage());
+            log.warn("检查关键原生依赖失败: path={}, exceptionType={}",
+                    pnpmDirectory, exception.getClass().getName());
             return false;
         }
     }
@@ -296,12 +258,6 @@ public class NodeModulesIntegrityService {
         } catch (IOException exception) {
             return false;
         }
-    }
-
-    private void configureEnvironment(ProcessBuilder processBuilder) {
-        processBuilder.environment().put("NO_UPDATE_NOTIFIER", "1");
-        processBuilder.environment().put("NPM_CONFIG_AUDIT", "false");
-        processBuilder.environment().put("NPM_CONFIG_FUND", "false");
     }
 
     private Path normalize(Path path) {

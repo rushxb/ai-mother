@@ -4,4 +4,22 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.rush.rushaicodemother.mapper.AppMapper">
 
+    <update id="updateActiveAdministrationFields">
+        update app
+        <set>
+            <if test="appName != null">
+                appName = #{appName},
+            </if>
+            <if test="cover != null">
+                cover = #{cover},
+            </if>
+            <if test="priority != null">
+                priority = #{priority},
+            </if>
+            editTime = #{editTime}
+        </set>
+        where id = #{appId}
+          and isDelete = 0
+    </update>
+
 </mapper>

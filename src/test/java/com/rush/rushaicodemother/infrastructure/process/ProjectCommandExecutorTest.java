@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
+import com.rush.rushaicodemother.config.NodeToolchainProperties;
 import com.rush.rushaicodemother.config.ProjectCommandProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,9 +20,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.mockito.ArgumentCaptor;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,6 +34,7 @@ class ProjectCommandExecutorTest {
 
     private ProjectCommandProperties properties;
     private ProjectProcessTerminator processTerminator;
+    private GenerationExecutionContextService executionContextService;
     private Path projectDirectory;
 
     @BeforeEach
@@ -42,6 +48,8 @@ class ProjectCommandExecutorTest {
         properties.setOutputDrainTimeout(Duration.ofMillis(100));
         properties.setMaxOutputLength(1024);
         processTerminator = mock(ProjectProcessTerminator.class);
+        executionContextService = mock(GenerationExecutionContextService.class);
+        when(executionContextService.clampTimeout(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @AfterEach
@@ -177,8 +185,54 @@ class ProjectCommandExecutorTest {
         assertFalse(process.isAlive());
     }
 
+    @Test
+    void shouldApplyExecutionContextPolicyToTaskBoundCommand() {
+        ManagedProcessExecutor processExecutor = mock(ManagedProcessExecutor.class);
+        Duration configuredTimeout = Duration.ofSeconds(5);
+        Duration clampedTimeout = Duration.ofSeconds(2);
+        when(executionContextService.clampTimeout("task-1", configuredTimeout)).thenReturn(clampedTimeout);
+        when(executionContextService.shouldStop("task-1")).thenReturn(true);
+        when(processExecutor.execute(any())).thenReturn(new ManagedProcessResult(
+                ManagedProcessResult.Status.COMPLETED,
+                "pnpm run build",
+                0,
+                "ok",
+                "",
+                null
+        ));
+        ProjectCommandExecutor executor = new ProjectCommandExecutor(
+                properties,
+                processExecutor,
+                executionContextService,
+                createNodeToolchain()
+        );
+
+        ProjectCommandResult result = executor.executePnpmScript(
+                projectDirectory,
+                "build",
+                configuredTimeout,
+                "task-1",
+                "test"
+        );
+
+        ArgumentCaptor<ManagedProcessRequest> requestCaptor = ArgumentCaptor.forClass(ManagedProcessRequest.class);
+        verify(processExecutor).execute(requestCaptor.capture());
+        ManagedProcessRequest request = requestCaptor.getValue();
+        assertEquals(clampedTimeout, request.timeout());
+        assertEquals(NodeProcessEnvironment.overrides(true), request.environment());
+        assertEquals(NodeProcessEnvironment.variablesToRemove(), request.environmentVariablesToRemove());
+        assertTrue(request.cancellationRequested().getAsBoolean());
+        assertTrue(result.success());
+        verify(executionContextService).assertCanContinue("task-1");
+    }
+
     private ProjectCommandExecutor createExecutor(ProcessStarter starter) {
-        return new ProjectCommandExecutor(properties, processTerminator, starter, false);
+        ManagedProcessExecutor processExecutor = new ManagedProcessExecutor(processTerminator, starter);
+        return new ProjectCommandExecutor(properties, processExecutor, executionContextService, createNodeToolchain());
+    }
+
+    private NodeToolchain createNodeToolchain() {
+        return new NodeToolchain(new NodeToolchainProperties(), false);
     }
 
     private static final class FakeProcess extends Process {

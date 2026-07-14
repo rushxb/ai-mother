@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.provisioning;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
@@ -14,8 +15,8 @@ import com.rush.rushaicodemother.model.dto.app.AppAddRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.service.AiModelService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +37,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
     private static final int MAX_APP_NAME_LENGTH = 16;
 
     private final AppMapper appMapper;
-    private final AiModelService aiModelService;
+    private final AiModelRuntimeService aiModelRuntimeService;
     private final BackendIntentDetector backendIntentDetector;
     private final AiCodeGenTypeRoutingServiceFactory routingServiceFactory;
     private final AppNameGeneratorServiceFactory appNameGeneratorServiceFactory;
@@ -47,7 +48,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
 
     @Autowired
     public DefaultAppProvisioningService(AppMapper appMapper,
-                                         AiModelService aiModelService,
+                                         AiModelRuntimeService aiModelRuntimeService,
                                          BackendIntentDetector backendIntentDetector,
                                          AiCodeGenTypeRoutingServiceFactory routingServiceFactory,
                                          AppNameGeneratorServiceFactory appNameGeneratorServiceFactory,
@@ -57,7 +58,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                                          PlatformTransactionManager transactionManager) {
         this(
                 appMapper,
-                aiModelService,
+                aiModelRuntimeService,
                 backendIntentDetector,
                 routingServiceFactory,
                 appNameGeneratorServiceFactory,
@@ -69,7 +70,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
     }
 
     DefaultAppProvisioningService(AppMapper appMapper,
-                                  AiModelService aiModelService,
+                                  AiModelRuntimeService aiModelRuntimeService,
                                   BackendIntentDetector backendIntentDetector,
                                   AiCodeGenTypeRoutingServiceFactory routingServiceFactory,
                                   AppNameGeneratorServiceFactory appNameGeneratorServiceFactory,
@@ -78,7 +79,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                                   AppOperationLockManager operationLockManager,
                                   TransactionOperations transactionOperations) {
         this.appMapper = appMapper;
-        this.aiModelService = aiModelService;
+        this.aiModelRuntimeService = aiModelRuntimeService;
         this.backendIntentDetector = backendIntentDetector;
         this.routingServiceFactory = routingServiceFactory;
         this.appNameGeneratorServiceFactory = appNameGeneratorServiceFactory;
@@ -95,7 +96,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         String initPrompt = StrUtil.trim(request.getInitPrompt());
         ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
 
-        aiModelService.ensureGenerationModelsConfigured();
+        aiModelRuntimeService.ensureGenerationModelsConfigured();
         CodeGenTypeEnum selectedCodeGenType = selectCodeGenType(initPrompt);
         App app = App.builder()
                 .appName(generateAppName(initPrompt))
@@ -144,12 +145,11 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                 Long persistedTargetId = requirePersistedAppId(targetApp, "复制应用后未生成有效 ID");
                 artifactLifecycleService.copyGeneratedArtifact(sourceApp, targetApp);
                 artifactCopied.set(true);
-                boolean historyCopied = chatHistoryService.copyByAppId(
+                chatHistoryService.copyByAppId(
                         sourceApp.getId(),
                         persistedTargetId,
                         actor.getId()
                 );
-                ThrowUtils.throwIf(!historyCopied, ErrorCode.OPERATION_ERROR, "复制应用对话失败");
                 return persistedTargetId;
             });
             ThrowUtils.throwIf(targetAppId == null || targetAppId <= 0,
@@ -198,7 +198,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                 return normalizedName;
             }
         } catch (Exception exception) {
-            log.warn("AI 生成应用标题失败，使用本地兜底标题", exception);
+            log.warn("AI 生成应用标题失败，使用本地兜底标题", LogExceptionSanitizer.sanitize(exception));
         }
         return fallbackAppName(initPrompt);
     }

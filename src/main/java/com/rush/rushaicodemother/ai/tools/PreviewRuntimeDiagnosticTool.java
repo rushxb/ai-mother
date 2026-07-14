@@ -1,23 +1,22 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
+import com.rush.rushaicodemother.infrastructure.screenshot.selenium.SeleniumChromeDriverFactory;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
-import io.github.bonigarcia.wdm.WebDriverManager;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.logging.LogEntry;
 import org.openqa.selenium.logging.LogType;
-import org.openqa.selenium.logging.LoggingPreferences;
 import org.openqa.selenium.support.ui.WebDriverWait;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -28,7 +27,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.logging.Level;
 
 /**
  * 预览运行时诊断工具
@@ -41,17 +39,23 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
 
     private final VueProjectBuilder vueProjectBuilder;
     private final DevServerManager devServerManager;
+    private final ToolPathSupport toolPathSupport;
+    private final SeleniumChromeDriverFactory driverFactory;
     private final int serverPort;
     private final String contextPath;
 
     public PreviewRuntimeDiagnosticTool(
             VueProjectBuilder vueProjectBuilder,
             DevServerManager devServerManager,
+            ToolPathSupport toolPathSupport,
+            SeleniumChromeDriverFactory driverFactory,
             @Value("${server.port:8123}") int serverPort,
             @Value("${server.servlet.context-path:/api}") String contextPath
     ) {
         this.vueProjectBuilder = vueProjectBuilder;
         this.devServerManager = devServerManager;
+        this.toolPathSupport = toolPathSupport;
+        this.driverFactory = driverFactory;
         this.serverPort = serverPort;
         this.contextPath = contextPath;
     }
@@ -72,11 +76,11 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         try {
             String resolvedUrl = resolveTargetUrl(normalizedAction, targetUrl, relativeProjectPath, appId);
             return inspectUrl(normalizedAction, resolvedUrl, waitSeconds);
-        } catch (IllegalArgumentException e) {
-            return "错误：" + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError(e);
         } catch (Exception e) {
-            log.error("运行时诊断失败，action: {}", action, e);
-            return "运行时诊断失败: " + e.getMessage();
+            log.error("运行时诊断失败，action: {}", action, LogExceptionSanitizer.sanitize(e));
+            return "运行时诊断失败，请稍后重试";
         }
     }
 
@@ -88,17 +92,18 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         if ("diagnoseDevServer".equals(action)) {
             Integer port = devServerManager.getPort(appId);
             if (port == null || port < 1 || port > 65535) {
-                throw new IllegalArgumentException("当前没有运行中的 Dev Server，请先调用【开发服务器日志工具】启动服务");
+                throw new ToolInputException("当前没有运行中的 Dev Server，请先调用【开发服务器日志工具】启动服务");
             }
             return "http://127.0.0.1:" + port + "/";
         }
-        String projectPath = ToolPathSupport.resolvePath(relativeProjectPath, appId).toString();
-        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.getRecentBuildResult(projectPath);
+        String projectPath = toolPathSupport.resolvePath(relativeProjectPath, appId).toString();
+        VueBuildResult buildResult = vueProjectBuilder.getRecentBuildResult(projectPath);
         if (buildResult == null) {
-            throw new IllegalArgumentException("缺少可复用的最近构建结果，请先调用【本地构建诊断】或等待后台构建完成后再进行预览运行时诊断。");
+            throw new ToolInputException("缺少可复用的最近构建结果，请先调用【本地构建诊断】或等待后台构建完成后再进行预览运行时诊断。");
         }
         if (!buildResult.success()) {
-            throw new IllegalArgumentException("构建未通过，无法进行预览运行时诊断。\n" + buildResult.toDiagnosticReport());
+            throw new ToolInputException("构建未通过，无法进行预览运行时诊断。\n"
+                    + buildResult.toPublicDiagnosticReport());
         }
         String normalizedContextPath = normalizeContextPath(contextPath);
         String previewUrl = "http://127.0.0.1:" + serverPort + normalizedContextPath
@@ -108,7 +113,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
 
     private void validateDiagnosticAction(String action) {
         if (!"diagnoseDevServer".equals(action) && !"diagnoseBuildPreview".equals(action)) {
-            throw new IllegalArgumentException("不支持的诊断模式 - " + action);
+            throw new ToolInputException("不支持的诊断模式 - " + action);
         }
     }
 
@@ -117,14 +122,14 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         try {
             uri = new URI(rawUrl.trim());
         } catch (URISyntaxException exception) {
-            throw new IllegalArgumentException("目标 URL 格式无效", exception);
+            throw new ToolInputException("目标 URL 格式无效", exception);
         }
         if (!"http".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null) {
-            throw new IllegalArgumentException("运行时诊断仅允许访问本机 HTTP 地址");
+            throw new ToolInputException("运行时诊断仅允许访问本机 HTTP 地址");
         }
         String host = uri.getHost();
         if (host == null) {
-            throw new IllegalArgumentException("目标 URL 缺少有效主机名");
+            throw new ToolInputException("目标 URL 缺少有效主机名");
         }
         String normalizedHost = host.startsWith("[") && host.endsWith("]")
                 ? host.substring(1, host.length() - 1)
@@ -132,11 +137,11 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         if (!"localhost".equalsIgnoreCase(normalizedHost)
                 && !"127.0.0.1".equals(normalizedHost)
                 && !"::1".equals(normalizedHost)) {
-            throw new IllegalArgumentException("运行时诊断仅允许访问本机回环地址");
+            throw new ToolInputException("运行时诊断仅允许访问本机回环地址");
         }
         int port = uri.getPort();
         if (port == 0 || port > 65535) {
-            throw new IllegalArgumentException("目标 URL 端口无效");
+            throw new ToolInputException("目标 URL 端口无效");
         }
         return uri.normalize().toASCIIString();
     }
@@ -144,7 +149,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
     private String inspectUrl(String action, String url, Integer waitSeconds) {
         WebDriver driver = null;
         try {
-            driver = createDriver();
+            driver = driverFactory.createDiagnosticDriver();
             driver.get(url);
             waitForPageLoad(driver, waitSeconds);
             JSONObject pageInfo = collectPageInfo(driver);
@@ -155,21 +160,6 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
                 driver.quit();
             }
         }
-    }
-
-    private WebDriver createDriver() {
-        WebDriverManager.chromedriver().setup();
-        ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless=new");
-        options.addArguments("--disable-gpu");
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--window-size=1600,900");
-        LoggingPreferences loggingPreferences = new LoggingPreferences();
-        loggingPreferences.enable(LogType.BROWSER, Level.ALL);
-        options.setCapability("goog:loggingPrefs", loggingPreferences);
-        return new ChromeDriver(options);
     }
 
     private void waitForPageLoad(WebDriver driver, Integer waitSeconds) {
@@ -222,7 +212,8 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
                 }
             }
         } catch (Exception e) {
-            logs.add("浏览器日志读取失败: " + e.getMessage());
+            log.warn("浏览器日志读取失败", LogExceptionSanitizer.sanitize(e));
+            logs.add("浏览器日志读取失败");
         }
         return logs;
     }
@@ -345,4 +336,5 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         String normalized = toolResult.replace("\r", " ").replace("\n", " ").trim();
         return StrUtil.sub(normalized, 0, Math.min(normalized.length(), maxChars));
     }
+
 }

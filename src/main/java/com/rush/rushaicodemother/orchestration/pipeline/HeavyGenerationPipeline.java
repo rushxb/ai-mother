@@ -1,10 +1,10 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
-import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
+import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationCoordinator;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -15,9 +15,9 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class HeavyGenerationPipeline implements GenerationPipeline {
 
-    public static final String ROUTE = "heavy_generation";
+    public static final String ROUTE = GenerationRoute.HEAVY_GENERATION;
 
-    private final ObjectProvider<GenerationTaskOrchestrator> orchestratorProvider;
+    private final HeavyGenerationCoordinator heavyGenerationCoordinator;
 
     @Override
     public String route() {
@@ -31,6 +31,6 @@ public class HeavyGenerationPipeline implements GenerationPipeline {
 
     @Override
     public Optional<GenerationTaskResult> execute(GenerationPipelineRequest request) {
-        return Optional.of(orchestratorProvider.getObject().startHeavyGeneration(request));
+        return Optional.of(heavyGenerationCoordinator.start(request));
     }
 }

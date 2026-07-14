@@ -7,14 +7,13 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
-import com.rush.rushaicodemother.service.impl.GenerationContextCompressionServiceImpl;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Code：将结构化 artifact 组装成最终生成规范。
@@ -24,14 +23,12 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
 
     private final GenerationContextCompressionService contextCompressionService;
 
-    public CodeAgentNode() {
-        this(new GenerationContextCompressionServiceImpl());
-    }
-
-    @Autowired
     public CodeAgentNode(GenerationContextCompressionService contextCompressionService) {
         super("code", "Code", "codegen", List.of("architect"));
-        this.contextCompressionService = contextCompressionService;
+        this.contextCompressionService = Objects.requireNonNull(
+                contextCompressionService,
+                "contextCompressionService must not be null"
+        );
     }
 
     @Override

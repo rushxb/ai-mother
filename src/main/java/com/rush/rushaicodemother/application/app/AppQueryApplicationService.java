@@ -7,7 +7,7 @@ import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.vo.AppVO;
-import com.rush.rushaicodemother.service.AppService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +24,7 @@ public class AppQueryApplicationService {
 
     private static final int USER_PAGE_SIZE_LIMIT = 20;
 
-    private final AppService appService;
+    private final AppPersistenceService appPersistenceService;
     private final AppViewAssembler appViewAssembler;
 
     public AppVO getById(long appId) {
@@ -54,10 +54,7 @@ public class AppQueryApplicationService {
     private Page<AppVO> queryPage(AppQueryRequest queryRequest) {
         long pageNum = queryRequest.getPageNum();
         long pageSize = queryRequest.getPageSize();
-        Page<App> appPage = appService.page(
-                Page.of(pageNum, pageSize),
-                appService.getQueryWrapper(queryRequest)
-        );
+        Page<App> appPage = appPersistenceService.pageActiveApps(queryRequest);
         Page<AppVO> result = new Page<>(pageNum, pageSize, appPage.getTotalRow());
         List<AppVO> records = appViewAssembler.toViewList(appPage.getRecords());
         result.setRecords(records);
@@ -66,7 +63,7 @@ public class AppQueryApplicationService {
 
     private App requireExistingApp(long appId) {
         ThrowUtils.throwIf(appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
-        App app = appService.getById(appId);
+        App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         return app;
     }

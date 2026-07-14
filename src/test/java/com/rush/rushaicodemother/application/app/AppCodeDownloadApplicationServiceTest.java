@@ -5,8 +5,8 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.ProjectDownloadService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,17 +29,17 @@ class AppCodeDownloadApplicationServiceTest {
 
     private static final Long APP_ID = 9_876_543_210L;
 
-    private AppService appService;
+    private AppPersistenceService appPersistenceService;
     private ProjectDownloadService projectDownloadService;
     private AppCodeDownloadApplicationService service;
     private Path projectDirectory;
 
     @BeforeEach
     void setUp() {
-        appService = mock(AppService.class);
+        appPersistenceService = mock(AppPersistenceService.class);
         projectDownloadService = mock(ProjectDownloadService.class);
         service = new AppCodeDownloadApplicationService(
-                appService,
+                appPersistenceService,
                 projectDownloadService,
                 new AppAccessPolicy()
         );
@@ -65,7 +65,7 @@ class AppCodeDownloadApplicationServiceTest {
         Files.createDirectories(projectDirectory);
         Files.writeString(projectDirectory.resolve("index.html"), "content");
         User owner = User.builder().id(7L).build();
-        when(appService.getById(APP_ID)).thenReturn(
+        when(appPersistenceService.findActiveById(APP_ID)).thenReturn(
                 App.builder().id(APP_ID).userId(7L).codeGenType("vue_project").build()
         );
         HttpServletResponse response = mock(HttpServletResponse.class);
@@ -81,7 +81,7 @@ class AppCodeDownloadApplicationServiceTest {
 
     @Test
     void unauthorizedUserMustBeRejectedBeforeDownloadServiceCall() {
-        when(appService.getById(APP_ID)).thenReturn(
+        when(appPersistenceService.findActiveById(APP_ID)).thenReturn(
                 App.builder().id(APP_ID).userId(7L).codeGenType("vue_project").build()
         );
         HttpServletResponse response = mock(HttpServletResponse.class);

@@ -46,6 +46,11 @@ public class ProjectCommandProperties {
     @Max(1_000_000)
     private int maxOutputLength = 12_000;
 
+    /** 内存中最多保留的最近 Vue 构建结果数量。 */
+    @Min(10)
+    @Max(10_000)
+    private int recentBuildResultMaxEntries = 500;
+
     @AssertTrue(message = "项目命令相关超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
         return Stream.of(

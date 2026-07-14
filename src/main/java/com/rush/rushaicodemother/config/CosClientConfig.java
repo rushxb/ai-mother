@@ -5,6 +5,8 @@ import com.qcloud.cos.ClientConfig;
 import com.qcloud.cos.auth.BasicCOSCredentials;
 import com.qcloud.cos.auth.COSCredentials;
 import com.qcloud.cos.region.Region;
+import com.rush.rushaicodemother.infrastructure.storage.cos.TencentCosObjectStorageService;
+import com.rush.rushaicodemother.service.storage.ObjectStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -31,5 +33,11 @@ public class CosClientConfig {
         );
         ClientConfig clientConfig = new ClientConfig(new Region(properties.getRegion()));
         return new COSClient(credentials, clientConfig);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "cos.client", name = "enabled", havingValue = "true")
+    public ObjectStorageService objectStorageService(COSClient cosClient) {
+        return new TencentCosObjectStorageService(cosClient, properties);
     }
 }

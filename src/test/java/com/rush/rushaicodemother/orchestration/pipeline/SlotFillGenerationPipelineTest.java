@@ -3,10 +3,11 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
-import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
+import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.create.CreatePostGenerationValidationService;
@@ -41,13 +42,13 @@ class SlotFillGenerationPipelineTest {
         SlotFillGenerationService slotFillGenerationService = mock(SlotFillGenerationService.class);
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
         GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
+        GenerationTaskLifecycleService lifecycleService = mock(GenerationTaskLifecycleService.class);
         SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
-                mock(GenerationAppStateService.class),
-                mock(GenerationTaskLifecycleService.class),
+                lifecycleService,
                 monitor,
                 mock(CreatePostGenerationValidationService.class),
                 eventPublisher,
-                new GenerationSessionRegistry(),
+                new GenerationSessionRegistry(new GenerationSessionProperties()),
                 slotFillGenerationService
         );
         GenerationPipelineRequest request = request();
@@ -63,6 +64,22 @@ class SlotFillGenerationPipelineTest {
                 .getText()
                 .contains("CREATE 模板生成失败"));
         verify(monitor, timeout(1000)).finishTask(result.get().taskId(), "failed");
+        verify(lifecycleService).startGeneration(
+                result.get().taskId(),
+                request.taskRequest().app(),
+                request.taskRequest().loginUser(),
+                request.codeGenType(),
+                request.codeGenType(),
+                request.taskRequest().message(),
+                request.taskRequest().message(),
+                true,
+                "create",
+                "create",
+                com.rush.rushaicodemother.constant.AppConstant.GENERATING_STAGE_CREATE
+        );
+        verify(lifecycleService, timeout(1000)).completeGeneration(
+                result.get().taskId(), 1L, GenerationTaskStatus.FAILED,
+                "create_generation_failed");
         assertTrue(eventPublisher.recent(1L).stream()
                 .anyMatch(event -> event.message().contains("CREATE 模板生成失败")));
     }
@@ -72,12 +89,11 @@ class SlotFillGenerationPipelineTest {
         SlotFillGenerationService slotFillGenerationService = mock(SlotFillGenerationService.class);
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
         SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
-                mock(GenerationAppStateService.class),
                 mock(GenerationTaskLifecycleService.class),
                 monitor,
                 mock(CreatePostGenerationValidationService.class),
                 new GenerationEventPublisher(),
-                new GenerationSessionRegistry(),
+                new GenerationSessionRegistry(new GenerationSessionProperties()),
                 slotFillGenerationService
         );
         GenerationPipelineRequest request = request();
@@ -104,12 +120,11 @@ class SlotFillGenerationPipelineTest {
         SlotFillGenerationService slotFillGenerationService = mock(SlotFillGenerationService.class);
         GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
         SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
-                mock(GenerationAppStateService.class),
                 mock(GenerationTaskLifecycleService.class),
                 mock(GenerationPerformanceMonitorService.class),
                 mock(CreatePostGenerationValidationService.class),
                 eventPublisher,
-                new GenerationSessionRegistry(),
+                new GenerationSessionRegistry(new GenerationSessionProperties()),
                 slotFillGenerationService
         );
         when(slotFillGenerationService.tryGenerate(any(), any(), any()))

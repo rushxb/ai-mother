@@ -1,12 +1,12 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
-import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
-import com.rush.rushaicodemother.service.AiModelCatalogService;
-import com.rush.rushaicodemother.service.AiModelService;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
@@ -34,9 +34,7 @@ public class StreamingModelFactory {
 
     private final AiModelMonitorListener aiModelMonitorListener;
 
-    private final AiModelService aiModelService;
-
-    private final AiModelCatalogService aiModelCatalogService;
+    private final AiModelRuntimeService aiModelRuntimeService;
 
     private final AiModelRuntimeProperties runtimeProperties;
 
@@ -52,9 +50,10 @@ public class StreamingModelFactory {
      */
     public StreamingChatModel createModel(GenerationPerformanceProfile profile) {
         String modelType = resolveModelType(profile.modelTier());
-        AiModel dbModel = getRequiredEnabledModelByType(modelType, "生成性能配置 " + profile.modelTier());
-        log.info("使用数据库生成模型配置: provider={}, modelId={}, modelType={}, baseUrl={}, thinking={}",
-                dbModel.getProvider(), dbModel.getModelId(), dbModel.getModelType(), dbModel.getBaseUrl(),
+        AiModelRuntimeConfiguration dbModel = getRequiredEnabledModelByType(
+                modelType, "生成性能配置 " + profile.modelTier());
+        log.info("使用数据库生成模型配置: provider={}, modelId={}, modelType={}, thinking={}",
+                dbModel.provider(), dbModel.modelId(), dbModel.modelType(),
                 profile.thinkingEnabled());
         return createModelFromDb(dbModel, profile.thinkingEnabled());
     }
@@ -65,9 +64,10 @@ public class StreamingModelFactory {
      * 从数据库读取 chat 类型模型。
      */
     public StreamingChatModel createChatModel() {
-        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "普通对话/快速流式任务");
-        log.info("使用数据库快速流式模型配置: provider={}, modelId={}, baseUrl={}",
-                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
+        AiModelRuntimeConfiguration dbModel = getRequiredEnabledModelByType(
+                MODEL_TYPE_CHAT, "普通对话/快速流式任务");
+        log.info("使用数据库快速流式模型配置: provider={}, modelId={}, modelType={}",
+                dbModel.provider(), dbModel.modelId(), dbModel.modelType());
         return createModelFromDb(dbModel, false);
     }
 
@@ -77,9 +77,10 @@ public class StreamingModelFactory {
      * 从数据库读取 reasoning 类型模型。
      */
     public StreamingChatModel createReasoningModel() {
-        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_REASONING, "思考/重型生成任务");
-        log.info("使用数据库思考流式模型配置: provider={}, modelId={}, baseUrl={}",
-                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
+        AiModelRuntimeConfiguration dbModel = getRequiredEnabledModelByType(
+                MODEL_TYPE_REASONING, "思考/重型生成任务");
+        log.info("使用数据库思考流式模型配置: provider={}, modelId={}, modelType={}",
+                dbModel.provider(), dbModel.modelId(), dbModel.modelType());
         return createModelFromDb(dbModel, true);
     }
 
@@ -89,9 +90,10 @@ public class StreamingModelFactory {
      * 使用数据库 chat 类型模型。
      */
     public ChatModel createRoutingChatModel() {
-        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "路由/意图/轻量同步任务");
-        log.info("使用数据库快速同步模型配置: usage=routing, provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
-                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
+        AiModelRuntimeConfiguration dbModel = getRequiredEnabledModelByType(
+                MODEL_TYPE_CHAT, "路由/意图/轻量同步任务");
+        log.info("使用数据库快速同步模型配置: usage=routing, provider={}, modelId={}, modelType={}, timeoutSeconds={}, maxRetries={}",
+                dbModel.provider(), dbModel.modelId(), dbModel.modelType(),
                 runtimeProperties.getRoutingTimeout().toSeconds(), runtimeProperties.getRoutingMaxRetries());
         return createChatModelFromDb(
                 dbModel,
@@ -107,9 +109,10 @@ public class StreamingModelFactory {
      * 该调用只生成小型 JSON spec，不生成代码或大 patch，因此主链路可以保持短超时。
      */
     public ChatModel createCreateSpecChatModel() {
-        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_CHAT, "CREATE 创意规格生成任务");
-        log.info("使用数据库 CREATE Spec 快速模型配置: provider={}, modelId={}, baseUrl={}, timeoutSeconds={}, maxRetries={}",
-                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl(),
+        AiModelRuntimeConfiguration dbModel = getRequiredEnabledModelByType(
+                MODEL_TYPE_CHAT, "CREATE 创意规格生成任务");
+        log.info("使用数据库 CREATE Spec 快速模型配置: provider={}, modelId={}, modelType={}, timeoutSeconds={}, maxRetries={}",
+                dbModel.provider(), dbModel.modelId(), dbModel.modelType(),
                 runtimeProperties.getCreateSpecTimeout().toSeconds(), 0);
         return createChatModelFromDb(dbModel, runtimeProperties.getCreateSpecTimeout(), 0, false);
     }
@@ -120,9 +123,10 @@ public class StreamingModelFactory {
      * 使用数据库 reasoning 类型模型。
      */
     public ChatModel createPrimaryChatModel() {
-        AiModel dbModel = getRequiredEnabledModelByType(MODEL_TYPE_REASONING, "主同步思考任务");
-        log.info("使用数据库主思考模型配置: provider={}, modelId={}, baseUrl={}",
-                dbModel.getProvider(), dbModel.getModelId(), dbModel.getBaseUrl());
+        AiModelRuntimeConfiguration dbModel = getRequiredEnabledModelByType(
+                MODEL_TYPE_REASONING, "主同步思考任务");
+        log.info("使用数据库主思考模型配置: provider={}, modelId={}, modelType={}",
+                dbModel.provider(), dbModel.modelId(), dbModel.modelType());
         return createChatModelFromDb(
                 dbModel,
                 null,
@@ -143,24 +147,15 @@ public class StreamingModelFactory {
         };
     }
 
-    private AiModel getRequiredEnabledModelByType(String modelType, String usage) {
+    private AiModelRuntimeConfiguration getRequiredEnabledModelByType(String modelType, String usage) {
         try {
-            List<AiModel> models = aiModelService.listRunnableEnabledModelsByType(modelType);
-            if (models.isEmpty()) {
-                throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                        "请联系系统管理员配置可用的" + modelTypeLabel(modelType) + "模型，用于" + usage);
-            }
-            return aiModelCatalogService.normalizeForRuntime(models.get(0));
+            return aiModelRuntimeService.requireRunnableModelByType(modelType);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            log.error("读取 {} 模型配置失败，usage={}", modelType, usage, e);
+            log.error("读取 {} 模型配置失败，usage={}", modelType, usage, LogExceptionSanitizer.sanitize(e));
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "读取 AI 模型配置失败");
         }
-    }
-
-    private String modelTypeLabel(String modelType) {
-        return MODEL_TYPE_REASONING.equals(modelType) ? "思考" : "快速";
     }
 
     /**
@@ -170,11 +165,12 @@ public class StreamingModelFactory {
      * 1. 只有 supportsThinking=1 的模型才发送 thinking 参数
      * 2. temperature 范围根据模型提供商调整
      */
-    private StreamingChatModel createModelFromDb(AiModel dbModel, boolean enableThinking) {
+    private StreamingChatModel createModelFromDb(AiModelRuntimeConfiguration dbModel,
+                                                  boolean enableThinking) {
         var builder = OpenAiStreamingChatModel.builder()
-                .apiKey(dbModel.getApiKey())
-                .baseUrl(dbModel.getBaseUrl())
-                .modelName(dbModel.getModelId())
+                .apiKey(dbModel.apiKey())
+                .baseUrl(dbModel.baseUrl())
+                .modelName(dbModel.modelId())
                 .temperature(resolveTemperature(dbModel))
                 .logRequests(runtimeProperties.isGenerationLogRequests())
                 .logResponses(runtimeProperties.isGenerationLogResponses())
@@ -187,11 +183,13 @@ public class StreamingModelFactory {
         return builder.build();
     }
 
-    private ChatModel createChatModelFromDb(AiModel dbModel, Duration timeout, Integer maxRetries) {
+    private ChatModel createChatModelFromDb(AiModelRuntimeConfiguration dbModel,
+                                            Duration timeout,
+                                            Integer maxRetries) {
         return createChatModelFromDb(dbModel, timeout, maxRetries, false);
     }
 
-    private ChatModel createChatModelFromDb(AiModel dbModel,
+    private ChatModel createChatModelFromDb(AiModelRuntimeConfiguration dbModel,
                                             Duration timeout,
                                             Integer maxRetries,
                                             boolean enableThinking) {
@@ -205,16 +203,16 @@ public class StreamingModelFactory {
         );
     }
 
-    private ChatModel createChatModelFromDb(AiModel dbModel,
+    private ChatModel createChatModelFromDb(AiModelRuntimeConfiguration dbModel,
                                             Duration timeout,
                                             Integer maxRetries,
                                             boolean enableThinking,
                                             boolean requestLogging,
                                             boolean responseLogging) {
         var builder = OpenAiChatModel.builder()
-                .apiKey(dbModel.getApiKey())
-                .baseUrl(dbModel.getBaseUrl())
-                .modelName(dbModel.getModelId())
+                .apiKey(dbModel.apiKey())
+                .baseUrl(dbModel.baseUrl())
+                .modelName(dbModel.modelId())
                 .temperature(resolveTemperature(dbModel))
                 .logRequests(requestLogging)
                 .logResponses(responseLogging);
@@ -242,14 +240,10 @@ public class StreamingModelFactory {
      * - Xiaomi MiMo: 0-1.5
      * - 其他: 默认 0-1（安全范围）
      */
-    private Double resolveTemperature(AiModel dbModel) {
-        Double temp = dbModel.getTemperature();
-        if (temp == null) {
-            return 0.7;
-        }
-
-        String modelId = dbModel.getModelId() != null ? dbModel.getModelId().toLowerCase() : "";
-        String provider = dbModel.getProvider() != null ? dbModel.getProvider().toLowerCase() : "";
+    private Double resolveTemperature(AiModelRuntimeConfiguration dbModel) {
+        double temp = dbModel.temperature();
+        String modelId = dbModel.modelId() != null ? dbModel.modelId().toLowerCase() : "";
+        String provider = dbModel.provider() != null ? dbModel.provider().toLowerCase() : "";
 
         // Claude 模型限制 temperature 在 0-1 范围
         if (modelId.contains("claude") || provider.contains("anthropic")) {
@@ -265,7 +259,7 @@ public class StreamingModelFactory {
     }
 
     private void applyThinking(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
-                               AiModel model,
+                               AiModelRuntimeConfiguration model,
                                boolean enableThinking) {
         OpenAiThinkingPolicy.ThinkingConfiguration configuration =
                 openAiThinkingPolicy.resolve(model, enableThinking);
@@ -277,34 +271,34 @@ public class StreamingModelFactory {
     }
 
     private void applyMaxTokens(OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
-                                AiModel model) {
+                                AiModelRuntimeConfiguration model) {
         if (isXiaomiMimoModel(model)) {
-            builder.maxCompletionTokens(model.getMaxTokens());
+            builder.maxCompletionTokens(model.maxTokens());
             return;
         }
-        builder.maxTokens(model.getMaxTokens());
+        builder.maxTokens(model.maxTokens());
     }
 
     private void applyMaxTokens(OpenAiChatModel.OpenAiChatModelBuilder builder,
-                                AiModel model) {
+                                AiModelRuntimeConfiguration model) {
         if (isXiaomiMimoModel(model)) {
-            builder.maxCompletionTokens(model.getMaxTokens());
+            builder.maxCompletionTokens(model.maxTokens());
             return;
         }
-        builder.maxTokens(model.getMaxTokens());
+        builder.maxTokens(model.maxTokens());
     }
 
-    private boolean isXiaomiMimoModel(AiModel model) {
+    private boolean isXiaomiMimoModel(AiModelRuntimeConfiguration model) {
         if (model == null) {
             return false;
         }
-        String provider = model.getProvider() != null ? model.getProvider().toLowerCase() : "";
-        String modelId = model.getModelId() != null ? model.getModelId().toLowerCase() : "";
+        String provider = model.provider() != null ? model.provider().toLowerCase() : "";
+        String modelId = model.modelId() != null ? model.modelId().toLowerCase() : "";
         return provider.equals("xiaomi") || modelId.startsWith("mimo-v2");
     }
 
     private void applyThinking(OpenAiChatModel.OpenAiChatModelBuilder builder,
-                               AiModel model,
+                               AiModelRuntimeConfiguration model,
                                boolean enableThinking) {
         OpenAiThinkingPolicy.ThinkingConfiguration configuration =
                 openAiThinkingPolicy.resolve(model, enableThinking);

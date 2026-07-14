@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.exception.BusinessException;
@@ -49,11 +50,14 @@ public class DevServerLogTool extends BaseTool {
                 case "stopDevServer" -> stopServer(appId);
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
             };
-        } catch (BusinessException | IllegalArgumentException exception) {
-            return "错误：" + exception.getMessage();
+        } catch (ToolInputException exception) {
+            return renderInputError(exception);
+        } catch (BusinessException exception) {
+            return renderBusinessError(exception, "Dev Server 操作失败，请稍后重试");
         } catch (RuntimeException exception) {
-            log.error("Dev Server 工具执行失败，action: {}, appId: {}", normalizedAction, appId, exception);
-            return "Dev Server 操作失败: " + exception.getMessage();
+            log.error("Dev Server 工具执行失败，action: {}, appId: {}", normalizedAction, appId,
+                    LogExceptionSanitizer.sanitize(exception));
+            return "Dev Server 操作失败，请稍后重试";
         }
     }
 
@@ -103,7 +107,7 @@ public class DevServerLogTool extends BaseTool {
 
     private void validateAppId(Long appId) {
         if (appId == null || appId <= 0) {
-            throw new IllegalArgumentException("应用 ID 必须大于 0");
+            throw new ToolInputException("应用 ID 必须大于 0");
         }
     }
 

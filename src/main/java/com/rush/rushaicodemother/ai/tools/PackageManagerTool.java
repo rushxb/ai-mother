@@ -1,10 +1,11 @@
 package com.rush.rushaicodemother.ai.tools;
 
-import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.ai.tools.policy.DependencyPolicyService;
+import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
@@ -16,8 +17,6 @@ import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
 /**
@@ -31,15 +30,18 @@ public class PackageManagerTool extends BaseTool {
     private final DependencyPolicyService dependencyPolicyService;
     private final ToolExecutionGateway toolExecutionGateway;
     private final ProjectDependencyInstaller projectDependencyInstaller;
+    private final ToolWorkspaceFileService workspaceFileService;
 
     public PackageManagerTool(
             DependencyPolicyService dependencyPolicyService,
             ToolExecutionGateway toolExecutionGateway,
-            ProjectDependencyInstaller projectDependencyInstaller
+            ProjectDependencyInstaller projectDependencyInstaller,
+            ToolWorkspaceFileService workspaceFileService
     ) {
         this.dependencyPolicyService = dependencyPolicyService;
         this.toolExecutionGateway = toolExecutionGateway;
         this.projectDependencyInstaller = projectDependencyInstaller;
+        this.workspaceFileService = workspaceFileService;
     }
 
     @Tool("管理 package.json 的依赖和 scripts，支持查看、添加、更新、删除依赖，或修改 scripts；必要时可执行 pnpm install 同步锁文件。")
@@ -63,12 +65,15 @@ public class PackageManagerTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         try {
-            Path packageJsonPath = ToolPathSupport.resolvePath("package.json", appId);
-            File packageJsonFile = packageJsonPath.toFile();
-            if (!packageJsonFile.exists() || !packageJsonFile.isFile()) {
+            ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory =
+                    workspaceFileService.resolveDirectory(appId, null);
+            ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile =
+                    workspaceFileService.resolveFile(projectDirectory, "package.json");
+            if (!workspaceFileService.isRegularFile(packageJsonFile)) {
                 return "错误：package.json 不存在";
             }
-            JSONObject packageJson = JSONUtil.parseObj(FileUtil.readString(packageJsonFile, StandardCharsets.UTF_8));
+            Path packageJsonPath = packageJsonFile.absolutePath();
+            JSONObject packageJson = JSONUtil.parseObj(workspaceFileService.readUtf8(packageJsonFile));
             String normalizedAction = StrUtil.blankToDefault(action, "getPackageJson");
             return switch (normalizedAction) {
                 case "getPackageJson" -> JSONUtil.toJsonPrettyStr(packageJson);
@@ -84,11 +89,11 @@ public class PackageManagerTool extends BaseTool {
                 case "installDependencies" -> runInstall(packageJsonPath.getParent(), "installDependencies");
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
             };
-        } catch (IllegalArgumentException e) {
-            return "错误：" + e.getMessage();
+        } catch (ToolInputException e) {
+            return renderInputError(e);
         } catch (Exception e) {
-            log.error("管理 package.json 失败，action: {}", action, e);
-            return "管理 package.json 失败: " + e.getMessage();
+            log.error("管理 package.json 失败，action: {}", action, LogExceptionSanitizer.sanitize(e));
+            return "管理 package.json 失败，请稍后重试";
         }
     }
 
@@ -230,7 +235,7 @@ public class PackageManagerTool extends BaseTool {
         }
         builder.append("日志:\n")
                 .append(StrUtil.isBlank(result.output()) ? "(无输出)" : result.output().trim());
-        return builder.toString();
+        return PublicDiagnosticSanitizer.sanitizeForPublicOutput(builder.toString());
     }
 
     private String writePackageJson(Long appId, Path packageJsonPath, JSONObject packageJson, String reason) {

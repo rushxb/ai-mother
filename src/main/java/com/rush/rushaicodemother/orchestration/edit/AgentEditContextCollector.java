@@ -20,11 +20,12 @@ import java.util.stream.Collectors;
 public class AgentEditContextCollector {
 
     private final EditFileLocatorService editFileLocatorService;
+    private final EditContextPackageBuilder editContextPackageBuilder;
     private final WorkspaceCodeGraphService codeGraphService;
 
     public AgentEditReadResult collect(GenerationWorkspace workspace, String userMessage, CodeGenTypeEnum codeGenType) {
         List<EditFileCandidate> candidates = editFileLocatorService.locate(workspace, userMessage, codeGenType);
-        EditContextPackage contextPackage = editFileLocatorService.buildContextPackage(workspace, candidates);
+        EditContextPackage contextPackage = editContextPackageBuilder.build(workspace, candidates);
         Path projectRoot = workspace == null ? null : workspace.canonicalRootPath();
         WorkspaceCodeGraph graph = codeGraphService.build(projectRoot);
         List<String> selectedFiles = contextPackage == null || contextPackage.candidates() == null

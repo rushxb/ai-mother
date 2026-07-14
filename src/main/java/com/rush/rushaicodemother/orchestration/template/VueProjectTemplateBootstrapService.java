@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.template;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
@@ -93,7 +94,7 @@ public class VueProjectTemplateBootstrapService {
             if (workspaceCreated) {
                 TemplateWorkspaceFailureCleanup.deleteOwnedWorkspace(targetRoot, e);
             }
-            log.warn("复制 Vue 项目模板失败，targetRoot: {}, templateId: {}", targetRoot, templateId, e);
+            log.warn("复制 Vue 项目模板失败，targetRoot: {}, templateId: {}", targetRoot, templateId, LogExceptionSanitizer.sanitize(e));
             throw new BusinessException(
                     ErrorCode.SYSTEM_ERROR,
                     "初始化 Vue 项目模板失败，请稍后重试",

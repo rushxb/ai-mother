@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.heavy;
 
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -9,9 +10,10 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
-import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
@@ -28,7 +30,7 @@ import java.util.Map;
 public class HeavyGenerationBuildValidationService {
 
     private final DevServerValidationService devServerValidationService;
-    private final GenerationAppStateService generationAppStateService;
+    private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final HeavyGenerationExecutionService heavyGenerationExecutionService;
@@ -49,7 +51,7 @@ public class HeavyGenerationBuildValidationService {
             heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
             return false;
         }
-        VueProjectBuilder.BuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, preparation.taskId());
+        VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, preparation.taskId());
         if (session.isCancelled()) {
             return false;
         }
@@ -62,7 +64,8 @@ public class HeavyGenerationBuildValidationService {
             return validateRuntimeIfNeeded(appId, loginUser, preparation, session, projectPath, "构建通过，正在验证 Dev Server 运行时...");
         }
         if (HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS <= 0 || !workspaceState.canAutoRepair()) {
-            heavyGenerationFailureRecoveryService.emitBuildFailure(appId, preparation, session, buildResult.toFailureSummary());
+            heavyGenerationFailureRecoveryService.emitBuildFailure(
+                    appId, preparation, session, buildResult.toPublicFailureSummary());
             return false;
         }
         for (int round = 1; round <= HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS; round++) {
@@ -88,7 +91,7 @@ public class HeavyGenerationBuildValidationService {
                         heavyGenerationExecutionService.buildAutoRepairPrompt(
                                 appId,
                                 preparation,
-                                new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toFailureSummary()),
+                                new BusinessException(ErrorCode.SYSTEM_ERROR, buildResult.toPublicFailureSummary()),
                                 round
                         ),
                         session,
@@ -123,7 +126,8 @@ public class HeavyGenerationBuildValidationService {
             }
             generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "failed");
         }
-        heavyGenerationFailureRecoveryService.emitBuildFailure(appId, preparation, session, buildResult.toFailureSummary());
+        heavyGenerationFailureRecoveryService.emitBuildFailure(
+                appId, preparation, session, buildResult.toPublicFailureSummary());
         return false;
     }
 
@@ -160,18 +164,21 @@ public class HeavyGenerationBuildValidationService {
 
     private void emitBuildResult(GenerationSession session,
                                  GenerationPreparation preparation,
-                                 VueProjectBuilder.BuildResult buildResult,
+                                 VueBuildResult buildResult,
                                  Map<String, Object> extraData) {
         Map<String, Object> data = new java.util.LinkedHashMap<>();
+        String publicReport = buildResult.toPublicDiagnosticReport();
+        if (extraData != null) {
+            data.putAll(extraData);
+        }
         data.put("success", buildResult.success());
         data.put("stage", buildResult.stage());
-        data.put("projectPath", buildResult.projectPath());
-        data.put("summary", buildResult.summary());
-        data.put("report", buildResult.toDiagnosticReport());
+        data.put("projectPath", buildResult.publicProjectPath());
+        data.put("summary", buildResult.publicSummary());
+        data.put("report", publicReport);
         data.put("taskId", preparation.taskId());
         data.put("qualityGate", preparation.qualityGateLevel());
-        data.putAll(extraData);
-        session.emit(GenerationStreamEvent.buildResult(buildResult.toDiagnosticReport(), data));
+        session.emit(GenerationStreamEvent.buildResult(publicReport, data));
     }
 
     private String buildProjectPath(Long appId, CodeGenTypeEnum targetType) {
@@ -184,7 +191,11 @@ public class HeavyGenerationBuildValidationService {
                                      String generatingStage,
                                      String generatingMessage,
                                      GenerationSession session) {
-        generationAppStateService.markGenerationStage(appId, generatingStage, generatingMessage, session);
+        if (session == null || session.preparation() == null) {
+            throw new IllegalStateException("heavy generation session preparation is required");
+        }
+        generationTaskLifecycleService.updateGenerationStage(
+                session.preparation().taskId(), appId, generatingStage, generatingMessage);
     }
 
     private String orchestrationMode(GenerationPreparation preparation) {

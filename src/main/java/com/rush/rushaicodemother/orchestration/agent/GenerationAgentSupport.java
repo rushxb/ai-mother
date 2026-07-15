@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 
 import java.io.File;
@@ -41,13 +43,15 @@ public class GenerationAgentSupport {
     private final GenerationSkillLibrary skillLibrary;
     private final WorkspaceSemanticIndexService semanticIndexService;
     private final GenerationContextCompressionService contextCompressionService;
-    private final Path codeOutputRoot;
+    private final GenerationWorkspaceService generationWorkspaceService;
 
-    public GenerationAgentSupport(GenerationRecipeLibrary recipeLibrary,
-                                  GenerationSkillLibrary skillLibrary,
-                                  WorkspaceSemanticIndexService semanticIndexService,
-                                  GenerationContextCompressionService contextCompressionService,
-                                  Path codeOutputRoot) {
+    public GenerationAgentSupport(
+            GenerationRecipeLibrary recipeLibrary,
+            GenerationSkillLibrary skillLibrary,
+            WorkspaceSemanticIndexService semanticIndexService,
+            GenerationContextCompressionService contextCompressionService,
+            GenerationWorkspaceService generationWorkspaceService
+    ) {
         this.recipeLibrary = Objects.requireNonNull(recipeLibrary, "recipeLibrary must not be null");
         this.skillLibrary = Objects.requireNonNull(skillLibrary, "skillLibrary must not be null");
         this.semanticIndexService = Objects.requireNonNull(
@@ -58,9 +62,10 @@ public class GenerationAgentSupport {
                 contextCompressionService,
                 "contextCompressionService must not be null"
         );
-        this.codeOutputRoot = Objects.requireNonNull(codeOutputRoot, "codeOutputRoot must not be null")
-                .toAbsolutePath()
-                .normalize();
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
+        );
     }
 
     public boolean isComplexRequest(String userMessage) {
@@ -132,7 +137,7 @@ public class GenerationAgentSupport {
     }
 
     public File resolveWorkspaceRoot(App app, CodeGenTypeEnum codeGenTypeEnum) {
-        if (app == null || app.getId() == null || StrUtil.isBlank(app.getCodeGenType())) {
+        if (app == null || app.getId() == null || app.getId() <= 0) {
             return null;
         }
         CodeGenTypeEnum resolvedType = codeGenTypeEnum == null
@@ -141,11 +146,8 @@ public class GenerationAgentSupport {
         if (resolvedType == null) {
             return null;
         }
-        File rootDir = codeOutputRoot.resolve(resolvedType.getValue() + "_" + app.getId()).toFile();
-        if (!rootDir.exists() || !rootDir.isDirectory()) {
-            return null;
-        }
-        return rootDir;
+        GenerationWorkspace workspace = generationWorkspaceService.resolve(app.getId(), resolvedType);
+        return workspace.exists() ? workspace.canonicalRootPath().toFile() : null;
     }
 
     public List<Map<String, Object>> collectIndexRecallPayloads(App app, String userMessage, int limit) {

@@ -2,7 +2,6 @@ package com.rush.rushaicodemother.orchestration.heavy;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.io.FileUtil;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
@@ -16,12 +15,13 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadl
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -33,6 +33,7 @@ public class HeavyGenerationFailureRecoveryService {
     private final GenerationAppStateService generationAppStateService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationRollbackRestoreService generationRollbackRestoreService;
+    private final GenerationWorkspaceService generationWorkspaceService;
 
     public void emitGenerationError(Long appId,
                                     GenerationPreparation preparation,
@@ -237,20 +238,19 @@ public class HeavyGenerationFailureRecoveryService {
         if (appId == null || appId <= 0 || codeGenTypeEnum == null) {
             return;
         }
-        File codeDir = new File(AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenTypeEnum.getValue() + "_" + appId);
-        if (!codeDir.exists()) {
-            return;
-        }
         try {
-            File canonicalRoot = new File(AppConstant.CODE_OUTPUT_ROOT_DIR).getCanonicalFile();
-            File canonicalDir = codeDir.getCanonicalFile();
-            if (!canonicalDir.toPath().startsWith(canonicalRoot.toPath())) {
-                log.warn("跳过清理非法代码目录，appId: {}, dir: {}", appId, canonicalDir.getAbsolutePath());
+            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenTypeEnum);
+            if (!workspace.exists()) {
                 return;
             }
-            FileUtil.del(canonicalDir);
-        } catch (Exception e) {
-            log.warn("清理升级失败目录时发生异常，appId: {}, type: {}", appId, codeGenTypeEnum.getValue(), LogExceptionSanitizer.sanitize(e));
+            FileUtil.del(workspace.canonicalRootPath().toFile());
+        } catch (Exception exception) {
+            log.warn(
+                    "清理升级失败目录时发生异常，appId: {}, type: {}",
+                    appId,
+                    codeGenTypeEnum.getValue(),
+                    LogExceptionSanitizer.sanitize(exception)
+            );
         }
     }
 }

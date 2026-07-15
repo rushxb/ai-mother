@@ -33,4 +33,13 @@ class WorkspaceFileSystemPropertiesTest {
 
         assertFalse(validator.validate(properties).isEmpty());
     }
+
+    @Test
+    void shouldRejectInvalidPublishRetryLimits() {
+        WorkspaceFileSystemProperties properties = new WorkspaceFileSystemProperties();
+        properties.setPublishMaxAttempts(0);
+        properties.setPublishRetryDelayMillis(5_001);
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
 }

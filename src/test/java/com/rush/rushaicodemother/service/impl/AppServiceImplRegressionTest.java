@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.service.impl;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
+
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
@@ -25,6 +27,7 @@ import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationSessionCompl
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
 import com.rush.rushaicodemother.service.trace.GenerationBuildTrace;
@@ -90,7 +93,8 @@ class AppServiceImplRegressionTest {
                 null,
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
                 null,
-                null
+                null,
+                new GenerationWorkspaceService(new CodeStorageProperties())
         );
         HeavyGenerationFailureRecoveryService failureRecoveryService = newFailureRecoveryService(
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));
@@ -168,7 +172,12 @@ class AppServiceImplRegressionTest {
 
     private HeavyGenerationFailureRecoveryService newFailureRecoveryService(
             GenerationOrchestrationMetricsCollector metricsCollector) {
-        return new HeavyGenerationFailureRecoveryService(null, metricsCollector, null);
+        return new HeavyGenerationFailureRecoveryService(
+                null,
+                metricsCollector,
+                null,
+                new GenerationWorkspaceService(new CodeStorageProperties())
+        );
     }
 
     private App app(Long appId, Long userId) {

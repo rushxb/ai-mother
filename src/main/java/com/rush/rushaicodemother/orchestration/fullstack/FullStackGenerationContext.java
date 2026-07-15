@@ -1,5 +1,8 @@
 package com.rush.rushaicodemother.orchestration.fullstack;
 
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -19,14 +22,19 @@ public record FullStackGenerationContext(
         String containerizationStatus
 ) {
 
-    public static FullStackGenerationContext create(Long appId, int frontendPort, int backendPort, String workspaceRoot) {
+    public static FullStackGenerationContext create(int frontendPort,
+                                                    int backendPort,
+                                                    GenerationWorkspace workspace) {
+        String workspaceRoot = portablePath(workspace.canonicalRootPath());
+        String frontendPath = portablePath(workspace.frontendRootPath());
+        String backendPath = portablePath(workspace.backendRootPath());
         String backendBaseUrl = "http://127.0.0.1:" + backendPort;
         String apiPrefix = "/api";
         return new FullStackGenerationContext(
-                appId,
+                workspace.appId(),
                 workspaceRoot,
-                workspaceRoot + "/frontend",
-                workspaceRoot + "/backend",
+                frontendPath,
+                backendPath,
                 frontendPort,
                 backendPort,
                 "http://127.0.0.1:" + frontendPort,
@@ -37,6 +45,10 @@ public record FullStackGenerationContext(
                 ":" + backendPort,
                 "reserved"
         );
+    }
+
+    private static String portablePath(Path path) {
+        return path.toString().replace('\\', '/');
     }
 
     public Map<String, Object> toPayload() {

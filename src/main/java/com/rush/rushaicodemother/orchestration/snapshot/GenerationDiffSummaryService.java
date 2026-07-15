@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceFileMetadata;
@@ -9,8 +8,9 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -36,34 +36,45 @@ public class GenerationDiffSummaryService {
             "vue", "js", "ts", "jsx", "tsx", "json", "css", "scss", "less", "html", "md", "txt", "yml", "yaml"
     );
 
-    private final Path codeOutputRoot;
-    private final Path codeSnapshotRoot;
+    private final GenerationWorkspaceService generationWorkspaceService;
+    private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
 
-    @Autowired
-    public GenerationDiffSummaryService(WorkspaceFileSystemService workspaceFileSystemService) {
-        this(
-                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
-                Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR),
-                workspaceFileSystemService
+    public GenerationDiffSummaryService(
+            GenerationWorkspaceService generationWorkspaceService,
+            GenerationSnapshotWorkspaceService snapshotWorkspaceService,
+            WorkspaceFileSystemService workspaceFileSystemService
+    ) {
+        this.generationWorkspaceService = java.util.Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
         );
-    }
-
-    public GenerationDiffSummaryService(Path codeOutputRoot,
-                                        Path codeSnapshotRoot,
-                                        WorkspaceFileSystemService workspaceFileSystemService) {
-        this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
-        this.codeSnapshotRoot = codeSnapshotRoot.toAbsolutePath().normalize();
-        this.workspaceFileSystemService = workspaceFileSystemService;
+        this.snapshotWorkspaceService = java.util.Objects.requireNonNull(
+                snapshotWorkspaceService,
+                "snapshotWorkspaceService must not be null"
+        );
+        this.workspaceFileSystemService = java.util.Objects.requireNonNull(
+                workspaceFileSystemService,
+                "workspaceFileSystemService must not be null"
+        );
     }
 
     public DiffSummary summarize(Long appId,
                                   CodeGenTypeEnum targetType,
                                   String taskId,
                                   GenerationArtifact rollbackPointArtifact) {
-        Path currentPath = resolveProjectPath(appId, targetType);
         if (appId == null || appId <= 0 || targetType == null) {
-            return DiffSummary.skipped(appId, taskId, "", currentPath.toString(), "invalid_generation_context");
+            return DiffSummary.skipped(appId, taskId, "", "", "invalid_generation_context");
+        }
+
+        Path currentPath;
+        try {
+            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, targetType);
+            currentPath = workspace.canonicalRootPath();
+        } catch (RuntimeException exception) {
+            log.warn("Failed to resolve current workspace, appId: {}, taskId: {}, exceptionType: {}",
+                    appId, taskId, exception.getClass().getSimpleName());
+            return DiffSummary.skipped(appId, taskId, "", "", "current_project_unavailable");
         }
         if (rollbackPointArtifact == null || rollbackPointArtifact.payload() == null) {
             return DiffSummary.skipped(appId, taskId, "", currentPath.toString(), "rollback_point_missing");
@@ -88,22 +99,28 @@ public class GenerationDiffSummaryService {
                     "rollback_artifact_context_mismatch"
             );
         }
+
         Path basePath;
         try {
-            basePath = Path.of(snapshotPathValue).toAbsolutePath().normalize();
-            if (!isAllowedSnapshotPath(appId, basePath, rollbackPayload)) {
-                return DiffSummary.skipped(
-                        appId,
-                        taskId,
-                        snapshotPathValue,
-                        currentPath.toString(),
-                        "rollback_path_out_of_root"
-                );
-            }
+            basePath = snapshotWorkspaceService.resolveReportedSnapshot(
+                    appId,
+                    String.valueOf(rollbackPayload.get("snapshotName")),
+                    snapshotPathValue
+            );
+        } catch (RuntimeException exception) {
+            return DiffSummary.skipped(
+                    appId,
+                    taskId,
+                    snapshotPathValue,
+                    currentPath.toString(),
+                    "rollback_path_out_of_root"
+            );
+        }
+        try {
             return summarizePaths(appId, taskId, basePath, currentPath);
-        } catch (Exception e) {
-            log.warn("生成后差异摘要失败，appId: {}, taskId: {}, exceptionType: {}",
-                    appId, taskId, e.getClass().getSimpleName());
+        } catch (Exception exception) {
+            log.warn("Failed to summarize workspace diff, appId: {}, taskId: {}, exceptionType: {}",
+                    appId, taskId, exception.getClass().getSimpleName());
             return DiffSummary.skipped(
                     appId,
                     taskId,
@@ -271,15 +288,6 @@ public class GenerationDiffSummaryService {
         return filesByPath;
     }
 
-    private Path resolveProjectPath(Long appId, CodeGenTypeEnum targetType) {
-        if (appId == null || appId <= 0 || targetType == null) {
-            return codeOutputRoot;
-        }
-        return codeOutputRoot.resolve(targetType.getValue() + "_" + appId)
-                .toAbsolutePath()
-                .normalize();
-    }
-
     private String pathToString(Path path) {
         return path == null ? "" : path.toAbsolutePath().normalize().toString();
     }
@@ -293,16 +301,4 @@ public class GenerationDiffSummaryService {
                 && String.valueOf(taskId).equals(String.valueOf(rollbackPayload.get("taskId")));
     }
 
-    private boolean isAllowedSnapshotPath(Long appId,
-                                          Path snapshotPath,
-                                          Map<String, Object> rollbackPayload) {
-        Path applicationSnapshotRoot = codeSnapshotRoot.resolve(String.valueOf(appId)).normalize();
-        if (!snapshotPath.startsWith(applicationSnapshotRoot)
-                || snapshotPath.equals(applicationSnapshotRoot)
-                || !applicationSnapshotRoot.equals(snapshotPath.getParent())) {
-            return false;
-        }
-        String snapshotName = String.valueOf(rollbackPayload.getOrDefault("snapshotName", ""));
-        return snapshotName.isBlank() || snapshotName.equals(snapshotPath.getFileName().toString());
-    }
 }

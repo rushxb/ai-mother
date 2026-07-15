@@ -82,6 +82,9 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `GENERATION_SESSION_MAX_TRACKED_SESSIONS`：单实例活动会话与短期回放会话总容量，默认 `1000`，允许范围 `1` 至 `10000`；达到上限后新应用生成请求明确返回服务暂不可用，不会继续扩张内存。
 - `GENERATION_SESSION_COMPLETED_REPLAY_RETENTION`：已完成轻量会话的 SSE 回放保留时间，默认 `30s`，必须为正数且不得超过 `1h`。
 - `GENERATION_SESSION_CLEANUP_INTERVAL`：过期回放会话批量清理周期，默认 `5s`，必须为正数且不得大于回放保留时间。
+- `CODE_OUTPUT_ROOT_DIR`：AI 生成工作区根目录，默认 `tmp/code_output`。
+- `CODE_DEPLOY_ROOT_DIR`：已部署应用视图根目录，默认 `tmp/code_deploy`。
+- `CODE_SNAPSHOT_ROOT_DIR`：生成事务快照根目录，默认 `tmp/code_snapshot`；必须与生成工作区和部署根目录两两隔离，不得相同或互相包含。
 - `GENERATION_TASK_SNAPSHOT_ENABLED`：本机编排诊断快照开关，默认 `true`；关闭后不影响数据库中的生成状态、租约和 trace。
 - `GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY`：诊断快照根目录，默认继承 `code.orchestration-task-root-dir`，最终回退到 `tmp/orchestration_tasks`。
 - `GENERATION_TASK_SNAPSHOT_MAX_BYTES`：单个快照 UTF-8 字节上限，默认 `2097152`（2 MiB），允许范围 `16384` 至 `16777216`。
@@ -124,6 +127,18 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `DEPENDENCY_INSTALL_MAX_ATTEMPTS`：单项目依赖安装最大尝试次数，默认 `3`，允许范围 `1` 至 `5`。
 - `DEPENDENCY_INSTALL_MAX_OUTPUT_LENGTH`：内存中保留的安装输出字符上限，默认 `12000`。
 - `DEPENDENCY_INSTALL_LOCK_STRIPES`：本地项目安装锁条带数，默认 `64`；仅用于单实例内并发隔离。
+- `ARTIFACT_COPY_TIMEOUT`: hard timeout for one Windows robocopy operation, default `15m`.
+- `ARTIFACT_COPY_HEARTBEAT_INTERVAL`: robocopy heartbeat interval, default `30s`; it must be shorter than the copy timeout.
+- `ARTIFACT_COPY_OUTPUT_DRAIN_TIMEOUT`: bounded wait for process-output consumers after robocopy exits, default `5s`.
+- `ARTIFACT_COPY_MAX_OUTPUT_LENGTH`: maximum retained characters for each robocopy output stream, default `8000`.
+- `ARTIFACT_COPY_MAX_FILES`: maximum files in one generated-source or deployment artifact copy, default `20000`.
+- `ARTIFACT_COPY_MAX_DIRECTORIES`: maximum directories in one artifact copy excluding the source root, default `5000`.
+- `ARTIFACT_COPY_MAX_DIRECTORY_DEPTH`: maximum directory depth relative to the source root, default `64`.
+- `ARTIFACT_COPY_MAX_FILE_BYTES`: maximum size of one artifact file, default `104857600` bytes (100 MiB).
+- `ARTIFACT_COPY_MAX_TOTAL_BYTES`: maximum cumulative file bytes in one artifact copy, default `2147483648` bytes (2 GiB); it must be greater than or equal to the single-file limit.
+- `ARTIFACT_PUBLISH_MAX_ATTEMPTS`: maximum attempts for an artifact directory publish, deployment switch, rollback restore, or quarantine move after a transient `AccessDeniedException`; default `5`, allowed range `1` to `20`.
+- `ARTIFACT_PUBLISH_RETRY_DELAY_MILLIS`: retry delay in milliseconds after a transient artifact directory access denial; default `50`, allowed range `0` to `5000`. A destination that appears during the retry window is never overwritten.
+- Artifact copies reject every symbolic link and unsupported special file. The source is inspected before and after copying, and the staged target is independently checked before activation.
 - `WORKSPACE_MAX_FILES`：单次工作区扫描、快照复制或在线文件树允许处理的最大文件数，默认 `20000`。
 - `WORKSPACE_MAX_DIRECTORY_DEPTH`：工作区扫描和快照复制允许进入的最大目录深度，默认 `64`。
 - `WORKSPACE_MAX_SCANNED_BYTES`：单次只读工作区扫描允许累计索引的最大字节数，默认 `2147483648`（2 GiB）。
@@ -134,6 +149,12 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `WORKSPACE_MAX_COPY_BYTES`：单次事务型目录复制允许写入的最大总字节数，默认 `2147483648`（2 GiB）。
 - `WORKSPACE_MAX_PERSISTED_FILE_BYTES`：工作区服务原子持久化单文件的最大字节数，默认 `67108864`（64 MiB）。
 - `WORKSPACE_MAX_LISTED_DIRECTORIES`：单次快照目录列表或在线文件树允许返回的最大目录数，默认 `1000`。
+- `WORKSPACE_PUBLISH_MAX_ATTEMPTS`：快照发布、工作区恢复切换或失败回切遇到瞬时 `AccessDeniedException` 时的最大尝试次数，默认 `5`，允许范围 `1`～`20`。
+- `WORKSPACE_PUBLISH_RETRY_DELAY_MILLIS`：工作区目录发布重试间隔（毫秒），默认 `50`，允许范围 `0`～`5000`。仅访问拒绝会重试；普通 I/O 错误立即失败，重试期间出现的目标目录不会被覆盖。
+- `GENERATION_CONTEXT_MAX_PROJECT_INDEX_FILES`：生成提示词中的项目索引最多包含的文件数，默认 `80`。
+- `GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS`：单个关键项目文件可进入生成上下文的最大字符数，默认 `12000`。
+- `GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS`：单次生成项目上下文的总字符预算，默认 `100000`，不得小于单文件字符预算。
+- `GENERATION_CONTEXT_MAX_READABLE_FILE_BYTES`：生成上下文允许读取的单个关键文件最大字节数，默认 `1048576`（1 MiB）。
 - `PROJECT_COMMAND_SNAPSHOT_MAX_FILES`、`PROJECT_COMMAND_SNAPSHOT_MAX_FILE_BYTES`：仅作为旧部署的兼容回退变量保留；新部署应分别改用 `WORKSPACE_MAX_FILES`、`WORKSPACE_MAX_FILE_BYTES`。
 - `PROJECT_COMMAND_RECENT_BUILD_RESULT_MAX_ENTRIES`：内存中最多保留的最近 Vue 构建结果数量。，默认 `500`。
 - `EDIT_LOCATOR_MAX_CANDIDATE_FILES`: maximum ordered edit-file candidates, default `8`.
@@ -155,6 +176,13 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `GENERATION_COMMIT_MAX_PATHSPEC_BYTES`：单次生成提交的 NUL 分隔 Git pathspec 文件 UTF-8 字节上限，默认 `2097152`（2 MiB），允许范围 `4096` 至 `16777216`；用于避免 Windows 命令行长度上限和无界临时文件。
 - Node.js 工具链通过参数列表直接启动，不经过 shell、`npx` 或 Corepack 在线降级；生产镜像应固定 Node.js 与 pnpm 版本，并优先配置绝对路径。
 - 受控 Node.js 子进程不会继承 `NODE_OPTIONS`、`NODE_PATH`、`NPM_CONFIG_PREFIX`、`PNPM_HOME` 及其小写变体，避免宿主环境注入额外启动参数或改变依赖解析路径。
+- `TEMPLATE_MATERIALIZATION_MAX_FILES`：单次模板物化允许复制的最大文件数，默认 `2000`。
+- `TEMPLATE_MATERIALIZATION_MAX_FILE_BYTES`：单个模板资源允许复制的最大字节数，默认 `10485760`（10 MiB）。
+- `TEMPLATE_MATERIALIZATION_MAX_TOTAL_BYTES`：单次模板物化允许复制的累计最大字节数，默认 `104857600`（100 MiB），且不得小于单文件上限。
+- `TEMPLATE_MATERIALIZATION_MAX_RELATIVE_PATH_LENGTH`：模板资源规范化相对路径的最大长度，默认 `1024`。
+- `TEMPLATE_MATERIALIZATION_MAX_DIRECTORY_DEPTH`：模板资源相对目录的最大深度，默认 `32`。
+- `TEMPLATE_MATERIALIZATION_PUBLISH_MAX_ATTEMPTS`：模板目录发生瞬时 `AccessDeniedException` 时的最大发布尝试次数，默认 `5`；目标已经出现时不会继续重试，而是重新执行安全类型校验。
+- `TEMPLATE_MATERIALIZATION_PUBLISH_RETRY_DELAY_MILLIS`：模板目录发布重试间隔，默认 `50` 毫秒。
 - `TEMPLATE_PRE_WARM_ENABLED`：模板依赖启动预热开关；开发默认开启，生产默认关闭。
 - `TEMPLATE_PRE_WARM_MAX_CONCURRENCY`：模板预热专用线程池并发上限，默认 `2`，允许范围 `1` 至 `8`。
 
@@ -167,7 +195,9 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 5. 单实例通过项目级条带锁避免同一项目并发安装。若生产环境允许多个应用实例共享同一生成目录，必须在基础设施层保证单写者，或增加分布式项目锁后再开放共享写入。
 6. 应为依赖安装预留受控的 CPU、内存、磁盘和进程配额，并结合总超时、无输出超时与容器终止宽限期设置监控告警。
 7. 生产环境默认不在应用启动阶段执行模板依赖安装。确需启用 `TEMPLATE_PRE_WARM_ENABLED=true` 时，必须固定 Node.js 与 pnpm 版本，并为预热线程池、外部进程、磁盘和网络访问配置明确配额。
-8. 模板预热使用独立有界线程池，不占用应用通用异步执行器；模板列表由 `app.template-pre-warm.template-ids` 配置，模板 ID 必须是唯一的安全相对标识。
+8. 模板 Bootstrap 只接受应用内置模板清单中的固定标识；资源先在目标目录同级 staging 目录中受限物化，全部复制与定制成功后才发布，失败和并发竞争均不得暴露半成品工作区。
+9. 模板预热使用独立有界线程池，不占用应用通用异步执行器；`app.template-pre-warm.template-ids` 只能选择内置 Node.js 模板。预热缓存失效或不安全时应回退为普通模板物化，而不能阻断项目创建。
+10. 模板物化与预热依赖复制统一拒绝绝对路径、路径穿越、重复资源路径、符号链接、普通文件冒充目录和并发替换，并受文件数、单文件大小、累计字节数、相对路径长度及目录深度限制。
 
 ## 生成状态所有权与租约
 

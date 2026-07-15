@@ -1,8 +1,8 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
 import com.rush.rushaicodemother.constant.AppConstant;
-import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.builder.VueBuildResult;
+import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -14,6 +14,8 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
@@ -21,7 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
+import java.nio.file.Path;
 import java.util.Map;
 
 @Slf4j
@@ -36,13 +38,15 @@ public class HeavyGenerationBuildValidationService {
     private final HeavyGenerationExecutionService heavyGenerationExecutionService;
     private final HeavyGenerationFailureRecoveryService heavyGenerationFailureRecoveryService;
     private final HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService;
+    private final GenerationWorkspaceService generationWorkspaceService;
     private final VueProjectBuilder vueProjectBuilder;
 
     public boolean runWithAutoRepair(Long appId,
                                      User loginUser,
                                      GenerationPreparation preparation,
                                      GenerationSession session) {
-        String projectPath = buildProjectPath(appId, preparation.targetType());
+        GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, preparation.targetType());
+        Path projectPath = workspace.frontendRootPath();
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
         GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
@@ -51,35 +55,43 @@ public class HeavyGenerationBuildValidationService {
             heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
             return false;
         }
-        VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, preparation.taskId());
+        VueBuildResult buildResult = executeBuild(appId, preparation, projectPath);
         if (session.isCancelled()) {
             return false;
         }
+        int availableRepairRounds = session.remainingBudget(GenerationBudgetKind.REPAIR_ROUND);
         emitBuildResult(session, preparation, buildResult, Map.of(
                 "willAutoRepair", !buildResult.success()
                         && workspaceState.canAutoRepair()
-                        && HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS > 0
+                        && availableRepairRounds > 0
         ));
         if (buildResult.success()) {
-            return validateRuntimeIfNeeded(appId, loginUser, preparation, session, projectPath, "构建通过，正在验证 Dev Server 运行时...");
+            return validateRuntimeIfNeeded(
+                    appId,
+                    loginUser,
+                    preparation,
+                    session,
+                    "构建通过，正在验证 Dev Server 运行时..."
+            );
         }
-        if (HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS <= 0 || !workspaceState.canAutoRepair()) {
+        if (availableRepairRounds <= 0 || !workspaceState.canAutoRepair()) {
             heavyGenerationFailureRecoveryService.emitBuildFailure(
                     appId, preparation, session, buildResult.toPublicFailureSummary());
             return false;
         }
-        for (int round = 1; round <= HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS; round++) {
+        for (int round = 1; round <= availableRepairRounds; round++) {
             session.throwIfCancelled();
             workspaceState = GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
             if (!workspaceState.canAutoRepair()) {
                 heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
                 return false;
             }
+            session.consumeBudget(GenerationBudgetKind.REPAIR_ROUND);
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_REPAIR, "构建未通过，正在自动修复...", session);
             generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "started");
             session.emit(GenerationStreamEvent.repairStart("\n\n[自动修复] 第 " + round + " 轮修复开始\n\n", Map.of(
                     "round", round,
-                    "maxRounds", HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS,
+                    "maxRounds", availableRepairRounds,
                     "taskId", preparation.taskId(),
                     "agent", "BuildFix"
             )));
@@ -98,12 +110,12 @@ public class HeavyGenerationBuildValidationService {
                         generatedContent,
                         lastSnapshotUpdateAt
                 );
-            } catch (Exception e) {
+            } catch (Exception exception) {
                 generationOrchestrationMetricsCollector.recordAutoRepair(orchestrationMode(preparation), "build", "failed");
-                throw e;
+                throw exception;
             }
             markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, "自动修复完成，正在重新构建校验...", session);
-            buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, preparation.taskId());
+            buildResult = executeBuild(appId, preparation, projectPath);
             if (session.isCancelled()) {
                 return false;
             }
@@ -114,7 +126,6 @@ public class HeavyGenerationBuildValidationService {
                         loginUser,
                         preparation,
                         session,
-                        projectPath,
                         "修复后构建通过，正在验证 Dev Server 运行时..."
                 );
                 if (runtimePassed) {
@@ -131,11 +142,31 @@ public class HeavyGenerationBuildValidationService {
         return false;
     }
 
+    private VueBuildResult executeBuild(Long appId,
+                                        GenerationPreparation preparation,
+                                        Path projectPath) {
+        VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(
+                projectPath.toString(),
+                preparation.taskId()
+        );
+        if (buildResult != null) {
+            return buildResult;
+        }
+        IllegalStateException contractViolation =
+                new IllegalStateException("VueProjectBuilder returned a null build result");
+        log.error("Vue 项目构建器违反非空结果契约，appId: {}, taskId: {}",
+                appId, preparation.taskId(), contractViolation);
+        throw new BusinessException(
+                ErrorCode.SYSTEM_ERROR,
+                "项目构建服务异常，请稍后重试",
+                contractViolation
+        );
+    }
+
     private boolean validateRuntimeIfNeeded(Long appId,
                                             User loginUser,
                                             GenerationPreparation preparation,
                                             GenerationSession session,
-                                            String projectPath,
                                             String stageMessage) {
         if (preparation.targetType() != CodeGenTypeEnum.VUE_PROJECT
                 && preparation.targetType() != CodeGenTypeEnum.FULL_STACK_PROJECT) {
@@ -179,12 +210,6 @@ public class HeavyGenerationBuildValidationService {
         data.put("taskId", preparation.taskId());
         data.put("qualityGate", preparation.qualityGateLevel());
         session.emit(GenerationStreamEvent.buildResult(publicReport, data));
-    }
-
-    private String buildProjectPath(Long appId, CodeGenTypeEnum targetType) {
-        return AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
-                + targetType.getValue() + "_" + appId
-                + (targetType == CodeGenTypeEnum.FULL_STACK_PROJECT ? File.separator + "frontend" : "");
     }
 
     private void markGenerationStage(Long appId,

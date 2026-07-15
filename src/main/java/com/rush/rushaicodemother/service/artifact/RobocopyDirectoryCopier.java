@@ -88,6 +88,7 @@ public class RobocopyDirectoryCopier {
                 "/COPY:DAT",
                 "/DCOPY:DAT",
                 "/SL",
+                "/XJ",
                 "/R:1",
                 "/W:1",
                 "/NFL",

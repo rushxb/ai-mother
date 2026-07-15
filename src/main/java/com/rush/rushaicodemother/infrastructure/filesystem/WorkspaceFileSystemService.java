@@ -1,15 +1,19 @@
 package com.rush.rushaicodemother.infrastructure.filesystem;
 
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -69,10 +73,17 @@ public class WorkspaceFileSystemService {
 
     private final WorkspaceFileSystemProperties properties;
     private final ReentrantLock[] mutationLocks;
+    private final MoveOperation moveOperation;
 
+    @Autowired
     public WorkspaceFileSystemService(WorkspaceFileSystemProperties properties) {
+        this(properties, Files::move);
+    }
+
+    WorkspaceFileSystemService(WorkspaceFileSystemProperties properties, MoveOperation moveOperation) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.mutationLocks = createMutationLocks();
+        this.moveOperation = Objects.requireNonNull(moveOperation, "moveOperation must not be null");
     }
 
     /** Scans a project once and returns stable relative-path metadata for downstream consumers. */
@@ -168,6 +179,35 @@ public class WorkspaceFileSystemService {
             } finally {
                 Files.deleteIfExists(temporary);
             }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Deletes one existing regular file without following symbolic links. */
+    public boolean deleteFileIfExists(Path rootDirectory, String relativePath) throws IOException {
+        Path root = requireExistingDirectory(rootDirectory);
+        Path target = resolveRelativeFile(root, relativePath);
+        ReentrantLock lock = mutationLockFor(target);
+        lock.lock();
+        try {
+            if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                return false;
+            }
+            BasicFileAttributes attributes = Files.readAttributes(
+                    target,
+                    BasicFileAttributes.class,
+                    LinkOption.NOFOLLOW_LINKS
+            );
+            if (attributes.isSymbolicLink()) {
+                throw failure(WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK,
+                        "工作区文件不能是符号链接");
+            }
+            if (!attributes.isRegularFile()) {
+                throw failure(WorkspaceFileSystemException.Reason.INVALID_PATH,
+                        "工作区目标不是普通文件");
+            }
+            return Files.deleteIfExists(target);
         } finally {
             lock.unlock();
         }
@@ -435,6 +475,14 @@ public class WorkspaceFileSystemService {
         return requireExistingDirectory(child);
     }
 
+    /** Resolves one existing regular file below a workspace root without following symbolic links. */
+    public Path resolveExistingRegularFile(Path rootDirectory, String relativePath) throws IOException {
+        Path root = requireExistingDirectory(rootDirectory);
+        Path file = resolveRelativeFile(root, relativePath);
+        readRegularFileAttributes(file);
+        return file;
+    }
+
     public Path ensureDirectory(Path directory) throws IOException {
         Path normalized = normalizeRequiredPath(directory);
         validateExistingAncestors(normalized);
@@ -664,18 +712,46 @@ public class WorkspaceFileSystemService {
     }
 
     private void moveWithoutReplace(Path source, Path target) throws IOException {
+        int maxAttempts = properties.getPublishMaxAttempts();
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                moveWithoutReplaceOnce(source, target);
+                return;
+            } catch (AccessDeniedException exception) {
+                if (attempt >= maxAttempts || Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                    throw exception;
+                }
+                awaitPublishRetry(exception);
+            }
+        }
+    }
+
+    private void moveWithoutReplaceOnce(Path source, Path target) throws IOException {
         try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+            moveOperation.move(source, target, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException exception) {
-            Files.move(source, target);
+            moveOperation.move(source, target);
         }
     }
 
     private void moveReplacing(Path source, Path target) throws IOException {
         try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            moveOperation.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException exception) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            moveOperation.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private void awaitPublishRetry(AccessDeniedException accessDeniedException) throws IOException {
+        try {
+            Thread.sleep(properties.getPublishRetryDelayMillis());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            InterruptedIOException interrupted = new InterruptedIOException(
+                    "Interrupted while waiting to retry workspace directory publication"
+            );
+            interrupted.initCause(accessDeniedException);
+            throw interrupted;
         }
     }
 
@@ -699,6 +775,11 @@ public class WorkspaceFileSystemService {
                 return FileVisitResult.CONTINUE;
             }
         });
+    }
+
+    @FunctionalInterface
+    interface MoveOperation {
+        Path move(Path source, Path target, CopyOption... options) throws IOException;
     }
 
     private boolean channelsEqual(SeekableByteChannel left, SeekableByteChannel right) throws IOException {

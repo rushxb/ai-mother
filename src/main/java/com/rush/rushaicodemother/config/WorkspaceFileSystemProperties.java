@@ -52,6 +52,14 @@ public class WorkspaceFileSystemProperties {
     @Max(100_000)
     private int maxListedDirectories = 1_000;
 
+    @Min(1)
+    @Max(20)
+    private int publishMaxAttempts = 5;
+
+    @Min(0)
+    @Max(5_000)
+    private long publishRetryDelayMillis = 50;
+
     @AssertTrue(message = "工作区复制总字节上限必须大于等于单文件上限")
     public boolean isCopyLimitValid() {
         return maxCopyBytes >= maxFileBytes;

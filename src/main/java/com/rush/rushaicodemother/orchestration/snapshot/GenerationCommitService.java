@@ -2,8 +2,6 @@ package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.config.GenerationCommitProperties;
-import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.git.GitCommandExecutor;
@@ -11,12 +9,13 @@ import com.rush.rushaicodemother.infrastructure.git.GitCommandResult;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager.GitTransactionResourceException;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager.GitTransactionResources;
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.orchestration.workspace.ReportedWorkspaceResolutionException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -40,66 +39,17 @@ public class GenerationCommitService {
     private final GitCommandExecutor gitCommandExecutor;
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final GitTransactionResourceManager transactionResourceManager;
-    private final Path codeOutputRoot;
+    private final GenerationWorkspaceService generationWorkspaceService;
     private final ReentrantLock[] repositoryLocks;
     private final int maxFilesPerCommit;
     private final int maxPathspecBytes;
 
-    @Autowired
     public GenerationCommitService(
             GenerationOrchestrationMetricsCollector metricsCollector,
             GitCommandExecutor gitCommandExecutor,
             WorkspaceFileSystemService workspaceFileSystemService,
             GitTransactionResourceManager transactionResourceManager,
-            GenerationCommitProperties properties
-    ) {
-        this(
-                metricsCollector,
-                gitCommandExecutor,
-                workspaceFileSystemService,
-                transactionResourceManager,
-                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
-                properties
-        );
-    }
-
-    GenerationCommitService(
-            GenerationOrchestrationMetricsCollector metricsCollector,
-            GitCommandExecutor gitCommandExecutor,
-            Path codeOutputRoot
-    ) {
-        this(
-                metricsCollector,
-                gitCommandExecutor,
-                new WorkspaceFileSystemService(new WorkspaceFileSystemProperties()),
-                new GitTransactionResourceManager(),
-                codeOutputRoot,
-                new GenerationCommitProperties()
-        );
-    }
-
-    GenerationCommitService(
-            GenerationOrchestrationMetricsCollector metricsCollector,
-            GitCommandExecutor gitCommandExecutor,
-            Path codeOutputRoot,
-            GenerationCommitProperties properties
-    ) {
-        this(
-                metricsCollector,
-                gitCommandExecutor,
-                new WorkspaceFileSystemService(new WorkspaceFileSystemProperties()),
-                new GitTransactionResourceManager(),
-                codeOutputRoot,
-                properties
-        );
-    }
-
-    GenerationCommitService(
-            GenerationOrchestrationMetricsCollector metricsCollector,
-            GitCommandExecutor gitCommandExecutor,
-            WorkspaceFileSystemService workspaceFileSystemService,
-            GitTransactionResourceManager transactionResourceManager,
-            Path codeOutputRoot,
+            GenerationWorkspaceService generationWorkspaceService,
             GenerationCommitProperties properties
     ) {
         this.metricsCollector = Objects.requireNonNull(metricsCollector, "metricsCollector must not be null");
@@ -112,18 +62,19 @@ public class GenerationCommitService {
                 transactionResourceManager,
                 "transactionResourceManager must not be null"
         );
-        this.codeOutputRoot = Objects.requireNonNull(codeOutputRoot, "codeOutputRoot must not be null")
-                .toAbsolutePath()
-                .normalize();
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
+        );
         Objects.requireNonNull(properties, "properties must not be null");
         this.repositoryLocks = createLocks(properties.getLockStripes());
         this.maxFilesPerCommit = requirePositiveLimit(
                 properties.getMaxFilesPerCommit(),
-                "Git 单次提交文件数上限必须大于 0"
+                "Git max files per commit must be greater than 0"
         );
         this.maxPathspecBytes = requirePositiveLimit(
                 properties.getMaxPathspecBytes(),
-                "Git pathspec 字节上限必须大于 0"
+                "Git max pathspec bytes must be greater than 0"
         );
     }
 
@@ -554,35 +505,31 @@ public class GenerationCommitService {
         } catch (RuntimeException exception) {
             throw new ProjectPathException("", "project_path_invalid");
         }
-        if (!isExpectedProjectDirectoryName(appId, reportedPath)) {
-            throw new ProjectPathException("", "project_path_context_mismatch");
-        }
+
+        GenerationWorkspace workspace;
         try {
-            return workspaceFileSystemService.resolveExistingDirectChildDirectory(codeOutputRoot, reportedPath);
-        } catch (WorkspaceFileSystemException exception) {
-            String reason = switch (exception.reason()) {
-                case MISSING_DIRECTORY -> "project_path_missing";
-                case UNSAFE_SYMBOLIC_LINK -> "project_path_unsafe";
-                case INVALID_PATH -> "project_path_out_of_root";
-                default -> "project_path_unavailable";
-            };
-            throw new ProjectPathException("", reason);
-        } catch (IOException | RuntimeException exception) {
+            workspace = generationWorkspaceService.resolveReportedWorkspace(appId, reportedPath);
+        } catch (ReportedWorkspaceResolutionException exception) {
+            throw new ProjectPathException("", mapReportedWorkspaceFailure(exception));
+        } catch (RuntimeException exception) {
             throw new ProjectPathException("", "project_path_unavailable");
         }
-    }
-
-    private boolean isExpectedProjectDirectoryName(Long appId, Path reportedPath) {
-        if (reportedPath.getFileName() == null) {
-            return false;
+        if (!workspace.exists()) {
+            throw new ProjectPathException("", "project_path_missing");
         }
-        String directoryName = reportedPath.getFileName().toString();
-        for (CodeGenTypeEnum codeGenType : CodeGenTypeEnum.values()) {
-            if ((codeGenType.getValue() + "_" + appId).equals(directoryName)) {
-                return true;
+        try {
+            if (!workspaceFileSystemService.isDirectory(workspace.canonicalRootPath())) {
+                throw new ProjectPathException("", "project_path_missing");
             }
+            return workspace.canonicalRootPath();
+        } catch (WorkspaceFileSystemException exception) {
+            String reason = exception.reason() == WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK
+                    ? "project_path_unsafe"
+                    : "project_path_unavailable";
+            throw new ProjectPathException("", reason);
+        } catch (IOException exception) {
+            throw new ProjectPathException("", "project_path_unavailable");
         }
-        return false;
     }
 
     private ChangedFileSelection changedFiles(Map<String, Object> diffPayload) {
@@ -707,6 +654,14 @@ public class GenerationCommitService {
         } catch (IOException | RuntimeException exception) {
             return null;
         }
+    }
+
+    private String mapReportedWorkspaceFailure(ReportedWorkspaceResolutionException exception) {
+        return switch (exception.reason()) {
+            case CONTEXT_MISMATCH -> "project_path_context_mismatch";
+            case UNSAFE_WORKSPACE -> "project_path_unsafe";
+            case WORKSPACE_UNAVAILABLE -> "project_path_unavailable";
+        };
     }
 
     private Map<String, Object> payload(GenerationArtifact artifact) {

@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 <h1>🚀 Rush AI Code Mother</h1>
 
@@ -374,8 +374,18 @@ pnpm preview
 | `CHAT_MEMORY_FALLBACK_EXPIRE_AFTER_ACCESS` | `2h` | 已同步对话记忆副本的访问过期时间；不作用于待回灌变更 |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | 生产环境前端 Origin 白名单 |
 | `CODE_DEPLOY_HOST` | `http://localhost:91` | 已部署应用的公开访问根地址 |
+| `CODE_OUTPUT_ROOT_DIR` | `tmp/code_output` | AI 生成工作区根目录 |
+| `CODE_DEPLOY_ROOT_DIR` | `tmp/code_deploy` | 已部署应用视图根目录 |
+| `CODE_SNAPSHOT_ROOT_DIR` | `tmp/code_snapshot` | 生成事务快照根目录；必须与工作区和部署根目录隔离 |
 | `COS_ENABLED` | `false` | 是否启用腾讯云 COS |
 | `TEMPLATE_PRE_WARM_ENABLED` | 开发开启、生产关闭 | 是否在启动时预热模板依赖 |
+| `TEMPLATE_MATERIALIZATION_MAX_FILES` | `2000` | 单次模板物化允许复制的最大文件数 |
+| `TEMPLATE_MATERIALIZATION_MAX_FILE_BYTES` | `10485760` | 单个模板文件最大字节数（10 MiB） |
+| `TEMPLATE_MATERIALIZATION_MAX_TOTAL_BYTES` | `104857600` | 单次模板物化累计最大字节数（100 MiB） |
+| `TEMPLATE_MATERIALIZATION_MAX_RELATIVE_PATH_LENGTH` | `1024` | 模板资源相对路径最大长度 |
+| `TEMPLATE_MATERIALIZATION_MAX_DIRECTORY_DEPTH` | `32` | 模板资源最大目录深度 |
+| `TEMPLATE_MATERIALIZATION_PUBLISH_MAX_ATTEMPTS` | `5` | Windows 等文件系统发生瞬时目录发布冲突时的最大尝试次数 |
+| `TEMPLATE_MATERIALIZATION_PUBLISH_RETRY_DELAY_MILLIS` | `50` | 模板目录发布重试间隔（毫秒） |
 | `AI_LOG_REQUESTS` | `false` | 是否记录生成模型请求 |
 | `AI_LOG_RESPONSES` | `false` | 是否记录生成模型响应 |
 | `GENERATION_SESSION_LOCK_STRIPES` | `64` | 单实例生成启动互斥的固定条带锁数量；不会按应用 ID 增长。 |
@@ -411,6 +421,23 @@ pnpm preview
 | `WORKSPACE_MAX_COPY_BYTES` | `2147483648` | 单次事务型目录复制允许写入的最大总字节数。 |
 | `WORKSPACE_MAX_PERSISTED_FILE_BYTES` | `67108864` | 工作区服务原子持久化单文件的最大字节数。 |
 | `WORKSPACE_MAX_LISTED_DIRECTORIES` | `1000` | 单次快照目录列表或在线文件树允许返回的最大目录数。 |
+| `WORKSPACE_PUBLISH_MAX_ATTEMPTS` | `5` | Windows 瞬时目录占用导致发布失败时，快照创建、工作区恢复和原目录回切的最大尝试次数。 |
+| `WORKSPACE_PUBLISH_RETRY_DELAY_MILLIS` | `50` | 工作区目录发布遇到瞬时访问拒绝后的重试间隔（毫秒）；重试期间出现的目标目录不会被覆盖。 |
+| `GENERATION_CONTEXT_MAX_PROJECT_INDEX_FILES` | `80` | 生成提示词中的项目索引最多包含的文件数。 |
+| `GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS` | `12000` | 单个关键项目文件可进入生成上下文的最大字符数。 |
+| `GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS` | `100000` | 单次生成项目上下文的总字符预算，不得小于单文件预算。 |
+| `GENERATION_CONTEXT_MAX_READABLE_FILE_BYTES` | `1048576` | 生成上下文允许读取的单个关键文件最大字节数。 |
+| `ARTIFACT_COPY_TIMEOUT` | `15m` | Hard timeout for one Windows robocopy operation. |
+| `ARTIFACT_COPY_HEARTBEAT_INTERVAL` | `30s` | Heartbeat interval while robocopy is running; must be shorter than the copy timeout. |
+| `ARTIFACT_COPY_OUTPUT_DRAIN_TIMEOUT` | `5s` | Maximum wait for bounded process-output consumers to finish. |
+| `ARTIFACT_COPY_MAX_OUTPUT_LENGTH` | `8000` | Maximum retained characters for each robocopy output stream. |
+| `ARTIFACT_COPY_MAX_FILES` | `20000` | Maximum files accepted by one generated-source or deployment artifact copy. |
+| `ARTIFACT_COPY_MAX_DIRECTORIES` | `5000` | Maximum directories accepted by one artifact copy, excluding the source root. |
+| `ARTIFACT_COPY_MAX_DIRECTORY_DEPTH` | `64` | Maximum artifact directory depth relative to the source root. |
+| `ARTIFACT_COPY_MAX_FILE_BYTES` | `104857600` | Maximum size of one artifact file in bytes. |
+| `ARTIFACT_COPY_MAX_TOTAL_BYTES` | `2147483648` | Maximum cumulative file bytes accepted by one artifact copy. |
+| `ARTIFACT_PUBLISH_MAX_ATTEMPTS` | `5` | Maximum attempts for an artifact directory publish or switch after transient access denial. |
+| `ARTIFACT_PUBLISH_RETRY_DELAY_MILLIS` | `50` | Delay in milliseconds between bounded artifact publication retries. |
 | `PROJECT_COMMAND_RECENT_BUILD_RESULT_MAX_ENTRIES` | `500` | 内存中最多保留的最近 Vue 构建结果数量。 |
 | `EDIT_LOCATOR_MAX_CANDIDATE_FILES` | `8` | Maximum number of ordered edit-file candidates. |
 | `EDIT_LOCATOR_MAX_SINGLE_FILE_CHARS` | `20480` | Maximum characters contributed by one edit-context file. |
@@ -439,14 +466,16 @@ pnpm preview
 
 内置模板位于 `src/main/resources/project-templates/`，目前包含 Vue 基础站点、管理后台、移动端、落地页以及 Go + SQLite 后端模板。新增模板时应同时维护模板清单、构建约束和对应测试。
 
+模板 Bootstrap 仅接受内置模板清单中的标识，并在目标目录同级的 staging 目录中完成受限流式复制和可选依赖预热；全部步骤成功后才发布最终工作区，失败或并发竞争不会暴露半成品目录。模板资源和预热依赖复制统一遵守文件数、单文件大小、总字节数、路径长度、目录深度以及符号链接限制。
+
 ## 运行时目录
 
 默认情况下，后端以仓库根目录作为运行基准目录：
 
 ```text
 tmp/
-├── code_output/            # AI 生成的项目工作区
-├── code_deploy/            # 已部署的静态产物
+├── code_output/            # AI 生成工作区，不作为公开静态资源目录
+├── code_deploy/            # 已提交部署视图，由 /api/static/{deployKey}/... 读取
 ├── code_snapshot/          # 生成代码事务快照
 └── orchestration_tasks/    # 本机编排诊断快照
 ```
@@ -459,6 +488,7 @@ java `
   -Dcode.tmp-root-dir='D:\runtime\ai-code-mother\tmp' `
   -Dcode.output-root-dir='D:\runtime\ai-code-mother\output' `
   -Dcode.deploy-root-dir='D:\runtime\ai-code-mother\deploy' `
+  -Dcode.snapshot-root-dir='D:\runtime\ai-code-mother\snapshot' `
   -Dcode.orchestration-task-root-dir='D:\runtime\ai-code-mother\orchestration-tasks' `
   -Dcode.edit-state-root-dir='D:\runtime\ai-code-mother\edit-state' `
   -jar target/rush-ai-code-mother-0.0.1-SNAPSHOT.jar
@@ -495,7 +525,7 @@ java `
 1. 使用 `-Pprod clean package` 构建生产 JAR，避免携带开发 Profile 或残留增量编译产物。
 2. 数据库密码、Redis 密码、AI API Key、COS 密钥等敏感信息必须通过 Secret、环境变量或外部配置注入。
 3. 生产节点需要固定 Java、Node.js 和 pnpm 版本，不要在请求处理中临时下载或升级工具链。
-4. 反向代理应统一转发 `/api`，并按需代理前端静态资源和 `/deploy` 路径。
+4. 反向代理应统一转发 `/api`；已部署静态资源通过 `/api/static/{deployKey}/...` 提供，`code_output` 生成工作区不得直接暴露。
 5. 若启用 HTTPS，确保 Session Cookie、安全代理头、CORS Origin 和 `CODE_DEPLOY_HOST` 配置一致。
 6. 多实例共享生成目录时，需要在基础设施层保证单写者或补充分布式项目锁。
 7. 生产环境默认关闭接口文档，并限制 Actuator、管理接口和预览资源的访问来源。

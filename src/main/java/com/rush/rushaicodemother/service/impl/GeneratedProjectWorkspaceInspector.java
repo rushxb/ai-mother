@@ -38,7 +38,17 @@ public final class GeneratedProjectWorkspaceInspector {
     }
 
     public static WorkspaceState inspectVueProject(String projectPath) {
-        Path rootPath = Path.of(projectPath).toAbsolutePath().normalize();
+        if (projectPath == null || projectPath.isBlank()) {
+            throw new IllegalArgumentException("projectPath 不能为空");
+        }
+        return inspectVueProject(Path.of(projectPath));
+    }
+
+    public static WorkspaceState inspectVueProject(Path projectPath) {
+        if (projectPath == null) {
+            throw new IllegalArgumentException("projectPath 不能为空");
+        }
+        Path rootPath = projectPath.toAbsolutePath().normalize();
         if (!Files.exists(rootPath) || !Files.isDirectory(rootPath)) {
             return new WorkspaceState(rootPath, false, 0, 0, Set.of());
         }

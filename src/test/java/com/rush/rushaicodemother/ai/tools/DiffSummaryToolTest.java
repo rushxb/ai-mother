@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
+import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ class DiffSummaryToolTest {
     private GenerationDiffSummaryService diffSummaryService;
     private ToolWorkspaceFileService workspaceFileService;
     private WorkspaceFileSystemService workspaceFileSystemService;
+    private GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private DiffSummaryTool tool;
     private Path projectPath;
 
@@ -41,13 +43,19 @@ class DiffSummaryToolTest {
         diffSummaryService = mock(GenerationDiffSummaryService.class);
         workspaceFileService = mock(ToolWorkspaceFileService.class);
         workspaceFileSystemService = mock(WorkspaceFileSystemService.class);
+        snapshotWorkspaceService = mock(GenerationSnapshotWorkspaceService.class);
         tool = new DiffSummaryTool(
                 diffSummaryService,
                 workspaceFileService,
                 workspaceFileSystemService,
+                snapshotWorkspaceService,
                 new SnapshotNamePolicy()
         );
         projectPath = tempDirectory.resolve("project");
+        Path snapshotRoot = tempDirectory.resolve("code_snapshot").resolve(String.valueOf(APP_ID));
+        when(snapshotWorkspaceService.resolveApplicationRoot(APP_ID)).thenReturn(snapshotRoot);
+        when(snapshotWorkspaceService.resolveSnapshot(eq(APP_ID), anyString()))
+                .thenAnswer(invocation -> snapshotRoot.resolve(invocation.getArgument(1, String.class)));
         when(workspaceFileService.resolveDirectory(APP_ID, "src"))
                 .thenReturn(new ToolWorkspaceFileService.ToolWorkspaceDirectory("", projectPath, null));
         when(workspaceFileSystemService.isDirectory(any(Path.class))).thenReturn(true);

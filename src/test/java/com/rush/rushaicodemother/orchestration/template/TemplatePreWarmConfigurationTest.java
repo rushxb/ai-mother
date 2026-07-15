@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.template;
 
 import com.rush.rushaicodemother.config.TemplatePreWarmProperties;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.context.ConfigurationPropertiesAutoConfiguration;
@@ -22,7 +23,9 @@ class TemplatePreWarmConfigurationTest {
                     TemplateNodeModulesPreWarmRunner.class
             )
             .withBean(TemplatePreWarmService.class, () -> mock(TemplatePreWarmService.class))
-            .withBean(ProjectDependencyInstaller.class, () -> mock(ProjectDependencyInstaller.class));
+            .withBean(ProjectDependencyInstaller.class, () -> mock(ProjectDependencyInstaller.class))
+            .withBean(ProjectTemplateMaterializer.class, () -> mock(ProjectTemplateMaterializer.class))
+            .withBean(WorkspaceFileSystemService.class, () -> mock(WorkspaceFileSystemService.class));
 
     @Test
     void shouldNotCreatePreWarmRuntimeResourcesWhenDisabled() {

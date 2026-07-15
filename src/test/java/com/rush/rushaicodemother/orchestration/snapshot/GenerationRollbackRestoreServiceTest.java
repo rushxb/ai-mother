@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import org.junit.jupiter.api.Test;
 
@@ -30,11 +29,7 @@ class GenerationRollbackRestoreServiceTest {
         Files.createDirectories(snapshotRoot.resolve("src"));
         Files.writeString(snapshotRoot.resolve("src/App.vue"), "stable");
 
-        GenerationArtifact artifact = new GenerationRollbackRestoreService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        )
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(codeOutputRoot, codeSnapshotRoot)
                 .restoreIfAllowed(
                         11L,
                         "task-11",
@@ -65,11 +60,7 @@ class GenerationRollbackRestoreServiceTest {
         Files.createDirectories(snapshotRoot);
         Files.writeString(snapshotRoot.resolve("index.html"), "stable");
 
-        GenerationArtifact artifact = new GenerationRollbackRestoreService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        )
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(codeOutputRoot, codeSnapshotRoot)
                 .restoreIfAllowed(
                         12L,
                         "task-12",
@@ -90,11 +81,7 @@ class GenerationRollbackRestoreServiceTest {
                 "reason", "no_existing_generated_code"
         ));
 
-        GenerationArtifact artifact = new GenerationRollbackRestoreService(
-                tempDir.resolve("code_output"),
-                tempDir.resolve("code_snapshot"),
-                WorkspaceFileSystemTestFactory.create()
-        ).restoreIfAllowed(13L, "task-13", snapshotChangePlan(), rollbackPoint);
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(tempDir.resolve("code_output"), tempDir.resolve("code_snapshot")).restoreIfAllowed(13L, "task-13", snapshotChangePlan(), rollbackPoint);
 
         assertEquals("skipped", artifact.payload().get("status"));
         assertEquals("rollback_point_not_created", artifact.payload().get("reason"));
@@ -105,11 +92,7 @@ class GenerationRollbackRestoreServiceTest {
         Path tempDir = cleanTestRoot("root-boundaries");
         Path codeOutputRoot = tempDir.resolve("code_output");
         Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
-        GenerationRollbackRestoreService service = new GenerationRollbackRestoreService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        );
+        GenerationRollbackRestoreService service = SnapshotServiceTestFixture.rollbackRestoreService(codeOutputRoot, codeSnapshotRoot);
 
         GenerationArtifact snapshotRootResult = service.restoreIfAllowed(
                 11L,
@@ -139,11 +122,7 @@ class GenerationRollbackRestoreServiceTest {
         Path tempDir = cleanTestRoot("cross-app");
         Path codeOutputRoot = tempDir.resolve("code_output");
         Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
-        GenerationArtifact artifact = new GenerationRollbackRestoreService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        ).restoreIfAllowed(
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(codeOutputRoot, codeSnapshotRoot).restoreIfAllowed(
                 11L,
                 "task-11",
                 snapshotChangePlan(),
@@ -190,6 +169,7 @@ class GenerationRollbackRestoreServiceTest {
                 "appId", appId,
                 "taskId", taskId,
                 "sourceType", sourceType,
+                "snapshotName", snapshotRoot.getFileName().toString(),
                 "snapshotPath", snapshotRoot.toString(),
                 "projectPath", projectRoot.toString()
         ));

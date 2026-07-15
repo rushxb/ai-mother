@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -42,11 +41,7 @@ class GenerationDiffSummaryServiceTest {
                 "snapshotPath", snapshotRoot.toString()
         ));
 
-        DiffSummary summary = new GenerationDiffSummaryService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        )
+        DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(codeOutputRoot, codeSnapshotRoot)
                 .summarize(9L, CodeGenTypeEnum.VUE_PROJECT, "task-9", rollbackPoint);
 
         assertEquals("created", summary.status());
@@ -68,10 +63,9 @@ class GenerationDiffSummaryServiceTest {
                 "reason", "no_existing_generated_code"
         ));
 
-        DiffSummary summary = new GenerationDiffSummaryService(
-                tempDir,
-                tempDir.resolve("snapshots"),
-                WorkspaceFileSystemTestFactory.create()
+        DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(
+                tempDir.resolve("code_output"),
+                tempDir.resolve("code_snapshot")
         )
                 .summarize(10L, CodeGenTypeEnum.VUE_PROJECT, "task-10", rollbackPoint);
 
@@ -93,11 +87,7 @@ class GenerationDiffSummaryServiceTest {
                 "snapshotPath", anotherApplicationSnapshot.toString()
         ));
 
-        DiffSummary summary = new GenerationDiffSummaryService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        ).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
+        DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(codeOutputRoot, codeSnapshotRoot).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
 
         assertEquals("skipped", summary.status());
         assertEquals("rollback_path_out_of_root", summary.reason());
@@ -112,14 +102,11 @@ class GenerationDiffSummaryServiceTest {
                 "status", "created",
                 "appId", 11L,
                 "taskId", "task-11",
+                "snapshotName", "snapshot",
                 "snapshotPath", applicationSnapshotRoot.toString()
         ));
 
-        DiffSummary summary = new GenerationDiffSummaryService(
-                tempDir.resolve("code_output"),
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        ).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
+        DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(tempDir.resolve("code_output"), codeSnapshotRoot).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
 
         assertEquals("rollback_path_out_of_root", summary.reason());
     }

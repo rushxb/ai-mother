@@ -13,6 +13,8 @@ import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -42,13 +44,12 @@ class CreateTemplateRuntimeTest {
         GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         Path projectRoot = workspaceRoot.resolve("vue_project_1").toAbsolutePath().normalize();
-        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), anyString()))
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
                 .thenReturn(VueProjectTemplateBootstrapService.BootstrapResult.created(
                         "vue-web-landing",
                         projectRoot.toString(),
                         1
                 ));
-        when(vueBootstrapService.resolveProjectRoot(anyLong())).thenReturn(projectRoot);
         when(createSpecService.generate(anyString(), any()))
                 .thenReturn(new CreateSpecService.SpecResult(true, fitnessSpec(), ""));
         when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
@@ -62,6 +63,7 @@ class CreateTemplateRuntimeTest {
                 recipeRendererService,
                 null,
                 patchApplyService,
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
         );
@@ -89,13 +91,12 @@ class CreateTemplateRuntimeTest {
         GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         Path projectRoot = workspaceRoot.resolve("vue_project_1").toAbsolutePath().normalize();
-        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), anyString()))
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
                 .thenReturn(VueProjectTemplateBootstrapService.BootstrapResult.created(
                         "vue-web-admin",
                         projectRoot.toString(),
                         1
                 ));
-        when(vueBootstrapService.resolveProjectRoot(anyLong())).thenReturn(projectRoot);
         when(createSpecService.generate(anyString(), any()))
                 .thenReturn(new CreateSpecService.SpecResult(true, fitnessSpec(), ""));
         when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
@@ -109,6 +110,7 @@ class CreateTemplateRuntimeTest {
                 recipeRendererService,
                 null,
                 patchApplyService,
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
         );
@@ -129,13 +131,12 @@ class CreateTemplateRuntimeTest {
         GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         Path projectRoot = workspaceRoot.resolve("vue_project_1").toAbsolutePath().normalize();
-        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), anyString()))
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
                 .thenReturn(VueProjectTemplateBootstrapService.BootstrapResult.created(
                         "vue-web-landing",
                         projectRoot.toString(),
                         1
                 ));
-        when(vueBootstrapService.resolveProjectRoot(anyLong())).thenReturn(projectRoot);
         CreateTemplateRuntime runtime = new CreateTemplateRuntime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
@@ -144,6 +145,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
         );
@@ -168,13 +170,12 @@ class CreateTemplateRuntimeTest {
         GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         Path projectRoot = workspaceRoot.resolve("vue_project_1").toAbsolutePath().normalize();
-        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), anyString()))
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
                 .thenReturn(VueProjectTemplateBootstrapService.BootstrapResult.created(
                         "vue-web-landing",
                         projectRoot.toString(),
                         1
                 ));
-        when(vueBootstrapService.resolveProjectRoot(anyLong())).thenReturn(projectRoot);
         CreateTemplateRuntime runtime = new CreateTemplateRuntime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
@@ -183,6 +184,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
         );
@@ -210,15 +212,19 @@ class CreateTemplateRuntimeTest {
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         BackendProjectTemplateBootstrapService backendBootstrapService = mock(BackendProjectTemplateBootstrapService.class);
         FullStackPortAllocator portAllocator = mock(FullStackPortAllocator.class);
-        when(portAllocator.allocate(anyLong()))
-                .thenReturn(FullStackGenerationContext.create(1L, 17001, 18001, workspaceRoot.toString().replace("\\", "/")));
-        when(vueBootstrapService.bootstrapIfNecessary(any(Path.class), anyString()))
+        when(portAllocator.allocate(any(GenerationWorkspace.class)))
+                .thenReturn(FullStackGenerationContext.create(
+                        17001,
+                        18001,
+                        workspace(workspaceRoot, CodeGenTypeEnum.FULL_STACK_PROJECT)
+                ));
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
                 .thenReturn(VueProjectTemplateBootstrapService.BootstrapResult.created(
                         "vue-web-admin",
                         workspaceRoot.resolve("frontend").toString(),
                         1
                 ));
-        when(backendBootstrapService.bootstrapIfNecessary(any(Path.class)))
+        when(backendBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class)))
                 .thenReturn(BackendProjectTemplateBootstrapService.BootstrapResult.created(
                         "go-sqlite-backend-basic",
                         workspaceRoot.resolve("backend").toString(),
@@ -238,6 +244,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 portAllocator,
                 patchApplyService,
+                workspaceService(workspaceRoot, CodeGenTypeEnum.FULL_STACK_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
         );
@@ -249,6 +256,13 @@ class CreateTemplateRuntimeTest {
         assertTrue(result.patchOperations().stream().anyMatch(operation -> operation.relativePath().startsWith("frontend/")));
         assertTrue(result.patchOperations().stream().anyMatch(operation -> operation.relativePath().startsWith("backend/")));
         verify(createSpecService, times(1)).generate(anyString(), any());
+        verify(portAllocator).allocate(any(GenerationWorkspace.class));
+        verify(vueBootstrapService).bootstrapIfNecessary(
+                1L,
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                "做一个健身房全栈后台"
+        );
+        verify(backendBootstrapService).bootstrapIfNecessary(1L, CodeGenTypeEnum.FULL_STACK_PROJECT);
     }
 
     @Test
@@ -263,13 +277,12 @@ class CreateTemplateRuntimeTest {
         GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
         VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
         Path projectRoot = workspaceRoot.resolve("vue_project_1").toAbsolutePath().normalize();
-        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), anyString()))
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
                 .thenReturn(VueProjectTemplateBootstrapService.BootstrapResult.created(
                         "vue-web-landing",
                         projectRoot.toString(),
                         1
                 ));
-        when(vueBootstrapService.resolveProjectRoot(anyLong())).thenReturn(projectRoot);
         CreateTemplateRuntime runtime = new CreateTemplateRuntime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
@@ -278,6 +291,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
         );
@@ -292,6 +306,35 @@ class CreateTemplateRuntimeTest {
         assertEquals(false, telemetry.get("fallback"));
         assertEquals(false, telemetry.get("degraded"));
         verify(patchApplyService, times(1)).applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString());
+    }
+
+    private GenerationWorkspaceService workspaceService(Path root, CodeGenTypeEnum codeGenType) {
+        GenerationWorkspaceService service = mock(GenerationWorkspaceService.class);
+        when(service.resolve(1L, codeGenType)).thenReturn(workspace(root, codeGenType));
+        return service;
+    }
+
+    private GenerationWorkspace workspace(Path root, CodeGenTypeEnum codeGenType) {
+        Path canonicalRoot = root.toAbsolutePath().normalize();
+        Path frontendRoot = codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT
+                ? canonicalRoot.resolve("frontend")
+                : canonicalRoot;
+        Path backendRoot = switch (codeGenType) {
+            case FULL_STACK_PROJECT -> canonicalRoot.resolve("backend");
+            case BACKEND_PROJECT -> canonicalRoot;
+            default -> null;
+        };
+        return new GenerationWorkspace(
+                1L,
+                codeGenType,
+                canonicalRoot,
+                canonicalRoot,
+                true,
+                frontendRoot,
+                backendRoot,
+                GenerationWorkspaceService.HIDDEN_FILE_NAMES,
+                GenerationWorkspaceService.EDITABLE_EXTENSIONS
+        );
     }
 
     private App app() {

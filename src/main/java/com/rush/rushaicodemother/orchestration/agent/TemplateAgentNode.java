@@ -41,14 +41,14 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
         }
         if (targetType == CodeGenTypeEnum.VUE_PROJECT) {
             VueProjectTemplateBootstrapService.BootstrapResult result =
-                    vueTemplateBootstrapService.bootstrapIfNecessary(app.getId(), context.getRequest().userMessage());
+                    vueTemplateBootstrapService.bootstrapIfNecessary(app.getId(), targetType, context.getRequest().userMessage());
             return result("Vue 项目模板", result.toPayload(), result.bootstrapped()
                     ? "已复制 Vue 项目模板：" + result.templateId()
                     : "跳过 Vue 项目模板复制：" + result.reason());
         }
         if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
             BackendProjectTemplateBootstrapService.BootstrapResult result =
-                    backendTemplateBootstrapService.bootstrapIfNecessary(app.getId());
+                    backendTemplateBootstrapService.bootstrapIfNecessary(app.getId(), targetType);
             return result("后端项目模板", result.toPayload(), result.bootstrapped()
                     ? "已复制后端项目模板：" + result.templateId()
                     : "跳过后端项目模板复制：" + result.reason());
@@ -61,11 +61,14 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
 
     private AgentNodeResult bootstrapFullStackProject(GenerationAgentContext context, App app) {
         FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(app.getId());
-        Path workspaceRoot = Path.of(fullStackContext.workspaceRoot());
         VueProjectTemplateBootstrapService.BootstrapResult frontendResult =
-                vueTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("frontend"), context.getRequest().userMessage());
+                vueTemplateBootstrapService.bootstrapIfNecessary(
+                        app.getId(),
+                        CodeGenTypeEnum.FULL_STACK_PROJECT,
+                        context.getRequest().userMessage()
+                );
         BackendProjectTemplateBootstrapService.BootstrapResult backendResult =
-                backendTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("backend"));
+                backendTemplateBootstrapService.bootstrapIfNecessary(app.getId(), CodeGenTypeEnum.FULL_STACK_PROJECT);
         Map<String, Object> payload = new LinkedHashMap<>(fullStackContext.toPayload());
         payload.put("bootstrapped", frontendResult.bootstrapped() || backendResult.bootstrapped());
         payload.put("templateId", frontendResult.templateId() + "+" + backendResult.templateId());

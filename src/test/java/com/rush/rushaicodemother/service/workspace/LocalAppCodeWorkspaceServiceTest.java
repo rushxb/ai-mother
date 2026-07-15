@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.service.workspace;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
+
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
@@ -55,7 +57,7 @@ class LocalAppCodeWorkspaceServiceTest {
         vueProjectBuilder = mock(VueProjectBuilder.class);
         workspaceFileSystemProperties = new WorkspaceFileSystemProperties();
         workspaceService = new LocalAppCodeWorkspaceService(
-                new GenerationWorkspaceService(),
+                new GenerationWorkspaceService(new CodeStorageProperties()),
                 vueProjectBuilder,
                 new WorkspaceFileSystemService(workspaceFileSystemProperties),
                 workspaceFileSystemProperties

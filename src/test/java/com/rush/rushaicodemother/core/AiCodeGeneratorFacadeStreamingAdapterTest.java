@@ -4,9 +4,12 @@ import com.rush.rushaicodemother.ai.AiCodeGeneratorService;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.core.saver.CodeFileSaverExecutor;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -23,7 +26,9 @@ import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -130,7 +135,7 @@ class AiCodeGeneratorFacadeStreamingAdapterTest {
                 .thenReturn(generatorService);
         when(generatorService.generateHtmlCodeStream("build invalid html"))
                 .thenReturn(Flux.just("internal-template-path=C:/secret/template"));
-        AiCodeGeneratorFacade facade = new AiCodeGeneratorFacade(serviceFactory);
+        AiCodeGeneratorFacade facade = facade(serviceFactory, mock(CodeFileSaverExecutor.class));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -156,7 +161,30 @@ class AiCodeGeneratorFacadeStreamingAdapterTest {
                 .thenReturn(generatorService);
         when(generatorService.generateVueProjectCodeStream(APP_ID, "build a page"))
                 .thenReturn(tokenStream);
-        return new AiCodeGeneratorFacade(serviceFactory);
+        return facade(serviceFactory, mock(CodeFileSaverExecutor.class));
+    }
+
+    private AiCodeGeneratorFacade facade(
+            AiCodeGeneratorServiceFactory serviceFactory,
+            CodeFileSaverExecutor saverExecutor
+    ) {
+        GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
+        Path workspaceRoot = Path.of("target", "test-work", "facade", "vue_project_" + APP_ID)
+                .toAbsolutePath()
+                .normalize();
+        GenerationWorkspace workspace = new GenerationWorkspace(
+                APP_ID,
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspaceRoot,
+                workspaceRoot,
+                false,
+                workspaceRoot,
+                null,
+                Set.of(),
+                Set.of()
+        );
+        when(workspaceService.resolve(APP_ID, CodeGenTypeEnum.VUE_PROJECT)).thenReturn(workspace);
+        return new AiCodeGeneratorFacade(serviceFactory, saverExecutor, workspaceService);
     }
 
     private static final class TestStreamingHandle implements StreamingHandle {

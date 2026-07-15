@@ -87,7 +87,7 @@ public class HeavyGenerationCoordinator {
                 ""
         );
         GenerationSession session = openGenerationSession(
-                app.getId(), request.message(), request.loginUser(), preparation);
+                app.getId(), request.message(), request.loginUser(), preparation, request);
         startGenerationTask(app.getId(), request.loginUser(), preparation, session, request);
         return new GenerationTaskResult(
                 preparation.taskId(), pipelineRequest.modeDecision().route(), pipelineRequest.workspace(), session.asFlux());
@@ -110,7 +110,8 @@ public class HeavyGenerationCoordinator {
     private GenerationSession openGenerationSession(Long appId,
                                                      String message,
                                                      User loginUser,
-                                                     GenerationPreparation preparation) {
+                                                     GenerationPreparation preparation,
+                                                     GenerationTaskRequest request) {
         synchronized (generationSessionRegistry.lock(appId)) {
             generationSessionRegistry.assertNoActiveSession(appId);
             resetResidualGenerationState(appId);
@@ -138,6 +139,7 @@ public class HeavyGenerationCoordinator {
                 executionContext = generationExecutionContextService.start(
                         preparation.taskId(), appId, loginUser.getId());
                 GenerationSession session = new GenerationSession(preparation, executionContext);
+                session.bindTaskRequest(request);
                 session.bindTraceContext(generationTraceService, appId, loginUser.getId());
                 generationSessionRegistry.put(appId, session);
                 return session;
@@ -352,9 +354,10 @@ public class HeavyGenerationCoordinator {
                 () -> generationSessionRegistry.remove(appId, session));
         runTerminalStep("clear tool context", preparation,
                 () -> generationToolExecutionContextService.clearContext(appId));
-        if (request != null) {
+        GenerationTaskRequest completionRequest = request != null ? request : session.taskRequest();
+        if (completionRequest != null) {
             runTerminalStep("publish completion event", preparation,
-                    () -> publishCompletion(request, preparation, resolvedOutcome));
+                    () -> publishCompletion(completionRequest, preparation, resolvedOutcome));
         }
         runTerminalStep("finish execution context", preparation,
                 () -> finishExecutionContext(preparation, resolvedOutcome.status()));

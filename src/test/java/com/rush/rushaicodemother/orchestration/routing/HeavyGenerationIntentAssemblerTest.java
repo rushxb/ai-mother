@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.routing;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
+
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.entity.App;
@@ -31,7 +33,7 @@ class HeavyGenerationIntentAssemblerTest {
             AppDatabaseResourceService databaseResourceService = mock(AppDatabaseResourceService.class);
             when(databaseResourceService.appendGenerationInstructionIfEnabled(app, "把标题改成仪表盘"))
                     .thenReturn("把标题改成仪表盘");
-            GenerationWorkspaceService workspaceService = new GenerationWorkspaceService();
+            GenerationWorkspaceService workspaceService = new GenerationWorkspaceService(new CodeStorageProperties());
             HeavyGenerationIntentAssembler assembler = new HeavyGenerationIntentAssembler(
                     mock(AiCodeGenTypeRoutingServiceFactory.class),
                     databaseResourceService,

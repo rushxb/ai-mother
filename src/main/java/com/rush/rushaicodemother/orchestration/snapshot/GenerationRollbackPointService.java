@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
 import com.rush.rushaicodemother.model.entity.App;
@@ -9,56 +8,52 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.util.Objects;
 
 /**
- * 在进入真实代码生成前创建本地回滚点。
+ * Creates bounded rollback snapshots for generated application workspaces.
  */
 @Slf4j
 @Component
 public class GenerationRollbackPointService {
 
-    private final Path codeOutputRoot;
-    private final Path codeSnapshotRoot;
+    private final GenerationWorkspaceService generationWorkspaceService;
+    private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final SnapshotNamePolicy snapshotNamePolicy;
 
-    @Autowired
-    public GenerationRollbackPointService(WorkspaceFileSystemService workspaceFileSystemService,
-                                          SnapshotNamePolicy snapshotNamePolicy) {
-        this(
-                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
-                Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR),
-                workspaceFileSystemService,
-                snapshotNamePolicy
+    public GenerationRollbackPointService(
+            GenerationWorkspaceService generationWorkspaceService,
+            GenerationSnapshotWorkspaceService snapshotWorkspaceService,
+            WorkspaceFileSystemService workspaceFileSystemService,
+            SnapshotNamePolicy snapshotNamePolicy
+    ) {
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
         );
-    }
-
-    public GenerationRollbackPointService(Path codeOutputRoot,
-                                          Path codeSnapshotRoot,
-                                          WorkspaceFileSystemService workspaceFileSystemService) {
-        this(codeOutputRoot, codeSnapshotRoot, workspaceFileSystemService, new SnapshotNamePolicy());
-    }
-
-    GenerationRollbackPointService(Path codeOutputRoot,
-                                   Path codeSnapshotRoot,
-                                   WorkspaceFileSystemService workspaceFileSystemService,
-                                   SnapshotNamePolicy snapshotNamePolicy) {
-        this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
-        this.codeSnapshotRoot = codeSnapshotRoot.toAbsolutePath().normalize();
-        this.workspaceFileSystemService = workspaceFileSystemService;
-        this.snapshotNamePolicy = snapshotNamePolicy;
+        this.snapshotWorkspaceService = Objects.requireNonNull(
+                snapshotWorkspaceService,
+                "snapshotWorkspaceService must not be null"
+        );
+        this.workspaceFileSystemService = Objects.requireNonNull(
+                workspaceFileSystemService,
+                "workspaceFileSystemService must not be null"
+        );
+        this.snapshotNamePolicy = Objects.requireNonNull(snapshotNamePolicy, "snapshotNamePolicy must not be null");
     }
 
     public GenerationArtifact prepareRollbackPoint(GenerationOrchestrationRequest request,
                                                    CodeGenTypeEnum targetType,
                                                    String taskId) {
         RollbackPoint rollbackPoint = createRollbackPoint(request, targetType, taskId);
-        return GenerationArtifact.of("rollback_point", "Orchestrator", "生成前回滚点", rollbackPoint.toPayload());
+        return GenerationArtifact.of("rollback_point", "Orchestrator", "Rollback point", rollbackPoint.toPayload());
     }
 
     RollbackPoint createRollbackPoint(GenerationOrchestrationRequest request,
@@ -78,9 +73,12 @@ public class GenerationRollbackPointService {
         if (sourceType == null) {
             return RollbackPoint.skipped(appId, taskId, "", "", targetTypeValue, "unknown_source_type");
         }
-        Path projectPath = resolveProjectPath(appId, sourceType);
+
+        Path projectPath = null;
         try {
-            if (!workspaceFileSystemService.isDirectory(projectPath)) {
+            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, sourceType);
+            projectPath = workspace.canonicalRootPath();
+            if (!workspace.exists() || !workspaceFileSystemService.isDirectory(projectPath)) {
                 return RollbackPoint.skipped(
                         appId,
                         taskId,
@@ -90,12 +88,9 @@ public class GenerationRollbackPointService {
                         "project_directory_missing"
                 );
             }
-            Path snapshotRoot = codeSnapshotRoot.resolve(String.valueOf(appId))
-                    .toAbsolutePath()
-                    .normalize();
-            workspaceFileSystemService.ensureDirectory(snapshotRoot);
+            snapshotWorkspaceService.prepareApplicationRoot(appId);
             String snapshotName = buildSnapshotName(taskId);
-            Path snapshotPath = snapshotRoot.resolve(snapshotName).normalize();
+            Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, snapshotName);
             WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
             return RollbackPoint.created(
                     appId,
@@ -107,12 +102,13 @@ public class GenerationRollbackPointService {
                     targetTypeValue,
                     copyResult.fileCount()
             );
-        } catch (Exception e) {
-            log.warn("创建生成前回滚点失败，appId: {}, taskId: {}", appId, taskId, LogExceptionSanitizer.sanitize(e));
+        } catch (Exception exception) {
+            log.warn("Failed to create rollback point, appId: {}, taskId: {}",
+                    appId, taskId, LogExceptionSanitizer.sanitize(exception));
             return RollbackPoint.skipped(
                     appId,
                     taskId,
-                    projectPath.toString(),
+                    projectPath == null ? "" : projectPath.toString(),
                     sourceTypeValue,
                     targetTypeValue,
                     "snapshot_create_failed"
@@ -127,15 +123,7 @@ public class GenerationRollbackPointService {
         return app == null ? null : CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
     }
 
-    private Path resolveProjectPath(Long appId, CodeGenTypeEnum sourceType) {
-        String projectDirName = sourceType.getValue() + "_" + appId;
-        return codeOutputRoot.resolve(projectDirName)
-                .toAbsolutePath()
-                .normalize();
-    }
-
     private String buildSnapshotName(String taskId) {
         return snapshotNamePolicy.createTaskScopedName("pre_generation", taskId);
     }
-
 }

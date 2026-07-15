@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
+
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceSelector;
 import com.rush.rushaicodemother.core.AiCodeGeneratorFacade;
@@ -13,6 +15,7 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import org.junit.jupiter.api.Test;
@@ -50,6 +53,7 @@ class HeavyGenerationExecutionServiceTest {
                 mock(GenerationPerformanceSelector.class),
                 failureRecoveryService,
                 mock(HeavyGenerationSessionCompletionService.class),
+                new GenerationWorkspaceService(new CodeStorageProperties()),
                 mock(StreamHandlerExecutor.class)
         );
         GenerationPreparation preparation = new GenerationPreparation(
@@ -106,6 +110,7 @@ class HeavyGenerationExecutionServiceTest {
                 performanceSelector,
                 failureRecoveryService,
                 completionService,
+                new GenerationWorkspaceService(new CodeStorageProperties()),
                 streamHandlerExecutor
         ));
         GenerationPreparation preparation = new GenerationPreparation(

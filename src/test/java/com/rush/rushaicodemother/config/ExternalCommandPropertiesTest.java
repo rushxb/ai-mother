@@ -49,4 +49,37 @@ class ExternalCommandPropertiesTest {
 
         assertFalse(validator.validate(properties).isEmpty());
     }
+    @Test
+    void shouldRejectArtifactCopyCountsAndDepthOutsideSupportedRange() {
+        ArtifactLifecycleProperties invalidFiles = new ArtifactLifecycleProperties();
+        invalidFiles.setMaxFiles(0);
+        ArtifactLifecycleProperties invalidDirectories = new ArtifactLifecycleProperties();
+        invalidDirectories.setMaxDirectories(100_001);
+        ArtifactLifecycleProperties invalidDepth = new ArtifactLifecycleProperties();
+        invalidDepth.setMaxDirectoryDepth(257);
+
+        assertFalse(validator.validate(invalidFiles).isEmpty());
+        assertFalse(validator.validate(invalidDirectories).isEmpty());
+        assertFalse(validator.validate(invalidDepth).isEmpty());
+    }
+
+    @Test
+    void shouldRejectArtifactTotalBytesBelowSingleFileLimit() {
+        ArtifactLifecycleProperties properties = new ArtifactLifecycleProperties();
+        properties.setMaxFileBytes(2_000_000);
+        properties.setMaxTotalBytes(1_048_576);
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
+    void shouldRejectArtifactPublishRetrySettingsOutsideSupportedRange() {
+        ArtifactLifecycleProperties invalidAttempts = new ArtifactLifecycleProperties();
+        invalidAttempts.setPublishMaxAttempts(0);
+        ArtifactLifecycleProperties invalidDelay = new ArtifactLifecycleProperties();
+        invalidDelay.setPublishRetryDelayMillis(5_001);
+
+        assertFalse(validator.validate(invalidAttempts).isEmpty());
+        assertFalse(validator.validate(invalidDelay).isEmpty());
+    }
 }

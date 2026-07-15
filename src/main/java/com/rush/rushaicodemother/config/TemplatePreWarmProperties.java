@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.config;
 
+import com.rush.rushaicodemother.orchestration.template.ProjectTemplateCatalog;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -34,7 +35,7 @@ public class TemplatePreWarmProperties {
 
     /** 需要预热的模板 ID。 */
     @NotEmpty
-    @Size(max = 32)
+    @Size(max = 4)
     private List<
             @NotBlank
             @Size(max = 64)
@@ -52,5 +53,10 @@ public class TemplatePreWarmProperties {
     @AssertTrue(message = "模板预热列表不能包含重复的模板 ID")
     public boolean isTemplateIdsUnique() {
         return templateIds == null || new HashSet<>(templateIds).size() == templateIds.size();
+    }
+
+    @AssertTrue(message = "模板预热列表只能包含内置 Node.js 模板")
+    public boolean isTemplateCatalogBounded() {
+        return templateIds == null || templateIds.stream().allMatch(ProjectTemplateCatalog::isNodeTemplateId);
     }
 }

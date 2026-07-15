@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.service.deployment;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.CodeDeploymentProperties;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.exception.BusinessException;
@@ -12,36 +12,36 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.artifact.DeploymentArtifactTransaction;
+import com.rush.rushaicodemother.service.artifact.DeploymentKeyPolicy;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
 import com.rush.rushaicodemother.service.screenshot.ScreenshotService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import static com.rush.rushaicodemother.config.ScreenshotConfiguration.SCREENSHOT_TASK_EXECUTOR;
-
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
-import java.util.regex.Pattern;
+
+import static com.rush.rushaicodemother.config.ScreenshotConfiguration.SCREENSHOT_TASK_EXECUTOR;
 
 /** 本地静态应用部署实现。 */
 @Service
 @Slf4j
 public class LocalAppDeploymentService implements AppDeploymentService {
 
-    private static final Pattern DEPLOY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9]{6,64}");
-
     private final AppArtifactLifecycleService artifactLifecycleService;
     private final VueProjectBuilder vueProjectBuilder;
     private final ScreenshotService screenshotService;
     private final AppMapper appMapper;
     private final CodeDeploymentProperties deploymentProperties;
+    private final DeploymentKeyPolicy deploymentKeyPolicy;
     private final DeploymentKeyGenerator deploymentKeyGenerator;
     private final Executor screenshotExecutor;
     private final AppOperationLockManager operationLockManager;
@@ -53,6 +53,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
                                      AppMapper appMapper,
                                      CodeDeploymentProperties deploymentProperties,
                                      AppOperationLockManager operationLockManager,
+                                     DeploymentKeyPolicy deploymentKeyPolicy,
                                      DeploymentKeyGenerator deploymentKeyGenerator,
                                      @Qualifier(SCREENSHOT_TASK_EXECUTOR) Executor screenshotExecutor) {
         this.artifactLifecycleService = artifactLifecycleService;
@@ -60,6 +61,10 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         this.screenshotService = screenshotService;
         this.appMapper = appMapper;
         this.deploymentProperties = deploymentProperties;
+        this.deploymentKeyPolicy = Objects.requireNonNull(
+                deploymentKeyPolicy,
+                "deploymentKeyPolicy must not be null"
+        );
         this.deploymentKeyGenerator = deploymentKeyGenerator;
         this.screenshotExecutor = screenshotExecutor;
         this.operationLockManager = operationLockManager;
@@ -158,7 +163,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         String deployKey = existingDeployKey == null || existingDeployKey.isBlank()
                 ? deploymentKeyGenerator.generate()
                 : existingDeployKey;
-        ThrowUtils.throwIf(deployKey == null || !DEPLOY_KEY_PATTERN.matcher(deployKey).matches(),
+        ThrowUtils.throwIf(!deploymentKeyPolicy.isValid(deployKey),
                 ErrorCode.PARAMS_ERROR, "部署标识格式错误");
         return deployKey;
     }

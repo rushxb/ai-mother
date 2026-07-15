@@ -2,11 +2,11 @@ package com.rush.rushaicodemother.ai.tools;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
+import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -27,17 +27,20 @@ public class DiffSummaryTool extends BaseTool {
     private final GenerationDiffSummaryService generationDiffSummaryService;
     private final ToolWorkspaceFileService workspaceFileService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final SnapshotNamePolicy snapshotNamePolicy;
 
     public DiffSummaryTool(
             GenerationDiffSummaryService generationDiffSummaryService,
             ToolWorkspaceFileService workspaceFileService,
             WorkspaceFileSystemService workspaceFileSystemService,
+            GenerationSnapshotWorkspaceService snapshotWorkspaceService,
             SnapshotNamePolicy snapshotNamePolicy
     ) {
         this.generationDiffSummaryService = generationDiffSummaryService;
         this.workspaceFileService = workspaceFileService;
         this.workspaceFileSystemService = workspaceFileSystemService;
+        this.snapshotWorkspaceService = snapshotWorkspaceService;
         this.snapshotNamePolicy = snapshotNamePolicy;
     }
 
@@ -56,21 +59,23 @@ public class DiffSummaryTool extends BaseTool {
         String normalizedAction = StrUtil.blankToDefault(action, "compareLatestSnapshot");
         try {
             requireAppId(appId);
-            Path snapshotRoot = Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR, String.valueOf(appId));
+            Path snapshotRoot = snapshotWorkspaceService.resolveApplicationRoot(appId);
             return switch (normalizedAction) {
-                case "compareLatestSnapshot" -> compareLatestSnapshot(resolveProjectPath(appId, relativeProjectPath), snapshotRoot);
+                case "compareLatestSnapshot" -> compareLatestSnapshot(appId, resolveProjectPath(appId, relativeProjectPath), snapshotRoot);
                 case "compareCurrentWithSnapshot" -> {
                     String normalizedBaseName = validateRequiredSnapshotName(
                             baseSnapshotName,
                             "compareCurrentWithSnapshot 需要提供 baseSnapshotName"
                     );
                     yield compareCurrentWithSnapshot(
+                            appId,
                             resolveProjectPath(appId, relativeProjectPath),
                             snapshotRoot,
                             normalizedBaseName
                     );
                 }
                 case "compareSnapshots" -> compareSnapshots(
+                        appId,
                         snapshotRoot,
                         validateRequiredSnapshotName(baseSnapshotName, "compareSnapshots 需要同时提供 baseSnapshotName 和 compareSnapshotName"),
                         validateRequiredSnapshotName(compareSnapshotName, "compareSnapshots 需要同时提供 baseSnapshotName 和 compareSnapshotName")
@@ -88,24 +93,28 @@ public class DiffSummaryTool extends BaseTool {
         }
     }
 
-    private String compareLatestSnapshot(Path projectPath, Path snapshotRoot) throws Exception {
-        Path latestSnapshot = resolveLatestSnapshot(snapshotRoot);
+    private String compareLatestSnapshot(Long appId, Path projectPath, Path snapshotRoot) throws Exception {
+        Path latestSnapshot = resolveLatestSnapshot(appId, snapshotRoot);
         if (latestSnapshot == null) {
             return "错误：当前没有可对比的快照";
         }
         return buildDiffReport(latestSnapshot, projectPath, latestSnapshot.getFileName().toString(), "current");
     }
 
-    private String compareCurrentWithSnapshot(Path projectPath,
+    private String compareCurrentWithSnapshot(Long appId,
+                                              Path projectPath,
                                               Path snapshotRoot,
                                               String baseSnapshotName) throws Exception {
-        Path baseSnapshotPath = resolveSnapshot(snapshotRoot, baseSnapshotName);
+        Path baseSnapshotPath = resolveSnapshot(appId, baseSnapshotName);
         return buildDiffReport(baseSnapshotPath, projectPath, baseSnapshotName, "current");
     }
 
-    private String compareSnapshots(Path snapshotRoot, String baseSnapshotName, String compareSnapshotName) throws Exception {
-        Path baseSnapshotPath = resolveSnapshot(snapshotRoot, baseSnapshotName);
-        Path compareSnapshotPath = resolveSnapshot(snapshotRoot, compareSnapshotName);
+    private String compareSnapshots(Long appId,
+                                    Path snapshotRoot,
+                                    String baseSnapshotName,
+                                    String compareSnapshotName) throws Exception {
+        Path baseSnapshotPath = resolveSnapshot(appId, baseSnapshotName);
+        Path compareSnapshotPath = resolveSnapshot(appId, compareSnapshotName);
         return buildDiffReport(baseSnapshotPath, compareSnapshotPath, baseSnapshotName, compareSnapshotName);
     }
 
@@ -124,16 +133,16 @@ public class DiffSummaryTool extends BaseTool {
         return rendered.replaceFirst("生成后差异摘要", "差异对比: " + leftName + " -> " + rightName);
     }
 
-    private Path resolveLatestSnapshot(Path snapshotRoot) throws Exception {
+    private Path resolveLatestSnapshot(Long appId, Path snapshotRoot) throws Exception {
         if (!workspaceFileSystemService.isDirectory(snapshotRoot)) {
             return null;
         }
         List<WorkspaceDirectoryMetadata> snapshots = workspaceFileSystemService.listChildDirectories(snapshotRoot);
-        return snapshots.isEmpty() ? null : snapshotRoot.resolve(snapshots.getFirst().name());
+        return snapshots.isEmpty() ? null : snapshotWorkspaceService.resolveSnapshot(appId, snapshots.getFirst().name());
     }
 
-    private Path resolveSnapshot(Path snapshotRoot, String snapshotName) {
-        return snapshotRoot.resolve(snapshotName);
+    private Path resolveSnapshot(Long appId, String snapshotName) {
+        return snapshotWorkspaceService.resolveSnapshot(appId, snapshotName);
     }
 
     private Path resolveProjectPath(Long appId, String relativeProjectPath) {

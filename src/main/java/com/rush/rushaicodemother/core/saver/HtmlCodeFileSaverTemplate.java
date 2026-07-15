@@ -4,14 +4,23 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import org.springframework.stereotype.Component;
 
-/**
- * HTML代码文件保存器
- *
- * @author rush
- */
-public class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlCodeResult> {
+import java.nio.file.Path;
+
+/** Persists a single-file HTML generation result. */
+@Component
+public final class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlCodeResult> {
+
+    public HtmlCodeFileSaverTemplate(
+            GenerationWorkspaceService generationWorkspaceService,
+            WorkspaceFileSystemService workspaceFileSystemService
+    ) {
+        super(HtmlCodeResult.class, generationWorkspaceService, workspaceFileSystemService);
+    }
 
     @Override
     protected CodeGenTypeEnum getCodeType() {
@@ -19,14 +28,13 @@ public class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlCodeRes
     }
 
     @Override
-    protected void saveFiles(HtmlCodeResult result, String baseDirPath) {
-        writeToFile(baseDirPath, "index.html", result.getHtmlCode());
+    protected void saveFiles(HtmlCodeResult result, Path workspaceRoot) {
+        synchronizeFile(workspaceRoot, "index.html", result.getHtmlCode());
     }
 
     @Override
     protected void validateInput(HtmlCodeResult result) {
         super.validateInput(result);
-        // HTML 代码不能为空
         if (StrUtil.isBlank(result.getHtmlCode())) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "HTML 代码不能为空");
         }

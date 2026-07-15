@@ -29,6 +29,7 @@ public final class GenerationSession {
     private final AtomicBoolean completed = new AtomicBoolean(false);
     private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
     private final AtomicReference<GenerationCancellationHandle> cancellationHandleRef = new AtomicReference<>();
+    private final AtomicReference<GenerationTaskRequest> taskRequestRef = new AtomicReference<>();
     private Long appId;
     private Long userId;
 
@@ -51,6 +52,25 @@ public final class GenerationSession {
 
     public GenerationExecutionContext executionContext() {
         return executionContext;
+    }
+
+    /** Binds immutable request metadata required to publish a terminal task event from any completion path. */
+    public void bindTaskRequest(GenerationTaskRequest taskRequest) {
+        if (taskRequest == null) {
+            return;
+        }
+        GenerationTaskRequest existing = taskRequestRef.get();
+        if (existing == null) {
+            taskRequestRef.compareAndSet(null, taskRequest);
+            existing = taskRequestRef.get();
+        }
+        if (existing != taskRequest && !existing.equals(taskRequest)) {
+            throw new IllegalStateException("generation session request is already bound");
+        }
+    }
+
+    public GenerationTaskRequest taskRequest() {
+        return taskRequestRef.get();
     }
 
     public void bindTraceContext(GenerationTraceService generationTraceService, Long appId, Long userId) {
@@ -127,7 +147,16 @@ public final class GenerationSession {
     }
 
     public boolean hasRemainingBudget(GenerationBudgetKind kind) {
-        return executionContext == null || executionContext.hasRemainingBudget(kind);
+        return executionContext != null && executionContext.hasRemainingBudget(kind);
+    }
+
+    /** Returns the immutable task-level limit; unmanaged legacy sessions expose no automatic-repair budget. */
+    public int budgetLimit(GenerationBudgetKind kind) {
+        return executionContext == null ? 0 : executionContext.limit(kind);
+    }
+
+    public int remainingBudget(GenerationBudgetKind kind) {
+        return executionContext == null ? 0 : executionContext.remaining(kind);
     }
 
     public Flux<Void> cancelSignal() {

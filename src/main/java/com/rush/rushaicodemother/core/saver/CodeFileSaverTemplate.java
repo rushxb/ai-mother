@@ -1,99 +1,112 @@
 package com.rush.rushaicodemother.core.saver;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Objects;
 
 /**
- * 抽象代码文件保存器 - 模板方法模式
+ * Base template for persisting one supported generated-code result.
  *
- * @param <T>
+ * <p>The template owns input validation and delegates workspace resolution and bounded, atomic UTF-8
+ * writes to their dedicated infrastructure boundaries. Implementations only describe the files that
+ * belong to one code-generation type.</p>
+ *
+ * @param <T> supported generated-code result type
  */
 public abstract class CodeFileSaverTemplate<T> {
 
-    /**
-     * 文件保存的根目录
-     */
-    private static final String FILE_SAVE_ROOT_DIR = AppConstant.CODE_OUTPUT_ROOT_DIR;
+    private final Class<T> resultType;
+    private final GenerationWorkspaceService generationWorkspaceService;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
 
-    /**
-     * 模板方法：保存代码的标准流程
-     *
-     * @param result 代码结果对象
-     * @param appId 应用 ID
-     * @return 保存的目录
-     */
-    public final File saveCode(T result, Long appId) {
-        // 1. 验证输入
-        validateInput(result);
-        // 2. 构建唯一目录
-        String baseDirPath = buildUniqueDir(appId);
-        // 3. 保存文件（具体实现交给子类）
-        saveFiles(result, baseDirPath);
-        // 4. 返回文件目录对象
-        return new File(baseDirPath);
+    protected CodeFileSaverTemplate(
+            Class<T> resultType,
+            GenerationWorkspaceService generationWorkspaceService,
+            WorkspaceFileSystemService workspaceFileSystemService
+    ) {
+        this.resultType = Objects.requireNonNull(resultType, "resultType must not be null");
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
+        );
+        this.workspaceFileSystemService = Objects.requireNonNull(
+                workspaceFileSystemService,
+                "workspaceFileSystemService must not be null"
+        );
+    }
+
+    /** Returns the generation type handled by this saver. */
+    public final CodeGenTypeEnum codeGenType() {
+        return getCodeType();
     }
 
     /**
-     * 写入单个文件的工具方法
+     * Persists a generated result into its canonical application workspace.
      *
-     * @param dirPath  目录路径
-     * @param filename 文件名
-     * @param content  文件内容
+     * @param result generated-code result
+     * @param appId application identifier
+     * @return canonical workspace directory
      */
-    public final void writeToFile(String dirPath, String filename, String content) {
-        if (StrUtil.isNotBlank(content)) {
-            String filePath = dirPath + File.separator + filename;
-            FileUtil.writeString(content, filePath, StandardCharsets.UTF_8);
+    public final File saveCode(Object result, Long appId) {
+        if (appId == null || appId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
+        }
+        if (result == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "代码结果对象不能为空");
+        }
+        if (!resultType.isInstance(result)) {
+            throw new BusinessException(
+                    ErrorCode.PARAMS_ERROR,
+                    "代码结果类型与生成类型不匹配: " + codeGenType().getValue()
+            );
+        }
+
+        T typedResult = resultType.cast(result);
+        validateInput(typedResult);
+        GenerationWorkspace workspace = generationWorkspaceService.prepare(appId, codeGenType());
+        saveFiles(typedResult, workspace.canonicalRootPath());
+        return workspace.canonicalRootPath().toFile();
+    }
+
+    /**
+     * Synchronizes one generated file through the bounded workspace file-system service.
+     * Blank optional content removes an earlier version so regeneration cannot retain stale assets.
+     */
+    protected final void synchronizeFile(Path workspaceRoot, String relativePath, String content) {
+        try {
+            if (StrUtil.isBlank(content)) {
+                workspaceFileSystemService.deleteFileIfExists(workspaceRoot, relativePath);
+                return;
+            }
+            workspaceFileSystemService.writeUtf8Atomically(workspaceRoot, relativePath, content);
+        } catch (IOException exception) {
+            throw new BusinessException(
+                    ErrorCode.SYSTEM_ERROR,
+                    "生成代码文件保存失败: " + relativePath,
+                    exception
+            );
         }
     }
 
-    /**
-     * 验证输入参数（可由子类覆盖）
-     *
-     * @param result 代码结果对象
-     */
+    /** Validates the generated result before any file-system mutation occurs. */
     protected void validateInput(T result) {
         if (result == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "代码结果对象不能为空");
         }
     }
 
-    /**
-     * 构建文件的唯一路径：tmp/code_output/bizType_雪花 ID
-     *
-     * @param appId 应用 ID
-     * @return 目录路径
-     */
-    protected String buildUniqueDir(Long appId) {
-        if (appId == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
-        }
-        String codeType = getCodeType().getValue();
-        String uniqueDirName = StrUtil.format("{}_{}", codeType, appId);
-        String dirPath = FILE_SAVE_ROOT_DIR + File.separator + uniqueDirName;
-        FileUtil.mkdir(dirPath);
-        return dirPath;
-    }
+    /** Persists the files owned by one generated-code result. */
+    protected abstract void saveFiles(T result, Path workspaceRoot);
 
-    /**
-     * 保存文件（具体实现交给子类）
-     *
-     * @param result      代码结果对象
-     * @param baseDirPath 基础目录路径
-     */
-    protected abstract void saveFiles(T result, String baseDirPath);
-
-    /**
-     * 获取代码生成类型
-     *
-     * @return 代码生成类型枚举
-     */
+    /** Returns the code-generation type handled by this implementation. */
     protected abstract CodeGenTypeEnum getCodeType();
 }

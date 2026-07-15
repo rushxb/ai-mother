@@ -1,9 +1,13 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
+import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,7 +38,7 @@ class DevServerProjectLocatorTest {
     void shouldLocateVueProjectInsideOutputRoot() throws IOException {
         Path expected = createProject(outputRoot.resolve("vue_project_11"));
 
-        Path actual = new DevServerProjectLocator(outputRoot).locate(app(11L, CodeGenTypeEnum.VUE_PROJECT));
+        Path actual = locator().locate(app(11L, CodeGenTypeEnum.VUE_PROJECT));
 
         assertEquals(expected.toRealPath(), actual);
     }
@@ -43,7 +47,7 @@ class DevServerProjectLocatorTest {
     void shouldLocateFullStackFrontendDirectory() throws IOException {
         Path expected = createProject(outputRoot.resolve("full_stack_project_12/frontend"));
 
-        Path actual = new DevServerProjectLocator(outputRoot)
+        Path actual = locator()
                 .locate(app(12L, CodeGenTypeEnum.FULL_STACK_PROJECT));
 
         assertEquals(expected.toRealPath(), actual);
@@ -53,7 +57,7 @@ class DevServerProjectLocatorTest {
     void shouldRejectUnsupportedGenerationType() {
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> new DevServerProjectLocator(outputRoot).locate(app(11L, CodeGenTypeEnum.HTML))
+                () -> locator().locate(app(11L, CodeGenTypeEnum.HTML))
         );
 
         assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
@@ -61,7 +65,7 @@ class DevServerProjectLocatorTest {
 
     @Test
     void shouldRejectMissingProjectAndPackageManifest() throws IOException {
-        DevServerProjectLocator locator = new DevServerProjectLocator(outputRoot);
+        DevServerProjectLocator locator = locator();
 
         BusinessException missingProject = assertThrows(
                 BusinessException.class,
@@ -86,7 +90,7 @@ class DevServerProjectLocatorTest {
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> new DevServerProjectLocator(outputRoot).locate(app(11L, CodeGenTypeEnum.VUE_PROJECT))
+                () -> locator().locate(app(11L, CodeGenTypeEnum.VUE_PROJECT))
         );
 
         assertEquals(ErrorCode.NOT_FOUND_ERROR.getCode(), exception.getCode());
@@ -101,10 +105,19 @@ class DevServerProjectLocatorTest {
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> new DevServerProjectLocator(outputRoot).locate(app(11L, CodeGenTypeEnum.VUE_PROJECT))
+                () -> locator().locate(app(11L, CodeGenTypeEnum.VUE_PROJECT))
         );
 
         assertEquals(ErrorCode.NOT_FOUND_ERROR.getCode(), exception.getCode());
+    }
+
+    private DevServerProjectLocator locator() {
+        CodeStorageProperties storageProperties = new CodeStorageProperties();
+        storageProperties.setOutputRootDir(outputRoot);
+        return new DevServerProjectLocator(
+                new GenerationWorkspaceService(storageProperties),
+                new WorkspaceFileSystemService(new WorkspaceFileSystemProperties())
+        );
     }
 
     private App app(Long appId, CodeGenTypeEnum type) {

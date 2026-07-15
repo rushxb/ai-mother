@@ -1,77 +1,99 @@
 package com.rush.rushaicodemother.service.devserver;
 
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.Objects;
 
-/**
- * 将应用标识解析为受代码输出根目录约束的前端项目目录。
- */
+/** Resolves the safe frontend project directory used by the local Dev Server. */
 @Component
 public class DevServerProjectLocator {
 
-    private final Path outputRoot;
+    private final GenerationWorkspaceService generationWorkspaceService;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
 
-    public DevServerProjectLocator() {
-        this(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR));
+    public DevServerProjectLocator(
+            GenerationWorkspaceService generationWorkspaceService,
+            WorkspaceFileSystemService workspaceFileSystemService
+    ) {
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
+        );
+        this.workspaceFileSystemService = Objects.requireNonNull(
+                workspaceFileSystemService,
+                "workspaceFileSystemService must not be null"
+        );
     }
 
-    DevServerProjectLocator(Path outputRoot) {
-        if (outputRoot == null) {
-            throw new IllegalArgumentException("代码输出根目录不能为空");
-        }
-        this.outputRoot = outputRoot.toAbsolutePath().normalize();
-    }
-
+    /** Returns an existing Vue project directory containing a safe package manifest. */
     public Path locate(App app) {
+        CodeGenTypeEnum codeGenType = requireSupportedType(app);
+        GenerationWorkspace workspace = resolveWorkspace(app.getId(), codeGenType);
+        Path projectDirectory = codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT
+                ? workspace.frontendRootPath()
+                : workspace.canonicalRootPath();
+
+        try {
+            if (!workspace.exists() || !workspaceFileSystemService.isDirectory(projectDirectory)) {
+                throw projectNotFound(null);
+            }
+            workspaceFileSystemService.resolveExistingRegularFile(projectDirectory, "package.json");
+            return projectDirectory.toAbsolutePath().normalize();
+        } catch (WorkspaceFileSystemException exception) {
+            if (isMissingOrUnsafe(exception.reason())) {
+                throw projectNotFound(exception);
+            }
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法校验 Dev Server 项目目录", exception);
+        } catch (IOException exception) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法校验 Dev Server 项目目录", exception);
+        }
+    }
+
+    private CodeGenTypeEnum requireSupportedType(App app) {
         if (app == null || app.getId() == null || app.getId() <= 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
         }
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT
                 && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "仅 Vue 项目支持 Dev Server 预览");
         }
-
-        Path projectDirectory = outputRoot.resolve(codeGenType.getValue() + "_" + app.getId()).normalize();
-        if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            projectDirectory = projectDirectory.resolve("frontend").normalize();
-        }
-        if (!projectDirectory.startsWith(outputRoot)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "项目目录超出代码输出根目录");
-        }
-        if (Files.isSymbolicLink(projectDirectory)
-                || !Files.isDirectory(projectDirectory, LinkOption.NOFOLLOW_LINKS)) {
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "项目目录不存在，请先生成代码");
-        }
-
-        Path realProjectDirectory = resolveRealProjectDirectory(projectDirectory);
-        Path packageJson = realProjectDirectory.resolve("package.json");
-        if (Files.isSymbolicLink(packageJson)
-                || !Files.isRegularFile(packageJson, LinkOption.NOFOLLOW_LINKS)) {
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "项目缺少安全的 package.json");
-        }
-        return realProjectDirectory;
+        return codeGenType;
     }
 
-    private Path resolveRealProjectDirectory(Path projectDirectory) {
+    private GenerationWorkspace resolveWorkspace(Long appId, CodeGenTypeEnum codeGenType) {
         try {
-            Path realOutputRoot = outputRoot.toRealPath();
-            Path realProjectDirectory = projectDirectory.toRealPath();
-            if (!realProjectDirectory.startsWith(realOutputRoot)) {
-                throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "项目目录超出代码输出根目录");
+            return generationWorkspaceService.resolve(appId, codeGenType);
+        } catch (BusinessException exception) {
+            if (exception.getCode() == ErrorCode.NO_AUTH_ERROR.getCode()) {
+                throw projectNotFound(exception);
             }
-            return realProjectDirectory;
-        } catch (IOException exception) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法解析项目目录", exception);
+            throw exception;
         }
+    }
+
+    private boolean isMissingOrUnsafe(WorkspaceFileSystemException.Reason reason) {
+        return reason == WorkspaceFileSystemException.Reason.MISSING_DIRECTORY
+                || reason == WorkspaceFileSystemException.Reason.MISSING_FILE
+                || reason == WorkspaceFileSystemException.Reason.NOT_REGULAR_FILE
+                || reason == WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK;
+    }
+
+    private BusinessException projectNotFound(Throwable cause) {
+        return new BusinessException(
+                ErrorCode.NOT_FOUND_ERROR,
+                "项目目录不存在或缺少安全的 package.json，请先生成代码",
+                cause
+        );
     }
 }

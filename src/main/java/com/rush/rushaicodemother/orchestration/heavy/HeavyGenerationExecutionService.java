@@ -20,6 +20,8 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
@@ -29,7 +31,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
-import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import java.util.Map;
 
 @Slf4j
@@ -48,6 +52,7 @@ public class HeavyGenerationExecutionService {
     private final GenerationPerformanceSelector generationPerformanceSelector;
     private final HeavyGenerationFailureRecoveryService heavyGenerationFailureRecoveryService;
     private final HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService;
+    private final GenerationWorkspaceService generationWorkspaceService;
     private final StreamHandlerExecutor streamHandlerExecutor;
 
     public void runGenerationWithAutoRepair(Long appId,
@@ -61,8 +66,8 @@ public class HeavyGenerationExecutionService {
         int maxGenerationRepairRounds = GenerationRepairPolicy.allowAutoRepair(
                 preparation.generatingStage(),
                 preparation.targetType(),
-                HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS
-        ) && preparation.requiresBuildValidation() ? HeavyGenerationLimits.MAX_AUTO_REPAIR_ROUNDS : 0;
+                session.remainingBudget(GenerationBudgetKind.REPAIR_ROUND)
+        ) && preparation.requiresBuildValidation() ? session.remainingBudget(GenerationBudgetKind.REPAIR_ROUND) : 0;
 
         boolean isFirstGeneration = AppConstant.GENERATING_STAGE_CREATE.equals(preparation.generatingStage());
         boolean isComplex = isComplexPrompt(currentPrompt);
@@ -206,21 +211,20 @@ public class HeavyGenerationExecutionService {
     }
 
     private void verifyGeneratedProjectReady(Long appId, CodeGenTypeEnum codeGenType) {
-        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenType.getValue() + "_" + appId;
+        GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
+        Path projectRoot = workspace.canonicalRootPath();
         if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
-            File projectDir = new File(projectPath);
-            boolean ready = projectDir.isDirectory()
-                    && new File(projectDir, "go.mod").isFile()
-                    && new File(projectDir, "cmd/server/main.go").isFile();
+            boolean ready = isDirectory(projectRoot)
+                    && isRegularFile(projectRoot.resolve("go.mod"))
+                    && isRegularFile(projectRoot.resolve("cmd/server/main.go"));
             ThrowUtils.throwIf(!ready, ErrorCode.SYSTEM_ERROR, "生成结束但未发现有效后端工程，请重试生成");
             return;
         }
         if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            File projectDir = new File(projectPath);
-            boolean ready = projectDir.isDirectory()
-                    && new File(projectDir, "frontend/package.json").isFile()
-                    && new File(projectDir, "backend/go.mod").isFile()
-                    && new File(projectDir, "backend/cmd/server/main.go").isFile();
+            boolean ready = isDirectory(projectRoot)
+                    && isRegularFile(workspace.frontendRootPath().resolve("package.json"))
+                    && isRegularFile(workspace.backendRootPath().resolve("go.mod"))
+                    && isRegularFile(workspace.backendRootPath().resolve("cmd/server/main.go"));
             ThrowUtils.throwIf(!ready, ErrorCode.SYSTEM_ERROR, "生成结束但未发现有效全栈工程，请重试生成");
             return;
         }
@@ -228,12 +232,20 @@ public class HeavyGenerationExecutionService {
             return;
         }
         GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
-                GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
+                GeneratedProjectWorkspaceInspector.inspectVueProject(projectRoot);
         if (!workspaceState.canAutoRepair()) {
             throw new MissingGeneratedProjectException(
                     heavyGenerationFailureRecoveryService.buildMissingProjectCodeMessage(workspaceState)
             );
         }
+    }
+
+    private boolean isDirectory(Path path) {
+        return path != null && Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS);
+    }
+
+    private boolean isRegularFile(Path path) {
+        return path != null && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS);
     }
 
     private void updateGenerationSnapshotIfDue(Long appId,

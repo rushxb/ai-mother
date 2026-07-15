@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import cn.hutool.json.JSONObject;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import dev.langchain4j.agent.tool.P;

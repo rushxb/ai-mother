@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
@@ -42,11 +41,7 @@ class GenerationRollbackPointServiceTest {
                 null
         );
 
-        GenerationArtifact artifact = new GenerationRollbackPointService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        )
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(codeOutputRoot, codeSnapshotRoot)
                 .prepareRollbackPoint(request, CodeGenTypeEnum.VUE_PROJECT, "task-7");
 
         assertEquals("rollback_point", artifact.key());
@@ -74,11 +69,7 @@ class GenerationRollbackPointServiceTest {
                 null
         );
 
-        GenerationArtifact artifact = new GenerationRollbackPointService(
-                tempDir.resolve("out"),
-                tempDir.resolve("snap"),
-                WorkspaceFileSystemTestFactory.create()
-        )
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(tempDir.resolve("out"), tempDir.resolve("snap"))
                 .prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "task-8");
 
         assertEquals("skipped", artifact.payload().get("status"));
@@ -100,11 +91,7 @@ class GenerationRollbackPointServiceTest {
                 app, "修改页面", CodeGenTypeEnum.HTML, "update", true, null, null, null
         );
 
-        GenerationArtifact artifact = new GenerationRollbackPointService(
-                codeOutputRoot,
-                codeSnapshotRoot,
-                WorkspaceFileSystemTestFactory.create()
-        ).prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "../" + "very-long-task-id".repeat(20));
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(codeOutputRoot, codeSnapshotRoot).prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "../" + "very-long-task-id".repeat(20));
 
         String snapshotName = String.valueOf(artifact.payload().get("snapshotName"));
         assertEquals("created", artifact.payload().get("status"));

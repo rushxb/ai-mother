@@ -5,10 +5,16 @@ import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -110,6 +116,180 @@ class WorkspaceFileSystemServiceTest {
             assertFalse(Files.exists(project.resolve("src/OnlyCurrent.vue")));
             assertFalse(Files.exists(copy.targetDirectory().resolve("node_modules")));
             assertTrue(service.isDirectory(copy.targetDirectory()));
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void shouldRetryTransientAccessDenialBeforePublishingSnapshot() throws Exception {
+        Path root = createTempWorkspace("publish-retry");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/App.vue", "snapshot");
+            WorkspaceFileSystemProperties properties = retryProperties(3, 0);
+            AtomicInteger attempts = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(properties,
+                    (moveSource, moveTarget, options) -> {
+                        if (attempts.incrementAndGet() < 3) {
+                            throw accessDenied(moveSource, moveTarget);
+                        }
+                        return Files.move(moveSource, moveTarget, options);
+                    });
+
+            service.copyDirectory(source, target);
+
+            assertEquals(3, attempts.get());
+            assertEquals("snapshot", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "copy");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void shouldStopPublishingWhenTargetAppearsDuringRetry() throws Exception {
+        Path root = createTempWorkspace("publish-race");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/App.vue", "snapshot");
+            AtomicInteger attempts = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(retryProperties(5, 0),
+                    (moveSource, moveTarget, options) -> {
+                        attempts.incrementAndGet();
+                        Files.createDirectory(moveTarget);
+                        throw accessDenied(moveSource, moveTarget);
+                    });
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.copyDirectory(source, target)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.COPY_FAILED, exception.reason());
+            assertTrue(exception.getCause() instanceof AccessDeniedException);
+            assertEquals(1, attempts.get());
+            assertTrue(Files.isDirectory(target));
+            assertNoTemporarySibling(target, "copy");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void shouldExposePermanentAccessDenialAfterConfiguredAttempts() throws Exception {
+        Path root = createTempWorkspace("publish-denied");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/App.vue", "snapshot");
+            AtomicInteger attempts = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(retryProperties(2, 0),
+                    (moveSource, moveTarget, options) -> {
+                        attempts.incrementAndGet();
+                        throw accessDenied(moveSource, moveTarget);
+                    });
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.copyDirectory(source, target)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.COPY_FAILED, exception.reason());
+            assertTrue(exception.getCause() instanceof AccessDeniedException);
+            assertEquals(2, attempts.get());
+            assertFalse(Files.exists(target));
+            assertNoTemporarySibling(target, "copy");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void shouldFallBackWhenAtomicDirectoryMoveIsUnsupported() throws Exception {
+        Path root = createTempWorkspace("publish-fallback");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/App.vue", "snapshot");
+            AtomicInteger attempts = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(retryProperties(1, 0),
+                    (moveSource, moveTarget, options) -> {
+                        attempts.incrementAndGet();
+                        if (Arrays.asList(options).contains(StandardCopyOption.ATOMIC_MOVE)) {
+                            throw new AtomicMoveNotSupportedException(
+                                    moveSource.toString(),
+                                    moveTarget.toString(),
+                                    "atomic move unavailable"
+                            );
+                        }
+                        return Files.move(moveSource, moveTarget, options);
+                    });
+
+            service.copyDirectory(source, target);
+
+            assertEquals(2, attempts.get());
+            assertTrue(Files.isDirectory(target));
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void shouldPreserveInterruptStatusWhileWaitingToPublish() throws Exception {
+        Path root = createTempWorkspace("publish-interrupt");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/App.vue", "snapshot");
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(retryProperties(2, 50),
+                    (moveSource, moveTarget, options) -> {
+                        Thread.currentThread().interrupt();
+                        throw accessDenied(moveSource, moveTarget);
+                    });
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.copyDirectory(source, target)
+            );
+
+            assertTrue(Thread.currentThread().isInterrupted());
+            assertTrue(exception.getCause() instanceof InterruptedIOException);
+            assertTrue(exception.getCause().getCause() instanceof AccessDeniedException);
+            assertNoTemporarySibling(target, "copy");
+        } finally {
+            Thread.interrupted();
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void shouldRestoreOriginalWorkspaceWhenStagedActivationFails() throws Exception {
+        Path root = createTempWorkspace("restore-failure");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(target, "src/App.vue", "current-version");
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(retryProperties(1, 0),
+                    (moveSource, moveTarget, options) -> {
+                        if (moveSource.getFileName().toString().startsWith(".project.restore-")) {
+                            throw new IOException("staged activation failed");
+                        }
+                        return Files.move(moveSource, moveTarget, options);
+                    });
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.replaceDirectory(source, target)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.REPLACE_FAILED, exception.reason());
+            assertEquals("current-version", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "restore");
+            assertNoTemporarySibling(target, "previous");
         } finally {
             cleanup(root);
         }
@@ -364,6 +544,24 @@ class WorkspaceFileSystemServiceTest {
             assertEquals(WorkspaceFileSystemException.Reason.INVALID_PATH, escaping.reason());
         } finally {
             cleanup(root);
+        }
+    }
+
+    private WorkspaceFileSystemProperties retryProperties(int maxAttempts, long retryDelayMillis) {
+        WorkspaceFileSystemProperties properties = new WorkspaceFileSystemProperties();
+        properties.setPublishMaxAttempts(maxAttempts);
+        properties.setPublishRetryDelayMillis(retryDelayMillis);
+        return properties;
+    }
+
+    private AccessDeniedException accessDenied(Path source, Path target) {
+        return new AccessDeniedException(source.toString(), target.toString(), "temporarily locked");
+    }
+
+    private void assertNoTemporarySibling(Path target, String purpose) throws IOException {
+        String prefix = "." + target.getFileName() + "." + purpose + "-";
+        try (Stream<Path> children = Files.list(target.getParent())) {
+            assertTrue(children.noneMatch(path -> path.getFileName().toString().startsWith(prefix)));
         }
     }
 

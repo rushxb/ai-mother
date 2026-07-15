@@ -26,6 +26,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -47,11 +48,7 @@ class GenerationCommitServiceTest {
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
         when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString()))
                 .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitExecutor,
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
         GenerationCommitResult result = service.commit(
                 26L,
@@ -91,11 +88,7 @@ class GenerationCommitServiceTest {
         );
         GenerationArtifact artifact = GenerationArtifact.of("diff_summary", "test", "diff", diffSummary.toPayload());
 
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitCommandExecutor(),
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitCommandExecutor(), outputRoot);
         GenerationCommitResult result = service.commit(21L, "task-21", artifact);
 
         assertEquals("committed", result.status());
@@ -143,11 +136,7 @@ class GenerationCommitServiceTest {
                 "diff",
                 diffSummary.toPayload()
         );
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitCommandExecutor(),
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitCommandExecutor(), outputRoot);
 
         GenerationCommitResult result = service.commit(23L, "task-23", artifact);
 
@@ -162,11 +151,7 @@ class GenerationCommitServiceTest {
     @Test
     void shouldSkipWhenDiffSummaryIsMissing() {
         Path tempRoot = cleanTestRoot("skip");
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitCommandExecutor(),
-                tempRoot.resolve("code_output")
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitCommandExecutor(), tempRoot.resolve("code_output"));
 
         GenerationCommitResult result = service.commit(22L, "task-22", null);
 
@@ -182,11 +167,7 @@ class GenerationCommitServiceTest {
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
         when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString()))
                 .thenReturn(gitResult(ManagedProcessResult.Status.INTERRUPTED, null, "", "interrupted"));
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitExecutor,
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
         GenerationCommitResult result = service.commit(
                 24L,
@@ -226,11 +207,7 @@ class GenerationCommitServiceTest {
                         "",
                         "interrupted"
                 ));
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitExecutor,
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
         GenerationCommitResult result = service.commit(
                 25L,
@@ -250,11 +227,7 @@ class GenerationCommitServiceTest {
         Path outputRoot = tempRoot.resolve("code_output");
         Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_31"));
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitExecutor,
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
         GenerationCommitResult result = service.commit(
                 31L,
@@ -273,11 +246,7 @@ class GenerationCommitServiceTest {
         Path outputRoot = tempRoot.resolve("code_output");
         Path anotherProject = Files.createDirectories(outputRoot.resolve("vue_project_33"));
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitExecutor,
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
         GenerationCommitResult result = service.commit(
                 32L,
@@ -292,6 +261,99 @@ class GenerationCommitServiceTest {
     }
 
     @Test
+    void shouldRejectOutputRootReportedAsApplicationWorkspace() {
+        Path tempRoot = cleanTestRoot("output-root-boundary");
+        Path outputRoot = tempRoot.resolve("code_output");
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                38L,
+                "task-38",
+                diffArtifact(38L, outputRoot, "index.html")
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("project_path_context_mismatch", result.reason());
+        verifyNoInteractions(gitExecutor);
+    }
+
+    @Test
+    void shouldRejectMissingCanonicalApplicationWorkspace() {
+        Path tempRoot = cleanTestRoot("missing-workspace");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path missingProjectRoot = outputRoot.resolve("vue_project_39");
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                39L,
+                "task-39",
+                diffArtifact(39L, missingProjectRoot, "index.html")
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("project_path_missing", result.reason());
+        verifyNoInteractions(gitExecutor);
+    }
+
+    @Test
+    void shouldRejectNonDirectoryAtCanonicalApplicationWorkspace() throws Exception {
+        Path tempRoot = cleanTestRoot("workspace-regular-file");
+        Path outputRoot = Files.createDirectories(tempRoot.resolve("code_output"));
+        Path unsafeProjectPath = Files.writeString(outputRoot.resolve("vue_project_41"), "not a directory");
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                41L,
+                "task-41",
+                diffArtifact(41L, unsafeProjectPath, "index.html")
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("project_path_unsafe", result.reason());
+        verifyNoInteractions(gitExecutor);
+    }
+
+    @Test
+    void shouldRejectSymbolicLinkAtCanonicalApplicationWorkspace() throws Exception {
+        Path tempRoot = cleanTestRoot("workspace-symbolic-link");
+        Path outputRoot = Files.createDirectories(tempRoot.resolve("code_output"));
+        Path externalProjectRoot = Files.createDirectory(tempRoot.resolve("external-project"));
+        Path linkedProjectRoot = outputRoot.resolve("vue_project_40");
+        createSymbolicLinkOrSkip(linkedProjectRoot, externalProjectRoot);
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        GenerationCommitResult result = service.commit(
+                40L,
+                "task-40",
+                diffArtifact(40L, linkedProjectRoot, "index.html")
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("project_path_unsafe", result.reason());
+        verifyNoInteractions(gitExecutor);
+    }
+
+    @Test
     void shouldRejectParentRepositoryInsteadOfCommittingOutsideProjectBoundary() throws Exception {
         Path tempRoot = cleanTestRoot("parent-repository");
         Path outputRoot = tempRoot.resolve("code_output");
@@ -300,11 +362,7 @@ class GenerationCommitServiceTest {
         initGitRepository(outputRoot);
         String headBefore = runGitForOutput(outputRoot, "rev-parse", "HEAD").trim();
         Files.writeString(projectRoot.resolve("index.html"), "new\n");
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitCommandExecutor(),
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitCommandExecutor(), outputRoot);
 
         GenerationCommitResult result = service.commit(
                 34L,
@@ -331,11 +389,7 @@ class GenerationCommitServiceTest {
                         "provider-api-key=secret-value",
                         "failed"
                 ));
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitExecutor,
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
         GenerationCommitResult result = service.commit(
                 35L,
@@ -356,12 +410,7 @@ class GenerationCommitServiceTest {
         GenerationCommitProperties properties = new GenerationCommitProperties();
         properties.setMaxFilesPerCommit(1);
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitExecutor,
-                outputRoot,
-                properties
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot, properties);
         DiffSummary summary = DiffSummary.created(
                 36L,
                 "task-36",
@@ -413,11 +462,7 @@ class GenerationCommitServiceTest {
                 List.of(),
                 List.of()
         );
-        GenerationCommitService service = new GenerationCommitService(
-                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
-                gitCommandExecutor(),
-                outputRoot
-        );
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitCommandExecutor(), outputRoot);
 
         GenerationCommitResult result = service.commit(
                 37L,
@@ -509,6 +554,14 @@ class GenerationCommitServiceTest {
         Path root = Path.of("target", "test-workspaces", "commit-service", caseName);
         FileUtil.del(root.toFile());
         return root;
+    }
+
+    private void createSymbolicLinkOrSkip(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target.toAbsolutePath());
+        } catch (UnsupportedOperationException | java.io.IOException | SecurityException exception) {
+            assumeTrue(false, "Symbolic links are unavailable in this environment: " + exception.getClass().getSimpleName());
+        }
     }
 
     private void installFailingIfExecutedPreCommitHook(Path projectRoot) throws Exception {

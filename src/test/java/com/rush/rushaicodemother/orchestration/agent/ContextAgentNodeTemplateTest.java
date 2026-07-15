@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
+import com.rush.rushaicodemother.orchestration.template.TemplateServiceTestFixture;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -16,6 +17,7 @@ import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestF
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class ContextAgentNodeTemplateTest {
 
@@ -25,17 +27,11 @@ class ContextAgentNodeTemplateTest {
         FileUtil.del(outputRoot.toFile());
         try {
             GenerationAgentSupport support = support(outputRoot);
+            TemplateServiceTestFixture templateFixture = new TemplateServiceTestFixture(outputRoot);
             TemplateAgentNode templateAgentNode = new TemplateAgentNode(
-                    new com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService(
-                            outputRoot,
-                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver(),
-                            new com.rush.rushaicodemother.orchestration.template.TemplatePreWarmService()
-                    ),
-                    new com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService(
-                            outputRoot,
-                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
-                    ),
-                    new FullStackPortAllocator()
+                    templateFixture.vueBootstrapService(),
+                    templateFixture.backendBootstrapService(),
+                    new FullStackPortAllocator(templateFixture.generationWorkspaceService)
             );
             ContextAgentNode contextAgentNode = new ContextAgentNode(support);
 

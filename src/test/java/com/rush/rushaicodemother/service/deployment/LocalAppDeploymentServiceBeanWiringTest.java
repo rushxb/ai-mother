@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.config.ScreenshotConfiguration;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
+import com.rush.rushaicodemother.service.artifact.DeploymentKeyPolicy;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
 import com.rush.rushaicodemother.service.screenshot.ScreenshotService;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ class LocalAppDeploymentServiceBeanWiringTest {
             context.registerBean(AppMapper.class, () -> mock(AppMapper.class));
             context.registerBean(CodeDeploymentProperties.class, this::deploymentProperties);
             context.registerBean(AppOperationLockManager.class, AppOperationLockManager::new);
+            context.registerBean(DeploymentKeyPolicy.class);
             context.registerBean(DeploymentKeyGenerator.class, () -> () -> "FixedKey1234");
             context.registerBean(
                     ScreenshotConfiguration.SCREENSHOT_TASK_EXECUTOR,

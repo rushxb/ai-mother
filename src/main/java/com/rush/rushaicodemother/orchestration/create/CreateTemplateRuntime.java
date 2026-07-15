@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.create;
 
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
@@ -16,10 +15,10 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -38,10 +37,10 @@ public class CreateTemplateRuntime {
     private final CreateRecipeRendererService createRecipeRendererService;
     private final FullStackPortAllocator fullStackPortAllocator;
     private final GenerationPatchApplyService generationPatchApplyService;
+    private final GenerationWorkspaceService generationWorkspaceService;
     private final LandingSlotFallbackRenderer landingSlotFallbackRenderer;
     private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
 
-    @Autowired
     public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
                                  CreatePatchMergeService createPatchMergeService,
                                  CreatePreWriteValidationService createPreWriteValidationService,
@@ -49,6 +48,7 @@ public class CreateTemplateRuntime {
                                  CreateRecipeRendererService createRecipeRendererService,
                                  FullStackPortAllocator fullStackPortAllocator,
                                  GenerationPatchApplyService generationPatchApplyService,
+                                 GenerationWorkspaceService generationWorkspaceService,
                                  LandingSlotFallbackRenderer landingSlotFallbackRenderer,
                                  VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService) {
         this.backendProjectTemplateBootstrapService = backendProjectTemplateBootstrapService;
@@ -58,20 +58,9 @@ public class CreateTemplateRuntime {
         this.createRecipeRendererService = createRecipeRendererService;
         this.fullStackPortAllocator = fullStackPortAllocator;
         this.generationPatchApplyService = generationPatchApplyService;
+        this.generationWorkspaceService = generationWorkspaceService;
         this.landingSlotFallbackRenderer = landingSlotFallbackRenderer;
         this.vueProjectTemplateBootstrapService = vueProjectTemplateBootstrapService;
-    }
-
-    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
-                                 CreatePatchMergeService createPatchMergeService,
-                                 CreatePreWriteValidationService createPreWriteValidationService,
-                                 FullStackPortAllocator fullStackPortAllocator,
-                                 GenerationPatchApplyService generationPatchApplyService,
-                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
-                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService) {
-        this(backendProjectTemplateBootstrapService, createPatchMergeService, createPreWriteValidationService,
-                null, null, fullStackPortAllocator, generationPatchApplyService, landingSlotFallbackRenderer,
-                vueProjectTemplateBootstrapService);
     }
 
     public SlotFillResult generate(App app, GenerationTaskRequest request, CreateGenerationPlan plan) {
@@ -272,37 +261,56 @@ public class CreateTemplateRuntime {
 
     private BootstrapContext bootstrap(App app, GenerationTaskRequest request, CreateGenerationPlan plan) {
         CodeGenTypeEnum codeGenType = plan.codeGenType();
+        if (codeGenType == null) {
+            return BootstrapContext.failed(Map.of("reason", "missing_code_gen_type"));
+        }
+        GenerationWorkspace workspace = generationWorkspaceService.resolve(app.getId(), codeGenType);
         if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
             VueProjectTemplateBootstrapService.BootstrapResult result =
-                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), request.message());
-            return BootstrapContext.single(result.bootstrapped(), vueProjectTemplateBootstrapService.resolveProjectRoot(app.getId()),
-                    Map.of("frontend", result.toPayload()));
+                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(
+                            app.getId(),
+                            codeGenType,
+                            request.message()
+                    );
+            return BootstrapContext.single(
+                    result.bootstrapped(),
+                    workspace.canonicalRootPath(),
+                    Map.of("frontend", result.toPayload())
+            );
         }
         if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
             BackendProjectTemplateBootstrapService.BootstrapResult result =
-                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId());
-            return BootstrapContext.single(result.bootstrapped(), backendProjectTemplateBootstrapService.resolveProjectRoot(app.getId()),
-                    Map.of("backend", result.toPayload()));
+                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), codeGenType);
+            return BootstrapContext.single(
+                    result.bootstrapped(),
+                    workspace.canonicalRootPath(),
+                    Map.of("backend", result.toPayload())
+            );
         }
         if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(app.getId());
-            Path workspaceRoot = Path.of(fullStackContext.workspaceRoot()).toAbsolutePath().normalize();
+            FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(workspace);
             VueProjectTemplateBootstrapService.BootstrapResult frontendResult =
-                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("frontend"), request.message());
+                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(
+                            app.getId(),
+                            codeGenType,
+                            request.message()
+                    );
             BackendProjectTemplateBootstrapService.BootstrapResult backendResult =
-                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(workspaceRoot.resolve("backend"));
+                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), codeGenType);
             Map<String, Object> payload = new LinkedHashMap<>(fullStackContext.toPayload());
             payload.put("frontend", frontendResult.toPayload());
             payload.put("backend", backendResult.toPayload());
             return BootstrapContext.fullStack(
                     frontendResult.bootstrapped() && backendResult.bootstrapped(),
-                    workspaceRoot,
+                    workspace.canonicalRootPath(),
                     payload
             );
         }
-        Path fallbackRoot = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
-                + codeGenType.getValue() + "_" + app.getId()).toAbsolutePath().normalize();
-        return BootstrapContext.single(false, fallbackRoot, Map.of("reason", "unsupported_code_gen_type"));
+        return BootstrapContext.single(
+                false,
+                workspace.canonicalRootPath(),
+                Map.of("reason", "unsupported_code_gen_type")
+        );
     }
 
     private SlotFillResult failureResult(CreateGenerationPlan plan,
@@ -321,7 +329,7 @@ public class CreateTemplateRuntime {
                 "CREATE 模板运行时失败: " + fallbackReason,
                 totalChars,
                 skippedSlots,
-                metadata(plan, BootstrapContext.single(false, Path.of(""), Map.of()), aiCalls, patchPlan,
+                metadata(plan, BootstrapContext.failed(Map.of()), aiCalls, patchPlan,
                         validationDurationMs, executionSlotGroupCount, true, fallbackReason, List.of())
         );
     }
@@ -441,6 +449,10 @@ public class CreateTemplateRuntime {
 
         private static BootstrapContext fullStack(boolean success, Path projectRoot, Map<String, Object> payload) {
             return new BootstrapContext(success, projectRoot, true, payload == null ? Map.of() : payload);
+        }
+
+        private static BootstrapContext failed(Map<String, Object> payload) {
+            return new BootstrapContext(false, null, false, payload == null ? Map.of() : payload);
         }
 
         private String prefixFor(SlotGroup group) {

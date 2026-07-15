@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +22,7 @@ class SnapshotRollbackToolTest {
     private GenerationToolExecutionContextService executionContextService;
     private ToolWorkspaceFileService workspaceFileService;
     private WorkspaceFileSystemService workspaceFileSystemService;
+    private GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private SnapshotRollbackTool tool;
 
     @BeforeEach
@@ -28,10 +30,17 @@ class SnapshotRollbackToolTest {
         executionContextService = mock(GenerationToolExecutionContextService.class);
         workspaceFileService = mock(ToolWorkspaceFileService.class);
         workspaceFileSystemService = mock(WorkspaceFileSystemService.class);
+        snapshotWorkspaceService = mock(GenerationSnapshotWorkspaceService.class);
+        when(snapshotWorkspaceService.resolveApplicationRoot(any()))
+                .thenAnswer(invocation -> {
+                    Object appId = invocation.getArgument(0);
+                    return Path.of("target", "test-snapshots", String.valueOf(appId));
+                });
         tool = new SnapshotRollbackTool(
                 executionContextService,
                 workspaceFileService,
                 workspaceFileSystemService,
+                snapshotWorkspaceService,
                 new SnapshotNamePolicy()
         );
     }

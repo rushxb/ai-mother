@@ -1,160 +1,98 @@
 package com.rush.rushaicodemother.orchestration.template;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
-import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ConcurrentMap;
 
-/**
- * 模板预热服务。
- * <p>
- * 负责在模板复制后预装依赖，避免每次生成都执行 pnpm install。
- * 通过共享 node_modules 和指纹文件实现依赖复用。
- */
+/** Stores validated, application-lifetime node_modules caches for known packaged templates. */
 @Slf4j
 @Service
 public class TemplatePreWarmService {
 
-    /**
-     * 模板级别的 node_modules 缓存。
-     * key: templateId
-     * value: node_modules 路径
-     */
-    private final ConcurrentHashMap<String, Path> templateNodeModulesCache = new ConcurrentHashMap<>();
+    private static final String NODE_MODULES_DIRECTORY = "node_modules";
 
-    /**
-     * 模板级别的锁，防止并发安装。
-     */
-    private final ConcurrentHashMap<String, ReentrantLock> templateLocks = new ConcurrentHashMap<>();
+    private final ProjectTemplateCatalog templateCatalog;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final ConcurrentMap<String, Path> templateNodeModulesCache = new ConcurrentHashMap<>();
 
-    /**
-     * 检查模板是否已预热（有 node_modules）。
-     *
-     * @param projectPath 项目路径
-     * @return 是否已预热
-     */
-    public boolean isPreWarmed(String projectPath) {
-        if (StrUtil.isBlank(projectPath)) {
-            return false;
-        }
-        File nodeModules = new File(projectPath, "node_modules");
-        File stampFile = new File(projectPath, ".ai-code-install.stamp");
-        return nodeModules.exists() && nodeModules.isDirectory() && stampFile.exists();
+    public TemplatePreWarmService(ProjectTemplateCatalog templateCatalog,
+                                  WorkspaceFileSystemService workspaceFileSystemService) {
+        this.templateCatalog = Objects.requireNonNull(templateCatalog, "templateCatalog must not be null");
+        this.workspaceFileSystemService = Objects.requireNonNull(
+                workspaceFileSystemService,
+                "workspaceFileSystemService must not be null"
+        );
     }
 
-    /**
-     * 复制预热的 node_modules 到目标目录。
-     *
-     * @param templateId  模板 ID
-     * @param targetPath  目标路径
-     * @return 是否成功
-     */
-    public boolean copyPreWarmedModules(String templateId, String targetPath) {
-        if (StrUtil.isBlank(templateId) || StrUtil.isBlank(targetPath)) {
-            return false;
+    /** Copies a validated cache into a caller-owned template staging directory. */
+    public boolean copyPreWarmedModules(String templateId, Path targetRoot) throws IOException {
+        templateCatalog.requireNodeTemplate(templateId);
+        Path safeTargetRoot = Objects.requireNonNull(targetRoot, "targetRoot must not be null")
+                .toAbsolutePath()
+                .normalize();
+        if (!workspaceFileSystemService.isDirectory(safeTargetRoot)) {
+            throw new IOException("Template staging directory does not exist");
         }
 
-        // 检查目标是否已经有 node_modules
-        File targetNodeModules = new File(targetPath, "node_modules");
-        if (targetNodeModules.exists()) {
-            log.debug("目标目录已有 node_modules: {}", targetPath);
+        Path targetNodeModules = safeTargetRoot.resolve(NODE_MODULES_DIRECTORY).normalize();
+        if (Files.exists(targetNodeModules, LinkOption.NOFOLLOW_LINKS)) {
+            workspaceFileSystemService.isDirectory(targetNodeModules);
             return true;
         }
 
-        // 尝试从缓存获取预热的 node_modules
         Path cachedModules = templateNodeModulesCache.get(templateId);
-        if (cachedModules != null && Files.exists(cachedModules)) {
-            try {
-                FileUtil.copyContent(cachedModules.toFile(), targetNodeModules, true);
-                log.info("从缓存复制 node_modules: {} -> {}", cachedModules, targetPath);
-                return true;
-            } catch (Exception e) {
-                log.warn("从缓存复制 node_modules 失败: {}", LogExceptionSanitizer.sanitizeMessage(e));
+        if (cachedModules == null) {
+            return false;
+        }
+        try {
+            if (!workspaceFileSystemService.isDirectory(cachedModules)) {
+                templateNodeModulesCache.remove(templateId, cachedModules);
+                return false;
             }
-        }
-
-        return false;
-    }
-
-    /**
-     * 记录预热的 node_modules 路径。
-     *
-     * @param templateId    模板 ID
-     * @param nodeModulesPath node_modules 路径
-     */
-    public void registerPreWarmedModules(String templateId, Path nodeModulesPath) {
-        if (StrUtil.isBlank(templateId) || nodeModulesPath == null) {
-            return;
-        }
-        templateNodeModulesCache.put(templateId, nodeModulesPath);
-        log.info("注册预热的 node_modules: {} -> {}", templateId, nodeModulesPath);
-    }
-
-    /**
-     * 创建依赖指纹文件。
-     *
-     * @param projectPath    项目路径
-     * @param fingerprint    指纹值
-     */
-    public void createStampFile(String projectPath, String fingerprint) {
-        if (StrUtil.isBlank(projectPath) || StrUtil.isBlank(fingerprint)) {
-            return;
-        }
-        try {
-            File stampFile = new File(projectPath, ".ai-code-install.stamp");
-            FileUtil.writeString(fingerprint, stampFile, StandardCharsets.UTF_8);
-            log.debug("创建依赖指纹文件: {}", stampFile.getAbsolutePath());
-        } catch (Exception e) {
-            log.warn("创建依赖指纹文件失败: {}", LogExceptionSanitizer.sanitizeMessage(e));
-        }
-    }
-
-    /**
-     * 获取模板锁（防止并发安装）。
-     *
-     * @param templateId 模板 ID
-     * @return 锁对象
-     */
-    public ReentrantLock getTemplateLock(String templateId) {
-        return templateLocks.computeIfAbsent(templateId, k -> new ReentrantLock());
-    }
-
-    /**
-     * 检查是否可以共享 node_modules。
-     * <p>
-     * 如果多个项目使用相同的模板和依赖版本，可以共享 node_modules。
-     *
-     * @param templateId     模板 ID
-     * @param dependencyHash 依赖哈希值
-     * @return 是否可以共享
-     */
-    public boolean canShareNodeModules(String templateId, String dependencyHash) {
-        if (StrUtil.isBlank(templateId) || StrUtil.isBlank(dependencyHash)) {
-            return false;
-        }
-        // 检查缓存中是否有匹配的 node_modules
-        Path cachedModules = templateNodeModulesCache.get(templateId);
-        if (cachedModules == null || !Files.exists(cachedModules)) {
-            return false;
-        }
-        // 检查指纹是否匹配
-        File stampFile = new File(cachedModules.toFile().getParent(), ".ai-code-install.stamp");
-        if (!stampFile.exists()) {
+        } catch (IOException exception) {
+            templateNodeModulesCache.remove(templateId, cachedModules);
+            log.warn(
+                    "Discarded unsafe pre-warmed dependency cache: templateId={}, error={}",
+                    templateId,
+                    LogExceptionSanitizer.sanitizeMessage(exception)
+            );
             return false;
         }
         try {
-            String cachedFingerprint = FileUtil.readString(stampFile, StandardCharsets.UTF_8).trim();
-            return dependencyHash.equals(cachedFingerprint);
-        } catch (Exception e) {
+            workspaceFileSystemService.copyDirectory(cachedModules, targetNodeModules);
+            log.info("Copied pre-warmed dependencies: templateId={}, target={}", templateId, safeTargetRoot);
+            return true;
+        } catch (IOException exception) {
+            log.warn(
+                    "Pre-warmed dependency copy was skipped: templateId={}, error={}",
+                    templateId,
+                    LogExceptionSanitizer.sanitizeMessage(exception)
+            );
             return false;
         }
+    }
+
+    /** Registers one safe node_modules directory for a known Node.js template. */
+    public void registerPreWarmedModules(String templateId, Path nodeModulesPath) throws IOException {
+        templateCatalog.requireNodeTemplate(templateId);
+        Path safeNodeModules = Objects.requireNonNull(nodeModulesPath, "nodeModulesPath must not be null")
+                .toAbsolutePath()
+                .normalize();
+        if (safeNodeModules.getFileName() == null
+                || !NODE_MODULES_DIRECTORY.equals(safeNodeModules.getFileName().toString())
+                || !workspaceFileSystemService.isDirectory(safeNodeModules)) {
+            throw new IOException("Pre-warmed dependency cache is not a safe node_modules directory");
+        }
+        templateNodeModulesCache.put(templateId, safeNodeModules);
+        log.info("Registered pre-warmed dependencies: templateId={}", templateId);
     }
 }

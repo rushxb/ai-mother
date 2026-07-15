@@ -44,6 +44,8 @@ class RobocopyDirectoryCopierTest {
         verify(processExecutor).execute(requestCaptor.capture());
         ManagedProcessRequest request = requestCaptor.getValue();
         assertTrue(request.command().contains("/UNICODE"));
+        assertTrue(request.command().contains("/SL"));
+        assertTrue(request.command().contains("/XJ"));
         assertTrue(request.command().contains("/XD"));
         assertTrue(request.command().contains("/XF"));
         assertEquals(StandardCharsets.UTF_16LE, request.outputCharset());

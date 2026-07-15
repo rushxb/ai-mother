@@ -1,15 +1,14 @@
 package com.rush.rushaicodemother.controller;
 
-import com.rush.rushaicodemother.constant.AppConstant;
-import com.rush.rushaicodemother.infrastructure.filesystem.SecurePathResolver;
+import com.rush.rushaicodemother.service.artifact.DeploymentArtifactResourceService;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,53 +20,54 @@ import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Objects;
 
-/**
- * 生成结果静态资源访问控制器。
- */
+/** 生成结果静态资源访问控制器。 */
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/static")
 public class StaticResourceController {
 
-    private static final Path PREVIEW_ROOT = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR);
+    private final DeploymentArtifactResourceService deploymentArtifactResourceService;
 
-    private final SecurePathResolver securePathResolver;
+    public StaticResourceController(DeploymentArtifactResourceService deploymentArtifactResourceService) {
+        this.deploymentArtifactResourceService = Objects.requireNonNull(
+                deploymentArtifactResourceService,
+                "deploymentArtifactResourceService must not be null"
+        );
+    }
 
     /**
-     * 提供生成结果的静态资源访问，并对目录请求补充 index.html。
+     * 提供已提交部署产物的静态资源访问，并对目录请求补充 index.html。
      */
     @GetMapping("/{deployKey}/**")
-    public ResponseEntity<Resource> serveStaticResource(@PathVariable String deployKey,
-                                                         HttpServletRequest request) {
+    public ResponseEntity<Resource> serveStaticResource(
+            @PathVariable String deployKey,
+            HttpServletRequest request
+    ) {
         String mappedPath = (String) request.getAttribute(
                 HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE
         );
-        String prefix = "/static/" + deployKey;
-        if (mappedPath == null || !mappedPath.startsWith(prefix)) {
+        String deploymentPath = "/static/" + deployKey;
+        if (mappedPath == null) {
             return ResponseEntity.badRequest().build();
         }
-
-        String requestedPath = mappedPath.substring(prefix.length());
-        if (requestedPath.isEmpty()) {
+        if (mappedPath.equals(deploymentPath)) {
             HttpHeaders headers = new HttpHeaders();
             headers.setLocation(java.net.URI.create(request.getRequestURI() + "/"));
             return new ResponseEntity<>(headers, HttpStatus.MOVED_PERMANENTLY);
         }
 
-        String relativePath = requestedPath.startsWith("/")
-                ? requestedPath.substring(1)
-                : requestedPath;
+        String resourcePrefix = deploymentPath + "/";
+        if (!mappedPath.startsWith(resourcePrefix)) {
+            return ResponseEntity.badRequest().build();
+        }
+        String relativePath = mappedPath.substring(resourcePrefix.length());
         if (relativePath.isEmpty() || relativePath.endsWith("/")) {
             relativePath += "index.html";
         }
 
         try {
-            Path resourcePath = securePathResolver.resolveRegularFile(
-                    PREVIEW_ROOT,
-                    deployKey,
-                    relativePath
-            );
+            Path resourcePath = deploymentArtifactResourceService.resolve(deployKey, relativePath);
             MediaType contentType = resolveContentType(resourcePath);
             return ResponseEntity.ok()
                     .contentType(contentType)
@@ -97,15 +97,7 @@ public class StaticResourceController {
         if (fileName.endsWith(".json")) {
             return MediaType.APPLICATION_JSON;
         }
-        if (fileName.endsWith(".svg")) {
-            return MediaType.parseMediaType("image/svg+xml");
-        }
-        if (fileName.endsWith(".png")) {
-            return MediaType.IMAGE_PNG;
-        }
-        if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
-            return MediaType.IMAGE_JPEG;
-        }
-        return MediaType.APPLICATION_OCTET_STREAM;
+        return MediaTypeFactory.getMediaType(fileName)
+                .orElse(MediaType.APPLICATION_OCTET_STREAM);
     }
 }

@@ -1,10 +1,12 @@
 package com.rush.rushaicodemother.ai.tools;
 
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.config.AiToolWorkspaceProperties;
+import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.config.PatchExecutionProperties;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceFileService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 
 /**
  * Creates real path resolvers for tool tests without bootstrapping the Spring context.
@@ -19,6 +21,14 @@ final class ToolPathSupportTestFixture {
     }
 
     static ToolPathSupport forApp(long appId, CodeGenTypeEnum codeGenType) {
+        return forApp(appId, codeGenType, new CodeStorageProperties());
+    }
+
+    static ToolPathSupport forApp(
+            long appId,
+            CodeGenTypeEnum codeGenType,
+            CodeStorageProperties storageProperties
+    ) {
         GenerationToolExecutionContextService contextService = new GenerationToolExecutionContextService();
         contextService.bindChangePlan(
                 appId,
@@ -29,11 +39,21 @@ final class ToolPathSupportTestFixture {
                 true,
                 "test"
         );
-        return new ToolPathSupport(contextService);
+        return from(contextService, storageProperties);
     }
 
     static ToolPathSupport from(GenerationToolExecutionContextService contextService) {
-        return new ToolPathSupport(contextService);
+        return from(contextService, new CodeStorageProperties());
+    }
+
+    static ToolPathSupport from(
+            GenerationToolExecutionContextService contextService,
+            CodeStorageProperties storageProperties
+    ) {
+        return new ToolPathSupport(
+                contextService,
+                new GenerationWorkspaceService(storageProperties)
+        );
     }
 
     static ToolWorkspaceFileService workspaceForApp(long appId) {

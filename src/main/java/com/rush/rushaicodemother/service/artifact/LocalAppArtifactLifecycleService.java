@@ -1,75 +1,63 @@
 package com.rush.rushaicodemother.service.artifact;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /** 本地文件系统应用产物生命周期实现。 */
 @Service
 @Slf4j
 public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleService {
 
-    private static final Pattern DEPLOY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9]{6,64}");
     private static final String COPY_STAGING_PREFIX = ".artifact-copy-";
     private static final String DEPLOY_STAGING_PREFIX = ".deploy-staging-";
     private static final String DEPLOY_BACKUP_PREFIX = ".deploy-backup-";
     private static final String DELETE_QUARANTINE_PREFIX = ".artifact-delete-";
-    private static final List<String> GENERATED_DIRECTORY_EXCLUSIONS = List.of(
-            ".git", ".idea", "node_modules", "dist", "target"
-    );
-    private static final List<String> GENERATED_FILE_EXCLUSIONS = List.of(
-            ".ai-code-install.stamp",
-            ".ai-code-critical.stamp",
-            ".ai-code-presentation.stamp"
-    );
-
     private final Path outputRoot;
     private final Path deployRoot;
-    private final boolean windows;
-    private final RobocopyDirectoryCopier robocopyDirectoryCopier;
+    private final ArtifactDirectoryCopier artifactDirectoryCopier;
+    private final DeploymentKeyPolicy deploymentKeyPolicy;
+    private final ArtifactPathMover artifactPathMover;
 
-    @Autowired
-    public LocalAppArtifactLifecycleService(RobocopyDirectoryCopier robocopyDirectoryCopier) {
-        this(
-                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
-                Path.of(AppConstant.CODE_DEPLOY_ROOT_DIR),
-                System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows"),
-                robocopyDirectoryCopier
-        );
-    }
-
-    LocalAppArtifactLifecycleService(
-            Path outputRoot,
-            Path deployRoot,
-            boolean windows,
-            RobocopyDirectoryCopier robocopyDirectoryCopier
+    public LocalAppArtifactLifecycleService(
+            CodeStorageProperties storageProperties,
+            DeploymentKeyPolicy deploymentKeyPolicy,
+            ArtifactDirectoryCopier artifactDirectoryCopier,
+            ArtifactPathMover artifactPathMover
     ) {
-        this.outputRoot = outputRoot.toAbsolutePath().normalize();
-        this.deployRoot = deployRoot.toAbsolutePath().normalize();
-        this.windows = windows;
-        this.robocopyDirectoryCopier = robocopyDirectoryCopier;
+        Objects.requireNonNull(storageProperties, "storageProperties must not be null");
+        this.outputRoot = storageProperties.outputRoot();
+        this.deployRoot = storageProperties.deployRoot();
+        this.artifactDirectoryCopier = Objects.requireNonNull(
+                artifactDirectoryCopier,
+                "artifactDirectoryCopier must not be null"
+        );
+        this.deploymentKeyPolicy = Objects.requireNonNull(
+                deploymentKeyPolicy,
+                "deploymentKeyPolicy must not be null"
+        );
+        this.artifactPathMover = Objects.requireNonNull(
+                artifactPathMover,
+                "artifactPathMover must not be null"
+        );
     }
 
     @Override
@@ -97,14 +85,21 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 "复制暂存目录"
         );
         try {
-            copyDirectory(sourceDirectory, stagingDirectory, CopyProfile.GENERATED_SOURCE);
-            movePath(stagingDirectory, targetDirectory);
+            artifactDirectoryCopier.copy(sourceDirectory, stagingDirectory, ArtifactCopyProfile.GENERATED_SOURCE);
+            artifactPathMover.move(stagingDirectory, targetDirectory);
         } catch (BusinessException exception) {
-            deleteQuietly(stagingDirectory, "复制暂存目录");
+            deleteQuietly(stagingDirectory, "artifact copy staging directory");
             throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            deleteQuietly(stagingDirectory, "artifact copy staging directory");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Artifact copy was interrupted", exception);
+        } catch (ArtifactCopyException exception) {
+            deleteQuietly(stagingDirectory, "artifact copy staging directory");
+            throw mapArtifactCopyFailure(exception, "Failed to copy application source");
         } catch (Exception exception) {
-            deleteQuietly(stagingDirectory, "复制暂存目录");
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "复制应用代码失败", exception);
+            deleteQuietly(stagingDirectory, "artifact copy staging directory");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to copy application source", exception);
         }
     }
 
@@ -126,14 +121,21 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 "部署备份目录"
         );
         try {
-            copyDirectory(safeSourceDirectory, stagingDirectory, CopyProfile.DEPLOYMENT);
+            artifactDirectoryCopier.copy(safeSourceDirectory, stagingDirectory, ArtifactCopyProfile.DEPLOYMENT);
             return new LocalDeploymentArtifactTransaction(stagingDirectory, targetDirectory, backupDirectory);
         } catch (BusinessException exception) {
-            deleteQuietly(stagingDirectory, "部署暂存目录");
+            deleteQuietly(stagingDirectory, "deployment staging directory");
             throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            deleteQuietly(stagingDirectory, "deployment staging directory");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Deployment artifact copy was interrupted", exception);
+        } catch (ArtifactCopyException exception) {
+            deleteQuietly(stagingDirectory, "deployment staging directory");
+            throw mapArtifactCopyFailure(exception, "Failed to prepare deployment artifact");
         } catch (Exception exception) {
-            deleteQuietly(stagingDirectory, "部署暂存目录");
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "准备部署产物失败", exception);
+            deleteQuietly(stagingDirectory, "deployment staging directory");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to prepare deployment artifact", exception);
         }
     }
 
@@ -219,7 +221,6 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 ErrorCode.NOT_FOUND_ERROR, "部署源目录不存在");
         Path realSource = toRealPath(normalizedSource, "部署源目录解析失败");
         ThrowUtils.throwIf(!realSource.startsWith(root), ErrorCode.NO_AUTH_ERROR, "部署源目录越界");
-        validateInternalSymbolicLinks(realSource, CopyProfile.DEPLOYMENT);
         return realSource;
     }
 
@@ -250,103 +251,20 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
     }
 
     private void validateDeployKey(String deployKey) {
-        ThrowUtils.throwIf(deployKey == null || !DEPLOY_KEY_PATTERN.matcher(deployKey).matches(),
+        ThrowUtils.throwIf(!deploymentKeyPolicy.isValid(deployKey),
                 ErrorCode.PARAMS_ERROR, "部署标识格式错误");
     }
 
-    private void copyDirectory(Path sourceRoot, Path targetRoot, CopyProfile copyProfile)
-            throws IOException, InterruptedException {
-        validateInternalSymbolicLinks(sourceRoot, copyProfile);
-        if (windows) {
-            copyDirectoryWithRobocopy(sourceRoot, targetRoot, copyProfile);
-            return;
-        }
-        copyDirectoryWithNio(sourceRoot, targetRoot, copyProfile);
-    }
-
-    private void copyDirectoryWithRobocopy(Path sourceRoot, Path targetRoot, CopyProfile copyProfile)
-            throws IOException, InterruptedException {
-        Files.createDirectories(targetRoot);
-        List<String> excludedDirectories = copyProfile == CopyProfile.GENERATED_SOURCE
-                ? GENERATED_DIRECTORY_EXCLUSIONS
-                : List.of();
-        List<String> excludedFiles = copyProfile == CopyProfile.GENERATED_SOURCE
-                ? GENERATED_FILE_EXCLUSIONS
-                : List.of();
-        robocopyDirectoryCopier.copy(
-                sourceRoot,
-                targetRoot,
-                excludedDirectories,
-                excludedFiles
-        );
-    }
-
-    private void copyDirectoryWithNio(Path sourceRoot, Path targetRoot, CopyProfile copyProfile) throws IOException {
-        Files.createDirectories(targetRoot);
-        Files.walkFileTree(sourceRoot, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
-                if (!directory.equals(sourceRoot) && copyProfile.excludesDirectory(directory.getFileName().toString())) {
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                Path relativePath = sourceRoot.relativize(directory);
-                Path targetDirectory = targetRoot.resolve(relativePath);
-                Files.createDirectories(targetDirectory);
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
-                if (copyProfile.excludesFile(file.getFileName().toString())) {
-                    return FileVisitResult.CONTINUE;
-                }
-                Path targetFile = targetRoot.resolve(sourceRoot.relativize(file));
-                Files.createDirectories(targetFile.getParent());
-                if (Files.isSymbolicLink(file)) {
-                    Files.createSymbolicLink(targetFile, Files.readSymbolicLink(file));
-                } else {
-                    Files.copy(file, targetFile,
-                            StandardCopyOption.REPLACE_EXISTING,
-                            StandardCopyOption.COPY_ATTRIBUTES);
-                }
-                return FileVisitResult.CONTINUE;
-            }
-        });
-    }
-
-    private void validateInternalSymbolicLinks(Path sourceRoot, CopyProfile copyProfile) {
-        try {
-            Files.walkFileTree(sourceRoot, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
-                    if (!directory.equals(sourceRoot) && copyProfile.excludesDirectory(directory.getFileName().toString())) {
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
-                    if (copyProfile.excludesFile(file.getFileName().toString()) || !Files.isSymbolicLink(file)) {
-                        return FileVisitResult.CONTINUE;
-                    }
-                    Path linkTarget = Files.readSymbolicLink(file);
-                    if (linkTarget.isAbsolute()) {
-                        throw new UnsafeSymbolicLinkException(file);
-                    }
-                    Path resolvedTarget = file.getParent().resolve(linkTarget).normalize();
-                    if (!resolvedTarget.startsWith(sourceRoot)) {
-                        throw new UnsafeSymbolicLinkException(file);
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (UnsafeSymbolicLinkException exception) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR,
-                    "应用产物包含指向工作区外部的符号链接: " + sourceRoot.relativize(exception.linkPath));
-        } catch (IOException exception) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用产物符号链接校验失败", exception);
-        }
+    private BusinessException mapArtifactCopyFailure(
+            ArtifactCopyException exception,
+            String operationMessage
+    ) {
+        ErrorCode errorCode = switch (exception.reason()) {
+            case UNSAFE_SYMBOLIC_LINK -> ErrorCode.NO_AUTH_ERROR;
+            case LIMIT_EXCEEDED, SOURCE_CHANGED -> ErrorCode.OPERATION_ERROR;
+            case INCOMPLETE_COPY, INVALID_PATH -> ErrorCode.SYSTEM_ERROR;
+        };
+        return new BusinessException(errorCode, operationMessage + ": " + exception.getMessage(), exception);
     }
 
     private Path toRealPath(Path path, String failureMessage) {
@@ -400,14 +318,6 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         }
     }
 
-    private void movePath(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException exception) {
-            Files.move(source, target);
-        }
-    }
-
     private final class LocalAppArtifactDeletionTransaction implements AppArtifactDeletionTransaction {
 
         private final List<DeletionTarget> deletionTargets;
@@ -434,7 +344,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                             ErrorCode.NO_AUTH_ERROR, deletionTarget.label() + "不能是符号链接");
                     ThrowUtils.throwIf(Files.exists(deletionTarget.quarantinePath(), LinkOption.NOFOLLOW_LINKS),
                             ErrorCode.SYSTEM_ERROR, deletionTarget.label() + "隔离位置已存在");
-                    movePath(deletionTarget.activePath(), deletionTarget.quarantinePath());
+                    artifactPathMover.move(deletionTarget.activePath(), deletionTarget.quarantinePath());
                     movedTargets.add(deletionTarget);
                 }
                 activated = true;
@@ -517,7 +427,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                     if (Files.exists(deletionTarget.activePath(), LinkOption.NOFOLLOW_LINKS)) {
                         throw new IOException(deletionTarget.label() + "恢复目标已被重新创建");
                     }
-                    movePath(deletionTarget.quarantinePath(), deletionTarget.activePath());
+                    artifactPathMover.move(deletionTarget.quarantinePath(), deletionTarget.activePath());
                 } catch (RuntimeException | IOException exception) {
                     BusinessException restoreFailure = exception instanceof BusinessException businessException
                             ? businessException
@@ -566,10 +476,10 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                     ErrorCode.NO_AUTH_ERROR, "部署目录不能是符号链接");
             try {
                 if (Files.exists(targetDirectory, LinkOption.NOFOLLOW_LINKS)) {
-                    movePath(targetDirectory, backupDirectory);
+                    artifactPathMover.move(targetDirectory, backupDirectory);
                 }
                 try {
-                    movePath(stagingDirectory, targetDirectory);
+                    artifactPathMover.move(stagingDirectory, targetDirectory);
                     activated = true;
                 } catch (Exception activationFailure) {
                     restoreBackupAfterActivationFailure(activationFailure);
@@ -601,7 +511,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 if (activated) {
                     deleteTree(targetDirectory);
                     if (Files.exists(backupDirectory, LinkOption.NOFOLLOW_LINKS)) {
-                        movePath(backupDirectory, targetDirectory);
+                        artifactPathMover.move(backupDirectory, targetDirectory);
                     }
                     activated = false;
                 }
@@ -616,7 +526,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             try {
                 if (Files.exists(backupDirectory, LinkOption.NOFOLLOW_LINKS)
                         && !Files.exists(targetDirectory, LinkOption.NOFOLLOW_LINKS)) {
-                    movePath(backupDirectory, targetDirectory);
+                    artifactPathMover.move(backupDirectory, targetDirectory);
                 }
             } catch (Exception restoreFailure) {
                 activationFailure.addSuppressed(restoreFailure);
@@ -626,27 +536,4 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         }
     }
 
-    private enum CopyProfile {
-        GENERATED_SOURCE,
-        DEPLOYMENT;
-
-        private boolean excludesDirectory(String directoryName) {
-            return this == GENERATED_SOURCE
-                    && GENERATED_DIRECTORY_EXCLUSIONS.contains(directoryName.toLowerCase(Locale.ROOT));
-        }
-
-        private boolean excludesFile(String fileName) {
-            return this == GENERATED_SOURCE
-                    && GENERATED_FILE_EXCLUSIONS.contains(fileName.toLowerCase(Locale.ROOT));
-        }
-    }
-
-    private static final class UnsafeSymbolicLinkException extends IOException {
-
-        private final Path linkPath;
-
-        private UnsafeSymbolicLinkException(Path linkPath) {
-            this.linkPath = linkPath;
-        }
-    }
 }

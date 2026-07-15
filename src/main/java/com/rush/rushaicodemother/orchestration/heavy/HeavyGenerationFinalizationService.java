@@ -1,6 +1,5 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
@@ -14,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.patch.GenerationPatchResultServic
 import com.rush.rushaicodemother.orchestration.review.OrphanFileReviewService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +30,7 @@ public class HeavyGenerationFinalizationService {
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationPatchResultService generationPatchResultService;
     private final OrphanFileReviewService orphanFileReviewService;
+    private final GenerationWorkspaceService generationWorkspaceService;
 
     public void emitDiffSummaryIfAvailable(Long appId,
                                            GenerationPreparation preparation,
@@ -179,7 +180,7 @@ public class HeavyGenerationFinalizationService {
         if (session.isCancelled()) {
             return;
         }
-        Path projectRoot = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR, preparation.targetType().getValue() + "_" + appId);
+        Path projectRoot = generationWorkspaceService.resolve(appId, preparation.targetType()).canonicalRootPath();
         ChangePlan changePlan = preparation.artifact("change_plan") == null
                 ? null
                 : ChangePlan.fromPayload(preparation.artifact("change_plan").payload());

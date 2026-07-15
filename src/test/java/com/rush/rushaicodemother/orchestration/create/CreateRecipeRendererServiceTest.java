@@ -7,7 +7,8 @@ import com.rush.rushaicodemother.orchestration.create.recipe.RecipeRenderResult;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchApplyServiceTestFactory;
-import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.template.TemplateServiceTestFixture;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -156,13 +157,13 @@ class CreateRecipeRendererServiceTest {
     @Test
     void shouldCompileRenderedBackendRecipeWithGoTestWhenGoIsAvailable() throws Exception {
         Assumptions.assumeTrue(goAvailable(), "Go toolchain is not available in this environment");
-        Path root = Path.of("target", "test-workspaces", "create-backend-go-test")
+        Path outputRoot = Path.of("target", "test-workspaces", "create-backend-go-test")
                 .toAbsolutePath()
                 .normalize();
-        cn.hutool.core.io.FileUtil.del(root.toFile());
-        BackendProjectTemplateBootstrapService bootstrapService =
-                new BackendProjectTemplateBootstrapService(root.getParent(), new PathMatchingResourcePatternResolver());
-        bootstrapService.bootstrapIfNecessary(root);
+        cn.hutool.core.io.FileUtil.del(outputRoot.toFile());
+        TemplateServiceTestFixture fixture = new TemplateServiceTestFixture(outputRoot);
+        fixture.backendBootstrapService().bootstrapIfNecessary(1L, CodeGenTypeEnum.BACKEND_PROJECT);
+        Path root = outputRoot.resolve("backend_project_1");
 
         CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
         RecipeRenderResult result = renderer.render(

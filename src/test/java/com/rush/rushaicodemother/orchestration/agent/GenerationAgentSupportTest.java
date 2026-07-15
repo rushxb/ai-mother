@@ -1,12 +1,15 @@
 package com.rush.rushaicodemother.orchestration.agent;
 
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -15,7 +18,10 @@ import java.util.Map;
 
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class GenerationAgentSupportTest {
 
@@ -183,6 +189,91 @@ class GenerationAgentSupportTest {
     }
 
     @Test
+    void shouldResolveCanonicalWorkspaceFromConfiguredOutputRoot() throws Exception {
+        Path outputRoot = createTempWorkspace();
+        try {
+            Path workspace = Files.createDirectories(outputRoot.resolve("vue_project_41"));
+            GenerationAgentSupport customSupport = support(outputRoot);
+            App app = app();
+            app.setId(41L);
+
+            assertEquals(workspace.toRealPath().toFile(), customSupport.resolveWorkspaceRoot(app));
+        } finally {
+            cleanup(outputRoot);
+        }
+    }
+
+    @Test
+    void shouldReturnNullWhenWorkspaceIdentityOrDirectoryIsUnavailable() throws Exception {
+        Path outputRoot = createTempWorkspace();
+        try {
+            GenerationAgentSupport customSupport = support(outputRoot);
+            App missingId = app();
+            App invalidId = app();
+            invalidId.setId(0L);
+            App unknownType = App.builder().id(42L).codeGenType("unknown").build();
+            App missingWorkspace = App.builder()
+                    .id(43L)
+                    .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue())
+                    .build();
+
+            assertNull(customSupport.resolveWorkspaceRoot(null));
+            assertNull(customSupport.resolveWorkspaceRoot(missingId));
+            assertNull(customSupport.resolveWorkspaceRoot(invalidId));
+            assertNull(customSupport.resolveWorkspaceRoot(unknownType));
+            assertNull(customSupport.resolveWorkspaceRoot(missingWorkspace));
+        } finally {
+            cleanup(outputRoot);
+        }
+    }
+
+    @Test
+    void shouldHonorExplicitGenerationTypeWhenResolvingWorkspace() throws Exception {
+        Path outputRoot = createTempWorkspace();
+        try {
+            Path workspace = Files.createDirectories(outputRoot.resolve("vue_project_44"));
+            GenerationAgentSupport customSupport = support(outputRoot);
+            App app = App.builder()
+                    .id(44L)
+                    .codeGenType(CodeGenTypeEnum.HTML.getValue())
+                    .build();
+
+            assertEquals(
+                    workspace.toRealPath().toFile(),
+                    customSupport.resolveWorkspaceRoot(app, CodeGenTypeEnum.VUE_PROJECT)
+            );
+        } finally {
+            cleanup(outputRoot);
+        }
+    }
+
+    @Test
+    void shouldRejectSymbolicWorkspaceInsteadOfFollowingIt() throws Exception {
+        Path outputRoot = createTempWorkspace();
+        Path externalWorkspace = createTempWorkspace();
+        Path workspaceLink = outputRoot.resolve("vue_project_45");
+        try {
+            createSymbolicLinkOrSkip(workspaceLink, externalWorkspace);
+            GenerationAgentSupport customSupport = support(outputRoot);
+            App app = App.builder()
+                    .id(45L)
+                    .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue())
+                    .build();
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> customSupport.resolveWorkspaceRoot(app)
+            );
+
+            assertEquals(ErrorCode.NO_AUTH_ERROR.getCode(), exception.getCode());
+        } finally {
+            Files.deleteIfExists(workspaceLink);
+            cleanup(outputRoot);
+            cleanup(externalWorkspace);
+        }
+    }
+
+    @Test
     void shouldReturnEmptySelectionForBlankArtifacts() {
         List<String> normalized = support.normalizeSelectedFiles(Arrays.asList("  ", null, "../secret", "src/App.vue"));
         assertTrue(normalized.contains("src/App.vue"));
@@ -205,6 +296,14 @@ class GenerationAgentSupportTest {
         Path file = rootDir.resolve(relativePath);
         Files.createDirectories(file.getParent() == null ? rootDir : file.getParent());
         Files.writeString(file, content);
+    }
+
+    private void createSymbolicLinkOrSkip(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (IOException | UnsupportedOperationException | SecurityException exception) {
+            assumeTrue(false, "当前环境不支持创建符号链接: " + exception.getClass().getSimpleName());
+        }
     }
 
     private void cleanup(Path path) {

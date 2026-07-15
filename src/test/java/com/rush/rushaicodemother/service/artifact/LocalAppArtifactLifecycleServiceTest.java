@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.service.artifact;
 
+import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
+import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
@@ -24,7 +26,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -41,12 +46,7 @@ class LocalAppArtifactLifecycleServiceTest {
         tempDirectory = createTestDirectory("artifact-lifecycle");
         outputRoot = tempDirectory.resolve("output");
         deployRoot = tempDirectory.resolve("deploy");
-        artifactService = new LocalAppArtifactLifecycleService(
-                outputRoot,
-                deployRoot,
-                false,
-                mock(RobocopyDirectoryCopier.class)
-        );
+        artifactService = createArtifactService(false, mock(RobocopyDirectoryCopier.class));
     }
 
     @Test
@@ -92,8 +92,13 @@ class LocalAppArtifactLifecycleServiceTest {
     @Test
     void shouldDelegateWindowsGeneratedCopyToRobocopyAdapter() throws Exception {
         RobocopyDirectoryCopier copier = mock(RobocopyDirectoryCopier.class);
-        LocalAppArtifactLifecycleService windowsArtifactService =
-                new LocalAppArtifactLifecycleService(outputRoot, deployRoot, true, copier);
+        doAnswer(invocation -> {
+            Path source = invocation.getArgument(0);
+            Path target = invocation.getArgument(1);
+            Files.copy(source.resolve("index.html"), target.resolve("index.html"));
+            return null;
+        }).when(copier).copy(any(Path.class), any(Path.class), anyList(), anyList());
+        LocalAppArtifactLifecycleService windowsArtifactService = createArtifactService(true, copier);
         App sourceApp = app(23L, CodeGenTypeEnum.HTML, null);
         App targetApp = app(24L, CodeGenTypeEnum.HTML, null);
         Path sourceDirectory = createGeneratedDirectory(sourceApp);
@@ -190,6 +195,67 @@ class LocalAppArtifactLifecycleServiceTest {
     }
 
     @Test
+    void shouldMapArtifactCopyLimitToOperationError() throws IOException {
+        ArtifactLifecycleProperties limitedProperties = new ArtifactLifecycleProperties();
+        limitedProperties.setMaxFiles(1);
+        LocalAppArtifactLifecycleService limitedService = new LocalAppArtifactLifecycleService(
+                storageProperties(outputRoot, deployRoot),
+                new DeploymentKeyPolicy(),
+                new ArtifactDirectoryCopier(
+                        limitedProperties,
+                        mock(RobocopyDirectoryCopier.class),
+                        false
+                ),
+                new ArtifactPathMover(limitedProperties)
+        );
+        App sourceApp = app(63L, CodeGenTypeEnum.HTML, null);
+        App targetApp = app(64L, CodeGenTypeEnum.HTML, null);
+        Path sourceDirectory = createGeneratedDirectory(sourceApp);
+        Files.writeString(sourceDirectory.resolve("one.html"), "one", StandardCharsets.UTF_8);
+        Files.writeString(sourceDirectory.resolve("two.html"), "two", StandardCharsets.UTF_8);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> limitedService.copyGeneratedArtifact(sourceApp, targetApp)
+        );
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+        assertFalse(Files.exists(outputRoot.resolve("html_64")));
+        assertFalse(hasStagingDirectory(outputRoot, ".artifact-copy-"));
+    }
+
+    @Test
+    void shouldRestoreInterruptedStatusWhenArtifactCopyIsInterrupted() throws Exception {
+        ArtifactDirectoryCopier directoryCopier = mock(ArtifactDirectoryCopier.class);
+        doThrow(new InterruptedException("test interruption"))
+                .when(directoryCopier)
+                .copy(any(Path.class), any(Path.class), eq(ArtifactCopyProfile.GENERATED_SOURCE));
+        LocalAppArtifactLifecycleService interruptedService =
+                new LocalAppArtifactLifecycleService(
+                storageProperties(outputRoot, deployRoot),
+                new DeploymentKeyPolicy(),
+                directoryCopier,
+                new ArtifactPathMover(new ArtifactLifecycleProperties())
+        );
+        App sourceApp = app(65L, CodeGenTypeEnum.HTML, null);
+        App targetApp = app(66L, CodeGenTypeEnum.HTML, null);
+        createGeneratedDirectory(sourceApp);
+
+        try {
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> interruptedService.copyGeneratedArtifact(sourceApp, targetApp)
+            );
+
+            assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), exception.getCode());
+            assertTrue(Thread.currentThread().isInterrupted());
+            assertFalse(hasStagingDirectory(outputRoot, ".artifact-copy-"));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
     void shouldRestoreGeneratedAndDeploymentArtifactsOnDeletionRollback() throws IOException {
         App app = app(71L, CodeGenTypeEnum.MULTI_FILE, "Deploy71");
         Path generatedDirectory = createGeneratedDirectory(app);
@@ -261,6 +327,31 @@ class LocalAppArtifactLifecycleServiceTest {
         assertEquals(ErrorCode.NO_AUTH_ERROR.getCode(), exception.getCode());
         assertTrue(Files.isSymbolicLink(generatedLink));
         assertFalse(hasStagingDirectory(outputRoot, ".artifact-delete-"));
+    }
+
+    private LocalAppArtifactLifecycleService createArtifactService(
+            boolean windows,
+            RobocopyDirectoryCopier robocopyDirectoryCopier
+    ) {
+        ArtifactLifecycleProperties properties = new ArtifactLifecycleProperties();
+        ArtifactDirectoryCopier directoryCopier = new ArtifactDirectoryCopier(
+                properties,
+                robocopyDirectoryCopier,
+                windows
+        );
+        return new LocalAppArtifactLifecycleService(
+                storageProperties(outputRoot, deployRoot),
+                new DeploymentKeyPolicy(),
+                directoryCopier,
+                new ArtifactPathMover(properties)
+        );
+    }
+
+    private CodeStorageProperties storageProperties(Path configuredOutputRoot, Path configuredDeployRoot) {
+        CodeStorageProperties properties = new CodeStorageProperties();
+        properties.setOutputRootDir(configuredOutputRoot);
+        properties.setDeployRootDir(configuredDeployRoot);
+        return properties;
     }
 
     private Path createGeneratedDirectory(App app) throws IOException {

@@ -152,6 +152,13 @@ app:
     max-copy-bytes: ${WORKSPACE_MAX_COPY_BYTES:2147483648}
     max-persisted-file-bytes: ${WORKSPACE_MAX_PERSISTED_FILE_BYTES:67108864}
     max-listed-directories: ${WORKSPACE_MAX_LISTED_DIRECTORIES:1000}
+    publish-max-attempts: ${WORKSPACE_PUBLISH_MAX_ATTEMPTS:5}
+    publish-retry-delay-millis: ${WORKSPACE_PUBLISH_RETRY_DELAY_MILLIS:50}
+  generation-project-context:
+    max-project-index-files: ${GENERATION_CONTEXT_MAX_PROJECT_INDEX_FILES:80}
+    max-single-file-chars: ${GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS:12000}
+    max-total-context-chars: ${GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS:100000}
+    max-readable-file-bytes: ${GENERATION_CONTEXT_MAX_READABLE_FILE_BYTES:1048576}
   edit-locator:
     max-candidate-files: ${EDIT_LOCATOR_MAX_CANDIDATE_FILES:8}
     max-single-file-chars: ${EDIT_LOCATOR_MAX_SINGLE_FILE_CHARS:20480}
@@ -183,6 +190,13 @@ app:
     heartbeat-interval: ${ARTIFACT_COPY_HEARTBEAT_INTERVAL:30s}
     output-drain-timeout: ${ARTIFACT_COPY_OUTPUT_DRAIN_TIMEOUT:5s}
     max-output-length: ${ARTIFACT_COPY_MAX_OUTPUT_LENGTH:8000}
+    max-files: ${ARTIFACT_COPY_MAX_FILES:20000}
+    max-directories: ${ARTIFACT_COPY_MAX_DIRECTORIES:5000}
+    max-directory-depth: ${ARTIFACT_COPY_MAX_DIRECTORY_DEPTH:64}
+    max-file-bytes: ${ARTIFACT_COPY_MAX_FILE_BYTES:104857600}
+    max-total-bytes: ${ARTIFACT_COPY_MAX_TOTAL_BYTES:2147483648}
+    publish-max-attempts: ${ARTIFACT_PUBLISH_MAX_ATTEMPTS:5}
+    publish-retry-delay-millis: ${ARTIFACT_PUBLISH_RETRY_DELAY_MILLIS:50}
   dev-server:
     proxy:
       connect-timeout: ${DEV_SERVER_CONNECT_TIMEOUT:3s}
@@ -209,6 +223,14 @@ app:
     max-attempts: ${DEPENDENCY_INSTALL_MAX_ATTEMPTS:3}
     max-output-length: ${DEPENDENCY_INSTALL_MAX_OUTPUT_LENGTH:12000}
     lock-stripes: ${DEPENDENCY_INSTALL_LOCK_STRIPES:64}
+  template-materialization:
+    max-files: ${TEMPLATE_MATERIALIZATION_MAX_FILES:2000}
+    max-file-bytes: ${TEMPLATE_MATERIALIZATION_MAX_FILE_BYTES:10485760}
+    max-total-bytes: ${TEMPLATE_MATERIALIZATION_MAX_TOTAL_BYTES:104857600}
+    max-relative-path-length: ${TEMPLATE_MATERIALIZATION_MAX_RELATIVE_PATH_LENGTH:1024}
+    max-directory-depth: ${TEMPLATE_MATERIALIZATION_MAX_DIRECTORY_DEPTH:32}
+    publish-max-attempts: ${TEMPLATE_MATERIALIZATION_PUBLISH_MAX_ATTEMPTS:5}
+    publish-retry-delay-millis: ${TEMPLATE_MATERIALIZATION_PUBLISH_RETRY_DELAY_MILLIS:50}
   template-pre-warm:
     max-concurrency: ${TEMPLATE_PRE_WARM_MAX_CONCURRENCY:2}
     template-ids:

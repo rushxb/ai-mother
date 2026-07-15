@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.artifact.DeploymentArtifactTransaction;
+import com.rush.rushaicodemother.service.artifact.DeploymentKeyPolicy;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
 import com.rush.rushaicodemother.service.screenshot.ScreenshotService;
 import org.junit.jupiter.api.AfterEach;
@@ -322,6 +323,7 @@ class LocalAppDeploymentServiceTest {
                 appMapper,
                 properties,
                 new AppOperationLockManager(),
+                new DeploymentKeyPolicy(),
                 deploymentKeyGenerator,
                 screenshotExecutor
         );

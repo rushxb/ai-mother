@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
+
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
@@ -13,6 +15,7 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
@@ -83,6 +86,7 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     mock(HeavyGenerationExecutionService.class),
                     mock(HeavyGenerationFailureRecoveryService.class),
                     mock(HeavyGenerationSessionCompletionService.class),
+                    new GenerationWorkspaceService(new CodeStorageProperties()),
                     vueProjectBuilder
             );
             GenerationPreparation preparation = preparation(taskId, new HashMap<>());
@@ -126,7 +130,8 @@ class HeavyGenerationDiagnosticBoundaryTest {
         HeavyGenerationFailureRecoveryService service = new HeavyGenerationFailureRecoveryService(
                 mock(GenerationAppStateService.class),
                 mock(GenerationOrchestrationMetricsCollector.class),
-                mock(GenerationRollbackRestoreService.class)
+                mock(GenerationRollbackRestoreService.class),
+                new GenerationWorkspaceService(new CodeStorageProperties())
         );
 
         service.emitBuildFailure(

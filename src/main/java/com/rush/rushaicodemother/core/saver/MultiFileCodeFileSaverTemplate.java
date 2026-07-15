@@ -4,14 +4,23 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import org.springframework.stereotype.Component;
 
-/**
- * 多文件代码保存器
- *
- * @author rush
- */
-public class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<MultiFileCodeResult> {
+import java.nio.file.Path;
+
+/** Persists the files produced by the native multi-file generation mode. */
+@Component
+public final class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<MultiFileCodeResult> {
+
+    public MultiFileCodeFileSaverTemplate(
+            GenerationWorkspaceService generationWorkspaceService,
+            WorkspaceFileSystemService workspaceFileSystemService
+    ) {
+        super(MultiFileCodeResult.class, generationWorkspaceService, workspaceFileSystemService);
+    }
 
     @Override
     protected CodeGenTypeEnum getCodeType() {
@@ -19,21 +28,17 @@ public class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<MultiF
     }
 
     @Override
-    protected void saveFiles(MultiFileCodeResult result, String baseDirPath) {
-        // 保存 HTML 文件
-        writeToFile(baseDirPath, "index.html", result.getHtmlCode());
-        // 保存 CSS 文件
-        writeToFile(baseDirPath, "style.css", result.getCssCode());
-        // 保存 JavaScript 文件
-        writeToFile(baseDirPath, "script.js", result.getJsCode());
+    protected void saveFiles(MultiFileCodeResult result, Path workspaceRoot) {
+        synchronizeFile(workspaceRoot, "index.html", result.getHtmlCode());
+        synchronizeFile(workspaceRoot, "style.css", result.getCssCode());
+        synchronizeFile(workspaceRoot, "script.js", result.getJsCode());
     }
 
     @Override
     protected void validateInput(MultiFileCodeResult result) {
         super.validateInput(result);
-        // 至少要有 HTML 代码，CSS 和 JS 可以为空
         if (StrUtil.isBlank(result.getHtmlCode())) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "HTML代码内容不能为空");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "HTML 代码内容不能为空");
         }
     }
 }

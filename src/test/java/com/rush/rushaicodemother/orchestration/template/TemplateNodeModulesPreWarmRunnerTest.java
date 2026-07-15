@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.orchestration.template;
 
 import com.rush.rushaicodemother.config.TemplatePreWarmProperties;
+import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.Test;
@@ -25,9 +27,11 @@ import static org.mockito.Mockito.when;
 class TemplateNodeModulesPreWarmRunnerTest {
 
     @Test
-    void shouldUseUnifiedInstallerAndRetainSuccessfulPreWarmDirectory() throws Exception {
+    void shouldUseUnifiedMaterializerAndInstallerAndRetainSuccessfulDirectory() throws Exception {
         TemplatePreWarmService preWarmService = mock(TemplatePreWarmService.class);
+        ProjectTemplateMaterializer materializer = mock(ProjectTemplateMaterializer.class);
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
+        WorkspaceFileSystemService fileSystemService = fileSystemService();
         AtomicReference<Path> installedProject = new AtomicReference<>();
         when(installer.ensureInstalled(any(Path.class))).thenAnswer(invocation -> {
             Path project = invocation.getArgument(0);
@@ -35,17 +39,19 @@ class TemplateNodeModulesPreWarmRunnerTest {
             Files.createDirectories(project.resolve("node_modules"));
             return DependencyInstallResult.success("installed");
         });
-        TemplateNodeModulesPreWarmRunner runner = new TemplateNodeModulesPreWarmRunner(
+        TemplateNodeModulesPreWarmRunner runner = runner(
                 preWarmService,
+                materializer,
                 installer,
                 enabledProperties("vue-web-basic"),
-                new SyncTaskExecutor()
+                fileSystemService
         );
 
         runner.onApplicationReady();
 
         Path project = installedProject.get();
         assertNotNull(project);
+        verify(materializer).materializeIntoExistingDirectory(eq("vue-web-basic"), any(Path.class));
         verify(installer, times(1)).ensureInstalled(any(Path.class));
         verify(preWarmService).registerPreWarmedModules(eq("vue-web-basic"), any(Path.class));
         verify(installer, never()).cancel(project);
@@ -57,24 +63,22 @@ class TemplateNodeModulesPreWarmRunnerTest {
     }
 
     @Test
-    void shouldDeleteFailedPreWarmDirectory() {
+    void shouldDeleteFailedPreWarmDirectory() throws Exception {
         TemplatePreWarmService preWarmService = mock(TemplatePreWarmService.class);
+        ProjectTemplateMaterializer materializer = mock(ProjectTemplateMaterializer.class);
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
         AtomicReference<Path> installedProject = new AtomicReference<>();
         when(installer.ensureInstalled(any(Path.class))).thenAnswer(invocation -> {
             Path project = invocation.getArgument(0);
             installedProject.set(project);
-            return DependencyInstallResult.failed(
-                    DependencyInstallResult.Status.FAILED,
-                    "",
-                    "install failed"
-            );
+            return DependencyInstallResult.failed(DependencyInstallResult.Status.FAILED, "", "install failed");
         });
-        TemplateNodeModulesPreWarmRunner runner = new TemplateNodeModulesPreWarmRunner(
+        TemplateNodeModulesPreWarmRunner runner = runner(
                 preWarmService,
+                materializer,
                 installer,
                 enabledProperties("vue-web-basic"),
-                new SyncTaskExecutor()
+                fileSystemService()
         );
 
         runner.onApplicationReady();
@@ -88,19 +92,40 @@ class TemplateNodeModulesPreWarmRunnerTest {
     @Test
     void shouldNotSubmitTasksWhenPreWarmIsDisabled() {
         TemplatePreWarmService preWarmService = mock(TemplatePreWarmService.class);
+        ProjectTemplateMaterializer materializer = mock(ProjectTemplateMaterializer.class);
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
         TemplatePreWarmProperties properties = new TemplatePreWarmProperties();
         properties.setEnabled(false);
-        TemplateNodeModulesPreWarmRunner runner = new TemplateNodeModulesPreWarmRunner(
+        TemplateNodeModulesPreWarmRunner runner = runner(
                 preWarmService,
+                materializer,
                 installer,
                 properties,
-                new SyncTaskExecutor()
+                fileSystemService()
         );
 
         runner.onApplicationReady();
 
-        verifyNoInteractions(preWarmService, installer);
+        verifyNoInteractions(preWarmService, materializer, installer);
+    }
+
+    private TemplateNodeModulesPreWarmRunner runner(TemplatePreWarmService preWarmService,
+                                                    ProjectTemplateMaterializer materializer,
+                                                    ProjectDependencyInstaller installer,
+                                                    TemplatePreWarmProperties properties,
+                                                    WorkspaceFileSystemService fileSystemService) {
+        return new TemplateNodeModulesPreWarmRunner(
+                preWarmService,
+                materializer,
+                installer,
+                properties,
+                new SyncTaskExecutor(),
+                fileSystemService
+        );
+    }
+
+    private WorkspaceFileSystemService fileSystemService() {
+        return new WorkspaceFileSystemService(new WorkspaceFileSystemProperties());
     }
 
     private TemplatePreWarmProperties enabledProperties(String... templateIds) {

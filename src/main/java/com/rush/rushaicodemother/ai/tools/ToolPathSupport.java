@@ -1,14 +1,17 @@
 package com.rush.rushaicodemother.ai.tools;
 
-import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 
 /**
  * Resolves and validates file-system paths used by AI tools.
@@ -20,9 +23,20 @@ import java.nio.file.Paths;
 public class ToolPathSupport {
 
     private final GenerationToolExecutionContextService toolExecutionContextService;
+    private final GenerationWorkspaceService generationWorkspaceService;
 
-    public ToolPathSupport(GenerationToolExecutionContextService toolExecutionContextService) {
-        this.toolExecutionContextService = toolExecutionContextService;
+    public ToolPathSupport(
+            GenerationToolExecutionContextService toolExecutionContextService,
+            GenerationWorkspaceService generationWorkspaceService
+    ) {
+        this.toolExecutionContextService = Objects.requireNonNull(
+                toolExecutionContextService,
+                "toolExecutionContextService must not be null"
+        );
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
+        );
     }
 
     Path resolveProjectRoot(Long appId) {
@@ -30,14 +44,15 @@ public class ToolPathSupport {
             throw new ToolInputException("应用 ID 无效，无法定位项目工作区");
         }
         CodeGenTypeEnum codeGenType = resolveCodeGenType(appId);
-        String projectDirName = codeGenType.getValue() + "_" + appId;
-        Path projectRoot = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName)
-                .toAbsolutePath()
-                .normalize();
-        if (Files.isSymbolicLink(projectRoot)) {
-            throw new ToolInputException("项目工作区不能是符号链接");
+        try {
+            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
+            if (Files.isSymbolicLink(workspace.rootPath())) {
+                throw new ToolInputException("项目工作区不能是符号链接");
+            }
+            return workspace.canonicalRootPath();
+        } catch (BusinessException exception) {
+            throw new ToolInputException("项目工作区路径无效", exception);
         }
-        return projectRoot;
     }
 
     Path resolvePath(String path, Long appId) {

@@ -3,11 +3,11 @@ package com.rush.rushaicodemother.ai.tools;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.orchestration.artifact.ManualSnapshot;
+import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import dev.langchain4j.agent.tool.P;
@@ -31,6 +31,7 @@ public class SnapshotRollbackTool extends BaseTool {
     private final GenerationToolExecutionContextService toolExecutionContextService;
     private final ToolWorkspaceFileService workspaceFileService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final SnapshotNamePolicy snapshotNamePolicy;
 
     @Tool("创建项目快照、列出快照、回滚到指定快照、删除快照。进行较大范围改动前建议先创建快照。")
@@ -46,14 +47,13 @@ public class SnapshotRollbackTool extends BaseTool {
         String normalizedAction = StrUtil.blankToDefault(action, "listSnapshots");
         try {
             requireAppId(appId);
-            Path snapshotRoot = resolveSnapshotRoot(appId);
+            Path snapshotRoot = snapshotWorkspaceService.resolveApplicationRoot(appId);
             return switch (normalizedAction) {
                 case "createSnapshot" -> {
                     String normalizedSnapshotName = snapshotNamePolicy.resolveOrCreate(snapshotName, "snapshot");
-                    workspaceFileSystemService.ensureDirectory(snapshotRoot);
+                    snapshotWorkspaceService.prepareApplicationRoot(appId);
                     yield createSnapshot(
                             resolveProjectPath(appId, relativeProjectPath),
-                            snapshotRoot,
                             normalizedSnapshotName,
                             appId
                     );
@@ -62,13 +62,13 @@ public class SnapshotRollbackTool extends BaseTool {
                 case "rollbackSnapshot" -> {
                     String normalizedSnapshotName = validateRequiredSnapshotName(snapshotName, "回滚时必须提供快照名称");
                     yield rollbackSnapshot(
+                            appId,
                             resolveProjectPath(appId, relativeProjectPath),
-                            snapshotRoot,
                             normalizedSnapshotName
                     );
                 }
                 case "deleteSnapshot" -> deleteSnapshot(
-                        snapshotRoot,
+                        appId,
                         validateRequiredSnapshotName(snapshotName, "删除时必须提供快照名称")
                 );
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
@@ -85,10 +85,9 @@ public class SnapshotRollbackTool extends BaseTool {
     }
 
     private String createSnapshot(Path projectPath,
-                                  Path snapshotRoot,
                                   String normalizedSnapshotName,
                                   Long appId) throws Exception {
-        Path snapshotPath = snapshotRoot.resolve(normalizedSnapshotName);
+        Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
         if (workspaceFileSystemService.isDirectory(snapshotPath)) {
             return "错误：快照名称已存在 - " + normalizedSnapshotName;
         }
@@ -133,31 +132,27 @@ public class SnapshotRollbackTool extends BaseTool {
         return builder.toString().trim();
     }
 
-    private String rollbackSnapshot(Path projectPath,
-                                    Path snapshotRoot,
+    private String rollbackSnapshot(Long appId,
+                                    Path projectPath,
                                     String normalizedSnapshotName) throws Exception {
-        Path snapshotPath = snapshotRoot.resolve(normalizedSnapshotName);
+        Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
         if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
             return "错误：快照不存在 - " + normalizedSnapshotName;
         }
         String backupSnapshotName = snapshotNamePolicy.createAutomaticName("pre_rollback");
-        Path backupSnapshotPath = snapshotRoot.resolve(backupSnapshotName);
+        Path backupSnapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, backupSnapshotName);
         workspaceFileSystemService.copyDirectory(projectPath, backupSnapshotPath);
         workspaceFileSystemService.replaceDirectory(snapshotPath, projectPath);
         return "已回滚到快照: " + normalizedSnapshotName + "，并自动备份当前版本为: " + backupSnapshotName;
     }
 
-    private String deleteSnapshot(Path snapshotRoot, String normalizedSnapshotName) throws Exception {
-        Path snapshotPath = snapshotRoot.resolve(normalizedSnapshotName);
+    private String deleteSnapshot(Long appId, String normalizedSnapshotName) throws Exception {
+        Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
         if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
             return "错误：快照不存在 - " + normalizedSnapshotName;
         }
         workspaceFileSystemService.deleteDirectory(snapshotPath);
         return "已删除快照: " + normalizedSnapshotName;
-    }
-
-    private Path resolveSnapshotRoot(Long appId) {
-        return Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR, String.valueOf(appId));
     }
 
     private Path resolveProjectPath(Long appId, String relativeProjectPath) {

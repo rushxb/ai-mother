@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration;
 
+import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
@@ -15,9 +16,13 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackPointService;
+import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
+import com.rush.rushaicodemother.orchestration.template.TemplateServiceTestFixture;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
@@ -241,26 +246,29 @@ class AgentGenerationOrchestratorTest {
     private GenerationRollbackPointService testRollbackPointService(String caseName) {
         Path root = Path.of("target", "test-workspaces", "rollback-orchestrator", caseName);
         FileUtil.del(root.toFile());
+        CodeStorageProperties storageProperties = new CodeStorageProperties();
+        storageProperties.setOutputRootDir(root.resolve("code_output"));
+        storageProperties.setDeployRootDir(root.resolve("code_deploy"));
+        storageProperties.setSnapshotRootDir(root.resolve("code_snapshot"));
+        var fileSystemService = WorkspaceFileSystemTestFactory.create();
+        var snapshotNamePolicy = new SnapshotNamePolicy();
         return new GenerationRollbackPointService(
-                root.resolve("code_output"),
-                root.resolve("code_snapshot"),
-                WorkspaceFileSystemTestFactory.create()
+                new GenerationWorkspaceService(storageProperties),
+                new GenerationSnapshotWorkspaceService(storageProperties, fileSystemService, snapshotNamePolicy),
+                fileSystemService,
+                snapshotNamePolicy
         );
     }
 
     private TemplateAgentNode testTemplateAgentNode(String caseName) {
         Path root = Path.of("target", "test-workspaces", "template-orchestrator", caseName);
         FileUtil.del(root.toFile());
-        VueProjectTemplateBootstrapService bootstrapService = new VueProjectTemplateBootstrapService(
-                root.resolve("code_output"),
-                new org.springframework.core.io.support.PathMatchingResourcePatternResolver(),
-                new com.rush.rushaicodemother.orchestration.template.TemplatePreWarmService()
+        TemplateServiceTestFixture fixture = new TemplateServiceTestFixture(root.resolve("code_output"));
+        return new TemplateAgentNode(
+                fixture.vueBootstrapService(),
+                fixture.backendBootstrapService(),
+                new FullStackPortAllocator(fixture.generationWorkspaceService)
         );
-        BackendProjectTemplateBootstrapService backendBootstrapService = new BackendProjectTemplateBootstrapService(
-                root.resolve("code_output"),
-                new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
-        );
-        return new TemplateAgentNode(bootstrapService, backendBootstrapService, new FullStackPortAllocator());
     }
 
     private void writeExistingProjectFile(String caseName,

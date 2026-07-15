@@ -60,4 +60,11 @@ class TemplatePreWarmPropertiesTest {
 
         assertFalse(validator.validate(properties).isEmpty());
     }
-}
+
+    @Test
+    void shouldRejectSyntacticallyValidButUnknownTemplateId() {
+        TemplatePreWarmProperties properties = new TemplatePreWarmProperties();
+        properties.setTemplateIds(List.of("unknown-template"));
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }}

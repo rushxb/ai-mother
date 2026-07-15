@@ -1,174 +1,94 @@
 package com.rush.rushaicodemother.orchestration.template;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 
-import org.springframework.beans.factory.annotation.Autowired;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
-/**
- * Vue 工程模板引导服务。
- */
+/** Bootstraps canonical Vue generation workspaces from packaged project templates. */
 @Slf4j
 @Component
 public class VueProjectTemplateBootstrapService {
 
-    private static final String TEMPLATE_ROOT = "project-templates";
-    private static final String DEFAULT_TEMPLATE_ID = "vue-web-basic";
-    private static final List<String> TEMPLATE_IDS = List.of(
-            "vue-web-basic",
-            "vue-web-admin",
-            "vue-web-mobile",
-            "vue-web-landing"
-    );
+    private final GenerationWorkspaceService generationWorkspaceService;
+    private final ProjectTemplateBootstrapper templateBootstrapper;
 
-    private final Path codeOutputRoot;
-    private final PathMatchingResourcePatternResolver resourceResolver;
-    private final TemplatePreWarmService templatePreWarmService;
-
-    @Autowired
-    public VueProjectTemplateBootstrapService(TemplatePreWarmService templatePreWarmService) {
-        this(Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR), new PathMatchingResourcePatternResolver(), templatePreWarmService);
+    public VueProjectTemplateBootstrapService(GenerationWorkspaceService generationWorkspaceService,
+                                              ProjectTemplateBootstrapper templateBootstrapper) {
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
+        );
+        this.templateBootstrapper = Objects.requireNonNull(templateBootstrapper, "templateBootstrapper must not be null");
     }
 
-    public VueProjectTemplateBootstrapService(Path codeOutputRoot,
-                                              PathMatchingResourcePatternResolver resourceResolver,
-                                              TemplatePreWarmService templatePreWarmService) {
-        this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
-        this.resourceResolver = resourceResolver;
-        this.templatePreWarmService = templatePreWarmService;
-    }
-
-    public BootstrapResult bootstrapIfNecessary(Long appId, String userMessage) {
+    public BootstrapResult bootstrapIfNecessary(Long appId,
+                                                CodeGenTypeEnum codeGenType,
+                                                String userMessage) {
         if (appId == null || appId <= 0) {
             return BootstrapResult.skipped("", "", "invalid_app_id");
         }
-        return bootstrapIfNecessary(resolveProjectRoot(appId), userMessage);
-    }
-
-    public BootstrapResult bootstrapIfNecessary(Path targetRoot, String userMessage) {
-        if (targetRoot == null) {
-            return BootstrapResult.skipped("", "", "invalid_target_root");
-        }
-        targetRoot = targetRoot.toAbsolutePath().normalize();
-        ensureChildOf(codeOutputRoot, targetRoot);
-        if (Files.exists(targetRoot)) {
-            return BootstrapResult.skipped("", targetRoot.toString(), "workspace_exists");
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            return BootstrapResult.skipped("", "", "unsupported_code_gen_type");
         }
         String templateId = selectTemplateId(userMessage);
-        boolean workspaceCreated = false;
         try {
-            Files.createDirectories(targetRoot.getParent());
-            Files.createDirectory(targetRoot);
-            workspaceCreated = true;
-            int fileCount = copyTemplate(templateId, targetRoot);
-
-            // 尝试复制预热的 node_modules
-            boolean preWarmed = templatePreWarmService.copyPreWarmedModules(templateId, targetRoot.toString());
-            if (preWarmed) {
-                log.info("已复制预热的 node_modules，templateId: {}, targetRoot: {}", templateId, targetRoot);
-            }
-
-            BootstrapResult result = BootstrapResult.created(templateId, targetRoot.toString(), fileCount);
-            log.info("已复制 Vue 项目模板，targetRoot: {}, templateId: {}, fileCount: {}", targetRoot, templateId, fileCount);
-            return result;
-        } catch (Exception e) {
-            if (workspaceCreated) {
-                TemplateWorkspaceFailureCleanup.deleteOwnedWorkspace(targetRoot, e);
-            }
-            log.warn("复制 Vue 项目模板失败，targetRoot: {}, templateId: {}", targetRoot, templateId, LogExceptionSanitizer.sanitize(e));
-            throw new BusinessException(
-                    ErrorCode.SYSTEM_ERROR,
-                    "初始化 Vue 项目模板失败，请稍后重试",
-                    e
+            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
+            ProjectTemplateBootstrapper.BootstrapOutcome outcome = templateBootstrapper.bootstrap(
+                    templateId,
+                    workspace.frontendRootPath(),
+                    true
             );
+            BootstrapResult result = new BootstrapResult(
+                    outcome.bootstrapped(),
+                    templateId,
+                    outcome.projectPath().toString(),
+                    outcome.fileCount(),
+                    outcome.reason()
+            );
+            log.info(
+                    "Vue template bootstrap completed: appId={}, codeGenType={}, templateId={}, bootstrapped={}, fileCount={}",
+                    appId,
+                    codeGenType,
+                    templateId,
+                    result.bootstrapped(),
+                    result.fileCount()
+            );
+            return result;
+        } catch (Exception exception) {
+            log.warn(
+                    "Vue template bootstrap failed: appId={}, codeGenType={}, templateId={}, error={}",
+                    appId,
+                    codeGenType,
+                    templateId,
+                    LogExceptionSanitizer.sanitize(exception)
+            );
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "初始化 Vue 项目模板失败，请稍后重试", exception);
         }
-    }
-
-    public Path resolveProjectRoot(Long appId) {
-        String projectDirName = "vue_project_" + appId;
-        Path targetRoot = codeOutputRoot.resolve(projectDirName).toAbsolutePath().normalize();
-        ensureChildOf(codeOutputRoot, targetRoot);
-        return targetRoot;
     }
 
     public String selectTemplateId(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
-        if (containsAny(normalized, "移动端", "手机", "h5", "mobile", "商城", "会员", "预约", "vant")) {
-            return "vue-web-mobile";
+        if (containsAny(normalized, "后台", "管理", "dashboard", "admin", "仪表盘")) {
+            return ProjectTemplateCatalog.VUE_ADMIN;
         }
-        if (containsAny(normalized, "后台", "管理", "admin", "dashboard", "仪表盘", "工作台", "表格", "crud")) {
-            return "vue-web-admin";
+        if (containsAny(normalized, "移动", "手机", "h5", "mobile", "小程序")) {
+            return ProjectTemplateCatalog.VUE_MOBILE;
         }
-        if (containsAny(normalized, "官网", "落地页", "landing", "活动页", "营销", "展示", "产品介绍", "宣传")) {
-            return "vue-web-landing";
+        if (containsAny(normalized, "官网", "落地页", "landing", "宣传", "品牌")) {
+            return ProjectTemplateCatalog.VUE_LANDING;
         }
-        return DEFAULT_TEMPLATE_ID;
-    }
-
-    private int copyTemplate(String templateId, Path targetRoot) throws IOException {
-        if (!TEMPLATE_IDS.contains(templateId)) {
-            throw new IllegalArgumentException("未知 Vue 项目模板：" + templateId);
-        }
-        String templatePrefix = TEMPLATE_ROOT + "/" + templateId + "/";
-        Resource[] resources = resourceResolver.getResources("classpath:" + templatePrefix + "**/*");
-        int copiedFiles = 0;
-        for (Resource resource : resources) {
-            if (!resource.exists() || !resource.isReadable()) {
-                continue;
-            }
-            String relativePath = resolveRelativePath(resource, templatePrefix);
-            if (StrUtil.isBlank(relativePath) || relativePath.endsWith("/")) {
-                continue;
-            }
-            Path targetPath = targetRoot.resolve(relativePath).toAbsolutePath().normalize();
-            ensureChildOf(targetRoot, targetPath);
-            Files.createDirectories(targetPath.getParent());
-            try (InputStream inputStream = resource.getInputStream()) {
-                Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
-            }
-            copiedFiles++;
-        }
-        if (copiedFiles == 0) {
-            throw new IllegalStateException("模板目录为空或无法读取：" + templateId);
-        }
-        return copiedFiles;
-    }
-
-    private String resolveRelativePath(Resource resource, String templatePrefix) throws IOException {
-        String url = URLDecoder.decode(resource.getURL().toString(), StandardCharsets.UTF_8);
-        String normalizedUrl = url.replace("\\", "/");
-        int index = normalizedUrl.indexOf(templatePrefix);
-        if (index < 0) {
-            return "";
-        }
-        return normalizedUrl.substring(index + templatePrefix.length());
-    }
-
-    private void ensureChildOf(Path root, Path child) {
-        Path normalizedRoot = root.toAbsolutePath().normalize();
-        Path normalizedChild = child.toAbsolutePath().normalize();
-        if (!normalizedChild.startsWith(normalizedRoot)) {
-            throw new IllegalArgumentException("非法路径，超出当前项目目录范围");
-        }
+        return ProjectTemplateCatalog.VUE_BASIC;
     }
 
     private boolean containsAny(String value, String... keywords) {

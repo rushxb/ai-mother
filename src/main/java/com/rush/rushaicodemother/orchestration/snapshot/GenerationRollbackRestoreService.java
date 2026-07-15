@@ -1,56 +1,51 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
-import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 
 /**
- * 失败后按 opt-in 回滚策略恢复本地快照。
+ * Restores an opt-in rollback snapshot after a failed generation attempt.
  */
 @Slf4j
 @Component
 public class GenerationRollbackRestoreService {
 
-    private final Path codeOutputRoot;
-    private final Path codeSnapshotRoot;
+    private final GenerationWorkspaceService generationWorkspaceService;
+    private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final SnapshotNamePolicy snapshotNamePolicy;
 
-    @Autowired
-    public GenerationRollbackRestoreService(WorkspaceFileSystemService workspaceFileSystemService,
-                                            SnapshotNamePolicy snapshotNamePolicy) {
-        this(
-                Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR),
-                Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR),
-                workspaceFileSystemService,
-                snapshotNamePolicy
+    public GenerationRollbackRestoreService(
+            GenerationWorkspaceService generationWorkspaceService,
+            GenerationSnapshotWorkspaceService snapshotWorkspaceService,
+            WorkspaceFileSystemService workspaceFileSystemService,
+            SnapshotNamePolicy snapshotNamePolicy
+    ) {
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService,
+                "generationWorkspaceService must not be null"
         );
-    }
-
-    public GenerationRollbackRestoreService(Path codeOutputRoot,
-                                            Path codeSnapshotRoot,
-                                            WorkspaceFileSystemService workspaceFileSystemService) {
-        this(codeOutputRoot, codeSnapshotRoot, workspaceFileSystemService, new SnapshotNamePolicy());
-    }
-
-    GenerationRollbackRestoreService(Path codeOutputRoot,
-                                     Path codeSnapshotRoot,
-                                     WorkspaceFileSystemService workspaceFileSystemService,
-                                     SnapshotNamePolicy snapshotNamePolicy) {
-        this.codeOutputRoot = codeOutputRoot.toAbsolutePath().normalize();
-        this.codeSnapshotRoot = codeSnapshotRoot.toAbsolutePath().normalize();
-        this.workspaceFileSystemService = workspaceFileSystemService;
-        this.snapshotNamePolicy = snapshotNamePolicy;
+        this.snapshotWorkspaceService = Objects.requireNonNull(
+                snapshotWorkspaceService,
+                "snapshotWorkspaceService must not be null"
+        );
+        this.workspaceFileSystemService = Objects.requireNonNull(
+                workspaceFileSystemService,
+                "workspaceFileSystemService must not be null"
+        );
+        this.snapshotNamePolicy = Objects.requireNonNull(snapshotNamePolicy, "snapshotNamePolicy must not be null");
     }
 
     public GenerationArtifact restoreIfAllowed(Long appId,
@@ -58,7 +53,7 @@ public class GenerationRollbackRestoreService {
                                                GenerationArtifact changePlanArtifact,
                                                GenerationArtifact rollbackPointArtifact) {
         RollbackRestore restore = restore(appId, taskId, changePlanArtifact, rollbackPointArtifact);
-        return GenerationArtifact.of("rollback_restore", "Orchestrator", "失败后本地回滚结果", restore.toPayload());
+        return GenerationArtifact.of("rollback_restore", "Orchestrator", "Rollback restore", restore.toPayload());
     }
 
     RollbackRestore restore(Long appId,
@@ -72,6 +67,7 @@ public class GenerationRollbackRestoreService {
         }
         Map<String, Object> rollbackPayload = payload(rollbackPointArtifact);
         String rollbackStatus = stringValue(rollbackPayload.get("status"));
+        String snapshotName = stringValue(rollbackPayload.get("snapshotName"));
         String snapshotPathValue = stringValue(rollbackPayload.get("snapshotPath"));
         String projectPathValue = stringValue(rollbackPayload.get("projectPath"));
         if (!"created".equals(rollbackStatus)) {
@@ -84,7 +80,7 @@ public class GenerationRollbackRestoreService {
                     "rollback_point_not_created"
             );
         }
-        if (snapshotPathValue.isBlank() || projectPathValue.isBlank()) {
+        if (snapshotName.isBlank() || snapshotPathValue.isBlank() || projectPathValue.isBlank()) {
             return RollbackRestore.skipped(
                     appId,
                     taskId,
@@ -96,7 +92,8 @@ public class GenerationRollbackRestoreService {
         }
 
         String sourceTypeValue = stringValue(rollbackPayload.get("sourceType"));
-        if (!matchesArtifactContext(appId, taskId, rollbackPayload, sourceTypeValue)) {
+        CodeGenTypeEnum sourceType = CodeGenTypeEnum.getEnumByValue(sourceTypeValue);
+        if (!matchesArtifactContext(appId, taskId, rollbackPayload, sourceType)) {
             return RollbackRestore.skipped(
                     appId,
                     taskId,
@@ -106,11 +103,16 @@ public class GenerationRollbackRestoreService {
                     "rollback_artifact_context_mismatch"
             );
         }
+
         Path snapshotPath;
         Path projectPath;
         try {
-            snapshotPath = Path.of(snapshotPathValue).toAbsolutePath().normalize();
+            snapshotPath = snapshotWorkspaceService.resolveReportedSnapshot(appId, snapshotName, snapshotPathValue);
+            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, sourceType);
             projectPath = Path.of(projectPathValue).toAbsolutePath().normalize();
+            if (!projectPath.equals(workspace.canonicalRootPath())) {
+                throw new IllegalArgumentException("project path mismatch");
+            }
         } catch (RuntimeException exception) {
             return RollbackRestore.skipped(
                     appId,
@@ -121,7 +123,11 @@ public class GenerationRollbackRestoreService {
                     "rollback_path_out_of_root"
             );
         }
-        if (!isAllowedSnapshotPath(appId, snapshotPath) || !isExpectedProjectPath(appId, sourceTypeValue, projectPath)) {
+
+        Path backupPath;
+        try {
+            backupPath = backupPath(appId, taskId);
+        } catch (RuntimeException exception) {
             return RollbackRestore.skipped(
                     appId,
                     taskId,
@@ -131,7 +137,6 @@ public class GenerationRollbackRestoreService {
                     "rollback_path_out_of_root"
             );
         }
-        Path backupPath = backupPath(appId, taskId);
         try {
             if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
                 return RollbackRestore.skipped(
@@ -161,9 +166,9 @@ public class GenerationRollbackRestoreService {
                     backupPathValue,
                     restoreResult.fileCount()
             );
-        } catch (Exception e) {
-            log.warn("失败后本地快照恢复失败，appId: {}, taskId: {}, exceptionType: {}",
-                    appId, taskId, e.getClass().getSimpleName());
+        } catch (Exception exception) {
+            log.warn("Failed to restore rollback snapshot, appId: {}, taskId: {}, exceptionType: {}",
+                    appId, taskId, exception.getClass().getSimpleName());
             return RollbackRestore.failed(
                     appId,
                     taskId,
@@ -177,12 +182,8 @@ public class GenerationRollbackRestoreService {
     }
 
     private Path backupPath(Long appId, String taskId) {
-        String appDir = appId == null ? "unknown" : String.valueOf(appId);
         String backupName = snapshotNamePolicy.createTaskScopedName("failed_generation", taskId);
-        return codeSnapshotRoot.resolve(appDir)
-                .resolve(backupName)
-                .toAbsolutePath()
-                .normalize();
+        return snapshotWorkspaceService.resolveSnapshot(appId, backupName);
     }
 
     private Map<String, Object> payload(GenerationArtifact artifact) {
@@ -196,27 +197,13 @@ public class GenerationRollbackRestoreService {
     private boolean matchesArtifactContext(Long appId,
                                            String taskId,
                                            Map<String, Object> rollbackPayload,
-                                           String sourceTypeValue) {
+                                           CodeGenTypeEnum sourceType) {
         return appId != null
                 && appId > 0
                 && taskId != null
                 && !taskId.isBlank()
                 && String.valueOf(appId).equals(stringValue(rollbackPayload.get("appId")))
-                && stringValue(taskId).equals(stringValue(rollbackPayload.get("taskId")))
-                && CodeGenTypeEnum.getEnumByValue(sourceTypeValue) != null;
-    }
-
-    private boolean isAllowedSnapshotPath(Long appId, Path snapshotPath) {
-        Path applicationSnapshotRoot = codeSnapshotRoot.resolve(String.valueOf(appId)).normalize();
-        return snapshotPath.startsWith(applicationSnapshotRoot)
-                && !snapshotPath.equals(applicationSnapshotRoot)
-                && applicationSnapshotRoot.equals(snapshotPath.getParent());
-    }
-
-    private boolean isExpectedProjectPath(Long appId, String sourceTypeValue, Path projectPath) {
-        Path expectedProjectPath = codeOutputRoot.resolve(sourceTypeValue + "_" + appId).normalize();
-        return projectPath.equals(expectedProjectPath)
-                && !projectPath.equals(codeOutputRoot)
-                && projectPath.startsWith(codeOutputRoot);
+                && taskId.equals(stringValue(rollbackPayload.get("taskId")))
+                && sourceType != null;
     }
 }

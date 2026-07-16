@@ -29,6 +29,14 @@ class DevServerRuntimePropertiesTest {
     }
 
     @Test
+    void shouldRejectInvalidValidationPollingInterval() {
+        DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
+        properties.setValidationPollInterval(Duration.ZERO);
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
     void shouldRejectExcessiveRuntimeDuration() {
         DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
         properties.setStartupTimeout(Duration.ofHours(2));

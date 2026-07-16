@@ -55,10 +55,10 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
 
     @Override
     public GenerationOrchestrationResult prepare(GenerationOrchestrationRequest request) {
-        GenerationOrchestrationTask task = taskStore.create(
-                request.app() == null ? null : request.app().getId(),
-                request.userMessage()
-        );
+        Long appId = request.app() == null ? null : request.app().getId();
+        GenerationOrchestrationTask task = StrUtil.isBlank(request.taskId())
+                ? taskStore.create(appId, request.userMessage())
+                : taskStore.create(request.taskId(), appId, request.userMessage());
         boolean heavyPath = routingSupport.shouldUseHeavyPath(request);
         String orchestrationMode = heavyPath ? "heavy" : "light";
         metricsCollector.recordRun(orchestrationMode, "started");

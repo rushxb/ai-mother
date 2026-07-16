@@ -116,6 +116,30 @@ class DevServerProcessRunnerTest {
     }
 
     @Test
+    void explicitStartupTimeoutMustOverrideConfiguredDefault() {
+        Duration taskScopedTimeout = Duration.ofMillis(20);
+        FakeProcess process = FakeProcess.running();
+        when(readinessProbe.isReady(5180)).thenReturn(false);
+        DevServerProcessRunner runner = runner(builder -> process);
+
+        DevServerStartException exception = assertThrows(
+                DevServerStartException.class,
+                () -> runner.start(
+                        projectDirectory,
+                        5180,
+                        11L,
+                        line -> { },
+                        taskScopedTimeout,
+                        () -> false
+                )
+        );
+
+        assertEquals(DevServerStartException.Reason.STARTUP_TIMEOUT, exception.reason());
+        assertTrue(exception.getMessage().contains(taskScopedTimeout.toString()));
+        verify(processTerminator).terminate(process);
+    }
+
+    @Test
     void shouldTerminateProcessWhenCancellationIsRequested() {
         FakeProcess process = FakeProcess.running();
         DevServerProcessRunner runner = runner(builder -> process);

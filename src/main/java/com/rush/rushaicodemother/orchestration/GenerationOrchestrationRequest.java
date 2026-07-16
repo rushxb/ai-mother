@@ -17,6 +17,22 @@ public record GenerationOrchestrationRequest(
         boolean hasGeneratedCode,
         Supplier<String> projectContextSupplier,
         Function<String, CodeGenTypeEnum> routingFunction,
-        String memoryContext
+        String memoryContext,
+        String taskId
 ) {
+
+    /** Compatibility constructor for callers that still delegate identity creation to the task store. */
+    public GenerationOrchestrationRequest(
+            App app,
+            String userMessage,
+            CodeGenTypeEnum currentType,
+            String generatingStage,
+            boolean hasGeneratedCode,
+            Supplier<String> projectContextSupplier,
+            Function<String, CodeGenTypeEnum> routingFunction,
+            String memoryContext
+    ) {
+        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
+                projectContextSupplier, routingFunction, memoryContext, null);
+    }
 }

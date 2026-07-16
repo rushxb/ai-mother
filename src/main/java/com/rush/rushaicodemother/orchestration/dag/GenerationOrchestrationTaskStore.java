@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
-import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
+import com.rush.rushaicodemother.orchestration.runtime.identity.UuidGenerationTaskIdGenerator;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -40,11 +42,19 @@ public class GenerationOrchestrationTaskStore {
     private static final String SNAPSHOT_SUFFIX = ".json";
 
     private final GenerationTaskSnapshotProperties properties;
+    private final GenerationTaskIdGenerator taskIdGenerator;
     private final Path rootDirectory;
     private final ReentrantLock[] writeLocks;
 
     public GenerationOrchestrationTaskStore(GenerationTaskSnapshotProperties properties) {
+        this(properties, new UuidGenerationTaskIdGenerator());
+    }
+
+    @Autowired
+    public GenerationOrchestrationTaskStore(GenerationTaskSnapshotProperties properties,
+                                            GenerationTaskIdGenerator taskIdGenerator) {
         this.properties = properties;
+        this.taskIdGenerator = taskIdGenerator;
         this.rootDirectory = properties.getRootDirectory().toAbsolutePath().normalize();
         this.writeLocks = new ReentrantLock[properties.getLockStripes()];
         for (int index = 0; index < writeLocks.length; index++) {
@@ -53,8 +63,19 @@ public class GenerationOrchestrationTaskStore {
     }
 
     public GenerationOrchestrationTask create(Long appId, String userMessage) {
+        return create(taskIdGenerator.nextId(), appId, userMessage);
+    }
+
+    /**
+     * Creates an orchestration snapshot using the identity already reserved by the generation runtime.
+     */
+    public GenerationOrchestrationTask create(String taskId, Long appId, String userMessage) {
+        String normalizedTaskId = StrUtil.trim(taskId);
+        if (!isSafeTaskId(normalizedTaskId)) {
+            throw new IllegalArgumentException("invalid orchestration task id");
+        }
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
-        task.setTaskId(IdUtil.fastSimpleUUID());
+        task.setTaskId(normalizedTaskId);
         task.setAppId(appId);
         task.setRequestHash(buildRequestHash(userMessage));
         task.setStatus("running");
@@ -180,7 +201,11 @@ public class GenerationOrchestrationTaskStore {
     }
 
     private boolean isValidIdentity(Long appId, String taskId) {
-        return appId != null && appId > 0 && StrUtil.isNotBlank(taskId) && SAFE_TASK_ID.matcher(taskId).matches();
+        return appId != null && appId > 0 && isSafeTaskId(taskId);
+    }
+
+    private boolean isSafeTaskId(String taskId) {
+        return taskId != null && SAFE_TASK_ID.matcher(taskId).matches();
     }
 
     private String buildRequestHash(String userMessage) {

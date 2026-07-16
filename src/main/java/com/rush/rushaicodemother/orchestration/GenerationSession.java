@@ -21,7 +21,7 @@ public final class GenerationSession {
 
     private final Sinks.Many<GenerationStreamEvent> sink = Sinks.many().replay().limit(MAX_REPLAY_EVENTS);
     private final Sinks.Empty<Void> cancelSink = Sinks.empty();
-    private final GenerationPreparation preparation;
+    private final AtomicReference<GenerationPreparation> preparationRef = new AtomicReference<>();
     private final GenerationExecutionContext executionContext;
     private final Instant startedAt = Instant.now();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
@@ -30,6 +30,7 @@ public final class GenerationSession {
     private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
     private final AtomicReference<GenerationCancellationHandle> cancellationHandleRef = new AtomicReference<>();
     private final AtomicReference<GenerationTaskRequest> taskRequestRef = new AtomicReference<>();
+    private final AtomicReference<String> routeRef = new AtomicReference<>();
     private Long appId;
     private Long userId;
 
@@ -38,7 +39,7 @@ public final class GenerationSession {
     }
 
     public GenerationSession(GenerationPreparation preparation, GenerationExecutionContext executionContext) {
-        this.preparation = preparation;
+        this.preparationRef.set(preparation);
         this.executionContext = executionContext;
     }
 
@@ -47,11 +48,46 @@ public final class GenerationSession {
     }
 
     public GenerationPreparation preparation() {
-        return preparation;
+        return preparationRef.get();
+    }
+
+    /** Binds preparation once it becomes available after asynchronous task submission. */
+    public void bindPreparation(GenerationPreparation preparation) {
+        if (preparation == null) {
+            throw new IllegalArgumentException("generation preparation cannot be null");
+        }
+        GenerationPreparation existing = preparationRef.get();
+        if (existing == null) {
+            preparationRef.compareAndSet(null, preparation);
+            existing = preparationRef.get();
+        }
+        if (existing != preparation && !existing.equals(preparation)) {
+            throw new IllegalStateException("generation session preparation is already bound");
+        }
+    }
+
+    public String taskId() {
+        if (executionContext != null) {
+            return executionContext.taskId();
+        }
+        GenerationPreparation preparation = preparation();
+        return preparation == null ? null : preparation.taskId();
     }
 
     public GenerationExecutionContext executionContext() {
         return executionContext;
+    }
+
+    /** Records the currently selected route; fallback may update it while preserving task identity. */
+    public void recordRoute(String route) {
+        if (route == null || route.isBlank()) {
+            throw new IllegalArgumentException("generation route cannot be blank");
+        }
+        routeRef.set(route.trim());
+    }
+
+    public String route() {
+        return routeRef.get();
     }
 
     /** Binds immutable request metadata required to publish a terminal task event from any completion path. */
@@ -95,6 +131,7 @@ public final class GenerationSession {
             return;
         }
         GenerationTraceService generationTraceService = traceServiceRef.get();
+        GenerationPreparation preparation = preparation();
         if (generationTraceService != null && preparation != null) {
             generationTraceService.recordEvent(preparation.taskId(), appId, userId, event);
         } else if (generationTraceService != null || preparation != null) {
@@ -135,7 +172,7 @@ public final class GenerationSession {
     }
 
     public boolean isActive() {
-        return !completionStarted.get() && !isCancelled();
+        return !completionStarted.get();
     }
 
     /**

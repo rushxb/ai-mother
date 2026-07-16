@@ -221,7 +221,7 @@ create table chat_history
         userId                  bigint                             not null comment '创建用户id',
         originalCodeGenType     varchar(64)                        null comment '原始代码生成类型',
         targetCodeGenType       varchar(64)                        null comment '目标代码生成类型',
-        status                  varchar(32) default 'running'      not null comment '状态：running/success/failed/cancelled/deadline_exceeded',
+        status                  varchar(32) default 'queued'       not null comment '状态：queued/running/success/failed/cancelled/deadline_exceeded',
         stage                   varchar(64)                        null comment '当前阶段',
         stageMessage            text                               null comment '当前阶段提示信息',
         userPrompt              mediumtext                         null comment '用户原始提示词',
@@ -229,6 +229,16 @@ create table chat_history
         requiresBuildValidation tinyint     default 0              not null comment '是否需要构建校验',
         qualityGate             varchar(64)                        null comment '质量门禁级别',
         orchestrationMode       varchar(64)                        null comment '编排模式',
+        route                   varchar(64)                        null comment '运行时路由',
+        submittedAt             datetime(6)                        not null comment '任务提交时间',
+        deadlineAt              datetime(6)                        null comment '任务绝对截止时间',
+        cancellationRequested   tinyint     default 0              not null comment '是否请求取消',
+        cancellationReason      varchar(512)                       null comment '取消原因',
+        leaseOwner              varchar(128)                       null comment 'worker 租约所有者',
+        leaseUntil              datetime(6)                        null comment 'worker 租约到期时间',
+        heartbeatAt             datetime(6)                        null comment 'worker 最近心跳时间',
+        attempt                 int         default 0              not null comment 'worker 领取次数',
+        version                 bigint      default 0              not null comment '运行时乐观锁版本',
         startTime               datetime default CURRENT_TIMESTAMP not null comment '开始时间',
         endTime                 datetime                           null comment '结束时间',
         durationMs              bigint                             null comment '耗时毫秒',
@@ -243,8 +253,31 @@ create table chat_history
         UNIQUE KEY uk_taskId (taskId),
         INDEX idx_appId_createTime (appId, createTime),
         INDEX idx_userId_createTime (userId, createTime),
-        INDEX idx_status_createTime (status, createTime)
+        INDEX idx_status_createTime (status, createTime),
+        INDEX idx_route_success_duration (route, status, isDelete, endTime, id),
+        INDEX idx_runtime_lease (status, leaseUntil, isDelete),
+        INDEX idx_app_runtime_status (appId, status, submittedAt)
     ) comment 'AI 生成任务' collate = utf8mb4_unicode_ci;
+
+-- AI 生成关键路径 span：保存跨实例、可恢复查询的阶段级耗时
+create table if not exists generation_task_span
+(
+    id         bigint auto_increment comment 'id' primary key,
+    spanId     varchar(36)                         not null comment 'span 幂等 ID',
+    taskId     varchar(128)                        not null comment '生成任务 ID',
+    stage      varchar(96)                         not null comment '阶段标识',
+    category   varchar(32)                         not null comment '阶段类别',
+    status     varchar(32)                         not null comment '阶段状态',
+    startedAt  datetime(6)                         not null comment '阶段开始时间',
+    endedAt    datetime(6)                         not null comment '阶段结束时间',
+    durationMs bigint                               not null comment '阶段耗时毫秒',
+    detail     varchar(1000)                        not null default '' comment '脱敏后的简要诊断',
+    createTime datetime(6) default CURRENT_TIMESTAMP(6) not null comment '创建时间',
+    isDelete   tinyint     default 0                not null comment '是否删除',
+    UNIQUE KEY uk_spanId (spanId),
+    INDEX idx_task_started (taskId, startedAt, id),
+    INDEX idx_stage_duration (stage, status, durationMs)
+) comment 'AI 生成关键路径 span' collate = utf8mb4_unicode_ci;
 
 -- AI 生成构建日志表：保存构建校验、自动修复后的构建结果和诊断报告
 create table if not exists generation_build_log

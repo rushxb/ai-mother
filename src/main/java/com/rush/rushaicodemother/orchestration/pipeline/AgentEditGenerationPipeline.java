@@ -1,25 +1,27 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
-import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
-import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditGenerationService;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditResult;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 
+@Slf4j
 @Order(30)
 @Component
 @RequiredArgsConstructor
@@ -27,7 +29,6 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
 
     private final AgentEditGenerationService agentEditGenerationService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
-    private final GenerationSessionRegistry sessionRegistry;
 
     @Override
     public String route() {
@@ -40,75 +41,70 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
     }
 
     @Override
-    public Optional<GenerationTaskResult> execute(GenerationPipelineRequest request) {
+    public GenerationPipelineOutcome execute(GenerationPipelineRequest request) {
+        GenerationTaskExecution execution = request.requireExecution();
+        GenerationSession session = execution.session();
         App app = request.taskRequest().app();
         Instant startedAt = Instant.now();
         try {
-            AgentEditResult editResult = agentEditGenerationService.execute(request.taskRequest(), request.modeDecision());
+            session.throwIfCancelled();
+            AgentEditResult editResult = agentEditGenerationService.execute(
+                    execution.taskId(), request.taskRequest(), request.modeDecision());
             if (editResult == null) {
-                return Optional.empty();
+                return GenerationPipelineOutcome.fallback(route(), "agent_edit_not_applicable");
             }
+            assertTaskIdentity(execution.taskId(), editResult.taskId());
             generationPerformanceMonitorService.recordSpan(
-                    editResult.taskId(),
+                    execution.taskId(),
                     "agent_edit_pipeline",
+                    GenerationSpanCategory.PIPELINE,
                     editResult.status(),
                     Duration.between(startedAt, Instant.now()),
                     "repairRounds=" + editResult.repairRounds()
             );
             if ("failed".equals(editResult.status())) {
-                if (isTransientUpstreamFailure(editResult.summary())) {
-                    GenerationSession session = new GenerationSession(null);
-                    sessionRegistry.put(app.getId(), session);
-                    session.emit(GenerationStreamEvent.generationError(
-                            editResult.summary(),
-                            Map.of(
-                                    "route", editResult.route(),
-                                    "mode", request.modeDecision().mode().name(),
-                                    "routerReason", request.modeDecision().reason(),
-                                    "taskId", editResult.taskId(),
-                                    "status", editResult.status(),
-                                    "fallbackSuppressed", true
-                            )
-                    ));
-                    session.complete();
-                    sessionRegistry.retainForReplay(app.getId(), session);
-                    return Optional.of(new GenerationTaskResult(editResult.taskId(), editResult.route(), request.workspace(), session.asFlux()));
-                }
-                return Optional.empty();
+                session.emit(GenerationStreamEvent.generationError(
+                        editResult.summary(),
+                        Map.of(
+                                "route", editResult.route(),
+                                "mode", request.modeDecision().mode().name(),
+                                "routerReason", request.modeDecision().reason(),
+                                "taskId", execution.taskId(),
+                                "status", editResult.status(),
+                                "repairRounds", editResult.repairRounds()
+                        )
+                ));
+                generationPerformanceMonitorService.finishTask(execution.taskId(), "failed");
+                return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.FAILED);
             }
-            GenerationSession session = new GenerationSession(null);
-            sessionRegistry.put(app.getId(), session);
             session.emit(GenerationStreamEvent.agentEvent(
                     editResult.summary(),
                     Map.of(
                             "route", editResult.route(),
                             "mode", request.modeDecision().mode().name(),
                             "routerReason", request.modeDecision().reason(),
-                            "taskId", editResult.taskId(),
+                            "taskId", execution.taskId(),
                             "status", editResult.status(),
                             "repairRounds", editResult.repairRounds()
                     )
             ));
-            session.complete();
-            sessionRegistry.retainForReplay(app.getId(), session);
-            generationPerformanceMonitorService.finishTask(editResult.taskId(), "success");
-            return Optional.of(new GenerationTaskResult(editResult.taskId(), editResult.route(), request.workspace(), session.asFlux()));
-        } catch (Exception e) {
-            return Optional.empty();
+            generationPerformanceMonitorService.finishTask(execution.taskId(), "success");
+            return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.SUCCESS);
+        } catch (RuntimeException failure) {
+            log.warn("AGENT_EDIT 路径执行失败，appId: {}, taskId: {}, error: {}",
+                    app.getId(), execution.taskId(), LogExceptionSanitizer.sanitizeMessage(failure));
+            session.emit(GenerationStreamEvent.generationError(
+                    "智能编辑执行失败，请稍后重试",
+                    Map.of("route", route(), "taskId", execution.taskId(), "status", "failed")
+            ));
+            generationPerformanceMonitorService.finishTask(execution.taskId(), "failed");
+            return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.FAILED);
         }
     }
 
-    private boolean isTransientUpstreamFailure(String summary) {
-        if (summary == null) {
-            return false;
+    private void assertTaskIdentity(String expectedTaskId, String actualTaskId) {
+        if (!expectedTaskId.equals(actualTaskId)) {
+            throw new IllegalStateException("agent edit returned a different taskId");
         }
-        String normalized = summary.toLowerCase(Locale.ROOT);
-        return normalized.contains("i/o error on post request")
-                || normalized.contains("read timed out")
-                || normalized.contains("sockettimeoutexception")
-                || normalized.contains("resourceaccessexception")
-                || normalized.contains("upstream timeout")
-                || normalized.contains("模型调用超时")
-                || normalized.contains("上游模型超时");
     }
 }

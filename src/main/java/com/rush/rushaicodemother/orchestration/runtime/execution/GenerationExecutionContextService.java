@@ -101,6 +101,10 @@ public class GenerationExecutionContextService {
         getByTaskId(taskId).ifPresent(GenerationExecutionContext::assertCanContinue);
     }
 
+    public void cancelByTaskId(String taskId, String reason) {
+        getByTaskId(taskId).ifPresent(context -> context.cancel(reason));
+    }
+
     public void cancelByAppId(Long appId, String reason) {
         getByAppId(appId).ifPresent(context -> context.cancel(reason));
     }

@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
@@ -26,6 +27,8 @@ import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import lombok.RequiredArgsConstructor;
@@ -56,10 +59,24 @@ public class HeavyGenerationCoordinator {
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
     private final GenerationTraceService generationTraceService;
     private final GenerationExecutionContextService generationExecutionContextService;
+    private final GenerationTaskIdGenerator generationTaskIdGenerator;
 
+    /** Starts heavy generation with an execution envelope allocated by the task runtime. */
+    public void startManaged(GenerationPipelineRequest pipelineRequest) {
+        if (pipelineRequest.execution() == null) {
+            throw new IllegalArgumentException("managed heavy generation requires a task execution envelope");
+        }
+        start(pipelineRequest);
+    }
+
+    /**
+     * Starts heavy generation. Requests from the production orchestrator carry a preallocated
+     * execution envelope; the legacy allocation path remains for isolated compatibility callers.
+     */
     public GenerationTaskResult start(GenerationPipelineRequest pipelineRequest) {
         GenerationTaskRequest request = pipelineRequest.taskRequest();
         App app = request.app();
+        User loginUser = request.loginUser();
         CodeGenTypeEnum codeGenType = pipelineRequest.codeGenType();
         generationEventPublisher.publish(request, GenerationEventType.TASK_ROUTE, "使用重型生成路径", Map.of(
                 "mode", pipelineRequest.modeDecision().mode().name(),
@@ -68,29 +85,76 @@ public class HeavyGenerationCoordinator {
                 "fallbackReason", pipelineRequest.modeDecision().fallbackReason(),
                 "codeGenType", codeGenType.getValue()
         ));
+
+        GenerationTaskExecution managedExecution = pipelineRequest.execution();
+        String taskId = managedExecution == null
+                ? generationTaskIdGenerator.nextId()
+                : managedExecution.taskId();
         Instant prepareStartedAt = Instant.now();
-        GenerationPreparation preparation = heavyGenerationPreparationService.prepare(app, request.message());
-        generationPerformanceMonitorService.startTask(
-                preparation.taskId(),
-                app.getId(),
-                request.loginUser().getId(),
-                pipelineRequest.modeDecision().route(),
-                codeGenType.getValue(),
-                prepareStartedAt,
-                pipelineRequest.modeDecision()
-        );
-        generationPerformanceMonitorService.recordSpan(
-                preparation.taskId(),
-                "heavy_prepare",
-                "success",
-                Duration.between(prepareStartedAt, Instant.now()),
-                ""
-        );
-        GenerationSession session = openGenerationSession(
-                app.getId(), request.message(), request.loginUser(), preparation, request);
-        startGenerationTask(app.getId(), request.loginUser(), preparation, session, request);
-        return new GenerationTaskResult(
-                preparation.taskId(), pipelineRequest.modeDecision().route(), pipelineRequest.workspace(), session.asFlux());
+        GenerationExecutionContext executionContext = managedExecution == null
+                ? null
+                : managedExecution.executionContext();
+        GenerationPreparation preparation = null;
+        GenerationSession session = null;
+        boolean performanceStarted = false;
+        boolean preparationRecorded = false;
+        try {
+            if (executionContext == null) {
+                executionContext = reserveExecutionContext(taskId, app.getId(), loginUser.getId());
+            } else {
+                executionContext.assertCanContinue();
+            }
+            generationPerformanceMonitorService.startTask(
+                    taskId,
+                    app.getId(),
+                    loginUser.getId(),
+                    pipelineRequest.modeDecision().route(),
+                    codeGenType.getValue(),
+                    prepareStartedAt,
+                    pipelineRequest.modeDecision()
+            );
+            performanceStarted = true;
+            preparation = heavyGenerationPreparationService.prepare(taskId, app, request.message());
+            executionContext.assertCanContinue();
+            assertConsistentTaskIdentity(taskId, preparation);
+            generationPerformanceMonitorService.recordSpan(
+                    taskId,
+                    "heavy_prepare",
+                    "success",
+                    Duration.between(prepareStartedAt, Instant.now()),
+                    ""
+            );
+            preparationRecorded = true;
+            session = openGenerationSession(
+                    app.getId(), request.message(), loginUser, preparation, request, executionContext,
+                    managedExecution == null ? null : managedExecution.session());
+            startGenerationTask(app.getId(), loginUser, preparation, session, request);
+            return new GenerationTaskResult(
+                    taskId, pipelineRequest.modeDecision().route(), pipelineRequest.workspace(), session.asFlux());
+        } catch (RuntimeException startupFailure) {
+            if (session != null && preparation != null) {
+                completeHeavyTask(
+                        app.getId(),
+                        request,
+                        preparation,
+                        session,
+                        GenerationTerminalOutcome.resolve(session, startupFailure),
+                        startupFailure
+                );
+            } else if (executionContext != null) {
+                cleanupInitializationFailure(
+                        taskId,
+                        app.getId(),
+                        request,
+                        pipelineRequest,
+                        performanceStarted,
+                        preparationRecorded,
+                        prepareStartedAt,
+                        startupFailure
+                );
+            }
+            throw startupFailure;
+        }
     }
 
     public Flux<GenerationStreamEvent> getStream(Long appId) {
@@ -104,21 +168,34 @@ public class HeavyGenerationCoordinator {
         ThrowUtils.throwIf(session == null || !session.isActive(), ErrorCode.OPERATION_ERROR, "当前应用没有进行中的生成任务");
         session.cancel();
         generationExecutionContextService.cancelByAppId(appId, "user_requested");
-        completeHeavyTask(appId, null, session.preparation(), session, GenerationTerminalOutcome.CANCELLED, null);
+        GenerationPreparation preparation = session.preparation();
+        if (preparation != null) {
+            completeHeavyTask(appId, null, preparation, session, GenerationTerminalOutcome.CANCELLED, null);
+        }
     }
 
     private GenerationSession openGenerationSession(Long appId,
                                                      String message,
                                                      User loginUser,
                                                      GenerationPreparation preparation,
-                                                     GenerationTaskRequest request) {
+                                                     GenerationTaskRequest request,
+                                                     GenerationExecutionContext executionContext,
+                                                     GenerationSession preRegisteredSession) {
         synchronized (generationSessionRegistry.lock(appId)) {
-            generationSessionRegistry.assertNoActiveSession(appId);
-            resetResidualGenerationState(appId);
+            if (preRegisteredSession == null) {
+                generationSessionRegistry.assertNoActiveSession(appId);
+                resetResidualGenerationState(appId);
+            } else {
+                GenerationSession registeredSession = generationSessionRegistry.get(appId);
+                if (registeredSession != preRegisteredSession) {
+                    throw new GenerationExecutionPolicyException(
+                            "预注册的生成会话与当前应用不匹配");
+                }
+            }
             generationTaskLifecycleService.recordUserMessage(appId, loginUser.getId(), message);
             boolean lifecycleStarted = false;
-            GenerationExecutionContext executionContext = null;
             try {
+                executionContext.assertCanContinue();
                 generationTaskLifecycleService.startGeneration(
                         preparation.taskId(),
                         appId,
@@ -136,21 +213,19 @@ public class HeavyGenerationCoordinator {
                 updateGenerationPhase(
                         appId, preparation.taskId(), AppConstant.GENERATING_STAGE_AGENT,
                         "智能体正在分析需求并规划生成策略...");
-                executionContext = generationExecutionContextService.start(
-                        preparation.taskId(), appId, loginUser.getId());
-                GenerationSession session = new GenerationSession(preparation, executionContext);
+                GenerationSession session = preRegisteredSession == null
+                        ? new GenerationSession(preparation, executionContext)
+                        : preRegisteredSession;
+                session.bindPreparation(preparation);
                 session.bindTaskRequest(request);
                 session.bindTraceContext(generationTraceService, appId, loginUser.getId());
-                generationSessionRegistry.put(appId, session);
+                if (preRegisteredSession == null) {
+                    generationSessionRegistry.put(appId, session);
+                }
                 return session;
             } catch (RuntimeException startFailure) {
-                generationSessionRegistry.remove(appId);
-                if (executionContext != null) {
-                    try {
-                        generationExecutionContextService.finish(preparation.taskId(), "failed");
-                    } catch (RuntimeException cleanupFailure) {
-                        startFailure.addSuppressed(cleanupFailure);
-                    }
+                if (preRegisteredSession == null) {
+                    generationSessionRegistry.remove(appId);
                 }
                 if (lifecycleStarted) {
                     try {
@@ -166,6 +241,74 @@ public class HeavyGenerationCoordinator {
                 }
                 throw startFailure;
             }
+        }
+    }
+
+    private GenerationExecutionContext reserveExecutionContext(String taskId, Long appId, Long userId) {
+        synchronized (generationSessionRegistry.lock(appId)) {
+            resetResidualGenerationState(appId);
+            generationSessionRegistry.assertNoActiveSession(appId);
+            return generationExecutionContextService.start(taskId, appId, userId);
+        }
+    }
+
+    private void assertConsistentTaskIdentity(String taskId, GenerationPreparation preparation) {
+        if (preparation == null || !taskId.equals(preparation.taskId())) {
+            throw new GenerationExecutionPolicyException("生成准备阶段返回了不一致的任务标识");
+        }
+    }
+
+    private void cleanupInitializationFailure(String taskId,
+                                              Long appId,
+                                              GenerationTaskRequest request,
+                                              GenerationPipelineRequest pipelineRequest,
+                                              boolean performanceStarted,
+                                              boolean preparationRecorded,
+                                              Instant prepareStartedAt,
+                                              RuntimeException startupFailure) {
+        GenerationTerminalOutcome outcome = GenerationTerminalOutcome.resolve(null, startupFailure);
+        if (performanceStarted && !preparationRecorded) {
+            runInitializationCleanupStep(taskId, "record failed preparation span", startupFailure,
+                    () -> generationPerformanceMonitorService.recordSpan(
+                            taskId,
+                            "heavy_prepare",
+                            "failed",
+                            Duration.between(prepareStartedAt, Instant.now()),
+                            startupFailure.getClass().getSimpleName()
+                    ));
+        }
+        runInitializationCleanupStep(taskId, "clear tool context", startupFailure,
+                () -> generationToolExecutionContextService.clearContext(appId));
+        if (performanceStarted) {
+            runInitializationCleanupStep(taskId, "finish performance task", startupFailure,
+                    () -> generationPerformanceMonitorService.finishTask(taskId, outcome.status()));
+        }
+        runInitializationCleanupStep(taskId, "publish initialization failure", startupFailure,
+                () -> generationEventPublisher.publishSafely(
+                        request,
+                        outcome.eventType(),
+                        outcome.eventMessage(),
+                        Map.of(
+                                "taskId", taskId,
+                                "status", outcome.status(),
+                                "route", pipelineRequest.modeDecision().route(),
+                                "phase", "preparation"
+                        )
+                ));
+        runInitializationCleanupStep(taskId, "finish execution context", startupFailure,
+                () -> generationExecutionContextService.finish(taskId, outcome.status()));
+    }
+
+    private void runInitializationCleanupStep(String taskId,
+                                              String step,
+                                              RuntimeException startupFailure,
+                                              Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException cleanupFailure) {
+            startupFailure.addSuppressed(cleanupFailure);
+            log.error("生成任务初始化清理步骤失败，taskId: {}, step: {}",
+                    taskId, step, LogExceptionSanitizer.sanitize(cleanupFailure));
         }
     }
 
@@ -192,7 +335,7 @@ public class HeavyGenerationCoordinator {
                 markGenerationStage(appId, preparation.taskId(), preparation.generatingStage(),
                         "智能体编排完成，正在生成项目代码...");
                 GenerationPerformanceMonitorService.SpanTimer generationSpan =
-                        generationPerformanceMonitorService.startSpan(preparation.taskId(), "llm_generation");
+                        generationPerformanceMonitorService.startSpan(preparation.taskId(), "llm_generation", GenerationSpanCategory.MODEL);
                 try {
                     heavyGenerationExecutionService.runGenerationWithAutoRepair(appId, loginUser, preparation, session);
                     generationSpan.success();
@@ -241,7 +384,7 @@ public class HeavyGenerationCoordinator {
             GenerationTerminalOutcome outcome = GenerationTerminalOutcome.SUCCESS;
             Throwable failure = null;
             GenerationPerformanceMonitorService.SpanTimer buildSpan =
-                    generationPerformanceMonitorService.startSpan(preparation.taskId(), "build_validation");
+                    generationPerformanceMonitorService.startSpan(preparation.taskId(), "build_validation", GenerationSpanCategory.VALIDATION);
             try {
                 session.throwIfCancelled();
                 boolean buildSucceeded = heavyGenerationBuildValidationService.runWithAutoRepair(
@@ -249,7 +392,7 @@ public class HeavyGenerationCoordinator {
                 if (buildSucceeded) {
                     buildSpan.success();
                     GenerationPerformanceMonitorService.SpanTimer finalizeSpan =
-                            generationPerformanceMonitorService.startSpan(preparation.taskId(), "finalization");
+                            generationPerformanceMonitorService.startSpan(preparation.taskId(), "finalization", GenerationSpanCategory.FINALIZATION);
                     try {
                         session.throwIfCancelled();
                         heavyGenerationFinalizationService.emitDiffSummaryIfAvailable(appId, preparation, session);
@@ -297,7 +440,7 @@ public class HeavyGenerationCoordinator {
             GenerationTerminalOutcome outcome = GenerationTerminalOutcome.SUCCESS;
             Throwable failure = null;
             GenerationPerformanceMonitorService.SpanTimer finalizeSpan =
-                    generationPerformanceMonitorService.startSpan(preparation.taskId(), "finalization");
+                    generationPerformanceMonitorService.startSpan(preparation.taskId(), "finalization", GenerationSpanCategory.FINALIZATION);
             try {
                 session.throwIfCancelled();
                 heavyGenerationFinalizationService.emitDiffSummaryIfAvailable(appId, preparation, session);
@@ -350,8 +493,8 @@ public class HeavyGenerationCoordinator {
         }
         runTerminalStep("finish performance task", preparation,
                 () -> generationPerformanceMonitorService.finishTask(preparation.taskId(), resolvedOutcome.status()));
-        runTerminalStep("remove generation session", preparation,
-                () -> generationSessionRegistry.remove(appId, session));
+        runTerminalStep("retain generation session for replay", preparation,
+                () -> generationSessionRegistry.retainForReplay(appId, session));
         runTerminalStep("clear tool context", preparation,
                 () -> generationToolExecutionContextService.clearContext(appId));
         GenerationTaskRequest completionRequest = request != null ? request : session.taskRequest();

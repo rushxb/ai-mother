@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.ModelCallRecord;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.NewBuildLog;
+import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.NewTask;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.TaskRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,8 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,6 +70,49 @@ class DefaultGenerationTraceServiceTest {
         service.startTask(command);
 
         verify(persistenceService).findTaskByTaskId("task-1");
+    }
+
+    @Test
+    void startTaskMustEnrichExistingRuntimeShell() {
+        GenerationTaskStartCommand command = startCommand();
+        when(persistenceService.insertTask(any())).thenReturn(false);
+        when(persistenceService.findTaskByTaskId("task-1"))
+                .thenReturn(runtimeShell(1L, 2L));
+        when(persistenceService.enrichRuntimeTaskTrace(anyLong(), any(), any()))
+                .thenReturn(true);
+
+        service.startTask(command);
+
+        ArgumentCaptor<NewTask> taskCaptor = ArgumentCaptor.forClass(NewTask.class);
+        verify(persistenceService).enrichRuntimeTaskTrace(eq(10L), taskCaptor.capture(), any());
+        assertEquals("vue_project", taskCaptor.getValue().targetCodeGenType());
+        assertEquals("创建页面", taskCaptor.getValue().userPrompt());
+        assertEquals("agent", taskCaptor.getValue().orchestrationMode());
+    }
+
+    @Test
+    void runtimeShellOwnedByDifferentRequestMustBeRejected() {
+        when(persistenceService.insertTask(any())).thenReturn(false);
+        when(persistenceService.findTaskByTaskId("task-1"))
+                .thenReturn(runtimeShell(99L, 2L));
+
+        assertThrows(BusinessException.class, () -> service.startTask(startCommand()));
+
+        verify(persistenceService, never()).enrichRuntimeTaskTrace(anyLong(), any(), any());
+    }
+
+    @Test
+    void concurrentRuntimeShellEnrichmentMustRereadAndAcceptCompletedPayload() {
+        when(persistenceService.insertTask(any())).thenReturn(false);
+        when(persistenceService.findTaskByTaskId("task-1"))
+                .thenReturn(runtimeShell(1L, 2L), taskRecord(GenerationTaskStatus.RUNNING));
+        when(persistenceService.enrichRuntimeTaskTrace(anyLong(), any(), any()))
+                .thenReturn(false);
+
+        service.startTask(startCommand());
+
+        verify(persistenceService, times(2)).findTaskByTaskId("task-1");
+        verify(persistenceService).enrichRuntimeTaskTrace(anyLong(), any(), any());
     }
 
     @Test
@@ -182,6 +228,15 @@ class DefaultGenerationTraceServiceTest {
         return new GenerationModelCallCommand(
                 CALL_ID, "task-1", 1L, 2L, "openai", "gpt-test",
                 8, 5, 13, 125L, "STOP", GenerationModelUsageSource.OFFICIAL
+        );
+    }
+
+    private TaskRecord runtimeShell(long appId, long userId) {
+        return new TaskRecord(
+                10L, "task-1", appId, userId, null, null, GenerationTaskStatus.RUNNING,
+                "starting", null, null, null, false,
+                null, null, NOW_LOCAL.minusSeconds(1), null, null,
+                null, null, NOW_LOCAL.minusSeconds(1)
         );
     }
 

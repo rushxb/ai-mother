@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
+import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -37,6 +38,28 @@ class GenerationOrchestrationTaskStoreTest {
         try (var files = Files.list(taskFile.getParent())) {
             assertFalse(files.anyMatch(path -> path.getFileName().toString().endsWith(".tmp")));
         }
+    }
+
+    @Test
+    void externallyReservedTaskIdMustBePreservedAndValidated() {
+        GenerationOrchestrationTaskStore store = store(properties(tempDirectory));
+
+        GenerationOrchestrationTask task = store.create("runtime-task_11", 11L, "request");
+
+        assertEquals("runtime-task_11", task.getTaskId());
+        assertThrows(IllegalArgumentException.class,
+                () -> store.create("../escape", 11L, "request"));
+    }
+
+    @Test
+    void legacyCreateMustDelegateIdentityGenerationToConfiguredStrategy() {
+        GenerationTaskIdGenerator taskIdGenerator = () -> "generated-task-12";
+        GenerationOrchestrationTaskStore store = new GenerationOrchestrationTaskStore(
+                properties(tempDirectory), taskIdGenerator);
+
+        GenerationOrchestrationTask task = store.create(12L, "request");
+
+        assertEquals("generated-task-12", task.getTaskId());
     }
 
     @Test

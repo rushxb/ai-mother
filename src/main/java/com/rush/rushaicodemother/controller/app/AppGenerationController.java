@@ -1,9 +1,9 @@
 package com.rush.rushaicodemother.controller.app;
 
-import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.common.BaseResponse;
 import com.rush.rushaicodemother.common.ResultUtils;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.controller.support.GenerationSseEventMapper;
 import com.rush.rushaicodemother.model.dto.app.AppChatRequest;
 import com.rush.rushaicodemother.model.dto.app.AppDatabaseEnableRequest;
 import com.rush.rushaicodemother.model.dto.app.AppStopRequest;
@@ -28,7 +28,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 /** 应用生成与提示词能力控制器。 */
 @Validated
@@ -39,6 +38,7 @@ public class AppGenerationController {
 
     private final AppService appService;
     private final UserService userService;
+    private final GenerationSseEventMapper generationSseEventMapper;
 
     @PostMapping("/optimize/prompt")
     @RateLimit(limitType = RateLimitType.USER, rate = 10, rateInterval = 60,
@@ -72,15 +72,7 @@ public class AppGenerationController {
                                                                  HttpServletRequest servletRequest) {
         User loginUser = userService.getLoginUser(servletRequest);
         Flux<GenerationStreamEvent> contentFlux = appService.getGenerationStream(appId, loginUser);
-        return contentFlux
-                .map(event -> ServerSentEvent.<String>builder()
-                        .event(event.getType())
-                        .data(JSONUtil.toJsonStr(event))
-                        .build())
-                .concatWith(Mono.just(ServerSentEvent.<String>builder()
-                        .event("done")
-                        .data("")
-                        .build()));
+        return generationSseEventMapper.map(contentFlux);
     }
 
     @PostMapping("/database/enable")

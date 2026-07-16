@@ -58,6 +58,11 @@ public class AppServiceImpl implements AppService {
 
     @Override
     public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
+        return submitGeneration(appId, message, loginUser).contentFlux();
+    }
+
+    @Override
+    public GenerationTaskResult submitGeneration(Long appId, String message, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
         App app = getGenerationApp(appId, loginUser);
@@ -65,8 +70,7 @@ public class AppServiceImpl implements AppService {
         userCreditService.ensureHasCredit(loginUser.getId());
         enableDatabaseForGenerationIfNeeded(app, message);
         generationEventPublisher.clearRecent(app.getId());
-        GenerationTaskResult taskResult = generationTaskOrchestrator.start(new GenerationTaskRequest(app, message, loginUser));
-        return taskResult.contentFlux();
+        return generationTaskOrchestrator.start(new GenerationTaskRequest(app, message, loginUser));
     }
 
     private App getGenerationApp(Long appId, User loginUser) {

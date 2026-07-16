@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.service.devserver;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,10 +17,13 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Dev Server 运行时验证服务。
+ * Validates generated applications through a managed Dev Server session.
  *
- * <p>启动成功即表示回环端口已经稳定就绪；本服务只在可配置的窗口内
- * 继续收集首次编译错误，并且只停止由当前调用新建的会话。</p>
+ * <p>A successful start means that the loopback port is stable. The service then collects delayed
+ * compilation errors for a bounded window and stops only sessions owned by the current caller.</p>
+ *
+ * <p>Generation Runtime policy is adapted here into generic timeout and cancellation controls, so
+ * the Dev Server lifecycle module remains reusable outside generation tasks.</p>
  */
 @Slf4j
 @Service
@@ -27,9 +32,10 @@ public class DevServerValidationService {
 
     private final DevServerManager devServerManager;
     private final DevServerRuntimeProperties runtimeProperties;
+    private final GenerationExecutionContextService generationExecutionContextService;
 
     /**
-     * 执行 Dev Server 运行时验证。
+     * Runs task-aware Dev Server validation.
      */
     public DevServerValidationResult validate(
             String taskId,
@@ -38,8 +44,14 @@ public class DevServerValidationService {
             CodeGenTypeEnum codeGenType
     ) {
         validateRequest(taskId, appId, userId, codeGenType);
+        generationExecutionContextService.assertCanContinue(taskId);
+        Duration startupTimeout = generationExecutionContextService.clampTimeout(
+                taskId,
+                runtimeProperties.getStartupTimeout()
+        );
+
         long startNanos = System.nanoTime();
-        log.info("开始 Dev Server 运行时验证，taskId: {}, appId: {}, codeGenType: {}",
+        log.info("Starting Dev Server validation, taskId={}, appId={}, codeGenType={}",
                 taskId, appId, codeGenType);
 
         DevServerErrorCollector collector = new DevServerErrorCollector();
@@ -48,12 +60,22 @@ public class DevServerValidationService {
         DevServerStartResult startResult = null;
         try {
             App app = buildAppForValidation(appId, codeGenType);
+            DevServerStartOptions startOptions = new DevServerStartOptions(
+                    taskId,
+                    startupTimeout,
+                    () -> generationExecutionContextService.shouldStop(taskId)
+            );
             try {
-                startResult = devServerManager.startDevServer(app, userId);
+                startResult = devServerManager.startDevServer(app, userId, startOptions);
+            } catch (GenerationExecutionPolicyException exception) {
+                throw exception;
             } catch (BusinessException exception) {
+                generationExecutionContextService.assertCanContinue(taskId);
                 return mapStartFailure(taskId, appId, startNanos, exception);
             } catch (RuntimeException exception) {
-                log.warn("Dev Server 启动异常，taskId: {}, error: {}", taskId, LogExceptionSanitizer.sanitizeMessage(exception));
+                generationExecutionContextService.assertCanContinue(taskId);
+                log.warn("Dev Server startup failed, taskId={}, error={}",
+                        taskId, LogExceptionSanitizer.sanitizeMessage(exception));
                 return DevServerValidationResult.startupFailed(
                         taskId,
                         appId,
@@ -62,15 +84,20 @@ public class DevServerValidationService {
                 );
             }
 
-            log.info("Dev Server 已就绪，taskId: {}, port: {}，进入错误收集窗口",
+            generationExecutionContextService.assertCanContinue(taskId);
+            Duration collectionWindow = generationExecutionContextService.clampTimeout(
+                    taskId,
+                    runtimeProperties.getValidationErrorCollectionWindow()
+            );
+            log.info("Dev Server is ready, taskId={}, port={}; collecting delayed errors",
                     taskId, startResult.port());
-            if (!awaitErrorCollectionWindow(runtimeProperties.getValidationErrorCollectionWindow())) {
+            if (!awaitErrorCollectionWindow(taskId, collectionWindow)) {
                 return DevServerValidationResult.interrupted(taskId, appId, elapsedSince(startNanos));
             }
 
             List<DevServerError> errors = collector.getErrors();
             long elapsed = elapsedSince(startNanos);
-            log.info("Dev Server 验证完成，taskId: {}, criticalErrors: {}, warnings: {}, duration: {}ms",
+            log.info("Dev Server validation completed, taskId={}, criticalErrors={}, warnings={}, duration={}ms",
                     taskId, collector.getCriticalErrorCount(), collector.getWarningCount(), elapsed);
 
             if (collector.hasCriticalError()) {
@@ -103,10 +130,19 @@ public class DevServerValidationService {
         return DevServerValidationResult.startupFailed(taskId, appId, elapsed, exception.getMessage());
     }
 
-    private boolean awaitErrorCollectionWindow(Duration duration) {
+    private boolean awaitErrorCollectionWindow(String taskId, Duration duration) {
+        long deadlineNanos = System.nanoTime() + duration.toNanos();
+        long pollNanos = runtimeProperties.getValidationPollInterval().toNanos();
         try {
-            TimeUnit.NANOSECONDS.sleep(duration.toNanos());
-            return true;
+            while (true) {
+                generationExecutionContextService.assertCanContinue(taskId);
+                long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    generationExecutionContextService.assertCanContinue(taskId);
+                    return true;
+                }
+                TimeUnit.NANOSECONDS.sleep(Math.max(1, Math.min(pollNanos, remainingNanos)));
+            }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return false;
@@ -119,32 +155,32 @@ public class DevServerValidationService {
         }
         try {
             devServerManager.stopDevServer(appId);
-            log.info("验证用 Dev Server 已停止，appId: {}", appId);
+            log.info("Stopped validation-owned Dev Server, appId={}", appId);
         } catch (RuntimeException exception) {
-            log.warn("停止验证用 Dev Server 失败，appId: {}, error: {}",
+            log.warn("Failed to stop validation-owned Dev Server, appId={}, error={}",
                     appId, LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 
     private void validateRequest(String taskId, Long appId, Long userId, CodeGenTypeEnum codeGenType) {
         if (taskId == null || taskId.isBlank()) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "任务 ID 不能为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Task ID cannot be blank");
         }
         if (appId == null || appId <= 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Application ID must be greater than zero");
         }
         if (userId == null || userId <= 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户 ID 必须大于 0");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User ID must be greater than zero");
         }
         if (codeGenType == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "代码生成类型不能为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Code generation type cannot be null");
         }
     }
 
     private App buildAppForValidation(Long appId, CodeGenTypeEnum codeGenType) {
         App app = new App();
         app.setId(appId);
-        app.setCodeGenType(codeGenType == null ? null : codeGenType.getValue());
+        app.setCodeGenType(codeGenType.getValue());
         return app;
     }
 

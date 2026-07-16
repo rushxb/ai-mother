@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -102,6 +103,81 @@ class DevServerManagerTest {
         verify(dependencyInstaller, times(1)).ensureInstalled(project);
         verify(processRunner, times(1)).start(eq(project), eq(5180), eq(11L), any(), any());
         verify(bootstrapInjector, times(2)).inject(project);
+    }
+
+    @Test
+    void managedStartMustPropagateTaskControlsToDependencyAndProcessModules() {
+        Path project = tempDirectory.resolve("project-11");
+        ProcessFixture fixture = processFixture();
+        Duration startupTimeout = Duration.ofSeconds(3);
+        AtomicBoolean externalCancellation = new AtomicBoolean(false);
+        DevServerStartOptions options = new DevServerStartOptions(
+                "task-1",
+                startupTimeout,
+                externalCancellation::get
+        );
+        when(projectLocator.locate(any(App.class))).thenReturn(project);
+        when(portAllocator.reserve(11L, null)).thenReturn(5180);
+        when(outputHub.sink(11L)).thenReturn(line -> { });
+        when(dependencyInstaller.ensureInstalled(project, "task-1"))
+                .thenReturn(DependencyInstallResult.success("ok"));
+        when(processRunner.start(
+                eq(project),
+                eq(5180),
+                eq(11L),
+                any(),
+                eq(startupTimeout),
+                any()
+        )).thenReturn(fixture.session(project, 5180));
+        ArgumentCaptor<BooleanSupplier> cancellationCaptor = ArgumentCaptor.forClass(BooleanSupplier.class);
+
+        DevServerStartResult result = manager.startDevServer(
+                app(11L, 7L, CodeGenTypeEnum.VUE_PROJECT),
+                7L,
+                options
+        );
+
+        assertEquals(new DevServerStartResult(5180, true), result);
+        verify(dependencyInstaller).ensureInstalled(project, "task-1");
+        verify(dependencyInstaller, never()).ensureInstalled(project);
+        verify(processRunner).start(
+                eq(project),
+                eq(5180),
+                eq(11L),
+                any(),
+                eq(startupTimeout),
+                cancellationCaptor.capture()
+        );
+        assertFalse(cancellationCaptor.getValue().getAsBoolean());
+
+        externalCancellation.set(true);
+        assertTrue(cancellationCaptor.getValue().getAsBoolean());
+        externalCancellation.set(false);
+        manager.stopDevServer(11L);
+        assertTrue(cancellationCaptor.getValue().getAsBoolean());
+    }
+
+    @Test
+    void managedStartCancelledBeforeSideEffectsMustFailFast() {
+        DevServerStartOptions options = new DevServerStartOptions(
+                "task-1",
+                Duration.ofSeconds(3),
+                () -> true
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> manager.startDevServer(
+                        app(11L, 7L, CodeGenTypeEnum.VUE_PROJECT),
+                        7L,
+                        options
+                )
+        );
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+        verify(projectLocator, never()).locate(any(App.class));
+        verify(dependencyInstaller, never()).ensureInstalled(any(Path.class), any(String.class));
+        verify(processRunner, never()).start(any(), anyInt(), anyLong(), any(), any(Duration.class), any());
     }
 
     @Test

@@ -30,10 +30,17 @@ public class HeavyGenerationPreparationService {
     private final GeneratedProjectContextService generatedProjectContextService;
 
     public GenerationPreparation prepare(App app, String userMessage) {
+        return prepare(null, app, userMessage);
+    }
+
+    /**
+     * Prepares a generation task using an identity already reserved by the execution runtime.
+     */
+    public GenerationPreparation prepare(String taskId, App app, String userMessage) {
         GenerationIntent intent = recognizeGenerationIntent(app, userMessage);
         GenerationContextAssembly contextAssembly = assembleGenerationContext(intent);
         GenerationRoutingPlan routingPlan = routeGeneration(intent, contextAssembly);
-        return buildGenerationPreparation(intent, routingPlan);
+        return buildGenerationPreparation(taskId, intent, routingPlan);
     }
 
     private GenerationIntent recognizeGenerationIntent(App app, String userMessage) {
@@ -60,7 +67,8 @@ public class HeavyGenerationPreparationService {
         );
     }
 
-    private GenerationPreparation buildGenerationPreparation(GenerationIntent intent,
+    private GenerationPreparation buildGenerationPreparation(String taskId,
+                                                             GenerationIntent intent,
                                                              GenerationRoutingPlan routingPlan) {
         CodeGenTypeEnum targetType = intent.targetType() == null
                 ? routingPlan.routingFunction().apply(intent.generationMessage())
@@ -79,7 +87,8 @@ public class HeavyGenerationPreparationService {
                         intent.hasGeneratedCode(),
                         routingPlan.contextAssembly().projectContextSupplier(),
                         routingPlan.routingFunction(),
-                        memoryContext
+                        memoryContext,
+                        taskId
                 )
         );
         GenerationPreparation preparation = new GenerationPreparation(

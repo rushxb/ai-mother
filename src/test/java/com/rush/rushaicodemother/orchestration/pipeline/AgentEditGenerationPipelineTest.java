@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
+import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
-import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
-import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditGenerationService;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditResult;
@@ -13,16 +15,23 @@ import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,58 +39,42 @@ import static org.mockito.Mockito.when;
 class AgentEditGenerationPipelineTest {
 
     @Test
-    void shouldReturnEmptyWhenAgentEditFailsSoOrchestratorCanApplyFallbackPolicy() {
+    void failedAgentEditMustTerminateSameTaskInsteadOfAllocatingFallbackIdentity() {
         AgentEditGenerationService service = mock(AgentEditGenerationService.class);
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
-        AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(
-                service,
-                monitor,
-                new GenerationSessionRegistry(new GenerationSessionProperties())
-        );
-        GenerationPipelineRequest request = request();
-        when(service.execute(any(), any())).thenReturn(
-                new AgentEditResult("agent-task-1", "agent_edit", "failed", List.of(), "failed", 1)
-        );
+        AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(service, monitor);
+        GenerationPipelineRequest request = request("agent-task-1");
+        when(service.execute(eq("agent-task-1"), any(), any())).thenReturn(
+                new AgentEditResult("agent-task-1", "agent_edit", "failed", List.of(), "failed", 1));
 
-        assertTrue(pipeline.execute(request).isEmpty());
-        verify(monitor).recordSpan(
-                org.mockito.ArgumentMatchers.eq("agent-task-1"),
-                org.mockito.ArgumentMatchers.eq("agent_edit_pipeline"),
-                org.mockito.ArgumentMatchers.eq("failed"),
-                any(),
-                org.mockito.ArgumentMatchers.eq("repairRounds=1")
-        );
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationPipelineDisposition.COMPLETED, outcome.disposition());
+        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
+        GenerationStreamEvent error = request.execution().session().asFlux()
+                .filter(event -> GenerationStreamEvent.GENERATION_ERROR.equals(event.getType()))
+                .blockFirst(Duration.ofSeconds(1));
+        assertNotNull(error);
+        verify(monitor).recordSpan(eq("agent-task-1"), eq("agent_edit_pipeline"),
+                eq(GenerationSpanCategory.PIPELINE), eq("failed"), any(), eq("repairRounds=1"));
     }
 
     @Test
-    void shouldReturnFailedResultWhenAgentEditFailsWithUpstreamTimeout() {
+    void successfulAgentEditMustUseSubmissionTaskIdentity() {
         AgentEditGenerationService service = mock(AgentEditGenerationService.class);
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
-        AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(
-                service,
-                monitor,
-                new GenerationSessionRegistry(new GenerationSessionProperties())
-        );
-        GenerationPipelineRequest request = request();
-        when(service.execute(any(), any())).thenReturn(
-                new AgentEditResult(
-                        "agent-task-timeout",
-                        "agent_edit",
-                        "AGENT_EDIT 执行失败: I/O error on POST request: Read timed out",
-                        List.of(),
-                        "failed",
-                        0
-                )
-        );
+        AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(service, monitor);
+        GenerationPipelineRequest request = request("agent-task-success");
+        when(service.execute(eq("agent-task-success"), any(), any())).thenReturn(
+                new AgentEditResult("agent-task-success", "agent_edit", "done", List.of("src/App.vue"), "success", 0));
 
-        var result = pipeline.execute(request);
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
 
-        assertTrue(result.isPresent());
-        assertEquals("agent-task-timeout", result.get().taskId());
-        assertEquals("agent_edit", result.get().route());
+        assertEquals(GenerationTaskStatus.SUCCESS, outcome.terminalStatus());
+        verify(service).execute(eq("agent-task-success"), any(), any());
     }
 
-    private GenerationPipelineRequest request() {
+    private GenerationPipelineRequest request(String taskId) {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
@@ -89,28 +82,16 @@ class AgentEditGenerationPipelineTest {
         user.setId(2L);
         Path root = Path.of("target/test-workspace").toAbsolutePath().normalize();
         GenerationWorkspace workspace = new GenerationWorkspace(
-                1L,
-                CodeGenTypeEnum.VUE_PROJECT,
-                root,
-                root,
-                true,
-                root,
-                root,
-                Set.of(),
-                Set.of()
-        );
+                1L, CodeGenTypeEnum.VUE_PROJECT, root, root, true, root, root, Set.of(), Set.of());
         GenerationModeDecision decision = GenerationModeDecision.of(
-                GenerationMode.AGENT_EDIT,
-                0.82,
-                "test agent edit",
-                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
-                ExpectedValidationLevel.BUILD
-        );
+                GenerationMode.AGENT_EDIT, 0.82, "test agent edit",
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT, ExpectedValidationLevel.BUILD);
+        GenerationTaskRequest taskRequest = new GenerationTaskRequest(app, "修改登录页标题", user);
+        GenerationExecutionContext context = new GenerationExecutionContext(
+                taskId, 1L, 2L, Instant.now(), new GenerationRuntimeProperties().toLimits(), Clock.systemUTC());
+        GenerationSession session = new GenerationSession(null, context);
         return new GenerationPipelineRequest(
-                new GenerationTaskRequest(app, "新增搜索分页", user),
-                CodeGenTypeEnum.VUE_PROJECT,
-                workspace,
-                decision
-        );
+                taskRequest, CodeGenTypeEnum.VUE_PROJECT, workspace, decision,
+                new GenerationTaskExecution(taskId, session, context, Instant.now()));
     }
 }

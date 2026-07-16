@@ -22,6 +22,7 @@ public class GenerationSessionRegistry {
     private final Object sessionMutationMonitor = new Object();
     private final Object[] lockStripes;
     private final Map<Long, SessionEntry> sessions = new ConcurrentHashMap<>();
+    private final Map<String, TaskSessionReference> sessionsByTaskId = new ConcurrentHashMap<>();
     private final int maxTrackedSessions;
     private final long completedReplayRetentionNanos;
     private final LongSupplier nanoTimeSupplier;
@@ -64,6 +65,10 @@ public class GenerationSessionRegistry {
     public void put(Long appId, GenerationSession session) {
         long validatedAppId = requirePositiveAppId(appId);
         GenerationSession validatedSession = requireSession(session);
+        String taskId = validatedSession.taskId();
+        if (taskId != null && !taskId.isBlank()) {
+            taskId = requireTaskId(taskId);
+        }
         synchronized (sessionMutationMonitor) {
             if (!sessions.containsKey(validatedAppId) && sessions.size() >= maxTrackedSessions) {
                 removeExpiredSessions(nanoTimeSupplier.getAsLong());
@@ -71,8 +76,33 @@ public class GenerationSessionRegistry {
             if (!sessions.containsKey(validatedAppId) && sessions.size() >= maxTrackedSessions) {
                 throw new GenerationSessionCapacityExceededException(maxTrackedSessions);
             }
-            sessions.put(validatedAppId, SessionEntry.active(validatedSession));
+            if (taskId != null && !taskId.isBlank()) {
+                TaskSessionReference existingTask = sessionsByTaskId.get(taskId);
+                if (existingTask != null && existingTask.session() != validatedSession) {
+                    throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务 ID 已存在");
+                }
+            }
+            SessionEntry previous = sessions.put(validatedAppId, SessionEntry.active(validatedSession));
+            removeTaskIndex(validatedAppId, previous);
+            if (taskId != null && !taskId.isBlank()) {
+                sessionsByTaskId.put(taskId, new TaskSessionReference(validatedAppId, validatedSession));
+            }
         }
+    }
+
+    /** Returns an active or replay-retained session by task identity. */
+    public GenerationSession getByTaskId(String taskId) {
+        String validatedTaskId = requireTaskId(taskId);
+        TaskSessionReference reference = sessionsByTaskId.get(validatedTaskId);
+        if (reference == null) {
+            return null;
+        }
+        GenerationSession current = get(reference.appId());
+        if (current == reference.session() && validatedTaskId.equals(current.taskId())) {
+            return current;
+        }
+        sessionsByTaskId.remove(validatedTaskId, reference);
+        return null;
     }
 
     public void remove(Long appId, GenerationSession session) {
@@ -80,8 +110,9 @@ public class GenerationSessionRegistry {
         GenerationSession validatedSession = requireSession(session);
         synchronized (sessionMutationMonitor) {
             SessionEntry current = sessions.get(validatedAppId);
-            if (current != null && current.session() == validatedSession) {
-                sessions.remove(validatedAppId, current);
+            if (current != null && current.session() == validatedSession
+                    && sessions.remove(validatedAppId, current)) {
+                removeTaskIndex(validatedAppId, current);
             }
         }
     }
@@ -89,7 +120,8 @@ public class GenerationSessionRegistry {
     public void remove(Long appId) {
         long validatedAppId = requirePositiveAppId(appId);
         synchronized (sessionMutationMonitor) {
-            sessions.remove(validatedAppId);
+            SessionEntry removed = sessions.remove(validatedAppId);
+            removeTaskIndex(validatedAppId, removed);
         }
     }
 
@@ -136,6 +168,7 @@ public class GenerationSessionRegistry {
         for (Map.Entry<Long, SessionEntry> candidate : sessions.entrySet()) {
             SessionEntry entry = candidate.getValue();
             if (entry.isExpired(nowNanos) && sessions.remove(candidate.getKey(), entry)) {
+                removeTaskIndex(candidate.getKey(), entry);
                 removed++;
             }
         }
@@ -148,7 +181,21 @@ public class GenerationSessionRegistry {
             if (current != expectedEntry || !current.isExpired(nanoTimeSupplier.getAsLong())) {
                 return false;
             }
-            return sessions.remove(appId, current);
+            boolean removed = sessions.remove(appId, current);
+            if (removed) {
+                removeTaskIndex(appId, current);
+            }
+            return removed;
+        }
+    }
+
+    private void removeTaskIndex(long appId, SessionEntry entry) {
+        if (entry == null) {
+            return;
+        }
+        String taskId = entry.session().taskId();
+        if (taskId != null && !taskId.isBlank()) {
+            sessionsByTaskId.remove(taskId, new TaskSessionReference(appId, entry.session()));
         }
     }
 
@@ -187,6 +234,16 @@ public class GenerationSessionRegistry {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成会话不能为空");
         }
         return session;
+    }
+
+    private String requireTaskId(String taskId) {
+        if (taskId == null || taskId.isBlank() || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务 ID 格式错误");
+        }
+        return taskId;
+    }
+
+    private record TaskSessionReference(long appId, GenerationSession session) {
     }
 
     private record SessionEntry(GenerationSession session, Long expirationNanos) {

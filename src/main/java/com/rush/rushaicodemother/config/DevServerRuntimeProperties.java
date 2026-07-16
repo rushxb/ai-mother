@@ -31,6 +31,9 @@ public class DevServerRuntimeProperties {
     /** 启动就绪后，用于收集首次编译延迟错误的验证窗口。 */
     private Duration validationErrorCollectionWindow = Duration.ofSeconds(5);
 
+    /** Polling interval for cancellation and deadline checks during validation. */
+    private Duration validationPollInterval = Duration.ofMillis(100);
+
     /** 进程结束后等待输出消费线程收口的时长。 */
     private Duration outputDrainTimeout = Duration.ofSeconds(2);
 
@@ -64,14 +67,25 @@ public class DevServerRuntimeProperties {
 
     @AssertTrue(message = "Dev Server 运行时超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
-        return Stream.of(startupTimeout, readinessPollInterval, validationErrorCollectionWindow, outputDrainTimeout, stopTimeout)
+        return configuredDurations()
                 .allMatch(duration -> duration != null && !duration.isZero() && !duration.isNegative());
     }
 
     @AssertTrue(message = "Dev Server 运行时超时不能超过 1 小时")
     public boolean isDurationConfigurationBounded() {
-        return Stream.of(startupTimeout, readinessPollInterval, validationErrorCollectionWindow, outputDrainTimeout, stopTimeout)
+        return configuredDurations()
                 .allMatch(duration -> duration != null && duration.compareTo(MAX_RUNTIME_DURATION) <= 0);
+    }
+
+    private Stream<Duration> configuredDurations() {
+        return Stream.of(
+                startupTimeout,
+                readinessPollInterval,
+                validationErrorCollectionWindow,
+                validationPollInterval,
+                outputDrainTimeout,
+                stopTimeout
+        );
     }
 
     @AssertTrue(message = "Dev Server 就绪检查间隔必须小于启动超时")

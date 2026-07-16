@@ -19,13 +19,15 @@ public interface GenerationTraceMapper {
             INSERT INTO generation_task (
                 taskId, appId, userId, originalCodeGenType, targetCodeGenType,
                 status, stage, stageMessage, userPrompt, enhancedPrompt,
-                requiresBuildValidation, qualityGate, orchestrationMode,
+                requiresBuildValidation, qualityGate, orchestrationMode, route,
+                submittedAt, cancellationRequested, attempt, version,
                 startTime, totalTokens, creditCost, creditCharged,
                 createTime, updateTime, isDelete
             ) VALUES (
                 #{taskId}, #{appId}, #{userId}, #{originalCodeGenType}, #{targetCodeGenType},
                 #{status}, #{stage}, #{stageMessage}, #{userPrompt}, #{enhancedPrompt},
-                #{requiresBuildValidation}, #{qualityGate}, #{orchestrationMode},
+                #{requiresBuildValidation}, #{qualityGate}, #{orchestrationMode}, #{orchestrationMode},
+                #{startTime}, 0, 1, 0,
                 #{startTime}, 0, 0, 0, #{createTime}, #{updateTime}, 0
             )
             """)
@@ -56,6 +58,33 @@ public interface GenerationTraceMapper {
             FOR UPDATE
             """)
     GenerationTask selectTaskByTaskIdForUpdate(@Param("taskId") String taskId);
+
+    @Update("""
+            UPDATE generation_task
+            SET originalCodeGenType = #{originalCodeGenType},
+                targetCodeGenType = #{targetCodeGenType},
+                userPrompt = #{userPrompt},
+                enhancedPrompt = #{enhancedPrompt},
+                requiresBuildValidation = #{requiresBuildValidation},
+                qualityGate = #{qualityGate},
+                orchestrationMode = #{orchestrationMode},
+                updateTime = #{updateTime}
+            WHERE id = #{recordId}
+              AND status = 'running'
+              AND targetCodeGenType IS NULL
+              AND userPrompt IS NULL
+              AND orchestrationMode IS NULL
+              AND isDelete = 0
+            """)
+    int enrichRunningTaskTrace(@Param("recordId") Long recordId,
+                               @Param("originalCodeGenType") String originalCodeGenType,
+                               @Param("targetCodeGenType") String targetCodeGenType,
+                               @Param("userPrompt") String userPrompt,
+                               @Param("enhancedPrompt") String enhancedPrompt,
+                               @Param("requiresBuildValidation") int requiresBuildValidation,
+                               @Param("qualityGate") String qualityGate,
+                               @Param("orchestrationMode") String orchestrationMode,
+                               @Param("updateTime") LocalDateTime updateTime);
 
     @Update("""
             UPDATE generation_task
@@ -90,6 +119,10 @@ public interface GenerationTraceMapper {
                 endTime = #{endTime},
                 durationMs = #{durationMs},
                 errorMessage = #{errorMessage},
+                leaseOwner = NULL,
+                leaseUntil = NULL,
+                heartbeatAt = NULL,
+                version = version + 1,
                 updateTime = #{endTime}
             WHERE id = #{recordId}
               AND status = 'running'

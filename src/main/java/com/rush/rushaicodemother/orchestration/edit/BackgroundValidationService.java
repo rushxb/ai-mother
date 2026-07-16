@@ -11,6 +11,8 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
@@ -39,6 +41,7 @@ public class BackgroundValidationService {
     private final VueProjectBuilder vueProjectBuilder;
     private final DevServerManager devServerManager;
     private final DevServerValidationService devServerValidationService;
+    private final GenerationExecutionContextService generationExecutionContextService;
 
     /**
      * 异步执行后台验证。
@@ -108,6 +111,8 @@ public class BackgroundValidationService {
             log.info("后台验证完成，taskId: {}, status: {}", taskId, result.status());
             return result;
 
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception e) {
             log.error("后台验证失败，taskId: {}", taskId, LogExceptionSanitizer.sanitize(e));
             GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
@@ -221,12 +226,14 @@ public class BackgroundValidationService {
                         "构建验证失败 [" + buildResult.stage() + "]: " + buildResult.publicSummary()
                 );
             }
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception e) {
             log.error("构建验证异常，taskId: {}", taskId, LogExceptionSanitizer.sanitize(e));
             return ValidationResult.failed(taskId, "构建验证执行异常，请稍后重试");
         } finally {
             // 构建完成后重启 dev server
-            if (devServerWasRunning) {
+            if (devServerWasRunning && !generationExecutionContextService.shouldStop(taskId)) {
                 try {
                     log.info("构建验证后重启 dev server，appId: {}, port: {}", appId, savedPort);
                     App app = new App();

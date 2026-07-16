@@ -15,6 +15,8 @@ public interface GenerationTracePersistenceService {
 
     TaskRecord lockTaskByTaskId(String taskId);
 
+    boolean enrichRuntimeTaskTrace(long recordId, NewTask task, LocalDateTime updateTime);
+
     void updateRunningTaskStage(long recordId, String stage, String stageMessage, LocalDateTime updateTime);
 
     void updateTaskMemorySummary(long recordId, String memorySummary, LocalDateTime updateTime);

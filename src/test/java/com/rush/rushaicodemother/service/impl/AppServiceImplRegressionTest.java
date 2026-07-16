@@ -27,6 +27,7 @@ import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationSessionCompl
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
@@ -121,7 +122,8 @@ class AppServiceImplRegressionTest {
                 new NoopUserCreditService()
         );
         HeavyGenerationSessionCompletionService completionService =
-                new HeavyGenerationSessionCompletionService(metricsCollector, lifecycleService);
+                new HeavyGenerationSessionCompletionService(
+                        metricsCollector, lifecycleService, mock(GenerationTaskRuntimeLifecycleService.class));
         GenerationPreparation preparation = newPreparation(
                 lifecycleArtifacts(),
                 List.of(GenerationStreamEvent.agentEvent("route", Map.of("orchestrationMode", "light"))),

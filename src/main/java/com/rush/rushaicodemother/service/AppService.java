@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
 import com.rush.rushaicodemother.model.vo.AppCodeFileTreeVO;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -26,6 +27,11 @@ public interface AppService {
      * @return
      */
     Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser);
+
+    /**
+     * Submits a generation task and returns its stable task identity immediately.
+     */
+    GenerationTaskResult submitGeneration(Long appId, String message, User loginUser);
 
     /**
      * 订阅当前应用的生成流

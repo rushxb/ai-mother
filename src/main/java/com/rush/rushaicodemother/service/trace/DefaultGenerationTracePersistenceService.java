@@ -63,6 +63,17 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
     }
 
     @Override
+    public boolean enrichRuntimeTaskTrace(long recordId, NewTask task, LocalDateTime updateTime) {
+        requirePositive(recordId, "生成任务记录 ID");
+        requireTask(task);
+        requireTime(updateTime, "trace 更新时间");
+        return mapper.enrichRunningTaskTrace(
+                recordId, task.originalCodeGenType(), task.targetCodeGenType(),
+                task.userPrompt(), task.enhancedPrompt(), task.requiresBuildValidation() ? 1 : 0,
+                task.qualityGate(), task.orchestrationMode(), updateTime) == 1;
+    }
+
+    @Override
     public void updateRunningTaskStage(long recordId,
                                        String stage,
                                        String stageMessage,

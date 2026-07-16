@@ -1,17 +1,11 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
-import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
-
-import java.util.Optional;
-
-/**
- * One route in the generation pipeline.
- */
+/** One executable route in the generation runtime. */
 public interface GenerationPipeline {
 
     String route();
 
     boolean supports(GenerationPipelineRequest request);
 
-    Optional<GenerationTaskResult> execute(GenerationPipelineRequest request);
+    GenerationPipelineOutcome execute(GenerationPipelineRequest request);
 }

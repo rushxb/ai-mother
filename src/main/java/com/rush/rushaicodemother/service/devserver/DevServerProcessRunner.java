@@ -73,6 +73,26 @@ public class DevServerProcessRunner {
             Consumer<String> outputConsumer,
             BooleanSupplier cancellationRequested
     ) {
+        return start(
+                projectDirectory,
+                port,
+                appId,
+                outputConsumer,
+                properties.getStartupTimeout(),
+                cancellationRequested
+        );
+    }
+
+    DevServerProcessSession start(
+            Path projectDirectory,
+            int port,
+            Long appId,
+            Consumer<String> outputConsumer,
+            Duration startupTimeout,
+            BooleanSupplier cancellationRequested
+    ) {
+        requirePositiveTimeout(startupTimeout);
+        BooleanSupplier effectiveCancellation = cancellationRequested == null ? () -> false : cancellationRequested;
         List<String> command = launcherResolver.resolve(projectDirectory, port);
         Process process = null;
         CompletableFuture<Void> outputCompletion = null;
@@ -88,7 +108,7 @@ public class DevServerProcessRunner {
 
             process = processStarter.start(processBuilder);
             outputCompletion = outputPump.start(process, "appId=" + appId, outputConsumer);
-            waitUntilReady(process, port, cancellationRequested);
+            waitUntilReady(process, port, startupTimeout, effectiveCancellation);
             return new DevServerProcessSession(projectDirectory, port, process, outputCompletion);
         } catch (InterruptedException exception) {
             interrupted = true;
@@ -142,10 +162,11 @@ public class DevServerProcessRunner {
     private void waitUntilReady(
             Process process,
             int port,
+            Duration startupTimeout,
             BooleanSupplier cancellationRequested
     ) throws InterruptedException {
         long startedAtNanos = System.nanoTime();
-        long timeoutNanos = properties.getStartupTimeout().toNanos();
+        long timeoutNanos = startupTimeout.toNanos();
         long pollNanos = properties.getReadinessPollInterval().toNanos();
         int consecutiveSuccesses = 0;
 
@@ -177,11 +198,17 @@ public class DevServerProcessRunner {
             if (remainingNanos <= 0) {
                 throw new DevServerStartException(
                         DevServerStartException.Reason.STARTUP_TIMEOUT,
-                        "Dev Server 未在 " + properties.getStartupTimeout() + " 内就绪"
+                        "Dev Server 未在 " + startupTimeout + " 内就绪"
                 );
             }
             long sleepNanos = Math.min(pollNanos, remainingNanos);
             TimeUnit.NANOSECONDS.sleep(Math.max(1, sleepNanos));
+        }
+    }
+
+    private void requirePositiveTimeout(Duration timeout) {
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("Dev Server startup timeout must be greater than zero");
         }
     }
 

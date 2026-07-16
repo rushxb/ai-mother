@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ public class HeavyGenerationSessionCompletionService {
 
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
+    private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
 
     /**
      * Persists terminal lifecycle data after the caller has atomically claimed session completion.
@@ -40,13 +42,31 @@ public class HeavyGenerationSessionCompletionService {
         }
         String status = outcome.status();
         recordUserWaitMetric(session, preparation, status);
-        generationTaskLifecycleService.completeGenerationAndCharge(
-                preparation.taskId(),
-                appId,
-                outcome.taskStatus(),
-                null,
-                buildMemorySummary(preparation, status)
-        );
+        RuntimeException lifecycleFailure = null;
+        try {
+            generationTaskLifecycleService.completeGenerationAndCharge(
+                    preparation.taskId(),
+                    appId,
+                    outcome.taskStatus(),
+                    null,
+                    buildMemorySummary(preparation, status)
+            );
+        } catch (RuntimeException failure) {
+            lifecycleFailure = failure;
+            throw failure;
+        } finally {
+            try {
+                generationTaskRuntimeLifecycleService.complete(
+                        preparation.taskId(), outcome.taskStatus(),
+                        outcome == GenerationTerminalOutcome.SUCCESS ? null : outcome.status());
+            } catch (RuntimeException runtimeFailure) {
+                if (lifecycleFailure != null) {
+                    lifecycleFailure.addSuppressed(runtimeFailure);
+                } else {
+                    throw runtimeFailure;
+                }
+            }
+        }
     }
 
     public String orchestrationMode(GenerationPreparation preparation) {

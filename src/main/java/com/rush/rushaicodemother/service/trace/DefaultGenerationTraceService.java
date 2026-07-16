@@ -71,7 +71,17 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         if (existing == null) {
             throw operationFailed("生成任务 trace 并发创建后无法读取，taskId=" + task.taskId());
         }
-        if (!sameTaskPayload(existing, task)) {
+        if (isRuntimeShell(existing)) {
+            if (!sameTaskIdentity(existing, task)) {
+                throw operationFailed("生成任务 ID 已被不同请求占用，taskId=" + task.taskId());
+            }
+            if (persistenceService.enrichRuntimeTaskTrace(
+                    existing.recordId(), task, LocalDateTime.now(clock))) {
+                return;
+            }
+            existing = persistenceService.findTaskByTaskId(task.taskId());
+        }
+        if (existing == null || !sameTaskPayload(existing, task)) {
             throw operationFailed("生成任务 ID 已被不同请求占用，taskId=" + task.taskId());
         }
     }
@@ -286,6 +296,19 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             throw operationFailed("生成任务 trace 不存在，taskId=" + taskId);
         }
         return task;
+    }
+
+    private boolean isRuntimeShell(TaskRecord task) {
+        return task != null
+                && task.targetCodeGenType() == null
+                && task.userPrompt() == null
+                && task.orchestrationMode() == null;
+    }
+
+    private boolean sameTaskIdentity(TaskRecord existing, NewTask requested) {
+        return existing.taskId().equals(requested.taskId())
+                && existing.appId() == requested.appId()
+                && existing.userId() == requested.userId();
     }
 
     private boolean sameTaskPayload(TaskRecord existing, NewTask requested) {

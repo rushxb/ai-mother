@@ -100,6 +100,29 @@ app:
     max-tool-writes: ${GENERATION_MAX_TOOL_WRITES:80}
     max-build-executions: ${GENERATION_MAX_BUILD_EXECUTIONS:4}
     max-repair-rounds: ${GENERATION_MAX_REPAIR_ROUNDS:3}
+  generation-task-executor:
+    max-concurrency: ${GENERATION_TASK_MAX_CONCURRENCY:32}
+    queue-capacity: ${GENERATION_TASK_QUEUE_CAPACITY:256}
+    shutdown-timeout: ${GENERATION_TASK_EXECUTOR_SHUTDOWN_TIMEOUT:30s}
+  generation-progress:
+    task-sample-limit: ${GENERATION_PROGRESS_TASK_SAMPLE_LIMIT:200}
+    span-sample-limit: ${GENERATION_PROGRESS_SPAN_SAMPLE_LIMIT:5000}
+    minimum-historical-samples: ${GENERATION_PROGRESS_MINIMUM_HISTORICAL_SAMPLES:8}
+    high-confidence-samples: ${GENERATION_PROGRESS_HIGH_CONFIDENCE_SAMPLES:30}
+    max-stage-profiles: ${GENERATION_PROGRESS_MAX_STAGE_PROFILES:100}
+    max-cached-routes: ${GENERATION_PROGRESS_MAX_CACHED_ROUTES:100}
+    profile-cache-ttl: ${GENERATION_PROGRESS_PROFILE_CACHE_TTL:1m}
+    fallback-total-duration: ${GENERATION_PROGRESS_FALLBACK_TOTAL_DURATION:20m}
+    maximum-estimated-duration: ${GENERATION_PROGRESS_MAXIMUM_ESTIMATED_DURATION:2h}
+    minimum-running-remaining: ${GENERATION_PROGRESS_MINIMUM_RUNNING_REMAINING:5s}
+    fallback-p90-multiplier: ${GENERATION_PROGRESS_FALLBACK_P90_MULTIPLIER:1.5}
+    running-progress-cap: ${GENERATION_PROGRESS_RUNNING_CAP:95}
+  generation-task-lease:
+    owner-id: ${GENERATION_TASK_LEASE_OWNER_ID:}
+    lease-duration: ${GENERATION_TASK_LEASE_DURATION:30s}
+    heartbeat-interval: ${GENERATION_TASK_HEARTBEAT_INTERVAL:10s}
+    recovery-scan-interval: ${GENERATION_TASK_RECOVERY_SCAN_INTERVAL:15s}
+    recovery-batch-size: ${GENERATION_TASK_RECOVERY_BATCH_SIZE:50}
   generation-session:
     lock-stripes: ${GENERATION_SESSION_LOCK_STRIPES:64}
     max-tracked-sessions: ${GENERATION_SESSION_MAX_TRACKED_SESSIONS:1000}
@@ -207,6 +230,7 @@ app:
       startup-timeout: ${DEV_SERVER_STARTUP_TIMEOUT:30s}
       readiness-poll-interval: ${DEV_SERVER_READINESS_POLL_INTERVAL:200ms}
       validation-error-collection-window: ${DEV_SERVER_VALIDATION_ERROR_COLLECTION_WINDOW:5s}
+      validation-poll-interval: ${DEV_SERVER_VALIDATION_POLL_INTERVAL:100ms}
       output-drain-timeout: ${DEV_SERVER_OUTPUT_DRAIN_TIMEOUT:2s}
       stop-timeout: ${DEV_SERVER_STOP_TIMEOUT:10s}
       port-range-start: ${DEV_SERVER_PORT_RANGE_START:10000}

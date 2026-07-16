@@ -8,6 +8,7 @@ import java.util.Arrays;
 @Getter
 public enum GenerationTaskStatus {
 
+    QUEUED("queued", false),
     RUNNING("running", false),
     SUCCESS("success", true),
     FAILED("failed", true),

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
@@ -53,7 +54,7 @@ public class VueBuildCommandService {
         }
 
         GenerationPerformanceMonitorService.SpanTimer span =
-                performanceMonitorService.startSpan(taskId, "pnpm_install");
+                performanceMonitorService.startSpan(taskId, "pnpm_install", GenerationSpanCategory.DEPENDENCY);
         try {
             DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(projectRoot, taskId);
             if (!result.success()) {
@@ -113,7 +114,7 @@ public class VueBuildCommandService {
             Duration timeout
     ) {
         GenerationPerformanceMonitorService.SpanTimer span =
-                performanceMonitorService.startSpan(taskId, performanceStage);
+                performanceMonitorService.startSpan(taskId, performanceStage, commandCategory(performanceStage));
         try {
             ProjectCommandResult result = projectCommandExecutor.executePnpmScript(
                     projectRoot,
@@ -139,6 +140,12 @@ public class VueBuildCommandService {
             span.failed(exception.getMessage());
             return VueBuildCommandResult.exception("pnpm run " + script, exception.getMessage());
         }
+    }
+
+    private GenerationSpanCategory commandCategory(String performanceStage) {
+        return performanceStage != null && performanceStage.contains("validate")
+                ? GenerationSpanCategory.VALIDATION
+                : GenerationSpanCategory.BUILD;
     }
 
     private void persistInstalledDependencyFingerprint(Path projectRoot, String dependencyFingerprint) {

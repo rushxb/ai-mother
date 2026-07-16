@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 
 /**
  * 应用 Dev Server 生命周期编排器。
@@ -56,15 +57,41 @@ public class DevServerManager {
      * 拥有该会话的失败补偿和停止责任；复用既有会话时不得由当前调用者停止。</p>
      */
     public DevServerStartResult startDevServer(App app, Long userId) {
+        return startDevServerInternal(app, userId, null);
+    }
+
+    /**
+     * Starts a Dev Server under task-scoped timeout and cancellation controls.
+     */
+    public DevServerStartResult startDevServer(
+            App app,
+            Long userId,
+            DevServerStartOptions startOptions
+    ) {
+        if (startOptions == null) {
+            throw new IllegalArgumentException("Dev Server start options cannot be null");
+        }
+        return startDevServerInternal(app, userId, startOptions);
+    }
+
+    private DevServerStartResult startDevServerInternal(
+            App app,
+            Long userId,
+            DevServerStartOptions startOptions
+    ) {
         validateStartRequest(app, userId);
         Long appId = app.getId();
         if (shuttingDown.get()) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "服务正在关闭，不能启动 Dev Server");
         }
 
+        throwIfExternallyCancelled(startOptions);
+
         ManagedDevServerSession reusableSession = findReusableSession(appId);
         if (reusableSession != null) {
+            throwIfExternallyCancelled(startOptions);
             bootstrapInjector.inject(reusableSession.projectDirectory());
+            throwIfExternallyCancelled(startOptions);
             return DevServerStartResult.reused(reusableSession.port());
         }
         Path projectDirectory = projectLocator.locate(app);
@@ -76,22 +103,28 @@ public class DevServerManager {
         );
         ManagedDevServerSession session = registration.session();
         if (!registration.created()) {
+            throwIfExternallyCancelled(startOptions);
             bootstrapInjector.inject(session.projectDirectory());
+            throwIfExternallyCancelled(startOptions);
             return DevServerStartResult.reused(session.port());
         }
         boolean started = false;
         try {
-            ensureDependenciesInstalled(session);
+            throwIfExternallyCancelled(startOptions);
+            ensureDependenciesInstalled(session, startOptions);
             session.throwIfStopping();
+            throwIfExternallyCancelled(startOptions);
             bootstrapInjector.inject(projectDirectory);
 
-            DevServerProcessSession processSession = processRunner.start(
-                    projectDirectory,
-                    session.port(),
-                    appId,
-                    outputHub.sink(appId),
-                    session::isStopRequested
-            );
+            DevServerProcessSession processSession = startProcess(
+                    session, appId, startOptions);
+            if (isExternallyCancelled(startOptions)) {
+                processRunner.stop(processSession);
+                throw new DevServerStartException(
+                        DevServerStartException.Reason.CANCELLED,
+                        "Dev Server startup was cancelled"
+                );
+            }
             if (!session.attach(processSession)) {
                 processRunner.stop(processSession);
                 throw new DevServerStartException(
@@ -289,8 +322,14 @@ public class DevServerManager {
         }
     }
 
-    private void ensureDependenciesInstalled(ManagedDevServerSession session) {
-        DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(session.projectDirectory());
+    private void ensureDependenciesInstalled(ManagedDevServerSession session,
+                                             DevServerStartOptions startOptions) {
+        DependencyInstallResult result = startOptions == null
+                ? projectDependencyInstaller.ensureInstalled(session.projectDirectory())
+                : projectDependencyInstaller.ensureInstalled(
+                        session.projectDirectory(),
+                        startOptions.taskId()
+                );
         if (result == null) {
             throw new DevServerStartException(
                     DevServerStartException.Reason.DEPENDENCY_INSTALL_FAILED,
@@ -317,6 +356,45 @@ public class DevServerManager {
                 "Dependency installation failed: status=" + result.status()
                         + ", detail=" + result.errorDetail()
         );
+    }
+
+    private DevServerProcessSession startProcess(
+            ManagedDevServerSession session,
+            Long appId,
+            DevServerStartOptions startOptions
+    ) {
+        BooleanSupplier cancellationRequested = () -> session.isStopRequested()
+                || startOptions != null && startOptions.isCancellationRequested();
+        if (startOptions == null) {
+            return processRunner.start(
+                    session.projectDirectory(),
+                    session.port(),
+                    appId,
+                    outputHub.sink(appId),
+                    cancellationRequested
+            );
+        }
+        return processRunner.start(
+                session.projectDirectory(),
+                session.port(),
+                appId,
+                outputHub.sink(appId),
+                startOptions.startupTimeout(),
+                cancellationRequested
+        );
+    }
+
+    private void throwIfExternallyCancelled(DevServerStartOptions startOptions) {
+        if (isExternallyCancelled(startOptions)) {
+            throw mapStartFailure(new DevServerStartException(
+                    DevServerStartException.Reason.CANCELLED,
+                    "Dev Server startup was cancelled"
+            ));
+        }
+    }
+
+    private boolean isExternallyCancelled(DevServerStartOptions startOptions) {
+        return startOptions != null && startOptions.isCancellationRequested();
     }
 
     private void stopSession(ManagedDevServerSession session, boolean failOnTimeout) {

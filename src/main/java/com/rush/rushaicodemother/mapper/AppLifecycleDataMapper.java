@@ -23,6 +23,11 @@ public interface AppLifecycleDataMapper {
     @Delete("delete from generation_build_log where appId = #{appId}")
     int deleteGenerationBuildLogs(@Param("appId") Long appId);
 
+    @Delete("delete span from generation_task_span span "
+            + "inner join generation_task task on task.taskId = span.taskId "
+            + "where task.appId = #{appId}")
+    int deleteGenerationTaskSpans(@Param("appId") Long appId);
+
     @Delete("delete from generation_task where appId = #{appId}")
     int deleteGenerationTasks(@Param("appId") Long appId);
 

@@ -47,7 +47,14 @@ public class LightweightEditService {
     /**
      * Executes a lightweight edit, or returns {@code null} when the request must use the heavy route.
      */
+    @Deprecated(forRemoval = false)
     public LightweightEditResult execute(GenerationTaskRequest request) {
+        return execute(generateTaskId(), request);
+    }
+
+    /** Executes lightweight edit using the task identity allocated by the submission runtime. */
+    public LightweightEditResult execute(String taskId, GenerationTaskRequest request) {
+        requireTaskId(taskId);
         if (request == null || request.app() == null || request.loginUser() == null) {
             return null;
         }
@@ -70,7 +77,6 @@ public class LightweightEditService {
             return null;
         }
 
-        String taskId = generateTaskId();
         boolean taskStarted = false;
         try {
             publishRouteEvent(request, taskId, routeResult);
@@ -364,6 +370,12 @@ public class LightweightEditService {
             builder.append("（").append(validationPlan.reason()).append("）");
         }
         return builder.toString();
+    }
+
+    private void requireTaskId(String taskId) {
+        if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
+            throw new IllegalArgumentException("taskId format is invalid");
+        }
     }
 
     private String generateTaskId() {

@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
@@ -57,13 +58,22 @@ public class AgentEditGenerationService {
     private final EditStatePersistenceService editStatePersistenceService;
     private final GenerationPerformanceMonitorService performanceMonitorService;
 
+    /** Legacy entry point retained for isolated callers outside the unified task runtime. */
+    @Deprecated(forRemoval = false)
     public AgentEditResult execute(GenerationTaskRequest request, GenerationModeDecision modeDecision) {
+        return execute(generateTaskId(), request, modeDecision);
+    }
+
+    /** Executes AGENT_EDIT using the task identity allocated by the submission runtime. */
+    public AgentEditResult execute(String taskId,
+                                   GenerationTaskRequest request,
+                                   GenerationModeDecision modeDecision) {
+        requireTaskId(taskId);
         App app = request.app();
         User loginUser = request.loginUser();
         String userMessage = request.message();
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
-        String taskId = generateTaskId();
         Instant startedAt = Instant.now();
 
         performanceMonitorService.startTask(
@@ -185,6 +195,7 @@ public class AgentEditGenerationService {
         performanceMonitorService.recordSpan(
                 taskId,
                 "agent_edit_read",
+                GenerationSpanCategory.PIPELINE,
                 "success",
                 Duration.between(startedAt, Instant.now()),
                 String.valueOf(readResult.selectedFiles())
@@ -208,6 +219,7 @@ public class AgentEditGenerationService {
         performanceMonitorService.recordSpan(
                 taskId,
                 "agent_edit_understand",
+                GenerationSpanCategory.PIPELINE,
                 "success",
                 Duration.between(startedAt, Instant.now()),
                 understanding.riskLevel()
@@ -236,6 +248,7 @@ public class AgentEditGenerationService {
         performanceMonitorService.recordSpan(
                 taskId,
                 "agent_edit_plan",
+                GenerationSpanCategory.PIPELINE,
                 "success",
                 Duration.between(startedAt, Instant.now()),
                 changePlan.scope()
@@ -311,6 +324,7 @@ public class AgentEditGenerationService {
         performanceMonitorService.recordSpan(
                 taskId,
                 "agent_edit_verify",
+                GenerationSpanCategory.VALIDATION,
                 valid ? "success" : "failed",
                 Duration.between(verifyStartedAt, Instant.now()),
                 validationResult == null ? "" : validationResult.message()
@@ -384,6 +398,12 @@ public class AgentEditGenerationService {
                     + StrUtil.blankToDefault(outcome.applyResult().reason(), outcome.applyResult().status());
         }
         return "AGENT_EDIT 失败，已回滚本次编辑";
+    }
+
+    private void requireTaskId(String taskId) {
+        if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
+            throw new IllegalArgumentException("taskId format is invalid");
+        }
     }
 
     private String generateTaskId() {

@@ -63,6 +63,33 @@ public class GenerationTask implements Serializable {
     @Column("orchestrationMode")
     private String orchestrationMode;
 
+    private String route;
+
+    @Column("submittedAt")
+    private LocalDateTime submittedAt;
+
+    @Column("deadlineAt")
+    private LocalDateTime deadlineAt;
+
+    @Column("cancellationRequested")
+    private Integer cancellationRequested;
+
+    @Column("cancellationReason")
+    private String cancellationReason;
+
+    @Column("leaseOwner")
+    private String leaseOwner;
+
+    @Column("leaseUntil")
+    private LocalDateTime leaseUntil;
+
+    @Column("heartbeatAt")
+    private LocalDateTime heartbeatAt;
+
+    private Integer attempt;
+
+    private Long version;
+
     @Column("startTime")
     private LocalDateTime startTime;
 

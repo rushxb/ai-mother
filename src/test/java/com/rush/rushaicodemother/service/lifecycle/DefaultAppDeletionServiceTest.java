@@ -67,6 +67,7 @@ class DefaultAppDeletionServiceTest {
         ordered.verify(artifactTransaction).activate();
         ordered.verify(lifecycleDataMapper).deleteGenerationModelCalls(11L);
         ordered.verify(lifecycleDataMapper).deleteGenerationBuildLogs(11L);
+        ordered.verify(lifecycleDataMapper).deleteGenerationTaskSpans(11L);
         ordered.verify(lifecycleDataMapper).deleteGenerationTasks(11L);
         ordered.verify(lifecycleDataMapper).deleteChatHistory(11L);
         ordered.verify(lifecycleDataMapper).deleteCapabilities(11L);

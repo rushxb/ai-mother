@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,6 +66,8 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
     private GenerationTraceService traceService;
     @Mock
     private GenerationExecutionContextService executionContextService;
+    @Mock
+    private GenerationTaskIdGenerator taskIdGenerator;
 
     private HeavyGenerationCoordinator coordinator;
 
@@ -83,7 +86,8 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
                 lifecycleService,
                 toolExecutionContextService,
                 traceService,
-                executionContextService
+                executionContextService,
+                taskIdGenerator
         );
     }
 
@@ -163,7 +167,8 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
 
     private void verifyCommonCleanup(TerminalFixture fixture, GenerationTerminalOutcome outcome) {
         verify(performanceMonitorService).finishTask("task-11", outcome.status());
-        verify(sessionRegistry).remove(11L, fixture.session());
+        verify(sessionRegistry).retainForReplay(11L, fixture.session());
+        verify(sessionRegistry, never()).remove(11L, fixture.session());
         verify(toolExecutionContextService).clearContext(11L);
         verify(executionContextService).finish("task-11", outcome.status());
     }

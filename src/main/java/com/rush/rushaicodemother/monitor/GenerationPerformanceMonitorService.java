@@ -1,13 +1,20 @@
 package com.rush.rushaicodemother.monitor;
 
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceSpanVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceStageStatsVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceSummaryVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceTaskVO;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanObservation;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanSink;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -16,22 +23,44 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class GenerationPerformanceMonitorService {
 
     private static final int MAX_RETAINED_TASKS = 300;
     private static final int DEFAULT_RECENT_LIMIT = 50;
+    private static final int MAX_SPAN_DETAIL_LENGTH = 1_000;
 
     private final ConcurrentMap<String, TaskRecord> taskRecords = new ConcurrentHashMap<>();
     private final ConcurrentLinkedDeque<String> taskOrder = new ConcurrentLinkedDeque<>();
+    private final List<GenerationSpanSink> spanSinks;
+    private final Clock clock;
+
+    /** Compatibility constructor for isolated tests and non-Spring callers. */
+    public GenerationPerformanceMonitorService() {
+        this(List.of(), Clock.systemUTC());
+    }
+
+    /** Spring constructor: all registered sinks receive every completed span. */
+    @Autowired
+    public GenerationPerformanceMonitorService(List<GenerationSpanSink> spanSinks) {
+        this(spanSinks, Clock.systemUTC());
+    }
+
+    GenerationPerformanceMonitorService(List<GenerationSpanSink> spanSinks, Clock clock) {
+        this.spanSinks = spanSinks == null ? List.of() : List.copyOf(spanSinks);
+        this.clock = java.util.Objects.requireNonNull(clock, "clock");
+    }
 
     public void startTask(String taskId, Long appId, Long userId, String route, String targetType) {
-        startTask(taskId, appId, userId, route, targetType, Instant.now());
+        startTask(taskId, appId, userId, route, targetType, clock.instant());
     }
 
     public void startTask(String taskId, Long appId, Long userId, String route, String targetType, Instant startAt) {
@@ -49,7 +78,7 @@ public class GenerationPerformanceMonitorService {
             return;
         }
         TaskRecord record = new TaskRecord(taskId, appId, userId, normalize(route), normalize(targetType),
-                startAt == null ? Instant.now() : startAt, decision);
+                startAt == null ? clock.instant() : startAt, decision);
         TaskRecord previous = taskRecords.put(taskId, record);
         if (previous == null) {
             taskOrder.addFirst(taskId);
@@ -58,23 +87,72 @@ public class GenerationPerformanceMonitorService {
     }
 
     public SpanTimer startSpan(String taskId, String stage) {
-        return new SpanTimer(this, taskId, stage, Instant.now());
+        return startSpan(taskId, stage, GenerationSpanCategory.PIPELINE);
+    }
+
+    public SpanTimer startSpan(String taskId, String stage, GenerationSpanCategory category) {
+        return new SpanTimer(this, taskId, stage, category, clock.instant());
     }
 
     public void recordSpan(String taskId, String stage, String status, Duration duration, String detail) {
-        if (StrUtil.isBlank(taskId) || StrUtil.isBlank(stage)) {
+        recordSpan(taskId, stage, GenerationSpanCategory.PIPELINE, status, duration, detail);
+    }
+
+    public void recordSpan(String taskId,
+                           String stage,
+                           GenerationSpanCategory category,
+                           String status,
+                           Duration duration,
+                           String detail) {
+        long durationMs = Math.max(0, duration == null ? 0 : duration.toMillis());
+        Instant endedAt = clock.instant();
+        Instant startedAt = endedAt.minusMillis(durationMs);
+        recordCompletedSpan(taskId, stage, category, status, startedAt, endedAt, detail);
+    }
+
+    private void recordCompletedSpan(String taskId,
+                                     String stage,
+                                     GenerationSpanCategory category,
+                                     String status,
+                                     Instant startedAt,
+                                     Instant endedAt,
+                                     String detail) {
+        if (StrUtil.isBlank(taskId) || StrUtil.isBlank(stage) || category == null
+                || startedAt == null || endedAt == null) {
             return;
         }
+        Instant safeEndedAt = endedAt.isBefore(startedAt) ? startedAt : endedAt;
+        long durationMs = Math.max(0, Duration.between(startedAt, safeEndedAt).toMillis());
+        String normalizedStage = StrUtil.subPre(normalize(stage), 96);
+        String normalizedStatus = StrUtil.subPre(normalize(status), 32);
+        String safeDetail = LogExceptionSanitizer.sanitizeValue(detail, MAX_SPAN_DETAIL_LENGTH);
+
         TaskRecord record = taskRecords.get(taskId);
-        if (record == null) {
+        if (record != null) {
+            record.addSpan(new SpanRecord(normalizedStage, normalizedStatus, durationMs, safeDetail));
+        }
+
+        GenerationSpanObservation observation;
+        try {
+            observation = new GenerationSpanObservation(
+                    UUID.randomUUID().toString(), taskId, normalizedStage, category, normalizedStatus,
+                    startedAt, safeEndedAt, durationMs, safeDetail
+            );
+        } catch (IllegalArgumentException invalidObservation) {
+            log.warn("Invalid generation span ignored, taskId: {}, stage: {}, error: {}",
+                    LogExceptionSanitizer.sanitizeValue(taskId, 128), normalizedStage,
+                    LogExceptionSanitizer.sanitizeMessage(invalidObservation));
             return;
         }
-        record.addSpan(new SpanRecord(
-                normalize(stage),
-                normalize(status),
-                Math.max(0, duration == null ? 0 : duration.toMillis()),
-                StrUtil.subPre(StrUtil.blankToDefault(detail, ""), 300)
-        ));
+        for (GenerationSpanSink sink : spanSinks) {
+            try {
+                sink.record(observation);
+            } catch (RuntimeException sinkFailure) {
+                log.warn("Generation span sink failed without interrupting task, taskId: {}, stage: {}, sink: {}, error: {}",
+                        taskId, normalizedStage, sink.getClass().getSimpleName(),
+                        LogExceptionSanitizer.sanitizeMessage(sinkFailure));
+            }
+        }
     }
 
     public void finishTask(String taskId, String status) {
@@ -201,16 +279,19 @@ public class GenerationPerformanceMonitorService {
         private final GenerationPerformanceMonitorService monitorService;
         private final String taskId;
         private final String stage;
+        private final GenerationSpanCategory category;
         private final Instant startAt;
-        private boolean closed;
+        private final AtomicBoolean closed = new AtomicBoolean();
 
         private SpanTimer(GenerationPerformanceMonitorService monitorService,
                           String taskId,
                           String stage,
+                          GenerationSpanCategory category,
                           Instant startAt) {
             this.monitorService = monitorService;
             this.taskId = taskId;
             this.stage = stage;
+            this.category = category;
             this.startAt = startAt;
         }
 
@@ -223,11 +304,12 @@ public class GenerationPerformanceMonitorService {
         }
 
         public void close(String status, String detail) {
-            if (closed) {
+            if (!closed.compareAndSet(false, true)) {
                 return;
             }
-            closed = true;
-            monitorService.recordSpan(taskId, stage, status, Duration.between(startAt, Instant.now()), detail);
+            monitorService.recordCompletedSpan(
+                    taskId, stage, category, status, startAt, monitorService.clock.instant(), detail
+            );
         }
 
         @Override

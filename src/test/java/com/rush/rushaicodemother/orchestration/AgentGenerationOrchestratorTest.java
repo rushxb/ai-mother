@@ -40,7 +40,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AgentGenerationOrchestratorTest {
@@ -49,8 +51,8 @@ class AgentGenerationOrchestratorTest {
     void shouldUpgradeToVueTemplateWithoutBuildFixForNewProject() {
         GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
-        task.setTaskId("task-heavy");
-        when(taskStore.create(anyLong(), anyString())).thenReturn(task);
+        task.setTaskId("runtime-task-heavy");
+        when(taskStore.create(eq("runtime-task-heavy"), anyLong(), anyString())).thenReturn(task);
 
         GenerationAgentSupport support = support();
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
@@ -69,12 +71,15 @@ class AgentGenerationOrchestratorTest {
                 false,
                 null,
                 routingFunction,
-                null
+                null,
+                "runtime-task-heavy"
         );
 
         GenerationOrchestrationResult result = orchestrator.prepare(request);
 
         assertEquals(CodeGenTypeEnum.VUE_PROJECT, result.targetType());
+        assertEquals("runtime-task-heavy", result.taskId());
+        verify(taskStore).create("runtime-task-heavy", 1L, "创建一个 Vue 后台管理面板");
         assertTrue(result.artifacts().containsKey("template_bootstrap"));
         assertEquals(Boolean.TRUE, result.artifacts().get("template_bootstrap").payload().get("bootstrapped"));
     }

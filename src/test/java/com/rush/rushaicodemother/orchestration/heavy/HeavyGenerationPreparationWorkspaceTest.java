@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,6 +64,7 @@ class HeavyGenerationPreparationWorkspaceTest {
 
         try {
             AtomicReference<String> projectContext = new AtomicReference<>();
+            AtomicReference<String> orchestrationTaskId = new AtomicReference<>();
             HeavyGenerationIntentAssembler intentAssembler = mock(HeavyGenerationIntentAssembler.class);
             when(intentAssembler.assemble(eq(app), eq("更新页面"))).thenReturn(new HeavyGenerationIntentDecision(
                     GenerationRoute.HEAVY_GENERATION,
@@ -85,6 +87,7 @@ class HeavyGenerationPreparationWorkspaceTest {
             when(orchestrator.prepare(any(GenerationOrchestrationRequest.class))).thenAnswer(invocation -> {
                 GenerationOrchestrationRequest request = invocation.getArgument(0);
                 projectContext.set(request.projectContextSupplier().get());
+                orchestrationTaskId.set(request.taskId());
                 return new GenerationOrchestrationResult(
                         CodeGenTypeEnum.VUE_PROJECT,
                         CodeGenTypeEnum.VUE_PROJECT,
@@ -95,7 +98,7 @@ class HeavyGenerationPreparationWorkspaceTest {
                         new HashMap<>(),
                         null,
                         Map.of(),
-                        "workspace-task"
+                        "runtime-workspace-task"
                 );
             });
             GeneratedProjectContextService projectContextService = new GeneratedProjectContextService(
@@ -111,8 +114,9 @@ class HeavyGenerationPreparationWorkspaceTest {
                     projectContextService
             );
 
-            service.prepare(app, "更新页面");
+            service.prepare("runtime-workspace-task", app, "更新页面");
 
+            assertEquals("runtime-workspace-task", orchestrationTaskId.get());
             String context = projectContext.get();
             assertTrue(context.contains("src/App.vue"));
             assertTrue(context.contains("workspace-boundary"));

@@ -39,6 +39,7 @@ class GenerationSessionResourceBoundaryArchitectureTest {
         String properties = Files.readString(ORCHESTRATION_ROOT.resolve("GenerationSessionProperties.java"));
         String yaml = Files.readString(PROJECT_ROOT.resolve(Path.of("src", "main", "resources", "application.yml")));
         Path pipelineRoot = ORCHESTRATION_ROOT.resolve("pipeline");
+        String pipelineExecutor = Files.readString(pipelineRoot.resolve("GenerationPipelineExecutor.java"));
 
         assertTrue(properties.contains("@ConfigurationProperties(prefix = \"app.generation-session\")"));
         assertTrue(properties.contains("@Validated"));
@@ -53,9 +54,10 @@ class GenerationSessionResourceBoundaryArchitectureTest {
                 "AgentEditGenerationPipeline.java"
         )) {
             String source = Files.readString(pipelineRoot.resolve(pipeline));
-            assertTrue(source.contains("retainForReplay"));
+            assertFalse(source.contains("retainForReplay"));
             assertFalse(source.contains("COMPLETED_SESSION_REPLAY_SECONDS"));
             assertFalse(source.contains("cleanupLater"));
         }
+        assertTrue(pipelineExecutor.contains("retainForReplay"));
     }
 }

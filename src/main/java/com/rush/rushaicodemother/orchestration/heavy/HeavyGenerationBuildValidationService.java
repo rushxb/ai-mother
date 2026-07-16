@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -174,7 +175,7 @@ public class HeavyGenerationBuildValidationService {
         }
         markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, stageMessage, session);
         GenerationPerformanceMonitorService.SpanTimer span =
-                generationPerformanceMonitorService.startSpan(preparation.taskId(), "dev_server_validation");
+                generationPerformanceMonitorService.startSpan(preparation.taskId(), "dev_server_validation", GenerationSpanCategory.VALIDATION);
         DevServerValidationResult dsResult = devServerValidationService.validate(
                 preparation.taskId(), appId, loginUser.getId(), preparation.targetType());
         if (dsResult.isPassed()) {

@@ -1,18 +1,17 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
-import com.rush.rushaicodemother.exception.BusinessException;
-import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
-import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
-import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditResult;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
@@ -21,7 +20,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
-import java.util.Optional;
 
 @Slf4j
 @Order(10)
@@ -30,7 +28,6 @@ import java.util.Optional;
 public class LightweightEditGenerationPipeline implements GenerationPipeline {
 
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
-    private final GenerationSessionRegistry sessionRegistry;
     private final LightweightEditService lightweightEditService;
 
     @Override
@@ -44,16 +41,22 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
     }
 
     @Override
-    public Optional<GenerationTaskResult> execute(GenerationPipelineRequest request) {
+    public GenerationPipelineOutcome execute(GenerationPipelineRequest request) {
+        GenerationTaskExecution execution = request.requireExecution();
+        GenerationSession session = execution.session();
         App app = request.taskRequest().app();
         Instant startedAt = Instant.now();
         try {
-            LightweightEditResult editResult = lightweightEditService.execute(request.taskRequest());
+            session.throwIfCancelled();
+            LightweightEditResult editResult = lightweightEditService.execute(
+                    execution.taskId(), request.taskRequest());
             if (editResult == null) {
-                return Optional.empty();
+                return GenerationPipelineOutcome.fallback(route(), "lightweight_edit_not_applicable");
             }
+            assertTaskIdentity(execution.taskId(), editResult.taskId());
+            String status = "failed".equals(editResult.validationResult()) ? "failed" : "success";
             generationPerformanceMonitorService.startTask(
-                    editResult.taskId(),
+                    execution.taskId(),
                     app.getId(),
                     request.taskRequest().loginUser().getId(),
                     editResult.route(),
@@ -62,38 +65,54 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                     request.modeDecision()
             );
             generationPerformanceMonitorService.recordSpan(
-                    editResult.taskId(),
+                    execution.taskId(),
                     "lightweight_edit",
-                    "success",
+                    GenerationSpanCategory.PIPELINE,
+                    status,
                     Duration.between(startedAt, Instant.now()),
                     editResult.route()
             );
-            log.info("轻量编辑路径完成，appId: {}, taskId: {}, route: {}", app.getId(), editResult.taskId(), editResult.route());
-            if ("failed".equals(editResult.validationResult())) {
-                generationPerformanceMonitorService.finishTask(editResult.taskId(), "failed");
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, editResult.summary());
+            if ("failed".equals(status)) {
+                session.emit(GenerationStreamEvent.generationError(
+                        editResult.summary(),
+                        Map.of(
+                                "route", editResult.route(),
+                                "taskId", execution.taskId(),
+                                "status", status
+                        )
+                ));
+            } else {
+                session.emit(GenerationStreamEvent.agentEvent(
+                        editResult.summary(),
+                        Map.of(
+                                "route", editResult.route(),
+                                "mode", request.modeDecision().mode().name(),
+                                "routerReason", request.modeDecision().reason(),
+                                "taskId", execution.taskId(),
+                                "status", editResult.validationResult()
+                        )
+                ));
             }
-            GenerationSession session = new GenerationSession(null);
-            sessionRegistry.put(app.getId(), session);
-            session.emit(GenerationStreamEvent.agentEvent(
-                    editResult.summary(),
-                    Map.of(
-                            "route", editResult.route(),
-                            "mode", request.modeDecision().mode().name(),
-                            "routerReason", request.modeDecision().reason(),
-                            "taskId", editResult.taskId(),
-                            "status", editResult.validationResult()
-                    )
+            generationPerformanceMonitorService.finishTask(execution.taskId(), status);
+            log.info("轻量编辑路径完成，appId: {}, taskId: {}, route: {}, status: {}",
+                    app.getId(), execution.taskId(), editResult.route(), status);
+            return GenerationPipelineOutcome.completed(
+                    route(), "success".equals(status) ? GenerationTaskStatus.SUCCESS : GenerationTaskStatus.FAILED);
+        } catch (RuntimeException failure) {
+            log.warn("轻量编辑路径执行失败，appId: {}, taskId: {}, error: {}",
+                    app.getId(), execution.taskId(), LogExceptionSanitizer.sanitizeMessage(failure));
+            session.emit(GenerationStreamEvent.generationError(
+                    "轻量编辑执行失败，请稍后重试",
+                    Map.of("route", route(), "taskId", execution.taskId(), "status", "failed")
             ));
-            session.complete();
-            sessionRegistry.retainForReplay(app.getId(), session);
-            generationPerformanceMonitorService.finishTask(editResult.taskId(), "success");
-            return Optional.of(new GenerationTaskResult(editResult.taskId(), editResult.route(), request.workspace(), session.asFlux()));
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            log.warn("轻量编辑路径异常，等待编排器按 fallbackPolicy 处理，appId: {}, error: {}", app.getId(), LogExceptionSanitizer.sanitizeMessage(e));
-            return Optional.empty();
+            generationPerformanceMonitorService.finishTask(execution.taskId(), "failed");
+            return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.FAILED);
+        }
+    }
+
+    private void assertTaskIdentity(String expectedTaskId, String actualTaskId) {
+        if (!expectedTaskId.equals(actualTaskId)) {
+            throw new IllegalStateException("lightweight edit returned a different taskId");
         }
     }
 }

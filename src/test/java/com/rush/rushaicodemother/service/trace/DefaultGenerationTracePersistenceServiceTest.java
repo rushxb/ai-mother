@@ -51,6 +51,21 @@ class DefaultGenerationTracePersistenceServiceTest {
     }
 
     @Test
+    void enrichRuntimeTaskTraceMustDelegateAllNormalizedPayloadFields() {
+        when(mapper.enrichRunningTaskTrace(
+                10L, "html", "vue_project", "创建页面", "增强提示词",
+                1, "strict", "agent", NOW
+        )).thenReturn(1);
+
+        assertTrue(service.enrichRuntimeTaskTrace(10L, newTask(), NOW));
+
+        verify(mapper).enrichRunningTaskTrace(
+                10L, "html", "vue_project", "创建页面", "增强提示词",
+                1, "strict", "agent", NOW
+        );
+    }
+
+    @Test
     void duplicateTaskAndModelCallMustReturnFalseForBusinessIdempotencyRecovery() {
         when(mapper.insertTask(any())).thenThrow(new DuplicateKeyException("uk_taskId"));
         when(mapper.insertModelCall(any())).thenThrow(new DuplicateKeyException("uk_callId"));

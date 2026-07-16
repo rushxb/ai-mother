@@ -90,6 +90,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
     private void deleteRelationalData(Long appId) {
         lifecycleDataMapper.deleteGenerationModelCalls(appId);
         lifecycleDataMapper.deleteGenerationBuildLogs(appId);
+        lifecycleDataMapper.deleteGenerationTaskSpans(appId);
         lifecycleDataMapper.deleteGenerationTasks(appId);
         lifecycleDataMapper.deleteChatHistory(appId);
         lifecycleDataMapper.deleteCapabilities(appId);

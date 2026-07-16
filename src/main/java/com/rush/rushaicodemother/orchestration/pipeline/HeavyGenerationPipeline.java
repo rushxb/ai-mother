@@ -1,14 +1,11 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
-import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationCoordinator;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-
-import java.util.Optional;
 
 @Order(100)
 @Component
@@ -30,7 +27,8 @@ public class HeavyGenerationPipeline implements GenerationPipeline {
     }
 
     @Override
-    public Optional<GenerationTaskResult> execute(GenerationPipelineRequest request) {
-        return Optional.of(heavyGenerationCoordinator.start(request));
+    public GenerationPipelineOutcome execute(GenerationPipelineRequest request) {
+        heavyGenerationCoordinator.startManaged(request);
+        return GenerationPipelineOutcome.running(route());
     }
 }

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -25,6 +26,7 @@ public class GenerationPatchApplyService {
     private final PatchOperationResourcePolicy resourcePolicy;
     private final PatchOperationValidator operationValidator;
     private final PatchOperationExecutor operationExecutor;
+    private final GenerationTaskFenceGuard fenceGuard;
 
     public PatchApplyResult apply(Long appId,
                                   String taskId,
@@ -117,6 +119,7 @@ public class GenerationPatchApplyService {
                     validationResult.rejectedOperations()
             );
         }
+        fenceGuard.assertCurrent(taskId);
         try {
             List<String> appliedFiles = operationExecutor.execute(validationResult.validOperations());
             return record(PatchApplyResult.applied(

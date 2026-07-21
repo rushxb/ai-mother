@@ -7,18 +7,22 @@ import com.rush.rushaicodemother.model.dto.app.AppAdminUpdateRequest;
 import com.rush.rushaicodemother.model.dto.app.AppUpdateRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.enums.TenantRole;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.lifecycle.AppDeletionService;
 import com.rush.rushaicodemother.service.provisioning.AppProvisioningService;
+import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -28,6 +32,7 @@ class AppManagementApplicationServiceTest {
     private AppPersistenceService appPersistenceService;
     private AppProvisioningService appProvisioningService;
     private AppDeletionService appDeletionService;
+    private TenantAuthorizationService tenantAuthorizationService;
     private AppManagementApplicationService service;
 
     @BeforeEach
@@ -35,9 +40,10 @@ class AppManagementApplicationServiceTest {
         appPersistenceService = mock(AppPersistenceService.class);
         appProvisioningService = mock(AppProvisioningService.class);
         appDeletionService = mock(AppDeletionService.class);
+        tenantAuthorizationService = mock(TenantAuthorizationService.class);
         service = new AppManagementApplicationService(
                 appPersistenceService,
-                new AppAccessPolicy(),
+                new AppAccessPolicy(tenantAuthorizationService),
                 appProvisioningService,
                 appDeletionService
         );
@@ -61,7 +67,10 @@ class AppManagementApplicationServiceTest {
         request.setId(21L);
         request.setAppName("renamed");
         when(appPersistenceService.findActiveById(21L))
-                .thenReturn(App.builder().id(21L).userId(2L).build());
+                .thenReturn(App.builder().id(21L).userId(2L).tenantId(100L).build());
+        doThrow(new BusinessException(ErrorCode.NO_AUTH_ERROR, "denied"))
+                .when(tenantAuthorizationService)
+                .requireRole(eq(100L), eq(1L), eq(TenantRole.DEVELOPER), anyString());
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -74,7 +83,7 @@ class AppManagementApplicationServiceTest {
 
     @Test
     void administratorCanDeleteApplicationThroughLifecycleService() {
-        App existingApp = App.builder().id(21L).userId(2L).build();
+        App existingApp = App.builder().id(21L).userId(2L).tenantId(100L).build();
         when(appPersistenceService.findActiveById(21L)).thenReturn(existingApp);
         User administrator = User.builder()
                 .id(1L)

@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
 import com.rush.rushaicodemother.service.user.UserViewConverter;
+import com.rush.rushaicodemother.service.tenant.TenantProvisioningService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,7 @@ public class UserServiceImpl implements UserService {
     private final UserCreditService userCreditService;
     private final UserPersistenceService userPersistenceService;
     private final UserViewConverter userViewConverter;
+    private final TenantProvisioningService tenantProvisioningService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -65,6 +67,10 @@ public class UserServiceImpl implements UserService {
                 StrUtil.blankToDefault(request.getUserRole(), UserRoleEnum.USER.getValue()),
                 0L
         ));
+        tenantProvisioningService.ensurePersonalTenant(
+                userId,
+                StrUtil.blankToDefault(request.getUserName(), request.getUserAccount())
+        );
         if (initialCredit > 0) {
             // 先以零余额创建账户，再通过积分服务写入初始余额和流水，保证账实一致。
             userCreditService.initializeCredit(userId, initialCredit, adminUserId);
@@ -106,7 +112,7 @@ public class UserServiceImpl implements UserService {
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
         validateRegistration(userAccount, userPassword, checkPassword);
 
-        return userPersistenceService.createUser(new UserPersistenceService.NewUser(
+        long userId = userPersistenceService.createUser(new UserPersistenceService.NewUser(
                 userAccount,
                 hashPassword(userPassword),
                 "神秘用户",
@@ -115,6 +121,8 @@ public class UserServiceImpl implements UserService {
                 UserRoleEnum.USER.getValue(),
                 0L
         ));
+        tenantProvisioningService.ensurePersonalTenant(userId, userAccount);
+        return userId;
     }
 
     @Override

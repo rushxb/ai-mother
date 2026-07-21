@@ -116,7 +116,7 @@ class DevServerManagerTest {
                 startupTimeout,
                 externalCancellation::get
         );
-        when(projectLocator.locate(any(App.class))).thenReturn(project);
+        when(projectLocator.locate(any(App.class), eq(options))).thenReturn(project);
         when(portAllocator.reserve(11L, null)).thenReturn(5180);
         when(outputHub.sink(11L)).thenReturn(line -> { });
         when(dependencyInstaller.ensureInstalled(project, "task-1"))

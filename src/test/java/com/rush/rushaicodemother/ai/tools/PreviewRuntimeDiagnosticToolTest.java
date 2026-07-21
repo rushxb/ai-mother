@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
-import com.rush.rushaicodemother.infrastructure.screenshot.selenium.SeleniumChromeDriverFactory;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeProbe;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,7 @@ class PreviewRuntimeDiagnosticToolTest {
                 mock(VueProjectBuilder.class),
                 devServerManager,
                 ToolPathSupportTestFixture.forApp(11L),
-                mock(SeleniumChromeDriverFactory.class),
+                mock(BrowserRuntimeProbe.class),
                 8123,
                 "/api"
         );

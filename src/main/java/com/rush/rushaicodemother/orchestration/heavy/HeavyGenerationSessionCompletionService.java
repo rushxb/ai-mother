@@ -3,28 +3,28 @@ package com.rush.rushaicodemother.orchestration.heavy;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.memory.GenerationSemanticMemoryService;
+import com.rush.rushaicodemother.memory.MemoryType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class HeavyGenerationSessionCompletionService {
 
-    private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
+    private final GenerationSemanticMemoryService semanticMemoryService;
 
     /**
      * Persists terminal lifecycle data after the caller has atomically claimed session completion.
@@ -41,7 +41,7 @@ public class HeavyGenerationSessionCompletionService {
             throw new IllegalArgumentException("generation terminal outcome must not be null");
         }
         String status = outcome.status();
-        recordUserWaitMetric(session, preparation, status);
+        String memorySummary = buildMemorySummary(preparation, status);
         RuntimeException lifecycleFailure = null;
         try {
             generationTaskLifecycleService.completeGenerationAndCharge(
@@ -49,16 +49,22 @@ public class HeavyGenerationSessionCompletionService {
                     appId,
                     outcome.taskStatus(),
                     null,
-                    buildMemorySummary(preparation, status)
+                    memorySummary
             );
         } catch (RuntimeException failure) {
             lifecycleFailure = failure;
             throw failure;
         } finally {
             try {
-                generationTaskRuntimeLifecycleService.complete(
-                        preparation.taskId(), outcome.taskStatus(),
-                        outcome == GenerationTerminalOutcome.SUCCESS ? null : outcome.status());
+                String reason = outcome == GenerationTerminalOutcome.SUCCESS ? null : outcome.status();
+                if (session.executionContext() != null
+                        && session.executionContext().executionFence() != null) {
+                    generationTaskRuntimeLifecycleService.completeOwned(
+                            session.executionContext().executionFence(), outcome.taskStatus(), reason);
+                } else {
+                    generationTaskRuntimeLifecycleService.completeUnowned(
+                            preparation.taskId(), outcome.taskStatus(), reason);
+                }
             } catch (RuntimeException runtimeFailure) {
                 if (lifecycleFailure != null) {
                     lifecycleFailure.addSuppressed(runtimeFailure);
@@ -67,6 +73,7 @@ public class HeavyGenerationSessionCompletionService {
                 }
             }
         }
+        rememberOutcome(appId, session, preparation, outcome, memorySummary);
     }
 
     public String orchestrationMode(GenerationPreparation preparation) {
@@ -117,20 +124,38 @@ public class HeavyGenerationSessionCompletionService {
         return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
     }
 
-    private void recordUserWaitMetric(GenerationSession session,
-                                      GenerationPreparation preparation,
-                                      String status) {
-        if (session == null || preparation == null) {
+    private void rememberOutcome(Long appId,
+                                 GenerationSession session,
+                                 GenerationPreparation preparation,
+                                 GenerationTerminalOutcome outcome,
+                                 String memorySummary) {
+        if (session.taskRequest() == null || session.taskRequest().loginUser() == null) {
             return;
         }
-        long orchestrationDurationMs = preparation.timings() == null
-                ? 0L
-                : preparation.timings().values().stream().mapToLong(Long::longValue).sum();
-        generationOrchestrationMetricsCollector.recordUserWaitDuration(
-                orchestrationMode(preparation),
-                preparation.targetType() == null ? "unknown" : preparation.targetType().getValue(),
-                status,
-                Duration.between(session.startedAt(), Instant.now()).plusMillis(Math.max(0L, orchestrationDurationMs))
+        if (session.taskRequest().app() == null
+                || session.taskRequest().app().getTenantId() == null) {
+            return;
+        }
+        String userPrompt = session.taskRequest().message();
+        String content = "User request: " + StrUtil.blankToDefault(userPrompt, "")
+                + "\nOutcome: " + memorySummary;
+        semanticMemoryService.rememberAsync(
+                session.taskRequest().app().getTenantId(),
+                appId,
+                session.taskRequest().loginUser().getId(),
+                preparation.taskId(),
+                outcome == GenerationTerminalOutcome.SUCCESS
+                        ? MemoryType.TASK_OUTCOME
+                        : MemoryType.FAILURE_LESSON,
+                content,
+                Map.of(
+                        "status", outcome.status(),
+                        "orchestrationMode", orchestrationMode(preparation),
+                        "targetType", preparation.targetType() == null
+                                ? "unknown"
+                                : preparation.targetType().getValue()
+                )
         );
     }
+
 }

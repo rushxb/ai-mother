@@ -386,7 +386,9 @@ class GenerationPatchApplyServiceTest {
                         workspaceFileService,
                         structuredContentService,
                         new PatchBatchRollbackService(workspaceFileService, properties)
-                )
+                ),
+                org.mockito.Mockito.mock(
+                        com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard.class)
         );
 
         PatchApplyResult result = rollbackAwareService.applyWithoutChangePlan(14L, "task-14", root, List.of(

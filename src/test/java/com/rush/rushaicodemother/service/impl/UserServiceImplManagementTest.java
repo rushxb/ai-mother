@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.security.password.PasswordHashService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
 import com.rush.rushaicodemother.service.user.UserViewConverter;
+import com.rush.rushaicodemother.service.tenant.TenantProvisioningService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -25,6 +26,7 @@ class UserServiceImplManagementTest {
     private PasswordHashService passwordHashService;
     private UserCreditService userCreditService;
     private UserPersistenceService userPersistenceService;
+    private TenantProvisioningService tenantProvisioningService;
     private UserServiceImpl userService;
 
     @BeforeEach
@@ -32,11 +34,13 @@ class UserServiceImplManagementTest {
         passwordHashService = mock(PasswordHashService.class);
         userCreditService = mock(UserCreditService.class);
         userPersistenceService = mock(UserPersistenceService.class);
+        tenantProvisioningService = mock(TenantProvisioningService.class);
         userService = new UserServiceImpl(
                 passwordHashService,
                 userCreditService,
                 userPersistenceService,
-                mock(UserViewConverter.class)
+                mock(UserViewConverter.class),
+                tenantProvisioningService
         );
     }
 
@@ -52,6 +56,7 @@ class UserServiceImplManagementTest {
         ArgumentCaptor<UserPersistenceService.NewUser> userCaptor =
                 ArgumentCaptor.forClass(UserPersistenceService.NewUser.class);
         verify(userPersistenceService).createUser(userCaptor.capture());
+        verify(tenantProvisioningService).ensurePersonalTenant(101L, "New User");
         UserPersistenceService.NewUser newUser = userCaptor.getValue();
         assertEquals("new-user", newUser.userAccount());
         assertEquals("password-hash", newUser.passwordHash());
@@ -69,6 +74,7 @@ class UserServiceImplManagementTest {
 
         assertEquals(102L, userService.createUser(request, 9L));
 
+        verify(tenantProvisioningService).ensurePersonalTenant(102L, "New User");
         verifyNoInteractions(userCreditService);
     }
 

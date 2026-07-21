@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -48,17 +49,73 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
     }
 
     @Test
-    void shouldAllowLocalhostAndEmptyNonSensitiveCredentials() {
+    void shouldRequireDatabaseAndRedisCredentials() {
         Map<String, Object> properties = validProductionProperties();
-        properties.put("spring.datasource.url", "jdbc:mysql://localhost:3306/app");
+        properties.remove("spring.datasource.password");
+        properties.put("spring.data.redis.password", "   ");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("spring.datasource.password"));
+        assertTrue(exception.getMessage().contains("spring.data.redis.password"));
+        assertFalse(exception.getMessage().contains(SENSITIVE_VALUE));
+    }
+
+    @Test
+    void shouldRejectPrivilegedDatabaseAccountAndWeakCredentialsWithoutExposingValues() {
+        Map<String, Object> properties = validProductionProperties();
         properties.put("spring.datasource.username", "root");
-        properties.put("spring.datasource.password", "");
-        properties.put("spring.data.redis.host", "localhost");
-        properties.put("spring.data.redis.password", "");
-        properties.put("app.cors.allowed-origins", "http://localhost:5173");
+        properties.put("spring.datasource.password", "123456");
+        properties.put("spring.data.redis.password", "changeme");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("spring.datasource.username"));
+        assertTrue(exception.getMessage().contains("spring.datasource.password"));
+        assertTrue(exception.getMessage().contains("spring.data.redis.password"));
+        assertFalse(exception.getMessage().contains("123456"));
+        assertFalse(exception.getMessage().contains("changeme"));
+    }
+
+    @Test
+    void shouldRejectLoopbackOrWildcardPublicOrigins() {
+        for (String origins : new String[]{
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://[::1]:5173",
+                "https://*.example.com"
+        }) {
+            Map<String, Object> properties = validProductionProperties();
+            properties.put("app.cors.allowed-origins", origins);
+
+            ProductionConfigurationException exception = assertThrows(
+                    ProductionConfigurationException.class,
+                    () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+            );
+
+            assertTrue(exception.getMessage().contains("app.cors.allowed-origins"));
+            assertFalse(exception.getMessage().contains(origins));
+        }
+    }
+
+    @Test
+    void shouldRejectLoopbackDeploymentHost() {
+        Map<String, Object> properties = validProductionProperties();
         properties.put("code.deploy-host", "http://localhost:91");
 
-        assertDoesNotThrow(() -> processor.postProcessEnvironment(productionEnvironment(properties), null));
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("code.deploy-host"));
+        assertFalse(exception.getMessage().contains("http://localhost:91"));
     }
 
     @Test
@@ -120,6 +177,7 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         properties.put("springdoc.api-docs.enabled", "true");
         properties.put("management.endpoint.health.probes.enabled", "false");
         properties.put("management.endpoint.health.show-details", "always");
+        properties.put("logging.level.com.rush.rushaicodemother.mapper.AiModelMapper", "DEBUG");
 
         ProductionConfigurationException exception = assertThrows(
                 ProductionConfigurationException.class,
@@ -130,6 +188,215 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         assertTrue(exception.getMessage().contains("springdoc.api-docs.enabled"));
         assertTrue(exception.getMessage().contains("management.endpoint.health.probes.enabled"));
         assertTrue(exception.getMessage().contains("management.endpoint.health.show-details"));
+        assertTrue(exception.getMessage().contains("AiModelMapper"));
+    }
+
+    @Test
+    void shouldRejectDisabledPromptCatalogInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.ai-prompt-catalog.enabled", "false");
+        properties.put("app.ai-prompt-catalog.runtime-releases.enabled", "false");
+        properties.put("app.ai-prompt-catalog.runtime-releases.initial-load-required", "false");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.ai-prompt-catalog.enabled"));
+        assertTrue(exception.getMessage().contains("app.ai-prompt-catalog.runtime-releases.enabled"));
+        assertTrue(exception.getMessage().contains(
+                "app.ai-prompt-catalog.runtime-releases.initial-load-required"));
+    }
+
+    @Test
+    void shouldRejectDisabledOrFailOpenModelCapacityPolicyInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.ai-model-capacity.enabled", "false");
+        properties.put("app.ai-model-capacity.fail-open", "true");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.ai-model-capacity.enabled"));
+        assertTrue(exception.getMessage().contains("app.ai-model-capacity.fail-open"));
+    }
+
+    @Test
+    void shouldRequireAiModelEnvelopeKeysInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.remove("app.ai-model-secrets.active-key");
+        properties.remove("app.ai-model-secrets.fingerprint-key");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.ai-model-secrets.active-key"));
+        assertTrue(exception.getMessage().contains("app.ai-model-secrets.fingerprint-key"));
+        assertFalse(exception.getMessage().contains(SENSITIVE_VALUE));
+    }
+
+    @Test
+    void shouldRejectInvalidOrReusedAiModelEnvelopeKeys() {
+        Map<String, Object> invalid = validProductionProperties();
+        invalid.put("app.ai-model-secrets.active-key-id", "../../unsafe");
+        invalid.put("app.ai-model-secrets.active-key", "not-base64");
+
+        ProductionConfigurationException invalidException = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(invalid), null)
+        );
+        assertTrue(invalidException.getMessage().contains("app.ai-model-secrets.active-key-id"));
+        assertTrue(invalidException.getMessage().contains("app.ai-model-secrets.active-key"));
+
+        Map<String, Object> reused = validProductionProperties();
+        reused.put("app.ai-model-secrets.fingerprint-key",
+                reused.get("app.ai-model-secrets.active-key"));
+
+        ProductionConfigurationException reusedException = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(reused), null)
+        );
+        assertTrue(reusedException.getMessage().contains("key purposes must be separated"));
+    }
+
+    @Test
+    void shouldRejectHostLocalGeneratedCodeSandboxInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.generated-code-sandbox.mode", "host-local");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.generated-code-sandbox.mode"));
+        assertFalse(exception.getMessage().contains(SENSITIVE_VALUE));
+    }
+
+    @Test
+    void shouldRejectAdvertisedButUnimplementedSandboxBackendsInProduction() {
+        for (String mode : new String[]{"isolated-worker", "microvm", "remote-executor"}) {
+            Map<String, Object> properties = validProductionProperties();
+            properties.put("app.generated-code-sandbox.mode", mode);
+
+            ProductionConfigurationException exception = assertThrows(
+                    ProductionConfigurationException.class,
+                    () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+            );
+
+            assertTrue(exception.getMessage().contains("app.generated-code-sandbox.mode"));
+        }
+    }
+
+    @Test
+    void shouldRequireContainerReadinessVerificationInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.generated-code-sandbox.container.verify-on-startup", "false");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains(
+                "app.generated-code-sandbox.container.verify-on-startup"));
+    }
+
+    @Test
+    void shouldRequireDependencyCacheInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.generated-code-sandbox.container.dependency-cache-enabled", "false");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains(
+                "app.generated-code-sandbox.container.dependency-cache-enabled"));
+    }
+
+    @Test
+    void shouldRejectUnsafePnpmStoreConfigurationInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.generated-code-sandbox.container.pnpm-store-volume", "../host-cache");
+        properties.put("app.generated-code-sandbox.container.pnpm-store-mount", "/workspace/store");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains(
+                "app.generated-code-sandbox.container.pnpm-store-volume"));
+        assertTrue(exception.getMessage().contains(
+                "app.generated-code-sandbox.container.pnpm-store-mount"));
+    }
+
+    @Test
+    void shouldRequireStableDevServerNodeIdentityInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.remove("app.dev-server.runtime.node-id");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.dev-server.runtime.node-id"));
+    }
+
+    @Test
+    void shouldRejectUnroutableDevServerNodeIdentityInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.dev-server.runtime.node-id", "preview-node/../../admin");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.dev-server.runtime.node-id"));
+    }
+
+    @Test
+    void shouldRequireProductionTraceExport() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.remove("management.otlp.tracing.endpoint");
+        properties.put("management.otlp.tracing.export.enabled", "false");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("management.otlp.tracing.endpoint"));
+        assertTrue(exception.getMessage().contains("management.otlp.tracing.export.enabled"));
+    }
+
+    @Test
+    void shouldRequireDigestPinnedSandboxImageAndDedicatedNetworks() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.generated-code-sandbox.container.image", "sandbox:latest");
+        properties.put("app.generated-code-sandbox.container.dependency-network", "bridge");
+        properties.put(
+                "app.generated-code-sandbox.container.dev-server-network",
+                "bridge"
+        );
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.generated-code-sandbox.container.image"));
+        assertTrue(exception.getMessage().contains("app.generated-code-sandbox.container.dependency-network"));
+        assertTrue(exception.getMessage().contains("app.generated-code-sandbox.container.dev-server-network"));
     }
 
     @Test
@@ -155,6 +422,30 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         assertTrue(registered);
     }
 
+    @Test
+    void productionProfileMustNotPackageDevelopmentCredentialOrEndpointDefaults() throws IOException {
+        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("application-prod.yml")) {
+            assertTrue(inputStream != null, "缺少 application-prod.yml");
+            String content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+
+            assertTrue(content.contains("url: ${MYSQL_URL}"));
+            assertTrue(content.contains("username: ${MYSQL_USERNAME}"));
+            assertTrue(content.contains("password: ${MYSQL_PASSWORD}"));
+            assertTrue(content.contains("host: ${REDIS_HOST}"));
+            assertTrue(content.contains("password: ${REDIS_PASSWORD}"));
+            assertTrue(content.contains("allowed-origins: ${CORS_ALLOWED_ORIGINS}"));
+            assertTrue(content.contains("deploy-host: ${CODE_DEPLOY_HOST}"));
+            assertTrue(content.contains("active-key-id: ${AI_MODEL_SECRET_ACTIVE_KEY_ID}"));
+            assertTrue(content.contains("active-key: ${AI_MODEL_SECRET_ACTIVE_KEY}"));
+            assertTrue(content.contains("fingerprint-key: ${AI_MODEL_SECRET_FINGERPRINT_KEY}"));
+            assertTrue(content.contains(
+                    "dependency-cache-enabled: ${GENERATED_CODE_SANDBOX_DEPENDENCY_CACHE_ENABLED:true}"));
+            assertFalse(content.contains("MYSQL_PASSWORD:123456"));
+            assertFalse(content.contains("CORS_ALLOWED_ORIGINS:http://localhost"));
+            assertFalse(content.contains("CODE_DEPLOY_HOST:http://localhost"));
+        }
+    }
+
     private MockEnvironment productionEnvironment(Map<String, Object> properties) {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
@@ -170,6 +461,45 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         properties.put("spring.data.redis.host", "redis.internal");
         properties.put("spring.data.redis.password", SENSITIVE_VALUE);
         properties.put("app.cors.allowed-origins", "https://console.example.com");
+        properties.put("app.generated-code-sandbox.mode", "container");
+        properties.put(
+                "app.generated-code-sandbox.container.image",
+                "registry.example.com/ai-code/sandbox@sha256:"
+                        + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        );
+        properties.put("app.generated-code-sandbox.container.workspace-mount", "/workspace");
+        properties.put(
+                "app.generated-code-sandbox.container.dependency-network",
+                "ai-code-sandbox-egress"
+        );
+        properties.put(
+                "app.generated-code-sandbox.container.dev-server-network",
+                "ai-code-sandbox-internal"
+        );
+        properties.put(
+                "app.generated-code-sandbox.container.preview-gateway-network",
+                "ai-code-sandbox-preview-gateway"
+        );
+        properties.put("app.generated-code-sandbox.container.dependency-cache-enabled", "true");
+        properties.put(
+                "app.generated-code-sandbox.container.pnpm-store-volume",
+                "ai-code-mother-pnpm-store-v9"
+        );
+        properties.put(
+                "app.generated-code-sandbox.container.pnpm-store-mount",
+                "/pnpm/store"
+        );
+        properties.put("app.dev-server.runtime.node-id", "preview-node-a");
+        properties.put(
+                "app.dev-server.internal-routing.base-url-template",
+                "http://{nodeId}:8123/api"
+        );
+        properties.put(
+                "app.dev-server.internal-routing.shared-secret",
+                "0123456789abcdef0123456789abcdef"
+        );
+        properties.put("app.generated-code-sandbox.container.read-only-root", "true");
+        properties.put("app.generated-code-sandbox.container.verify-on-startup", "true");
         properties.put("code.deploy-host", "https://deploy.example.com");
         properties.put("cos.client.enabled", "false");
         properties.put("server.servlet.session.cookie.secure", "true");
@@ -179,6 +509,26 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         properties.put("knife4j.enable", "false");
         properties.put("management.endpoint.health.probes.enabled", "true");
         properties.put("management.endpoint.health.show-details", "never");
+        properties.put("management.tracing.enabled", "true");
+        properties.put("management.otlp.tracing.export.enabled", "true");
+        properties.put("management.otlp.tracing.endpoint", "http://otel-collector:4318/v1/traces");
+        properties.put("logging.level.com.rush.rushaicodemother.mapper.AiModelMapper", "OFF");
+        properties.put("app.ai-model-capacity.enabled", "true");
+        properties.put("app.ai-model-capacity.fail-open", "false");
+        properties.put("app.ai-model-secrets.active-key-id", "production-kek-v1");
+        properties.put("app.ai-model-secrets.active-key", encodedKey(1));
+        properties.put("app.ai-model-secrets.fingerprint-key", encodedKey(65));
+        properties.put("app.ai-prompt-catalog.enabled", "true");
+        properties.put("app.ai-prompt-catalog.runtime-releases.enabled", "true");
+        properties.put("app.ai-prompt-catalog.runtime-releases.initial-load-required", "true");
         return properties;
+    }
+
+    private String encodedKey(int start) {
+        byte[] key = new byte[32];
+        for (int index = 0; index < key.length; index++) {
+            key[index] = (byte) (start + index);
+        }
+        return Base64.getEncoder().encodeToString(key);
     }
 }

@@ -1,10 +1,12 @@
 package com.rush.rushaicodemother.service.impl;
 
-import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.memory.GenerationSemanticMemoryService;
+import com.rush.rushaicodemother.memory.MemoryType;
+import com.rush.rushaicodemother.memory.SemanticMemoryHit;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
-import com.rush.rushaicodemother.service.GenerationContextCompressionService;
+import com.rush.rushaicodemother.orchestration.context.AiContextPack;
+import com.rush.rushaicodemother.orchestration.context.AiContextPackAssembler;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.trace.GenerationBuildTrace;
 import com.rush.rushaicodemother.service.trace.GenerationTaskTrace;
@@ -12,22 +14,24 @@ import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class GenerationMemoryContextServiceImpl implements GenerationMemoryContextService {
 
-    private static final int MAX_CONTEXT_LENGTH = 3200;
-    private static final int MAX_FIELD_LENGTH = 600;
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final Set<MemoryType> GENERATION_MEMORY_TYPES = Set.of(
+            MemoryType.TASK_OUTCOME,
+            MemoryType.FAILURE_LESSON,
+            MemoryType.USER_FEEDBACK,
+            MemoryType.USER_PREFERENCE,
+            MemoryType.ARCHITECTURE_DECISION
+    );
 
     private final GenerationTraceService generationTraceService;
-
-    private final GenerationContextCompressionService generationContextCompressionService;
+    private final GenerationSemanticMemoryService semanticMemoryService;
+    private final AiContextPackAssembler contextPackAssembler;
 
     @Override
     public String buildGenerationMemoryContext(App app, String userMessage, CodeGenTypeEnum targetType) {
@@ -36,20 +40,21 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         }
         List<GenerationTaskTrace> recentTasks = generationTraceService.listRecentTasksByAppId(app.getId(), 5);
         List<GenerationBuildTrace> recentBuildLogs = generationTraceService.listRecentBuildLogsByAppId(app.getId(), 3);
-        if (recentTasks.isEmpty() && recentBuildLogs.isEmpty()) {
-            return "";
-        }
-        List<String> lines = new ArrayList<>();
-        lines.add("【AI对话记忆】以下是压缩后的历史上下文，只用于延续目标、避免重复失败和减少无关改动，不要逐字复述。");
-        lines.add("当前应用：appId=" + app.getId()
-                + ", appName=" + StrUtil.blankToDefault(app.getAppName(), "未命名")
-                + ", targetType=" + (targetType == null ? StrUtil.blankToDefault(app.getCodeGenType(), "unknown") : targetType.getValue()));
-        appendRecentTasks(lines, recentTasks, userMessage);
-        if (recentTasks.stream().noneMatch(task -> StrUtil.isNotBlank(task.memorySummary()))) {
-            appendRecentBuildLogs(lines, recentBuildLogs);
-        }
-        lines.add("记忆使用规则：优先满足本轮用户需求；历史记录只作为边界和失败经验；不要因为旧需求扩大本轮改动范围。");
-        return generationContextCompressionService.compressMemoryContext(limit(String.join("\n", lines), MAX_CONTEXT_LENGTH));
+        List<SemanticMemoryHit> semanticMemories = semanticMemoryService.recall(
+                app.getTenantId(),
+                app.getId(),
+                userMessage,
+                GENERATION_MEMORY_TYPES
+        );
+        AiContextPack contextPack = contextPackAssembler.buildGenerationPack(
+                app,
+                userMessage,
+                targetType,
+                semanticMemories,
+                recentTasks,
+                recentBuildLogs
+        );
+        return renderBudgeted(contextPack);
     }
 
     @Override
@@ -57,108 +62,25 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         if (appId == null) {
             return "";
         }
-        List<GenerationBuildTrace> taskBuildLogs = StrUtil.isBlank(taskId)
+        List<GenerationBuildTrace> taskBuildLogs = taskId == null || taskId.isBlank()
                 ? List.of()
                 : generationTraceService.listBuildLogsByTaskId(taskId, 3);
         List<GenerationBuildTrace> recentBuildLogs = generationTraceService.listRecentBuildLogsByAppId(appId, 3);
-        if (taskBuildLogs.isEmpty() && recentBuildLogs.isEmpty()) {
+        AiContextPack contextPack = contextPackAssembler.buildAutoRepairPack(
+                appId,
+                taskId,
+                errorMessage,
+                repairRound,
+                taskBuildLogs,
+                recentBuildLogs
+        );
+        return renderBudgeted(contextPack);
+    }
+
+    private String renderBudgeted(AiContextPack contextPack) {
+        if (contextPack == null || contextPack.empty()) {
             return "";
         }
-        List<String> lines = new ArrayList<>();
-        lines.add("【自修记忆】以下是压缩后的构建和工具轨迹，只用于定位本轮失败根因。");
-        lines.add("appId=" + appId + ", taskId=" + StrUtil.blankToDefault(taskId, "unknown") + ", repairRound=" + repairRound);
-        if (StrUtil.isNotBlank(errorMessage)) {
-            lines.add("当前错误摘要：" + compact(errorMessage));
-        }
-        appendBuildLogs(lines, "本任务构建记录", taskBuildLogs);
-        appendBuildLogs(lines, "最近构建记录", recentBuildLogs);
-        lines.add("自修规则：只读相关文件、只改直接相关代码；不要重建项目。");
-        return generationContextCompressionService.compressMemoryContext(limit(String.join("\n", lines), MAX_CONTEXT_LENGTH));
-    }
-
-    private void appendRecentTasks(List<String> lines, List<GenerationTaskTrace> recentTasks, String userMessage) {
-        if (recentTasks.isEmpty()) {
-            return;
-        }
-        lines.add("最近生成任务：");
-        for (GenerationTaskTrace task : recentTasks) {
-            String relation = isRelated(userMessage, task.userPrompt()) ? "相关" : "参考";
-            if (StrUtil.isNotBlank(task.memorySummary())) {
-                lines.add("- [" + relation + "] " + formatTime(task.createTime())
-                        + " status=" + task.status().getValue()
-                        + ", summary=" + compact(task.memorySummary()));
-                continue;
-            }
-            lines.add("- [" + relation + "] " + formatTime(task.createTime())
-                    + " status=" + task.status().getValue()
-                    + ", stage=" + StrUtil.blankToDefault(task.stage(), "unknown")
-                    + ", prompt=" + compact(task.userPrompt())
-                    + formatTaskNote(task));
-        }
-    }
-
-    private void appendRecentBuildLogs(List<String> lines, List<GenerationBuildTrace> buildLogs) {
-        appendBuildLogs(lines, "最近构建诊断", buildLogs);
-    }
-
-    private void appendBuildLogs(List<String> lines, String title, List<GenerationBuildTrace> buildLogs) {
-        if (buildLogs.isEmpty()) {
-            return;
-        }
-        lines.add(title + "：");
-        for (GenerationBuildTrace log : buildLogs) {
-            lines.add("- " + formatTime(log.createTime())
-                    + " success=" + log.success()
-                    + ", stage=" + StrUtil.blankToDefault(log.stage(), "unknown")
-                    + ", summary=" + compact(log.summary())
-                    + formatReport(log.report()));
-        }
-    }
-
-    private String formatTaskNote(GenerationTaskTrace task) {
-        String note = task.status() == GenerationTaskStatus.RUNNING
-                ? task.stageMessage()
-                : task.errorMessage();
-        return formatError(note);
-    }
-
-    private boolean isRelated(String userMessage, String historicalPrompt) {
-        if (StrUtil.isBlank(userMessage) || StrUtil.isBlank(historicalPrompt)) {
-            return false;
-        }
-        String normalizedUserMessage = userMessage.toLowerCase(Locale.ROOT);
-        String normalizedHistoricalPrompt = historicalPrompt.toLowerCase(Locale.ROOT);
-        for (String token : normalizedUserMessage.split("\\s+|，|。|、|,|\\.")) {
-            if (token.length() >= 3 && normalizedHistoricalPrompt.contains(token)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String formatTime(java.time.LocalDateTime time) {
-        return time == null ? "unknown_time" : TIME_FORMATTER.format(time);
-    }
-
-    private String formatError(String errorMessage) {
-        return StrUtil.isBlank(errorMessage) ? "" : ", note=" + compact(errorMessage);
-    }
-
-    private String formatReport(String report) {
-        return StrUtil.isBlank(report) ? "" : ", report=" + compact(report);
-    }
-
-    private String compact(String value) {
-        if (StrUtil.isBlank(value)) {
-            return "";
-        }
-        return limit(value.replaceAll("\\s+", " ").trim(), MAX_FIELD_LENGTH);
-    }
-
-    private String limit(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength) + "...";
+        return contextPack.render();
     }
 }

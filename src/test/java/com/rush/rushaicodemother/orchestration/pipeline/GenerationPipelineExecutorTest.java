@@ -17,6 +17,7 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
@@ -69,8 +70,9 @@ class GenerationPipelineExecutorTest {
         assertTrue(contextService.getByTaskId("task-complete").isEmpty());
         assertEquals("success", request.execution().executionContext().snapshot().terminalStatus());
         assertSame(request.execution().session(), sessionRegistry.getByTaskId("task-complete"));
-        verify(runtimeLifecycleService).activate("task-complete");
-        verify(runtimeLifecycleService).complete("task-complete", GenerationTaskStatus.SUCCESS, null);
+        verify(runtimeLifecycleService).activate(request.execution().executionFence());
+        verify(runtimeLifecycleService).completeOwned(
+                request.execution().executionFence(), GenerationTaskStatus.SUCCESS, null);
     }
 
     @Test
@@ -84,9 +86,9 @@ class GenerationPipelineExecutorTest {
 
         assertTrue(request.execution().session().isActive());
         assertTrue(contextService.getByTaskId("task-running").isPresent());
-        verify(runtimeLifecycleService).activate("task-running");
-        verify(runtimeLifecycleService, never()).complete(
-                org.mockito.ArgumentMatchers.anyString(),
+        verify(runtimeLifecycleService).activate(request.execution().executionFence());
+        verify(runtimeLifecycleService, never()).completeOwned(
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
     }
@@ -131,8 +133,34 @@ class GenerationPipelineExecutorTest {
         assertFalse(request.execution().session().isActive());
         assertEquals("failed", request.execution().executionContext().snapshot().terminalStatus());
         assertTrue(contextService.getByTaskId("task-failed").isEmpty());
-        verify(runtimeLifecycleService).complete(
-                "task-failed", GenerationTaskStatus.FAILED, "generation_pipeline_failed");
+        verify(runtimeLifecycleService).completeOwned(
+                request.execution().executionFence(),
+                GenerationTaskStatus.FAILED,
+                "generation_pipeline_failed");
+    }
+
+    @Test
+    void finalizationMustUseExecutionFenceInsteadOfUnconditionalTaskCleanup() {
+        GenerationPipelineRequest request = request("task-fenced-cleanup", GenerationMode.LIGHT_EDIT,
+                FallbackPolicy.NONE);
+        GenerationPipeline pipeline = pipeline(
+                GenerationRoute.LIGHTWEIGHT_EDIT,
+                GenerationMode.LIGHT_EDIT,
+                ignored -> GenerationPipelineOutcome.completed(
+                        GenerationRoute.LIGHTWEIGHT_EDIT, GenerationTaskStatus.SUCCESS));
+        GenerationExecutionContextService cleanupService = mock(GenerationExecutionContextService.class);
+        GenerationPipelineExecutor executor = new GenerationPipelineExecutor(
+                List.of(pipeline), eventPublisher, sessionRegistry, cleanupService,
+                runtimeLifecycleService, performanceMonitorService);
+
+        executor.execute(request);
+
+        verify(cleanupService).finishIfOwned(
+                request.execution().taskId(),
+                request.execution().executionFence(),
+                GenerationTaskStatus.SUCCESS.getValue());
+        verify(cleanupService, never()).finish(
+                request.execution().taskId(), GenerationTaskStatus.SUCCESS.getValue());
     }
 
     private GenerationPipelineExecutor executor(List<GenerationPipeline> pipelines) {
@@ -177,11 +205,14 @@ class GenerationPipelineExecutorTest {
         GenerationModeDecision decision = GenerationModeDecision.of(
                 mode, 0.8, "test", fallbackPolicy, ExpectedValidationLevel.BUILD);
         GenerationExecutionContext context = contextService.start(taskId, 1L, 2L);
+        GenerationExecutionFence fence = new GenerationExecutionFence(taskId, "worker-a", 3L);
+        context.bindExecutionFence(fence);
         GenerationSession session = new GenerationSession(null, context);
         session.bindTaskRequest(taskRequest);
         session.recordRoute(decision.route());
         sessionRegistry.put(1L, session);
-        GenerationTaskExecution execution = new GenerationTaskExecution(taskId, session, context, Instant.now());
+        GenerationTaskExecution execution = new GenerationTaskExecution(
+                taskId, session, context, fence, Instant.now());
         return new GenerationPipelineRequest(
                 taskRequest, CodeGenTypeEnum.VUE_PROJECT, workspace, decision, execution);
     }

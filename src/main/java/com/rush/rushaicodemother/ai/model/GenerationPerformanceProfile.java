@@ -15,6 +15,15 @@ public record GenerationPerformanceProfile(
         String reasoning
 ) {
 
+    public GenerationThinkingMode thinkingMode() {
+        if (modelTier == ModelTier.QUALITY && thinkingEnabled) {
+            return GenerationThinkingMode.DEEP;
+        }
+        return modelTier == ModelTier.SPEED
+                ? GenerationThinkingMode.FAST
+                : GenerationThinkingMode.STANDARD;
+    }
+
     /**
      * 模型层级。
      * <p>

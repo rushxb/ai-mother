@@ -39,12 +39,18 @@ public class HeavyGenerationFinalizationService {
             return;
         }
         GenerationArtifact rollbackPoint = preparation.artifact("rollback_point");
-        DiffSummary summary = generationDiffSummaryService.summarize(
-                appId,
-                preparation.targetType(),
-                preparation.taskId(),
-                rollbackPoint
-        );
+        DiffSummary summary = session.executionWorkspace() != null
+                ? generationDiffSummaryService.summarize(
+                        appId,
+                        preparation.targetType(),
+                        preparation.taskId(),
+                        rollbackPoint,
+                        session.executionWorkspace().workspace())
+                : generationDiffSummaryService.summarize(
+                        appId,
+                        preparation.targetType(),
+                        preparation.taskId(),
+                        rollbackPoint);
         GenerationArtifact diffSummary = GenerationArtifact.of(
                 "diff_summary",
                 "Orchestrator",
@@ -180,7 +186,11 @@ public class HeavyGenerationFinalizationService {
         if (session.isCancelled()) {
             return;
         }
-        Path projectRoot = generationWorkspaceService.resolve(appId, preparation.targetType()).canonicalRootPath();
+        Path projectRoot = session.executionWorkspace() != null
+                && session.executionWorkspace().appId().equals(appId)
+                && session.executionWorkspace().codeGenType() == preparation.targetType()
+                ? session.executionWorkspace().workspace().canonicalRootPath()
+                : generationWorkspaceService.resolve(appId, preparation.targetType()).canonicalRootPath();
         ChangePlan changePlan = preparation.artifact("change_plan") == null
                 ? null
                 : ChangePlan.fromPayload(preparation.artifact("change_plan").payload());

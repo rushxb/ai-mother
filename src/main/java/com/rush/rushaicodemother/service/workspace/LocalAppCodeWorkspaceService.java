@@ -151,7 +151,7 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
         ThrowUtils.throwIf(app == null || app.getId() == null, ErrorCode.PARAMS_ERROR, "应用不存在");
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
-        return generationWorkspaceService.resolve(app, codeGenType);
+        return generationWorkspaceService.resolveCanonical(app.getId(), codeGenType);
     }
 
     private GenerationWorkspace requireExistingWorkspace(App app) {
@@ -162,8 +162,9 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
     }
 
     private void validateWorkspaceIdentity(GenerationWorkspace workspace) {
-        Path configuredRoot = workspace.rootPath().toAbsolutePath().normalize();
-        ThrowUtils.throwIf(!workspace.canonicalRootPath().equals(configuredRoot),
+        GenerationWorkspace current = generationWorkspaceService.resolveCanonical(
+                workspace.appId(), workspace.codeGenType());
+        ThrowUtils.throwIf(!workspace.canonicalRootPath().equals(current.canonicalRootPath()),
                 ErrorCode.NO_AUTH_ERROR, "应用代码工作区路径异常");
     }
 

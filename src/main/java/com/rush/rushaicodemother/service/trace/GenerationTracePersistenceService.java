@@ -1,7 +1,9 @@
 package com.rush.rushaicodemother.service.trace;
 
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
+import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,17 +17,21 @@ public interface GenerationTracePersistenceService {
 
     TaskRecord lockTaskByTaskId(String taskId);
 
-    boolean enrichRuntimeTaskTrace(long recordId, NewTask task, LocalDateTime updateTime);
+    boolean enrichRuntimeTaskTrace(long recordId, NewTask task,
+                                   GenerationExecutionFence fence, LocalDateTime updateTime);
 
-    void updateRunningTaskStage(long recordId, String stage, String stageMessage, LocalDateTime updateTime);
+    void updateRunningTaskStage(long recordId, String stage, String stageMessage,
+                                GenerationExecutionFence fence, LocalDateTime updateTime);
 
-    void updateTaskMemorySummary(long recordId, String memorySummary, LocalDateTime updateTime);
+    void updateTaskMemorySummary(long recordId, String memorySummary,
+                                 GenerationExecutionFence fence, LocalDateTime updateTime);
 
     void completeRunningTask(long recordId,
                              GenerationTaskStatus status,
                              LocalDateTime endTime,
                              long durationMs,
-                             String errorMessage);
+                             String errorMessage,
+                             GenerationExecutionFence fence);
 
     void insertBuildLog(NewBuildLog buildLog);
 
@@ -110,12 +116,22 @@ public interface GenerationTracePersistenceService {
             long userId,
             String provider,
             String model,
+            GenerationModelCallStatus status,
+            String providerRequestId,
             Integer promptTokens,
             Integer completionTokens,
             Integer totalTokens,
             Long latencyMs,
             String finishReason,
             GenerationModelUsageSource usageSource,
+            String errorCategory,
+            String requestHash,
+            String promptTemplateHash,
+            String toolSchemaHash,
+            String modelConfigHash,
+            Integer requestMessageCount,
+            Integer toolCount,
+            String rawMetadataJson,
             LocalDateTime createTime
     ) {
     }
@@ -127,12 +143,22 @@ public interface GenerationTracePersistenceService {
             long userId,
             String provider,
             String model,
+            GenerationModelCallStatus status,
+            String providerRequestId,
             Integer promptTokens,
             Integer completionTokens,
             Integer totalTokens,
             Long latencyMs,
             String finishReason,
-            GenerationModelUsageSource usageSource
+            GenerationModelUsageSource usageSource,
+            String errorCategory,
+            String requestHash,
+            String promptTemplateHash,
+            String toolSchemaHash,
+            String modelConfigHash,
+            Integer requestMessageCount,
+            Integer toolCount,
+            String rawMetadataJson
     ) {
     }
 }

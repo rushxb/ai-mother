@@ -107,7 +107,8 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                             "taskId", taskId,
                             "route", route(),
                             "mode", request.modeDecision().mode().name(),
-                            "routerReason", request.modeDecision().reason()
+                            "routerReason", request.modeDecision().reason(),
+                            "routingDecisionCode", request.modeDecision().decisionCode().name()
                     ));
             session.emit(GenerationStreamEvent.generationStage(
                     "正在生成 CREATE 模板项目...",
@@ -171,6 +172,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                             "route", route(),
                             "mode", request.modeDecision().mode().name(),
                             "routerReason", request.modeDecision().reason(),
+                            "routingDecisionCode", request.modeDecision().decisionCode().name(),
                             "templateId", result.templateId(),
                             "filledSlots", result.filledSlots(),
                             "totalChars", result.totalChars(),
@@ -201,12 +203,6 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 ));
                 return finishCreateGeneration(request, taskId, GenerationTaskStatus.FAILED);
             }
-            generationEventPublisher.publishSafely(
-                    request.taskRequest(), GenerationEventType.TASK_DONE, "CREATE 模板生成完成", Map.of(
-                            "taskId", taskId,
-                            "route", route(),
-                            "validationExecuted", validationOutcome.executed()
-                    ));
             return finishCreateGeneration(request, taskId, GenerationTaskStatus.SUCCESS);
         } catch (RuntimeException failure) {
             String diagnosticReason = StrUtil.blankToDefault(
@@ -247,9 +243,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                                                           String taskId,
                                                           GenerationTaskStatus status) {
         App app = request.taskRequest().app();
-        if (status == GenerationTaskStatus.SUCCESS) {
-            generationTaskLifecycleService.completeGenerationAndCharge(taskId, app.getId(), status, null);
-        } else {
+        if (status != GenerationTaskStatus.SUCCESS) {
             String reason = status == GenerationTaskStatus.CANCELLED
                     ? "user_requested"
                     : CREATE_FAILURE_REASON;

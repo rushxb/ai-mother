@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -56,7 +57,11 @@ public class VueBuildCommandService {
         GenerationPerformanceMonitorService.SpanTimer span =
                 performanceMonitorService.startSpan(taskId, "pnpm_install", GenerationSpanCategory.DEPENDENCY);
         try {
-            DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(projectRoot, taskId);
+            DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(
+                    projectRoot,
+                    taskId,
+                    DependencyInstallMode.REFRESH_FROM_LOCKFILE
+            );
             if (!result.success()) {
                 span.failed(result.errorDetail());
                 return VueBuildCommandResult.failed("pnpm install", 1, result.output());

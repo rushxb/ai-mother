@@ -59,7 +59,7 @@ class GenerationTaskRecoveryPolicyTest {
         return new GenerationTaskRecoveryCandidate(
                 "task-expired", 1L, GenerationTaskStatus.RUNNING,
                 "lost-worker", NOW.minusSeconds(1), deadlineAt,
-                cancellationRequested, cancellationReason, 7L
+                cancellationRequested, cancellationReason, 1L, 7L
         );
     }
 }

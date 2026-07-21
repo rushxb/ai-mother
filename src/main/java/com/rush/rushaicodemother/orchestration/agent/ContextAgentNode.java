@@ -4,11 +4,14 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.context.AiContextBoundaryService;
+import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.File;
 import java.util.LinkedHashMap;
@@ -22,10 +25,21 @@ import java.util.Map;
 public class ContextAgentNode extends BaseGenerationAgentNode {
 
     private final GenerationAgentSupport support;
+    private final AiContextBoundaryService contextBoundaryService;
+    private final GenerationWorkingMemoryService workingMemoryService;
 
     public ContextAgentNode(GenerationAgentSupport support) {
+        this(support, new AiContextBoundaryService(), null);
+    }
+
+    @Autowired
+    public ContextAgentNode(GenerationAgentSupport support,
+                            AiContextBoundaryService contextBoundaryService,
+                            GenerationWorkingMemoryService workingMemoryService) {
         super("context", "Context", "context", List.of("template"));
         this.support = support;
+        this.contextBoundaryService = contextBoundaryService;
+        this.workingMemoryService = workingMemoryService;
     }
 
     @Override
@@ -54,11 +68,17 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 );
             }
         }
+        AiContextBoundaryService.ProtectedContext protectedContext =
+                contextBoundaryService.protectRepositoryContext(contextPackage.projectContext());
+        if (workingMemoryService != null) {
+            workingMemoryService.recordContextDigest(
+                    context.getTask().getTaskId(), protectedContext.digest());
+        }
         List<GenerationSkill> matchedSkills = support.matchSkills(context.getRequest().userMessage());
         List<String> normalizedSelectedFiles = support.normalizeSelectedFiles(contextPackage.selectedFiles());
         List<GenerationRecipe> matchedRecipes = support.matchRecipes(
                 context.getRequest().userMessage(),
-                contextPackage.projectContext()
+                protectedContext.content()
         );
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("intent", contextPackage.intent());
@@ -67,7 +87,12 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
         payload.put("indexedSymbolCount", contextPackage.indexedSymbolCount());
         payload.put("indexHits", contextPackage.indexHits());
         payload.put("contextMode", contextPackage.contextMode());
-        payload.put("projectContext", StrUtil.blankToDefault(contextPackage.projectContext(), ""));
+        payload.put("projectContext", protectedContext.content());
+        payload.put("contextDigest", protectedContext.digest());
+        payload.put("contextTrust", "untrusted_repository_data");
+        payload.put("contextSecretsRedacted", protectedContext.redacted());
+        payload.put("contextTruncated", protectedContext.truncated());
+        payload.put("contextSourceChars", protectedContext.sourceChars());
         payload.put("memoryContext", StrUtil.blankToDefault(context.getRequest().memoryContext(), ""));
         payload.put("hasGeneratedCode", context.getRequest().hasGeneratedCode());
         payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());

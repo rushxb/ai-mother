@@ -1,9 +1,14 @@
 package com.rush.rushaicodemother.orchestration;
 
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
+import com.rush.rushaicodemother.core.handler.GenerationPublicEventSanitizer;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
+import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspace;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -21,16 +26,21 @@ public final class GenerationSession {
 
     private final Sinks.Many<GenerationStreamEvent> sink = Sinks.many().replay().limit(MAX_REPLAY_EVENTS);
     private final Sinks.Empty<Void> cancelSink = Sinks.empty();
+    private final Object sharedStreamMonitor = new Object();
     private final AtomicReference<GenerationPreparation> preparationRef = new AtomicReference<>();
     private final GenerationExecutionContext executionContext;
+    private final GenerationEventStream generationEventStream;
+    private final GenerationWorkingMemoryService workingMemoryService;
     private final Instant startedAt = Instant.now();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicBoolean completionStarted = new AtomicBoolean(false);
     private final AtomicBoolean completed = new AtomicBoolean(false);
+    private final AtomicBoolean sharedStreamCompleted = new AtomicBoolean(false);
     private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
     private final AtomicReference<GenerationCancellationHandle> cancellationHandleRef = new AtomicReference<>();
     private final AtomicReference<GenerationTaskRequest> taskRequestRef = new AtomicReference<>();
     private final AtomicReference<String> routeRef = new AtomicReference<>();
+    private final AtomicReference<GenerationExecutionWorkspace> executionWorkspaceRef = new AtomicReference<>();
     private Long appId;
     private Long userId;
 
@@ -39,8 +49,23 @@ public final class GenerationSession {
     }
 
     public GenerationSession(GenerationPreparation preparation, GenerationExecutionContext executionContext) {
+        this(preparation, executionContext, null);
+    }
+
+    GenerationSession(GenerationPreparation preparation,
+                      GenerationExecutionContext executionContext,
+                      GenerationEventStream generationEventStream) {
+        this(preparation, executionContext, generationEventStream, null);
+    }
+
+    GenerationSession(GenerationPreparation preparation,
+                      GenerationExecutionContext executionContext,
+                      GenerationEventStream generationEventStream,
+                      GenerationWorkingMemoryService workingMemoryService) {
         this.preparationRef.set(preparation);
         this.executionContext = executionContext;
+        this.generationEventStream = generationEventStream;
+        this.workingMemoryService = workingMemoryService;
     }
 
     public Instant startedAt() {
@@ -78,12 +103,42 @@ public final class GenerationSession {
         return executionContext;
     }
 
+    /** Binds the writable workspace for the current durable execution epoch. */
+    public void bindExecutionWorkspace(GenerationExecutionWorkspace executionWorkspace) {
+        if (executionWorkspace == null || taskId() == null
+                || !taskId().equals(executionWorkspace.taskId())) {
+            throw new IllegalArgumentException("generation execution workspace identity mismatch");
+        }
+        while (true) {
+            GenerationExecutionWorkspace current = executionWorkspaceRef.get();
+            if (current == executionWorkspace || executionWorkspace.equals(current)) {
+                return;
+            }
+            if (current != null
+                    && (!current.taskId().equals(executionWorkspace.taskId())
+                    || executionWorkspace.executionEpoch() < current.executionEpoch())) {
+                throw new IllegalStateException("generation execution workspace cannot move backwards");
+            }
+            if (executionWorkspaceRef.compareAndSet(current, executionWorkspace)) {
+                return;
+            }
+        }
+    }
+
+    public GenerationExecutionWorkspace executionWorkspace() {
+        return executionWorkspaceRef.get();
+    }
+
     /** Records the currently selected route; fallback may update it while preserving task identity. */
     public void recordRoute(String route) {
         if (route == null || route.isBlank()) {
             throw new IllegalArgumentException("generation route cannot be blank");
         }
         routeRef.set(route.trim());
+        if (workingMemoryService != null && executionContext != null) {
+            workingMemoryService.initialize(
+                    executionContext.taskId(), executionContext.appId(), executionContext.userId(), route.trim());
+        }
     }
 
     public String route() {
@@ -130,21 +185,33 @@ public final class GenerationSession {
         if (completed.get()) {
             return;
         }
+        GenerationStreamEvent publicEvent = GenerationPublicEventSanitizer.sanitize(event);
+        if (publicEvent == null) {
+            return;
+        }
         GenerationTraceService generationTraceService = traceServiceRef.get();
         GenerationPreparation preparation = preparation();
         if (generationTraceService != null && preparation != null) {
-            generationTraceService.recordEvent(preparation.taskId(), appId, userId, event);
+            generationTraceService.recordEvent(preparation.taskId(), appId, userId, publicEvent);
         } else if (generationTraceService != null || preparation != null) {
             log.warn("生成事件未写入 trace，原因: traceService={}, preparation={}, eventType={}",
-                    generationTraceService != null, preparation != null, event == null ? null : event.getType());
+                    generationTraceService != null, preparation != null, publicEvent.getType());
         }
-        sink.tryEmitNext(event);
+        sink.tryEmitNext(publicEvent);
+        if (workingMemoryService != null && taskId() != null) {
+            workingMemoryService.recordEvent(taskId(), publicEvent);
+        }
+        publishToSharedStream(publicEvent);
     }
 
     public void complete() {
         completionStarted.set(true);
         completed.set(true);
         sink.tryEmitComplete();
+        if (workingMemoryService != null && taskId() != null) {
+            workingMemoryService.complete(taskId());
+        }
+        completeSharedStream();
     }
 
     public void error(Throwable throwable) {
@@ -152,17 +219,34 @@ public final class GenerationSession {
             return;
         }
         sink.tryEmitError(throwable);
+        if (workingMemoryService != null && taskId() != null) {
+            workingMemoryService.complete(taskId());
+        }
+        completeSharedStream();
     }
 
     public void cancel() {
-        if (cancelled.compareAndSet(false, true)) {
-            if (executionContext != null) {
-                executionContext.cancel("user_requested");
-            }
+        cancel("user_requested");
+    }
+
+    /** Cancels the session while preserving the first authoritative cancellation reason. */
+    public void cancel(String reason) {
+        String normalizedReason = reason == null || reason.isBlank() ? "cancelled" : reason.trim();
+        if (executionContext != null) {
+            executionContext.cancel(normalizedReason);
+        }
+        if (!cancelled.compareAndSet(false, true)) {
+            return;
+        }
+        try {
             GenerationCancellationHandle handle = cancellationHandleRef.get();
             if (handle != null) {
                 handle.cancel();
             }
+        } catch (RuntimeException cancellationFailure) {
+            log.warn("Generation cancellation handle failed, taskId: {}, error: {}",
+                    taskId(), LogExceptionSanitizer.sanitizeMessage(cancellationFailure));
+        } finally {
             cancelSink.tryEmitEmpty();
         }
     }
@@ -218,6 +302,42 @@ public final class GenerationSession {
                 cancellationHandle.cancel();
             }
         };
+    }
+
+    private void publishToSharedStream(GenerationStreamEvent event) {
+        String currentTaskId = taskId();
+        if (generationEventStream == null || currentTaskId == null || currentTaskId.isBlank()) {
+            return;
+        }
+        synchronized (sharedStreamMonitor) {
+            if (sharedStreamCompleted.get()) {
+                return;
+            }
+            try {
+                generationEventStream.publish(currentTaskId, event);
+            } catch (RuntimeException failure) {
+                log.warn("Failed to publish task event to shared stream, taskId: {}, error: {}",
+                        currentTaskId, LogExceptionSanitizer.sanitizeMessage(failure));
+            }
+        }
+    }
+
+    private void completeSharedStream() {
+        String currentTaskId = taskId();
+        if (generationEventStream == null || currentTaskId == null || currentTaskId.isBlank()) {
+            return;
+        }
+        synchronized (sharedStreamMonitor) {
+            if (!sharedStreamCompleted.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                generationEventStream.complete(currentTaskId);
+            } catch (RuntimeException failure) {
+                log.warn("Failed to complete shared task event stream, taskId: {}, error: {}",
+                        currentTaskId, LogExceptionSanitizer.sanitizeMessage(failure));
+            }
+        }
     }
 
     public void throwIfCancelled() {

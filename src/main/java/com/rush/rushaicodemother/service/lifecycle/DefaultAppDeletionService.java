@@ -22,6 +22,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
     private final AppArtifactLifecycleService artifactLifecycleService;
     private final DevServerManager devServerManager;
     private final AppOperationLockManager operationLockManager;
+    private final AppMemoryLifecycleService memoryLifecycleService;
     private final TransactionOperations transactionOperations;
 
     @Autowired
@@ -29,12 +30,14 @@ public class DefaultAppDeletionService implements AppDeletionService {
                                      AppArtifactLifecycleService artifactLifecycleService,
                                      DevServerManager devServerManager,
                                      AppOperationLockManager operationLockManager,
+                                     AppMemoryLifecycleService memoryLifecycleService,
                                      PlatformTransactionManager transactionManager) {
         this(
                 lifecycleDataMapper,
                 artifactLifecycleService,
                 devServerManager,
                 operationLockManager,
+                memoryLifecycleService,
                 new TransactionTemplate(transactionManager)
         );
     }
@@ -43,11 +46,13 @@ public class DefaultAppDeletionService implements AppDeletionService {
                               AppArtifactLifecycleService artifactLifecycleService,
                               DevServerManager devServerManager,
                               AppOperationLockManager operationLockManager,
+                              AppMemoryLifecycleService memoryLifecycleService,
                               TransactionOperations transactionOperations) {
         this.lifecycleDataMapper = lifecycleDataMapper;
         this.artifactLifecycleService = artifactLifecycleService;
         this.devServerManager = devServerManager;
         this.operationLockManager = operationLockManager;
+        this.memoryLifecycleService = memoryLifecycleService;
         this.transactionOperations = transactionOperations;
     }
 
@@ -70,7 +75,11 @@ public class DefaultAppDeletionService implements AppDeletionService {
                 artifactLifecycleService.prepareDeletion(app);
         artifactTransaction.activate();
         try {
-            transactionOperations.executeWithoutResult(status -> deleteRelationalData(appId));
+            transactionOperations.executeWithoutResult(status -> {
+                memoryLifecycleService.scheduleApplicationMemoryDeletion(
+                        app.getTenantId(), appId, app.getUserId());
+                deleteRelationalData(appId);
+            });
         } catch (RuntimeException deletionFailure) {
             rollbackArtifacts(artifactTransaction, deletionFailure);
             throw deletionFailure;
@@ -91,6 +100,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
         lifecycleDataMapper.deleteGenerationModelCalls(appId);
         lifecycleDataMapper.deleteGenerationBuildLogs(appId);
         lifecycleDataMapper.deleteGenerationTaskSpans(appId);
+        lifecycleDataMapper.deleteGenerationToolApprovals(appId);
         lifecycleDataMapper.deleteGenerationTasks(appId);
         lifecycleDataMapper.deleteChatHistory(appId);
         lifecycleDataMapper.deleteCapabilities(appId);
@@ -123,6 +133,8 @@ public class DefaultAppDeletionService implements AppDeletionService {
     }
 
     private void validateDeletionState(App app) {
+        ThrowUtils.throwIf(app.getTenantId() == null || app.getTenantId() <= 0,
+                ErrorCode.SYSTEM_ERROR, "application tenant data is invalid");
         ThrowUtils.throwIf(app.getId() == null || app.getId() <= 0,
                 ErrorCode.SYSTEM_ERROR, "应用 ID 数据异常");
         ThrowUtils.throwIf(app.getUserId() == null || app.getUserId() <= 0,

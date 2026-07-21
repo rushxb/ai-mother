@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -87,7 +88,9 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     mock(HeavyGenerationFailureRecoveryService.class),
                     mock(HeavyGenerationSessionCompletionService.class),
                     new GenerationWorkspaceService(new CodeStorageProperties()),
-                    vueProjectBuilder
+                    vueProjectBuilder,
+                    mock(com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService.class),
+                    mock(GenerationStageAdmissionService.class)
             );
             GenerationPreparation preparation = preparation(taskId, new HashMap<>());
             GenerationSession session = new GenerationSession(preparation);
@@ -131,7 +134,8 @@ class HeavyGenerationDiagnosticBoundaryTest {
                 mock(GenerationAppStateService.class),
                 mock(GenerationOrchestrationMetricsCollector.class),
                 mock(GenerationRollbackRestoreService.class),
-                new GenerationWorkspaceService(new CodeStorageProperties())
+                new GenerationWorkspaceService(new CodeStorageProperties()),
+                mock(com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard.class)
         );
 
         service.emitBuildFailure(

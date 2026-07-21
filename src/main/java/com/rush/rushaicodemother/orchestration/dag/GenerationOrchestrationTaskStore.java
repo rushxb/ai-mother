@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import com.rush.rushaicodemother.orchestration.runtime.identity.UuidGenerationTaskIdGenerator;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -26,13 +27,16 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Bounded, best-effort local persistence for orchestration task diagnostics.
- * Snapshot failures never fail the generation workflow, but writes are atomic and retained data is bounded.
+ * Versioned orchestration checkpoint store.
+ *
+ * <p>Production can persist checkpoints through {@link GenerationOrchestrationCheckpointRepository}.
+ * The local file implementation remains as a bounded fallback for tests and single-node diagnostics.</p>
  */
 @Slf4j
 @Component
@@ -43,18 +47,37 @@ public class GenerationOrchestrationTaskStore {
 
     private final GenerationTaskSnapshotProperties properties;
     private final GenerationTaskIdGenerator taskIdGenerator;
+    private final GenerationOrchestrationCheckpointRepository checkpointRepository;
+    private final GenerationExecutionContextService executionContextService;
     private final Path rootDirectory;
     private final ReentrantLock[] writeLocks;
 
     public GenerationOrchestrationTaskStore(GenerationTaskSnapshotProperties properties) {
-        this(properties, new UuidGenerationTaskIdGenerator());
+        this(properties, new UuidGenerationTaskIdGenerator(), null, null);
+    }
+
+    public GenerationOrchestrationTaskStore(GenerationTaskSnapshotProperties properties,
+                                            GenerationTaskIdGenerator taskIdGenerator) {
+        this(properties, taskIdGenerator, null, null);
+    }
+
+    public GenerationOrchestrationTaskStore(
+            GenerationTaskSnapshotProperties properties,
+            GenerationTaskIdGenerator taskIdGenerator,
+            GenerationOrchestrationCheckpointRepository checkpointRepository) {
+        this(properties, taskIdGenerator, checkpointRepository, null);
     }
 
     @Autowired
-    public GenerationOrchestrationTaskStore(GenerationTaskSnapshotProperties properties,
-                                            GenerationTaskIdGenerator taskIdGenerator) {
+    public GenerationOrchestrationTaskStore(
+            GenerationTaskSnapshotProperties properties,
+            GenerationTaskIdGenerator taskIdGenerator,
+            GenerationOrchestrationCheckpointRepository checkpointRepository,
+            GenerationExecutionContextService executionContextService) {
         this.properties = properties;
         this.taskIdGenerator = taskIdGenerator;
+        this.checkpointRepository = checkpointRepository;
+        this.executionContextService = executionContextService;
         this.rootDirectory = properties.getRootDirectory().toAbsolutePath().normalize();
         this.writeLocks = new ReentrantLock[properties.getLockStripes()];
         for (int index = 0; index < writeLocks.length; index++) {
@@ -66,9 +89,6 @@ public class GenerationOrchestrationTaskStore {
         return create(taskIdGenerator.nextId(), appId, userMessage);
     }
 
-    /**
-     * Creates an orchestration snapshot using the identity already reserved by the generation runtime.
-     */
     public GenerationOrchestrationTask create(String taskId, Long appId, String userMessage) {
         String normalizedTaskId = StrUtil.trim(taskId);
         if (!isSafeTaskId(normalizedTaskId)) {
@@ -76,6 +96,7 @@ public class GenerationOrchestrationTaskStore {
         }
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId(normalizedTaskId);
+        task.setExecutionEpoch(currentExecutionEpoch(normalizedTaskId));
         task.setAppId(appId);
         task.setRequestHash(buildRequestHash(userMessage));
         task.setStatus("running");
@@ -85,38 +106,102 @@ public class GenerationOrchestrationTaskStore {
 
     public void save(GenerationOrchestrationTask task) {
         if (task == null) {
-            return;
+            throw new IllegalArgumentException("orchestration task is required");
         }
         task.setUpdatedAt(LocalDateTime.now());
+        task.setExecutionEpoch(Math.max(task.getExecutionEpoch(), currentExecutionEpoch(task.getTaskId())));
         if (!properties.isEnabled()) {
             return;
         }
         Long appId = task.getAppId();
         String taskId = StrUtil.trim(task.getTaskId());
         if (!isValidIdentity(appId, taskId)) {
-            log.warn("跳过无效编排任务快照，appId: {}, taskId: {}", appId, taskId);
-            return;
+            throw new GenerationCheckpointPersistenceException(
+                    GenerationCheckpointPersistenceException.Reason.INVALID_IDENTITY,
+                    "orchestration checkpoint identity is invalid");
         }
 
         ReentrantLock lock = lockFor(appId);
         lock.lock();
         try {
-            Path taskFile = resolveTaskPath(appId, taskId);
-            Files.createDirectories(taskFile.getParent());
-            byte[] snapshotBytes = JSONUtil.toJsonPrettyStr(task).getBytes(StandardCharsets.UTF_8);
+            String snapshotJson = JSONUtil.toJsonPrettyStr(task);
+            byte[] snapshotBytes = snapshotJson.getBytes(StandardCharsets.UTF_8);
             if (snapshotBytes.length > properties.getMaxSnapshotBytes()) {
-                Files.deleteIfExists(taskFile);
-                log.warn("编排任务快照超过持久化上限，已跳过写入，taskId: {}, bytes: {}, maxBytes: {}",
-                        taskId, snapshotBytes.length, properties.getMaxSnapshotBytes());
+                throw new GenerationCheckpointPersistenceException(
+                        GenerationCheckpointPersistenceException.Reason.SNAPSHOT_TOO_LARGE,
+                        "orchestration checkpoint exceeds the configured size limit");
+            } else if (checkpointRepository != null) {
+                checkpointRepository.save(task, snapshotJson, snapshotBytes.length);
             } else {
+                Path taskFile = resolveTaskPath(appId, taskId);
+                Files.createDirectories(taskFile.getParent());
                 writeAtomically(taskFile, snapshotBytes);
+                cleanupSnapshots(taskFile.getParent());
             }
-            cleanupSnapshots(taskFile.getParent());
+        } catch (GenerationCheckpointPersistenceException exception) {
+            throw exception;
         } catch (Exception exception) {
-            log.warn("保存编排任务快照失败，taskId: {}", taskId, LogExceptionSanitizer.sanitize(exception));
+            log.error("Failed to save orchestration checkpoint, taskId: {}",
+                    taskId, LogExceptionSanitizer.sanitize(exception));
+            throw new GenerationCheckpointPersistenceException(
+                    GenerationCheckpointPersistenceException.Reason.STORAGE_FAILURE,
+                    "orchestration checkpoint could not be durably committed",
+                    exception);
         } finally {
             lock.unlock();
         }
+    }
+
+    public Optional<GenerationOrchestrationTask> load(Long appId, String taskId) {
+        String normalizedTaskId = StrUtil.trim(taskId);
+        if (!isValidIdentity(appId, normalizedTaskId)) {
+            throw new IllegalArgumentException("invalid orchestration task identity");
+        }
+        if (!properties.isEnabled()) {
+            return Optional.empty();
+        }
+        if (checkpointRepository != null) {
+            try {
+                Optional<String> payload = checkpointRepository.loadPayload(appId, normalizedTaskId);
+                if (payload.isEmpty()) {
+                    return Optional.empty();
+                }
+                GenerationOrchestrationTask task = parseTask(payload.get());
+                validateLoadedTask(task, appId, normalizedTaskId);
+                normalizeLoadedTask(task);
+                return Optional.of(task);
+            } catch (RuntimeException exception) {
+                throw new IllegalStateException("unable to load orchestration checkpoint", exception);
+            }
+        }
+
+        Path taskFile = resolveTaskPath(appId, normalizedTaskId);
+        ReentrantLock lock = lockFor(appId);
+        lock.lock();
+        try {
+            if (!Files.exists(taskFile, LinkOption.NOFOLLOW_LINKS)) {
+                return Optional.empty();
+            }
+            if (!Files.isRegularFile(taskFile, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IllegalStateException("orchestration checkpoint is not a regular file");
+            }
+            long size = Files.size(taskFile);
+            if (size <= 0 || size > properties.getMaxSnapshotBytes()) {
+                throw new IllegalStateException("orchestration checkpoint size is invalid");
+            }
+            GenerationOrchestrationTask task = parseTask(Files.readString(taskFile, StandardCharsets.UTF_8));
+            validateLoadedTask(task, appId, normalizedTaskId);
+            normalizeLoadedTask(task);
+            return Optional.of(task);
+        } catch (IOException | RuntimeException exception) {
+            throw new IllegalStateException("unable to load orchestration checkpoint", exception);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public boolean matchesRequest(GenerationOrchestrationTask task, String userMessage) {
+        return task != null && buildRequestHash(userMessage).equals(task.getRequestHash());
     }
 
     Path resolveTaskPath(Long appId, String taskId) {
@@ -150,6 +235,47 @@ public class GenerationOrchestrationTaskStore {
             }
         } finally {
             Files.deleteIfExists(temporaryFile);
+        }
+    }
+
+    private long currentExecutionEpoch(String taskId) {
+        if (executionContextService == null || taskId == null) {
+            return 0L;
+        }
+        return executionContextService.getExecutionFence(taskId)
+                .map(fence -> fence.executionEpoch())
+                .orElse(0L);
+    }
+
+    private GenerationOrchestrationTask parseTask(String payloadJson) {
+        return JSONUtil.toBean(payloadJson, GenerationOrchestrationTask.class);
+    }
+
+    private void validateLoadedTask(GenerationOrchestrationTask task, Long appId, String taskId) {
+        if (task == null
+                || !GenerationOrchestrationTask.supportsSchemaVersion(task.getSchemaVersion())
+                || !appId.equals(task.getAppId())
+                || !taskId.equals(task.getTaskId())
+                || StrUtil.isBlank(task.getRequestHash())) {
+            throw new IllegalStateException("orchestration checkpoint identity or schema is invalid");
+        }
+    }
+
+    private void normalizeLoadedTask(GenerationOrchestrationTask task) {
+        if (task.getRuntimeState() == null) {
+            task.setRuntimeState(AgentRuntimeState.INITIALIZED);
+        }
+        if (task.getNodeStatuses() == null) {
+            task.setNodeStatuses(new java.util.LinkedHashMap<>());
+        }
+        if (task.getTimings() == null) {
+            task.setTimings(new java.util.LinkedHashMap<>());
+        }
+        if (task.getArtifacts() == null) {
+            task.setArtifacts(new java.util.LinkedHashMap<>());
+        }
+        if (task.getEvents() == null) {
+            task.setEvents(new ArrayList<>());
         }
     }
 
@@ -190,7 +316,7 @@ public class GenerationOrchestrationTaskStore {
         try {
             return new SnapshotFile(path, Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS));
         } catch (IOException exception) {
-            log.warn("读取编排任务快照元数据失败，fileName: {}",
+            log.warn("Failed to inspect orchestration checkpoint metadata, fileName: {}",
                     path.getFileName(), LogExceptionSanitizer.sanitize(exception));
             return null;
         }

@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.service.aimodel;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -11,12 +12,16 @@ import java.util.Locale;
 /** 以关闭请求/响应日志的方式执行模型连接探测。 */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class AiModelConnectionTester {
+
+    private final AiModelSecretService secretService;
 
     public AiModelConnectionTestResultVO test(AiModelRuntimeConfiguration configuration) {
         try {
             OpenAiChatModel.OpenAiChatModelBuilder builder = OpenAiChatModel.builder()
-                    .apiKey(configuration.apiKey())
+                    .apiKey(secretService.resolve(
+                            configuration.secretRef(), configuration.secretFingerprint()))
                     .baseUrl(configuration.baseUrl())
                     .modelName(configuration.modelId())
                     .temperature(configuration.temperature())

@@ -42,6 +42,21 @@ class DefaultAppPersistenceServiceTest {
     }
 
     @Test
+    void preparedCreateMustPersistOnlyWhitelistedFieldsAndReturnGeneratedId() {
+        when(appMapper.insertPreparedApp(any(App.class))).thenAnswer(invocation -> {
+            App entity = invocation.getArgument(0);
+            entity.setId(88L);
+            return 1;
+        });
+
+        long appId = service.createPrepared(new AppPersistenceService.NewApp(
+                "benchmark", "build a dashboard", "vue_project", 0, 9L, 700L));
+
+        assertEquals(88L, appId);
+        verify(appMapper).insertPreparedApp(any(App.class));
+    }
+
+    @Test
     void nameUpdateMustWhitelistFieldsAndRequireOneAffectedRow() {
         LocalDateTime editTime = LocalDateTime.of(2026, 7, 13, 19, 0);
         when(appMapper.updateActiveName(21L, "production app", editTime)).thenReturn(1);

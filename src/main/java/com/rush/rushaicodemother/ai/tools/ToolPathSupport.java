@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContext;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -43,9 +44,22 @@ public class ToolPathSupport {
         if (appId == null || appId <= 0) {
             throw new ToolInputException("应用 ID 无效，无法定位项目工作区");
         }
-        CodeGenTypeEnum codeGenType = resolveCodeGenType(appId);
+        GenerationToolExecutionContext context = requireContext(appId);
+        CodeGenTypeEnum codeGenType = context.codeGenType();
+        if (codeGenType == null) {
+            throw new ToolInputException("工具执行上下文缺少代码生成类型");
+        }
         try {
-            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
+            GenerationWorkspace workspace = context.workspace();
+            if (context.executionFence() != null && workspace == null) {
+                throw new ToolInputException("受管工具执行上下文缺少隔离工作区");
+            }
+            if (workspace == null) {
+                workspace = generationWorkspaceService.resolve(appId, codeGenType);
+            }
+            if (!appId.equals(workspace.appId()) || workspace.codeGenType() != codeGenType) {
+                throw new ToolInputException("工具工作区上下文不匹配");
+            }
             if (Files.isSymbolicLink(workspace.rootPath())) {
                 throw new ToolInputException("项目工作区不能是符号链接");
             }
@@ -71,6 +85,14 @@ public class ToolPathSupport {
         } catch (InvalidPathException e) {
             throw new ToolInputException("文件路径格式错误");
         }
+    }
+
+    String resolveTaskId(Long appId) {
+        String taskId = requireContext(appId).taskId();
+        if (taskId == null || taskId.isBlank()) {
+            throw new ToolInputException("工具执行上下文缺少任务标识");
+        }
+        return taskId.trim();
     }
 
     String normalizeRelativePath(String relativePath) {
@@ -108,10 +130,8 @@ public class ToolPathSupport {
         }
     }
 
-    private CodeGenTypeEnum resolveCodeGenType(Long appId) {
+    private GenerationToolExecutionContext requireContext(Long appId) {
         return toolExecutionContextService.getContext(appId)
-                .map(context -> context.codeGenType())
-                .filter(type -> type != null)
                 .orElseThrow(() -> new ToolInputException("工具执行上下文不存在，无法定位项目工作区"));
     }
 

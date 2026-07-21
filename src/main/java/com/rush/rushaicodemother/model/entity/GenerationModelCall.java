@@ -42,6 +42,12 @@ public class GenerationModelCall implements Serializable {
 
     private String model;
 
+    @Column("callStatus")
+    private String callStatus;
+
+    @Column("providerRequestId")
+    private String providerRequestId;
+
     @Column("promptTokens")
     private Integer promptTokens;
 
@@ -59,6 +65,27 @@ public class GenerationModelCall implements Serializable {
 
     @Column("usageSource")
     private String usageSource;
+
+    @Column("errorCategory")
+    private String errorCategory;
+
+    @Column("requestHash")
+    private String requestHash;
+
+    @Column("promptTemplateHash")
+    private String promptTemplateHash;
+
+    @Column("toolSchemaHash")
+    private String toolSchemaHash;
+
+    @Column("modelConfigHash")
+    private String modelConfigHash;
+
+    @Column("requestMessageCount")
+    private Integer requestMessageCount;
+
+    @Column("toolCount")
+    private Integer toolCount;
 
     @Column("rawMetadataJson")
     private String rawMetadataJson;

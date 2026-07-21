@@ -1,0 +1,65 @@
+package com.rush.rushaicodemother.orchestration.router;
+
+import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+
+import java.util.List;
+import java.util.Locale;
+
+/** Immutable signal bundle consumed by routing policies. */
+public record GenerationRoutingSignal(
+        GenerationTaskRequest request,
+        CodeGenTypeEnum codeGenType,
+        GenerationWorkspace workspace,
+        String normalizedMessage,
+        GenerationRoutingTelemetrySnapshot telemetry
+) {
+
+    public static GenerationRoutingSignal from(GenerationTaskRequest request,
+                                               CodeGenTypeEnum codeGenType,
+                                               GenerationWorkspace workspace) {
+        return from(request, codeGenType, workspace, GenerationRoutingTelemetrySnapshot.unavailable());
+    }
+
+    public static GenerationRoutingSignal from(GenerationTaskRequest request,
+                                               CodeGenTypeEnum codeGenType,
+                                               GenerationWorkspace workspace,
+                                               GenerationRoutingTelemetrySnapshot telemetry) {
+        return new GenerationRoutingSignal(
+                request,
+                codeGenType,
+                workspace,
+                StrUtil.blankToDefault(request == null ? null : request.message(), "").toLowerCase(Locale.ROOT),
+                telemetry == null ? GenerationRoutingTelemetrySnapshot.unavailable() : telemetry
+        );
+    }
+
+    public boolean firstGeneration() {
+        return workspace != null && !workspace.exists();
+    }
+
+    public boolean existingWorkspace() {
+        return workspace != null && workspace.exists();
+    }
+
+    public boolean containsAny(List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return false;
+        }
+        return keywords.stream().anyMatch(normalizedMessage::contains);
+    }
+
+    public boolean looksLikeSmallSingleFileEdit() {
+        if (StrUtil.isBlank(normalizedMessage) || normalizedMessage.length() > 160) {
+            return false;
+        }
+        return normalizedMessage.contains("修改")
+                || normalizedMessage.contains("调整")
+                || normalizedMessage.contains("更改")
+                || normalizedMessage.contains("替换")
+                || normalizedMessage.contains("改成")
+                || normalizedMessage.contains("换成");
+    }
+}

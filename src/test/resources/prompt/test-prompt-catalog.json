@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "prompts": [
+    {
+      "key": "test-prompt",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/stable.txt", "sha256": "ef7195539cdb15aaa61d63782c7413ed1705ab73bb98363c22d655e445d51044" },
+        { "version": "v2", "resource": "prompt/canary.txt", "sha256": "cb45f0831f781fc13a1a386d99205cdbdfbb00028e75753c84358c495bb5ee0e" }
+      ]
+    }
+  ],
+  "bindings": [
+    { "interfaceName": "com.example.TestService", "methodName": "generate", "promptKey": "test-prompt" }
+  ]
+}

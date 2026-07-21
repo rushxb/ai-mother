@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceException;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceFileService;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceTarget;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ public class EditFileSnapshotService {
 
     private final PatchWorkspaceFileService workspaceFileService;
     private final PatchExecutionProperties properties;
+    private final GenerationTaskFenceGuard generationTaskFenceGuard;
 
     public EditFileSnapshot capture(Path projectRoot,
                                     List<PatchOperation> patchOperations) throws PatchWorkspaceException {
@@ -59,8 +61,15 @@ public class EditFileSnapshotService {
     }
 
     public RestoreResult restore(EditFileSnapshot snapshot) {
+        return restore(null, snapshot);
+    }
+
+    public RestoreResult restore(String taskId, EditFileSnapshot snapshot) {
         if (snapshot == null || snapshot.projectRoot() == null || snapshot.isEmpty()) {
             return RestoreResult.skipped("snapshot_empty");
+        }
+        if (taskId != null && !taskId.isBlank()) {
+            generationTaskFenceGuard.assertCurrent(taskId);
         }
         List<Map.Entry<String, FileSnapshot>> states = snapshot.states();
         List<String> restoredFiles = new ArrayList<>();

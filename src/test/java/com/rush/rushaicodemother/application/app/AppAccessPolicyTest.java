@@ -5,19 +5,30 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.enums.TenantRole;
+import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 class AppAccessPolicyTest {
 
-    private final AppAccessPolicy policy = new AppAccessPolicy();
+    private final TenantAuthorizationService tenantAuthorizationService =
+            mock(TenantAuthorizationService.class);
+    private final AppAccessPolicy policy = new AppAccessPolicy(tenantAuthorizationService);
 
     @Test
-    void ownerCheckMustRejectAnonymousAndDifferentUser() {
-        App app = App.builder().id(10L).userId(2L).build();
+    void editCheckMustRejectAnonymousAndUsersWithoutTenantRole() {
+        App app = App.builder().id(10L).userId(2L).tenantId(100L).build();
+        doThrow(new BusinessException(ErrorCode.NO_AUTH_ERROR, "denied"))
+                .when(tenantAuthorizationService)
+                .requireRole(100L, 1L, TenantRole.DEVELOPER, "denied");
 
         BusinessException anonymous = assertThrows(
                 BusinessException.class,
@@ -33,12 +44,19 @@ class AppAccessPolicyTest {
     }
 
     @Test
-    void ownerOrAdministratorCheckMustAllowBothRoles() {
-        App app = App.builder().id(10L).userId(2L).build();
-        User owner = User.builder().id(2L).build();
-        User administrator = User.builder().id(99L).userRole(UserConstant.ADMIN_ROLE).build();
+    void developerAndPlatformAdministratorMustUseTheirRespectiveAuthorizationPaths() {
+        App app = App.builder().id(10L).userId(2L).tenantId(100L).build();
+        User developer = User.builder().id(2L).build();
+        User platformAdministrator = User.builder()
+                .id(99L)
+                .userRole(UserConstant.ADMIN_ROLE)
+                .build();
 
-        assertDoesNotThrow(() -> policy.requireOwnerOrAdmin(app, owner, "denied"));
-        assertDoesNotThrow(() -> policy.requireOwnerOrAdmin(app, administrator, "denied"));
+        assertDoesNotThrow(() -> policy.requireOwner(app, developer, "denied"));
+        verify(tenantAuthorizationService)
+                .requireRole(100L, 2L, TenantRole.DEVELOPER, "denied");
+
+        assertDoesNotThrow(() -> policy.requireOwnerOrAdmin(app, platformAdministrator, "denied"));
+        verifyNoMoreInteractions(tenantAuthorizationService);
     }
 }

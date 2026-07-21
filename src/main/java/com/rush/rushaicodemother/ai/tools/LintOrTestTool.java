@@ -72,6 +72,7 @@ public class LintOrTestTool extends BaseTool {
                     projectDirectory.absolutePath(),
                     scriptName,
                     projectCommandProperties.getToolScriptTimeout(),
+                    workspaceFileService.requireTaskId(appId),
                     "tool-check:" + scriptName
             );
             StringBuilder builder = new StringBuilder();
@@ -122,6 +123,11 @@ public class LintOrTestTool extends BaseTool {
             builder.append("，异常=").append(result.errorDetail());
         }
         return builder.toString();
+    }
+
+    @Override
+    public ToolRiskLevel getRiskLevel() {
+        return ToolRiskLevel.EXTERNAL_SIDE_EFFECT;
     }
 
     @Override

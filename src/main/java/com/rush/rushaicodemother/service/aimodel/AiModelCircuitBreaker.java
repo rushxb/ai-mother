@@ -1,0 +1,108 @@
+package com.rush.rushaicodemother.service.aimodel;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.rush.rushaicodemother.config.AiModelCircuitBreakerProperties;
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
+import com.rush.rushaicodemother.model.event.AiModelCircuitOpenedEvent;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Locale;
+
+/** Per-model circuit breaker used by the runtime model router. */
+@Component
+public class AiModelCircuitBreaker {
+    private final AiModelCircuitBreakerProperties properties;
+    private final ApplicationEventPublisher eventPublisher;
+    private final Clock clock;
+    private final Cache<String, CircuitState> states;
+
+    public AiModelCircuitBreaker(AiModelCircuitBreakerProperties properties,
+                                 ApplicationEventPublisher eventPublisher) {
+        this(properties, eventPublisher, Clock.systemUTC());
+    }
+
+    AiModelCircuitBreaker(AiModelCircuitBreakerProperties properties,
+                          ApplicationEventPublisher eventPublisher,
+                          Clock clock) {
+        this.properties = properties;
+        this.eventPublisher = eventPublisher;
+        this.clock = clock;
+        this.states = Caffeine.newBuilder().maximumSize(properties.getMaxTrackedModels()).build();
+    }
+
+    public boolean isAvailable(String modelId) {
+        return isAvailable("unknown", modelId);
+    }
+
+    public boolean isAvailable(String provider, String modelId) {
+        CircuitState state = states.getIfPresent(identity(provider, modelId));
+        return state == null || state.isAvailable(clock.instant());
+    }
+
+    public void recordSuccess(String modelId) {
+        recordSuccess("unknown", modelId);
+    }
+
+    public void recordSuccess(String provider, String modelId) {
+        states.invalidate(identity(provider, modelId));
+    }
+
+    public void recordFailure(String modelId, Throwable failure) {
+        recordFailure("unknown", modelId, failure);
+    }
+
+    public void recordFailure(String provider, String modelId, Throwable failure) {
+        String key = identity(provider, modelId);
+        GenerationErrorClassifier.GenerationError error = GenerationErrorClassifier.classify(failure);
+        CircuitState state = states.get(key, ignored -> new CircuitState());
+        boolean opened = state.recordFailure(
+                clock.instant(),
+                properties.getFailureThreshold(),
+                properties.getOpenDuration(),
+                !error.recoverable()
+        );
+        if (opened) {
+            eventPublisher.publishEvent(new AiModelCircuitOpenedEvent(normalize(provider), normalize(modelId)));
+        }
+    }
+
+    private String identity(String provider, String modelId) {
+        return normalize(provider) + "/" + normalize(modelId);
+    }
+
+    private String normalize(String modelId) {
+        return modelId == null || modelId.isBlank()
+                ? "unknown"
+                : modelId.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static final class CircuitState {
+        private int failures;
+        private Instant openedUntil;
+
+        private synchronized boolean isAvailable(Instant now) {
+            return openedUntil == null || !now.isBefore(openedUntil);
+        }
+
+        private synchronized boolean recordFailure(Instant now,
+                                                   int threshold,
+                                                   java.time.Duration openDuration,
+                                                   boolean immediateOpen) {
+            if (openedUntil != null && !now.isBefore(openedUntil)) {
+                failures = Math.max(0, threshold - 1);
+                openedUntil = null;
+            }
+            failures = immediateOpen ? threshold : failures + 1;
+            if (failures < threshold) {
+                return false;
+            }
+            boolean newlyOpened = openedUntil == null || !now.isBefore(openedUntil);
+            openedUntil = now.plus(openDuration);
+            return newlyOpened;
+        }
+    }
+}

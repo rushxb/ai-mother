@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.edit.LightweightEditResult;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,24 +47,24 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
         GenerationSession session = execution.session();
         App app = request.taskRequest().app();
         Instant startedAt = Instant.now();
+        generationPerformanceMonitorService.startTask(
+                execution.taskId(),
+                app.getId(),
+                request.taskRequest().loginUser().getId(),
+                route(),
+                request.codeGenType().getValue(),
+                startedAt,
+                request.modeDecision()
+        );
         try {
             session.throwIfCancelled();
             LightweightEditResult editResult = lightweightEditService.execute(
-                    execution.taskId(), request.taskRequest());
+                    execution.taskId(), request.taskRequest(), request.workspace());
             if (editResult == null) {
                 return GenerationPipelineOutcome.fallback(route(), "lightweight_edit_not_applicable");
             }
             assertTaskIdentity(execution.taskId(), editResult.taskId());
             String status = "failed".equals(editResult.validationResult()) ? "failed" : "success";
-            generationPerformanceMonitorService.startTask(
-                    execution.taskId(),
-                    app.getId(),
-                    request.taskRequest().loginUser().getId(),
-                    editResult.route(),
-                    request.codeGenType().getValue(),
-                    startedAt,
-                    request.modeDecision()
-            );
             generationPerformanceMonitorService.recordSpan(
                     execution.taskId(),
                     "lightweight_edit",
@@ -98,6 +99,8 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                     app.getId(), execution.taskId(), editResult.route(), status);
             return GenerationPipelineOutcome.completed(
                     route(), "success".equals(status) ? GenerationTaskStatus.SUCCESS : GenerationTaskStatus.FAILED);
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (RuntimeException failure) {
             log.warn("轻量编辑路径执行失败，appId: {}, taskId: {}, error: {}",
                     app.getId(), execution.taskId(), LogExceptionSanitizer.sanitizeMessage(failure));

@@ -19,7 +19,6 @@ import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -43,30 +42,7 @@ public class BackgroundValidationService {
     private final DevServerValidationService devServerValidationService;
     private final GenerationExecutionContextService generationExecutionContextService;
 
-    /**
-     * 异步执行后台验证。
-     * 补丁应用成功后立即返回用户，后台再做验证。
-     *
-     * @param taskId           任务 ID
-     * @param appId            应用 ID
-     * @param userId           用户 ID
-     * @param workspace        工作区
-     * @param patchOperations  补丁操作列表
-     * @param validationPlan   验证计划
-     * @param userMessage      用户消息
-     */
-    @Async
-    public void executeBackgroundValidation(
-            String taskId,
-            Long appId,
-            Long userId,
-            GenerationWorkspace workspace,
-            List<PatchOperation> patchOperations,
-            EditValidationPlan validationPlan,
-            String userMessage) {
-        executeValidation(taskId, appId, userId, workspace, patchOperations, validationPlan, userMessage);
-    }
-
+    /** Executes the validation gate inside the owning task workspace. */
     public ValidationResult executeValidation(
             String taskId,
             Long appId,
@@ -205,7 +181,7 @@ public class BackgroundValidationService {
 
         try {
             // 调用 VueProjectBuilder 执行实际构建
-            VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+            VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, taskId);
 
             if (buildResult.success()) {
                 if (editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage)

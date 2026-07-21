@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
@@ -49,11 +50,37 @@ public class LightweightEditService {
      */
     @Deprecated(forRemoval = false)
     public LightweightEditResult execute(GenerationTaskRequest request) {
-        return execute(generateTaskId(), request);
+        if (request == null || request.app() == null) {
+            return null;
+        }
+        App app = request.app();
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        return executeInternal(
+                generateTaskId(), request,
+                generationWorkspaceService.resolve(app, codeGenType), false);
     }
 
     /** Executes lightweight edit using the task identity allocated by the submission runtime. */
     public LightweightEditResult execute(String taskId, GenerationTaskRequest request) {
+        if (request == null || request.app() == null) {
+            return null;
+        }
+        App app = request.app();
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        return execute(taskId, request, generationWorkspaceService.resolve(app, codeGenType));
+    }
+
+    /** Executes lightweight editing against the exact workspace selected by the durable worker. */
+    public LightweightEditResult execute(String taskId,
+                                         GenerationTaskRequest request,
+                                         GenerationWorkspace workspace) {
+        return executeInternal(taskId, request, workspace, true);
+    }
+
+    private LightweightEditResult executeInternal(String taskId,
+                                                   GenerationTaskRequest request,
+                                                   GenerationWorkspace workspace,
+                                                   boolean managedModelCalls) {
         requireTaskId(taskId);
         if (request == null || request.app() == null || request.loginUser() == null) {
             return null;
@@ -62,7 +89,7 @@ public class LightweightEditService {
         App app = request.app();
         User loginUser = request.loginUser();
         String userMessage = request.message();
-        GenerationEditRouteResult routeResult = generationEditRouteService.route(app, userMessage);
+        GenerationEditRouteResult routeResult = generationEditRouteService.route(app, userMessage, workspace);
         if (!routeResult.isLightweightEdit()) {
             log.info("Route selected heavy generation, appId: {}, reason: {}", app.getId(), routeResult.reason());
             return null;
@@ -72,7 +99,7 @@ public class LightweightEditService {
         if (codeGenType == null) {
             return null;
         }
-        GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
+        requireWorkspace(app, codeGenType, workspace);
         if (workspace == null || !workspace.exists()) {
             return null;
         }
@@ -103,7 +130,8 @@ public class LightweightEditService {
                 return failStartedTask(taskId, app.getId(), "上下文构建为空");
             }
 
-            EditResult editResult = generateInitialEdit(app, taskId, userMessage, editContext.projectContext());
+            EditResult editResult = generateInitialEdit(
+                    app, taskId, userMessage, editContext.projectContext(), managedModelCalls);
             if (editResult == null || editResult.operations() == null || editResult.operations().isEmpty()) {
                 return failStartedTask(taskId, app.getId(), "AI 编辑返回空操作");
             }
@@ -129,7 +157,8 @@ public class LightweightEditService {
                     editResult,
                     patchOperations,
                     runtimeErrorRepair,
-                    editSnapshot
+                    editSnapshot,
+                    managedModelCalls
             );
             editResult = editAttempt.editResult();
             patchOperations = editAttempt.patchOperations();
@@ -158,7 +187,8 @@ public class LightweightEditService {
                         patchOperations,
                         applyResult,
                         validationPlan,
-                        editSnapshot
+                        editSnapshot,
+                        managedModelCalls
                 );
                 editResult = validationOutcome.editResult();
                 patchOperations = validationOutcome.patchOperations();
@@ -181,8 +211,14 @@ public class LightweightEditService {
                 editStatePersistenceService.recordEditResult(
                         app.getId(), taskId, patchOperations, true);
             } else if (validationPlan.requiresBackgroundValidation() && editSuccess) {
-                runtimeValidationService.scheduleBackgroundValidation(
+                BackgroundValidationService.ValidationResult validationResult =
+                        runtimeValidationService.validateOnce(
                         taskId, app, loginUser, workspace, patchOperations, validationPlan, userMessage);
+                if (!validationResult.isSuccess()) {
+                    return handlePublicationValidationFailure(
+                            request, app, loginUser, taskId, patchOperations,
+                            validationPlan, validationResult);
+                }
             }
 
             if (!editSuccess) {
@@ -192,6 +228,8 @@ public class LightweightEditService {
             }
             return completeSuccess(
                     request, app, loginUser, taskId, editResult, applyResult, validationPlan);
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (Exception exception) {
             log.error("Lightweight edit failed, appId: {}, taskId: {}", app.getId(), taskId, LogExceptionSanitizer.sanitize(exception));
             GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(exception);
@@ -211,9 +249,12 @@ public class LightweightEditService {
     private EditResult generateInitialEdit(App app,
                                            String taskId,
                                            String userMessage,
-                                           String projectContext) {
+                                           String projectContext,
+                                           boolean managedModelCall) {
         try {
-            return lightweightEditAiService.generate(userMessage, projectContext);
+            return managedModelCall
+                    ? lightweightEditAiService.generateManaged(taskId, userMessage, projectContext)
+                    : lightweightEditAiService.generate(userMessage, projectContext);
         } catch (Exception exception) {
             log.error("AI edit model call failed, appId: {}, taskId: {}", app.getId(), taskId, LogExceptionSanitizer.sanitize(exception));
             throw exception;
@@ -279,6 +320,39 @@ public class LightweightEditService {
         return buildFailedResult(taskId, failedMessage);
     }
 
+    private LightweightEditResult handlePublicationValidationFailure(
+            GenerationTaskRequest request,
+            App app,
+            User loginUser,
+            String taskId,
+            List<PatchOperation> patchOperations,
+            EditValidationPlan validationPlan,
+            BackgroundValidationService.ValidationResult validationResult) {
+        String validationMessage = validationResult == null
+                ? "validation service returned no result"
+                : StrUtil.blankToDefault(validationResult.message(), "validation failed");
+        String failedMessage = "Publication validation failed: " + validationMessage;
+        editStatePersistenceService.recordEditResult(
+                app.getId(), taskId, patchOperations, false);
+        chatHistoryService.addChatMessage(
+                app.getId(), failedMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+        generationEventPublisher.publishSafely(
+                request,
+                GenerationEventType.TASK_FAILED,
+                "Lightweight edit was not published because validation failed",
+                Map.of(
+                        "taskId", taskId,
+                        "status", validationResult == null ? "failed" : validationResult.status(),
+                        "message", validationMessage,
+                        "validationLevel", validationPlan == null
+                                ? "unknown"
+                                : validationPlan.level().name()
+                )
+        );
+        safeCompleteFailure(taskId, app.getId(), validationMessage);
+        return buildFailedResult(taskId, failedMessage);
+    }
+
     private LightweightEditResult completeSuccess(GenerationTaskRequest request,
                                                   App app,
                                                   User loginUser,
@@ -289,14 +363,6 @@ public class LightweightEditService {
         String summaryMessage = buildSummaryMessage(editResult, applyResult, validationPlan);
         chatHistoryService.addChatMessage(
                 app.getId(), summaryMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-        generationEventPublisher.publishSafely(request, GenerationEventType.TASK_DONE,
-                "轻量编辑完成", Map.of(
-                        "taskId", taskId,
-                        "route", GenerationEditRouteResult.ROUTE_LIGHTWEIGHT_EDIT,
-                        "status", applyResult.status(),
-                        "summary", StrUtil.blankToDefault(editResult.summary(), "轻量编辑完成")
-                ));
-        taskLifecycleService.completeSuccess(taskId, app.getId());
         return new LightweightEditResult(
                 taskId,
                 GenerationEditRouteResult.ROUTE_LIGHTWEIGHT_EDIT,
@@ -375,6 +441,15 @@ public class LightweightEditService {
     private void requireTaskId(String taskId) {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
             throw new IllegalArgumentException("taskId format is invalid");
+        }
+    }
+
+    private void requireWorkspace(App app,
+                                  CodeGenTypeEnum codeGenType,
+                                  GenerationWorkspace workspace) {
+        if (app == null || app.getId() == null || codeGenType == null || workspace == null
+                || !app.getId().equals(workspace.appId()) || workspace.codeGenType() != codeGenType) {
+            throw new IllegalArgumentException("lightweight edit workspace identity mismatch");
         }
     }
 

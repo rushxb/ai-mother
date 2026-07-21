@@ -1,10 +1,13 @@
 package com.rush.rushaicodemother.ai;
 
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
+import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
 import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import org.junit.jupiter.api.Test;
 
@@ -19,11 +22,18 @@ class AiCodeGeneratorServiceFactoryValidationTest {
     private final ChatHistoryService chatHistoryService = mock(ChatHistoryService.class);
     private final ToolManager toolManager = mock(ToolManager.class);
     private final StreamingModelFactory streamingModelFactory = mock(StreamingModelFactory.class);
+    private final ToolExecutionFailurePolicy toolExecutionFailurePolicy = mock(ToolExecutionFailurePolicy.class);
+    private final AiToolInvocationPolicy aiToolInvocationPolicy = mock(AiToolInvocationPolicy.class);
+    private final PromptSystemMessageTransformer promptSystemMessageTransformer =
+            mock(PromptSystemMessageTransformer.class);
     private final AiCodeGeneratorServiceFactory serviceFactory = new AiCodeGeneratorServiceFactory(
             chatMemoryStore,
             chatHistoryService,
             toolManager,
-            streamingModelFactory
+            streamingModelFactory,
+            toolExecutionFailurePolicy,
+            aiToolInvocationPolicy,
+            promptSystemMessageTransformer
     );
 
     @Test
@@ -47,6 +57,10 @@ class AiCodeGeneratorServiceFactoryValidationTest {
     }
 
     private void verifyNoFactoryDependencyInteractions() {
-        verifyNoInteractions(chatMemoryStore, chatHistoryService, toolManager, streamingModelFactory);
+        verifyNoInteractions(
+                chatMemoryStore, chatHistoryService, toolManager,
+                streamingModelFactory, toolExecutionFailurePolicy,
+                aiToolInvocationPolicy,
+                promptSystemMessageTransformer);
     }
 }

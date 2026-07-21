@@ -17,12 +17,12 @@ class GenerationRuntimePropertiesTest {
 
         GenerationExecutionLimits limits = properties.toLimits();
 
-        assertEquals(Duration.ofMinutes(20), limits.taskTimeout());
-        assertEquals(Duration.ofMinutes(8), limits.modelCallTimeout());
-        assertEquals(3, limits.limit(GenerationBudgetKind.MODEL_ATTEMPT));
+        assertEquals(Duration.ofMinutes(10), limits.taskTimeout());
+        assertEquals(Duration.ofMinutes(4), limits.modelCallTimeout());
+        assertEquals(2, limits.limit(GenerationBudgetKind.MODEL_ATTEMPT));
         assertEquals(80, limits.limit(GenerationBudgetKind.TOOL_WRITE));
-        assertEquals(4, limits.limit(GenerationBudgetKind.BUILD_EXECUTION));
-        assertEquals(3, limits.limit(GenerationBudgetKind.REPAIR_ROUND));
+        assertEquals(2, limits.limit(GenerationBudgetKind.BUILD_EXECUTION));
+        assertEquals(1, limits.limit(GenerationBudgetKind.REPAIR_ROUND));
         assertThrows(UnsupportedOperationException.class,
                 () -> limits.budgets().put(GenerationBudgetKind.REPAIR_ROUND, 99));
     }

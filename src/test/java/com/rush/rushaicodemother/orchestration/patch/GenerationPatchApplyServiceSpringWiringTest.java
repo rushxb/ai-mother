@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 
 import com.rush.rushaicodemother.config.PatchExecutionProperties;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -10,10 +11,13 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
+import static org.mockito.Mockito.mock;
+
 class GenerationPatchApplyServiceSpringWiringTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
+            .withBean(GenerationTaskFenceGuard.class, () -> mock(GenerationTaskFenceGuard.class))
             .withUserConfiguration(PatchServiceConfiguration.class);
 
     @Test

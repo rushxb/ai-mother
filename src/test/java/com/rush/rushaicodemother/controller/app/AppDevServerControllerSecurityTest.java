@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.service.UserService;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewRoute;
 import com.rush.rushaicodemother.service.devserver.DevServerProxyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,13 +40,13 @@ class AppDevServerControllerSecurityTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         User loginUser = User.builder().id(1L).build();
         when(userService.getLoginUser(request)).thenReturn(loginUser);
-        when(applicationService.requireProxyPort(21L, loginUser))
+        when(applicationService.requireProxyRoute(21L, loginUser))
                 .thenThrow(new BusinessException(ErrorCode.NO_AUTH_ERROR));
 
         assertThrows(BusinessException.class, () -> controller.proxyDevServer(21L, request, response));
 
         verify(proxyService, never()).proxy(
-                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.any(DevServerPreviewRoute.class),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
@@ -59,12 +60,13 @@ class AppDevServerControllerSecurityTest {
         request.setQueryString("mode=edit");
         MockHttpServletResponse response = new MockHttpServletResponse();
         User loginUser = User.builder().id(1L).build();
+        DevServerPreviewRoute route = DevServerPreviewRoute.local(21L, "preview-node-a", 5173);
         when(userService.getLoginUser(request)).thenReturn(loginUser);
-        when(applicationService.requireProxyPort(21L, loginUser)).thenReturn(5173);
+        when(applicationService.requireProxyRoute(21L, loginUser)).thenReturn(route);
 
         controller.proxyDevServer(21L, request, response);
 
-        verify(proxyService).proxy(5173, "/src/main.ts", "mode=edit", request, response);
+        verify(proxyService).proxy(route, "/src/main.ts", "mode=edit", request, response);
     }
 
     private MockHttpServletRequest requestForApp(Long appId) {

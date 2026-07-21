@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -50,6 +51,24 @@ class GenerationExecutionContextServiceTest {
         service.finishByAppId(11L, "cancelled");
         assertTrue(service.getByTaskId("task-1").isEmpty());
         assertTrue(service.getByAppId(11L).isEmpty());
+    }
+
+    @Test
+    void staleFenceMustNotFinishRecoveredExecutionContext() {
+        GenerationExecutionContextService service = new GenerationExecutionContextService(properties());
+        GenerationExecutionContext context = service.start("task-1", 11L, 22L);
+        GenerationExecutionFence currentFence = new GenerationExecutionFence("task-1", "worker-b", 8L);
+        context.bindExecutionFence(currentFence);
+
+        boolean finished = service.finishIfOwned(
+                "task-1",
+                new GenerationExecutionFence("task-1", "worker-a", 7L),
+                "failed"
+        );
+
+        assertFalse(finished);
+        assertEquals(context, service.getByTaskId("task-1").orElseThrow());
+        assertFalse(context.isCompleted());
     }
 
     private GenerationRuntimeProperties properties() {

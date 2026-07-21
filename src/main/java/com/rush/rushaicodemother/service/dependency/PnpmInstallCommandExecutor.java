@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -57,6 +58,22 @@ public class PnpmInstallCommandExecutor {
             Duration commandTimeout,
             BooleanSupplier cancellationRequested
     ) {
+        return install(
+                projectDirectory,
+                force,
+                DependencyInstallMode.REUSE_IF_VALID,
+                commandTimeout,
+                cancellationRequested
+        );
+    }
+
+    DependencyInstallResult install(
+            Path projectDirectory,
+            boolean force,
+            DependencyInstallMode mode,
+            Duration commandTimeout,
+            BooleanSupplier cancellationRequested
+    ) {
         if (commandTimeout == null || commandTimeout.isZero() || commandTimeout.isNegative()) {
             throw new IllegalArgumentException("命令超时时间必须大于 0");
         }
@@ -70,7 +87,7 @@ public class PnpmInstallCommandExecutor {
             );
         }
         Path projectPath = validation.projectPath();
-        List<String> command = buildCommand(force);
+        List<String> command = buildCommand(force, mode);
         ActiveInstall activeInstall = new ActiveInstall(processTerminator);
         ActiveInstall existingInstall = activeInstalls.putIfAbsent(projectPath, activeInstall);
         if (existingInstall != null) {
@@ -105,6 +122,7 @@ public class PnpmInstallCommandExecutor {
                                 return taskCancelled || activeInstall.cancelled();
                             })
                             .lifecycle(activeInstall)
+                            .networkPolicy(SandboxNetworkPolicy.DEPENDENCY_EGRESS)
                             .build()
             );
             DependencyInstallResult result = toDependencyResult(
@@ -182,6 +200,10 @@ public class PnpmInstallCommandExecutor {
     }
 
     List<String> buildCommand(boolean force) {
+        return buildCommand(force, DependencyInstallMode.REUSE_IF_VALID);
+    }
+
+    List<String> buildCommand(boolean force, DependencyInstallMode mode) {
         List<String> command = new ArrayList<>(List.of(
                 nodeToolchain.pnpmExecutable(),
                 "install",
@@ -189,6 +211,14 @@ public class PnpmInstallCommandExecutor {
                 "--prefer-offline",
                 "--config.confirmModulesPurge=false"
         ));
+        DependencyInstallMode effectiveMode = mode == null
+                ? DependencyInstallMode.REUSE_IF_VALID
+                : mode;
+        if (effectiveMode.frozenLockfile()) {
+            command.add("--frozen-lockfile");
+        } else {
+            command.add("--no-frozen-lockfile");
+        }
         if (force) {
             command.add("--force");
         }

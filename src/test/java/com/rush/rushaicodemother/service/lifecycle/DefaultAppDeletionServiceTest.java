@@ -32,6 +32,7 @@ class DefaultAppDeletionServiceTest {
     private AppArtifactLifecycleService artifactLifecycleService;
     private DevServerManager devServerManager;
     private AppArtifactDeletionTransaction artifactTransaction;
+    private AppMemoryLifecycleService memoryLifecycleService;
     private TransactionOperations transactionOperations;
     private DefaultAppDeletionService deletionService;
 
@@ -41,6 +42,7 @@ class DefaultAppDeletionServiceTest {
         artifactLifecycleService = mock(AppArtifactLifecycleService.class);
         devServerManager = mock(DevServerManager.class);
         artifactTransaction = mock(AppArtifactDeletionTransaction.class);
+        memoryLifecycleService = mock(AppMemoryLifecycleService.class);
         transactionOperations = immediateTransactions();
         when(artifactLifecycleService.prepareDeletion(org.mockito.ArgumentMatchers.any(App.class)))
                 .thenReturn(artifactTransaction);
@@ -59,15 +61,18 @@ class DefaultAppDeletionServiceTest {
                 devServerManager,
                 artifactLifecycleService,
                 artifactTransaction,
+                memoryLifecycleService,
                 lifecycleDataMapper
         );
         ordered.verify(lifecycleDataMapper).selectDeletionState(11L);
         ordered.verify(devServerManager).stopDevServer(11L);
         ordered.verify(artifactLifecycleService).prepareDeletion(app);
         ordered.verify(artifactTransaction).activate();
+        ordered.verify(memoryLifecycleService).deleteApplicationMemories(11L, 7L);
         ordered.verify(lifecycleDataMapper).deleteGenerationModelCalls(11L);
         ordered.verify(lifecycleDataMapper).deleteGenerationBuildLogs(11L);
         ordered.verify(lifecycleDataMapper).deleteGenerationTaskSpans(11L);
+        ordered.verify(lifecycleDataMapper).deleteGenerationToolApprovals(11L);
         ordered.verify(lifecycleDataMapper).deleteGenerationTasks(11L);
         ordered.verify(lifecycleDataMapper).deleteChatHistory(11L);
         ordered.verify(lifecycleDataMapper).deleteCapabilities(11L);
@@ -123,6 +128,22 @@ class DefaultAppDeletionServiceTest {
 
         assertSame(databaseFailure, exception);
         verify(artifactTransaction).rollback();
+        verify(lifecycleDataMapper, never()).hardDeleteApp(11L);
+    }
+
+    @Test
+    void shouldFailClosedAndKeepRelationalDataWhenSemanticMemoryDeletionFails() {
+        BusinessException memoryFailure = new BusinessException(ErrorCode.SYSTEM_ERROR, "memory deletion failed");
+        doThrow(memoryFailure).when(memoryLifecycleService).deleteApplicationMemories(11L, 7L);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> deletionService.delete(11L)
+        );
+
+        assertSame(memoryFailure, exception);
+        verify(artifactTransaction).rollback();
+        verify(lifecycleDataMapper, never()).deleteGenerationTasks(11L);
         verify(lifecycleDataMapper, never()).hardDeleteApp(11L);
     }
 
@@ -196,6 +217,7 @@ class DefaultAppDeletionServiceTest {
                 artifactLifecycleService,
                 devServerManager,
                 new AppOperationLockManager(),
+                memoryLifecycleService,
                 transactionOperations
         );
     }

@@ -11,12 +11,18 @@ import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class GenerationOrchestrationTaskStoreTest {
 
@@ -52,6 +58,80 @@ class GenerationOrchestrationTaskStoreTest {
     }
 
     @Test
+    void loadMustRestoreAVersionedCheckpointAndVerifyTheRequestHash() {
+        GenerationOrchestrationTaskStore store = store(properties(tempDirectory));
+        GenerationOrchestrationTask task = store.create("runtime-task-resume", 11L, "original request");
+        task.setRuntimeState(AgentRuntimeState.RUNNING);
+        task.setLastCompletedNode("planner");
+        task.setCheckpointVersion(1);
+        task.getNodeStatuses().put("planner", "done");
+        task.getTimings().put("planner", 25L);
+        task.getArtifacts().put("requirements", com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact.of(
+                "requirements", "Planner", "requirements", Map.of("targetType", "vue_project")
+        ));
+        store.save(task);
+
+        GenerationOrchestrationTask restored = store.load(11L, "runtime-task-resume").orElseThrow();
+
+        assertEquals(GenerationOrchestrationTask.CURRENT_SCHEMA_VERSION, restored.getSchemaVersion());
+        assertEquals(AgentRuntimeState.RUNNING, restored.getRuntimeState());
+        assertEquals("done", restored.getNodeStatuses().get("planner"));
+        assertEquals(25L, restored.getTimings().get("planner"));
+        assertTrue(store.matchesRequest(restored, "original request"));
+        assertFalse(store.matchesRequest(restored, "different request"));
+    }
+
+    @Test
+    void durableRepositoryMustStoreAndLoadCheckpointsWithoutLocalFiles() {
+        GenerationOrchestrationCheckpointRepository repository =
+                mock(GenerationOrchestrationCheckpointRepository.class);
+        GenerationOrchestrationTaskStore store = durableStore(properties(tempDirectory), repository);
+
+        GenerationOrchestrationTask task = store.create("runtime-task-db", 11L, "original request");
+        String payload = cn.hutool.json.JSONUtil.toJsonPrettyStr(task);
+        when(repository.loadPayload(11L, "runtime-task-db")).thenReturn(java.util.Optional.of(payload));
+
+        GenerationOrchestrationTask restored = store.load(11L, "runtime-task-db").orElseThrow();
+
+        verify(repository).save(eq(task), any(String.class), any(Integer.class));
+        assertFalse(Files.exists(store.resolveTaskPath(11L, "runtime-task-db")));
+        assertEquals("runtime-task-db", restored.getTaskId());
+        assertTrue(store.matchesRequest(restored, "original request"));
+    }
+
+    @Test
+    void oversizedDurableCheckpointMustDeletePreviousRepositoryPayload() {
+        GenerationTaskSnapshotProperties properties = properties(tempDirectory);
+        properties.setMaxSnapshotBytes(128);
+        GenerationOrchestrationCheckpointRepository repository =
+                mock(GenerationOrchestrationCheckpointRepository.class);
+        GenerationOrchestrationTaskStore store = durableStore(properties, repository);
+        GenerationOrchestrationTask task = task("task-oversized-db", 12L);
+        task.setExecutionEpoch(3L);
+        task.setRequestHash("a".repeat(64));
+        task.setFailureMessage("x".repeat(1024));
+
+        GenerationCheckpointPersistenceException failure = assertThrows(
+                GenerationCheckpointPersistenceException.class,
+                () -> store.save(task));
+
+        assertEquals(GenerationCheckpointPersistenceException.Reason.SNAPSHOT_TOO_LARGE,
+                failure.reason());
+        verify(repository, never()).delete(12L, "task-oversized-db", 3L);
+        verify(repository, never()).save(any(), any(), any(Integer.class));
+    }
+
+    @Test
+    void corruptCheckpointMustFailClosedInsteadOfSilentlyStartingOver() throws Exception {
+        GenerationOrchestrationTaskStore store = store(properties(tempDirectory));
+        Path taskFile = store.resolveTaskPath(11L, "runtime-task-corrupt");
+        Files.createDirectories(taskFile.getParent());
+        Files.writeString(taskFile, "not-json", StandardCharsets.UTF_8);
+
+        assertThrows(IllegalStateException.class, () -> store.load(11L, "runtime-task-corrupt"));
+    }
+
+    @Test
     void legacyCreateMustDelegateIdentityGenerationToConfiguredStrategy() {
         GenerationTaskIdGenerator taskIdGenerator = () -> "generated-task-12";
         GenerationOrchestrationTaskStore store = new GenerationOrchestrationTaskStore(
@@ -63,7 +143,7 @@ class GenerationOrchestrationTaskStoreTest {
     }
 
     @Test
-    void oversizedSnapshotMustRemoveThePreviousSnapshotInsteadOfLeavingStaleState() throws Exception {
+    void oversizedSnapshotMustFailClosedAndPreserveTheLastDurableSnapshot() throws Exception {
         GenerationTaskSnapshotProperties properties = properties(tempDirectory);
         properties.setMaxSnapshotBytes(16 * 1024);
         GenerationOrchestrationTaskStore store = store(properties);
@@ -73,9 +153,10 @@ class GenerationOrchestrationTaskStoreTest {
         assertTrue(Files.exists(taskFile));
 
         task.setFailureMessage("x".repeat(32 * 1024));
-        store.save(task);
+        assertThrows(GenerationCheckpointPersistenceException.class, () -> store.save(task));
 
-        assertFalse(Files.exists(taskFile));
+        assertTrue(Files.exists(taskFile));
+        assertFalse(Files.readString(taskFile, StandardCharsets.UTF_8).contains("x".repeat(1024)));
     }
 
     @Test
@@ -107,22 +188,36 @@ class GenerationOrchestrationTaskStoreTest {
         GenerationOrchestrationTaskStore store = store(properties(tempDirectory));
         GenerationOrchestrationTask task = task("../escape", 14L);
 
-        assertDoesNotThrow(() -> store.save(task));
+        GenerationCheckpointPersistenceException failure = assertThrows(
+                GenerationCheckpointPersistenceException.class,
+                () -> store.save(task));
+        assertEquals(GenerationCheckpointPersistenceException.Reason.INVALID_IDENTITY,
+                failure.reason());
         assertThrows(IllegalArgumentException.class, () -> store.resolveTaskPath(14L, "../escape"));
         assertFalse(Files.exists(tempDirectory.getParent().resolve("escape.json")));
     }
 
     @Test
-    void storageFailureMustRemainBestEffortForTheGenerationWorkflow() throws Exception {
+    void storageFailureMustStopTheGenerationWorkflow() throws Exception {
         Path rootFile = tempDirectory.resolve("not-a-directory");
         Files.writeString(rootFile, "occupied", StandardCharsets.UTF_8);
         GenerationOrchestrationTaskStore store = store(properties(rootFile));
 
-        assertDoesNotThrow(() -> store.save(task("task-storage-failure", 15L)));
+        GenerationCheckpointPersistenceException failure = assertThrows(
+                GenerationCheckpointPersistenceException.class,
+                () -> store.save(task("task-storage-failure", 15L)));
+
+        assertEquals(GenerationCheckpointPersistenceException.Reason.STORAGE_FAILURE,
+                failure.reason());
     }
 
     private GenerationOrchestrationTaskStore store(GenerationTaskSnapshotProperties properties) {
         return new GenerationOrchestrationTaskStore(properties);
+    }
+
+    private GenerationOrchestrationTaskStore durableStore(GenerationTaskSnapshotProperties properties,
+                                                         GenerationOrchestrationCheckpointRepository repository) {
+        return new GenerationOrchestrationTaskStore(properties, () -> "generated-task", repository);
     }
 
     private GenerationTaskSnapshotProperties properties(Path rootDirectory) {

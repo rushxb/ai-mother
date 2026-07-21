@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.memory.GenerationSemanticMemoryService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
@@ -28,8 +29,10 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
 import com.rush.rushaicodemother.service.trace.GenerationBuildTrace;
 import com.rush.rushaicodemother.service.trace.GenerationModelCallCommand;
@@ -51,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AppServiceImplRegressionTest {
@@ -111,19 +115,19 @@ class AppServiceImplRegressionTest {
     }
 
     @Test
-    void shouldRecordUserWaitMetricOnceWhenSessionCompletionIsClaimedOnce() {
-        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        GenerationOrchestrationMetricsCollector metricsCollector =
-                new GenerationOrchestrationMetricsCollector(meterRegistry);
+    void shouldPersistTerminalLifecycleOnceWhenSessionCompletionIsClaimedOnce() {
         GenerationTaskLifecycleService lifecycleService = new GenerationTaskLifecycleService(
                 mock(GenerationAppStateService.class),
                 null,
                 new NoopGenerationTraceService(),
                 new NoopUserCreditService()
         );
+        GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
+                mock(GenerationTaskRuntimeLifecycleService.class);
         HeavyGenerationSessionCompletionService completionService =
                 new HeavyGenerationSessionCompletionService(
-                        metricsCollector, lifecycleService, mock(GenerationTaskRuntimeLifecycleService.class));
+                        lifecycleService, runtimeLifecycleService,
+                        mock(GenerationSemanticMemoryService.class));
         GenerationPreparation preparation = newPreparation(
                 lifecycleArtifacts(),
                 List.of(GenerationStreamEvent.agentEvent("route", Map.of("orchestrationMode", "light"))),
@@ -136,12 +140,8 @@ class AppServiceImplRegressionTest {
         session.complete();
         assertFalse(session.tryBeginCompletion());
 
-        assertEquals(1, meterRegistry.find("generation_orchestration_user_wait_duration_seconds")
-                .tag("orchestration_mode", "light")
-                .tag("target_type", CodeGenTypeEnum.VUE_PROJECT.getValue())
-                .tag("status", "success")
-                .timer()
-                .count());
+        verify(runtimeLifecycleService).completeUnowned(
+                preparation.taskId(), GenerationTaskStatus.SUCCESS, null);
     }
 
     @Test
@@ -155,11 +155,11 @@ class AppServiceImplRegressionTest {
                 "AGENT_EDIT Plan 阶段完成",
                 Map.of("scope", "cross_module_patch")
         );
-        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.getStream(1L)).thenReturn(Flux.empty());
+        GenerationTaskQueryService queryService = mock(GenerationTaskQueryService.class);
+        when(queryService.eventsForLatestNonTerminalAppTask(1L, user)).thenReturn(Flux.empty());
         AppServiceImplTestFixture fixture = new AppServiceImplTestFixture()
                 .withGenerationEventPublisher(eventPublisher)
-                .withGenerationTaskOrchestrator(orchestrator);
+                .withGenerationTaskQueryService(queryService);
         AppServiceImpl service = fixture.createService();
         when(fixture.persistenceService().findActiveById(1L)).thenReturn(app);
 
@@ -178,7 +178,8 @@ class AppServiceImplRegressionTest {
                 null,
                 metricsCollector,
                 null,
-                new GenerationWorkspaceService(new CodeStorageProperties())
+                new GenerationWorkspaceService(new CodeStorageProperties()),
+                mock(com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard.class)
         );
     }
 
@@ -328,6 +329,10 @@ class AppServiceImplRegressionTest {
 
         @Override
         public void chargeGenerationTask(String taskId) {
+        }
+
+        @Override
+        public void reserveGenerationTask(GenerationCreditReservationCommand command) {
         }
     }
 }

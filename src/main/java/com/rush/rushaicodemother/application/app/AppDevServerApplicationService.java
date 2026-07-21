@@ -7,6 +7,10 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.DevServerStatusVO;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewPathFactory;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewRoute;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewRoutingService;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewSession;
 import com.rush.rushaicodemother.service.devserver.DevServerStartResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,10 +26,16 @@ public class AppDevServerApplicationService {
 
     private final AppPersistenceService appPersistenceService;
     private final DevServerManager devServerManager;
+    private final DevServerPreviewRoutingService previewRoutingService;
+    private final DevServerPreviewPathFactory previewPathFactory;
     private final AppAccessPolicy appAccessPolicy;
 
     public DevServerStatusVO start(Long appId, User actor) {
         App app = requireOwnedApp(appId, actor, "无权限操作该应用");
+        DevServerPreviewSession current = previewRoutingService.findCurrent(appId).orElse(null);
+        if (current != null) {
+            return status(appId, current, app.getDevServerPort());
+        }
         DevServerStartResult startResult = devServerManager.startDevServer(app, actor.getId());
         int port = startResult.port();
         try {
@@ -44,20 +54,13 @@ public class AppDevServerApplicationService {
 
     public DevServerStatusVO getStatus(Long appId, User actor) {
         App app = requireOwnedApp(appId, actor, "无权限访问该应用");
-        Integer runningPort = devServerManager.getPort(appId);
-        return status(
-                appId,
-                runningPort != null,
-                runningPort != null ? runningPort : app.getDevServerPort()
-        );
+        DevServerPreviewSession current = previewRoutingService.findCurrent(appId).orElse(null);
+        return status(appId, current, app.getDevServerPort());
     }
 
-    public int requireProxyPort(Long appId, User actor) {
+    public DevServerPreviewRoute requireProxyRoute(Long appId, User actor) {
         requireOwnedApp(appId, actor, "无权限访问该应用");
-        Integer port = devServerManager.getPort(appId);
-        ThrowUtils.throwIf(port == null || port < 1 || port > 65535,
-                ErrorCode.OPERATION_ERROR, "Dev Server 未运行");
-        return port;
+        return previewRoutingService.requireRunningRoute(appId);
     }
 
     private void persistPortIfChanged(App app, int port) {
@@ -94,8 +97,27 @@ public class AppDevServerApplicationService {
                 .appId(appId)
                 .running(running)
                 .port(port)
-                .previewUrl(port == null ? null : String.format("http://localhost:%d", port))
+                .previewUrl(running ? previewPathFactory.publicBasePath(appId) : null)
                 .status(running ? "running" : "stopped")
+                .build();
+    }
+
+    private DevServerStatusVO status(
+            Long appId,
+            DevServerPreviewSession session,
+            Integer persistedPort
+    ) {
+        if (session == null) {
+            return status(appId, false, persistedPort);
+        }
+        return DevServerStatusVO.builder()
+                .appId(appId)
+                .running(session.running())
+                .port(session.port())
+                .previewUrl(session.running()
+                        ? previewPathFactory.publicBasePath(appId)
+                        : null)
+                .status(session.status())
                 .build();
     }
 }

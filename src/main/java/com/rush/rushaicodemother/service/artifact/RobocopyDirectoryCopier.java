@@ -10,8 +10,11 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
 
 /** Windows robocopy 目录复制适配器。 */
 @Slf4j
@@ -37,6 +40,31 @@ public class RobocopyDirectoryCopier {
             List<String> excludedDirectories,
             List<String> excludedFiles
     ) throws IOException, InterruptedException {
+        copy(
+                sourceRoot,
+                targetRoot,
+                excludedDirectories,
+                excludedFiles,
+                properties.getCopyTimeout(),
+                () -> false
+        );
+    }
+
+    public void copy(
+            Path sourceRoot,
+            Path targetRoot,
+            List<String> excludedDirectories,
+            List<String> excludedFiles,
+            Duration timeout,
+            BooleanSupplier cancellationRequested
+    ) throws IOException, InterruptedException {
+        Objects.requireNonNull(timeout, "robocopy timeout must not be null");
+        if (timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("robocopy timeout must be greater than zero");
+        }
+        BooleanSupplier effectiveCancellation = cancellationRequested == null
+                ? () -> false
+                : cancellationRequested;
         List<String> command = buildCommand(
                 sourceRoot,
                 targetRoot,
@@ -47,18 +75,25 @@ public class RobocopyDirectoryCopier {
                 ManagedProcessRequest.builder()
                         .workingDirectory(sourceRoot)
                         .command(command)
-                        .timeout(properties.getCopyTimeout())
-                        .heartbeatInterval(properties.getHeartbeatInterval())
+                        .timeout(timeout)
+                        .heartbeatInterval(heartbeatWithin(timeout))
                         .outputDrainTimeout(properties.getOutputDrainTimeout())
                         .maxOutputLength(properties.getMaxOutputLength())
                         .redirectErrorStream(true)
                         .outputCharset(StandardCharsets.UTF_16LE)
                         .logCategory("artifact-copy")
                         .logContext(sourceRoot + " -> " + targetRoot)
+                        .cancellationRequested(effectiveCancellation)
                         .build()
         );
         if (result.status() == ManagedProcessResult.Status.INTERRUPTED) {
             throw new InterruptedException("robocopy 复制线程被中断");
+        }
+        if (result.status() == ManagedProcessResult.Status.TIMED_OUT) {
+            throw new ArtifactCopyException(
+                    ArtifactCopyException.Reason.TIMED_OUT,
+                    "robocopy exceeded its wall-clock timeout"
+            );
         }
         if (!result.completed()) {
             throw new IOException("robocopy 复制未完成: " + safeDetail(result));
@@ -72,6 +107,18 @@ public class RobocopyDirectoryCopier {
         if (exitCode > 0) {
             log.debug("robocopy 复制完成，exitCode={}, output={}", exitCode, limitedOutput(result));
         }
+    }
+
+    private Duration heartbeatWithin(Duration timeout) {
+        Duration configured = properties.getHeartbeatInterval();
+        if (configured.compareTo(timeout) < 0) {
+            return configured;
+        }
+        long timeoutNanos = timeout.toNanos();
+        if (timeoutNanos <= 1) {
+            throw new IllegalArgumentException("robocopy timeout must exceed one nanosecond");
+        }
+        return Duration.ofNanos(Math.max(1L, timeoutNanos / 2L));
     }
 
     List<String> buildCommand(

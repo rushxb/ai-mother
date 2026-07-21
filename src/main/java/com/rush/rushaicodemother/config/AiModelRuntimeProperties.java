@@ -44,6 +44,11 @@ public class AiModelRuntimeProperties {
     @Max(5)
     private int routingMaxRetries;
 
+    /** Maximum provider/model candidates participating in one request. */
+    @Min(1)
+    @Max(5)
+    private int failoverMaxCandidates = 2;
+
     private Duration createSpecTimeout = Duration.ofSeconds(10);
 
     @AssertTrue(message = "AI 流式生成模型超时必须在 3 秒到 15 分钟之间")

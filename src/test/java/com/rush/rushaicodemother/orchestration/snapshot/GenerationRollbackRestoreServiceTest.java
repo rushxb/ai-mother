@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -11,6 +12,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class GenerationRollbackRestoreServiceTest {
 
@@ -29,7 +32,9 @@ class GenerationRollbackRestoreServiceTest {
         Files.createDirectories(snapshotRoot.resolve("src"));
         Files.writeString(snapshotRoot.resolve("src/App.vue"), "stable");
 
-        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(codeOutputRoot, codeSnapshotRoot)
+        GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(
+                        codeOutputRoot, codeSnapshotRoot, fenceGuard)
                 .restoreIfAllowed(
                         11L,
                         "task-11",
@@ -46,6 +51,7 @@ class GenerationRollbackRestoreServiceTest {
         assertTrue(Files.exists(backupPath.resolve("src/App.vue")));
         assertTrue(Files.exists(backupPath.resolve("src/New.vue")));
         assertFalse(Files.exists(backupPath.resolve("node_modules/pkg/index.js")));
+        verify(fenceGuard).assertCurrent("task-11");
     }
 
     @Test

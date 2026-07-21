@@ -9,6 +9,7 @@ public record DurableGenerationTaskRecord(
         String taskId,
         Long appId,
         Long userId,
+        Long tenantId,
         String route,
         GenerationTaskStatus status,
         String stage,

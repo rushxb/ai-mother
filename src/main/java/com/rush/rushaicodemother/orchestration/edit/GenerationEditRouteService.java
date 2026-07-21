@@ -67,7 +67,24 @@ public class GenerationEditRouteService {
             return GenerationEditRouteResult.heavyGeneration("代码生成类型无效");
         }
 
-        GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
+        return route(app, userMessage, generationWorkspaceService.resolve(app, codeGenType));
+    }
+
+    /** Routes using the exact workspace selected for the current durable execution epoch. */
+    public GenerationEditRouteResult route(App app,
+                                           String userMessage,
+                                           GenerationWorkspace workspace) {
+        if (app == null || app.getId() == null) {
+            return GenerationEditRouteResult.heavyGeneration("应用参数无效");
+        }
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        if (codeGenType == null) {
+            return GenerationEditRouteResult.heavyGeneration("代码生成类型无效");
+        }
+        if (workspace == null || !app.getId().equals(workspace.appId())
+                || workspace.codeGenType() != codeGenType) {
+            return GenerationEditRouteResult.heavyGeneration("执行工作区上下文不匹配");
+        }
 
         // 1. 没有生成目录 → 重型生成
         if (!workspace.exists()) {

@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.Test;
 
@@ -19,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -66,7 +68,7 @@ class PackageManagerToolTest {
     @Test
     void installDependenciesShouldUseUnifiedProjectDependencyInstaller() throws Exception {
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(any(Path.class)))
+        when(installer.ensureInstalled(any(Path.class), eq("test-task-4"), eq(DependencyInstallMode.UPDATE_LOCKFILE)))
                 .thenReturn(DependencyInstallResult.success("依赖完整"));
         PackageManagerTool tool = createTool(4L, installer);
 
@@ -76,13 +78,17 @@ class PackageManagerToolTest {
 
         assertTrue(result.contains("状态: SUCCESS"));
         assertTrue(result.contains("依赖完整"));
-        verify(installer).ensureInstalled(TEST_OUTPUT_ROOT.resolve("vue_project_4").toRealPath());
+        verify(installer).ensureInstalled(
+                TEST_OUTPUT_ROOT.resolve("vue_project_4").toRealPath(),
+                "test-task-4",
+                DependencyInstallMode.UPDATE_LOCKFILE
+        );
     }
 
     @Test
     void unexpectedInstallerFailureMustNotExposeInternalDetails() throws Exception {
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(any(Path.class)))
+        when(installer.ensureInstalled(any(Path.class), eq("test-task-5"), eq(DependencyInstallMode.UPDATE_LOCKFILE)))
                 .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
         PackageManagerTool tool = createTool(5L, installer);
 
@@ -97,7 +103,8 @@ class PackageManagerToolTest {
     @Test
     void installResultMustSanitizeCommandDiagnosticsBeforeReturningThemToTheModel() throws Exception {
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(any(Path.class))).thenReturn(DependencyInstallResult.failed(
+        when(installer.ensureInstalled(
+                any(Path.class), eq("test-task-6"), eq(DependencyInstallMode.UPDATE_LOCKFILE))).thenReturn(DependencyInstallResult.failed(
                 DependencyInstallResult.Status.FAILED,
                 "ERR_PNPM_FETCH_401 package @scope/demo\nregistry-token=secret-value",
                 "Authorization: Bearer installer-secret"
@@ -116,7 +123,7 @@ class PackageManagerToolTest {
 
     private PackageManagerTool createTool(long appId) throws Exception {
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(any(Path.class)))
+        when(installer.ensureInstalled(any(Path.class), eq("test-task-" + appId), eq(DependencyInstallMode.UPDATE_LOCKFILE)))
                 .thenReturn(DependencyInstallResult.success("依赖完整"));
         return createTool(appId, installer);
     }

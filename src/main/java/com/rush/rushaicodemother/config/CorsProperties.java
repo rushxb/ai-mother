@@ -42,7 +42,7 @@ public class CorsProperties {
     /** 允许客户端发送的请求头。 */
     @NotEmpty
     private List<String> allowedHeaders = new ArrayList<>(List.of(
-            "Accept", "Authorization", "Content-Type", "X-Requested-With"
+            "Accept", "Authorization", "Content-Type", "Idempotency-Key", "X-Requested-With"
     ));
 
     /** 允许浏览器脚本读取的响应头。 */

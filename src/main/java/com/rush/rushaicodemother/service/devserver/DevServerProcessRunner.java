@@ -2,8 +2,13 @@ package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
 import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ProcessStarter;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
+import com.rush.rushaicodemother.infrastructure.sandbox.GeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.HostLocalGeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
+import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -12,7 +17,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -34,20 +38,29 @@ public class DevServerProcessRunner {
     private final LoopbackReadinessProbe readinessProbe;
     private final ProcessStarter processStarter;
     private final DevServerOutputPump outputPump;
+    private final GeneratedCodeProcessSandbox processSandbox;
+    private final GeneratedCodeSandboxMetricsCollector sandboxMetrics;
+    private final DevServerSandboxPlanListener sandboxPlanListener;
 
     @Autowired
     public DevServerProcessRunner(
             DevServerRuntimeProperties properties,
             ViteLauncherResolver launcherResolver,
             ProjectProcessTerminator processTerminator,
-            LoopbackReadinessProbe readinessProbe
+            LoopbackReadinessProbe readinessProbe,
+            GeneratedCodeProcessSandbox processSandbox,
+            GeneratedCodeSandboxMetricsCollector sandboxMetrics,
+            DevServerSandboxPlanListener sandboxPlanListener
     ) {
         this(
                 properties,
                 launcherResolver,
                 processTerminator,
                 readinessProbe,
-                ProcessBuilder::start
+                ProcessBuilder::start,
+                processSandbox,
+                sandboxMetrics,
+                sandboxPlanListener
         );
     }
 
@@ -58,11 +71,77 @@ public class DevServerProcessRunner {
             LoopbackReadinessProbe readinessProbe,
             ProcessStarter processStarter
     ) {
+        this(
+                properties,
+                launcherResolver,
+                processTerminator,
+                readinessProbe,
+                processStarter,
+                new HostLocalGeneratedCodeProcessSandbox(),
+                GeneratedCodeSandboxMetricsCollector.noOp(),
+                DevServerSandboxPlanListener.noOp()
+        );
+    }
+
+    DevServerProcessRunner(
+            DevServerRuntimeProperties properties,
+            ViteLauncherResolver launcherResolver,
+            ProjectProcessTerminator processTerminator,
+            LoopbackReadinessProbe readinessProbe,
+            ProcessStarter processStarter,
+            GeneratedCodeProcessSandbox processSandbox
+    ) {
+        this(
+                properties,
+                launcherResolver,
+                processTerminator,
+                readinessProbe,
+                processStarter,
+                processSandbox,
+                GeneratedCodeSandboxMetricsCollector.noOp(),
+                DevServerSandboxPlanListener.noOp()
+        );
+    }
+
+    DevServerProcessRunner(
+            DevServerRuntimeProperties properties,
+            ViteLauncherResolver launcherResolver,
+            ProjectProcessTerminator processTerminator,
+            LoopbackReadinessProbe readinessProbe,
+            ProcessStarter processStarter,
+            GeneratedCodeProcessSandbox processSandbox,
+            GeneratedCodeSandboxMetricsCollector sandboxMetrics
+    ) {
+        this(
+                properties,
+                launcherResolver,
+                processTerminator,
+                readinessProbe,
+                processStarter,
+                processSandbox,
+                sandboxMetrics,
+                DevServerSandboxPlanListener.noOp()
+        );
+    }
+
+    DevServerProcessRunner(
+            DevServerRuntimeProperties properties,
+            ViteLauncherResolver launcherResolver,
+            ProjectProcessTerminator processTerminator,
+            LoopbackReadinessProbe readinessProbe,
+            ProcessStarter processStarter,
+            GeneratedCodeProcessSandbox processSandbox,
+            GeneratedCodeSandboxMetricsCollector sandboxMetrics,
+            DevServerSandboxPlanListener sandboxPlanListener
+    ) {
         this.properties = properties;
         this.launcherResolver = launcherResolver;
         this.processTerminator = processTerminator;
         this.readinessProbe = readinessProbe;
         this.processStarter = processStarter;
+        this.processSandbox = processSandbox;
+        this.sandboxMetrics = sandboxMetrics;
+        this.sandboxPlanListener = sandboxPlanListener;
         this.outputPump = new DevServerOutputPump(properties.getMaxOutputLineLength());
     }
 
@@ -93,45 +172,76 @@ public class DevServerProcessRunner {
     ) {
         requirePositiveTimeout(startupTimeout);
         BooleanSupplier effectiveCancellation = cancellationRequested == null ? () -> false : cancellationRequested;
-        List<String> command = launcherResolver.resolve(projectDirectory, port);
+        List<String> command = launcherResolver.resolve(projectDirectory, port, appId);
+        Path normalizedProjectDirectory = projectDirectory.toAbsolutePath().normalize();
         Process process = null;
         CompletableFuture<Void> outputCompletion = null;
+        SandboxProcessPlan processPlan = null;
+        String sandboxOutcome = "start_failed";
+        long sandboxStartedAtNanos = System.nanoTime();
         boolean interrupted = false;
 
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            processBuilder.directory(projectDirectory.toFile());
+            ManagedProcessRequest request = ManagedProcessRequest.builder()
+                    .workingDirectory(normalizedProjectDirectory)
+                    .command(command)
+                    .environment(NodeProcessEnvironment.overrides(false))
+                    .environmentVariablesToRemove(NodeProcessEnvironment.variablesToRemove())
+                    .build();
+            processPlan = processSandbox.prepareDevServer(request, normalizedProjectDirectory, port);
+            sandboxPlanListener.onPlanPrepared(appId, processPlan);
+            ProcessBuilder processBuilder = new ProcessBuilder(processPlan.hostCommand());
+            processBuilder.directory(processPlan.hostWorkingDirectory().toFile());
             processBuilder.redirectErrorStream(true);
-            configureEnvironment(processBuilder.environment());
-            log.info("启动 Dev Server: appId={}, port={}, project={}, command={}",
-                    appId, port, projectDirectory, command);
+            processBuilder.environment().putAll(processPlan.hostEnvironment());
+            processPlan.hostEnvironmentVariablesToRemove().forEach(processBuilder.environment()::remove);
+            log.info("启动 Dev Server: appId={}, port={}, project={}, sandbox={}",
+                    appId, port, normalizedProjectDirectory, processPlan.backend());
 
             process = processStarter.start(processBuilder);
             outputCompletion = outputPump.start(process, "appId=" + appId, outputConsumer);
+            processSandbox.activate(processPlan);
             waitUntilReady(process, port, startupTimeout, effectiveCancellation);
-            return new DevServerProcessSession(projectDirectory, port, process, outputCompletion);
+            sandboxOutcome = "ready";
+            return new DevServerProcessSession(
+                    normalizedProjectDirectory,
+                    port,
+                    process,
+                    outputCompletion,
+                    processPlan
+            );
         } catch (InterruptedException exception) {
+            sandboxOutcome = "interrupted";
             interrupted = true;
-            cleanupFailedStart(process, outputCompletion);
+            cleanupFailedStart(process, outputCompletion, processPlan);
             throw new DevServerStartException(
                     DevServerStartException.Reason.INTERRUPTED,
                     "Dev Server 启动等待被中断",
                     exception
             );
         } catch (DevServerStartException exception) {
-            cleanupFailedStart(process, outputCompletion);
+            sandboxOutcome = exception.reason().name();
+            cleanupFailedStart(process, outputCompletion, processPlan);
             throw exception;
         } catch (IOException exception) {
-            cleanupFailedStart(process, outputCompletion);
+            sandboxOutcome = "process_start_failed";
+            cleanupFailedStart(process, outputCompletion, processPlan);
             throw new DevServerStartException(
                     DevServerStartException.Reason.PROCESS_START_FAILED,
                     "无法创建 Dev Server 进程",
                     exception
             );
         } catch (RuntimeException exception) {
-            cleanupFailedStart(process, outputCompletion);
+            sandboxOutcome = "start_failed";
+            cleanupFailedStart(process, outputCompletion, processPlan);
             throw exception;
         } finally {
+            sandboxMetrics.recordExecution(
+                    processPlan == null ? "unknown" : processPlan.backend(),
+                    "dev-server",
+                    sandboxOutcome,
+                    Duration.ofNanos(Math.max(0, System.nanoTime() - sandboxStartedAtNanos))
+            );
             if (interrupted) {
                 Thread.currentThread().interrupt();
             }
@@ -152,6 +262,7 @@ public class DevServerProcessRunner {
                     session.outputCompletion(),
                     properties.getOutputDrainTimeout()
             );
+            cleanupSandbox(session);
         }
     }
 
@@ -212,7 +323,11 @@ public class DevServerProcessRunner {
         }
     }
 
-    private void cleanupFailedStart(Process process, CompletableFuture<Void> outputCompletion) {
+    private void cleanupFailedStart(
+            Process process,
+            CompletableFuture<Void> outputCompletion,
+            SandboxProcessPlan processPlan
+    ) {
         if (process != null) {
             processTerminator.terminate(process);
         }
@@ -220,10 +335,28 @@ public class DevServerProcessRunner {
                 outputCompletion,
                 properties.getOutputDrainTimeout()
         );
+        cleanupSandbox(processPlan);
     }
 
-    private void configureEnvironment(Map<String, String> environment) {
-        NodeProcessEnvironment.variablesToRemove().forEach(environment::remove);
-        environment.putAll(NodeProcessEnvironment.overrides(false));
+    private void cleanupSandbox(DevServerProcessSession session) {
+        if (session.beginSandboxCleanup()) {
+            cleanupSandbox(session.sandboxPlan());
+        }
+    }
+
+    private void cleanupSandbox(SandboxProcessPlan processPlan) {
+        if (processPlan == null) {
+            return;
+        }
+        try {
+            processSandbox.cleanup(processPlan);
+            if (!processPlan.cleanupResourceId().isBlank()) {
+                sandboxMetrics.recordCleanup(processPlan.backend(), "success");
+            }
+        } catch (RuntimeException exception) {
+            sandboxMetrics.recordCleanup(processPlan.backend(), "failure");
+            log.warn("Dev Server Sandbox cleanup failed: backend={}, exceptionType={}",
+                    processPlan.backend(), exception.getClass().getName());
+        }
     }
 }

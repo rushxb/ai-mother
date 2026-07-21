@@ -10,6 +10,7 @@ public enum GenerationTaskStatus {
 
     QUEUED("queued", false),
     RUNNING("running", false),
+    WAITING_APPROVAL("waiting_approval", false),
     SUCCESS("success", true),
     FAILED("failed", true),
     CANCELLED("cancelled", true),

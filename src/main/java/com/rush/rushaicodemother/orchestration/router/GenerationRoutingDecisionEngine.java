@@ -1,0 +1,48 @@
+package com.rush.rushaicodemother.orchestration.router;
+
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Objects;
+
+/** Applies ordered routing policies and owns the deterministic fallback decision. */
+@Component
+public class GenerationRoutingDecisionEngine {
+
+    private final List<GenerationRoutingPolicy> policies;
+
+    public GenerationRoutingDecisionEngine(List<GenerationRoutingPolicy> policies) {
+        this.policies = policies == null ? List.of() : List.copyOf(policies);
+    }
+
+    public static GenerationRoutingDecisionEngine defaultEngine() {
+        return new GenerationRoutingDecisionEngine(List.of(
+                new CreateHeavyExpertRoutingPolicy(),
+                new CreateFirstRoutingPolicy(),
+                new ExplicitHeavyExpertRoutingPolicy(),
+                new AgentEditRoutingPolicy(),
+                new LightweightEditRoutingPolicy()
+        ));
+    }
+
+    public GenerationModeDecision decide(GenerationRoutingSignal signal) {
+        Objects.requireNonNull(signal, "signal");
+        return policies.stream()
+                .map(policy -> policy.decide(signal))
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .findFirst()
+                .orElseGet(this::defaultExistingWorkspaceDecision);
+    }
+
+    private GenerationModeDecision defaultExistingWorkspaceDecision() {
+        return GenerationModeDecision.of(
+                GenerationMode.AGENT_EDIT,
+                0.62,
+                "Existing workspace did not match lightweight routing signals; use code-understanding edit mode",
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
+                ExpectedValidationLevel.BUILD,
+                GenerationRoutingDecisionCode.DEFAULT_AGENT_EDIT
+        );
+    }
+}

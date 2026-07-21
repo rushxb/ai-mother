@@ -10,7 +10,9 @@ import org.mockito.ArgumentCaptor;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -92,6 +94,63 @@ class RobocopyDirectoryCopierTest {
                 List.of(),
                 List.of()
         ));
+    }
+
+    @Test
+    void taskAwareCopyMustPropagateTimeoutAndCancellationToManagedProcess() throws Exception {
+        ManagedProcessExecutor processExecutor = mock(ManagedProcessExecutor.class);
+        when(processExecutor.execute(any())).thenReturn(completed(0, "copied"));
+        RobocopyDirectoryCopier copier = new RobocopyDirectoryCopier(
+                processExecutor,
+                new ArtifactLifecycleProperties()
+        );
+        AtomicBoolean cancelled = new AtomicBoolean(true);
+        Duration timeout = Duration.ofSeconds(2);
+
+        copier.copy(
+                Path.of(".").toAbsolutePath().normalize(),
+                Path.of("target", "copy-target").toAbsolutePath().normalize(),
+                List.of(),
+                List.of(),
+                timeout,
+                cancelled::get
+        );
+
+        ArgumentCaptor<ManagedProcessRequest> requestCaptor =
+                ArgumentCaptor.forClass(ManagedProcessRequest.class);
+        verify(processExecutor).execute(requestCaptor.capture());
+        ManagedProcessRequest request = requestCaptor.getValue();
+        assertEquals(timeout, request.timeout());
+        assertTrue(request.heartbeatInterval().compareTo(timeout) < 0);
+        assertTrue(request.cancellationRequested().getAsBoolean());
+    }
+
+    @Test
+    void taskAwareCopyMustClassifyManagedProcessTimeout() {
+        ManagedProcessExecutor processExecutor = mock(ManagedProcessExecutor.class);
+        when(processExecutor.execute(any())).thenReturn(new ManagedProcessResult(
+                ManagedProcessResult.Status.TIMED_OUT,
+                "robocopy",
+                null,
+                "",
+                "",
+                "timed out"
+        ));
+        RobocopyDirectoryCopier copier = new RobocopyDirectoryCopier(
+                processExecutor,
+                new ArtifactLifecycleProperties()
+        );
+
+        ArtifactCopyException exception = assertThrows(ArtifactCopyException.class, () -> copier.copy(
+                Path.of(".").toAbsolutePath().normalize(),
+                Path.of("target", "copy-target").toAbsolutePath().normalize(),
+                List.of(),
+                List.of(),
+                Duration.ofSeconds(2),
+                () -> false
+        ));
+
+        assertEquals(ArtifactCopyException.Reason.TIMED_OUT, exception.reason());
     }
 
     private ManagedProcessResult completed(int exitCode, String output) {

@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -161,6 +163,33 @@ class DefaultUserCreditPersistenceServiceTest {
         assertThrows(BusinessException.class, () -> service.appendTransaction(invalid));
 
         verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void reservationAndSettlementLedgerShapesMustBeAcceptedExplicitly() {
+        when(mapper.insertTransaction(any())).thenReturn(1);
+
+        service.appendTransaction(new NewCreditTransaction(
+                7L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                "task-reserved", "reservation:policy-v1", null, null
+        ));
+        service.appendTransaction(new NewCreditTransaction(
+                7L, 2L, 9L, UserCreditTransactionType.GENERATION_SETTLEMENT,
+                "task-settled", "settlement", null, 100_000L
+        ));
+
+        verify(mapper, org.mockito.Mockito.times(2)).insertTransaction(any());
+    }
+
+    @Test
+    void unsettledTerminalScanMustBeBoundedAndReturnAnImmutableSnapshot() {
+        when(mapper.selectUnsettledTerminalTaskIds(25))
+                .thenReturn(List.of("task-1", "task-2"));
+
+        assertEquals(List.of("task-1", "task-2"),
+                service.findUnsettledTerminalTaskIds(25));
+        assertThrows(BusinessException.class,
+                () -> service.findUnsettledTerminalTaskIds(501));
     }
 
     @Test

@@ -36,6 +36,7 @@ class LintOrTestToolTest {
                 projectDirectory,
                 "lint",
                 properties.getToolScriptTimeout(),
+                "test-task-" + appId,
                 "tool-check:lint"
         )).thenReturn(new ProjectCommandResult(
                 ProjectCommandResult.Status.SUCCESS,
@@ -57,6 +58,7 @@ class LintOrTestToolTest {
                 projectDirectory,
                 "lint",
                 properties.getToolScriptTimeout(),
+                "test-task-" + appId,
                 "tool-check:lint"
         );
     }
@@ -79,6 +81,7 @@ class LintOrTestToolTest {
                 projectDirectory,
                 "build",
                 properties.getToolScriptTimeout(),
+                "test-task-" + appId,
                 "tool-check:build"
         )).thenReturn(new ProjectCommandResult(
                 ProjectCommandResult.Status.FAILED,

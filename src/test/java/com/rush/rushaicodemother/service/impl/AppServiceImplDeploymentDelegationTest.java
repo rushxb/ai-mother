@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.impl;
 
+import com.rush.rushaicodemother.application.app.AppAccessPolicy;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -22,6 +24,7 @@ class AppServiceImplDeploymentDelegationTest {
     private AppServiceImpl appService;
     private AppPersistenceService appPersistenceService;
     private AppDeploymentService deploymentService;
+    private AppAccessPolicy appAccessPolicy;
 
     @BeforeEach
     void setUp() {
@@ -29,6 +32,7 @@ class AppServiceImplDeploymentDelegationTest {
         appService = fixture.createService();
         appPersistenceService = fixture.persistenceService();
         deploymentService = fixture.deploymentService();
+        appAccessPolicy = fixture.accessPolicy();
     }
 
     @Test
@@ -60,10 +64,14 @@ class AppServiceImplDeploymentDelegationTest {
     @Test
     void shouldRejectNonOwnerBeforeDeploymentModuleAccess() {
         App app = app(13L, 23L);
+        User otherUser = user(24L);
         when(appPersistenceService.findActiveById(13L)).thenReturn(app);
+        doThrow(new BusinessException(ErrorCode.NO_AUTH_ERROR, "denied"))
+                .when(appAccessPolicy)
+                .requireOwner(app, otherUser, "无权限访问该应用代码");
 
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> appService.deployApp(13L, user(24L)));
+                () -> appService.deployApp(13L, otherUser));
 
         assertEquals(ErrorCode.NO_AUTH_ERROR.getCode(), exception.getCode());
         verifyNoInteractions(deploymentService);
@@ -73,6 +81,7 @@ class AppServiceImplDeploymentDelegationTest {
         App app = new App();
         app.setId(appId);
         app.setUserId(userId);
+        app.setTenantId(100L);
         return app;
     }
 

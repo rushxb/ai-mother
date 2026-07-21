@@ -1,0 +1,97 @@
+﻿D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\ai\tools\SnapshotRollbackTool.java:108:WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\ai\tools\SnapshotRollbackTool.java:161:workspaceFileSystemService.copyDirectory(projectPath, backupSnapshotPath);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\ai\tools\SnapshotRollbackTool.java:163:workspaceFileSystemService.replaceDirectory(snapshotPath, projectPath);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\ai\tools\SnapshotRollbackTool.java:177:workspaceFileSystemService.deleteDirectory(snapshotPath);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\core\builder\VueBuildStateStore.java:78:Files.writeString(
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\core\builder\VueBuildStateStore.java:88:Files.deleteIfExists(temporaryFile);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\core\builder\VueBuildStateStore.java:94:Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\core\builder\VueBuildStateStore.java:96:Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\core\builder\VueBuildStateStore.java:103:Files.deleteIfExists(projectRoot.resolve(legacyFileName));
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:161:Files.copy(
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:180:Files.deleteIfExists(temporary);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:210:return Files.deleteIfExists(target);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:310:Files.deleteIfExists(temporary);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:343:public WorkspaceCopyResult copyDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:371:public WorkspaceCopyResult replaceDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:412:public void deleteDirectory(Path directory) throws IOException {
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:489:Files.createDirectories(normalized);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:494:Files.createDirectory(target);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:658:Files.createDirectory(current);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:765:Files.deleteIfExists(file);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:774:Files.deleteIfExists(directory);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\filesystem\WorkspaceFileSystemService.java:1120:Files.createDirectory(targetRoot.resolve(sourceRoot.relativize(directory)));
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\git\GitTransactionResourceManager.java:67:Files.createDirectory(temporaryHooksDirectory);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\git\GitTransactionResourceManager.java:68:Files.write(
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\git\GitTransactionResourceManager.java:270:Files.deleteIfExists(path);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\screenshot\selenium\SeleniumWebPageScreenshotRenderer.java:49:Files.write(sourceImage, screenshotBytes);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\infrastructure\screenshot\selenium\SeleniumWebPageScreenshotRenderer.java:55:Files.deleteIfExists(sourceImage);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\benchmark\GenerationBenchmarkWorkspaceInspector.java:52:public void writeUtf8(Path root, String relativePath, String content) {
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\benchmark\GenerationBenchmarkWorkspaceInspector.java:55:Files.createDirectories(target.getParent());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\benchmark\GenerationBenchmarkWorkspaceInspector.java:56:Files.writeString(target, content == null ? "" : content, StandardCharsets.UTF_8);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\benchmark\rule\BrandCopyBenchmarkRule.java:57:inspector.writeUtf8(workspace.frontendRootPath(), path, seeded);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\benchmark\rule\MissingImportBenchmarkRule.java:55:inspector.writeUtf8(workspace.frontendRootPath(), PROBE_PATH, """
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\benchmark\rule\VueBenchmarkRuleSupport.java:16:inspector.writeUtf8(workspace.frontendRootPath(), relativeComponentPath, componentContent);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\benchmark\rule\VueBenchmarkRuleSupport.java:37:inspector.writeUtf8(workspace.frontendRootPath(), "src/App.vue", app);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\dag\GenerationOrchestrationTaskStore.java:136:Files.createDirectories(taskFile.getParent());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\dag\GenerationOrchestrationTaskStore.java:224:Files.move(temporaryFile, target,
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\dag\GenerationOrchestrationTaskStore.java:227:Files.move(temporaryFile, target, StandardCopyOption.REPLACE_EXISTING);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\dag\GenerationOrchestrationTaskStore.java:230:Files.deleteIfExists(temporaryFile);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\dag\GenerationOrchestrationTaskStore.java:239:Files.deleteIfExists(resolveTaskPath(appId, taskId));
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\dag\GenerationOrchestrationTaskStore.java:296:Files.deleteIfExists(snapshotFile.path());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\dag\GenerationOrchestrationTaskStore.java:307:Files.deleteIfExists(retainedFiles.get(index).path());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\EditFileSnapshotService.java:118:workspaceFileService.overwriteUtf8(target, fileSnapshot.content());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\EditFileSnapshotService.java:120:workspaceFileService.writeNewUtf8(target, fileSnapshot.content());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:84:Files.deleteIfExists(stateFile);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:127:Files.createDirectories(rootDirectory);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:206:Files.move(temporaryFile, target,
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:209:Files.move(temporaryFile, target, StandardCopyOption.REPLACE_EXISTING);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:212:Files.deleteIfExists(temporaryFile);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:232:Files.deleteIfExists(path);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:240:Files.deleteIfExists(stateFile.path());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:251:Files.deleteIfExists(retainedFiles.get(index).path());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\edit\LocalEditStateStore.java:278:Files.deleteIfExists(stateFile);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\heavy\HeavyGenerationFailureRecoveryService.java:246:FileUtil.del(workspace.canonicalRootPath().toFile());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchBatchRollbackService.java:71:workspaceFileService.overwriteUtf8(state.target(), state.content());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchBatchRollbackService.java:73:workspaceFileService.writeNewUtf8(state.target(), state.content());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchOperationExecutor.java:47:workspaceFileService.writeNewUtf8(operation.target(), patchOperation.content());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchOperationExecutor.java:49:workspaceFileService.overwriteUtf8(operation.target(), patchOperation.content());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchOperationExecutor.java:72:workspaceFileService.overwriteUtf8(
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchOperationExecutor.java:83:workspaceFileService.overwriteUtf8(operation.target(), updatedContent);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchWorkspaceFileService.java:126:public void writeNewUtf8(PatchWorkspaceTarget target, String content) throws IOException {
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchWorkspaceFileService.java:139:public void overwriteUtf8(PatchWorkspaceTarget target, String content) throws IOException {
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchWorkspaceFileService.java:153:Files.delete(current.absolutePath());
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\patch\PatchWorkspaceFileService.java:255:Files.createDirectory(current);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\snapshot\GenerationRollbackPointService.java:94:WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\snapshot\GenerationRollbackRestoreService.java:154:workspaceFileSystemService.copyDirectory(projectPath, backupPath);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\snapshot\GenerationRollbackRestoreService.java:158:? workspaceFileSystemService.replaceDirectory(snapshotPath, projectPath)
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\snapshot\GenerationRollbackRestoreService.java:159:: workspaceFileSystemService.copyDirectory(snapshotPath, projectPath);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\template\ProjectTemplateMaterializer.java:85:Files.createDirectory(staging);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\template\ProjectTemplateMaterializer.java:309:Files.createDirectory(current);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\template\ProjectTemplateMaterializer.java:397:Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\template\ProjectTemplateMaterializer.java:399:Files.move(source, target);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\template\ProjectTemplateMaterializer.java:416:workspaceFileSystemService.deleteDirectory(staging);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\template\TemplateNodeModulesPreWarmRunner.java:164:workspaceFileSystemService.deleteDirectory(directory);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\template\TemplatePreWarmService.java:71:workspaceFileSystemService.copyDirectory(cachedModules, targetNodeModules);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\workspace\GenerationWorkspaceService.java:115:Files.createDirectories(outputRoot);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\orchestration\workspace\GenerationWorkspaceService.java:121:Files.createDirectory(workspaceRoot);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\ArtifactDirectoryCopier.java:71:Files.createDirectory(targetRoot);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\ArtifactDirectoryCopier.java:113:Files.createDirectory(targetRoot.resolve(sourceRoot.relativize(directory)));
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\ArtifactDirectoryCopier.java:125:Files.copy(
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\ArtifactDirectoryCopier.java:238:Files.deleteIfExists(target);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\ArtifactDirectoryCopier.java:244:Files.deleteIfExists(file);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\ArtifactDirectoryCopier.java:253:Files.deleteIfExists(directory);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\LocalAppArtifactLifecycleService.java:235:Files.createDirectories(configuredRoot);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\LocalAppArtifactLifecycleService.java:292:Files.deleteIfExists(target);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\LocalAppArtifactLifecycleService.java:298:Files.deleteIfExists(file);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\artifact\LocalAppArtifactLifecycleService.java:307:Files.deleteIfExists(directory);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\dependency\NodeModulesIntegrityService.java:112:Files.delete(file);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\dependency\NodeModulesIntegrityService.java:121:Files.delete(directory);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\devserver\VisualEditorBootstrapInjector.java:87:Files.copy(target, tempFile,
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\devserver\VisualEditorBootstrapInjector.java:90:Files.writeString(tempFile, content, StandardCharsets.UTF_8);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\devserver\VisualEditorBootstrapInjector.java:92:Files.move(tempFile, target,
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\devserver\VisualEditorBootstrapInjector.java:96:Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\devserver\VisualEditorBootstrapInjector.java:101:Files.deleteIfExists(tempFile);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\screenshot\DefaultScreenshotService.java:148:Files.createDirectories(root);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\screenshot\DefaultScreenshotService.java:153:return Files.createDirectory(root.resolve(UUID.randomUUID().toString()));
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\screenshot\DefaultScreenshotService.java:189:Files.deleteIfExists(file);
+D:\project\ai-code\ai-mother\src\main\java\com\rush\rushaicodemother\service\screenshot\DefaultScreenshotService.java:198:Files.deleteIfExists(directory);

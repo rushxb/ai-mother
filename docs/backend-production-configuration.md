@@ -31,18 +31,21 @@ Profile，但生产部署不应覆盖回 `dev`。
 
 ## 生产配置与覆盖变量
 
-生产 Profile 提供可直接启动的 localhost 类非敏感默认值。部署到真实生产基础设施时，应按实际网络和账号覆盖下列变量：
+生产 Profile 不提供数据库、Redis、CORS 和部署地址的开发兜底值。部署系统必须通过 Secret、环境变量或外部配置显式注入下列变量；缺失、空白或命中不安全策略时，应用会在创建 Bean 前拒绝启动：
 
 | 变量 | 默认值与说明 |
 | --- | --- |
-| `MYSQL_URL` | 默认连接本机 `rush_ai_code_mother`；部署时建议包含 Unicode、时区和 TLS 参数 |
-| `MYSQL_USERNAME` | 默认 `root`；部署时应改为数据库最小权限账号 |
-| `MYSQL_PASSWORD` | 默认空；真实生产数据库密码必须通过 Secret、环境变量或外部配置注入 |
-| `REDIS_HOST` | 默认 `localhost` |
+| `MYSQL_URL` | 生产必填；建议包含 Unicode、时区和 TLS 参数 |
+| `MYSQL_USERNAME` | 生产必填；必须使用最小权限账号，禁止 `root` |
+| `MYSQL_PASSWORD` | 生产必填；必须通过 Secret 注入，至少 16 个字符且不得使用常见默认值 |
+| `REDIS_HOST` | 生产必填 |
 | `REDIS_USERNAME` | 默认空；Redis ACL 启用用户名认证时配置，可使用 `root` 等部署侧账号 |
-| `REDIS_PASSWORD` | 默认空；Redis 启用认证时必须通过安全配置注入 |
-| `CORS_ALLOWED_ORIGINS` | 默认 `http://localhost:5173`；多个值用英文逗号分隔，禁止 `*` |
-| `CODE_DEPLOY_HOST` | 默认 `http://localhost:91`；部署时覆盖为已部署应用的公开访问根地址 |
+| `REDIS_PASSWORD` | 生产必填；必须通过 Secret 注入，至少 16 个字符且不得使用常见默认值 |
+| `CORS_ALLOWED_ORIGINS` | 生产必填；多个值用英文逗号分隔，只允许无通配符、非 loopback 的 HTTPS Origin |
+| `CODE_DEPLOY_HOST` | 生产必填；必须是非 localhost/loopback 的部署访问根地址 |
+| `OTEL_TRACING_ENABLED` | 默认 `true`；生产环境必须保持启用，以延续 HTTP、任务队列、模型、工具、构建和受控进程链路 |
+| `OTEL_TRACING_EXPORT_ENABLED` | 开发默认 `false`、生产默认 `true`；生产环境必须保持启用 |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 生产必填的 OTLP/HTTP traces 地址，例如 `http://otel-collector:4318/v1/traces` |
 
 示例 Origin：
 
@@ -71,7 +74,27 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `AI_ROUTING_LOG_REQUESTS`、`AI_ROUTING_LOG_RESPONSES`：路由模型日志开关，默认关闭。
 - `AI_ROUTING_TIMEOUT`：路由模型超时，默认 `30s`，允许范围 `3s` 至 `5m`。
 - `AI_ROUTING_MAX_RETRIES`：路由模型重试次数，默认 `0`，允许范围 `0` 至 `5`。
+- `AI_FAILOVER_MAX_CANDIDATES`：单次请求最多参与故障切换的模型候选数，默认 `2`，允许范围 `1` 至 `5`；用于限制串行上游超时放大。
+- `AI_MODEL_SECRET_ACTIVE_KEY_ID`：当前 AI 模型凭据 KEK 的稳定版本标识，只允许字母、数字、点、下划线和连字符。轮换时必须使用新 ID，禁止复用旧 ID 表示不同密钥材料。
+- `AI_MODEL_SECRET_ACTIVE_KEY`：Base64 编码的 32 字节 AES-256 KEK，由 Secret Manager/KMS 注入；数据库不保存该值。
+- `AI_MODEL_SECRET_FINGERPRINT_KEY`：Base64 编码的独立 32 字节 HMAC-SHA256 密钥，必须与 KEK 不同并跨 KEK 轮换保持稳定，使 Benchmark 候选指纹不受随机密文影响。
+- `app.ai-model-secrets.previous-keys`：旧 KEK keyring，仅在轮换窗口通过外部 YAML/Secret 配置注入。只要数据库仍存在对应 `secretKeyId`，旧密钥就不得删除；所有节点的 keyring 必须在滚动发布前完成扩容。
+- `AI_MODEL_CAPACITY_ENABLED`：集群级模型容量治理开关，开发默认 `false`、生产强制为 `true`；每个真实 provider/model candidate 调用都必须先通过并发、RPM 与 TPM 门禁。
+- `AI_MODEL_MAX_CONCURRENT_PER_MODEL`：单个 provider/model 在全后端集群中的最大并发请求数，默认 `4`。
+- `AI_MODEL_REQUESTS_PER_MINUTE`、`AI_MODEL_TOKENS_PER_MINUTE`：单个 provider/model 的集群级 RPM、保守 TPM 预算，默认 `120` 和 `500000`。TPM 在请求前按输入估算 token 与受限输出预留量一次性占用。
+- `AI_MODEL_MAX_RESERVED_OUTPUT_TOKENS`：单次调用计入 TPM 的最大输出预留量，默认 `16384`，避免模型目录中的极大 `maxTokens` 独占整分钟容量。
+- `AI_MODEL_CAPACITY_ACQUIRE_TIMEOUT`：每个容量门禁允许等待的最长时间，默认 `250ms`；超时会在首字节前触发下一个健康候选，而不是在上游无界排队。
+- `AI_MODEL_CAPACITY_PERMIT_LEASE`、`AI_MODEL_CAPACITY_HEARTBEAT_INTERVAL`：并发许可采用默认 `60s` 的短 Redis 租约，并由应用级共享调度器每 `20s` 续期；heartbeat 必须不大于租约的一半。正常完成、异常和用户取消会立即释放，节点崩溃后许可最多约一个租约周期即可回收，不再固定占用 20 分钟。
+- `AI_MODEL_CAPACITY_MAXIMUM_HOLD`、`AI_MODEL_CAPACITY_MAXIMUM_HOLD_GRACE`：续租的绝对上限默认 `16m`；每次真实 provider 调用使用“该候选 HTTP timeout + `30s` grace”和绝对上限中的较小值。达到上限或丢失租约时，流式调用会取消已暴露的 provider handle 并以可 failover 的容量不可用错误终止，避免心跳把僵死请求永久续租。
+- `AI_MODEL_CAPACITY_SCHEDULER_THREADS`、`AI_MODEL_CAPACITY_IDLE_TTL`：所有模型调用共享默认 `2` 个有界 heartbeat 调度线程，续租通过 Redisson 异步命令发起，Redis 网络等待不会串行阻塞整个调度池，也禁止按请求创建线程；空闲 Redis 键默认保留 `2h`，必须大于最大持有时限。
+- `AI_MODEL_CAPACITY_FAIL_OPEN`：Redis 容量控制不可用时是否绕过门禁；生产强制为 `false`，禁止因治理依赖故障形成供应商请求风暴和成本失控。
 - `AI_CREATE_SPEC_TIMEOUT`：CREATE Spec 模型超时，默认 `10s`，允许范围 `3s` 至 `10s`。
+- `AI_PROMPT_CATALOG_ENABLED`：Prompt Catalog 开关，默认 `true`；生产环境必须保持启用，否则应用在启动阶段直接拒绝运行。
+- `AI_PROMPT_CATALOG_MANIFEST`：不可变 Prompt 清单位置，默认 `classpath:prompt/prompt-catalog.json`；清单中的每个版本必须绑定实际内容的 SHA-256。
+- `AI_PROMPT_ROLLOUT_SALT`：稳定/灰度版本确定性分桶盐值；同一轮灰度期间必须保持稳定，修改会重新分配 cohort。
+- `AI_PROMPT_RUNTIME_RELEASES_ENABLED`：数据库运行时发布控制开关，开发默认 `false`、生产默认 `true`；生产环境禁止关闭。
+- `AI_PROMPT_RUNTIME_RELEASES_INITIAL_LOAD_REQUIRED`：启动时是否必须成功读取数据库发布头，开发默认 `false`、生产默认 `true`；生产读取失败时应用 fail-fast，不得静默退回随包版本。
+- `AI_PROMPT_RUNTIME_RELEASES_REFRESH_INTERVAL`：多节点发布状态刷新周期，默认 `5s`，必须大于 `0` 且不得超过 `5m`。
 - `REDIS_CACHE_DEFAULT_TTL`：Redis 业务缓存默认 TTL，默认 `30m`。
 - `REDIS_CACHE_GOOD_APP_PAGE_TTL`：优质应用分页缓存 TTL，默认 `5m`。
 - `CHAT_MEMORY_KEY_PREFIX`：对话记忆 Redis 键命名空间，默认 `chat-memory:`。
@@ -115,9 +138,14 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `NODE_TOOLCHAIN_NODE_EXECUTABLE`：所有受控 Node.js 子进程共用的可执行文件名或绝对路径，默认 `node`；Windows 默认解析为 `node.exe`。
 - `NODE_TOOLCHAIN_PNPM_EXECUTABLE`：所有受控 pnpm 子进程共用的可执行文件名或绝对路径，默认 `pnpm`；Windows 默认解析为 `pnpm.cmd`。
 - `DEV_SERVER_PORT_RANGE_START`、`DEV_SERVER_PORT_RANGE_END`：单实例 Dev Server 端口池，默认 `10000` 至 `60000`。
-- `DEV_SERVER_MAX_SERVERS_PER_USER`：单实例内每个用户的同时会话上限，默认 `3`。
+- `DEV_SERVER_MAX_SERVERS_PER_USER`：数据库租约保护下每个用户的全局同时会话上限，默认 `3`。
 - `DEV_SERVER_MAX_OUTPUT_LINE_LENGTH`：单行进程输出字符上限，默认 `2000`。
 - `DEV_SERVER_MAX_RECENT_OUTPUT_LINES`：单应用内存中保留的最近输出行数，默认 `200`。
+- `DEV_SERVER_NODE_ID`：生产节点稳定标识，生产 Profile 必填；滚动发布和进程重启时不得随机生成。
+- `DEV_SERVER_LEASE_DURATION`：Dev Server 持久化所有权租约，默认 `30s`。
+- `DEV_SERVER_HEARTBEAT_INTERVAL`：持有节点续租间隔，默认 `10s`，必须小于租约时长。
+- `DEV_SERVER_RECOVERY_SCAN_INTERVAL`：扫描崩溃节点遗留会话的间隔，默认 `15s`。
+- `DEV_SERVER_RECOVERY_BATCH_SIZE`：单轮最多认领并清理的过期会话数，默认 `50`。
 - `DEPENDENCY_INSTALL_COMMAND_TIMEOUT`：单次 `pnpm install` 总超时，默认 `5m`。
 - `DEPENDENCY_INSTALL_IDLE_TIMEOUT`：安装进程持续无输出超时，默认 `90s`。
 - `DEPENDENCY_INSTALL_HEARTBEAT_INTERVAL`：安装过程心跳日志间隔，默认 `15s`，必须小于总超时。
@@ -155,6 +183,16 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS`：单个关键项目文件可进入生成上下文的最大字符数，默认 `12000`。
 - `GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS`：单次生成项目上下文的总字符预算，默认 `100000`，不得小于单文件字符预算。
 - `GENERATION_CONTEXT_MAX_READABLE_FILE_BYTES`：生成上下文允许读取的单个关键文件最大字节数，默认 `1048576`（1 MiB）。
+- `AI_CONTEXT_PACK_GENERATION_MAX_TOKENS`：常规生成的结构化上下文包总预算，默认 `2000`，允许范围 `256`～`32000`。
+- `AI_CONTEXT_PACK_REPAIR_MAX_TOKENS`：自动修复上下文包的独立总预算，默认 `1500`，允许范围 `256`～`32000`。
+- `AI_CONTEXT_PACK_TOKENIZER_MODEL`：用于预算模型输入的 OpenAI-compatible tokenizer，默认 `gpt-4o`。生产集群所有节点必须固定为同一受支持模型，滚动发布期间不得混用不同 tokenizer。
+- `AI_CONTEXT_PACK_TOKEN_SAFETY_MARGIN`：兼容供应商 tokenizer 差异和消息 framing 的保守余量，默认 `1.15`，允许范围 `1.0`～`2.0`。
+- `AI_CONTEXT_PACK_MAX_SECTION_TOKENS`：单个结构化 section 的上限，默认 `800`，允许范围 `64`～`8000`。
+- `AI_CONTEXT_PACK_MINIMUM_SECTION_TOKENS`：可选 section 被保留时的最低预算，默认 `64`，允许范围 `16`～`1000`，且不得大于单 section 上限。
+- `AI_CONTEXT_PACK_MAX_SEMANTIC_MEMORY_SECTIONS`：单次调用最多选择的长期语义记忆条数，默认 `6`，允许范围 `1`～`20`。
+- `AI_CONTEXT_PACK_SEMANTIC_MEMORY_HALF_LIFE`：语义记忆时间衰减半衰期，默认 `30d`，必须为正数。
+- `AI_CONTEXT_PACK_MINIMUM_SEMANTIC_TRUST`：时间衰减后的最低信任权重，默认 `0.25`，允许范围 `0.0`～`1.0`。
+- `AI_CONTEXT_PACK_ESTIMATED_CHARS_PER_TOKEN`：已移除，不再读取。生产部署必须改用 `AI_CONTEXT_PACK_TOKENIZER_MODEL` 与 `AI_CONTEXT_PACK_TOKEN_SAFETY_MARGIN`，禁止继续依赖固定字符/token 比例。
 - `PROJECT_COMMAND_SNAPSHOT_MAX_FILES`、`PROJECT_COMMAND_SNAPSHOT_MAX_FILE_BYTES`：仅作为旧部署的兼容回退变量保留；新部署应分别改用 `WORKSPACE_MAX_FILES`、`WORKSPACE_MAX_FILE_BYTES`。
 - `PROJECT_COMMAND_RECENT_BUILD_RESULT_MAX_ENTRIES`：内存中最多保留的最近 Vue 构建结果数量。，默认 `500`。
 - `EDIT_LOCATOR_MAX_CANDIDATE_FILES`: maximum ordered edit-file candidates, default `8`.
@@ -183,8 +221,30 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `TEMPLATE_MATERIALIZATION_MAX_DIRECTORY_DEPTH`：模板资源相对目录的最大深度，默认 `32`。
 - `TEMPLATE_MATERIALIZATION_PUBLISH_MAX_ATTEMPTS`：模板目录发生瞬时 `AccessDeniedException` 时的最大发布尝试次数，默认 `5`；目标已经出现时不会继续重试，而是重新执行安全类型校验。
 - `TEMPLATE_MATERIALIZATION_PUBLISH_RETRY_DELAY_MILLIS`：模板目录发布重试间隔，默认 `50` 毫秒。
-- `TEMPLATE_PRE_WARM_ENABLED`：模板依赖启动预热开关；开发默认开启，生产默认关闭。
+- `TEMPLATE_PRE_WARM_ENABLED`：模板依赖启动预热开关；开发和生产默认开启。预热在应用 Ready 后由独立有界线程池异步执行，不阻塞就绪；资源受限环境可显式关闭。
 - `TEMPLATE_PRE_WARM_MAX_CONCURRENCY`：模板预热专用线程池并发上限，默认 `2`，允许范围 `1` 至 `8`。
+
+## Prompt 版本与发布治理
+
+1. 生产环境必须同时启用 `app.ai-prompt-catalog.enabled=true`、`app.ai-prompt-catalog.runtime-releases.enabled=true` 和 `initial-load-required=true`。所有受治理的 AI Service Prompt 都应由 Catalog 选择，禁止绕过版本、Hash、发布记录和调用来源记录。
+2. Prompt 版本内容视为不可变制品。修改正文时必须新增版本并更新清单中的 SHA-256，不得原地覆盖已有版本；内容与 Hash 不一致时应用启动失败。
+3. `app.ai-prompt-catalog.releases.<prompt-key>` 是随包基线；数据库 `ai_prompt_release` 只保存稳定/灰度版本指针，不保存 Prompt 正文。灰度基于调用 cohort 确定性分桶，同一 cohort 在发布状态不变时始终命中同一渠道。
+4. 管理员通过 `/api/ai-prompt/releases/publish` 发布、通过 `/api/ai-prompt/releases/rollback` 回滚，两个接口都必须提交目标 Prompt 当前 `expectedRevision` 和非空变更说明。过期 revision 会被乐观锁拒绝，所有成功操作追加到不可修改的 `ai_prompt_release_history`。
+5. 回滚到当前制品已包含的历史版本不需要重新部署；新增 Prompt 正文仍必须作为新版本随制品发布。禁止删除历史版本，以保证模型调用 Provenance、发布历史和 Benchmark 报告可追溯。
+6. 每次发布在数据库事务内锁定单例 bundle head、递增全局 revision、更新当前指针并追加审计历史。运行节点以整包快照原子切换，拒绝旧 revision 覆盖新 revision；其他节点最迟在刷新周期内收敛。
+7. 每个模型调用只持久化 Prompt Key、版本、渠道、内容 Hash 和 Release Bundle ID，不持久化 Prompt 正文或用户输入。生成基准发布门禁默认拒绝缺少 Prompt Bundle ID 的报告。
+8. 监控至少采集 `ai_prompt_release_active_revision`、`ai_prompt_release_refresh_total`、`ai_prompt_release_refresh_duration_seconds` 和 `ai_prompt_release_mutations_total`。应告警持续刷新失败、节点 revision 长时间不一致以及发布冲突异常升高。
+
+## AI 生成基准与浏览器评分
+
+1. 生成发布门禁必须在独立的 Benchmark/CI Worker 执行，不应让在线流量节点常驻 Chrome。专用 Worker 设置 `GENERATION_BENCHMARK_BROWSER_GRADING_ENABLED=true`，并通过 `SCREENSHOT_CHROME_DRIVER_PATH`、可选的 `SCREENSHOT_CHROME_BINARY_PATH` 固定受支持的 Chrome/ChromeDriver 制品；禁止运行时联网下载驱动。
+2. 浏览器评分只访问规范化的本机 loopback HTTP 地址。Chrome 会关闭后台联网能力并使用仅放行 loopback 的 host resolver 规则；Dev Server 仍由 `GeneratedCodeProcessSandbox` 启动和清理，不允许 Benchmark 自行绕过 Sandbox 创建裸进程。
+3. 当前 Runtime/Visual Grader 对 Vue 项目执行真实 Dev Server、DOM、console、Vite error overlay 和截图像素检查。纯后端任务不伪造视觉证据；全栈任务在后端 sidecar 尚未纳入同一受控运行时前也不计入浏览器评分。因此默认 Runtime/Visual evaluation rate 为 `0.75`，与当前目录中 9/12 个 Vue 任务对应。
+4. Security Grader 对所有任务扫描敏感文件、硬编码凭据、外部脚本/CDN、动态代码执行、危险 HTML 注入、前端敏感环境变量、路径穿越式敏感文件访问、包管理生命周期脚本和非 registry 依赖。稳定 violation code 写入报告，不把源码、密钥或浏览器原始页面内容持久化。
+5. 默认发布门禁要求 Security evaluation/pass rate 均为 `1.0`，Runtime/Visual evaluation rate 至少 `0.75`、pass rate 至少 `0.90`。关闭浏览器评分时仍可生成普通 Benchmark 报告，但 Release Gate 会因证据覆盖率不足而拒绝晋升。
+6. `GENERATION_BENCHMARK_BROWSER_SETTLE_DELAY` 默认 `2s`，允许 `0s` 至 `30s`；只用于等待异步首屏稳定，不得用无界 sleep 掩盖应用未就绪。页面加载和脚本超时继续由 `SCREENSHOT_PAGE_LOAD_TIMEOUT`、`SCREENSHOT_READY_STATE_TIMEOUT` 控制。
+7. 浏览器诊断输出会标记为 `UNTRUSTED_BROWSER_OBSERVATION`，页面文本和 console 内容只能作为不可信证据，不得被模型当作角色、工具调用或权限指令。
+8. 监控至少采集 `ai_generation_benchmark_grader_results_total` 与 `ai_generation_benchmark_grader_duration_seconds`，按有限的 `kind`、`dimension`、`status` 标签告警 Grader 执行错误、Runtime/Visual 通过率下降和评分耗时异常。
 
 ## 依赖安装运行要求
 
@@ -241,6 +301,56 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 4. 端口保留和用户配额是单应用实例内状态。多实例共享同一宿主机网络命名空间时，必须由调度器或基础设施避免端口池冲突，并在集群层执行总配额。
 5. 启动超时、取消、线程中断和服务关闭都会终止项目进程树并等待输出任务收口；应监控启动超时、强制终止和端口池耗尽指标。
 
+## AI 上下文与工具审批恢复要求
+
+1. 结构化上下文包必须使用 tokenizer-backed 预算。中文、emoji 和混合语言不得回退为固定字符/token 比例；安全余量同时作用于总包和 section 截断。
+2. 仓库文件、长期记忆、近期任务、构建日志和错误诊断均属于不可信证据。模型输入必须保留 `trust`、`source`、SHA-256 digest 与闭合边界；即使发生二次压缩，也不得产生缺失 `END_UNTRUSTED_*` 的半截数据块。
+3. 应用名称、历史模型输出和工具结果不得进入 trusted application scope。上下文中的 `[SECTION]`、`[AI_CONTEXT_PACK]` 与边界标记必须中和，避免历史内容伪造系统 section。
+4. 每次模型调用的 provenance 会记录通过结构和 body digest 校验的上下文包摘要、schema、appId、targetType 与 section 数，同时保留完整请求哈希；不得把用户提示词、仓库文件或记忆正文复制到 `generation_model_call.rawMetadataJson`。
+5. 破坏性工具审批暂停时，durable transcript 按“系统锚点 → 当前 invocation 用户消息 → 最近完整工具轮次 → 未完成工具调用及已完成 sibling 结果”选择窗口。当前默认最多 `12` 条消息、单消息 `96 KiB`、总 transcript `128 KiB`；摘要校验、请求 ID、工具名和参数必须全部匹配后才允许恢复。
+6. 未完成工具调用之后只允许出现同一 assistant tool round 的 sibling 结果。孤立结果、重复 request ID、已解决的待审批请求、非结果消息、必需后缀超限或 transcript 摘要不一致都必须 fail-closed，禁止重新执行可能产生副作用的 sibling 工具。
+7. 重型工程生成的活动消息窗口允许在当前轮次保留最多 `8` 条消息，但启动新一轮生成时只预载最近 `4` 条历史消息，避免为了 HITL 恢复无限放大常规模型输入。审批恢复使用独立 `12` 条窗口，不重新加载无关历史会话。
+
+## 分布式追踪运行要求
+
+1. 生产启动门禁要求 `management.tracing.enabled=true`、OTLP 导出开启且 traces endpoint 非空；Collector 不可用不应阻塞业务线程，但必须通过导出失败指标和日志告警。
+2. 应用固定使用 W3C `traceparent` / `tracestate` 传播。生成任务会把受限 carrier 持久化到 durable command，Redis/MySQL Worker、工具审批恢复和跨线程模型回调会继续原 trace。
+3. durable payload 不保存 W3C baggage，禁止把用户提示词、密钥、Cookie、租户名称或其他 PII 放入 trace tag。当前 tag 只允许任务、应用、用户数值标识、路由、阶段、状态等诊断元数据。
+4. `OTEL_TRACING_SAMPLING_PROBABILITY` 默认 `0.1`，允许按环境调整；故障排查临时提高采样率时必须评估 Collector、存储成本和高基数标签容量，不得长期无界全采样。
+5. `OTEL_EXPORTER_OTLP_CONNECT_TIMEOUT` 默认 `3s`，`OTEL_EXPORTER_OTLP_TIMEOUT` 默认 `10s`。应用应只连接同集群或同 VPC Collector，不应让每个实例直接向公网后端导出。
+6. 线上至少应能查询以下父子链路：入口 HTTP span → `generation.task.execute` → 模型、工具、构建、验证和 `generated_code.process.*` 子 span。任务暂停审批后恢复时必须仍属于原 trace。
+
+最小 OpenTelemetry Collector 示例：
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+  batch: {}
+
+exporters:
+  otlp/upstream:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/upstream]
+```
+
+示例中的上游地址和 TLS 设置必须按实际可观测平台替换；生产环境优先启用 mTLS 或私有网络访问控制。
+
 ## 安全约束
 
 1. 生产 Session Cookie 强制启用 `Secure` 和 `HttpOnly`。
@@ -250,12 +360,15 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
    - `/api/actuator/health/readiness` 同时检查应用就绪状态、MySQL 和 Redis；失败时应停止接收流量，但不应仅因此反复重启实例。
    - `/api/health` 仅为历史兼容的进程存活接口，不能用于判断外部依赖是否可用。
 4. CORS 使用显式 Origin 白名单，并在启动期拒绝通配符或格式错误的 Origin。
-5. localhost、端口、空密码等非敏感默认值允许存在，以保证配置层可启动；部署系统必须按实际基础设施覆盖数据库、Redis、CORS 和部署域名。
-6. AI 模型地址、模型名称与密钥只在数据库模型目录中维护，配置文件不保留第二套模型凭据。
-7. 建议在网关层进一步限制 Actuator、管理接口和预览资源的访问来源。
-8. 限流模块默认不信任 `X-Forwarded-For` 和 `X-Real-IP`。只有直接上游和代理链命中
+5. 生产 Profile 不允许依赖 localhost、`root`、弱密码、空 Redis 密码或 localhost CORS 等开发默认值；部署系统未显式注入安全配置时应用必须 fail-fast。
+6. AI 模型地址和模型名称在数据库模型目录中维护；数据库只保存 `enc:v1` envelope reference、稳定 HMAC 指纹和 KEK ID，不保存明文 API Key。明文只允许在 provider client builder 边界短暂解析，管理响应、缓存、日志和候选指纹均不得读取或返回明文。
+7. 部署 `V20260720_2__ai_model_secret_envelope.sql` 后，启动迁移器会在 Readiness 发布前以 compare-and-set 方式加密历史明文，并清除软删除记录遗留的凭据。缺失 KEK、未知 key ID、损坏元数据或并发迁移出现非安全结果时必须阻断启动，不得回退为明文运行。
+   迁移窗口禁止开启 `AiModelMapper` SQL/结果集调试日志；生产 Profile 已将该 mapper 的日志级别固定为 `OFF`，避免历史明文从 SQL 参数或查询结果进入日志系统。
+   迁移前备份必须加密、限权并设置最短保留期；迁移验证通过后应轮换现有 provider API Key，因为旧备份、binlog 或历史日志可能仍包含迁移前明文。
+8. 建议在网关层进一步限制 Actuator、管理接口和预览资源的访问来源。
+9. 限流模块默认不信任 `X-Forwarded-For` 和 `X-Real-IP`。只有直接上游和代理链命中
    `APP_RATE_LIMITER_TRUSTED_PROXIES` 时才会解析转发头；代理必须覆盖客户端传入的同名请求头。
-9. 生产默认 `SERVER_FORWARD_HEADERS_STRATEGY=none`，避免 Web 容器在可信代理校验前改写远端地址。
+10. 生产默认 `SERVER_FORWARD_HEADERS_STRATEGY=none`，避免 Web 容器在可信代理校验前改写远端地址。
    如基础设施确需启用 `framework`，入口代理必须清洗转发头，并与限流可信代理列表保持一致。
 
 ## 本地私有覆盖
@@ -268,3 +381,16 @@ $env:SPRING_PROFILES_ACTIVE='dev,local'
 ```
 
 不要修改并提交生产配置文件来保存个人账号或密钥。
+
+## 多节点 Preview 与 HMR 运行要求
+
+1. `DEV_SERVER_NODE_ID` 必须是稳定且可路由的节点标识，只允许字母、数字、点、下划线和连字符；滚动发布时同一节点不得随机变化。
+2. `DEV_SERVER_INTERNAL_BASE_URL_TEMPLATE` 生产必填，例如 `http://{nodeId}:8123/api`。该地址必须走集群内网或服务发现，不得经公网入口回源。
+3. `DEV_SERVER_INTERNAL_SHARED_SECRET` 生产必填且至少 32 个字符，用于节点间 HTTP/WebSocket Preview 请求的 HMAC。应由 Secret 管理系统注入并定期轮换，不得写入仓库或日志。
+4. `DEV_SERVER_INTERNAL_ALLOWED_CLOCK_SKEW` 默认 `30s`；所有应用节点必须使用可靠时钟同步。签名同时绑定方法、路径、查询参数、请求体摘要、时间戳和一次性 nonce。
+5. `DEV_SERVER_INTERNAL_REPLAY_CACHE_MAX_ENTRIES` 默认 `10000`，用于有界拒绝重放请求；容量应结合节点间 Preview 握手和资源请求峰值设置。
+6. `DEV_SERVER_WS_CONNECT_TIMEOUT` 默认 `5s`，`DEV_SERVER_WS_SEND_TIME_LIMIT` 默认 `10s`，`DEV_SERVER_WS_SEND_BUFFER_SIZE` 默认 `2MB`，`DEV_SERVER_WS_MAX_MESSAGE_SIZE` 默认 `1MB`。这些限制用于阻止慢连接和无界 HMR 缓冲。
+7. 浏览器始终访问同源 `/api/app/dev-server/proxy/{appId}/`。入口代理必须为该路径转发 `Upgrade` / `Connection`，关闭响应缓冲，并配置足够长的 WebSocket 读写超时；仓库 Nginx 示例已包含对应 location。
+8. 公网入口必须拒绝 `/api/internal/**`。节点间 `/api/internal/dev-server/proxy/**` 仅允许应用节点安全组或服务网格访问；HMAC 不能替代网络隔离。
+9. Vite 由受控 Node.js 脚本启动，保留项目原有插件和配置，同时强制应用级 public base，并绕过与该 base 冲突的项目 `/api` 开发代理。HTTP 资源和 `vite-hmr` / `vite-ping` WebSocket 必须使用同一应用级路径。
+10. 浏览器 Cookie、Authorization、转发头和伪造的 `X-AI-Preview-*` 头不得传入生成应用。远程节点签名头只能由入口节点重新生成，owner 节点还必须二次校验数据库租约、nodeId、leaseOwner、本地进程和端口。

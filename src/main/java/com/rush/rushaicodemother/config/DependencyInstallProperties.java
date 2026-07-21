@@ -50,6 +50,9 @@ public class DependencyInstallProperties {
     @Max(1024)
     private int lockStripes = 64;
 
+    /** 等待项目安装锁时检查任务取消和 Deadline 的间隔。 */
+    private Duration lockPolicyCheckInterval = Duration.ofMillis(250);
+
     @AssertTrue(message = "依赖安装相关超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
         return Stream.of(
@@ -57,7 +60,8 @@ public class DependencyInstallProperties {
                         idleTimeout,
                         heartbeatInterval,
                         runtimeValidationTimeout,
-                        outputDrainTimeout
+                        outputDrainTimeout,
+                        lockPolicyCheckInterval
                 )
                 .allMatch(duration -> duration != null && !duration.isZero() && !duration.isNegative());
     }

@@ -124,8 +124,8 @@ public class GenerationTaskProgressEstimator {
         try {
             return profileService.getProfile(route);
         } catch (RuntimeException failure) {
-            log.warn("Generation duration profile unavailable; using configured ETA fallback, route: {}, error: {}",
-                    sanitizeRoute(route), LogExceptionSanitizer.sanitize(failure).getMessage());
+            log.warn("Generation duration profile unavailable; using configured ETA fallback, route: {}",
+                    sanitizeRoute(route), LogExceptionSanitizer.sanitize(failure));
             return null;
         }
     }

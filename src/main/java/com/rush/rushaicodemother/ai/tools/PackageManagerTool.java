@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -86,7 +87,7 @@ public class PackageManagerTool extends BaseTool {
                         handleSetScript(appId, packageJsonPath, packageJson, scriptName, scriptCommand, runInstall);
                 case "removeScript" ->
                         handleRemoveScript(appId, packageJsonPath, packageJson, scriptName, runInstall);
-                case "installDependencies" -> runInstall(packageJsonPath.getParent(), "installDependencies");
+                case "installDependencies" -> runInstall(appId, packageJsonPath.getParent(), "installDependencies");
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
             };
         } catch (ToolInputException e) {
@@ -136,7 +137,7 @@ public class PackageManagerTool extends BaseTool {
         if (StrUtil.isNotBlank(oldVersion)) {
             builder.append("（旧版本: ").append(oldVersion).append("）");
         }
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, action);
+        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, action);
         return builder.toString();
     }
 
@@ -157,7 +158,7 @@ public class PackageManagerTool extends BaseTool {
             return writeError;
         }
         StringBuilder builder = new StringBuilder("已删除依赖: " + packageName + "（" + sectionName + "）");
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, "removeDependency");
+        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, "removeDependency");
         return builder.toString();
     }
 
@@ -183,7 +184,7 @@ public class PackageManagerTool extends BaseTool {
         if (StrUtil.isNotBlank(oldCommand)) {
             builder.append("（旧命令: ").append(oldCommand).append("）");
         }
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, "setScript");
+        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, "setScript");
         return builder.toString();
     }
 
@@ -201,23 +202,31 @@ public class PackageManagerTool extends BaseTool {
             return writeError;
         }
         StringBuilder builder = new StringBuilder("已删除脚本: " + scriptName);
-        appendInstallResultIfNeeded(builder, packageJsonPath.getParent(), runInstall, "removeScript");
+        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, "removeScript");
         return builder.toString();
     }
 
-    private void appendInstallResultIfNeeded(StringBuilder builder, Path projectDir, Boolean runInstall, String actionSource) {
+    private void appendInstallResultIfNeeded(Long appId,
+                                             StringBuilder builder,
+                                             Path projectDir,
+                                             Boolean runInstall,
+                                             String actionSource) {
         if (!Boolean.TRUE.equals(runInstall)) {
             return;
         }
-        builder.append("\n\n").append(runInstall(projectDir, actionSource));
+        builder.append("\n\n").append(runInstall(appId, projectDir, actionSource));
     }
 
-    private String runInstall(Path projectDir, String actionSource) {
+    private String runInstall(Long appId, Path projectDir, String actionSource) {
         DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateInstall(actionSource);
         if (!decision.allowed()) {
             return "[pnpm install]\n依赖策略拒绝: " + decision.reason();
         }
-        DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(projectDir);
+        DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(
+                projectDir,
+                workspaceFileService.requireTaskId(appId),
+                DependencyInstallMode.UPDATE_LOCKFILE
+        );
         return formatInstallResult(decision, result);
     }
 
@@ -250,6 +259,11 @@ public class PackageManagerTool extends BaseTool {
             return null;
         }
         return "错误：package.json 写入被拒绝 - " + result.reason();
+    }
+
+    @Override
+    public ToolRiskLevel getRiskLevel() {
+        return ToolRiskLevel.EXTERNAL_SIDE_EFFECT;
     }
 
     @Override

@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.config;
 
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -16,4 +17,9 @@ public class UserCreditProperties {
     /** 每个积分可覆盖的 token 数。 */
     @Min(1)
     private long tokensPerCredit = 100_000L;
+
+    /** Maximum terminal tasks reconciled by one background settlement pass. */
+    @Min(1)
+    @Max(500)
+    private int settlementBatchSize = 100;
 }

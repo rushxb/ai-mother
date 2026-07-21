@@ -1,0 +1,71 @@
+package com.rush.rushaicodemother.orchestration.eventstream;
+
+import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+
+/** Ordered event-log entry used by resumable task-scoped generation streams. */
+public record SequencedGenerationEvent(
+        long sequence,
+        Kind kind,
+        GenerationStreamEvent event,
+        GenerationEventGap gap
+) {
+
+    public enum Kind {
+        EVENT,
+        GAP,
+        COMPLETE
+    }
+
+    public SequencedGenerationEvent {
+        if (sequence <= 0) {
+            throw new IllegalArgumentException("generation event sequence must be positive");
+        }
+        if (kind == null) {
+            throw new IllegalArgumentException("generation event kind cannot be null");
+        }
+        switch (kind) {
+            case EVENT -> {
+                if (event == null || gap != null) {
+                    throw new IllegalArgumentException("domain event entry must contain only an event");
+                }
+            }
+            case GAP -> {
+                if (event != null || gap == null || gap.firstAvailableSeq() - 1 != sequence) {
+                    throw new IllegalArgumentException("gap entry must identify the sequence before replay resumes");
+                }
+            }
+            case COMPLETE -> {
+                if (event != null || gap != null) {
+                    throw new IllegalArgumentException("completion entry cannot contain an event or gap");
+                }
+            }
+        }
+    }
+
+    public static SequencedGenerationEvent event(long sequence, GenerationStreamEvent event) {
+        return new SequencedGenerationEvent(sequence, Kind.EVENT, event, null);
+    }
+
+    public static SequencedGenerationEvent gap(long sequence,
+                                                long requestedSeq,
+                                                long firstAvailableSeq) {
+        return new SequencedGenerationEvent(
+                sequence,
+                Kind.GAP,
+                null,
+                GenerationEventGap.statusSnapshot(requestedSeq, firstAvailableSeq)
+        );
+    }
+
+    public static SequencedGenerationEvent complete(long sequence) {
+        return new SequencedGenerationEvent(sequence, Kind.COMPLETE, null, null);
+    }
+
+    public boolean domainEvent() {
+        return kind == Kind.EVENT;
+    }
+
+    public boolean terminal() {
+        return kind == Kind.COMPLETE;
+    }
+}

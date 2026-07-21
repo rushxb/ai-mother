@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.service.devserver;
 
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+
 import java.time.Duration;
 import java.util.function.BooleanSupplier;
 
@@ -13,8 +15,15 @@ import java.util.function.BooleanSupplier;
 public record DevServerStartOptions(
         String taskId,
         Duration startupTimeout,
-        BooleanSupplier cancellationRequested
+        BooleanSupplier cancellationRequested,
+        GenerationExecutionFence executionFence
 ) {
+
+    public DevServerStartOptions(String taskId,
+                                 Duration startupTimeout,
+                                 BooleanSupplier cancellationRequested) {
+        this(taskId, startupTimeout, cancellationRequested, null);
+    }
 
     public DevServerStartOptions {
         if (taskId == null || taskId.isBlank()) {

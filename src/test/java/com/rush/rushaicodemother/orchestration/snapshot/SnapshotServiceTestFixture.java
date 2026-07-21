@@ -8,8 +8,11 @@ import com.rush.rushaicodemother.infrastructure.git.GitCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 
 import java.nio.file.Path;
+
+import static org.mockito.Mockito.mock;
 
 /** Production-constructor fixture for snapshot orchestration unit tests. */
 final class SnapshotServiceTestFixture {
@@ -18,12 +21,21 @@ final class SnapshotServiceTestFixture {
     }
 
     static GenerationRollbackPointService rollbackPointService(Path outputRoot, Path snapshotRoot) {
+        return rollbackPointService(
+                outputRoot, snapshotRoot, mock(GenerationTaskFenceGuard.class));
+    }
+
+    static GenerationRollbackPointService rollbackPointService(
+            Path outputRoot,
+            Path snapshotRoot,
+            GenerationTaskFenceGuard fenceGuard) {
         Components components = components(outputRoot, snapshotRoot);
         return new GenerationRollbackPointService(
                 components.generationWorkspaceService(),
                 components.snapshotWorkspaceService(),
                 components.workspaceFileSystemService(),
-                components.snapshotNamePolicy()
+                components.snapshotNamePolicy(),
+                fenceGuard
         );
     }
 
@@ -37,12 +49,21 @@ final class SnapshotServiceTestFixture {
     }
 
     static GenerationRollbackRestoreService rollbackRestoreService(Path outputRoot, Path snapshotRoot) {
+        return rollbackRestoreService(
+                outputRoot, snapshotRoot, mock(GenerationTaskFenceGuard.class));
+    }
+
+    static GenerationRollbackRestoreService rollbackRestoreService(
+            Path outputRoot,
+            Path snapshotRoot,
+            GenerationTaskFenceGuard fenceGuard) {
         Components components = components(outputRoot, snapshotRoot);
         return new GenerationRollbackRestoreService(
                 components.generationWorkspaceService(),
                 components.snapshotWorkspaceService(),
                 components.workspaceFileSystemService(),
-                components.snapshotNamePolicy()
+                components.snapshotNamePolicy(),
+                fenceGuard
         );
     }
 

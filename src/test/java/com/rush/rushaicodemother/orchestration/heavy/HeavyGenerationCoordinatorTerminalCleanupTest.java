@@ -13,6 +13,8 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
@@ -85,6 +87,8 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
                 completionService,
                 lifecycleService,
                 toolExecutionContextService,
+                org.mockito.Mockito.mock(
+                        com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService.class),
                 traceService,
                 executionContextService,
                 taskIdGenerator
@@ -169,8 +173,28 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
         verify(performanceMonitorService).finishTask("task-11", outcome.status());
         verify(sessionRegistry).retainForReplay(11L, fixture.session());
         verify(sessionRegistry, never()).remove(11L, fixture.session());
-        verify(toolExecutionContextService).clearContext(11L);
+        verify(toolExecutionContextService).clearContext(11L, "task-11");
         verify(executionContextService).finish("task-11", outcome.status());
+    }
+
+    @Test
+    void fencedTerminalCleanupMustPreserveARecoveredExecutionEpoch() {
+        GenerationPreparation preparation = preparation();
+        GenerationExecutionFence fence = new GenerationExecutionFence("task-11", "worker-1", 7L);
+        GenerationExecutionContext executionContext = org.mockito.Mockito.mock(GenerationExecutionContext.class);
+        org.mockito.Mockito.when(executionContext.taskId()).thenReturn("task-11");
+        org.mockito.Mockito.when(executionContext.executionFence()).thenReturn(fence);
+        GenerationSession session = new GenerationSession(preparation, executionContext);
+        TerminalFixture fixture = fixture(preparation, session);
+
+        complete(fixture, GenerationTerminalOutcome.SUCCESS, null);
+
+        verify(toolExecutionContextService).clearContext(11L, "task-11", fence);
+        verify(toolExecutionContextService, never()).clearContext(11L, "task-11");
+        verify(executionContextService).finishIfOwned("task-11", fence,
+                GenerationTerminalOutcome.SUCCESS.status());
+        verify(executionContextService, never()).finish("task-11",
+                GenerationTerminalOutcome.SUCCESS.status());
     }
 
     private void complete(TerminalFixture fixture,
@@ -196,7 +220,12 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
     }
 
     private TerminalFixture fixture() {
-        GenerationPreparation preparation = new GenerationPreparation(
+        GenerationPreparation preparation = preparation();
+        return fixture(preparation, new GenerationSession(preparation));
+    }
+
+    private GenerationPreparation preparation() {
+        return new GenerationPreparation(
                 CodeGenTypeEnum.VUE_PROJECT,
                 CodeGenTypeEnum.VUE_PROJECT,
                 false,
@@ -208,7 +237,9 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
                 Map.of(),
                 "task-11"
         );
-        GenerationSession session = new GenerationSession(preparation);
+    }
+
+    private TerminalFixture fixture(GenerationPreparation preparation, GenerationSession session) {
         App app = new App();
         app.setId(11L);
         User user = new User();

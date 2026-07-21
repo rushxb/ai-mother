@@ -6,6 +6,15 @@ import java.util.Locale;
 /** Defines which generated artifacts are eligible for a lifecycle copy. */
 enum ArtifactCopyProfile {
 
+    EXECUTION_WORKSPACE(
+            List.of(".idea", "node_modules", "dist", "target"),
+            List.of(
+                    ".ai-code-install.stamp",
+                    ".ai-code-critical.stamp",
+                    ".ai-code-presentation.stamp"
+            )
+    ),
+
     GENERATED_SOURCE(
             List.of(".git", ".idea", "node_modules", "dist", "target"),
             List.of(

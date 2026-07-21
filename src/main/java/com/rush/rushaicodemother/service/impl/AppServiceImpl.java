@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.PromptOptimizerServiceFactory;
+import com.rush.rushaicodemother.application.app.AppAccessPolicy;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -21,10 +22,11 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEvent;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotencyService;
 import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
-import com.rush.rushaicodemother.service.UserCreditService;
-import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.deployment.AppDeploymentService;
 import com.rush.rushaicodemother.service.workspace.AppCodeWorkspaceService;
@@ -36,7 +38,6 @@ import reactor.core.publisher.Flux;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * 应用服务层实现。
@@ -46,15 +47,16 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class AppServiceImpl implements AppService {
 
-    private final UserCreditService userCreditService;
     private final AppPersistenceService appPersistenceService;
-    private final AiModelRuntimeService aiModelRuntimeService;
     private final PromptOptimizerServiceFactory promptOptimizerServiceFactory;
     private final GenerationTaskOrchestrator generationTaskOrchestrator;
     private final GenerationEventPublisher generationEventPublisher;
+    private final GenerationTaskQueryService generationTaskQueryService;
+    private final GenerationTaskIdempotencyService generationTaskIdempotencyService;
     private final AppDatabaseResourceService appDatabaseResourceService;
     private final AppCodeWorkspaceService appCodeWorkspaceService;
     private final AppDeploymentService appDeploymentService;
+    private final AppAccessPolicy appAccessPolicy;
 
     @Override
     public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
@@ -63,23 +65,29 @@ public class AppServiceImpl implements AppService {
 
     @Override
     public GenerationTaskResult submitGeneration(Long appId, String message, User loginUser) {
+        return submitGeneration(appId, message, loginUser, null);
+    }
+
+    @Override
+    public GenerationTaskResult submitGeneration(Long appId,
+                                                 String message,
+                                                 User loginUser,
+                                                 String idempotencyKey) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        GenerationTaskIdempotency idempotency = generationTaskIdempotencyService.resolve(
+                idempotencyKey, appId, message);
         App app = getGenerationApp(appId, loginUser);
-        aiModelRuntimeService.ensureGenerationModelsConfigured();
-        userCreditService.ensureHasCredit(loginUser.getId());
         enableDatabaseForGenerationIfNeeded(app, message);
-        generationEventPublisher.clearRecent(app.getId());
-        return generationTaskOrchestrator.start(new GenerationTaskRequest(app, message, loginUser));
+        return generationTaskOrchestrator.start(
+                new GenerationTaskRequest(app, message, loginUser), idempotency);
     }
 
     private App getGenerationApp(Long appId, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
-        if (!Objects.equals(app.getUserId(), loginUser.getId())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用");
-        }
+        appAccessPolicy.requireOwner(app, loginUser, "无权限访问该应用");
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
@@ -98,7 +106,9 @@ public class AppServiceImpl implements AppService {
         App app = getOwnedApp(appId, loginUser);
         Flux<GenerationStreamEvent> recentStructuredEvents = Flux.fromIterable(generationEventPublisher.recent(app.getId()))
                 .map(this::toGenerationStreamEvent);
-        return recentStructuredEvents.concatWith(generationTaskOrchestrator.getStream(app.getId()));
+        return recentStructuredEvents.concatWith(
+                generationTaskQueryService.eventsForLatestNonTerminalAppTask(app.getId(), loginUser)
+        );
     }
 
     private GenerationStreamEvent toGenerationStreamEvent(GenerationEvent event) {
@@ -181,9 +191,7 @@ public class AppServiceImpl implements AppService {
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
         App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
-        if (!Objects.equals(app.getUserId(), loginUser.getId())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该应用代码");
-        }
+        appAccessPolicy.requireOwner(app, loginUser, "无权限访问该应用代码");
         return app;
     }
 

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -13,6 +14,8 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class GenerationRollbackPointServiceTest {
 
@@ -41,7 +44,9 @@ class GenerationRollbackPointServiceTest {
                 null
         );
 
-        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(codeOutputRoot, codeSnapshotRoot)
+        GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(
+                        codeOutputRoot, codeSnapshotRoot, fenceGuard)
                 .prepareRollbackPoint(request, CodeGenTypeEnum.VUE_PROJECT, "task-7");
 
         assertEquals("rollback_point", artifact.key());
@@ -50,6 +55,7 @@ class GenerationRollbackPointServiceTest {
         Path snapshotPath = Path.of(String.valueOf(artifact.payload().get("snapshotPath")));
         assertTrue(Files.exists(snapshotPath.resolve("src/App.vue")));
         assertFalse(Files.exists(snapshotPath.resolve("node_modules/pkg/index.js")));
+        verify(fenceGuard).assertCurrent("task-7");
     }
 
     @Test

@@ -46,6 +46,7 @@ public class ProxyHeaderPolicy {
         return !normalizedName.isEmpty()
                 && !HOP_BY_HOP_HEADERS.contains(normalizedName)
                 && !BLOCKED_REQUEST_HEADERS.contains(normalizedName)
+                && !normalizedName.startsWith(DevServerInternalRequestSigner.HEADER_PREFIX)
                 && !normalizedName.startsWith("proxy-");
     }
 

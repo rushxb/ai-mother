@@ -1,0 +1,417 @@
+package com.rush.rushaicodemother.orchestration.runtime.task;
+
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.enums.TenantRole;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationSessionFactory;
+import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionSnapshot;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
+import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspaceService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceExecutionScope;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.service.app.AppPersistenceService;
+import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
+import com.rush.rushaicodemother.service.user.UserPersistenceService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.time.Duration;
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.Objects;
+
+/** Reconstructs a persisted command and admits it to the bounded local execution runtime. */
+@Service
+@RequiredArgsConstructor
+public class GenerationTaskCommandExecutionService {
+
+    private final DurableGenerationTaskRepository repository;
+    private final AppPersistenceService appPersistenceService;
+    private final UserPersistenceService userPersistenceService;
+    private final TenantAuthorizationService tenantAuthorizationService;
+    private final GenerationWorkspaceService workspaceService;
+    private final GenerationExecutionWorkspaceService executionWorkspaceService;
+    private final GenerationWorkspaceExecutionScope workspaceExecutionScope;
+    private final GenerationToolExecutionContextService toolExecutionContextService;
+    private final GenerationExecutionContextService executionContextService;
+    private final GenerationRuntimeProperties runtimeProperties;
+    private final GenerationSessionFactory sessionFactory;
+    private final GenerationSessionRegistry sessionRegistry;
+    private final GenerationTaskExecutor taskExecutor;
+    private final GenerationPipelineExecutor pipelineExecutor;
+    private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private final GenerationTraceContextBridge traceContextBridge;
+    private final GenerationPerformanceMonitorService performanceMonitorService;
+
+    /** Compatibility constructor for legacy tests and unmanaged callers. */
+    public GenerationTaskCommandExecutionService(
+            DurableGenerationTaskRepository repository,
+            AppPersistenceService appPersistenceService,
+            UserPersistenceService userPersistenceService,
+            TenantAuthorizationService tenantAuthorizationService,
+            GenerationWorkspaceService workspaceService,
+            GenerationExecutionContextService executionContextService,
+            GenerationRuntimeProperties runtimeProperties,
+            GenerationSessionFactory sessionFactory,
+            GenerationSessionRegistry sessionRegistry,
+            GenerationTaskExecutor taskExecutor,
+            GenerationPipelineExecutor pipelineExecutor,
+            GenerationTaskRuntimeLifecycleService runtimeLifecycleService,
+            GenerationTraceContextBridge traceContextBridge,
+            GenerationPerformanceMonitorService performanceMonitorService
+    ) {
+        this(
+                repository,
+                appPersistenceService,
+                userPersistenceService,
+                tenantAuthorizationService,
+                workspaceService,
+                null,
+                null,
+                null,
+                executionContextService,
+                runtimeProperties,
+                sessionFactory,
+                sessionRegistry,
+                taskExecutor,
+                pipelineExecutor,
+                runtimeLifecycleService,
+                traceContextBridge,
+                performanceMonitorService
+        );
+    }
+
+    public GenerationTaskDispatchResult schedule(String taskId, Runnable completionCallback) {
+        Runnable callback = completionCallback == null ? () -> { } : completionCallback;
+        DurableGenerationTaskRecord task = repository.findByTaskId(taskId).orElse(null);
+        if (task == null || task.terminal() || task.status() == GenerationTaskStatus.WAITING_APPROVAL) {
+            return GenerationTaskDispatchResult.TERMINAL;
+        }
+        Instant now = Instant.now();
+        if (task.cancellationRequested()) {
+            runtimeLifecycleService.completeUnowned(taskId, GenerationTaskStatus.CANCELLED,
+                    normalize(task.cancellationReason(), "user_requested"));
+            return GenerationTaskDispatchResult.TERMINAL;
+        }
+        if (task.deadlineAt() != null && !task.deadlineAt().isAfter(now)) {
+            runtimeLifecycleService.completeUnowned(taskId, GenerationTaskStatus.DEADLINE_EXCEEDED,
+                    "deadline_exceeded_before_dispatch");
+            return GenerationTaskDispatchResult.TERMINAL;
+        }
+        if (task.status() != GenerationTaskStatus.QUEUED) {
+            return GenerationTaskDispatchResult.ALREADY_ACTIVE;
+        }
+        GenerationSession localSession = sessionRegistry.getByTaskId(taskId);
+        if (localSession != null && localSession.isActive()) {
+            return GenerationTaskDispatchResult.ALREADY_ACTIVE;
+        }
+        GenerationExecutionFence executionFence = runtimeLifecycleService.reserveQueued(taskId).orElse(null);
+        if (executionFence == null) {
+            DurableGenerationTaskRecord current = repository.findByTaskId(taskId).orElse(null);
+            if (current == null || current.terminal() || current.status() == GenerationTaskStatus.WAITING_APPROVAL) {
+                return GenerationTaskDispatchResult.TERMINAL;
+            }
+            if (current.status() == GenerationTaskStatus.RUNNING
+                    || (current.leaseOwner() != null && current.leaseUntil() != null
+                    && current.leaseUntil().isAfter(now))) {
+                return GenerationTaskDispatchResult.ALREADY_ACTIVE;
+            }
+            return GenerationTaskDispatchResult.RETRY;
+        }
+        GenerationExecutionWorkspace executionWorkspace = null;
+        GenerationExecutionContext executionContext = null;
+        GenerationSession session = null;
+        Long appId = task.appId();
+        boolean toolContextBound = false;
+        boolean sessionRegistered = false;
+        boolean claimReleased = false;
+        try {
+            GenerationTaskCommand command = repository.findCommandByTaskId(taskId).orElse(null);
+            if (command == null) {
+                claimReleased = true;
+                runtimeLifecycleService.completeOwned(executionFence, GenerationTaskStatus.FAILED,
+                        "generation_runtime_command_missing");
+                return GenerationTaskDispatchResult.TERMINAL;
+            }
+            appId = command.appId();
+            App app = appPersistenceService.findActiveById(command.appId());
+            User user = userPersistenceService.findActiveById(command.userId());
+            if (app == null
+                    || user == null
+                    || !Objects.equals(app.getTenantId(), task.tenantId())
+                    || (command.tenantId() != null && !Objects.equals(command.tenantId(), task.tenantId()))) {
+                claimReleased = true;
+                runtimeLifecycleService.completeOwned(executionFence, GenerationTaskStatus.FAILED,
+                        "generation_identity_no_longer_exists");
+                return GenerationTaskDispatchResult.TERMINAL;
+            }
+            try {
+                tenantAuthorizationService.requireRole(
+                        task.tenantId(), user.getId(), TenantRole.DEVELOPER,
+                        "Generation actor is no longer authorized for this tenant");
+            } catch (BusinessException noLongerAuthorized) {
+                claimReleased = true;
+                runtimeLifecycleService.completeOwned(executionFence, GenerationTaskStatus.FAILED,
+                        "generation_actor_no_longer_authorized");
+                return GenerationTaskDispatchResult.TERMINAL;
+            }
+
+            boolean duplicateAfterClaim;
+            synchronized (sessionRegistry.lock(command.appId())) {
+                GenerationSession existing = sessionRegistry.getByTaskId(taskId);
+                duplicateAfterClaim = existing != null && existing.isActive();
+                if (!duplicateAfterClaim) {
+                    sessionRegistry.assertNoActiveSession(command.appId());
+                }
+            }
+            if (duplicateAfterClaim) {
+                claimReleased = true;
+                runtimeLifecycleService.releaseClaimToQueue(
+                        executionFence, "duplicate_local_session_after_claim");
+                return GenerationTaskDispatchResult.ALREADY_ACTIVE;
+            }
+
+            // Restore and fence the deadline/cancellation context before any potentially expensive
+            // filesystem materialization.  Large project copies must not run outside the task SLA.
+            executionContext = restoreExecutionContext(command);
+            synchronized (executionContext) {
+                executionContext.bindExecutionFence(executionFence);
+            }
+            executionContext.assertCanContinue();
+
+            if (executionWorkspaceService != null) {
+                GenerationPerformanceMonitorService.SpanTimer workspaceSpan =
+                        performanceMonitorService.startSpan(
+                                taskId,
+                                "execution_workspace_materialization",
+                                GenerationSpanCategory.WORKSPACE
+                        );
+                try {
+                    executionWorkspace = executionWorkspaceService.register(
+                            executionFence, app.getId(), command.codeGenType());
+                    workspaceSpan.close(
+                            "success",
+                            "seededFromEpoch=" + (executionWorkspace == null
+                                    ? "none"
+                                    : Objects.toString(executionWorkspace.seededFromEpoch(), "canonical_or_empty"))
+                    );
+                } catch (RuntimeException | Error workspaceFailure) {
+                    workspaceSpan.failed(workspaceFailure.getClass().getSimpleName());
+                    throw workspaceFailure;
+                }
+            }
+            if (executionWorkspaceService != null && toolExecutionContextService != null) {
+                // Preparation may have bound a task-level context before the worker epoch existed.
+                // Pin it now so every model/tool callback can resolve the exact fence.
+                toolContextBound = toolExecutionContextService.bindExecutionFenceIfPresent(
+                        app.getId(), taskId, executionFence);
+                if (toolContextBound && executionWorkspace != null) {
+                    toolExecutionContextService.bindWorkspace(
+                            app.getId(), taskId, executionWorkspace.workspace(), executionFence);
+                }
+            }
+            GenerationWorkspace workspace = executionWorkspace == null
+                    ? workspaceService.resolve(app, command.codeGenType())
+                    : executionWorkspace.workspace();
+            GenerationPipelineRequest request = command.restore(app, user, workspace);
+
+            boolean duplicateAfterSetup;
+            synchronized (sessionRegistry.lock(command.appId())) {
+                GenerationSession existing = sessionRegistry.getByTaskId(taskId);
+                duplicateAfterSetup = existing != null && existing.isActive();
+                if (!duplicateAfterSetup) {
+                    sessionRegistry.assertNoActiveSession(command.appId());
+                    session = sessionFactory.create(null, executionContext);
+                    if (executionWorkspace != null) {
+                        session.bindExecutionWorkspace(executionWorkspace);
+                    }
+                    session.bindTaskRequest(request.taskRequest());
+                    session.recordRoute(command.route());
+                    sessionRegistry.put(command.appId(), session);
+                    sessionRegistered = true;
+                }
+            }
+            if (duplicateAfterSetup) {
+                cleanupDispatchResources(
+                        appId, taskId, executionFence, executionWorkspace, executionContext,
+                        null, false, toolContextBound, "duplicate_local_session_after_setup");
+                claimReleased = true;
+                runtimeLifecycleService.releaseClaimToQueue(
+                        executionFence, "duplicate_local_session_after_setup");
+                return GenerationTaskDispatchResult.ALREADY_ACTIVE;
+            }
+
+            GenerationExecutionContext admittedExecutionContext = executionContext;
+            GenerationSession admittedSession = session;
+            GenerationTaskExecution execution = new GenerationTaskExecution(
+                    taskId, admittedSession, admittedExecutionContext, executionFence, command.submittedAt());
+            GenerationPipelineRequest executableRequest = request.withExecution(execution);
+            Instant workerQueueStartedAt = Instant.now();
+            Runnable tracedTask = traceContextBridge.wrap(
+                    command.traceContext(),
+                    "generation.task.execute",
+                    Map.of(
+                            "generation.task.id", command.taskId(),
+                            "generation.execution.epoch", String.valueOf(executionFence.executionEpoch()),
+                            "generation.tenant.id", String.valueOf(task.tenantId()),
+                            "generation.app.id", String.valueOf(command.appId()),
+                            "generation.user.id", String.valueOf(command.userId()),
+                            "generation.route", command.route()
+                    ),
+                    () -> runInExecutionWorkspace(executionFence, () -> {
+                        recordWorkerQueueWait(task, admittedExecutionContext, workerQueueStartedAt);
+                        try {
+                            pipelineExecutor.execute(executableRequest);
+                        } finally {
+                            callback.run();
+                        }
+                    }));
+            taskExecutor.execute(execution, tracedTask);
+            return GenerationTaskDispatchResult.SCHEDULED;
+        } catch (RuntimeException | Error admissionFailure) {
+            cleanupDispatchResourcesSafely(
+                    appId, taskId, executionFence, executionWorkspace, executionContext,
+                    session, sessionRegistered, toolContextBound, "dispatch_rejected", admissionFailure);
+            if (!claimReleased) {
+                try {
+                    runtimeLifecycleService.releaseClaimToQueue(
+                            executionFence, "worker_dispatch_rejected");
+                } catch (RuntimeException releaseFailure) {
+                    admissionFailure.addSuppressed(releaseFailure);
+                }
+            }
+            throw admissionFailure;
+        }
+    }
+
+    private void cleanupDispatchResourcesSafely(Long appId,
+                                                String taskId,
+                                                GenerationExecutionFence executionFence,
+                                                GenerationExecutionWorkspace executionWorkspace,
+                                                GenerationExecutionContext executionContext,
+                                                GenerationSession session,
+                                                boolean sessionRegistered,
+                                                boolean toolContextBound,
+                                                String completionStatus,
+                                                Throwable primaryFailure) {
+        try {
+            cleanupDispatchResources(
+                    appId, taskId, executionFence, executionWorkspace, executionContext,
+                    session, sessionRegistered, toolContextBound, completionStatus);
+        } catch (RuntimeException | Error cleanupFailure) {
+            primaryFailure.addSuppressed(cleanupFailure);
+        }
+    }
+
+    private void cleanupDispatchResources(Long appId,
+                                          String taskId,
+                                          GenerationExecutionFence executionFence,
+                                          GenerationExecutionWorkspace executionWorkspace,
+                                          GenerationExecutionContext executionContext,
+                                          GenerationSession session,
+                                          boolean sessionRegistered,
+                                          boolean toolContextBound,
+                                          String completionStatus) {
+        if (sessionRegistered && appId != null && session != null) {
+            sessionRegistry.remove(appId, session);
+        }
+        if (session != null) {
+            session.complete();
+        }
+        if (toolContextBound && toolExecutionContextService != null) {
+            toolExecutionContextService.clearContext(appId, taskId, executionFence);
+        }
+        if (executionWorkspace != null && executionWorkspaceService != null) {
+            executionWorkspaceService.clear(executionFence);
+        }
+        if (executionContext != null) {
+            executionContextService.finishIfOwned(taskId, executionFence, completionStatus);
+        }
+    }
+
+    private Void runInExecutionWorkspace(GenerationExecutionFence executionFence,
+                                         Runnable action) {
+        if (workspaceExecutionScope == null) {
+            action.run();
+            return null;
+        }
+        return workspaceExecutionScope.with(executionFence, () -> {
+            action.run();
+            return null;
+        });
+    }
+
+    private GenerationExecutionContext restoreExecutionContext(GenerationTaskCommand command) {
+        return executionContextService.getByTaskId(command.taskId())
+                .orElseGet(() -> {
+                    GenerationExecutionLimits limits = command.slaEnvelope() == null
+                            ? runtimeProperties.toLimits()
+                            : command.slaEnvelope().toLimits();
+                    EnumMap<GenerationBudgetKind, Integer> limitSnapshot =
+                            new EnumMap<>(GenerationBudgetKind.class);
+                    for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
+                        limitSnapshot.put(kind, limits.limit(kind));
+                    }
+                    return executionContextService.restore(new GenerationExecutionSnapshot(
+                            command.taskId(), command.appId(), command.userId(),
+                            command.submittedAt(), command.deadlineAt(),
+                            command.slaEnvelope() == null ? "legacy-default" : command.slaEnvelope().profile(),
+                            command.slaEnvelope() == null
+                                    ? command.deadlineAt()
+                                    : command.slaEnvelope().firstPreviewDeadline(command.submittedAt()),
+                            null,
+                            false, null, null,
+                            Map.of(), Map.copyOf(limitSnapshot)
+                    ), limits);
+                });
+    }
+
+    private String normalize(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private void recordWorkerQueueWait(DurableGenerationTaskRecord task,
+                                       GenerationExecutionContext executionContext,
+                                       Instant queuedAt) {
+        Instant startedAt = Instant.now();
+        String status = executionContext.isCancelled()
+                ? "cancelled"
+                : executionContext.isDeadlineExceeded() ? "deadline_exceeded" : "success";
+        performanceMonitorService.recordSpan(
+                task.taskId(),
+                "worker_queue_wait",
+                GenerationSpanCategory.QUEUE,
+                status,
+                nonNegativeDuration(queuedAt, startedAt),
+                "attempt=" + Math.max(0, task.attempt())
+        );
+    }
+
+    private Duration nonNegativeDuration(Instant startedAt, Instant endedAt) {
+        if (startedAt == null || endedAt == null || endedAt.isBefore(startedAt)) {
+            return Duration.ZERO;
+        }
+        return Duration.between(startedAt, endedAt);
+    }
+}

@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import lombok.ToString;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -63,8 +64,16 @@ public class AiModel implements Serializable {
     /**
      * API 密钥
      */
-    @Column("apiKey")
-    private String apiKey;
+    @Column("secretRef")
+    @ToString.Exclude
+    private String secretRef;
+
+    @Column("secretFingerprint")
+    @ToString.Exclude
+    private String secretFingerprint;
+
+    @Column("secretKeyId")
+    private String secretKeyId;
 
     /**
      * 最大 token 数

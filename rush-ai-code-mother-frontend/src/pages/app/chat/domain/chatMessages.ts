@@ -34,7 +34,5 @@ export const createPendingAiMessage = (createTime?: string): ChatMessage => ({
   type: 'ai',
   content: '',
   loading: true,
-  thinkingActive: true,
-  thinkingCollapsed: false,
   createTime,
 })

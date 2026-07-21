@@ -3,8 +3,6 @@ package com.rush.rushaicodemother.orchestration.edit;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
-import com.rush.rushaicodemother.ai.AiCodeEditService;
-import com.rush.rushaicodemother.ai.AiCodeEditServiceFactory;
 import com.rush.rushaicodemother.ai.model.EditResult;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.entity.App;
@@ -23,6 +21,7 @@ import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycle
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
@@ -48,7 +47,7 @@ public class AgentEditGenerationService {
     private final AgentEditPatchService patchService;
     private final AgentEditVerificationService verificationService;
     private final AgentEditRepairService repairService;
-    private final AiCodeEditServiceFactory aiCodeEditServiceFactory;
+    private final GenerationEditModelInvoker editModelInvoker;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationEventPublisher generationEventPublisher;
     private final GenerationTaskLifecycleService lifecycleService;
@@ -61,19 +60,46 @@ public class AgentEditGenerationService {
     /** Legacy entry point retained for isolated callers outside the unified task runtime. */
     @Deprecated(forRemoval = false)
     public AgentEditResult execute(GenerationTaskRequest request, GenerationModeDecision modeDecision) {
-        return execute(generateTaskId(), request, modeDecision);
+        App app = request.app();
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        return executeInternal(
+                generateTaskId(), request, modeDecision,
+                generationWorkspaceService.resolve(app, codeGenType), false);
     }
 
     /** Executes AGENT_EDIT using the task identity allocated by the submission runtime. */
     public AgentEditResult execute(String taskId,
                                    GenerationTaskRequest request,
                                    GenerationModeDecision modeDecision) {
+        App app = request.app();
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        return execute(
+                taskId,
+                request,
+                modeDecision,
+                generationWorkspaceService.resolve(app, codeGenType)
+        );
+    }
+
+    /** Executes AGENT_EDIT against the exact workspace selected by the durable worker epoch. */
+    public AgentEditResult execute(String taskId,
+                                   GenerationTaskRequest request,
+                                   GenerationModeDecision modeDecision,
+                                   GenerationWorkspace workspace) {
+        return executeInternal(taskId, request, modeDecision, workspace, true);
+    }
+
+    private AgentEditResult executeInternal(String taskId,
+                                            GenerationTaskRequest request,
+                                            GenerationModeDecision modeDecision,
+                                            GenerationWorkspace workspace,
+                                            boolean managedModelCalls) {
         requireTaskId(taskId);
         App app = request.app();
         User loginUser = request.loginUser();
         String userMessage = request.message();
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
-        GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
+        requireWorkspace(app, codeGenType, workspace);
         Instant startedAt = Instant.now();
 
         performanceMonitorService.startTask(
@@ -99,7 +125,8 @@ public class AgentEditGenerationService {
             AgentEditUnderstanding understanding = understand(request, taskId, readResult);
 
             String projectContext = buildProjectContext(readResult, understanding);
-            EditResult editResult = editWithAi(taskId, userMessage, projectContext);
+            EditResult editResult = editWithAi(
+                    taskId, userMessage, projectContext, managedModelCalls);
             List<PatchOperation> patchOperations = planningService.convertToPatchOperations(editResult);
             if (patchOperations.isEmpty()) {
                 return fail(request, app, loginUser, taskId, "AGENT_EDIT 未生成有效补丁操作", 0, null);
@@ -114,9 +141,13 @@ public class AgentEditGenerationService {
             );
             int repairRounds = 0;
             if (!outcome.success()) {
-                AgentEditRepairService.RepairAttempt repairAttempt = repairService.repair(
-                        userMessage, projectContext, outcome.validationResult(), outcome.applyResult()
-                );
+                AgentEditRepairService.RepairAttempt repairAttempt = managedModelCalls
+                        ? repairService.repair(
+                        taskId, userMessage, projectContext,
+                        outcome.validationResult(), outcome.applyResult())
+                        : repairService.repair(
+                        userMessage, projectContext,
+                        outcome.validationResult(), outcome.applyResult());
                 if (!repairAttempt.patchOperations().isEmpty()) {
                     repairRounds = 1;
                     editFileSnapshotService.captureMissing(snapshot, repairAttempt.patchOperations());
@@ -140,7 +171,8 @@ public class AgentEditGenerationService {
                     "repairRounds", repairRounds
             ));
             if (!outcome.success()) {
-                EditFileSnapshotService.RestoreResult restoreResult = editFileSnapshotService.restore(snapshot);
+            EditFileSnapshotService.RestoreResult restoreResult =
+                    editFileSnapshotService.restore(taskId, snapshot);
                 generationEventPublisher.publish(request, GenerationEventType.EDIT_ROLLBACK, "AGENT_EDIT 验证失败，已尝试回滚快照", Map.of(
                         "taskId", taskId,
                         "status", restoreResult.status(),
@@ -155,15 +187,9 @@ public class AgentEditGenerationService {
             editStatePersistenceService.recordEditResult(app.getId(), taskId, patchOperations, true);
             String summary = buildSuccessSummary(editResult, changePlan, outcome);
             chatHistoryService.addChatMessage(app.getId(), summary, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-            lifecycleService.completeGenerationAndCharge(
-                    taskId, app.getId(), GenerationTaskStatus.SUCCESS, null);
-            generationEventPublisher.publish(request, GenerationEventType.TASK_DONE, "AGENT_EDIT 完成", Map.of(
-                    "taskId", taskId,
-                    "route", GenerationRoute.AGENT_EDIT,
-                    "changedFiles", changedFiles,
-                    "repairRounds", repairRounds
-            ));
             return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, summary, changedFiles, "success", repairRounds);
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (Exception e) {
             log.error("AGENT_EDIT 执行失败，appId: {}, taskId: {}", app.getId(), taskId, LogExceptionSanitizer.sanitize(e));
             GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(e);
@@ -256,10 +282,12 @@ public class AgentEditGenerationService {
         return changePlan;
     }
 
-    private EditResult editWithAi(String taskId, String userMessage, String projectContext) {
+    private EditResult editWithAi(String taskId,
+                                  String userMessage,
+                                  String projectContext,
+                                  boolean managedModelCall) {
         Instant startedAt = Instant.now();
-        AiCodeEditService aiCodeEditService = aiCodeEditServiceFactory.createAiCodeEditService();
-        String agentEditMessage = """
+            String agentEditMessage = """
                 %s
 
                 请按 Claude Code 式编辑流程执行：先理解上下文，再只输出必要的结构化 JSON 编辑操作。
@@ -270,7 +298,9 @@ public class AgentEditGenerationService {
                 4. 删除文件必须是用户明确要求或修复必需。
                 """.formatted(StrUtil.blankToDefault(userMessage, ""));
         try {
-            return aiCodeEditService.editCode(agentEditMessage, projectContext);
+            return managedModelCall
+                    ? editModelInvoker.invokeManaged(taskId, "initial", agentEditMessage, projectContext)
+                    : editModelInvoker.invokeLegacy(agentEditMessage, projectContext);
         } finally {
             performanceMonitorService.recordRuntimeTelemetry(taskId, Map.of(
                     "modelName", "routing_chat_model",
@@ -403,6 +433,15 @@ public class AgentEditGenerationService {
     private void requireTaskId(String taskId) {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
             throw new IllegalArgumentException("taskId format is invalid");
+        }
+    }
+
+    private void requireWorkspace(App app,
+                                  CodeGenTypeEnum codeGenType,
+                                  GenerationWorkspace workspace) {
+        if (app == null || app.getId() == null || codeGenType == null || workspace == null
+                || !app.getId().equals(workspace.appId()) || workspace.codeGenType() != codeGenType) {
+            throw new IllegalArgumentException("agent edit workspace identity mismatch");
         }
     }
 

@@ -52,29 +52,6 @@
           </div>
           <div class="message-body message-body-ai">
             <div class="message-content">
-              <div
-                v-if="message.thinkingContent"
-                class="thinking-block"
-                :class="{ collapsed: message.thinkingCollapsed }"
-              >
-                <button
-                  type="button"
-                  class="thinking-header"
-                  @click="message.thinkingCollapsed = !message.thinkingCollapsed"
-                >
-                  <span class="thinking-status">
-                    <span
-                      class="thinking-dot"
-                      :class="{ active: message.thinkingActive && !message.thinkingCollapsed }"
-                    ></span>
-                    {{ message.thinkingActive ? 'AI 正在思考' : '已完成思考' }}
-                  </span>
-                  <DownOutlined class="thinking-toggle" />
-                </button>
-                <div v-show="!message.thinkingCollapsed" class="thinking-content">
-                  {{ message.thinkingContent }}
-                </div>
-              </div>
               <template v-if="message.content">
                 <template
                   v-for="(segment, segmentIndex) in getAiMessageSegments(message)"
@@ -127,6 +104,29 @@
                     >
                       <span v-if="agentEvent.qualityGate">门禁：{{ agentEvent.qualityGate }}</span>
                       <span v-if="agentEvent.recoverable">可恢复</span>
+                    </div>
+                    <div
+                      v-if="agentEvent.status === 'approval_required' && agentEvent.approvalId"
+                      class="tool-approval-card"
+                    >
+                      <div class="tool-approval-copy">
+                        <strong>需要你的确认</strong>
+                        <span>{{ String(agentEvent.request?.snapshotName || agentEvent.request?.relativeFilePath || agentEvent.action || '危险操作') }}</span>
+                      </div>
+                      <div v-if="isOwner" class="tool-approval-actions">
+                        <a-button
+                          size="small"
+                          danger
+                          :loading="approvalSubmittingIds.has(agentEvent.approvalId)"
+                          @click="handleToolApproval(agentEvent, 'reject')"
+                        >拒绝</a-button>
+                        <a-button
+                          size="small"
+                          type="primary"
+                          :loading="approvalSubmittingIds.has(agentEvent.approvalId)"
+                          @click="handleToolApproval(agentEvent, 'approve')"
+                        >允许一次</a-button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -256,10 +256,10 @@ import {
 } from '@ant-design/icons-vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { copyTextToClipboard } from '@/utils/clipboard'
-import type { AiMessageSegment, ChatMessage, FileIconMeta } from './types'
+import type { AgentEventView, AiMessageSegment, ChatMessage, FileIconMeta } from './types'
 import ChatToolbarButton from './ChatToolbarButton.vue'
 
-defineProps<{
+const props = defineProps<{
   aiAvatar: string
   formatDuration: (durationMs?: number) => string
   formatMessageTime: (time?: string) => string
@@ -273,6 +273,10 @@ defineProps<{
   loginUserAvatar: string
   messages: ChatMessage[]
   showScrollToBottom: boolean
+  decideToolApproval: (
+    agentEvent: AgentEventView,
+    decision: 'approve' | 'reject',
+  ) => Promise<void>
 }>()
 
 defineEmits<{
@@ -288,6 +292,22 @@ defineEmits<{
 
 const messagesContainerRef = ref<HTMLElement>()
 const copiedIndices = ref(new Set<number>())
+const approvalSubmittingIds = ref(new Set<string>())
+
+const handleToolApproval = async (
+  agentEvent: AgentEventView,
+  decision: 'approve' | 'reject',
+) => {
+  if (!agentEvent.approvalId || approvalSubmittingIds.value.has(agentEvent.approvalId)) {
+    return
+  }
+  approvalSubmittingIds.value.add(agentEvent.approvalId)
+  try {
+    await props.decideToolApproval(agentEvent, decision)
+  } finally {
+    approvalSubmittingIds.value.delete(agentEvent.approvalId)
+  }
+}
 
 const copyMessageAsMarkdown = async (message: ChatMessage, index: number) => {
   const text = message.content ?? ''
@@ -525,72 +545,6 @@ defineExpose({
   white-space: nowrap;
 }
 
-.thinking-block {
-  margin-bottom: 12px;
-  overflow: hidden;
-  border: 1px solid var(--chat-line, rgba(112, 140, 175, 0.18));
-  border-radius: 14px;
-  background: var(--chat-surface-soft, rgba(246, 249, 253, 0.86));
-}
-
-.thinking-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 38px;
-  padding: 8px 12px;
-  border: 0;
-  background: transparent;
-  color: var(--chat-ink, #2f4158);
-  font-size: 13px;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.thinking-status {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.thinking-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #94a3b8;
-}
-
-.thinking-dot.active {
-  background: var(--chat-primary, #2f8bff);
-  box-shadow: 0 0 0 5px rgba(47, 139, 255, 0.1);
-  animation: pulse 1.6s ease-in-out infinite;
-}
-
-.thinking-toggle {
-  flex: none;
-  color: #94a3b8;
-  transition: transform 0.2s ease;
-}
-
-.thinking-block.collapsed .thinking-toggle {
-  transform: rotate(-90deg);
-}
-
-.thinking-content {
-  max-height: 220px;
-  overflow: auto;
-  padding: 0 12px 12px 27px;
-  color: var(--chat-ink-soft, #6f8198);
-  font-size: 13px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .tool-call-file-card {
   width: 100%;
   display: flex;
@@ -744,6 +698,42 @@ defineExpose({
   background: rgba(15, 23, 42, 0.05);
   color: #64748b;
   font-size: 11px;
+}
+
+.tool-approval-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 251, 235, 0.94);
+}
+
+.tool-approval-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-approval-copy strong {
+  color: #92400e;
+}
+
+.tool-approval-copy span {
+  overflow: hidden;
+  color: #a16207;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-approval-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
 }
 
 .message-avatar {

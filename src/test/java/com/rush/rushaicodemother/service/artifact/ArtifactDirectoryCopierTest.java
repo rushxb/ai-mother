@@ -13,7 +13,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -201,6 +203,31 @@ class ArtifactDirectoryCopierTest {
         newCopier(true).copy(sourceDirectory, targetDirectory, ArtifactCopyProfile.DEPLOYMENT);
 
         assertEquals("source", Files.readString(targetDirectory.resolve("index.html"), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void executionWorkspaceCancellationMustDeleteThePartiallyCopiedTarget() throws Exception {
+        for (int index = 0; index < 4; index++) {
+            Files.writeString(
+                    sourceDirectory.resolve("file-" + index + ".txt"),
+                    "content-" + index,
+                    StandardCharsets.UTF_8
+            );
+        }
+        AtomicInteger policyChecks = new AtomicInteger();
+
+        ArtifactCopyException exception = assertThrows(
+                ArtifactCopyException.class,
+                () -> newCopier(false).copyExecutionWorkspace(
+                        sourceDirectory,
+                        targetDirectory,
+                        Duration.ofSeconds(5),
+                        () -> policyChecks.incrementAndGet() > 8
+                )
+        );
+
+        assertEquals(ArtifactCopyException.Reason.CANCELLED, exception.reason());
+        assertFalse(Files.exists(targetDirectory));
     }
 
     private ArtifactDirectoryCopier newCopier(boolean windows) {

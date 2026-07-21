@@ -17,7 +17,7 @@ public interface AiModelManagementService {
 
     void deleteModel(long modelId);
 
-    AiModelAdminVO toggleModelEnabled(long modelId);
+    AiModelAdminVO toggleModelEnabled(long modelId, String evidenceId, long operatorUserId);
 
     AiModelAdminVO getModelById(long modelId);
 
@@ -47,6 +47,11 @@ public interface AiModelManagementService {
                          Integer sortOrder,
                          String configJson,
                          String protocol) {
+
+        @Override
+        public String toString() {
+            return "CreateCommand[apiKey=<redacted>]";
+        }
     }
 
     record UpdateCommand(Long id,
@@ -64,6 +69,11 @@ public interface AiModelManagementService {
                          Integer sortOrder,
                          String configJson,
                          String protocol) {
+
+        @Override
+        public String toString() {
+            return "UpdateCommand[id=" + id + ", apiKey=<redacted>]";
+        }
     }
 
     record Query(int pageNumber,

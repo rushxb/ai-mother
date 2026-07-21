@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.core.saver;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -35,6 +36,14 @@ public class CodeFileSaverExecutor {
 
     /** Executes the saver registered for the requested generation type. */
     public File executeSaver(Object codeResult, CodeGenTypeEnum codeGenType, Long appId) {
+        return executeSaver(codeResult, codeGenType, appId, null);
+    }
+
+    /** Executes a saver against an explicitly selected task/epoch workspace. */
+    public File executeSaver(Object codeResult,
+                             CodeGenTypeEnum codeGenType,
+                             Long appId,
+                             GenerationWorkspace workspace) {
         if (codeGenType == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "代码生成类型不能为空");
         }
@@ -45,6 +54,8 @@ public class CodeFileSaverExecutor {
                     "不支持的代码生成类型: " + codeGenType.getValue()
             );
         }
-        return saver.saveCode(codeResult, appId);
+        return workspace == null
+                ? saver.saveCode(codeResult, appId)
+                : saver.saveCode(codeResult, appId, workspace);
     }
 }

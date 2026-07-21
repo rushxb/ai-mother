@@ -108,13 +108,6 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
         }
     }
 
-    @Override
-    public void disableOtherEnabledModels(String modelType, Long excludedModelId) {
-        if (StrUtil.isBlank(modelType)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型类型不能为空");
-        }
-        mapper.disableOtherEnabledModels(modelType, excludedModelId);
-    }
 
     @Override
     public void logicallyDelete(long modelId) {
@@ -133,7 +126,9 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
                 .modelId(entity.getModelId())
                 .description(entity.getDescription())
                 .baseUrl(entity.getBaseUrl())
-                .apiKey(entity.getApiKey())
+                .secretRef(entity.getSecretRef())
+                .secretFingerprint(entity.getSecretFingerprint())
+                .secretKeyId(entity.getSecretKeyId())
                 .maxTokens(entity.getMaxTokens())
                 .temperature(entity.getTemperature())
                 .isEnabled(entity.getIsEnabled())
@@ -159,7 +154,9 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
                 .modelId(configuration.getModelId())
                 .description(configuration.getDescription())
                 .baseUrl(configuration.getBaseUrl())
-                .apiKey(configuration.getApiKey())
+                .secretRef(configuration.getSecretRef())
+                .secretFingerprint(configuration.getSecretFingerprint())
+                .secretKeyId(configuration.getSecretKeyId())
                 .maxTokens(configuration.getMaxTokens())
                 .temperature(configuration.getTemperature())
                 .isEnabled(configuration.getIsEnabled())

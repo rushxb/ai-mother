@@ -1,6 +1,10 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
@@ -11,26 +15,50 @@ import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class OrchestratedGenerationBenchmarkExecutorTest {
 
+    private final GenerationBenchmarkFixtureService fixtureService = mock(GenerationBenchmarkFixtureService.class);
     private final GenerationBenchmarkRequestFactory requestFactory = new GenerationBenchmarkRequestFactory();
     private final GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
     private final GenerationPerformanceMonitorService performanceMonitorService = new GenerationPerformanceMonitorService();
+    private final GenerationBenchmarkUsageRepository usageRepository = mock(GenerationBenchmarkUsageRepository.class);
+    private final GenerationBenchmarkValidationEngine validationEngine = mock(GenerationBenchmarkValidationEngine.class);
+    private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
+            mock(GenerationTaskRuntimeLifecycleService.class);
+    private final GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
+    private final GenerationWorkspace publishedWorkspace = workspace(
+            Path.of(".").toAbsolutePath().normalize().resolve("published"));
 
     @Test
     void shouldExecuteOrchestratorAndCollectSuccessfulBuildMetrics() {
@@ -167,15 +195,142 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         assertFalse(result.failureReason().contains("secret-value"));
     }
 
+    @Test
+    void shouldAttachDeterministicQualityEvidenceToRunResult() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-task-quality", "agent_edit", null,
+                Flux.just(GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))
+        ));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        GenerationBenchmarkQualityEvidence evidence = new GenerationBenchmarkQualityEvidence(java.util.List.of(
+                GenerationBenchmarkRuleResult.passed(
+                        "functional", GenerationBenchmarkQualityDimension.FUNCTIONAL)
+        ));
+        when(validationEngine.evaluate(any())).thenReturn(evidence);
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "edit_quality", "AGENT_EDIT", "vue_project", "edit", "build"
+        ));
+
+        assertTrue(result.qualityEvidence().passed(GenerationBenchmarkQualityDimension.FUNCTIONAL));
+        ArgumentCaptor<GenerationBenchmarkValidationPlan> plan =
+                ArgumentCaptor.forClass(GenerationBenchmarkValidationPlan.class);
+        verify(validationEngine).evaluate(plan.capture());
+        assertSame(publishedWorkspace, plan.getValue().workspace());
+    }
+
+    @Test
+    void timeoutMustRequestDurableCancellationAndCleanupOnlyAfterTerminalState() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-timeout", "create", null, Flux.never()));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(15));
+        ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(100));
+        ReflectionTestUtils.setField(executor, "terminalPollInterval", Duration.ofMillis(1));
+        AtomicBoolean cancellationRequested = new AtomicBoolean(false);
+        AtomicBoolean terminalObserved = new AtomicBoolean(false);
+        AtomicBoolean cleaned = new AtomicBoolean(false);
+        when(runtimeLifecycleService.requestCancellation("bench-timeout", "benchmark_timeout"))
+                .thenAnswer(ignored -> {
+                    cancellationRequested.set(true);
+                    return true;
+                });
+        when(runtimeLifecycleService.findByTaskId("bench-timeout")).thenAnswer(ignored -> {
+            if (!cancellationRequested.get()) {
+                return Optional.of(record("bench-timeout", GenerationTaskStatus.RUNNING));
+            }
+            terminalObserved.set(true);
+            return Optional.of(record("bench-timeout", GenerationTaskStatus.CANCELLED));
+        });
+        doAnswer(invocation -> {
+            GenerationBenchmarkTask task = invocation.getArgument(0);
+            GenerationBenchmarkFixture original = fixture(task);
+            return new GenerationBenchmarkFixture(
+                    original.request(),
+                    original.validationPlan(),
+                    () -> {
+                        assertTrue(terminalObserved.get());
+                        cleaned.set(true);
+                    });
+        }).when(fixtureService).create(any());
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "timeout", "CREATE", "vue_project", "generate", "build"));
+
+        assertFalse(result.success());
+        assertTrue(cancellationRequested.get());
+        assertTrue(cleaned.get());
+        verify(runtimeLifecycleService).requestCancellation("bench-timeout", "benchmark_timeout");
+    }
+
+    @Test
+    void nonTerminalTaskAfterCancellationGraceMustKeepFixtureForDeferredCleanup() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-stuck", "create", null, Flux.never()));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(10));
+        ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(10));
+        ReflectionTestUtils.setField(executor, "terminalPollInterval", Duration.ofMillis(1));
+        AtomicBoolean cleaned = new AtomicBoolean(false);
+        when(runtimeLifecycleService.findByTaskId("bench-stuck"))
+                .thenReturn(Optional.of(record("bench-stuck", GenerationTaskStatus.RUNNING)));
+        when(runtimeLifecycleService.requestCancellation("bench-stuck", "benchmark_timeout"))
+                .thenReturn(true);
+        doAnswer(invocation -> {
+            GenerationBenchmarkFixture original = fixture(invocation.getArgument(0));
+            return new GenerationBenchmarkFixture(
+                    original.request(), original.validationPlan(), () -> cleaned.set(true));
+        }).when(fixtureService).create(any());
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "stuck", "CREATE", "vue_project", "generate", "build"));
+
+        assertFalse(result.success());
+        assertFalse(cleaned.get());
+        verify(runtimeLifecycleService).requestCancellation("bench-stuck", "benchmark_timeout");
+        verify(validationEngine, never()).evaluate(any());
+    }
+
     private OrchestratedGenerationBenchmarkExecutor executor(GenerationTaskOrchestrator orchestrator) {
+        when(fixtureService.create(any())).thenAnswer(invocation -> fixture(invocation.getArgument(0)));
+        when(usageRepository.findByTaskId(any())).thenReturn(GenerationBenchmarkUsage.empty());
+        when(validationEngine.evaluate(any())).thenReturn(GenerationBenchmarkQualityEvidence.empty());
+        when(runtimeLifecycleService.findByTaskId(anyString())).thenAnswer(invocation -> Optional.of(
+                record(invocation.getArgument(0), GenerationTaskStatus.SUCCESS)));
+        when(runtimeLifecycleService.requestCancellation(anyString(), anyString())).thenReturn(true);
+        when(workspaceService.resolvePublished(anyLong(), eq(CodeGenTypeEnum.VUE_PROJECT), anyString()))
+                .thenReturn(publishedWorkspace);
         OrchestratedGenerationBenchmarkExecutor executor = new OrchestratedGenerationBenchmarkExecutor(
-                requestFactory,
+                fixtureService,
                 orchestrator,
                 eventPublisher,
-                performanceMonitorService
+                performanceMonitorService,
+                usageRepository,
+                validationEngine,
+                runtimeLifecycleService,
+                workspaceService
         );
         ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(200));
+        ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(50));
+        ReflectionTestUtils.setField(executor, "terminalPollInterval", Duration.ofMillis(1));
         return executor;
+    }
+
+    private GenerationBenchmarkFixture fixture(GenerationBenchmarkTask task) {
+        User user = new User();
+        user.setId(9L);
+        user.setUserAccount("generation-benchmark");
+        App app = App.builder()
+                .id(101L)
+                .userId(user.getId())
+                .appName("benchmark-" + task.id())
+                .initPrompt(task.prompt())
+                .codeGenType(task.codeGenType())
+                .build();
+        return new GenerationBenchmarkFixture(requestFactory.create(task, app, user), () -> { });
     }
 
     private GenerationModeDecision decision(GenerationMode mode) {
@@ -186,6 +341,45 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 FallbackPolicy.NONE,
                 ExpectedValidationLevel.FAST,
                 ""
+        );
+    }
+
+    private DurableGenerationTaskRecord record(String taskId, GenerationTaskStatus status) {
+        return new DurableGenerationTaskRecord(
+                taskId,
+                101L,
+                9L,
+                1L,
+                "create",
+                status,
+                status == null ? "" : status.getValue(),
+                "",
+                Instant.now(),
+                Instant.now().plusSeconds(60),
+                status == GenerationTaskStatus.CANCELLED,
+                status == GenerationTaskStatus.CANCELLED ? "benchmark_timeout" : "",
+                status != null && status.isTerminal() ? null : "worker-1",
+                status != null && status.isTerminal() ? null : Instant.now().plusSeconds(30),
+                Instant.now(),
+                0,
+                1L,
+                status != null && status.isTerminal() ? Instant.now() : null,
+                status == GenerationTaskStatus.FAILED ? "generation_failed" : ""
+        );
+    }
+
+    private GenerationWorkspace workspace(Path root) {
+        Path normalized = root.toAbsolutePath().normalize();
+        return new GenerationWorkspace(
+                101L,
+                CodeGenTypeEnum.VUE_PROJECT,
+                normalized,
+                normalized,
+                true,
+                normalized,
+                null,
+                Set.of(),
+                Set.of("vue", "ts", "json")
         );
     }
 }

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.config.PatchExecutionProperties;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceException;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceFileService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
@@ -18,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class EditFileSnapshotServiceTest {
 
@@ -27,7 +30,9 @@ class EditFileSnapshotServiceTest {
         Path existingFile = tempDir.resolve("src/App.vue");
         Files.createDirectories(existingFile.getParent());
         Files.writeString(existingFile, "before", StandardCharsets.UTF_8);
-        EditFileSnapshotService snapshotService = service(new PatchExecutionProperties());
+        GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
+        EditFileSnapshotService snapshotService = service(
+                new PatchExecutionProperties(), fenceGuard);
 
         EditFileSnapshotService.EditFileSnapshot snapshot = snapshotService.capture(tempDir, List.of(
                 PatchOperation.modify("src/App.vue", "after"),
@@ -38,13 +43,14 @@ class EditFileSnapshotServiceTest {
         Path addedFile = tempDir.resolve("src/NewPage.vue");
         Files.writeString(addedFile, "new", StandardCharsets.UTF_8);
 
-        EditFileSnapshotService.RestoreResult result = snapshotService.restore(snapshot);
+        EditFileSnapshotService.RestoreResult result = snapshotService.restore("task-1", snapshot);
 
         assertTrue(result.restored());
         assertEquals("before", Files.readString(existingFile, StandardCharsets.UTF_8));
         assertFalse(Files.exists(addedFile));
         assertTrue(result.restoredFiles().contains("src/App.vue"));
         assertTrue(result.restoredFiles().contains("src/NewPage.vue"));
+        verify(fenceGuard).assertCurrent("task-1");
         FileUtil.del(tempDir.toFile());
     }
 
@@ -129,7 +135,15 @@ class EditFileSnapshotServiceTest {
     }
 
     private EditFileSnapshotService service(PatchExecutionProperties properties) {
-        return new EditFileSnapshotService(new PatchWorkspaceFileService(properties), properties);
+        return service(properties, mock(GenerationTaskFenceGuard.class));
+    }
+
+    private EditFileSnapshotService service(PatchExecutionProperties properties,
+                                            GenerationTaskFenceGuard fenceGuard) {
+        return new EditFileSnapshotService(
+                new PatchWorkspaceFileService(properties),
+                properties,
+                fenceGuard);
     }
 
     private Path workspace(String name) throws IOException {

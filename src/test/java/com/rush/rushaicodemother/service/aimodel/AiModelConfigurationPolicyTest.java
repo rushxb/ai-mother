@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service.aimodel;
 
 import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -9,7 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AiModelConfigurationPolicyTest {
 
-    private final AiModelConfigurationPolicy policy = new AiModelConfigurationPolicy();
+    private final AiModelSecretService secretService = AiModelSecretTestFixtures.service();
+    private final AiModelConfigurationPolicy policy = new AiModelConfigurationPolicy(secretService);
 
     @Test
     void catalogMustExposeSupportedXiaomiReasoningModel() {
@@ -66,12 +68,15 @@ class AiModelConfigurationPolicyTest {
                                                String modelId,
                                                String baseUrl,
                                                String modelType) {
+        AiModelProtectedSecret secret = AiModelSecretTestFixtures.protect("test-key");
         return AiModelConfiguration.builder()
                 .modelName("Model")
                 .provider(provider)
                 .modelId(modelId)
                 .baseUrl(baseUrl)
-                .apiKey("test-key")
+                .secretRef(secret.reference())
+                .secretFingerprint(secret.fingerprint())
+                .secretKeyId(secret.keyId())
                 .modelType(modelType)
                 .isEnabled(1)
                 .supportsThinking(0)

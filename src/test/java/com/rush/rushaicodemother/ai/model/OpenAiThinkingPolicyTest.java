@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.rush.rushaicodemother.service.aimodel.AiModelProtectedSecret;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
+import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -49,9 +51,11 @@ class OpenAiThinkingPolicyTest {
     }
 
     private AiModelRuntimeConfiguration model(String provider, String modelId, boolean supportsThinking) {
+        AiModelProtectedSecret secret = AiModelSecretTestFixtures.protect("test-key");
         return new AiModelRuntimeConfiguration(
                 provider, modelId, "chat", "https://models.example.com/v1",
-                "test-key", 4096, 0.7, supportsThinking
+                secret.reference(), secret.fingerprint(), secret.keyId(),
+                4096, 0.7, supportsThinking
         );
     }
 }

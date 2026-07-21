@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service.aimodel;
 
 import lombok.Builder;
+import lombok.ToString;
 import lombok.Value;
 
 import java.time.LocalDateTime;
@@ -21,7 +22,11 @@ public class AiModelConfiguration {
     String modelId;
     String description;
     String baseUrl;
-    String apiKey;
+    @ToString.Exclude
+    String secretRef;
+    @ToString.Exclude
+    String secretFingerprint;
+    String secretKeyId;
     Integer maxTokens;
     Double temperature;
     Integer isEnabled;

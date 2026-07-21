@@ -117,7 +117,7 @@ export async function testModelConnectionByConfig(
 
 /** 切换模型启用状态 POST /ai-model/toggle */
 export async function toggleModelEnabled(
-  body: API.DeleteRequest,
+  body: API.AiModelToggleRequest,
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseAiModel>('/ai-model/toggle', {

@@ -31,20 +31,24 @@ public final class SeleniumChromeDriverFactory {
     }
 
     public WebDriver createScreenshotDriver() {
-        return createDriver(false);
+        return createDriver(false, false);
     }
 
     public WebDriver createDiagnosticDriver() {
-        return createDriver(true);
+        return createDriver(true, false);
     }
 
-    private WebDriver createDriver(boolean browserLoggingEnabled) {
+    public WebDriver createIsolatedDiagnosticDriver() {
+        return createDriver(true, true);
+    }
+
+    private WebDriver createDriver(boolean browserLoggingEnabled, boolean loopbackOnly) {
         Path driverExecutable = properties.requireChromeDriverPath();
         ChromeDriverService driverService = new ChromeDriverService.Builder()
                 .usingDriverExecutable(driverExecutable.toFile())
                 .usingAnyFreePort()
                 .build();
-        ChromeOptions options = buildOptions(browserLoggingEnabled);
+        ChromeOptions options = buildOptions(browserLoggingEnabled, loopbackOnly);
         try {
             WebDriver driver = new ChromeDriver(driverService, options);
             configureTimeouts(driver, properties.getPageLoadTimeout());
@@ -59,7 +63,7 @@ public final class SeleniumChromeDriverFactory {
         }
     }
 
-    private ChromeOptions buildOptions(boolean browserLoggingEnabled) {
+    private ChromeOptions buildOptions(boolean browserLoggingEnabled, boolean loopbackOnly) {
         ChromeOptions options = new ChromeOptions();
         Path chromeBinary = properties.resolveChromeBinaryPath();
         if (chromeBinary != null) {
@@ -71,6 +75,20 @@ public final class SeleniumChromeDriverFactory {
         options.addArguments("--disable-extensions");
         options.addArguments("--window-size="
                 + properties.getViewportWidth() + "," + properties.getViewportHeight());
+        if (loopbackOnly) {
+            options.addArguments("--disable-background-networking");
+            options.addArguments("--disable-component-update");
+            options.addArguments("--disable-default-apps");
+            options.addArguments("--disable-quic");
+            options.addArguments("--disable-sync");
+            options.addArguments("--metrics-recording-only");
+            options.addArguments("--no-first-run");
+            options.addArguments("--proxy-server=http://127.0.0.1:9");
+            options.addArguments("--proxy-bypass-list=localhost;127.0.0.1;[::1]");
+            options.addArguments(
+                    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1"
+            );
+        }
         if (properties.isNoSandbox()) {
             options.addArguments("--no-sandbox");
         }

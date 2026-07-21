@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.model.dto.aimodel;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
@@ -8,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import lombok.ToString;
 
 /**
  * 更新 AI 模型配置请求。
@@ -36,6 +38,8 @@ public class AiModelUpdateRequest {
     private String baseUrl;
 
     @Size(max = 2048)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @ToString.Exclude
     private String apiKey;
 
     @Min(1)

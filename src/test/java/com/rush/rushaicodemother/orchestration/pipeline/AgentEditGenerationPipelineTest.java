@@ -16,6 +16,8 @@ import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -30,6 +32,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -44,7 +47,7 @@ class AgentEditGenerationPipelineTest {
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
         AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(service, monitor);
         GenerationPipelineRequest request = request("agent-task-1");
-        when(service.execute(eq("agent-task-1"), any(), any())).thenReturn(
+        when(service.execute(eq("agent-task-1"), any(), any(), eq(request.workspace()))).thenReturn(
                 new AgentEditResult("agent-task-1", "agent_edit", "failed", List.of(), "failed", 1));
 
         GenerationPipelineOutcome outcome = pipeline.execute(request);
@@ -65,13 +68,25 @@ class AgentEditGenerationPipelineTest {
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
         AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(service, monitor);
         GenerationPipelineRequest request = request("agent-task-success");
-        when(service.execute(eq("agent-task-success"), any(), any())).thenReturn(
+        when(service.execute(eq("agent-task-success"), any(), any(), eq(request.workspace()))).thenReturn(
                 new AgentEditResult("agent-task-success", "agent_edit", "done", List.of("src/App.vue"), "success", 0));
 
         GenerationPipelineOutcome outcome = pipeline.execute(request);
 
         assertEquals(GenerationTaskStatus.SUCCESS, outcome.terminalStatus());
-        verify(service).execute(eq("agent-task-success"), any(), any());
+        verify(service).execute(eq("agent-task-success"), any(), any(), eq(request.workspace()));
+    }
+
+    @Test
+    void executionPolicyFailureMustReachTheUnifiedTerminalBoundary() {
+        AgentEditGenerationService service = mock(AgentEditGenerationService.class);
+        GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
+        AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(service, monitor);
+        GenerationPipelineRequest request = request("agent-task-deadline");
+        when(service.execute(eq("agent-task-deadline"), any(), any(), eq(request.workspace())))
+                .thenThrow(new GenerationDeadlineExceededException("agent-task-deadline"));
+
+        assertThrows(GenerationDeadlineExceededException.class, () -> pipeline.execute(request));
     }
 
     private GenerationPipelineRequest request(String taskId) {
@@ -89,9 +104,11 @@ class AgentEditGenerationPipelineTest {
         GenerationTaskRequest taskRequest = new GenerationTaskRequest(app, "修改登录页标题", user);
         GenerationExecutionContext context = new GenerationExecutionContext(
                 taskId, 1L, 2L, Instant.now(), new GenerationRuntimeProperties().toLimits(), Clock.systemUTC());
+        GenerationExecutionFence fence = new GenerationExecutionFence(taskId, "worker-a", 3L);
+        context.bindExecutionFence(fence);
         GenerationSession session = new GenerationSession(null, context);
         return new GenerationPipelineRequest(
                 taskRequest, CodeGenTypeEnum.VUE_PROJECT, workspace, decision,
-                new GenerationTaskExecution(taskId, session, context, Instant.now()));
+                new GenerationTaskExecution(taskId, session, context, fence, Instant.now()));
     }
 }

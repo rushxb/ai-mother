@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.ai;
 import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
 import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
 import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
@@ -61,6 +62,13 @@ public interface AiCodeGeneratorService {
     @UserMessage("{{userMessage}}")
     TokenStream generateVueProjectCodeStream(@MemoryId long appId, @V("userMessage") String userMessage);
 
+    /** Runtime-aware overload carrying the immutable execution fence out-of-band. */
+    @SystemMessage(fromResource = "prompt/codegen-vue-project-system-prompt.txt")
+    @UserMessage("{{userMessage}}")
+    TokenStream generateVueProjectCodeStream(@MemoryId long appId,
+                                             @V("userMessage") String userMessage,
+                                             InvocationParameters invocationParameters);
+
     /**
      * 生成后端项目代码（流式）
      *
@@ -71,6 +79,12 @@ public interface AiCodeGeneratorService {
     @UserMessage("{{userMessage}}")
     TokenStream generateBackendProjectCodeStream(@MemoryId long appId, @V("userMessage") String userMessage);
 
+    @SystemMessage(fromResource = "prompt/codegen-backend-project-system-prompt.txt")
+    @UserMessage("{{userMessage}}")
+    TokenStream generateBackendProjectCodeStream(@MemoryId long appId,
+                                                 @V("userMessage") String userMessage,
+                                                 InvocationParameters invocationParameters);
+
     /**
      * 生成全栈项目代码（流式）
      *
@@ -80,4 +94,10 @@ public interface AiCodeGeneratorService {
     @SystemMessage(fromResource = "prompt/codegen-full-stack-project-system-prompt.txt")
     @UserMessage("{{userMessage}}")
     TokenStream generateFullStackProjectCodeStream(@MemoryId long appId, @V("userMessage") String userMessage);
+
+    @SystemMessage(fromResource = "prompt/codegen-full-stack-project-system-prompt.txt")
+    @UserMessage("{{userMessage}}")
+    TokenStream generateFullStackProjectCodeStream(@MemoryId long appId,
+                                                   @V("userMessage") String userMessage,
+                                                   InvocationParameters invocationParameters);
 }

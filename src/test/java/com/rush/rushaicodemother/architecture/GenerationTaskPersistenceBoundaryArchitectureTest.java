@@ -50,6 +50,12 @@ class GenerationTaskPersistenceBoundaryArchitectureTest {
         assertTrue(mapperSource.contains("version = #{expectedVersion}"));
         assertTrue(mapperSource.contains("status = #{terminalStatus}"));
         assertTrue(mapperSource.contains("status IN ('queued', 'running')"));
+        assertTrue(mapperSource.contains("status = 'waiting_approval'"));
+        assertTrue(mapperSource.contains("leaseOwner = NULL, leaseUntil = NULL, heartbeatAt = NULL"));
+        assertTrue(mapperSource.contains("AND (deadlineAt IS NULL OR deadlineAt > #{now})"));
+        assertTrue(mapperSource.contains("status IN ('queued', 'running', 'waiting_approval')"));
+        assertTrue(mapperSource.contains("restoreQueuedTaskToWaitingApproval"));
+        assertTrue(mapperSource.contains("AND status = 'queued'"));
         assertFalse(mapperSource.contains("QueryWrapper"));
         assertFalse(mapperSource.contains("BaseMapper<"));
     }

@@ -21,8 +21,6 @@ public interface AiModelPersistenceService {
 
     void update(AiModelConfiguration configuration);
 
-    void disableOtherEnabledModels(String modelType, Long excludedModelId);
-
     void logicallyDelete(long modelId);
 
     record QueryCriteria(int pageNumber,

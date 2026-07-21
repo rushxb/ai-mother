@@ -43,6 +43,17 @@ class GenerationExecutionContextTest {
     }
 
     @Test
+    void remainingTimeAdmissionMustAccountForTheWholeRequiredStageWindow() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        GenerationExecutionContext context = context(3, Duration.ofMinutes(3), clock);
+
+        assertTrue(context.hasRemainingTime(Duration.ofMinutes(2)));
+        clock.advance(Duration.ofSeconds(61));
+        assertFalse(context.hasRemainingTime(Duration.ofMinutes(2)));
+        assertThrows(IllegalArgumentException.class, () -> context.hasRemainingTime(Duration.ZERO));
+    }
+
+    @Test
     void cancellationAndCompletionRejectFurtherWork() {
         GenerationExecutionContext cancelled = context(3, Duration.ofMinutes(1), new MutableClock(Instant.EPOCH));
         cancelled.cancel("user_requested");
@@ -72,6 +83,41 @@ class GenerationExecutionContextTest {
         assertEquals(clock.instant().plus(Duration.ofMinutes(2)), snapshot.deadlineAt());
         assertEquals(1, snapshot.usages().get(GenerationBudgetKind.REPAIR_ROUND));
         assertEquals(4, snapshot.limits().get(GenerationBudgetKind.REPAIR_ROUND));
+    }
+
+    @Test
+    void restoredContextMustPreserveAbsoluteDeadlineAndConsumedBudgets() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-02-02T00:00:00Z"));
+        GenerationExecutionContext original = context(4, Duration.ofMinutes(2), clock);
+        original.consume(GenerationBudgetKind.MODEL_ATTEMPT);
+        GenerationExecutionSnapshot snapshot = original.snapshot();
+
+        clock.advance(Duration.ofSeconds(30));
+        GenerationExecutionContext restored = GenerationExecutionContext.restore(
+                snapshot, original.limits(), clock);
+
+        assertEquals(snapshot.deadlineAt(), restored.deadlineAt());
+        assertEquals(1, restored.used(GenerationBudgetKind.MODEL_ATTEMPT));
+        assertEquals(Duration.ofSeconds(90), restored.remainingDuration());
+    }
+
+    @Test
+    void firstPreviewMilestoneIsAtomicAndSurvivesSnapshotRestore() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-02-02T00:00:00Z"));
+        GenerationExecutionContext context = context(4, Duration.ofMinutes(2), clock);
+        clock.advance(Duration.ofSeconds(30));
+
+        GenerationFirstPreviewMilestone first = context.markFirstPreviewReady();
+        clock.advance(Duration.ofSeconds(10));
+        GenerationFirstPreviewMilestone duplicate = context.markFirstPreviewReady();
+        GenerationExecutionContext restored = GenerationExecutionContext.restore(
+                context.snapshot(), context.limits(), clock);
+
+        assertTrue(first.firstPublication());
+        assertFalse(first.slaBreached());
+        assertFalse(duplicate.firstPublication());
+        assertEquals(first.readyAt(), duplicate.readyAt());
+        assertEquals(first.readyAt(), restored.firstPreviewReadyAt());
     }
 
     private void assertConcurrentBudgetLimit(GenerationBudgetKind budgetKind) throws Exception {

@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceServ
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -57,6 +59,14 @@ public abstract class CodeFileSaverTemplate<T> {
      * @return canonical workspace directory
      */
     public final File saveCode(Object result, Long appId) {
+        return saveCode(result, appId, null);
+    }
+
+    /**
+     * Persists into an explicitly selected execution workspace. Asynchronous model callbacks use
+     * this overload because their thread cannot be trusted to retain orchestration ThreadLocal state.
+     */
+    public final File saveCode(Object result, Long appId, GenerationWorkspace explicitWorkspace) {
         if (appId == null || appId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
         }
@@ -72,9 +82,24 @@ public abstract class CodeFileSaverTemplate<T> {
 
         T typedResult = resultType.cast(result);
         validateInput(typedResult);
-        GenerationWorkspace workspace = generationWorkspaceService.prepare(appId, codeGenType());
+        GenerationWorkspace workspace = explicitWorkspace == null
+                ? generationWorkspaceService.prepare(appId, codeGenType())
+                : requireMatchingWorkspace(explicitWorkspace, appId);
         saveFiles(typedResult, workspace.canonicalRootPath());
         return workspace.canonicalRootPath().toFile();
+    }
+
+    private GenerationWorkspace requireMatchingWorkspace(GenerationWorkspace workspace, Long appId) {
+        if (!Objects.equals(appId, workspace.appId())
+                || workspace.codeGenType() != codeGenType()
+                || Files.isSymbolicLink(workspace.rootPath())
+                || !Files.isDirectory(workspace.canonicalRootPath(), LinkOption.NOFOLLOW_LINKS)) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "Generated code workspace does not match the active execution"
+            );
+        }
+        return workspace;
     }
 
     /**

@@ -16,13 +16,37 @@ import java.util.Map;
 @Data
 public class GenerationOrchestrationTask {
 
+    public static final int CURRENT_SCHEMA_VERSION = 2;
+    public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
+
+    private int schemaVersion = CURRENT_SCHEMA_VERSION;
+
     private String taskId;
+
+    private long executionEpoch;
 
     private Long appId;
 
+    private Long userId;
+
     private String requestHash;
 
+    private String orchestrationMode;
+
+    /** Hash of the ordered node declarations and their dependency edges. */
+    private String dagFingerprint;
+
     private String status;
+
+    private AgentRuntimeState runtimeState = AgentRuntimeState.INITIALIZED;
+
+    private String currentNode;
+
+    private String lastCompletedNode;
+
+    private long checkpointVersion;
+
+    private String terminationReason;
 
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -37,4 +61,9 @@ public class GenerationOrchestrationTask {
     private List<GenerationStreamEvent> events = new ArrayList<>();
 
     private String failureMessage;
+
+    public static boolean supportsSchemaVersion(int schemaVersion) {
+        return schemaVersion >= MIN_SUPPORTED_SCHEMA_VERSION
+                && schemaVersion <= CURRENT_SCHEMA_VERSION;
+    }
 }

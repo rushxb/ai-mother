@@ -19,6 +19,7 @@ import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
+import com.rush.rushaicodemother.service.tenant.TenantProvisioningService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
     private final ChatHistoryService chatHistoryService;
     private final AppArtifactLifecycleService artifactLifecycleService;
     private final AppOperationLockManager operationLockManager;
+    private final TenantProvisioningService tenantProvisioningService;
     private final TransactionOperations transactionOperations;
 
     @Autowired
@@ -55,6 +57,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                                          ChatHistoryService chatHistoryService,
                                          AppArtifactLifecycleService artifactLifecycleService,
                                          AppOperationLockManager operationLockManager,
+                                         TenantProvisioningService tenantProvisioningService,
                                          PlatformTransactionManager transactionManager) {
         this(
                 appMapper,
@@ -65,6 +68,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                 chatHistoryService,
                 artifactLifecycleService,
                 operationLockManager,
+                tenantProvisioningService,
                 new TransactionTemplate(transactionManager)
         );
     }
@@ -77,6 +81,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                                   ChatHistoryService chatHistoryService,
                                   AppArtifactLifecycleService artifactLifecycleService,
                                   AppOperationLockManager operationLockManager,
+                                  TenantProvisioningService tenantProvisioningService,
                                   TransactionOperations transactionOperations) {
         this.appMapper = appMapper;
         this.aiModelRuntimeService = aiModelRuntimeService;
@@ -86,6 +91,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         this.chatHistoryService = chatHistoryService;
         this.artifactLifecycleService = artifactLifecycleService;
         this.operationLockManager = operationLockManager;
+        this.tenantProvisioningService = tenantProvisioningService;
         this.transactionOperations = transactionOperations;
     }
 
@@ -98,12 +104,14 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
 
         aiModelRuntimeService.ensureGenerationModelsConfigured();
         CodeGenTypeEnum selectedCodeGenType = selectCodeGenType(initPrompt);
+        Long tenantId = tenantProvisioningService.requirePersonalTenantId(actor);
         App app = App.builder()
                 .appName(generateAppName(initPrompt))
                 .initPrompt(initPrompt)
                 .codeGenType(selectedCodeGenType.getValue())
                 .priority(AppConstant.DEFAULT_APP_PRIORITY)
                 .userId(actor.getId())
+                .tenantId(tenantId)
                 .build();
 
         Long appId = transactionOperations.execute(status -> {
@@ -129,6 +137,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         App sourceApp = appMapper.selectCopySourceState(sourceAppId);
         ThrowUtils.throwIf(sourceApp == null, ErrorCode.NOT_FOUND_ERROR, "源应用不存在");
         validateCopySource(sourceApp);
+        Long targetTenantId = tenantProvisioningService.requirePersonalTenantId(actor);
         App targetApp = App.builder()
                 .appName(sourceApp.getAppName())
                 .cover(sourceApp.getCover())
@@ -136,6 +145,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                 .codeGenType(sourceApp.getCodeGenType())
                 .priority(AppConstant.DEFAULT_APP_PRIORITY)
                 .userId(actor.getId())
+                .tenantId(targetTenantId)
                 .build();
         AtomicBoolean artifactCopied = new AtomicBoolean(false);
 

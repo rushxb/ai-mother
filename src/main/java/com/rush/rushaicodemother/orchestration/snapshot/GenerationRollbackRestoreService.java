@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.extern.slf4j.Slf4j;
@@ -26,12 +27,14 @@ public class GenerationRollbackRestoreService {
     private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final SnapshotNamePolicy snapshotNamePolicy;
+    private final GenerationTaskFenceGuard generationTaskFenceGuard;
 
     public GenerationRollbackRestoreService(
             GenerationWorkspaceService generationWorkspaceService,
             GenerationSnapshotWorkspaceService snapshotWorkspaceService,
             WorkspaceFileSystemService workspaceFileSystemService,
-            SnapshotNamePolicy snapshotNamePolicy
+            SnapshotNamePolicy snapshotNamePolicy,
+            GenerationTaskFenceGuard generationTaskFenceGuard
     ) {
         this.generationWorkspaceService = Objects.requireNonNull(
                 generationWorkspaceService,
@@ -46,6 +49,8 @@ public class GenerationRollbackRestoreService {
                 "workspaceFileSystemService must not be null"
         );
         this.snapshotNamePolicy = Objects.requireNonNull(snapshotNamePolicy, "snapshotNamePolicy must not be null");
+        this.generationTaskFenceGuard = Objects.requireNonNull(
+                generationTaskFenceGuard, "generationTaskFenceGuard must not be null");
     }
 
     public GenerationArtifact restoreIfAllowed(Long appId,
@@ -148,6 +153,7 @@ public class GenerationRollbackRestoreService {
                         appId, taskId, rollbackStrategy, snapshotPathValue, projectPathValue, "project_parent_missing"
                 );
             }
+            generationTaskFenceGuard.assertCurrent(taskId);
             String backupPathValue = "";
             boolean projectExists = workspaceFileSystemService.isDirectory(projectPath);
             if (projectExists) {

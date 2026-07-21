@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 
@@ -49,11 +50,21 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
     @Override
     public DependencyInstallResult ensureInstalled(Path projectDirectory) {
-        return ensureInstalled(projectDirectory, null);
+        return ensureInstalled(projectDirectory, null, DependencyInstallMode.REUSE_IF_VALID);
     }
 
     @Override
     public DependencyInstallResult ensureInstalled(Path projectDirectory, String taskId) {
+        return ensureInstalled(projectDirectory, taskId, DependencyInstallMode.REUSE_IF_VALID);
+    }
+
+    @Override
+    public DependencyInstallResult ensureInstalled(Path projectDirectory,
+                                                   String taskId,
+                                                   DependencyInstallMode mode) {
+        DependencyInstallMode effectiveMode = mode == null
+                ? DependencyInstallMode.REUSE_IF_VALID
+                : mode;
         NodeProjectDirectoryValidator.Validation validation = projectDirectoryValidator.validate(projectDirectory);
         if (!validation.valid()) {
             return DependencyInstallResult.failed(
@@ -66,23 +77,41 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         Path projectPath = validation.projectPath();
         ReentrantLock projectLock = lockFor(projectPath);
         try {
-            projectLock.lockInterruptibly();
+            acquireProjectLock(projectLock, taskId);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return interruptedResult("");
         }
 
         try {
-            if (integrityService.isComplete(projectPath)) {
+            if (effectiveMode.reuseIfValid() && integrityService.isComplete(projectPath)) {
                 log.info("项目依赖完整，跳过安装: project={}", projectPath);
                 return DependencyInstallResult.success(COMPLETE_MESSAGE);
             }
             if (Thread.currentThread().isInterrupted()) {
                 return interruptedResult("");
             }
-            return installWithBoundedRetries(projectPath, taskId);
+            return installWithBoundedRetries(projectPath, taskId, effectiveMode);
         } finally {
             projectLock.unlock();
+        }
+    }
+
+    private void acquireProjectLock(ReentrantLock projectLock, String taskId) throws InterruptedException {
+        while (true) {
+            executionContextService.assertCanContinue(taskId);
+            if (projectLock.tryLock(
+                    properties.getLockPolicyCheckInterval().toNanos(),
+                    TimeUnit.NANOSECONDS
+            )) {
+                try {
+                    executionContextService.assertCanContinue(taskId);
+                    return;
+                } catch (RuntimeException policyFailure) {
+                    projectLock.unlock();
+                    throw policyFailure;
+                }
+            }
         }
     }
 
@@ -91,7 +120,9 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         return projectDirectory != null && commandExecutor.cancel(projectDirectory);
     }
 
-    private DependencyInstallResult installWithBoundedRetries(Path projectPath, String taskId) {
+    private DependencyInstallResult installWithBoundedRetries(Path projectPath,
+                                                              String taskId,
+                                                              DependencyInstallMode mode) {
         StringBuilder combinedOutput = new StringBuilder();
         DependencyInstallResult lastResult = null;
         boolean force = false;
@@ -106,7 +137,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             Duration attemptTimeout = executionContextService.clampTimeout(taskId, properties.getCommandTimeout());
             BooleanSupplier cancellationRequested = () -> executionContextService.shouldStop(taskId);
             DependencyInstallResult installResult = commandExecutor.install(
-                    projectPath, force, attemptTimeout, cancellationRequested);
+                    projectPath, force, mode, attemptTimeout, cancellationRequested);
             executionContextService.assertCanContinue(taskId);
             appendAttemptOutput(combinedOutput, attempt, installResult.output());
             lastResult = installResult;

@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,7 +41,8 @@ public class LightweightEditPatchExecutor {
                                                  EditResult editResult,
                                                  List<PatchOperation> patchOperations,
                                                  boolean runtimeErrorRepair,
-                                                 EditFileSnapshotService.EditFileSnapshot editSnapshot) {
+                                                 EditFileSnapshotService.EditFileSnapshot editSnapshot,
+                                                 boolean managedModelCalls) {
         PatchApplyResult applyResult = applyOnce(
                 appId, taskId, projectRoot, patchOperations, "lightweight_edit");
         if (!shouldRetry(applyResult)) {
@@ -55,7 +57,10 @@ public class LightweightEditPatchExecutor {
                         "rejectedOperations", applyResult.rejectedOperations()
                 ));
         try {
-            EditResult retryEditResult = lightweightEditAiService.retryAfterPatchRejection(
+            EditResult retryEditResult = managedModelCalls
+                    ? lightweightEditAiService.retryAfterPatchRejection(
+                    taskId, userMessage, projectContext, applyResult, diagnostic(applyResult))
+                    : lightweightEditAiService.retryAfterPatchRejection(
                     userMessage, projectContext, applyResult, diagnostic(applyResult));
             List<PatchOperation> retryOperations = retryEditResult == null
                     ? List.of()
@@ -69,6 +74,8 @@ public class LightweightEditPatchExecutor {
             PatchApplyResult retryApplyResult = applyOnce(
                     appId, taskId, projectRoot, retryOperations, "lightweight_edit_retry");
             return new LightweightEditAttempt(retryEditResult, retryOperations, retryApplyResult);
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (Exception exception) {
             log.warn("Lightweight patch retry failed; preserve the initial result, appId: {}, taskId: {}",
                     appId, taskId, LogExceptionSanitizer.sanitize(exception));

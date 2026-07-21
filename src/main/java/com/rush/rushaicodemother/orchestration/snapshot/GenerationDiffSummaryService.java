@@ -67,15 +67,28 @@ public class GenerationDiffSummaryService {
             return DiffSummary.skipped(appId, taskId, "", "", "invalid_generation_context");
         }
 
-        Path currentPath;
+        GenerationWorkspace workspace;
         try {
-            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, targetType);
-            currentPath = workspace.canonicalRootPath();
+            workspace = generationWorkspaceService.resolve(appId, targetType);
         } catch (RuntimeException exception) {
             log.warn("Failed to resolve current workspace, appId: {}, taskId: {}, exceptionType: {}",
                     appId, taskId, exception.getClass().getSimpleName());
             return DiffSummary.skipped(appId, taskId, "", "", "current_project_unavailable");
         }
+        return summarize(appId, targetType, taskId, rollbackPointArtifact, workspace);
+    }
+
+    /** Summarizes against an explicitly captured workspace, safe for asynchronous callbacks. */
+    public DiffSummary summarize(Long appId,
+                                 CodeGenTypeEnum targetType,
+                                 String taskId,
+                                 GenerationArtifact rollbackPointArtifact,
+                                 GenerationWorkspace workspace) {
+        if (appId == null || appId <= 0 || targetType == null || workspace == null
+                || !appId.equals(workspace.appId()) || workspace.codeGenType() != targetType) {
+            return DiffSummary.skipped(appId, taskId, "", "", "invalid_generation_context");
+        }
+        Path currentPath = workspace.canonicalRootPath();
         if (rollbackPointArtifact == null || rollbackPointArtifact.payload() == null) {
             return DiffSummary.skipped(appId, taskId, "", currentPath.toString(), "rollback_point_missing");
         }

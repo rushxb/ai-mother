@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.service.aimodel;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -10,10 +11,13 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AiModelConfigurationAssemblerTest {
 
-    private final AiModelConfigurationAssembler assembler = new AiModelConfigurationAssembler();
+    private final AiModelSecretService secretService = AiModelSecretTestFixtures.service();
+    private final AiModelConfigurationAssembler assembler =
+            new AiModelConfigurationAssembler(secretService);
 
     @Test
     void createMustMapExplicitFieldsAndApplyDefaults() {
@@ -28,8 +32,10 @@ class AiModelConfigurationAssemblerTest {
         );
 
         assertEquals("New Model", configuration.getModelName());
-        assertEquals("secret", configuration.getApiKey());
-        assertEquals(1, configuration.getIsEnabled());
+        assertTrue(secretService.isProtectedReference(configuration.getSecretRef()));
+        assertEquals("secret", secretService.resolve(
+                configuration.getSecretRef(), configuration.getSecretFingerprint()));
+        assertEquals(0, configuration.getIsEnabled());
         assertEquals(0, configuration.getSortOrder());
         assertEquals(9L, configuration.getUserId());
         JSONObject config = JSONUtil.parseObj(configuration.getConfigJson());
@@ -51,7 +57,8 @@ class AiModelConfigurationAssemblerTest {
                 ));
 
         assertEquals("Updated", updated.getModelName());
-        assertEquals("existing-secret", updated.getApiKey());
+        assertEquals(existing.getSecretRef(), updated.getSecretRef());
+        assertEquals(existing.getSecretFingerprint(), updated.getSecretFingerprint());
         assertEquals(10L, updated.getUserId());
         assertEquals(createTime, updated.getCreateTime());
     }
@@ -86,13 +93,16 @@ class AiModelConfigurationAssemblerTest {
     }
 
     private AiModelConfiguration existing() {
+        AiModelProtectedSecret secret = AiModelSecretTestFixtures.protect("existing-secret");
         return AiModelConfiguration.builder()
                 .id(7L)
                 .modelName("Existing")
                 .provider("custom")
                 .modelId("existing-model")
                 .baseUrl("http://localhost:11434/v1")
-                .apiKey("existing-secret")
+                .secretRef(secret.reference())
+                .secretFingerprint(secret.fingerprint())
+                .secretKeyId(secret.keyId())
                 .maxTokens(4096)
                 .temperature(0.7)
                 .isEnabled(0)

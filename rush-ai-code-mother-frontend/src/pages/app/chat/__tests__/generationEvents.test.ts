@@ -4,11 +4,13 @@ import {
   getEventNumber,
   getEventString,
   parseGenerationBusinessError,
+  parseGenerationEventGap,
+  parseGenerationEventSequence,
   parseGenerationStreamEvent,
   parseLegacyGenerationDelta,
 } from '../domain/generationEvents'
 
-const messageEvent = (data: unknown) => ({ data } as MessageEvent)
+const messageEvent = (data: unknown, lastEventId = '') => ({ data, lastEventId } as MessageEvent)
 
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -41,6 +43,22 @@ describe('generation event protocol', () => {
     expect(parseLegacyGenerationDelta(messageEvent(JSON.stringify({ d: 1 })))).toBeUndefined()
     expect(parseGenerationBusinessError(messageEvent(JSON.stringify({ message: ' quota exceeded ' })))).toBe('quota exceeded')
     expect(parseGenerationBusinessError(messageEvent(JSON.stringify({ message: { unsafe: true } })))).toBeUndefined()
+  })
+
+  it('accepts only safe positive SSE sequences and validated gap recovery payloads', () => {
+    expect(parseGenerationEventSequence(messageEvent('', '42'))).toBe(42)
+    expect(parseGenerationEventSequence(messageEvent('', '0'))).toBeUndefined()
+    expect(parseGenerationEventSequence(messageEvent('', '9007199254740992'))).toBeUndefined()
+    expect(parseGenerationEventGap(messageEvent(JSON.stringify({
+      requestedSeq: 12,
+      firstAvailableSeq: 41,
+      recovery: 'status_snapshot',
+    })))).toEqual({ requestedSeq: 12, firstAvailableSeq: 41, recovery: 'status_snapshot' })
+    expect(parseGenerationEventGap(messageEvent(JSON.stringify({
+      requestedSeq: 12,
+      firstAvailableSeq: 13,
+      recovery: 'status_snapshot',
+    })))).toBeUndefined()
   })
 
   it.each([

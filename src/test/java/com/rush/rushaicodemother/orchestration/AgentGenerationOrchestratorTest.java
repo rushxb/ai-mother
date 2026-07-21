@@ -12,10 +12,13 @@ import com.rush.rushaicodemother.orchestration.agent.GenerationAgentSupport;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
+import com.rush.rushaicodemother.orchestration.dag.AgentRuntimeState;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackPointService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
@@ -31,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.codeAgentNode;
@@ -38,10 +42,13 @@ import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestF
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -82,6 +89,85 @@ class AgentGenerationOrchestratorTest {
         verify(taskStore).create("runtime-task-heavy", 1L, "创建一个 Vue 后台管理面板");
         assertTrue(result.artifacts().containsKey("template_bootstrap"));
         assertEquals(Boolean.TRUE, result.artifacts().get("template_bootstrap").payload().get("bootstrapped"));
+    }
+
+    @Test
+    void shouldResumeCheckpointAndSkipCompletedPlannerNode() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask restoredTask = new GenerationOrchestrationTask();
+        restoredTask.setTaskId("runtime-task-resume");
+        restoredTask.setAppId(1L);
+        restoredTask.setStatus("running");
+        restoredTask.setRuntimeState(AgentRuntimeState.RUNNING);
+        restoredTask.setOrchestrationMode("light");
+        restoredTask.setLastCompletedNode("planner");
+        restoredTask.setCheckpointVersion(1);
+        restoredTask.getNodeStatuses().put("planner", "done");
+        restoredTask.getTimings().put("planner", 12L);
+        restoredTask.getArtifacts().put("requirements", GenerationArtifact.of(
+                "requirements",
+                "Planner",
+                "requirements",
+                Map.of(
+                        "targetType", CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                        "upgradeRequired", true,
+                        "patchFirst", false,
+                        "requiresBuild", false,
+                        "validationMode", "review_only",
+                        "generationMode", "full_generation",
+                        "goals", List.of("resume from planner checkpoint"),
+                        "recipes", List.of(),
+                        "skills", List.of(),
+                        "indexHits", List.of()
+                )
+        ));
+        when(taskStore.load(1L, "runtime-task-resume")).thenReturn(Optional.of(restoredTask));
+        when(taskStore.matchesRequest(restoredTask, "继续生成 Vue 应用")).thenReturn(true);
+
+        GenerationAgentSupport support = support();
+        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
+        PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support, routingSupport));
+        GenerationOrchestrationMetricsCollector metricsCollector =
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
+        AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
+                new GenerationDagRunner(taskStore, metricsCollector, mock(GenerationExecutionContextService.class)),
+                taskStore,
+                plannerNode,
+                testTemplateAgentNode("resume"),
+                new ContextAgentNode(support),
+                new ArchitectAgentNode(support),
+                codeAgentNode(),
+                reviewAgentNode(),
+                new BuildFixAgentNode(),
+                routingSupport,
+                metricsCollector,
+                testRollbackPointService("resume")
+        );
+
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                app,
+                "继续生成 Vue 应用",
+                CodeGenTypeEnum.HTML,
+                "update",
+                false,
+                null,
+                prompt -> CodeGenTypeEnum.VUE_PROJECT,
+                null,
+                "runtime-task-resume"
+        );
+
+        GenerationOrchestrationResult result = orchestrator.prepare(request);
+
+        assertEquals("runtime-task-resume", result.taskId());
+        assertEquals(CodeGenTypeEnum.VUE_PROJECT, result.targetType());
+        assertTrue(result.artifacts().containsKey("generation_spec"));
+        assertEquals(12L, result.timings().get("planner"));
+        verify(taskStore).load(1L, "runtime-task-resume");
+        verify(taskStore, never()).create(eq("runtime-task-resume"), anyLong(), anyString());
+        verify(plannerNode, never()).execute(any());
     }
 
     @Test
@@ -164,7 +250,8 @@ class AgentGenerationOrchestratorTest {
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         GenerationOrchestrationMetricsCollector metricsCollector = new GenerationOrchestrationMetricsCollector(meterRegistry);
-        GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore, metricsCollector);
+        GenerationDagRunner dagRunner = new GenerationDagRunner(
+                taskStore, metricsCollector, mock(GenerationExecutionContextService.class));
         GenerationRollbackPointService rollbackPointService = testRollbackPointService("metrics");
         AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
                 dagRunner,
@@ -230,7 +317,8 @@ class AgentGenerationOrchestratorTest {
                                                           GenerationRoutingSupport routingSupport) {
         GenerationOrchestrationMetricsCollector metricsCollector =
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
-        GenerationDagRunner dagRunner = new GenerationDagRunner(taskStore, metricsCollector);
+        GenerationDagRunner dagRunner = new GenerationDagRunner(
+                taskStore, metricsCollector, mock(GenerationExecutionContextService.class));
         GenerationRollbackPointService rollbackPointService = testRollbackPointService("shared");
         return new AgentGenerationOrchestrator(
                 dagRunner,
@@ -261,7 +349,8 @@ class AgentGenerationOrchestratorTest {
                 new GenerationWorkspaceService(storageProperties),
                 new GenerationSnapshotWorkspaceService(storageProperties, fileSystemService, snapshotNamePolicy),
                 fileSystemService,
-                snapshotNamePolicy
+                snapshotNamePolicy,
+                mock(GenerationTaskFenceGuard.class)
         );
     }
 

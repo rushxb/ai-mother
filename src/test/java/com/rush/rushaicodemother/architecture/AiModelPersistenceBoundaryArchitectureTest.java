@@ -77,6 +77,24 @@ class AiModelPersistenceBoundaryArchitectureTest {
         assertTrue(migration.contains("case when isDelete = 0 then provider else null end"));
     }
 
+    @Test
+    void providerCredentialsMustUseEnvelopeReferencesInsteadOfPlaintextPersistence() throws IOException {
+        String mapper = source("mapper/AiModelMapper.java");
+        String entity = source("model/entity/AiModel.java");
+        String schema = Files.readString(Path.of("sql/create_table.sql"));
+        String migration = Files.readString(Path.of(
+                "sql/migrations/V20260720_2__ai_model_secret_envelope.sql"
+        ));
+
+        assertFalse(entity.contains("@Column(\"apiKey\")"));
+        assertFalse(mapper.contains("#{apiKey}"));
+        assertTrue(entity.contains("@Column(\"secretRef\")"));
+        assertTrue(mapper.contains("secretFingerprint"));
+        assertTrue(mapper.contains("secretKeyId"));
+        assertTrue(schema.contains("secretRef      varchar(4096)"));
+        assertTrue(migration.contains("CHANGE COLUMN apiKey secretRef"));
+    }
+
     private String source(String relativePath) throws IOException {
         return Files.readString(JAVA_ROOT.resolve(relativePath));
     }

@@ -4,5 +4,6 @@ package com.rush.rushaicodemother.model.enums;
 public enum GenerationModelUsageSource {
 
     OFFICIAL,
-    ESTIMATED
+    ESTIMATED,
+    UNAVAILABLE
 }

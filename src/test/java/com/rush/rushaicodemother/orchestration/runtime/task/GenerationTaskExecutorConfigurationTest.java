@@ -28,6 +28,7 @@ class GenerationTaskExecutorConfigurationTest {
             })
             .withUserConfiguration(
                     GenerationTaskExecutorProperties.class,
+                    ScheduledGenerationTaskWatchdog.class,
                     VirtualThreadGenerationTaskExecutor.class
             );
 
@@ -37,10 +38,11 @@ class GenerationTaskExecutorConfigurationTest {
             assertThat(context).hasNotFailed();
             GenerationTaskExecutorProperties properties =
                     context.getBean(GenerationTaskExecutorProperties.class);
-            assertThat(properties.getMaxConcurrency()).isEqualTo(32);
-            assertThat(properties.getQueueCapacity()).isEqualTo(256);
+            assertThat(properties.getMaxConcurrency()).isEqualTo(4);
+            assertThat(properties.getQueueCapacity()).isEqualTo(32);
             assertThat(properties.getShutdownTimeout()).isEqualTo(Duration.ofSeconds(30));
             assertThat(context).hasSingleBean(GenerationTaskExecutor.class);
+            assertThat(context).hasSingleBean(GenerationTaskWatchdog.class);
         });
     }
 

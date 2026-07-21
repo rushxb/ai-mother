@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -16,12 +17,17 @@ import java.util.Optional;
 
 /** AI 模型目录、协议归一化与可运行性规则。 */
 @Component
+@RequiredArgsConstructor
 public class AiModelConfigurationPolicy {
 
     private static final String DEFAULT_PROTOCOL = "openai_chat_completions";
     private static final int DEFAULT_MAX_TOKENS = 8192;
     private static final double DEFAULT_TEMPERATURE = 0.7;
     private static final List<String> MODEL_TYPES = List.of("chat", "reasoning", "routing");
+    private static final String SECRET_FINGERPRINT_PATTERN = "[a-f0-9]{64}";
+
+    private final AiModelSecretService secretService;
+
     private static final List<SupportedModelDefinition> SUPPORTED_MODELS = List.of(
             new SupportedModelDefinition(
                     "deepseek", "DeepSeek", "deepseek-v4-flash", "DeepSeek V4 Flash",
@@ -109,15 +115,20 @@ public class AiModelConfigurationPolicy {
         String modelId = normalizeKey(configuration.getModelId());
         String modelName = StrUtil.trim(configuration.getModelName());
         String baseUrl = normalizeOpenAiBaseUrl(configuration.getBaseUrl());
-        String apiKey = StrUtil.trim(configuration.getApiKey());
+        String secretRef = StrUtil.trim(configuration.getSecretRef());
+        String secretFingerprint = normalizeSecretFingerprint(configuration.getSecretFingerprint());
+        String secretKeyId = StrUtil.trim(configuration.getSecretKeyId());
         String modelType = normalizeKey(configuration.getModelType());
         String description = StrUtil.trim(configuration.getDescription());
         String configJson = normalizeConfigJson(configuration.getConfigJson());
 
-        if (StrUtil.hasBlank(provider, modelId, modelName, baseUrl, apiKey)) {
+        if (StrUtil.hasBlank(provider, modelId, modelName, baseUrl,
+                secretRef, secretFingerprint, secretKeyId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,
                     "模型名称、提供商、模型标识符、API 地址和 API 密钥不能为空");
         }
+
+        validateSecretMetadata(secretRef, secretFingerprint, secretKeyId);
 
         Optional<SupportedModelDefinition> definition = findSupportedModel(provider, modelId);
         if (StrUtil.isBlank(modelType)) {
@@ -152,7 +163,9 @@ public class AiModelConfigurationPolicy {
                 .modelId(modelId)
                 .modelName(modelName)
                 .baseUrl(baseUrl)
-                .apiKey(apiKey)
+                .secretRef(secretRef)
+                .secretFingerprint(secretFingerprint)
+                .secretKeyId(secretKeyId)
                 .modelType(modelType)
                 .description(description)
                 .maxTokens(maxTokens)
@@ -180,7 +193,9 @@ public class AiModelConfigurationPolicy {
                 normalized.getModelId(),
                 normalized.getModelType(),
                 normalized.getBaseUrl(),
-                normalized.getApiKey(),
+                normalized.getSecretRef(),
+                normalized.getSecretFingerprint(),
+                normalized.getSecretKeyId(),
                 normalized.getMaxTokens(),
                 normalized.getTemperature(),
                 normalized.thinkingSupported()
@@ -198,6 +213,26 @@ public class AiModelConfigurationPolicy {
 
     private String normalizeKey(String value) {
         return StrUtil.blankToDefault(StrUtil.trim(value), "").toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeSecretFingerprint(String value) {
+        String normalized = StrUtil.trim(value);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private void validateSecretMetadata(String secretRef,
+                                        String secretFingerprint,
+                                        String secretKeyId) {
+        if (!secretFingerprint.matches(SECRET_FINGERPRINT_PATTERN)
+                || !secretService.isProtectedReference(secretRef)
+                || !secretKeyId.equals(secretService.keyId(secretRef))) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    "AI model secret metadata is invalid");
+        }
+        if (!secretService.canResolve(secretRef)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    "AI model secret encryption key is unavailable");
+        }
     }
 
     private String normalizeBaseUrl(String value) {

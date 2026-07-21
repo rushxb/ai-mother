@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
+import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
 import com.rush.rushaicodemother.service.credit.UserCreditCostCalculator;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditAccount;
@@ -118,6 +119,15 @@ public class UserCreditServiceImpl implements UserCreditService {
             return;
         }
 
+        CreditTransaction settlement = persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_SETTLEMENT,
+                normalizedTaskId
+        );
+        if (settlement != null) {
+            recoverReservedGenerationSettlement(task, settlement);
+            return;
+        }
+
         CreditTransaction existing = persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_CHARGE,
                 normalizedTaskId
@@ -127,7 +137,100 @@ public class UserCreditServiceImpl implements UserCreditService {
             return;
         }
 
-        long totalTokens = persistenceService.sumPositiveTaskTokens(normalizedTaskId);
+        CreditTransaction reservation = persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION,
+                normalizedTaskId
+        );
+        if (reservation != null) {
+            settleReservedGenerationTask(task, reservation);
+            return;
+        }
+
+        settleLegacyGenerationTask(task);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reserveGenerationTask(GenerationCreditReservationCommand command) {
+        if (command == null || !hasPositiveId(command.userId()) || command.reservedCredit() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分预授权参数不合法");
+        }
+        String taskId = requireTaskId(command.taskId());
+        String pricingReference = normalizePricingReference(command.pricingReference());
+        CreditAccount account = requireLockedAccount(command.userId());
+        CreditTransaction existing = persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION,
+                taskId
+        );
+        if (existing != null) {
+            validateExistingReservation(existing, command, pricingReference);
+            return;
+        }
+        if (account.balance() < command.reservedCredit()) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "积分不足，当前任务至少需要预留 " + command.reservedCredit() + " 积分"
+            );
+        }
+
+        long balanceAfter = account.balance() - command.reservedCredit();
+        persistenceService.updateBalance(command.userId(), balanceAfter);
+        persistenceService.appendTransaction(new NewCreditTransaction(
+                command.userId(),
+                -command.reservedCredit(),
+                balanceAfter,
+                UserCreditTransactionType.GENERATION_RESERVATION,
+                taskId,
+                reservationRemark(pricingReference),
+                null,
+                null
+        ));
+    }
+
+    private void settleReservedGenerationTask(GenerationCreditTask task,
+                                              CreditTransaction reservation) {
+        long reservedCredit = validateReservation(task, reservation);
+        long totalTokens = persistenceService.sumPositiveTaskTokens(task.taskId());
+        long expectedCreditCost = costCalculator.calculate(totalTokens);
+        CreditAccount account = requireLockedAccount(task.userId());
+        long collectibleExtra = expectedCreditCost <= reservedCredit
+                ? 0L
+                : Math.min(account.balance(), expectedCreditCost - reservedCredit);
+        long actualCreditCost = safeAdd(reservedCredit, collectibleExtra);
+        if (expectedCreditCost < reservedCredit) {
+            actualCreditCost = expectedCreditCost;
+        }
+        long settlementDelta = reservedCredit - actualCreditCost;
+        long balanceAfter = safeAdd(account.balance(), settlementDelta);
+        if (settlementDelta != 0) {
+            persistenceService.updateBalance(task.userId(), balanceAfter);
+        }
+
+        persistenceService.appendTransaction(new NewCreditTransaction(
+                task.userId(),
+                settlementDelta,
+                balanceAfter,
+                UserCreditTransactionType.GENERATION_SETTLEMENT,
+                task.taskId(),
+                buildReservedGenerationRemark(
+                        totalTokens, reservedCredit, expectedCreditCost, actualCreditCost),
+                null,
+                totalTokens
+        ));
+        persistenceService.settleGenerationTask(task.recordId(), actualCreditCost, totalTokens);
+        log.info(
+                "生成任务积分预授权结算完成，taskId: {}, tokens: {}, reservedCost: {}, expectedCost: {}, actualCost: {}, balanceAfter: {}",
+                task.taskId(),
+                totalTokens,
+                reservedCredit,
+                expectedCreditCost,
+                actualCreditCost,
+                balanceAfter
+        );
+    }
+
+    private void settleLegacyGenerationTask(GenerationCreditTask task) {
+        long totalTokens = persistenceService.sumPositiveTaskTokens(task.taskId());
         long expectedCreditCost = costCalculator.calculate(totalTokens);
         CreditAccount account = requireLockedAccount(task.userId());
         long actualCreditCost = Math.min(account.balance(), expectedCreditCost);
@@ -141,20 +244,12 @@ public class UserCreditServiceImpl implements UserCreditService {
                 -actualCreditCost,
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_CHARGE,
-                normalizedTaskId,
+                task.taskId(),
                 buildGenerationRemark(totalTokens, expectedCreditCost, actualCreditCost),
                 null,
                 totalTokens
         ));
         persistenceService.settleGenerationTask(task.recordId(), actualCreditCost, totalTokens);
-        log.info(
-                "生成任务积分结算完成，taskId: {}, tokens: {}, expectedCost: {}, actualCost: {}, balanceAfter: {}",
-                normalizedTaskId,
-                totalTokens,
-                expectedCreditCost,
-                actualCreditCost,
-                balanceAfter
-        );
     }
 
     private CreditAccount requireLockedAccount(Long userId) {
@@ -190,6 +285,68 @@ public class UserCreditServiceImpl implements UserCreditService {
                 transaction.tokenCount()
         );
         log.warn("已根据积分流水恢复生成任务结算状态，taskId: {}", task.taskId());
+    }
+
+    private void recoverReservedGenerationSettlement(GenerationCreditTask task,
+                                                     CreditTransaction settlement) {
+        CreditTransaction reservation = persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION,
+                task.taskId()
+        );
+        if (reservation == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务结算流水缺少对应预授权流水");
+        }
+        long reservedCredit = validateReservation(task, reservation);
+        if (settlement.userId() != task.userId()
+                || settlement.type() != UserCreditTransactionType.GENERATION_SETTLEMENT
+                || !Objects.equals(settlement.bizId(), task.taskId())
+                || settlement.adminUserId() != null
+                || settlement.tokenCount() == null
+                || settlement.tokenCount() < 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务预授权结算流水与任务数据不一致");
+        }
+        final long actualCreditCost;
+        try {
+            actualCreditCost = Math.subtractExact(reservedCredit, settlement.changeAmount());
+        } catch (ArithmeticException overflow) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务预授权结算金额不合法", overflow);
+        }
+        if (actualCreditCost < 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务预授权结算金额不能小于 0");
+        }
+        persistenceService.settleGenerationTask(
+                task.recordId(), actualCreditCost, settlement.tokenCount());
+        log.warn("已根据预授权结算流水恢复生成任务结算状态，taskId: {}", task.taskId());
+    }
+
+    private long validateReservation(GenerationCreditTask task, CreditTransaction reservation) {
+        if (reservation.userId() != task.userId()
+                || reservation.type() != UserCreditTransactionType.GENERATION_RESERVATION
+                || !Objects.equals(reservation.bizId(), task.taskId())
+                || reservation.changeAmount() >= 0
+                || reservation.adminUserId() != null
+                || reservation.tokenCount() != null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务积分预授权流水与任务数据不一致");
+        }
+        try {
+            return Math.negateExact(reservation.changeAmount());
+        } catch (ArithmeticException overflow) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务积分预授权金额不合法", overflow);
+        }
+    }
+
+    private void validateExistingReservation(CreditTransaction transaction,
+                                             GenerationCreditReservationCommand command,
+                                             String pricingReference) {
+        if (transaction.userId() != command.userId()
+                || transaction.changeAmount() != -command.reservedCredit()
+                || transaction.type() != UserCreditTransactionType.GENERATION_RESERVATION
+                || !Objects.equals(transaction.bizId(), command.taskId().trim())
+                || !Objects.equals(transaction.remark(), reservationRemark(pricingReference))
+                || transaction.adminUserId() != null
+                || transaction.tokenCount() != null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务积分预授权请求与已有流水冲突");
+        }
     }
 
     private void validateExistingInitialization(CreditTransaction transaction,
@@ -265,6 +422,17 @@ public class UserCreditServiceImpl implements UserCreditService {
         return normalized;
     }
 
+    private String normalizePricingReference(String pricingReference) {
+        if (pricingReference == null || pricingReference.isBlank()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分预授权计价引用不能为空");
+        }
+        String normalized = pricingReference.trim();
+        if (normalized.length() > MAX_REMARK_LENGTH - "reservation:".length()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分预授权计价引用过长");
+        }
+        return normalized;
+    }
+
     private String requireTaskId(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务 ID 不能为空");
@@ -297,6 +465,28 @@ public class UserCreditServiceImpl implements UserCreditService {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "积分不足");
         }
         return balanceAfter;
+    }
+
+    private long safeAdd(long left, long right) {
+        try {
+            return Math.addExact(left, right);
+        } catch (ArithmeticException overflow) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "积分结算金额超出允许范围", overflow);
+        }
+    }
+
+    private String reservationRemark(String pricingReference) {
+        return "reservation:" + pricingReference;
+    }
+
+    private String buildReservedGenerationRemark(long totalTokens,
+                                                 long reservedCredit,
+                                                 long expectedCreditCost,
+                                                 long actualCreditCost) {
+        return "AI generation settlement: tokens=" + totalTokens
+                + ", reserved=" + reservedCredit
+                + ", expected=" + expectedCreditCost
+                + ", captured=" + actualCreditCost;
     }
 
     private String buildGenerationRemark(long totalTokens,

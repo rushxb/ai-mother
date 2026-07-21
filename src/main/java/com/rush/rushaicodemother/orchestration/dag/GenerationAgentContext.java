@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +41,7 @@ public class GenerationAgentContext {
         this.task = task;
         this.heavyPath = heavyPath;
         this.targetType = request.currentType();
+        restoreCheckpointState();
     }
 
     public String getOrchestrationMode() {
@@ -69,5 +71,52 @@ public class GenerationAgentContext {
 
     public synchronized void recordTiming(String nodeKey, long durationMs) {
         timings.put(nodeKey, durationMs);
+    }
+
+    private void restoreCheckpointState() {
+        if (task.getArtifacts() != null) {
+            artifacts.putAll(task.getArtifacts());
+        }
+        if (task.getTimings() != null) {
+            timings.putAll(task.getTimings());
+        }
+        GenerationArtifact requirements = artifacts.get("requirements");
+        if (requirements != null) {
+            CodeGenTypeEnum restoredType = CodeGenTypeEnum.getEnumByValue(
+                    stringValue(requirements.payload().get("targetType"))
+            );
+            if (restoredType != null) {
+                targetType = restoredType;
+            }
+            upgradeRequired = booleanValue(requirements.payload().get("upgradeRequired"));
+        }
+        GenerationArtifact qualityGate = artifacts.get("quality_gate");
+        if (qualityGate != null) {
+            Map<String, Object> payload = qualityGate.payload();
+            qualityGateResult = new QualityGateResult(
+                    booleanValue(payload.get("passed")),
+                    stringValue(payload.get("level")),
+                    stringList(payload.get("blockers")),
+                    stringList(payload.get("warnings")),
+                    stringList(payload.get("passes"))
+            );
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private boolean booleanValue(Object value) {
+        return value instanceof Boolean booleanValue
+                ? booleanValue
+                : value != null && Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private List<String> stringList(Object value) {
+        if (!(value instanceof Collection<?> collection)) {
+            return List.of();
+        }
+        return collection.stream().filter(java.util.Objects::nonNull).map(String::valueOf).toList();
     }
 }

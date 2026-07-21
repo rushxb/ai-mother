@@ -10,7 +10,9 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.infrastructure.git.GitCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -50,6 +52,8 @@ class SnapshotWorkspaceConsumerBeanWiringTest {
                     GenerationToolExecutionContextService.class,
                     () -> mock(GenerationToolExecutionContextService.class)
             );
+            context.registerBean(ToolApprovalService.class, () -> mock(ToolApprovalService.class));
+            context.registerBean(GenerationTaskFenceGuard.class, () -> mock(GenerationTaskFenceGuard.class));
 
             context.refresh();
 

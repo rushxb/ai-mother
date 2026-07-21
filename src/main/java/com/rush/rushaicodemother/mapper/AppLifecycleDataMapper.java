@@ -28,6 +28,9 @@ public interface AppLifecycleDataMapper {
             + "where task.appId = #{appId}")
     int deleteGenerationTaskSpans(@Param("appId") Long appId);
 
+    @Delete("delete from generation_tool_approval where appId = #{appId}")
+    int deleteGenerationToolApprovals(@Param("appId") Long appId);
+
     @Delete("delete from generation_task where appId = #{appId}")
     int deleteGenerationTasks(@Param("appId") Long appId);
 

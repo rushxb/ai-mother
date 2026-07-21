@@ -1,99 +1,154 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
-import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
-import com.rush.rushaicodemother.orchestration.GenerationSession;
-import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
-import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
+import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
-import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
-import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
-import lombok.RequiredArgsConstructor;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
+import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Instant;
 
 /**
  * Creates the task execution envelope and submits all generation routes through one worker seam.
  */
 @Service
-@RequiredArgsConstructor
 public class GenerationTaskSubmissionService {
 
     private final GenerationTaskIdGenerator generationTaskIdGenerator;
-    private final GenerationExecutionContextService generationExecutionContextService;
-    private final GenerationSessionRegistry generationSessionRegistry;
-    private final GenerationTaskExecutor generationTaskExecutor;
-    private final GenerationPipelineExecutor generationPipelineExecutor;
+    private final GenerationSlaPolicy generationSlaPolicy;
+    private final GenerationTaskDispatcher taskDispatcher;
+    private final GenerationTaskAdmissionService taskAdmissionService;
     private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
+    private final GenerationEventStream generationEventStream;
+    private final GenerationEventPublisher generationEventPublisher;
+    private final GenerationTraceContextBridge traceContextBridge;
+    private final Clock clock;
+
+    @Autowired
+    public GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
+                                           GenerationSlaPolicy generationSlaPolicy,
+                                           GenerationTaskDispatcher taskDispatcher,
+                                           GenerationTaskAdmissionService taskAdmissionService,
+                                           GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                           GenerationEventStream generationEventStream,
+                                           GenerationEventPublisher generationEventPublisher,
+                                           GenerationTraceContextBridge traceContextBridge) {
+        this(generationTaskIdGenerator, generationSlaPolicy, taskDispatcher, taskAdmissionService,
+                generationTaskRuntimeLifecycleService, generationEventStream, generationEventPublisher,
+                traceContextBridge, Clock.systemUTC());
+    }
+
+    GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
+                                    GenerationSlaPolicy generationSlaPolicy,
+                                    GenerationTaskDispatcher taskDispatcher,
+                                    GenerationTaskAdmissionService taskAdmissionService,
+                                    GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                    GenerationEventStream generationEventStream,
+                                    Clock clock) {
+        this(generationTaskIdGenerator, generationSlaPolicy, taskDispatcher, taskAdmissionService,
+                generationTaskRuntimeLifecycleService, generationEventStream, null,
+                GenerationTraceContextBridge.NOOP, clock);
+    }
+
+    GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
+                                    GenerationSlaPolicy generationSlaPolicy,
+                                    GenerationTaskDispatcher taskDispatcher,
+                                    GenerationTaskAdmissionService taskAdmissionService,
+                                     GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                     GenerationEventStream generationEventStream,
+                                     GenerationTraceContextBridge traceContextBridge,
+                                     Clock clock) {
+        this(generationTaskIdGenerator, generationSlaPolicy, taskDispatcher, taskAdmissionService,
+                generationTaskRuntimeLifecycleService, generationEventStream, null,
+                traceContextBridge, clock);
+    }
+
+    GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
+                                    GenerationSlaPolicy generationSlaPolicy,
+                                    GenerationTaskDispatcher taskDispatcher,
+                                    GenerationTaskAdmissionService taskAdmissionService,
+                                    GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                    GenerationEventStream generationEventStream,
+                                    GenerationEventPublisher generationEventPublisher,
+                                    GenerationTraceContextBridge traceContextBridge,
+                                    Clock clock) {
+        this.generationTaskIdGenerator = generationTaskIdGenerator;
+        this.generationSlaPolicy = generationSlaPolicy;
+        this.taskDispatcher = taskDispatcher;
+        this.taskAdmissionService = taskAdmissionService;
+        this.generationTaskRuntimeLifecycleService = generationTaskRuntimeLifecycleService;
+        this.generationEventStream = generationEventStream;
+        this.generationEventPublisher = generationEventPublisher;
+        this.traceContextBridge = traceContextBridge == null
+                ? GenerationTraceContextBridge.NOOP
+                : traceContextBridge;
+        this.clock = clock;
+    }
 
     public GenerationTaskResult submit(GenerationPipelineRequest request) {
+        return submit(request, GenerationTaskIdempotency.none());
+    }
+
+    public GenerationTaskResult submit(GenerationPipelineRequest request,
+                                       GenerationTaskIdempotency idempotency) {
         if (request == null || request.taskRequest() == null) {
             throw new IllegalArgumentException("generation pipeline request cannot be null");
         }
-        App app = request.taskRequest().app();
-        User user = request.taskRequest().loginUser();
-        if (app == null || app.getId() == null || user == null || user.getId() == null) {
+        if (idempotency == null) {
+            throw new IllegalArgumentException("generation task idempotency cannot be null");
+        }
+        if (request.taskRequest().app() == null || request.taskRequest().app().getId() == null
+                || request.taskRequest().app().getTenantId() == null
+                || request.taskRequest().app().getTenantId() <= 0
+                || request.taskRequest().loginUser() == null
+                || request.taskRequest().loginUser().getId() == null) {
             throw new IllegalArgumentException("generation task identity is incomplete");
         }
-
-        synchronized (generationSessionRegistry.lock(app.getId())) {
-            removeCompletedSession(app.getId());
-            generationSessionRegistry.assertNoActiveSession(app.getId());
-
-            String taskId = generationTaskIdGenerator.nextId();
-            GenerationExecutionContext executionContext = null;
-            GenerationSession session = null;
-            boolean durableSubmitted = false;
-            try {
-                executionContext = generationExecutionContextService.start(taskId, app.getId(), user.getId());
-                session = new GenerationSession(null, executionContext);
-                session.bindTaskRequest(request.taskRequest());
-                session.recordRoute(request.modeDecision().route());
-
-                GenerationTaskExecution execution = new GenerationTaskExecution(
-                        taskId, session, executionContext, executionContext.startedAt());
-                generationTaskRuntimeLifecycleService.submit(execution, request.modeDecision().route());
-                durableSubmitted = true;
-                generationSessionRegistry.put(app.getId(), session);
-
-                GenerationPipelineRequest executableRequest = request.withExecution(execution);
-                generationTaskExecutor.execute(taskId, () -> generationPipelineExecutor.execute(executableRequest));
-
-                return new GenerationTaskResult(
-                        taskId,
-                        request.modeDecision().route(),
-                        request.workspace(),
-                        session.asFlux()
-                );
-            } catch (RuntimeException submissionFailure) {
-                if (durableSubmitted) {
-                    try {
-                        generationTaskRuntimeLifecycleService.complete(
-                                taskId, GenerationTaskStatus.FAILED,
-                                "submission_failed");
-                    } catch (RuntimeException compensationFailure) {
-                        submissionFailure.addSuppressed(compensationFailure);
-                    }
+        String taskId = generationTaskIdGenerator.nextId();
+        Instant submittedAt = clock.instant();
+        GenerationSlaEnvelope slaEnvelope = generationSlaPolicy.resolve(
+                request.modeDecision(), request.codeGenType());
+        GenerationTaskCommand command = GenerationTaskCommand.from(
+                taskId,
+                request,
+                submittedAt,
+                slaEnvelope,
+                traceContextBridge.capture()
+        );
+        GenerationTaskAdmissionResult admission = null;
+        try {
+            admission = taskAdmissionService.admit(command, idempotency);
+            if (admission.created()) {
+                if (generationEventPublisher != null) {
+                    generationEventPublisher.clearRecent(command.appId());
                 }
-                if (session != null) {
-                    generationSessionRegistry.remove(app.getId(), session);
-                    session.complete();
-                }
-                if (executionContext != null) {
-                    generationExecutionContextService.finish(taskId, "submission_failed");
-                }
-                throw submissionFailure;
+                taskDispatcher.dispatch(admission.taskId());
             }
-        }
-    }
-
-    private void removeCompletedSession(Long appId) {
-        GenerationSession existing = generationSessionRegistry.get(appId);
-        if (existing != null && !existing.isActive()) {
-            generationSessionRegistry.remove(appId, existing);
+            return new GenerationTaskResult(
+                    admission.taskId(),
+                    admission.route(),
+                    request.workspace(),
+                    generationEventStream.stream(admission.taskId()),
+                    admission.created()
+            );
+        } catch (RuntimeException submissionFailure) {
+            if (admission != null && admission.created()) {
+                try {
+                    generationTaskRuntimeLifecycleService.completeUnowned(
+                            admission.taskId(), GenerationTaskStatus.FAILED, "submission_failed");
+                } catch (RuntimeException compensationFailure) {
+                    submissionFailure.addSuppressed(compensationFailure);
+                }
+            }
+            throw submissionFailure;
         }
     }
 }

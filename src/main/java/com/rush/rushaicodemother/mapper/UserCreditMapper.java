@@ -9,6 +9,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 /** 用户积分账务的显式 SQL Mapper。 */
 public interface UserCreditMapper {
 
@@ -90,4 +92,15 @@ public interface UserCreditMapper {
     int updateCreditSettlement(@Param("taskRecordId") Long taskRecordId,
                                @Param("creditCost") Long creditCost,
                                @Param("totalTokens") Long totalTokens);
+
+    @Select("""
+            SELECT taskId
+            FROM generation_task
+            WHERE status IN ('success', 'failed', 'cancelled', 'deadline_exceeded')
+              AND creditCharged = 0
+              AND isDelete = 0
+            ORDER BY endTime ASC, id ASC
+            LIMIT #{limit}
+            """)
+    List<String> selectUnsettledTerminalTaskIds(@Param("limit") int limit);
 }

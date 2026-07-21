@@ -37,6 +37,15 @@ class DevServerRuntimePropertiesTest {
     }
 
     @Test
+    void shouldRejectHeartbeatThatCannotRenewBeforeLeaseExpiration() {
+        DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
+        properties.setLeaseDuration(Duration.ofSeconds(10));
+        properties.setHeartbeatInterval(Duration.ofSeconds(10));
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
     void shouldRejectExcessiveRuntimeDuration() {
         DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
         properties.setStartupTimeout(Duration.ofHours(2));
@@ -59,6 +68,14 @@ class DevServerRuntimePropertiesTest {
         properties.setMaxServersPerUser(101);
         properties.setMaxOutputLineLength(100_001);
         properties.setMaxRecentOutputLines(10_001);
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
+    void shouldRejectNodeIdentityThatCannotBeSafelyRouted() {
+        DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
+        properties.setNodeId("preview-node/../../admin");
 
         assertFalse(validator.validate(properties).isEmpty());
     }

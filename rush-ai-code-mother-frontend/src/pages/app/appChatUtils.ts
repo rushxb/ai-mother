@@ -99,7 +99,15 @@ export const parseBuildResult = (content: string): BuildResultView | undefined =
 }
 
 export const normalizeAgentStatus = (status: unknown): AgentEventView['status'] => {
-  if (status === 'pending' || status === 'running' || status === 'done' || status === 'failed') {
+  if (
+    status === 'pending' ||
+    status === 'running' ||
+    status === 'done' ||
+    status === 'failed' ||
+    status === 'approval_required' ||
+    status === 'approval_approved' ||
+    status === 'approval_rejected'
+  ) {
     return status
   }
   return 'running'
@@ -130,6 +138,11 @@ export const upsertAgentEvent = (targetMessage: ChatMessage, streamEvent: Genera
     recoverable: Boolean(data.recoverable),
     artifact: data.artifact && typeof data.artifact === 'object' && !Array.isArray(data.artifact)
       ? data.artifact as Record<string, unknown>
+      : undefined,
+    action: data.action ? String(data.action) : undefined,
+    approvalId: data.approvalId ? String(data.approvalId) : undefined,
+    request: data.request && typeof data.request === 'object' && !Array.isArray(data.request)
+      ? data.request as Record<string, unknown>
       : undefined,
   }
   const events = targetMessage.agentEvents ? [...targetMessage.agentEvents] : []

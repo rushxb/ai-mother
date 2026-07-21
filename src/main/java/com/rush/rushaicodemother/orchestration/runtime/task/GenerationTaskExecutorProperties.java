@@ -27,8 +27,18 @@ public class GenerationTaskExecutorProperties {
 
     private Duration shutdownTimeout = Duration.ofSeconds(30);
 
+    /** Maximum interval before a queued task re-checks cancellation and its absolute deadline. */
+    private Duration queuePolicyCheckInterval = Duration.ofMillis(250);
+
     @AssertTrue(message = "generation task executor shutdown timeout must be positive")
     public boolean isShutdownTimeoutValid() {
         return shutdownTimeout != null && !shutdownTimeout.isZero() && !shutdownTimeout.isNegative();
+    }
+
+    @AssertTrue(message = "generation task queue policy check interval must be positive")
+    public boolean isQueuePolicyCheckIntervalValid() {
+        return queuePolicyCheckInterval != null
+                && !queuePolicyCheckInterval.isZero()
+                && !queuePolicyCheckInterval.isNegative();
     }
 }

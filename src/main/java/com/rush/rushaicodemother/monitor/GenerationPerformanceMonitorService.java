@@ -328,6 +328,7 @@ public class GenerationPerformanceMonitorService {
         private final Instant startAt;
         private final String mode;
         private final String routerReason;
+        private final String routingDecisionCode;
         private final String fallbackPolicy;
         private final String fallbackReason;
         private final String validationLevel;
@@ -352,6 +353,9 @@ public class GenerationPerformanceMonitorService {
             this.startAt = startAt;
             this.mode = decision == null ? "unknown" : normalize(decision.mode().name());
             this.routerReason = decision == null ? "" : StrUtil.subPre(decision.reason(), 300);
+            this.routingDecisionCode = decision == null
+                    ? "unknown"
+                    : normalize(decision.decisionCode().name());
             this.fallbackPolicy = decision == null ? "unknown" : normalize(decision.fallbackPolicy().name());
             this.fallbackReason = decision == null ? "" : StrUtil.subPre(decision.fallbackReason(), 300);
             this.validationLevel = decision == null ? "unknown" : normalize(decision.expectedValidationLevel().name());
@@ -399,6 +403,7 @@ public class GenerationPerformanceMonitorService {
                     .route(route)
                     .mode(mode)
                     .routerReason(routerReason)
+                    .routingDecisionCode(routingDecisionCode)
                     .fallbackPolicy(fallbackPolicy)
                     .fallbackReason(fallbackReason)
                     .validationLevel(validationLevel)

@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.orchestration.runtime.task;
 
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
+import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
+import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskRecoveryCandidate;
@@ -12,6 +14,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
@@ -58,19 +61,19 @@ class GenerationTaskRecoveryServiceTest {
         assertEquals(1, count);
         verify(executionContextService).cancelByTaskId(
                 "task-expired", GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON);
-        verify(appStateService).releaseOwnedGenerationState(1L, "task-expired");
-        verify(appStateService, never()).releaseOwnedGenerationState(2L, "task-raced");
+        verify(appStateService).releaseOwnedGenerationState(1L, "task-expired", 1L);
+        verify(appStateService, never()).releaseOwnedGenerationState(2L, "task-raced", 1L);
     }
 
     @Test
     void cancellationAndDeadlineSemanticsMustReachDurableTerminalization() {
         GenerationTaskRecoveryCandidate cancelled = new GenerationTaskRecoveryCandidate(
                 "task-cancelled", 1L, GenerationTaskStatus.RUNNING, "lost-worker",
-                NOW.minusSeconds(1), NOW.minusSeconds(30), true, "user_requested", 3L
+                NOW.minusSeconds(1), NOW.minusSeconds(30), true, "user_requested", 1L, 3L
         );
         GenerationTaskRecoveryCandidate deadline = new GenerationTaskRecoveryCandidate(
                 "task-deadline", 2L, GenerationTaskStatus.RUNNING, "lost-worker",
-                NOW.minusSeconds(1), NOW.minusSeconds(1), false, null, 4L
+                NOW.minusSeconds(1), NOW.minusSeconds(1), false, null, 1L, 4L
         );
         when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(cancelled, deadline));
         when(repository.finalizeExpiredLease(
@@ -87,8 +90,8 @@ class GenerationTaskRecoveryServiceTest {
         verify(executionContextService).cancelByTaskId(
                 "task-deadline", GenerationTaskRecoveryPolicy.DEADLINE_EXCEEDED_REASON
         );
-        verify(appStateService).releaseOwnedGenerationState(1L, "task-cancelled");
-        verify(appStateService).releaseOwnedGenerationState(2L, "task-deadline");
+        verify(appStateService).releaseOwnedGenerationState(1L, "task-cancelled", 1L);
+        verify(appStateService).releaseOwnedGenerationState(2L, "task-deadline", 1L);
     }
 
     @Test
@@ -105,14 +108,64 @@ class GenerationTaskRecoveryServiceTest {
                 GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON)).thenReturn(true);
 
         assertEquals(1, service.recoverExpiredTasks());
-        verify(appStateService).releaseOwnedGenerationState(2L, "task-healthy");
+        verify(appStateService).releaseOwnedGenerationState(2L, "task-healthy", 1L);
+    }
+
+    @Test
+    void expiredRunningTaskWithCheckpointMustBeRequeuedAndDispatchedForResume() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationTaskDispatcher dispatcher = mock(GenerationTaskDispatcher.class);
+        service = new GenerationTaskRecoveryService(
+                repository, properties(), new GenerationTaskRecoveryPolicy(),
+                appStateService, executionContextService, null, null,
+                taskStore, dispatcher, Clock.fixed(NOW, ZoneOffset.UTC));
+        GenerationTaskRecoveryCandidate candidate = orphanCandidate("task-resume", 1L, 7L);
+        when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(candidate));
+        when(taskStore.load(1L, "task-resume")).thenReturn(Optional.of(new GenerationOrchestrationTask()));
+        when(repository.requeueExpiredLease(candidate, NOW, "checkpoint_resume")).thenReturn(true);
+
+        assertEquals(1, service.recoverExpiredTasks());
+
+        verify(repository).requeueExpiredLease(candidate, NOW, "checkpoint_resume");
+        verify(dispatcher).dispatch("task-resume");
+        verify(repository, never()).finalizeExpiredLease(
+                candidate, GenerationTaskStatus.FAILED, NOW,
+                GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON);
+        verify(appStateService, never()).releaseOwnedGenerationState(1L, "task-resume", 1L);
+    }
+
+    @Test
+    void corruptedCheckpointMustFallBackToTerminalization() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationTaskDispatcher dispatcher = mock(GenerationTaskDispatcher.class);
+        service = new GenerationTaskRecoveryService(
+                repository, properties(), new GenerationTaskRecoveryPolicy(),
+                appStateService, executionContextService, null, null,
+                taskStore, dispatcher, Clock.fixed(NOW, ZoneOffset.UTC));
+        GenerationTaskRecoveryCandidate candidate = orphanCandidate("task-corrupt", 1L, 7L);
+        when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(candidate));
+        when(taskStore.load(1L, "task-corrupt")).thenThrow(new IllegalStateException("corrupt"));
+        when(repository.finalizeExpiredLease(
+                candidate, GenerationTaskStatus.FAILED, NOW,
+                GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON)).thenReturn(true);
+
+        assertEquals(1, service.recoverExpiredTasks());
+
+        verify(dispatcher, never()).dispatch("task-corrupt");
+        verify(appStateService).releaseOwnedGenerationState(1L, "task-corrupt", 1L);
     }
 
     private GenerationTaskRecoveryCandidate orphanCandidate(String taskId, Long appId, long version) {
         return new GenerationTaskRecoveryCandidate(
                 taskId, appId, GenerationTaskStatus.RUNNING,
                 "lost-worker", NOW.minusSeconds(1), NOW.plusSeconds(60),
-                false, null, version
+                false, null, 1L, version
         );
+    }
+
+    private GenerationTaskLeaseProperties properties() {
+        GenerationTaskLeaseProperties properties = new GenerationTaskLeaseProperties();
+        properties.setRecoveryBatchSize(25);
+        return properties;
     }
 }

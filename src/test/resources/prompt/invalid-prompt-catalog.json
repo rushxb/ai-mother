@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "prompts": [
+    {
+      "key": "test-prompt",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/stable.txt", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+      ]
+    }
+  ],
+  "bindings": []
+}

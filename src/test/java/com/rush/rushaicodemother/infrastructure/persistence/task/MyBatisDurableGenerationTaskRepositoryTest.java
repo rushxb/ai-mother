@@ -1,12 +1,22 @@
 package com.rush.rushaicodemother.infrastructure.persistence.task;
 
 import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
+import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLease;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLeaseRenewal;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskRecoveryCandidate;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskSubmissionRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,6 +41,10 @@ import static org.mockito.Mockito.when;
 class MyBatisDurableGenerationTaskRepositoryTest {
 
     private static final Instant NOW = Instant.parse("2026-07-16T08:00:00Z");
+    private static final GenerationExecutionFence FENCE =
+            new GenerationExecutionFence("task-1", "worker-a", 3L);
+    private static final GenerationTaskLease LEASE =
+            new GenerationTaskLease(FENCE, NOW.plusSeconds(30));
 
     private GenerationTaskRuntimeMapper mapper;
     private MyBatisDurableGenerationTaskRepository repository;
@@ -38,10 +53,13 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     void setUp() {
         mapper = mock(GenerationTaskRuntimeMapper.class);
         repository = new MyBatisDurableGenerationTaskRepository(mapper);
+        when(mapper.lockActiveApplicationForSubmission(1L))
+                .thenReturn(App.builder().id(1L).tenantId(100L).build());
+        when(mapper.countNonTerminalTasksByAppId(1L)).thenReturn(0);
     }
 
     @Test
-    void createSubmittedMustMapDurableIdentityAndLeaseMetadata() {
+    void createSubmittedMustMapDurableIdentityAndReconstructableCommand() {
         when(mapper.insertSubmittedTask(any())).thenReturn(1);
         GenerationTaskSubmissionRecord submitted = submission();
 
@@ -51,9 +69,15 @@ class MyBatisDurableGenerationTaskRepositoryTest {
         verify(mapper).insertSubmittedTask(captor.capture());
         GenerationTask entity = captor.getValue();
         assertEquals("task-1", entity.getTaskId());
+        assertEquals(100L, entity.getTenantId());
+        assertEquals("a".repeat(64), entity.getIdempotencyKeyHash());
+        assertEquals("b".repeat(64), entity.getRequestFingerprint());
         assertEquals("heavy_generation", entity.getRoute());
-        assertEquals(toLocal(NOW.plusSeconds(30)), entity.getLeaseUntil());
+        assertEquals(null, entity.getLeaseOwner());
+        assertEquals(null, entity.getLeaseUntil());
         assertEquals(toLocal(NOW.plusSeconds(1_200)), entity.getDeadlineAt());
+        assertEquals(GenerationTaskCommand.CURRENT_SCHEMA_VERSION, entity.getRuntimeSchemaVersion());
+        assertEquals(submitted.command(), GenerationTaskCommandCodec.fromJson(entity.getRuntimePayloadJson()));
     }
 
     @Test
@@ -70,34 +94,46 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     }
 
     @Test
+    void unexpectedIdempotencyUniqueConflictMustRollbackInsteadOfCommittingAnOrphanReservation() {
+        when(mapper.insertSubmittedTask(any()))
+                .thenThrow(new DuplicateKeyException("uk_generation_task_submission_idempotency"));
+
+        BusinessException conflict = assertThrows(BusinessException.class,
+                () -> repository.createSubmitted(submission()));
+
+        assertEquals(ErrorCode.CONFLICT_ERROR.getCode(), conflict.getCode());
+    }
+
+    @Test
     void heartbeatMustReturnPersistedCancellationSignal() {
         when(mapper.renewOwnedLease(
-                "task-1", "worker-a", toLocal(NOW), toLocal(NOW.plusSeconds(30))))
+                "task-1", "worker-a", 3L, toLocal(NOW), toLocal(NOW.plusSeconds(30))))
                 .thenReturn(1);
         when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(runtimeEntity(
                 GenerationTaskStatus.RUNNING, 2L, true));
 
         GenerationTaskLeaseRenewal renewal = repository.renewLease(
-                "task-1", "worker-a", NOW, NOW.plusSeconds(30));
+                LEASE, NOW, NOW.plusSeconds(30));
 
         assertTrue(renewal.renewed());
         assertTrue(renewal.cancellationRequested());
         assertEquals("user_requested", renewal.cancellationReason());
+        assertEquals(LEASE, renewal.lease());
     }
 
     @Test
     void terminalCompletionMustBeIdempotentButRejectConflictingStatus() {
-        when(mapper.completeNonTerminalTask(
-                "task-1", "success", null, toLocal(NOW))).thenReturn(0);
+        when(mapper.completeOwnedTask(
+                "task-1", "worker-a", 3L, "success", null, toLocal(NOW))).thenReturn(0);
         when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(runtimeEntity(
                 GenerationTaskStatus.SUCCESS, 2L, false));
 
-        repository.complete("task-1", GenerationTaskStatus.SUCCESS, null, "worker-a", NOW);
+        repository.completeOwned(LEASE, GenerationTaskStatus.SUCCESS, null, NOW);
 
-        when(mapper.completeNonTerminalTask(
-                "task-1", "failed", "failed", toLocal(NOW))).thenReturn(0);
-        assertThrows(BusinessException.class, () -> repository.complete(
-                "task-1", GenerationTaskStatus.FAILED, "failed", "worker-a", NOW));
+        when(mapper.completeOwnedTask(
+                "task-1", "worker-a", 3L, "failed", "failed", toLocal(NOW))).thenReturn(0);
+        assertThrows(BusinessException.class, () -> repository.completeOwned(
+                LEASE, GenerationTaskStatus.FAILED, "failed", NOW));
     }
 
     @Test
@@ -113,6 +149,7 @@ class MyBatisDurableGenerationTaskRepositoryTest {
                 .leaseUntil(toLocal(NOW.minusSeconds(1)))
                 .deadlineAt(toLocal(NOW.plusSeconds(60)))
                 .cancellationRequested(0)
+                .executionEpoch(4L)
                 .version(7L)
                 .build();
         when(mapper.selectExpiredLeases(toLocal(NOW), 10)).thenReturn(List.of(candidateEntity));
@@ -120,6 +157,7 @@ class MyBatisDurableGenerationTaskRepositoryTest {
 
         assertEquals(7L, candidates.getFirst().version());
         assertEquals(NOW.plusSeconds(60), candidates.getFirst().deadlineAt());
+        assertEquals(4L, candidates.getFirst().executionEpoch());
         assertFalse(candidates.getFirst().cancellationRequested());
         when(mapper.finalizeExpiredLease(
                 "task-expired", "running", 7L, "failed", toLocal(NOW), "lease_expired"))
@@ -133,7 +171,7 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     void expiredLeaseFinalizationMustRejectSuccessStatus() {
         GenerationTaskRecoveryCandidate candidate = new GenerationTaskRecoveryCandidate(
                 "task-expired", 1L, GenerationTaskStatus.RUNNING, "worker-old",
-                NOW.minusSeconds(1), NOW.plusSeconds(60), false, null, 7L
+                NOW.minusSeconds(1), NOW.plusSeconds(60), false, null, 1L, 7L
         );
 
         assertThrows(IllegalArgumentException.class, () -> repository.finalizeExpiredLease(
@@ -143,18 +181,57 @@ class MyBatisDurableGenerationTaskRepositoryTest {
 
     @Test
     void lostHeartbeatMustNotReadCancellationFromAnotherOwner() {
-        when(mapper.renewOwnedLease(any(), any(), any(), any())).thenReturn(0);
+        when(mapper.renewOwnedLease(any(), any(), anyLong(), any(), any())).thenReturn(0);
 
         GenerationTaskLeaseRenewal renewal = repository.renewLease(
-                "task-1", "worker-a", NOW, NOW.plusSeconds(30));
+                LEASE, NOW, NOW.plusSeconds(30));
 
         assertFalse(renewal.renewed());
     }
 
+    @Test
+    void approvalSuspensionAndRequeueMustUseExplicitStateTransitions() {
+        when(mapper.suspendOwnedTaskForApproval(
+                "task-1", "worker-a", 3L, "approval required", toLocal(NOW))).thenReturn(1);
+        when(mapper.requeueWaitingApprovalTask(
+                "task-1", "worker-b", toLocal(NOW), toLocal(NOW.plusSeconds(30)))).thenReturn(1);
+        when(mapper.selectOwnedLease("task-1", "worker-b")).thenReturn(GenerationTask.builder()
+                .taskId("task-1")
+                .leaseOwner("worker-b")
+                .leaseUntil(toLocal(NOW.plusSeconds(30)))
+                .executionEpoch(5L)
+                .build());
+        when(mapper.restoreQueuedTaskToWaitingApproval(
+                "task-1", "worker-b", 5L, "dispatch retry", toLocal(NOW))).thenReturn(1);
+
+        assertTrue(repository.suspendForApproval(
+                LEASE, "approval required", NOW));
+        GenerationTaskLease resumedLease = repository.requeueAfterApproval(
+                "task-1", "worker-b", NOW, NOW.plusSeconds(30)).orElseThrow();
+        assertEquals(5L, resumedLease.executionEpoch());
+        assertTrue(repository.restoreWaitingAfterDispatchFailure(
+                resumedLease, "dispatch retry", NOW));
+    }
+
+    @Test
+    void staleExecutionEpochMustBeRejectedForOwnedCompletion() {
+        GenerationTaskLease staleLease = new GenerationTaskLease(
+                new GenerationExecutionFence("task-1", "worker-a", 2L),
+                NOW.plusSeconds(30));
+        when(mapper.completeOwnedTask(
+                "task-1", "worker-a", 2L, "success", null, toLocal(NOW))).thenReturn(0);
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(runtimeEntity(
+                GenerationTaskStatus.RUNNING, 2L, false));
+
+        assertThrows(BusinessException.class, () -> repository.completeOwned(
+                staleLease, GenerationTaskStatus.SUCCESS, null, NOW));
+    }
+
     private GenerationTaskSubmissionRecord submission() {
+        GenerationTaskCommand command = command();
         return new GenerationTaskSubmissionRecord(
-                "task-1", 1L, 2L, "heavy_generation", NOW, NOW.plusSeconds(1_200),
-                "worker-a", NOW.plusSeconds(30));
+                "task-1", 1L, 2L, 100L, "heavy_generation", NOW, NOW.plusSeconds(1_200),
+                "a".repeat(64), "b".repeat(64), command);
     }
 
     private GenerationTask runtimeEntity(GenerationTaskStatus status,
@@ -164,19 +241,44 @@ class MyBatisDurableGenerationTaskRepositoryTest {
                 .taskId("task-1")
                 .appId(1L)
                 .userId(userId)
+                .tenantId(100L)
+                .idempotencyKeyHash("a".repeat(64))
+                .requestFingerprint("b".repeat(64))
                 .route("heavy_generation")
                 .status(status.getValue())
                 .submittedAt(toLocal(NOW))
                 .deadlineAt(toLocal(NOW.plusSeconds(1_200)))
                 .cancellationRequested(cancellationRequested ? 1 : 0)
                 .cancellationReason(cancellationRequested ? "user_requested" : null)
+                .executionEpoch(3L)
                 .leaseOwner(status.isTerminal() ? null : "worker-a")
                 .leaseUntil(status.isTerminal() ? null : toLocal(NOW.plusSeconds(30)))
                 .heartbeatAt(status.isTerminal() ? null : toLocal(NOW))
+                .runtimeSchemaVersion(GenerationTaskCommand.CURRENT_SCHEMA_VERSION)
+                .runtimePayloadJson(GenerationTaskCommandCodec.toJson(command()))
                 .attempt(status == GenerationTaskStatus.QUEUED ? 0 : 1)
                 .version(3L)
                 .endTime(status.isTerminal() ? toLocal(NOW) : null)
                 .build();
+    }
+
+    private GenerationTaskCommand command() {
+        return new GenerationTaskCommand(
+                GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                "task-1",
+                1L,
+                2L,
+                100L,
+                "build application",
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMode.HEAVY_EXPERT,
+                0.95,
+                "test",
+                FallbackPolicy.NONE,
+                ExpectedValidationLevel.BUILD,
+                "",
+                NOW,
+                NOW.plusSeconds(1_200));
     }
 
     private LocalDateTime toLocal(Instant value) {

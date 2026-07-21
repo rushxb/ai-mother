@@ -160,7 +160,7 @@
                 type="primary"
                 size="small"
                 class="action-button"
-                :disabled="isModelBusy(record.id)"
+                :disabled="isModelBusy(record.id) || record.isEnabled === 1"
                 @click="openEditModal(record)"
               >
                 编辑
@@ -343,12 +343,11 @@
           <a-textarea v-model:value="formData.description" :rows="2" placeholder="请输入模型描述" />
         </a-form-item>
 
-        <a-form-item label="启用状态">
-          <a-switch
-            v-model:checked="formData.isEnabled"
-            checked-children="启用"
-            un-checked-children="禁用"
-          />
+        <a-form-item label="发布状态">
+          <a-tag color="default">草稿（停用）</a-tag>
+          <span style="margin-left: 8px; color: #8c8c8c">
+            保存后先运行 Benchmark，再使用签名证据启用。
+          </span>
         </a-form-item>
       </a-form>
       <template #footer>
@@ -371,6 +370,39 @@
           </a-button>
         </a-space>
       </template>
+    </a-modal>
+
+    <a-modal
+      v-model:open="enableEvidenceModalVisible"
+      title="使用 Benchmark 证据启用模型"
+      :confirm-loading="enableEvidenceSubmitting"
+      :mask-closable="!enableEvidenceSubmitting"
+      :keyboard="!enableEvidenceSubmitting"
+      ok-text="验证并启用"
+      cancel-text="取消"
+      @ok="confirmEnableWithEvidence"
+      @cancel="closeEnableEvidenceModal"
+    >
+      <a-alert
+        type="info"
+        show-icon
+        message="启用会重新校验证据签名、候选配置指纹、数据集、Grader、有效期和发布门禁。"
+        style="margin-bottom: 16px"
+      />
+      <a-form layout="vertical">
+        <a-form-item
+          label="Evidence ID"
+          :validate-status="enableEvidenceId && !isEnableEvidenceIdValid ? 'error' : undefined"
+          :help="enableEvidenceId && !isEnableEvidenceIdValid ? '请输入合法的 UUID' : undefined"
+        >
+          <a-input
+            v-model:value="enableEvidenceId"
+            :disabled="enableEvidenceSubmitting"
+            placeholder="550e8400-e29b-41d4-a716-446655440000"
+            autocomplete="off"
+          />
+        </a-form-item>
+      </a-form>
     </a-modal>
   </AdminPageFrame>
 </template>
@@ -448,6 +480,10 @@ const isEditing = ref(false)
 const editingModelHasApiKey = ref(false)
 const submitting = ref(false)
 const testingConfig = ref(false)
+const enableEvidenceModalVisible = ref(false)
+const enableEvidenceSubmitting = ref(false)
+const enableEvidenceId = ref('')
+const pendingEnableModelId = ref<number>()
 const formRef = ref<FormInstance>()
 const supportedModels = ref<API.SupportedAiModelVO[]>([])
 const togglingModelIds = ref<Set<number>>(new Set())
@@ -502,7 +538,7 @@ const formData = reactive<ModelFormData>({
   apiKey: '',
   maxTokens: 8192,
   temperature: 0.7,
-  isEnabled: true,
+  isEnabled: false,
   modelType: 'chat',
   supportsThinking: 0,
   sortOrder: 0,
@@ -585,6 +621,10 @@ const selectedModelKey = computed({
     }
   },
 })
+
+const evidenceIdPattern =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+const isEnableEvidenceIdValid = computed(() => evidenceIdPattern.test(enableEvidenceId.value.trim()))
 
 const normalizeModelId = (value?: number) =>
   Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : null
@@ -757,6 +797,10 @@ const openEditModal = (record: API.AiModel) => {
     if (!modelId) message.warning('模型 ID 无效')
     return
   }
+  if (record.isEnabled === 1) {
+    message.warning('在线模型必须先停用，才能修改配置并重新运行 Benchmark')
+    return
+  }
 
   isEditing.value = true
   editingModelHasApiKey.value = Boolean(record.apiKeyConfigured)
@@ -773,7 +817,7 @@ const openEditModal = (record: API.AiModel) => {
     apiKey: '',
     maxTokens: record.maxTokens ?? catalogModel?.defaultMaxTokens,
     temperature: record.temperature ?? catalogModel?.defaultTemperature,
-    isEnabled: record.isEnabled === 1,
+    isEnabled: false,
     modelType: record.modelType ?? catalogModel?.defaultModelType,
     supportsThinking: catalogModel?.supportsThinking ?? record.supportsThinking ?? 0,
     sortOrder: record.sortOrder,
@@ -828,7 +872,7 @@ const resetForm = () => {
     apiKey: '',
     maxTokens: 8192,
     temperature: 0.7,
-    isEnabled: true,
+    isEnabled: false,
     modelType: 'chat',
     supportsThinking: 0,
     sortOrder: 0,
@@ -856,7 +900,7 @@ const buildModelPayload = (): API.AiModelAddRequest => {
     baseUrl: normalizeOpenAiBaseUrl(formData.baseUrl),
     maxTokens: formData.maxTokens,
     temperature: formData.temperature,
-    isEnabled: formData.isEnabled ? 1 : 0,
+    isEnabled: 0,
     modelType: formData.modelType,
     supportsThinking: formData.supportsThinking,
     sortOrder: formData.sortOrder,
@@ -921,20 +965,66 @@ const handleToggleEnabled = async (id: number | undefined, checked: boolean) => 
   const modelId = normalizeModelId(id)
   if (!modelId || isModelBusy(modelId)) return
 
+  if (checked) {
+    pendingEnableModelId.value = modelId
+    enableEvidenceId.value = ''
+    enableEvidenceModalVisible.value = true
+    return
+  }
+
+  await executeToggle(modelId, false)
+}
+
+const executeToggle = async (modelId: number, enable: boolean, evidenceId?: string) => {
+  let succeeded = false
+
   await withModelLock(togglingModelIds, modelId, async () => {
     try {
-      const res = await toggleModelEnabled({ id: modelId })
+      const res = await toggleModelEnabled({
+        id: modelId,
+        ...(enable ? { evidenceId: evidenceId?.trim() } : {}),
+      })
       if (res.data.code !== 0) {
         message.error(`操作失败：${res.data.message || '服务异常'}`)
         return
       }
-      message.success(checked ? '已启用' : '已禁用')
+      succeeded = true
+      message.success(enable ? '已启用' : '已禁用')
       await refreshModelState()
     } catch (error) {
       console.error('Failed to toggle model', error)
       message.error('操作失败，请检查网络后重试')
     }
   })
+  return succeeded
+}
+
+const closeEnableEvidenceModal = () => {
+  if (enableEvidenceSubmitting.value) return
+  enableEvidenceModalVisible.value = false
+  pendingEnableModelId.value = undefined
+  enableEvidenceId.value = ''
+}
+
+const confirmEnableWithEvidence = async () => {
+  const modelId = pendingEnableModelId.value
+  if (!modelId || !isEnableEvidenceIdValid.value || enableEvidenceSubmitting.value) {
+    if (!isEnableEvidenceIdValid.value) {
+      message.warning('请输入合法的 Benchmark Evidence ID')
+    }
+    return
+  }
+
+  enableEvidenceSubmitting.value = true
+  try {
+    if (await executeToggle(modelId, true, enableEvidenceId.value)) {
+      enableEvidenceModalVisible.value = false
+      pendingEnableModelId.value = undefined
+      enableEvidenceId.value = ''
+    }
+  } finally {
+    enableEvidenceSubmitting.value = false
+  }
 }
 
 // 测试已保存的模型连接

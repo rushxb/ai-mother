@@ -112,6 +112,11 @@ public class DevServerLogTool extends BaseTool {
     }
 
     @Override
+    public ToolRiskLevel getRiskLevel() {
+        return ToolRiskLevel.EXTERNAL_SIDE_EFFECT;
+    }
+
+    @Override
     public String getToolName() {
         return "manageDevServer";
     }

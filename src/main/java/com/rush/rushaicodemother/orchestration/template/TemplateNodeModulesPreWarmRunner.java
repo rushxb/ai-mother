@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.config.TemplatePreWarmProperties;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -100,7 +101,11 @@ public class TemplateNodeModulesPreWarmRunner {
                 projectDependencyInstaller.cancel(tempDirectory);
                 return;
             }
-            DependencyInstallResult installResult = projectDependencyInstaller.ensureInstalled(tempDirectory);
+            DependencyInstallResult installResult = projectDependencyInstaller.ensureInstalled(
+                    tempDirectory,
+                    null,
+                    DependencyInstallMode.REFRESH_FROM_LOCKFILE
+            );
             if (!installResult.success()) {
                 log.warn(
                         "Template pre-warm failed: templateId={}, status={}, error={}",

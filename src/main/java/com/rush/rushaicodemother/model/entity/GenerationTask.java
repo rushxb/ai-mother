@@ -35,6 +35,15 @@ public class GenerationTask implements Serializable {
     @Column("userId")
     private Long userId;
 
+    @Column("tenantId")
+    private Long tenantId;
+
+    @Column("idempotencyKeyHash")
+    private String idempotencyKeyHash;
+
+    @Column("requestFingerprint")
+    private String requestFingerprint;
+
     @Column("originalCodeGenType")
     private String originalCodeGenType;
 
@@ -65,6 +74,21 @@ public class GenerationTask implements Serializable {
 
     private String route;
 
+    @Column("runtimeSchemaVersion")
+    private Integer runtimeSchemaVersion;
+
+    @Column("runtimePayloadJson")
+    private String runtimePayloadJson;
+
+    @Column("dispatchAt")
+    private LocalDateTime dispatchAt;
+
+    @Column("dispatchAttempt")
+    private Integer dispatchAttempt;
+
+    @Column("dispatchError")
+    private String dispatchError;
+
     @Column("submittedAt")
     private LocalDateTime submittedAt;
 
@@ -86,6 +110,9 @@ public class GenerationTask implements Serializable {
     @Column("heartbeatAt")
     private LocalDateTime heartbeatAt;
 
+    @Column("executionEpoch")
+    private Long executionEpoch;
+
     private Integer attempt;
 
     private Long version;
@@ -105,6 +132,24 @@ public class GenerationTask implements Serializable {
     @Column("memorySummary")
     private String memorySummary;
 
+    @Column("memoryIndexedAt")
+    private LocalDateTime memoryIndexedAt;
+
+    @Column("memoryIndexAttempts")
+    private Integer memoryIndexAttempts;
+
+    @Column("memoryIndexError")
+    private String memoryIndexError;
+
+    @Column("memoryIndexNextAttemptAt")
+    private LocalDateTime memoryIndexNextAttemptAt;
+
+    @Column("memoryIndexLeaseOwner")
+    private String memoryIndexLeaseOwner;
+
+    @Column("memoryIndexLeaseUntil")
+    private LocalDateTime memoryIndexLeaseUntil;
+
     @Column("totalTokens")
     private Long totalTokens;
 
@@ -113,6 +158,33 @@ public class GenerationTask implements Serializable {
 
     @Column("creditCharged")
     private Integer creditCharged;
+
+    @Column("publicationStatus")
+    private String publicationStatus;
+
+    @Column("publicationCodeGenType")
+    private String publicationCodeGenType;
+
+    @Column("publicationExecutionEpoch")
+    private Long publicationExecutionEpoch;
+
+    @Column("publicationPublishedAt")
+    private LocalDateTime publicationPublishedAt;
+
+    @Column("publicationAttempts")
+    private Integer publicationAttempts;
+
+    @Column("publicationVersion")
+    private Long publicationVersion;
+
+    @Column("publicationError")
+    private String publicationError;
+
+    @Column("publicationReconcileAfter")
+    private LocalDateTime publicationReconcileAfter;
+
+    @Column("publicationCommittedAt")
+    private LocalDateTime publicationCommittedAt;
 
     @Column("createTime")
     private LocalDateTime createTime;

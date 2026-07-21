@@ -1,11 +1,16 @@
 package com.rush.rushaicodemother.service.aimodel;
 
-/** 仅供 AI 运行时使用的敏感配置入口。 */
+import java.util.List;
+
+/** Sensitive runtime-only access to the ordered model pool. */
 public interface AiModelRuntimeService {
 
-    /** 获取指定类型唯一启用且可执行的模型配置。 */
+    /** Returns the highest-priority runnable model whose circuit is currently closed. */
     AiModelRuntimeConfiguration requireRunnableModelByType(String modelType);
 
-    /** 校验应用生成所需的快速模型和推理模型均已配置。 */
+    /** Returns the healthy, priority-ordered runtime pool used for request-level failover. */
+    List<AiModelRuntimeConfiguration> listRunnableModelsByType(String modelType);
+
+    /** Verifies that generation has at least one healthy chat and reasoning model. */
     void ensureGenerationModelsConfigured();
 }

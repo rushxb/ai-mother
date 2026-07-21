@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.service.dependency;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.config.DependencyInstallProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,13 +73,13 @@ class PnpmProjectDependencyInstallerTest {
         DependencyInstallResult result = installer.ensureInstalled(projectDirectory);
 
         assertTrue(result.success());
-        verify(commandExecutor, never()).install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class));
+        verify(commandExecutor, never()).install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
     }
 
     @Test
     void shouldReturnAfterFirstSuccessfulAndCompleteInstall() throws IOException {
         when(integrityService.isComplete(any())).thenReturn(false, true);
-        when(commandExecutor.install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class)))
+        when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("installed"));
         PnpmProjectDependencyInstaller installer = createInstaller();
 
@@ -87,16 +88,17 @@ class PnpmProjectDependencyInstallerTest {
         assertTrue(result.success());
         assertTrue(result.output().contains("installed"));
         verify(commandExecutor).install(
-                eq(projectDirectory.toRealPath()), eq(false), any(Duration.class), any(BooleanSupplier.class));
-        verify(commandExecutor, never()).install(any(), eq(true), any(Duration.class), any(BooleanSupplier.class));
+                eq(projectDirectory.toRealPath()), eq(false), eq(DependencyInstallMode.REUSE_IF_VALID),
+                any(Duration.class), any(BooleanSupplier.class));
+        verify(commandExecutor, never()).install(any(), eq(true), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
     }
 
     @Test
     void shouldFailWhenSuccessfulCommandsNeverProduceCompleteDependencies() throws IOException {
         when(integrityService.isComplete(any())).thenReturn(false);
-        when(commandExecutor.install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class)))
+        when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("first"));
-        when(commandExecutor.install(any(), eq(true), any(Duration.class), any(BooleanSupplier.class)))
+        when(commandExecutor.install(any(), eq(true), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("retry"));
         PnpmProjectDependencyInstaller installer = createInstaller();
 
@@ -104,9 +106,11 @@ class PnpmProjectDependencyInstallerTest {
 
         assertEquals(DependencyInstallResult.Status.INTEGRITY_FAILED, result.status());
         verify(commandExecutor).install(
-                eq(projectDirectory.toRealPath()), eq(false), any(Duration.class), any(BooleanSupplier.class));
+                eq(projectDirectory.toRealPath()), eq(false), eq(DependencyInstallMode.REUSE_IF_VALID),
+                any(Duration.class), any(BooleanSupplier.class));
         verify(commandExecutor, times(2)).install(
-                eq(projectDirectory.toRealPath()), eq(true), any(Duration.class), any(BooleanSupplier.class));
+                eq(projectDirectory.toRealPath()), eq(true), eq(DependencyInstallMode.REUSE_IF_VALID),
+                any(Duration.class), any(BooleanSupplier.class));
         verify(integrityService, times(2)).cleanCorruptedNativePackages(projectDirectory.toRealPath());
     }
 
@@ -114,7 +118,7 @@ class PnpmProjectDependencyInstallerTest {
     void shouldNotExposeCleanupExceptionDetails() throws IOException {
         String sensitiveDetail = "token=must-not-appear-in-result";
         when(integrityService.isComplete(any())).thenReturn(false);
-        when(commandExecutor.install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class)))
+        when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("installed"));
         doThrow(new IOException(sensitiveDetail))
                 .when(integrityService)
@@ -131,13 +135,13 @@ class PnpmProjectDependencyInstallerTest {
     @Test
     void shouldTerminateOnlyCurrentProjectProcessesAfterPermissionFailure() throws IOException {
         when(integrityService.isComplete(any())).thenReturn(false, true);
-        when(commandExecutor.install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class)))
+        when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.failed(
                 DependencyInstallResult.Status.FAILED,
                 "EPERM: operation not permitted",
                 "exit code: 1"
         ));
-        when(commandExecutor.install(any(), eq(true), any(Duration.class), any(BooleanSupplier.class)))
+        when(commandExecutor.install(any(), eq(true), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("recovered"));
         PnpmProjectDependencyInstaller installer = createInstaller();
 
@@ -157,7 +161,7 @@ class PnpmProjectDependencyInstallerTest {
 
         assertEquals(DependencyInstallResult.Status.INTERRUPTED, result.status());
         assertTrue(Thread.currentThread().isInterrupted());
-        verify(commandExecutor, never()).install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class));
+        verify(commandExecutor, never()).install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
     }
 
     @Test
@@ -168,7 +172,7 @@ class PnpmProjectDependencyInstallerTest {
         CountDownLatch releaseFirst = new CountDownLatch(1);
         AtomicInteger activeExecutions = new AtomicInteger();
         AtomicInteger maximumConcurrency = new AtomicInteger();
-        when(commandExecutor.install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class)))
+        when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenAnswer(invocation -> {
             int active = activeExecutions.incrementAndGet();
             maximumConcurrency.accumulateAndGet(active, Math::max);
@@ -199,7 +203,58 @@ class PnpmProjectDependencyInstallerTest {
             second.get(2, TimeUnit.SECONDS);
             assertEquals(1, maximumConcurrency.get());
             verify(commandExecutor, times(2)).install(
-                    eq(projectDirectory.toRealPath()), eq(false), any(Duration.class), any(BooleanSupplier.class));
+                    eq(projectDirectory.toRealPath()), eq(false), eq(DependencyInstallMode.REUSE_IF_VALID),
+                    any(Duration.class), any(BooleanSupplier.class));
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void taskDeadlineMustBoundProjectLockWait() throws Exception {
+        properties.setMaxAttempts(1);
+        properties.setLockPolicyCheckInterval(Duration.ofMillis(10));
+        when(integrityService.isComplete(any())).thenReturn(false);
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
+                .thenAnswer(invocation -> {
+                    firstEntered.countDown();
+                    assertTrue(releaseFirst.await(2, TimeUnit.SECONDS));
+                    return DependencyInstallResult.failed(
+                            DependencyInstallResult.Status.FAILED, "failed", "expected test failure");
+                });
+
+        GenerationRuntimeProperties runtimeProperties = new GenerationRuntimeProperties();
+        runtimeProperties.setTaskTimeout(Duration.ofMillis(100));
+        runtimeProperties.setModelCallTimeout(Duration.ofMillis(50));
+        runtimeProperties.setMinimumOperationTimeout(Duration.ofMillis(1));
+        GenerationExecutionContextService contextService = new GenerationExecutionContextService(runtimeProperties);
+        contextService.start("lock-deadline", 1L, 2L);
+        PnpmProjectDependencyInstaller installer = new PnpmProjectDependencyInstaller(
+                commandExecutor,
+                integrityService,
+                processTerminator,
+                properties,
+                contextService,
+                new NodeProjectDirectoryValidator()
+        );
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<DependencyInstallResult> first = executor.submit(() -> installer.ensureInstalled(projectDirectory));
+            assertTrue(firstEntered.await(1, TimeUnit.SECONDS));
+            Future<DependencyInstallResult> waiting = executor.submit(
+                    () -> installer.ensureInstalled(projectDirectory, "lock-deadline"));
+
+            java.util.concurrent.ExecutionException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                    java.util.concurrent.ExecutionException.class,
+                    () -> waiting.get(1, TimeUnit.SECONDS));
+            assertTrue(failure.getCause() instanceof GenerationDeadlineExceededException);
+
+            releaseFirst.countDown();
+            first.get(2, TimeUnit.SECONDS);
         } finally {
             releaseFirst.countDown();
             executor.shutdownNow();
@@ -213,7 +268,7 @@ class PnpmProjectDependencyInstallerTest {
         DependencyInstallResult missing = installer.ensureInstalled(tempDirectory.resolve("missing"));
 
         assertEquals(DependencyInstallResult.Status.INVALID_PROJECT, missing.status());
-        verify(commandExecutor, never()).install(any(), eq(false), any(Duration.class), any(BooleanSupplier.class));
+        verify(commandExecutor, never()).install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
     }
 
     private PnpmProjectDependencyInstaller createInstaller() {

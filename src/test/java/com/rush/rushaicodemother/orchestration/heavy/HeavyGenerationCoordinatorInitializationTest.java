@@ -19,9 +19,13 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
+import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,6 +56,8 @@ class HeavyGenerationCoordinatorInitializationTest {
     private static final String TASK_ID = "task-runtime-1";
     private static final long APP_ID = 11L;
     private static final long USER_ID = 22L;
+    private static final GenerationExecutionFence FENCE =
+            new GenerationExecutionFence(TASK_ID, "worker-a", 3L);
 
     @Mock
     private GenerationEventPublisher eventPublisher;
@@ -76,6 +82,8 @@ class HeavyGenerationCoordinatorInitializationTest {
     @Mock
     private GenerationToolExecutionContextService toolExecutionContextService;
     @Mock
+    private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    @Mock
     private GenerationTraceService traceService;
     @Mock
     private GenerationExecutionContextService executionContextService;
@@ -83,6 +91,8 @@ class HeavyGenerationCoordinatorInitializationTest {
     private GenerationTaskIdGenerator taskIdGenerator;
     @Mock
     private GenerationExecutionContext executionContext;
+    @Mock
+    private GenerationPerformanceMonitorService.SpanTimer spanTimer;
 
     private HeavyGenerationCoordinator coordinator;
     private GenerationPipelineRequest pipelineRequest;
@@ -102,6 +112,7 @@ class HeavyGenerationCoordinatorInitializationTest {
                 completionService,
                 lifecycleService,
                 toolExecutionContextService,
+                runtimeLifecycleService,
                 traceService,
                 executionContextService,
                 taskIdGenerator
@@ -149,7 +160,7 @@ class HeavyGenerationCoordinatorInitializationTest {
                 eq(IllegalStateException.class.getSimpleName())
         );
         verify(performanceMonitorService).finishTask(TASK_ID, GenerationTerminalOutcome.FAILED.status());
-        verify(toolExecutionContextService).clearContext(APP_ID);
+        verify(toolExecutionContextService).clearContext(APP_ID, TASK_ID);
         verify(eventPublisher).publishSafely(
                 same(taskRequest),
                 eq(GenerationEventType.TASK_FAILED),
@@ -205,6 +216,38 @@ class HeavyGenerationCoordinatorInitializationTest {
         verify(toolExecutionContextService, never()).clearContext(any());
         verify(eventPublisher, never()).publishSafely(any(), any(), any(), anyMap());
         verify(executionContextService, never()).finish(any(), any());
+    }
+
+    @Test
+    void approvalSignalMustSuspendDurableTaskWithoutTerminalizingSession() {
+        String approvalId = "a".repeat(64);
+        GenerationApprovalRequiredException required = new GenerationApprovalRequiredException(
+                TASK_ID,
+                DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                approvalId,
+                Map.of("snapshotName", "safe")
+        );
+        when(executionContextService.start(TASK_ID, APP_ID, USER_ID)).thenReturn(executionContext);
+        when(executionContext.executionFence()).thenReturn(FENCE);
+        when(preparationService.prepare(TASK_ID, taskRequest.app(), taskRequest.message()))
+                .thenReturn(preparation(TASK_ID));
+        when(performanceMonitorService.startSpan(
+                TASK_ID, "llm_generation",
+                com.rush.rushaicodemother.monitor.span.GenerationSpanCategory.MODEL))
+                .thenReturn(spanTimer);
+        org.mockito.Mockito.doThrow(required).when(executionService)
+                .runGenerationWithAutoRepair(
+                        eq(APP_ID), same(taskRequest.loginUser()), any(), any());
+        when(runtimeLifecycleService.suspendForApproval(
+                FENCE, "approval_required:rollbackSnapshot")).thenReturn(true);
+
+        coordinator.start(pipelineRequest);
+
+        verify(spanTimer).close("suspended", "approval_required");
+        verify(runtimeLifecycleService).suspendForApproval(
+                FENCE, "approval_required:rollbackSnapshot");
+        verify(completionService, never()).completeClaimed(any(), any(), any(), any());
+        verify(executionContextService, never()).finish(eq(TASK_ID), any());
     }
 
     private GenerationPreparation preparation(String taskId) {

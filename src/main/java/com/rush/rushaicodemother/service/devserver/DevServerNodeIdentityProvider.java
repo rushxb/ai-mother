@@ -1,0 +1,60 @@
+package com.rush.rushaicodemother.service.devserver;
+
+import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
+import org.springframework.stereotype.Component;
+
+import java.lang.management.ManagementFactory;
+import java.net.InetAddress;
+import java.util.UUID;
+
+/** Provides stable node identity and process-unique lease ownership fencing. */
+@Component
+public class DevServerNodeIdentityProvider {
+
+    private static final int MAX_NODE_ID_LENGTH = 128;
+    private static final int MAX_OWNER_ID_LENGTH = 160;
+    private static final String SAFE_NODE_ID_PATTERN = "[A-Za-z0-9][A-Za-z0-9._-]{0,127}";
+
+    private final String nodeId;
+    private final String ownerId;
+
+    public DevServerNodeIdentityProvider(DevServerRuntimeProperties properties) {
+        String configuredNodeId = normalize(properties == null ? null : properties.getNodeId());
+        this.nodeId = truncate(configuredNodeId == null ? resolveHostName() : configuredNodeId,
+                MAX_NODE_ID_LENGTH);
+        if (!nodeId.matches(SAFE_NODE_ID_PATTERN)) {
+            throw new IllegalArgumentException("Dev Server node id is not safe for internal routing");
+        }
+        String processId = normalize(ManagementFactory.getRuntimeMXBean().getName());
+        this.ownerId = truncate(
+                nodeId + ":" + (processId == null ? "unknown-process" : processId)
+                        + ":" + UUID.randomUUID(),
+                MAX_OWNER_ID_LENGTH
+        );
+    }
+
+    public String nodeId() {
+        return nodeId;
+    }
+
+    public String ownerId() {
+        return ownerId;
+    }
+
+    private String resolveHostName() {
+        try {
+            String hostName = normalize(InetAddress.getLocalHost().getHostName());
+            return hostName == null ? "unknown-host" : hostName;
+        } catch (Exception ignored) {
+            return "unknown-host";
+        }
+    }
+
+    private String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String truncate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
+}

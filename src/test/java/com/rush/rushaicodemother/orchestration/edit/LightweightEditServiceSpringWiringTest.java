@@ -20,6 +20,7 @@ class LightweightEditServiceSpringWiringTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withBean(GenerationEditRouteService.class, () -> mock(GenerationEditRouteService.class))
             .withBean(AiCodeEditServiceFactory.class, () -> mock(AiCodeEditServiceFactory.class))
+            .withBean(GenerationEditModelInvoker.class, () -> mock(GenerationEditModelInvoker.class))
             .withBean(EditFileLocatorService.class, () -> mock(EditFileLocatorService.class))
             .withBean(EditContextPackageBuilder.class, () -> mock(EditContextPackageBuilder.class))
             .withBean(EditValidationPolicyService.class, () -> mock(EditValidationPolicyService.class))

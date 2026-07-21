@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.template.SlotFillGenerationService;
@@ -122,9 +123,11 @@ class SlotFillGenerationPipelineTest {
         GenerationTaskRequest taskRequest = new GenerationTaskRequest(app, "做一个商城落地页", user);
         GenerationExecutionContext context = new GenerationExecutionContext(
                 taskId, 1L, 2L, Instant.now(), new GenerationRuntimeProperties().toLimits(), Clock.systemUTC());
+        GenerationExecutionFence fence = new GenerationExecutionFence(taskId, "worker-a", 3L);
+        context.bindExecutionFence(fence);
         GenerationSession session = new GenerationSession(null, context);
         return new GenerationPipelineRequest(
                 taskRequest, CodeGenTypeEnum.VUE_PROJECT, workspace, decision,
-                new GenerationTaskExecution(taskId, session, context, Instant.now()));
+                new GenerationTaskExecution(taskId, session, context, fence, Instant.now()));
     }
 }

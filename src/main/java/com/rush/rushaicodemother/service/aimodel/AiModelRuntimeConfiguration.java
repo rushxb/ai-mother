@@ -10,9 +10,23 @@ public record AiModelRuntimeConfiguration(
         String modelId,
         String modelType,
         String baseUrl,
-        String apiKey,
+        String secretRef,
+        String secretFingerprint,
+        String secretKeyId,
         int maxTokens,
         double temperature,
         boolean supportsThinking
 ) {
+
+    @Override
+    public String toString() {
+        return "AiModelRuntimeConfiguration[provider=" + provider
+                + ", modelId=" + modelId
+                + ", modelType=" + modelType
+                + ", baseUrl=" + baseUrl
+                + ", secretRef=<redacted>, secretFingerprint=<redacted>, secretKeyId=" + secretKeyId
+                + ", maxTokens=" + maxTokens
+                + ", temperature=" + temperature
+                + ", supportsThinking=" + supportsThinking + ']';
+    }
 }

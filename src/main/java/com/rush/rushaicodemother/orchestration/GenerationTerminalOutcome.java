@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 
+import java.util.Locale;
+
 /**
  * Canonical terminal outcomes shared by stream completion, telemetry and task events.
  */
@@ -44,18 +46,33 @@ public enum GenerationTerminalOutcome {
     }
 
     public static GenerationTerminalOutcome resolve(GenerationSession session, Throwable throwable) {
-        if (session != null && session.isCancelled()) {
-            return CANCELLED;
+        if (session != null && session.executionContext() != null) {
+            var context = session.executionContext();
+            if (context.isCancelled()) {
+                return isDeadlineReason(context.cancellationReason()) ? DEADLINE_EXCEEDED : CANCELLED;
+            }
+            if (context.isDeadlineExceeded()) {
+                return DEADLINE_EXCEEDED;
+            }
         }
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current instanceof GenerationDeadlineExceededException) {
                 return DEADLINE_EXCEEDED;
             }
+        }
+        if (session != null && session.isCancelled()) {
+            return CANCELLED;
+        }
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current instanceof GenerationStoppedException
                     || current instanceof GenerationExecutionCancelledException) {
                 return CANCELLED;
             }
         }
         return FAILED;
+    }
+
+    private static boolean isDeadlineReason(String reason) {
+        return reason != null && reason.toLowerCase(Locale.ROOT).contains("deadline");
     }
 }

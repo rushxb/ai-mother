@@ -60,6 +60,24 @@ public class GenerationExecutionContextService {
         return context;
     }
 
+    public GenerationExecutionContext restore(GenerationExecutionSnapshot snapshot,
+                                              GenerationExecutionLimits limits) {
+        GenerationExecutionContext context = GenerationExecutionContext.restore(snapshot, limits, clock);
+        GenerationExecutionContext existingTask = contextsByTaskId.putIfAbsent(snapshot.taskId(), context);
+        if (existingTask != null) {
+            return existingTask;
+        }
+        if (snapshot.appId() != null) {
+            String existingTaskId = taskIdsByAppId.putIfAbsent(snapshot.appId(), snapshot.taskId());
+            if (existingTaskId != null && !existingTaskId.equals(snapshot.taskId())) {
+                contextsByTaskId.remove(snapshot.taskId(), context);
+                throw new GenerationExecutionPolicyException(
+                        "application already has a different active generation context");
+            }
+        }
+        return context;
+    }
+
     public Optional<GenerationExecutionContext> getByTaskId(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             return Optional.empty();
@@ -73,6 +91,19 @@ public class GenerationExecutionContextService {
         }
         String taskId = taskIdsByAppId.get(appId);
         return taskId == null ? Optional.empty() : getByTaskId(taskId);
+    }
+
+    public void bindExecutionFence(String taskId, GenerationExecutionFence fence) {
+        GenerationExecutionContext context = getByTaskId(taskId)
+                .orElseThrow(() -> new GenerationExecutionPolicyException(
+                        "generation execution context does not exist for fence binding"));
+        synchronized (context) {
+            context.bindExecutionFence(fence);
+        }
+    }
+
+    public Optional<GenerationExecutionFence> getExecutionFence(String taskId) {
+        return getByTaskId(taskId).map(GenerationExecutionContext::executionFence);
     }
 
     /** Reserves a budget unit when the task is managed by this runtime. */
@@ -117,6 +148,33 @@ public class GenerationExecutionContextService {
         context.complete(status);
         if (context.appId() != null) {
             taskIdsByAppId.remove(context.appId(), taskId);
+        }
+    }
+
+    /**
+     * Finishes a context only when it is still bound to the caller's durable execution fence.
+     *
+     * <p>Dispatch cleanup is allowed to race with lease recovery and approval continuation. A
+     * plain task-id removal could therefore tear down a newer epoch's context. This conditional
+     * variant makes cleanup fail closed when ownership has moved.</p>
+     */
+    public boolean finishIfOwned(String taskId, GenerationExecutionFence fence, String status) {
+        if (taskId == null || taskId.isBlank() || fence == null || !taskId.equals(fence.taskId())) {
+            return false;
+        }
+        GenerationExecutionContext context = contextsByTaskId.get(taskId);
+        if (context == null || !fence.equals(context.executionFence())) {
+            return false;
+        }
+        synchronized (context) {
+            if (!fence.equals(context.executionFence()) || !contextsByTaskId.remove(taskId, context)) {
+                return false;
+            }
+            context.complete(status);
+            if (context.appId() != null) {
+                taskIdsByAppId.remove(context.appId(), taskId);
+            }
+            return true;
         }
     }
 

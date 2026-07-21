@@ -6,8 +6,10 @@ import com.rush.rushaicodemother.mapper.GenerationTraceMapper;
 import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
 import com.rush.rushaicodemother.model.entity.GenerationModelCall;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
+import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
@@ -63,36 +65,46 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
     }
 
     @Override
-    public boolean enrichRuntimeTaskTrace(long recordId, NewTask task, LocalDateTime updateTime) {
+    public boolean enrichRuntimeTaskTrace(long recordId,
+                                          NewTask task,
+                                          GenerationExecutionFence fence,
+                                          LocalDateTime updateTime) {
         requirePositive(recordId, "生成任务记录 ID");
         requireTask(task);
         requireTime(updateTime, "trace 更新时间");
         return mapper.enrichRunningTaskTrace(
                 recordId, task.originalCodeGenType(), task.targetCodeGenType(),
                 task.userPrompt(), task.enhancedPrompt(), task.requiresBuildValidation() ? 1 : 0,
-                task.qualityGate(), task.orchestrationMode(), updateTime) == 1;
+                task.qualityGate(), task.orchestrationMode(), leaseOwner(fence), executionEpoch(fence),
+                updateTime) == 1;
     }
 
     @Override
     public void updateRunningTaskStage(long recordId,
                                        String stage,
                                        String stageMessage,
+                                       GenerationExecutionFence fence,
                                        LocalDateTime updateTime) {
         requirePositive(recordId, "生成任务记录 ID");
         requireText(stage, "生成阶段");
         requireTime(updateTime, "阶段更新时间");
         requireOneAffectedRow(
-                mapper.updateRunningTaskStage(recordId, stage, stageMessage, updateTime),
+                mapper.updateRunningTaskStage(
+                        recordId, stage, stageMessage, leaseOwner(fence), executionEpoch(fence), updateTime),
                 "更新生成任务阶段"
         );
     }
 
     @Override
-    public void updateTaskMemorySummary(long recordId, String memorySummary, LocalDateTime updateTime) {
+    public void updateTaskMemorySummary(long recordId,
+                                        String memorySummary,
+                                        GenerationExecutionFence fence,
+                                        LocalDateTime updateTime) {
         requirePositive(recordId, "生成任务记录 ID");
         requireTime(updateTime, "记忆摘要更新时间");
         requireOneAffectedRow(
-                mapper.updateTaskMemorySummary(recordId, memorySummary, updateTime),
+                mapper.updateTaskMemorySummary(
+                        recordId, memorySummary, leaseOwner(fence), executionEpoch(fence), updateTime),
                 "更新生成任务记忆摘要"
         );
     }
@@ -102,7 +114,8 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                                     GenerationTaskStatus status,
                                     LocalDateTime endTime,
                                     long durationMs,
-                                    String errorMessage) {
+                                    String errorMessage,
+                                    GenerationExecutionFence fence) {
         requirePositive(recordId, "生成任务记录 ID");
         if (status == null || !status.isTerminal()) {
             throw invalid("生成任务终态不合法");
@@ -112,7 +125,9 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
             throw invalid("生成任务耗时不合法");
         }
         requireOneAffectedRow(
-                mapper.completeRunningTask(recordId, status.getValue(), endTime, durationMs, errorMessage),
+                mapper.completeRunningTask(
+                        recordId, status.getValue(), endTime, durationMs, errorMessage,
+                        leaseOwner(fence), executionEpoch(fence)),
                 "完成生成任务 trace"
         );
     }
@@ -146,12 +161,22 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 .userId(modelCall.userId())
                 .provider(modelCall.provider())
                 .model(modelCall.model())
+                .callStatus(modelCall.status().name())
+                .providerRequestId(modelCall.providerRequestId())
                 .promptTokens(modelCall.promptTokens())
                 .completionTokens(modelCall.completionTokens())
                 .totalTokens(modelCall.totalTokens())
                 .latencyMs(modelCall.latencyMs())
                 .finishReason(modelCall.finishReason())
                 .usageSource(modelCall.usageSource().name())
+                .errorCategory(modelCall.errorCategory())
+                .requestHash(modelCall.requestHash())
+                .promptTemplateHash(modelCall.promptTemplateHash())
+                .toolSchemaHash(modelCall.toolSchemaHash())
+                .modelConfigHash(modelCall.modelConfigHash())
+                .requestMessageCount(modelCall.requestMessageCount())
+                .toolCount(modelCall.toolCount())
+                .rawMetadataJson(modelCall.rawMetadataJson())
                 .createTime(modelCall.createTime())
                 .build();
         try {
@@ -218,8 +243,10 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
 
     private ModelCallRecord toModelCallRecord(GenerationModelCall entity) {
         GenerationModelUsageSource usageSource;
+        GenerationModelCallStatus status;
         try {
             usageSource = GenerationModelUsageSource.valueOf(entity.getUsageSource());
+            status = GenerationModelCallStatus.valueOf(entity.getCallStatus().toUpperCase());
         } catch (RuntimeException exception) {
             throw corrupted("生成模型调用 usageSource 不合法");
         }
@@ -230,9 +257,13 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         }
         return new ModelCallRecord(
                 entity.getCallId(), entity.getTaskId(), entity.getAppId(), entity.getUserId(),
-                entity.getProvider(), entity.getModel(), entity.getPromptTokens(),
+                entity.getProvider(), entity.getModel(), status, entity.getProviderRequestId(),
+                entity.getPromptTokens(),
                 entity.getCompletionTokens(), entity.getTotalTokens(), entity.getLatencyMs(),
-                entity.getFinishReason(), usageSource
+                entity.getFinishReason(), usageSource, entity.getErrorCategory(),
+                entity.getRequestHash(), entity.getPromptTemplateHash(), entity.getToolSchemaHash(),
+                entity.getModelConfigHash(), entity.getRequestMessageCount(), entity.getToolCount(),
+                entity.getRawMetadataJson()
         );
     }
 
@@ -265,6 +296,7 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
 
     private void requireModelCall(NewModelCall modelCall) {
         if (modelCall == null || modelCall.createTime() == null || modelCall.usageSource() == null
+                || modelCall.status() == null
                 || modelCall.callId() == null || modelCall.callId().isBlank()
                 || modelCall.taskId() == null || modelCall.taskId().isBlank()
                 || modelCall.appId() <= 0 || modelCall.userId() <= 0) {
@@ -276,6 +308,14 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         if (affectedRows != 1) {
             throw corrupted(operation + "失败，数据库影响行数异常: " + affectedRows);
         }
+    }
+
+    private String leaseOwner(GenerationExecutionFence fence) {
+        return fence == null ? null : fence.leaseOwner();
+    }
+
+    private long executionEpoch(GenerationExecutionFence fence) {
+        return fence == null ? 0L : fence.executionEpoch();
     }
 
     private String requireText(String value, String fieldName) {

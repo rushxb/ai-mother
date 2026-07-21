@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -39,7 +40,9 @@ class GenerationTaskOrchestratorPipelineTest {
         when(router.route(context.request(), CodeGenTypeEnum.VUE_PROJECT, context.workspace())).thenReturn(decision);
         GenerationTaskResult expected = new GenerationTaskResult(
                 "task-1", "lightweight_edit", context.workspace(), Flux.empty());
-        when(submissionService.submit(org.mockito.ArgumentMatchers.any())).thenReturn(expected);
+        when(submissionService.submit(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(GenerationTaskIdempotency.none()))).thenReturn(expected);
         GenerationTaskOrchestrator orchestrator = new GenerationTaskOrchestrator(
                 registry, router, context.workspaceService(), submissionService,
                 mock(GenerationTaskControlService.class));
@@ -48,7 +51,8 @@ class GenerationTaskOrchestratorPipelineTest {
 
         assertEquals(expected, result);
         ArgumentCaptor<GenerationPipelineRequest> captor = ArgumentCaptor.forClass(GenerationPipelineRequest.class);
-        verify(submissionService).submit(captor.capture());
+        verify(submissionService).submit(
+                captor.capture(), org.mockito.ArgumentMatchers.eq(GenerationTaskIdempotency.none()));
         assertEquals(decision, captor.getValue().modeDecision());
         assertEquals(context.workspace(), captor.getValue().workspace());
         assertEquals(null, captor.getValue().execution());

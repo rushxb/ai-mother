@@ -38,12 +38,21 @@ class ViteLauncherResolverTest {
         Path projectDirectory = createProjectWithVite(tempDirectory.resolve("project"));
         ViteLauncherResolver resolver = createResolver("fixed-node");
 
-        List<String> command = resolver.resolve(projectDirectory, 5180);
+        List<String> command = resolver.resolve(projectDirectory, 5180, 21L);
 
         assertEquals("fixed-node", command.getFirst());
-        assertEquals(projectDirectory.resolve("node_modules/vite/bin/vite.js").toRealPath().toString(), command.get(1));
-        assertEquals(List.of("--host", "127.0.0.1", "--port", "5180", "--strictPort"),
-                command.subList(2, command.size()));
+        assertEquals("--input-type=module", command.get(1));
+        assertEquals("--eval", command.get(2));
+        assertTrue(command.get(3).contains("await import('vite')"));
+        assertTrue(command.get(3).contains("ai-mother-preview-routing"));
+        assertEquals(List.of(
+                        "--",
+                        "--host", "127.0.0.1",
+                        "--port", "5180",
+                        "--strictPort",
+                        "--base", "/api/app/dev-server/proxy/21/"
+                ),
+                command.subList(4, command.size()));
         String joined = String.join(" ", command).toLowerCase();
         assertFalse(joined.contains("cmd /c"));
         assertFalse(joined.contains("npx"));
@@ -59,7 +68,7 @@ class ViteLauncherResolverTest {
 
         DevServerStartException exception = assertThrows(
                 DevServerStartException.class,
-                () -> createResolver("node").resolve(projectDirectory, 5180)
+                () -> createResolver("node").resolve(projectDirectory, 5180, 21L)
         );
 
         assertEquals(DevServerStartException.Reason.INVALID_LAUNCHER, exception.reason());
@@ -75,7 +84,7 @@ class ViteLauncherResolverTest {
 
         DevServerStartException exception = assertThrows(
                 DevServerStartException.class,
-                () -> createResolver("node").resolve(projectDirectory, 5180)
+                () -> createResolver("node").resolve(projectDirectory, 5180, 21L)
         );
 
         assertEquals(DevServerStartException.Reason.INVALID_LAUNCHER, exception.reason());
@@ -85,14 +94,18 @@ class ViteLauncherResolverTest {
     void shouldRejectInvalidArguments() {
         ViteLauncherResolver resolver = createResolver("node");
 
-        assertThrows(DevServerStartException.class, () -> resolver.resolve(null, 5180));
-        assertThrows(DevServerStartException.class, () -> resolver.resolve(tempDirectory, 0));
+        assertThrows(DevServerStartException.class, () -> resolver.resolve(null, 5180, 21L));
+        assertThrows(DevServerStartException.class, () -> resolver.resolve(tempDirectory, 0, 21L));
+        assertThrows(DevServerStartException.class, () -> resolver.resolve(tempDirectory, 5180, null));
     }
 
     private ViteLauncherResolver createResolver(String nodeExecutable) {
         NodeToolchain nodeToolchain = mock(NodeToolchain.class);
         when(nodeToolchain.nodeExecutable()).thenReturn(nodeExecutable);
-        return new ViteLauncherResolver(nodeToolchain);
+        return new ViteLauncherResolver(
+                nodeToolchain,
+                new DevServerPreviewPathFactory("/api")
+        );
     }
 
     private Path createProjectWithVite(Path projectDirectory) throws IOException {

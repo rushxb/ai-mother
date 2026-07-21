@@ -33,6 +33,12 @@ public interface AppService {
      */
     GenerationTaskResult submitGeneration(Long appId, String message, User loginUser);
 
+    /** Submits with an optional transport idempotency key. */
+    GenerationTaskResult submitGeneration(Long appId,
+                                          String message,
+                                          User loginUser,
+                                          String idempotencyKey);
+
     /**
      * 订阅当前应用的生成流
      *

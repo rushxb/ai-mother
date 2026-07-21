@@ -74,6 +74,12 @@ public interface GenerationTraceMapper {
               AND targetCodeGenType IS NULL
               AND userPrompt IS NULL
               AND orchestrationMode IS NULL
+              AND (
+                    (#{leaseOwner} IS NULL AND executionEpoch = 0)
+                    OR (leaseOwner = #{leaseOwner}
+                        AND executionEpoch = #{executionEpoch}
+                        AND leaseUntil >= #{updateTime})
+              )
               AND isDelete = 0
             """)
     int enrichRunningTaskTrace(@Param("recordId") Long recordId,
@@ -84,6 +90,8 @@ public interface GenerationTraceMapper {
                                @Param("requiresBuildValidation") int requiresBuildValidation,
                                @Param("qualityGate") String qualityGate,
                                @Param("orchestrationMode") String orchestrationMode,
+                               @Param("leaseOwner") String leaseOwner,
+                               @Param("executionEpoch") long executionEpoch,
                                @Param("updateTime") LocalDateTime updateTime);
 
     @Update("""
@@ -93,22 +101,42 @@ public interface GenerationTraceMapper {
                 updateTime = #{updateTime}
             WHERE id = #{recordId}
               AND status = 'running'
+              AND (
+                    (#{leaseOwner} IS NULL AND executionEpoch = 0)
+                    OR (leaseOwner = #{leaseOwner}
+                        AND executionEpoch = #{executionEpoch}
+                        AND leaseUntil >= #{updateTime})
+              )
               AND isDelete = 0
             """)
     int updateRunningTaskStage(@Param("recordId") Long recordId,
                                @Param("stage") String stage,
                                @Param("stageMessage") String stageMessage,
+                               @Param("leaseOwner") String leaseOwner,
+                               @Param("executionEpoch") long executionEpoch,
                                @Param("updateTime") LocalDateTime updateTime);
 
     @Update("""
             UPDATE generation_task
             SET memorySummary = #{memorySummary},
+                memoryIndexedAt = NULL,
+                memoryIndexAttempts = 0,
+                memoryIndexError = NULL,
                 updateTime = #{updateTime}
             WHERE id = #{recordId}
+              AND status = 'running'
+              AND (
+                    (#{leaseOwner} IS NULL AND executionEpoch = 0)
+                    OR (leaseOwner = #{leaseOwner}
+                        AND executionEpoch = #{executionEpoch}
+                        AND leaseUntil >= #{updateTime})
+              )
               AND isDelete = 0
             """)
     int updateTaskMemorySummary(@Param("recordId") Long recordId,
                                 @Param("memorySummary") String memorySummary,
+                                @Param("leaseOwner") String leaseOwner,
+                                @Param("executionEpoch") long executionEpoch,
                                 @Param("updateTime") LocalDateTime updateTime);
 
     @Update("""
@@ -122,17 +150,26 @@ public interface GenerationTraceMapper {
                 leaseOwner = NULL,
                 leaseUntil = NULL,
                 heartbeatAt = NULL,
+                executionEpoch = executionEpoch + 1,
                 version = version + 1,
                 updateTime = #{endTime}
             WHERE id = #{recordId}
               AND status = 'running'
+              AND (
+                    (#{leaseOwner} IS NULL AND executionEpoch = 0)
+                    OR (leaseOwner = #{leaseOwner}
+                        AND executionEpoch = #{executionEpoch}
+                        AND leaseUntil >= #{endTime})
+              )
               AND isDelete = 0
             """)
     int completeRunningTask(@Param("recordId") Long recordId,
                             @Param("status") String status,
                             @Param("endTime") LocalDateTime endTime,
                             @Param("durationMs") Long durationMs,
-                            @Param("errorMessage") String errorMessage);
+                            @Param("errorMessage") String errorMessage,
+                            @Param("leaseOwner") String leaseOwner,
+                            @Param("executionEpoch") long executionEpoch);
 
     @Insert("""
             INSERT INTO generation_build_log (
@@ -149,12 +186,18 @@ public interface GenerationTraceMapper {
     @Insert("""
             INSERT INTO generation_model_call (
                 callId, taskId, appId, userId, provider, model,
+                callStatus, providerRequestId,
                 promptTokens, completionTokens, totalTokens, latencyMs,
-                finishReason, usageSource, rawMetadataJson, createTime, isDelete
+                finishReason, usageSource, errorCategory,
+                requestHash, promptTemplateHash, toolSchemaHash, modelConfigHash,
+                requestMessageCount, toolCount, rawMetadataJson, createTime, isDelete
             ) VALUES (
                 #{callId}, #{taskId}, #{appId}, #{userId}, #{provider}, #{model},
+                #{callStatus}, #{providerRequestId},
                 #{promptTokens}, #{completionTokens}, #{totalTokens}, #{latencyMs},
-                #{finishReason}, #{usageSource}, #{rawMetadataJson}, #{createTime}, 0
+                #{finishReason}, #{usageSource}, #{errorCategory},
+                #{requestHash}, #{promptTemplateHash}, #{toolSchemaHash}, #{modelConfigHash},
+                #{requestMessageCount}, #{toolCount}, #{rawMetadataJson}, #{createTime}, 0
             )
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
@@ -162,8 +205,11 @@ public interface GenerationTraceMapper {
 
     @Select("""
             SELECT callId, taskId, appId, userId, provider, model,
+                   callStatus, providerRequestId,
                    promptTokens, completionTokens, totalTokens, latencyMs,
-                   finishReason, usageSource
+                   finishReason, usageSource, errorCategory,
+                   requestHash, promptTemplateHash, toolSchemaHash, modelConfigHash,
+                   requestMessageCount, toolCount, rawMetadataJson
             FROM generation_model_call
             WHERE callId = #{callId}
               AND isDelete = 0

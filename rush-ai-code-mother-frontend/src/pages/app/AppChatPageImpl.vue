@@ -32,6 +32,7 @@
         <ChatMessagesPanel
           ref="messagesPanelRef"
           :ai-avatar="aiAvatar"
+          :decide-tool-approval="decideToolApproval"
           :format-duration="formatDuration"
           :format-message-time="formatMessageTime"
           :get-ai-message-segments="getAiMessageSegments"

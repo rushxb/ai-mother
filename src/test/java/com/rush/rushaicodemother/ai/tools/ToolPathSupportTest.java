@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -65,6 +66,33 @@ class ToolPathSupportTest {
         );
 
         assertTrue(exception.getMessage().contains("工具执行上下文不存在"));
+    }
+
+    @Test
+    void fencedExecutionMustNotFallBackToCanonicalWorkspaceWhenIsolationIsMissing() {
+        long appId = 990_007L;
+        String taskId = "fenced-task";
+        GenerationToolExecutionContextService contextService = new GenerationToolExecutionContextService();
+        contextService.bindChangePlan(
+                appId,
+                taskId,
+                "full_generation",
+                CodeGenTypeEnum.VUE_PROJECT,
+                null,
+                true,
+                "test",
+                null,
+                new GenerationExecutionFence(taskId, "worker-a", 1L)
+        );
+        ToolPathSupport pathSupport = ToolPathSupportTestFixture.from(contextService, storageProperties());
+
+        ToolInputException exception = assertThrows(
+                ToolInputException.class,
+                () -> pathSupport.resolveProjectRoot(appId)
+        );
+
+        assertTrue(exception.getMessage().contains("缺少隔离工作区"));
+        assertEquals(taskId, pathSupport.resolveTaskId(appId));
     }
 
     @Test

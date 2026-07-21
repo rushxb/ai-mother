@@ -86,6 +86,8 @@ class UserCreditPersistenceBoundaryArchitectureTest {
         assertTransactional("adjustCreditByAdmin",
                 com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand.class);
         assertTransactional("chargeGenerationTask", String.class);
+        assertTransactional("reserveGenerationTask",
+                com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand.class);
     }
 
     @Test
@@ -102,6 +104,14 @@ class UserCreditPersistenceBoundaryArchitectureTest {
         assertTrue(schema.contains("chk_user_credit_transaction_shape"));
         assertTrue(schema.contains("bizId         varchar(128)                       not null"));
         assertTrue(schema.contains("UNIQUE KEY uk_type_bizId (type, bizId)"));
+        assertTrue(schema.contains("GENERATION_RESERVATION"));
+        assertTrue(schema.contains("GENERATION_SETTLEMENT"));
+
+        String reservationMigration = Files.readString(Path.of(
+                "sql", "migrations", "V20260718_1__generation_credit_reservation.sql"));
+        assertTrue(reservationMigration.contains("DROP CHECK chk_user_credit_transaction_shape"));
+        assertTrue(reservationMigration.contains("GENERATION_RESERVATION"));
+        assertTrue(reservationMigration.contains("GENERATION_SETTLEMENT"));
 
         assertTrue(migration.contains("ADD COLUMN creditBalance"));
         assertTrue(migration.contains("CREATE TABLE IF NOT EXISTS user_credit_transaction"));
@@ -112,7 +122,7 @@ class UserCreditPersistenceBoundaryArchitectureTest {
     }
 
     @Test
-    void creditAvailabilityMustBelongToCreditModule() throws IOException {
+    void creditAvailabilityMustBeEnforcedAtomicallyByGenerationAdmission() throws IOException {
         assertFalse(Arrays.stream(UserService.class.getDeclaredMethods())
                 .map(Method::getName)
                 .anyMatch("ensureHasCredit"::equals));
@@ -121,8 +131,12 @@ class UserCreditPersistenceBoundaryArchitectureTest {
                 .anyMatch("ensureHasCredit"::equals));
 
         String appServiceSource = read("service", "impl", "AppServiceImpl.java");
-        assertTrue(appServiceSource.contains("private final UserCreditService userCreditService"));
-        assertTrue(appServiceSource.contains("userCreditService.ensureHasCredit"));
+        String admissionSource = read("orchestration", "runtime", "task",
+                "GenerationTaskAdmissionService.java");
+        assertFalse(appServiceSource.contains("userCreditService.ensureHasCredit"));
+        assertTrue(admissionSource.contains("userCreditService.reserveGenerationTask"));
+        assertTrue(admissionSource.indexOf("findByIdempotencyKey")
+                < admissionSource.indexOf("reserveGenerationTask"));
         assertFalse(appServiceSource.contains("userService.ensureHasCredit"));
     }
 

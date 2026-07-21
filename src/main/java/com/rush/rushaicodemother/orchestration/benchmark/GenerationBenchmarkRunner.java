@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+import com.rush.rushaicodemother.ai.prompt.PromptCatalog;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
@@ -12,9 +14,16 @@ import java.util.stream.Collectors;
 public class GenerationBenchmarkRunner {
 
     private final GenerationBenchmarkCatalog catalog;
+    private final PromptCatalog promptCatalog;
 
     public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog) {
+        this(catalog, PromptCatalog.unmanaged());
+    }
+
+    @Autowired
+    public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog, PromptCatalog promptCatalog) {
         this.catalog = catalog;
+        this.promptCatalog = promptCatalog == null ? PromptCatalog.unmanaged() : promptCatalog;
     }
 
     public GenerationBenchmarkReport run(GenerationBenchmarkExecutor executor) {
@@ -45,10 +54,17 @@ public class GenerationBenchmarkRunner {
                 averageDuration(safeResults),
                 percentileDuration(safeResults, 0.50),
                 percentileDuration(safeResults, 0.90),
+                percentileDuration(safeResults, 0.99),
                 safeResults.stream().mapToInt(GenerationBenchmarkRunResult::aiCallCount).sum(),
                 safeResults.stream().mapToInt(GenerationBenchmarkRunResult::toolCallCount).sum(),
                 (int) safeResults.stream().filter(GenerationBenchmarkRunResult::fallback).count(),
                 safeResults.stream().mapToInt(GenerationBenchmarkRunResult::repairRounds).sum(),
+                safeResults.stream().mapToLong(GenerationBenchmarkRunResult::totalTokens).sum(),
+                safeResults.stream().mapToLong(GenerationBenchmarkRunResult::creditCost).sum(),
+                averageFirstTokenLatency(safeResults),
+                percentileFirstTokenLatency(safeResults, 0.90),
+                promptCatalog.bundleId(),
+                summarizeQuality(safeResults),
                 modeStats,
                 safeResults
         );
@@ -64,6 +80,7 @@ public class GenerationBenchmarkRunner {
                 averageDuration(results),
                 percentileDuration(results, 0.50),
                 percentileDuration(results, 0.90),
+                percentileDuration(results, 0.99),
                 (int) results.stream().filter(GenerationBenchmarkRunResult::fallback).count()
         );
     }
@@ -97,5 +114,47 @@ public class GenerationBenchmarkRunner {
                 .toList();
         int index = (int) Math.ceil(percentile * durations.size()) - 1;
         return durations.get(Math.max(0, Math.min(index, durations.size() - 1)));
+    }
+
+    private long averageFirstTokenLatency(List<GenerationBenchmarkRunResult> results) {
+        return Math.round(results.stream()
+                .mapToLong(GenerationBenchmarkRunResult::firstTokenLatencyMs)
+                .filter(value -> value > 0)
+                .average()
+                .orElse(0));
+    }
+
+    private long percentileFirstTokenLatency(List<GenerationBenchmarkRunResult> results, double percentile) {
+        List<Long> values = results.stream()
+                .map(GenerationBenchmarkRunResult::firstTokenLatencyMs)
+                .filter(value -> value > 0)
+                .sorted()
+                .toList();
+        if (values.isEmpty()) {
+            return 0;
+        }
+        int index = (int) Math.ceil(percentile * values.size()) - 1;
+        return values.get(Math.max(0, Math.min(index, values.size() - 1)));
+    }
+
+    private Map<String, GenerationBenchmarkReport.QualityStats> summarizeQuality(
+            List<GenerationBenchmarkRunResult> results
+    ) {
+        Map<String, GenerationBenchmarkReport.QualityStats> qualityStats = new LinkedHashMap<>();
+        for (GenerationBenchmarkQualityDimension dimension : GenerationBenchmarkQualityDimension.values()) {
+            int evaluated = (int) results.stream()
+                    .filter(result -> result.qualityEvidence().evaluated(dimension))
+                    .count();
+            int passed = (int) results.stream()
+                    .filter(result -> result.qualityEvidence().passed(dimension))
+                    .count();
+            qualityStats.put(dimension.name().toLowerCase(), new GenerationBenchmarkReport.QualityStats(
+                    evaluated,
+                    passed,
+                    rate(evaluated, results.size()),
+                    rate(passed, evaluated)
+            ));
+        }
+        return Map.copyOf(qualityStats);
     }
 }

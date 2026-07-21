@@ -33,6 +33,48 @@ create table if not exists user
 -- 已有库升级可执行以下语句
 alter table user add column if not exists creditBalance bigint default 0 not null comment '用户积分余额';
 
+-- 租户授权与数据隔离边界
+create table if not exists tenant
+(
+    id          bigint auto_increment primary key,
+    tenantKey   varchar(191)                              not null,
+    tenantType  varchar(32)                               not null,
+    displayName varchar(128)                              not null,
+    ownerUserId bigint                                    not null,
+    status      varchar(32) default 'active'              not null,
+    createTime  datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    updateTime  datetime(6) default CURRENT_TIMESTAMP(6) not null on update CURRENT_TIMESTAMP(6),
+    isDelete    tinyint     default 0                    not null,
+    UNIQUE KEY uk_tenant_key (tenantKey),
+    INDEX idx_tenant_owner_type (ownerUserId, tenantType, isDelete),
+    INDEX idx_tenant_status (status, isDelete, id),
+    CONSTRAINT fk_tenant_owner_user FOREIGN KEY (ownerUserId) REFERENCES `user` (id),
+    CONSTRAINT chk_tenant_type CHECK (tenantType IN ('personal', 'organization')),
+    CONSTRAINT chk_tenant_status CHECK (status IN ('active', 'suspended')),
+    CONSTRAINT chk_tenant_owner CHECK (ownerUserId > 0)
+) comment '租户授权与数据隔离边界' collate = utf8mb4_unicode_ci;
+
+create table if not exists tenant_membership
+(
+    id         bigint auto_increment primary key,
+    tenantId   bigint                                    not null,
+    userId     bigint                                    not null,
+    role       varchar(32)                               not null,
+    status     varchar(32) default 'active'              not null,
+    joinedAt   datetime(6)                               not null,
+    createTime datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    updateTime datetime(6) default CURRENT_TIMESTAMP(6) not null on update CURRENT_TIMESTAMP(6),
+    isDelete   tinyint     default 0                    not null,
+    UNIQUE KEY uk_tenant_membership_identity (tenantId, userId),
+    INDEX idx_tenant_membership_user (userId, status, isDelete, tenantId),
+    INDEX idx_tenant_membership_tenant (tenantId, status, role, isDelete),
+    CONSTRAINT fk_tenant_membership_tenant FOREIGN KEY (tenantId) REFERENCES tenant (id),
+    CONSTRAINT fk_tenant_membership_user FOREIGN KEY (userId) REFERENCES `user` (id),
+    CONSTRAINT chk_tenant_membership_role CHECK (role IN ('viewer', 'developer', 'admin', 'owner')),
+    CONSTRAINT chk_tenant_membership_status CHECK (status IN ('invited', 'active', 'suspended')),
+    CONSTRAINT chk_tenant_membership_identity CHECK (tenantId > 0 AND userId > 0)
+) comment '租户成员与角色分配' collate = utf8mb4_unicode_ci;
+
 -- 用户积分流水表
 create table if not exists user_credit_transaction
 (
@@ -40,7 +82,7 @@ create table if not exists user_credit_transaction
     userId        bigint                             not null comment '用户id',
     changeAmount  bigint                             not null comment '积分变动，正数增加，负数扣除',
     balanceAfter  bigint                             not null comment '变动后余额',
-    type          varchar(64)                        not null comment '变动类型：ACCOUNT_INITIALIZATION/ADMIN_ADJUST/GENERATION_CHARGE',
+    type          varchar(64)                        not null comment '变动类型：初始化/调整/生成预授权/结算/兼容扣费',
     bizId         varchar(128)                       not null comment '业务id，例如 generation taskId',
     remark        varchar(512)                       not null comment '备注',
     adminUserId   bigint                             null comment '管理员操作人id',
@@ -57,6 +99,10 @@ create table if not exists user_credit_transaction
         OR (type = 'ADMIN_ADJUST' AND changeAmount <> 0
             AND adminUserId IS NOT NULL AND tokenCount IS NULL)
         OR (type = 'GENERATION_CHARGE' AND changeAmount <= 0
+            AND adminUserId IS NULL AND tokenCount IS NOT NULL AND tokenCount >= 0)
+        OR (type = 'GENERATION_RESERVATION' AND changeAmount < 0
+            AND adminUserId IS NULL AND tokenCount IS NULL)
+        OR (type = 'GENERATION_SETTLEMENT'
             AND adminUserId IS NULL AND tokenCount IS NOT NULL AND tokenCount >= 0)
     )
 ) comment '用户积分流水' collate = utf8mb4_unicode_ci;
@@ -75,9 +121,11 @@ create table app
     generatingMessage mediumtext                    null comment '当前生成中的 AI 响应快照',
     generatingStage varchar(64)                     null comment '当前生成阶段',
     generatingTaskId varchar(128)                    null comment '当前生成状态所有者任务 ID',
+    generationExecutionEpoch bigint                  null comment '当前生成状态 fencing epoch',
     generationLeaseUntil datetime(6)                 null comment '生成状态租约到期时间',
     priority     int      default 0                 not null comment '优先级',
     userId       bigint                             not null comment '创建用户id',
+    tenantId     bigint                             not null comment '租户授权边界',
     editTime     datetime default CURRENT_TIMESTAMP not null comment '编辑时间',
     createTime   datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime   datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
@@ -85,10 +133,15 @@ create table app
     UNIQUE KEY uk_deployKey (deployKey), -- 确保部署标识唯一
     INDEX idx_appName (appName),         -- 提升基于应用名称的查询性能
     INDEX idx_userId (userId),           -- 提升基于用户 ID 的查询性能
+    INDEX idx_app_tenant_cursor (tenantId, isDelete, createTime, id),
     INDEX idx_generation_lease (isGenerating, generationLeaseUntil),
+    CONSTRAINT fk_app_tenant FOREIGN KEY (tenantId) REFERENCES tenant (id),
     CONSTRAINT chk_app_generation_state_ownership CHECK (
-        (isGenerating = 0 AND generatingTaskId IS NULL AND generationLeaseUntil IS NULL)
-        OR (isGenerating = 1 AND generatingTaskId IS NOT NULL AND generationLeaseUntil IS NOT NULL)
+        (isGenerating = 0 AND generatingTaskId IS NULL
+            AND generationExecutionEpoch IS NULL AND generationLeaseUntil IS NULL)
+        OR (isGenerating = 1 AND generatingTaskId IS NOT NULL
+            AND generationExecutionEpoch IS NOT NULL AND generationExecutionEpoch >= 0
+            AND generationLeaseUntil IS NOT NULL)
     )
 ) comment '应用' collate = utf8mb4_unicode_ci;
 
@@ -97,6 +150,7 @@ alter table app add column if not exists isGenerating tinyint default 0 not null
 alter table app add column if not exists generatingMessage mediumtext null comment '当前生成中的 AI 响应快照';
 alter table app add column if not exists generatingStage varchar(64) null comment '当前生成阶段';
 alter table app add column if not exists generatingTaskId varchar(128) null comment '当前生成状态所有者任务 ID';
+alter table app add column if not exists generationExecutionEpoch bigint null comment '当前生成状态 fencing epoch';
 alter table app add column if not exists generationLeaseUntil datetime(6) null comment '生成状态租约到期时间';
 alter table app add column if not exists devServerPort int null comment 'Vue 开发服务器端口号（预览用）';
 
@@ -219,9 +273,12 @@ create table chat_history
         taskId                  varchar(128)                       not null comment '生成任务 ID',
         appId                   bigint                             not null comment '应用id',
         userId                  bigint                             not null comment '创建用户id',
+        tenantId                bigint                             not null comment '租户授权边界',
+        idempotencyKeyHash      char(64) character set ascii collate ascii_bin null comment 'Idempotency-Key SHA-256',
+        requestFingerprint      char(64) character set ascii collate ascii_bin null comment '提交请求规范指纹 SHA-256',
         originalCodeGenType     varchar(64)                        null comment '原始代码生成类型',
         targetCodeGenType       varchar(64)                        null comment '目标代码生成类型',
-        status                  varchar(32) default 'queued'       not null comment '状态：queued/running/success/failed/cancelled/deadline_exceeded',
+        status                  varchar(32) default 'queued'       not null comment '状态：queued/running/waiting_approval/success/failed/cancelled/deadline_exceeded',
         stage                   varchar(64)                        null comment '当前阶段',
         stageMessage            text                               null comment '当前阶段提示信息',
         userPrompt              mediumtext                         null comment '用户原始提示词',
@@ -230,6 +287,11 @@ create table chat_history
         qualityGate             varchar(64)                        null comment '质量门禁级别',
         orchestrationMode       varchar(64)                        null comment '编排模式',
         route                   varchar(64)                        null comment '运行时路由',
+        runtimeSchemaVersion    int                                null comment '可重建执行命令 schema 版本',
+        runtimePayloadJson      mediumtext                         null comment '跨实例可重建执行命令 JSON',
+        dispatchAt              datetime(6)                        null comment '最近一次进入 durable queue 的时间',
+        dispatchAttempt         int         default 0              not null comment 'durable queue 投递尝试次数',
+        dispatchError           varchar(1000)                      null comment '最近一次 durable queue 投递错误',
         submittedAt             datetime(6)                        not null comment '任务提交时间',
         deadlineAt              datetime(6)                        null comment '任务绝对截止时间',
         cancellationRequested   tinyint     default 0              not null comment '是否请求取消',
@@ -237,6 +299,7 @@ create table chat_history
         leaseOwner              varchar(128)                       null comment 'worker 租约所有者',
         leaseUntil              datetime(6)                        null comment 'worker 租约到期时间',
         heartbeatAt             datetime(6)                        null comment 'worker 最近心跳时间',
+        executionEpoch          bigint      default 0              not null comment '单调递增的 worker fencing epoch',
         attempt                 int         default 0              not null comment 'worker 领取次数',
         version                 bigint      default 0              not null comment '运行时乐观锁版本',
         startTime               datetime default CURRENT_TIMESTAMP not null comment '开始时间',
@@ -244,6 +307,9 @@ create table chat_history
         durationMs              bigint                             null comment '耗时毫秒',
         errorMessage            text                               null comment '错误信息',
         memorySummary           mediumtext                         null comment 'AI 可读的生成记忆摘要',
+        memoryIndexedAt         datetime(6)                        null comment '语义记忆成功写入 Milvus 的时间',
+        memoryIndexAttempts     int         default 0              not null comment '语义记忆索引尝试次数',
+        memoryIndexError        varchar(1000)                      null comment '语义记忆最近索引错误',
         totalTokens             bigint   default 0                 not null comment '任务累计 token 数',
         creditCost              bigint   default 0                 not null comment '任务消耗积分',
         creditCharged           tinyint  default 0                 not null comment '是否已结算积分',
@@ -251,13 +317,124 @@ create table chat_history
         updateTime              datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
         isDelete                tinyint  default 0                 not null comment '是否删除',
         UNIQUE KEY uk_taskId (taskId),
+        UNIQUE KEY uk_generation_task_submission_idempotency
+            (tenantId, userId, appId, idempotencyKeyHash),
         INDEX idx_appId_createTime (appId, createTime),
         INDEX idx_userId_createTime (userId, createTime),
         INDEX idx_status_createTime (status, createTime),
         INDEX idx_route_success_duration (route, status, isDelete, endTime, id),
         INDEX idx_runtime_lease (status, leaseUntil, isDelete),
-        INDEX idx_app_runtime_status (appId, status, submittedAt)
+        INDEX idx_runtime_dispatch (status, dispatchAt, leaseOwner, isDelete, submittedAt),
+        INDEX idx_app_runtime_status (appId, status, submittedAt),
+        INDEX idx_user_runtime_status (userId, status, isDelete, submittedAt),
+        INDEX idx_memory_outbox (memoryIndexedAt, memoryIndexAttempts, status, isDelete, endTime),
+        INDEX idx_generation_task_tenant_runtime (tenantId, status, isDelete, submittedAt, id),
+        CONSTRAINT chk_generation_task_idempotency_pair CHECK (
+            (idempotencyKeyHash IS NULL AND requestFingerprint IS NULL)
+                OR (idempotencyKeyHash IS NOT NULL AND requestFingerprint IS NOT NULL)
+        ),
+        CONSTRAINT fk_generation_task_tenant FOREIGN KEY (tenantId) REFERENCES tenant (id)
     ) comment 'AI 生成任务' collate = utf8mb4_unicode_ci;
+
+-- AI 破坏性工具一次性审批：MySQL 为事实源，支持重启恢复、原子决策和单次消费
+-- Durable DAG checkpoints for cross-instance orchestration recovery.
+create table if not exists generation_orchestration_checkpoint
+(
+    id                    bigint auto_increment primary key,
+    taskId                varchar(128)                         not null comment 'generation task id',
+    appId                 bigint                               not null comment 'application id',
+    executionEpoch        bigint      default 0                not null comment 'generation worker fencing epoch',
+    requestHash           char(64)                             not null comment 'sha-256 hash of the original request',
+    status                varchar(32)                          not null comment 'running/completed/failed',
+    runtimeState          varchar(32)                          not null comment 'agent runtime state',
+    currentNode           varchar(128)                         null comment 'currently running DAG node',
+    lastCompletedNode     varchar(128)                         null comment 'last completed DAG node',
+    checkpointVersion     bigint      default 0                not null comment 'monotonic checkpoint version',
+    payloadJson           mediumtext                           not null comment 'versioned orchestration checkpoint payload',
+    payloadBytes          int                                  not null comment 'serialized payload bytes',
+    createTime            datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    updateTime            datetime(6) default CURRENT_TIMESTAMP(6) not null on update CURRENT_TIMESTAMP(6),
+    isDelete              tinyint     default 0                not null,
+    UNIQUE KEY uk_generation_orchestration_task (taskId),
+    INDEX idx_generation_orchestration_app (appId, isDelete, updateTime),
+    INDEX idx_generation_orchestration_state (status, runtimeState, isDelete, updateTime),
+    CONSTRAINT chk_generation_orchestration_checkpoint_version CHECK (checkpointVersion >= 0),
+    CONSTRAINT chk_generation_orchestration_execution_epoch CHECK (executionEpoch >= 0),
+    CONSTRAINT chk_generation_orchestration_payload_bytes CHECK (payloadBytes > 0)
+) comment 'durable generation DAG checkpoint' collate = utf8mb4_unicode_ci;
+
+create table if not exists generation_feedback
+(
+    id         bigint auto_increment comment 'id' primary key,
+    taskId     varchar(128)                       not null comment '生成任务 ID',
+    appId      bigint                             not null comment '应用 ID',
+    userId     bigint                             not null comment '用户 ID',
+    rating     tinyint                            not null comment '用户评分：1-5',
+    outcome    varchar(64) default 'unspecified'  not null comment '反馈结果标签',
+    comment    text                               null comment '用户反馈文本',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete   tinyint  default 0                 not null comment '是否删除',
+    UNIQUE KEY uk_generation_feedback_task_user (taskId, userId),
+    KEY idx_generation_feedback_app_update (appId, updateTime),
+    KEY idx_generation_feedback_rating_update (rating, updateTime),
+    CONSTRAINT chk_generation_feedback_rating CHECK (rating between 1 and 5)
+) comment 'AI 生成结果用户反馈' collate = utf8mb4_unicode_ci;
+
+create table if not exists generation_tool_approval
+(
+    id          bigint auto_increment primary key,
+    approvalId  char(64)                            not null comment '目标绑定审批 ID',
+    taskId      varchar(128)                        not null comment '生成任务 ID',
+    appId       bigint                              not null comment '应用 ID',
+    userId      bigint                              not null comment '应用所有者 ID',
+    action      varchar(64)                         not null comment '破坏性工具动作',
+    requestJson mediumtext                          not null comment '规范化审批请求',
+    status      varchar(32) default 'pending'       not null comment 'pending/approved/rejected/executing/consumed/expired',
+    requestedAt datetime(6)                         not null,
+    expiresAt   datetime(6)                         not null,
+    decidedBy   bigint                              null,
+    decidedAt   datetime(6)                         null,
+    consumedAt  datetime(6)                         null,
+    executionStartedAt datetime(6)                  null comment '工具调用开始执行时间',
+    executionResult mediumtext                      null comment '可重放的工具结果 JSON',
+    executionAttempt int default 0                  not null comment '副作用执行次数',
+    toolRequestId varchar(128)                      null comment '模型工具调用 ID',
+    toolName    varchar(128)                        null comment '模型工具名称',
+    argumentsDigest char(64)                        null comment '工具参数 SHA-256',
+    checkpointJson mediumtext                       null comment '版本化运行时续跑断点',
+    version     bigint      default 0               not null,
+    createTime  datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    updateTime  datetime(6) default CURRENT_TIMESTAMP(6) not null on update CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uk_task_approval (taskId, approvalId),
+    UNIQUE KEY uk_task_tool_request (taskId, toolRequestId),
+    INDEX idx_approval_expiration (status, expiresAt, id),
+    INDEX idx_approval_execution (status, executionStartedAt, id),
+    INDEX idx_approval_app (appId, requestedAt),
+    CONSTRAINT chk_generation_tool_approval_expiry CHECK (expiresAt > requestedAt),
+    CONSTRAINT chk_generation_tool_approval_checkpoint CHECK (
+        (toolRequestId IS NULL AND toolName IS NULL AND argumentsDigest IS NULL AND checkpointJson IS NULL)
+        OR (toolRequestId IS NOT NULL AND toolName IS NOT NULL
+            AND argumentsDigest IS NOT NULL AND checkpointJson IS NOT NULL)
+    ),
+    CONSTRAINT chk_generation_tool_approval_status CHECK (
+        status in ('pending', 'approved', 'rejected', 'executing', 'consumed', 'expired')
+    ),
+    CONSTRAINT chk_generation_tool_approval_attempt CHECK (executionAttempt >= 0),
+    CONSTRAINT chk_generation_tool_approval_state CHECK (
+        (status = 'pending' AND decidedBy IS NULL AND decidedAt IS NULL AND consumedAt IS NULL
+            AND executionStartedAt IS NULL AND executionResult IS NULL AND executionAttempt = 0)
+        OR (status = 'approved' AND decidedBy IS NOT NULL AND decidedAt IS NOT NULL AND consumedAt IS NULL
+            AND executionStartedAt IS NULL AND executionResult IS NULL)
+        OR (status = 'rejected' AND decidedBy IS NOT NULL AND decidedAt IS NOT NULL AND consumedAt IS NULL
+            AND executionStartedAt IS NULL AND executionResult IS NULL)
+        OR (status = 'executing' AND decidedBy IS NOT NULL AND decidedAt IS NOT NULL AND consumedAt IS NULL
+            AND executionStartedAt IS NOT NULL AND executionResult IS NULL AND executionAttempt > 0)
+        OR (status = 'consumed' AND decidedBy IS NOT NULL AND decidedAt IS NOT NULL AND consumedAt IS NOT NULL
+            AND executionStartedAt IS NOT NULL AND executionResult IS NOT NULL AND executionAttempt > 0)
+        OR (status = 'expired' AND consumedAt IS NULL AND executionStartedAt IS NULL AND executionResult IS NULL)
+    )
+) comment 'AI 工具一次性审批' collate = utf8mb4_unicode_ci;
 
 -- AI 生成关键路径 span：保存跨实例、可恢复查询的阶段级耗时
 create table if not exists generation_task_span
@@ -310,19 +487,32 @@ create table if not exists generation_model_call
     userId           bigint                             not null comment '创建用户id',
     provider         varchar(64)                        null comment '模型提供商',
     model            varchar(128)                       null comment '模型名称',
+    callStatus       varchar(32) default 'SUCCESS'      not null comment 'SUCCESS/ERROR',
+    providerRequestId varchar(128)                      null comment '提供商请求或响应 ID',
     promptTokens     int                                null comment '输入 token 数',
     completionTokens int                                null comment '输出 token 数',
     totalTokens      int                                null comment '总 token 数',
     latencyMs        bigint                             null comment '模型调用耗时毫秒',
     finishReason     varchar(64)                        null comment '结束原因',
-    usageSource      varchar(32) default 'OFFICIAL'     not null comment 'token 来源：OFFICIAL/ESTIMATED',
+    usageSource      varchar(32) default 'OFFICIAL'     not null comment 'token 来源：OFFICIAL/ESTIMATED/UNAVAILABLE',
+    errorCategory    varchar(64)                        null comment '错误分类',
+    requestHash      char(64)                           null comment '规范请求 SHA-256',
+    promptTemplateHash char(64)                         null comment '系统提示 SHA-256',
+    toolSchemaHash   char(64)                           null comment '工具 schema SHA-256',
+    modelConfigHash  char(64)                           null comment '模型参数 SHA-256',
+    requestMessageCount int default 0                   not null comment '请求消息数量',
+    toolCount        int default 0                      not null comment '工具数量',
     rawMetadataJson  mediumtext                         null comment '原始元数据 JSON',
         createTime       datetime default CURRENT_TIMESTAMP not null comment '创建时间',
         isDelete         tinyint  default 0                 not null comment '是否删除',
-        UNIQUE KEY uk_callId (callId),
-        INDEX idx_taskId_createTime (taskId, createTime),
+    UNIQUE KEY uk_callId (callId),
+    INDEX idx_taskId_createTime (taskId, createTime),
     INDEX idx_model_createTime (model, createTime),
-    INDEX idx_appId_createTime (appId, createTime)
+    INDEX idx_appId_createTime (appId, createTime),
+    INDEX idx_generation_model_call_outcome (callStatus, createTime),
+    INDEX idx_generation_model_call_prompt_model (promptTemplateHash, model, callStatus, createTime),
+    CONSTRAINT chk_generation_model_call_status CHECK (callStatus in ('SUCCESS', 'ERROR')),
+    CONSTRAINT chk_generation_model_call_counts CHECK (requestMessageCount >= 0 AND toolCount >= 0)
 ) comment 'AI 模型调用' collate = utf8mb4_unicode_ci;
 
 -- 后续库表更新，不要仅仅在create中新建，因为现有库已经有库表了
@@ -336,7 +526,9 @@ create table if not exists ai_model
     modelId        varchar(128)                       not null comment '模型标识符，如 deepseek-v4-flash',
     description    varchar(512)                       null comment '模型描述',
     baseUrl        varchar(512)                       not null comment 'API 基础地址',
-    apiKey         varchar(2048)                      null comment 'API 密钥',
+    secretRef      varchar(4096)                      null comment 'Envelope-encrypted API credential reference',
+    secretFingerprint char(64)                        null comment 'Stable HMAC-SHA256 credential fingerprint',
+    secretKeyId    varchar(64)                        null comment 'Key-encryption-key identifier',
     maxTokens      int      default 8192              not null comment '最大 token 数',
     temperature    double   default 0.7               null comment '温度参数',
     isEnabled      tinyint  default 1                 not null comment '是否启用：0-禁用 1-启用',
@@ -372,7 +564,9 @@ alter table ai_model add column if not exists provider varchar(64) not null comm
 alter table ai_model add column if not exists modelId varchar(128) not null comment '模型标识符，如 deepseek-v4-flash';
 alter table ai_model add column if not exists description varchar(512) null comment '模型描述';
 alter table ai_model add column if not exists baseUrl varchar(512) not null comment 'API 基础地址';
-alter table ai_model add column if not exists apiKey varchar(2048) null comment 'API 密钥';
+alter table ai_model add column if not exists secretRef varchar(4096) null comment 'Envelope-encrypted API credential reference';
+alter table ai_model add column if not exists secretFingerprint char(64) null comment 'Stable HMAC-SHA256 credential fingerprint';
+alter table ai_model add column if not exists secretKeyId varchar(64) null comment 'Key-encryption-key identifier';
 alter table ai_model add column if not exists maxTokens int default 8192 not null comment '最大 token 数';
 alter table ai_model add column if not exists temperature double default 0.7 null comment '温度参数';
 alter table ai_model add column if not exists isEnabled tinyint default 1 not null comment '是否启用：0-禁用 1-启用';
@@ -389,3 +583,138 @@ alter table ai_model add column if not exists isDelete tinyint default 0 not nul
 -- 并发单活约束、API Key 列扩容和软删除身份唯一约束请执行版本化迁移：
 -- sql/migrations/V20260713__ai_model_write_integrity.sql
 -- sql/migrations/V20260714_2__ai_model_soft_delete_identity.sql
+-- sql/migrations/V20260720_2__ai_model_secret_envelope.sql
+
+create table if not exists ai_prompt_release_bundle
+(
+    id         tinyint                              not null primary key,
+    revision   bigint       default 0               not null,
+    updatedBy  bigint                               null,
+    updateTime datetime(6)  default CURRENT_TIMESTAMP(6) not null
+        on update CURRENT_TIMESTAMP(6),
+    constraint chk_ai_prompt_release_bundle_id check (id = 1),
+    constraint chk_ai_prompt_release_bundle_revision check (revision >= 0)
+) comment 'atomic AI prompt release bundle head' collate = utf8mb4_unicode_ci;
+
+insert into ai_prompt_release_bundle (id, revision, updatedBy)
+values (1, 0, null)
+on duplicate key update id = values(id);
+
+create table if not exists ai_prompt_release
+(
+    promptKey         varchar(64)                         not null primary key,
+    stableVersion     varchar(32)                         not null,
+    canaryVersion     varchar(32)                         null,
+    canaryPercentage  tinyint      default 0              not null,
+    revision          bigint                              not null,
+    updatedBy         bigint                              not null,
+    changeNote        varchar(512)                        not null,
+    createTime        datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    updateTime        datetime(6) default CURRENT_TIMESTAMP(6) not null
+        on update CURRENT_TIMESTAMP(6),
+    index idx_ai_prompt_release_revision (revision),
+    constraint chk_ai_prompt_release_percentage
+        check (canaryPercentage between 0 and 100),
+    constraint chk_ai_prompt_release_revision check (revision > 0),
+    constraint chk_ai_prompt_release_operator check (updatedBy > 0),
+    constraint chk_ai_prompt_release_identifiers check (
+        char_length(trim(promptKey)) between 1 and 64
+        and char_length(trim(stableVersion)) between 1 and 32
+        and (canaryVersion is null or char_length(trim(canaryVersion)) between 1 and 32)
+    ),
+    constraint chk_ai_prompt_release_note
+        check (char_length(trim(changeNote)) between 1 and 512),
+    constraint chk_ai_prompt_release_canary check (
+        (canaryPercentage = 0 and canaryVersion is null)
+        or (canaryPercentage between 1 and 100
+            and canaryVersion is not null
+            and canaryVersion <> stableVersion)
+    )
+) comment 'current runtime AI prompt release pointers' collate = utf8mb4_unicode_ci;
+
+create table if not exists ai_prompt_release_history
+(
+    revision          bigint                              not null primary key,
+    promptKey         varchar(64)                         not null,
+    stableVersion     varchar(32)                         not null,
+    canaryVersion     varchar(32)                         null,
+    canaryPercentage  tinyint      default 0              not null,
+    action             varchar(16)                         not null,
+    sourceRevision     bigint                              null,
+    updatedBy          bigint                              not null,
+    changeNote         varchar(512)                        not null,
+    evidenceId         char(36)                            null,
+    createTime         datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    index idx_ai_prompt_release_history_key (promptKey, revision),
+    constraint chk_ai_prompt_release_history_percentage
+        check (canaryPercentage between 0 and 100),
+    constraint chk_ai_prompt_release_history_operator check (updatedBy > 0),
+    constraint chk_ai_prompt_release_history_identifiers check (
+        char_length(trim(promptKey)) between 1 and 64
+        and char_length(trim(stableVersion)) between 1 and 32
+        and (canaryVersion is null or char_length(trim(canaryVersion)) between 1 and 32)
+    ),
+    constraint chk_ai_prompt_release_history_note
+        check (char_length(trim(changeNote)) between 1 and 512),
+    constraint chk_ai_prompt_release_history_action
+        check (action in ('PUBLISH', 'ROLLBACK')),
+    constraint chk_ai_prompt_release_history_source check (
+        (action = 'PUBLISH' and sourceRevision is null)
+        or (action = 'ROLLBACK' and sourceRevision is not null and sourceRevision > 0)
+    ),
+    constraint chk_ai_prompt_release_history_canary check (
+        (canaryPercentage = 0 and canaryVersion is null)
+        or (canaryPercentage between 1 and 100
+            and canaryVersion is not null
+            and canaryVersion <> stableVersion)
+    )
+) comment 'immutable AI prompt release audit history' collate = utf8mb4_unicode_ci;
+
+create table if not exists generation_benchmark_evidence
+(
+    id                       bigint auto_increment primary key,
+    evidenceId               char(36)                           not null,
+    subjectType              varchar(32)                        not null,
+    subjectKey               varchar(128)                       not null,
+    candidateFingerprint     char(64)                           not null,
+    datasetFingerprint       char(64)                           not null,
+    graderFingerprint        varchar(128)                       not null,
+    runtimeConfigFingerprint char(64)                           not null,
+    gitCommit                varchar(64)                        not null,
+    modelFingerprint         char(64)                           not null,
+    promptBundleFingerprint  char(64)                           not null,
+    reportSha256             char(64)                           not null,
+    reportJson               mediumtext                         not null,
+    passed                   tinyint                            not null,
+    violationsJson           mediumtext                         not null,
+    signature                char(64)                           not null,
+    evaluatedAt              datetime(6)                        not null,
+    expiresAt                datetime(6)                        not null,
+    createTime               datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    isDelete                 tinyint     default 0              not null,
+    unique key uk_generation_benchmark_evidence_id (evidenceId),
+    index idx_generation_benchmark_evidence_subject
+        (subjectType, subjectKey, candidateFingerprint, passed, expiresAt),
+    index idx_generation_benchmark_evidence_expiry (expiresAt, isDelete),
+    constraint chk_generation_benchmark_evidence_subject
+        check (subjectType in ('PROMPT_RELEASE', 'AI_MODEL_ENABLE')),
+    constraint chk_generation_benchmark_evidence_passed check (passed in (0, 1)),
+    constraint chk_generation_benchmark_evidence_window check (expiresAt > evaluatedAt)
+) comment 'signed immutable AI release benchmark evidence' collate = utf8mb4_unicode_ci;
+create table if not exists ai_release_audit
+(
+    id                   bigint auto_increment primary key,
+    auditId              char(36)                           not null,
+    evidenceId           char(36)                           not null,
+    subjectType          varchar(32)                        not null,
+    subjectKey           varchar(128)                       not null,
+    candidateFingerprint char(64)                           not null,
+    action               varchar(32)                        not null,
+    operatorUserId       bigint                             not null,
+    releaseReference     varchar(128)                       not null,
+    createTime           datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    unique key uk_ai_release_audit_id (auditId),
+    index idx_ai_release_audit_evidence (evidenceId, createTime),
+    index idx_ai_release_audit_subject (subjectType, subjectKey, createTime),
+    constraint chk_ai_release_audit_operator check (operatorUserId > 0)
+) comment 'immutable AI release evidence usage audit' collate = utf8mb4_unicode_ci;

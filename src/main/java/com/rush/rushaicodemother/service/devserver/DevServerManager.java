@@ -6,11 +6,14 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
+import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionClaimResult;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -35,7 +38,6 @@ import java.util.function.BooleanSupplier;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DevServerManager {
 
     private final DevServerRuntimeProperties properties;
@@ -45,10 +47,53 @@ public class DevServerManager {
     private final VisualEditorBootstrapInjector bootstrapInjector;
     private final DevServerProcessRunner processRunner;
     private final DevServerOutputHub outputHub;
+    private final DevServerSessionLeaseCoordinator leaseCoordinator;
 
     private final Map<Long, ManagedDevServerSession> sessions = new ConcurrentHashMap<>();
     private final ReentrantLock registryLock = new ReentrantLock();
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+
+    @Autowired
+    public DevServerManager(
+            DevServerRuntimeProperties properties,
+            ProjectDependencyInstaller projectDependencyInstaller,
+            DevServerProjectLocator projectLocator,
+            DevServerPortAllocator portAllocator,
+            VisualEditorBootstrapInjector bootstrapInjector,
+            DevServerProcessRunner processRunner,
+            DevServerOutputHub outputHub,
+            DevServerSessionLeaseCoordinator leaseCoordinator
+    ) {
+        this.properties = properties;
+        this.projectDependencyInstaller = projectDependencyInstaller;
+        this.projectLocator = projectLocator;
+        this.portAllocator = portAllocator;
+        this.bootstrapInjector = bootstrapInjector;
+        this.processRunner = processRunner;
+        this.outputHub = outputHub;
+        this.leaseCoordinator = leaseCoordinator;
+    }
+
+    DevServerManager(
+            DevServerRuntimeProperties properties,
+            ProjectDependencyInstaller projectDependencyInstaller,
+            DevServerProjectLocator projectLocator,
+            DevServerPortAllocator portAllocator,
+            VisualEditorBootstrapInjector bootstrapInjector,
+            DevServerProcessRunner processRunner,
+            DevServerOutputHub outputHub
+    ) {
+        this(
+                properties,
+                projectDependencyInstaller,
+                projectLocator,
+                portAllocator,
+                bootstrapInjector,
+                processRunner,
+                outputHub,
+                DevServerSessionLeaseCoordinator.noOp()
+        );
+    }
 
     /**
      * 启动应用的 Dev Server；成功返回时，进程已经在回环地址对应端口稳定就绪。
@@ -87,14 +132,28 @@ public class DevServerManager {
 
         throwIfExternallyCancelled(startOptions);
 
-        ManagedDevServerSession reusableSession = findReusableSession(appId);
+        // Keep the interactive/legacy path on the original locator contract. Besides preserving
+        // compatibility for callers that do not have a generation fence, this also prevents a
+        // null options object from silently changing the workspace resolution semantics.
+        Path projectDirectory = startOptions == null
+                ? projectLocator.locate(app)
+                : projectLocator.locate(app, startOptions);
+        ManagedDevServerSession reusableSession = findReusableSession(appId, projectDirectory);
         if (reusableSession != null) {
+            DevServerSessionLeaseCoordinator.LeaseStatus leaseStatus = leaseCoordinator.renew(appId);
+            if (leaseStatus != DevServerSessionLeaseCoordinator.LeaseStatus.RENEWED
+                    && leaseStatus != DevServerSessionLeaseCoordinator.LeaseStatus.RETRYABLE_FAILURE) {
+                stopSession(reusableSession, false);
+                throw new BusinessException(
+                        ErrorCode.OPERATION_ERROR,
+                        "Dev Server ownership is no longer available; please retry"
+                );
+            }
             throwIfExternallyCancelled(startOptions);
             bootstrapInjector.inject(reusableSession.projectDirectory());
             throwIfExternallyCancelled(startOptions);
             return DevServerStartResult.reused(reusableSession.port());
         }
-        Path projectDirectory = projectLocator.locate(app);
         SessionRegistration registration = registerStartingSession(
                 appId,
                 userId,
@@ -130,6 +189,18 @@ public class DevServerManager {
                 throw new DevServerStartException(
                         DevServerStartException.Reason.CANCELLED,
                         "Dev Server 启动已取消"
+                );
+            }
+            SandboxProcessPlan sandboxPlan = processSession.sandboxPlan();
+            String sandboxBackend = sandboxPlan == null ? "host-local" : sandboxPlan.backend();
+            List<String> cleanupResourceIds = sandboxPlan == null
+                    ? List.of()
+                    : sandboxPlan.cleanupResourceIds();
+            if (!leaseCoordinator.markRunning(appId, sandboxBackend, cleanupResourceIds)) {
+                processRunner.stop(processSession);
+                throw new DevServerStartException(
+                        DevServerStartException.Reason.CANCELLED,
+                        "Dev Server durable ownership was lost during startup"
                 );
             }
             watchProcessExit(session, processSession);
@@ -172,6 +243,7 @@ public class DevServerManager {
         }
         ManagedDevServerSession session = sessions.get(appId);
         if (session == null) {
+            leaseCoordinator.requestStop(appId);
             portAllocator.release(appId);
             return;
         }
@@ -229,6 +301,28 @@ public class DevServerManager {
         return outputHub.recentLines(appId, limit);
     }
 
+    @Scheduled(fixedDelayString = "${app.dev-server.runtime.heartbeat-interval:10s}")
+    public void maintainSessionLeases() {
+        if (shuttingDown.get()) {
+            return;
+        }
+        for (ManagedDevServerSession session : new ArrayList<>(sessions.values())) {
+            try {
+                DevServerSessionLeaseCoordinator.LeaseStatus status =
+                        leaseCoordinator.renew(session.appId());
+                if (status == DevServerSessionLeaseCoordinator.LeaseStatus.STOP_REQUESTED
+                        || status == DevServerSessionLeaseCoordinator.LeaseStatus.LOST) {
+                    log.warn("Stopping Dev Server after durable lease status {}, appId={}",
+                            status, session.appId());
+                    stopSession(session, false);
+                }
+            } catch (RuntimeException maintenanceFailure) {
+                log.error("Dev Server lease maintenance failed, appId={}",
+                        session.appId(), LogExceptionSanitizer.sanitize(maintenanceFailure));
+            }
+        }
+    }
+
     @PreDestroy
     public void destroy() {
         if (!shuttingDown.compareAndSet(false, true)) {
@@ -250,7 +344,7 @@ public class DevServerManager {
         outputHub.clear();
     }
 
-    private ManagedDevServerSession findReusableSession(Long appId) {
+    private ManagedDevServerSession findReusableSession(Long appId, Path requestedProjectDirectory) {
         registryLock.lock();
         try {
             ManagedDevServerSession existing = sessions.get(appId);
@@ -258,6 +352,12 @@ public class DevServerManager {
                 return null;
             }
             if (existing.isRunning()) {
+                if (!sameProjectDirectory(existing.projectDirectory(), requestedProjectDirectory)) {
+                    throw new BusinessException(
+                            ErrorCode.OPERATION_ERROR,
+                            "A Dev Server for a different workspace is already running"
+                    );
+                }
                 return existing;
             }
             if (existing.hasExitedProcess()) {
@@ -289,6 +389,12 @@ public class DevServerManager {
             ManagedDevServerSession existing = sessions.get(appId);
             if (existing != null) {
                 if (existing.isRunning()) {
+                    if (!sameProjectDirectory(existing.projectDirectory(), projectDirectory)) {
+                        throw new BusinessException(
+                                ErrorCode.OPERATION_ERROR,
+                                "A Dev Server for a different workspace is already running"
+                        );
+                    }
                     return new SessionRegistration(existing, false);
                 }
                 throw new BusinessException(
@@ -308,18 +414,56 @@ public class DevServerManager {
             }
 
             int port = portAllocator.reserve(appId, preferredPort);
-            ManagedDevServerSession session = new ManagedDevServerSession(
-                    appId,
-                    userId,
-                    projectDirectory,
-                    port
-            );
-            sessions.put(appId, session);
-            outputHub.prepare(appId);
-            return new SessionRegistration(session, true);
+            boolean durableClaimAcquired = false;
+            ManagedDevServerSession session = null;
+            try {
+                DevServerSessionClaimResult claimResult = leaseCoordinator.claimStarting(
+                        appId, userId, projectDirectory, port);
+                if (claimResult == DevServerSessionClaimResult.USER_QUOTA_EXCEEDED) {
+                    throw new BusinessException(
+                            ErrorCode.OPERATION_ERROR,
+                            "The durable Dev Server user quota has been reached"
+                    );
+                }
+                if (claimResult != DevServerSessionClaimResult.ACQUIRED) {
+                    throw new BusinessException(
+                            ErrorCode.OPERATION_ERROR,
+                            "A Dev Server session for this application is active on another node"
+                    );
+                }
+                durableClaimAcquired = true;
+                session = new ManagedDevServerSession(
+                        appId,
+                        userId,
+                        projectDirectory,
+                        port
+                );
+                sessions.put(appId, session);
+                outputHub.prepare(appId);
+                return new SessionRegistration(session, true);
+            } catch (RuntimeException registrationFailure) {
+                if (session != null) {
+                    sessions.remove(appId, session);
+                    session.markStopped();
+                }
+                portAllocator.release(appId);
+                if (durableClaimAcquired) {
+                    try {
+                        leaseCoordinator.release(appId, "local_registration_failed");
+                    } catch (RuntimeException releaseFailure) {
+                        registrationFailure.addSuppressed(releaseFailure);
+                    }
+                }
+                throw registrationFailure;
+            }
         } finally {
             registryLock.unlock();
         }
+    }
+
+    private boolean sameProjectDirectory(Path left, Path right) {
+        return left != null && right != null
+                && left.toAbsolutePath().normalize().equals(right.toAbsolutePath().normalize());
     }
 
     private void ensureDependenciesInstalled(ManagedDevServerSession session,
@@ -401,6 +545,13 @@ public class DevServerManager {
         session.requestStop();
         RuntimeException cleanupFailure = null;
         try {
+            leaseCoordinator.markStopping(session.appId());
+        } catch (RuntimeException exception) {
+            cleanupFailure = exception;
+            log.warn("Failed to persist Dev Server stopping state, appId={}",
+                    session.appId(), LogExceptionSanitizer.sanitize(exception));
+        }
+        try {
             projectDependencyInstaller.cancel(session.projectDirectory());
         } catch (RuntimeException exception) {
             cleanupFailure = exception;
@@ -463,6 +614,12 @@ public class DevServerManager {
         try {
             if (sessions.remove(session.appId(), session)) {
                 portAllocator.release(session.appId());
+                try {
+                    leaseCoordinator.release(session.appId(), reason);
+                } catch (RuntimeException durableCleanupFailure) {
+                    log.error("Failed to release durable Dev Server ownership, appId={}",
+                            session.appId(), LogExceptionSanitizer.sanitize(durableCleanupFailure));
+                }
                 log.debug("已清理 Dev Server 会话，appId={}, reason={}", session.appId(), reason);
             }
             session.markStopped();

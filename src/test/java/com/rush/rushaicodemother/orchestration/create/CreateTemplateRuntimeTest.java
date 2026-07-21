@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.create.recipe.CreateRecipeRendere
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
@@ -63,6 +64,7 @@ class CreateTemplateRuntimeTest {
                 recipeRendererService,
                 null,
                 patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
                 workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
@@ -110,6 +112,7 @@ class CreateTemplateRuntimeTest {
                 recipeRendererService,
                 null,
                 patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
                 workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
@@ -145,6 +148,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
                 workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
@@ -184,6 +188,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
                 workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
@@ -244,6 +249,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 portAllocator,
                 patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
                 workspaceService(workspaceRoot, CodeGenTypeEnum.FULL_STACK_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService
@@ -291,6 +297,7 @@ class CreateTemplateRuntimeTest {
                 CreateRecipeRendererTestFactory.create(),
                 null,
                 patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
                 workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
                 vueBootstrapService

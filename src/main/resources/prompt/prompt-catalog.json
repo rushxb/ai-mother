@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "prompts": [
+    {
+      "key": "app-name",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/app-name-system-prompt.txt", "sha256": "7b8409f997f49b305b1448367dc843482606a9c4d277ffcf225cc99e59f1d02c" }
+      ]
+    },
+    {
+      "key": "code-edit",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/code-edit-system-prompt.txt", "sha256": "7e3f2bc7c4ac05d4045c6afffe5663e842034192559dce6c02c4136dad67aa82" }
+      ]
+    },
+    {
+      "key": "code-quality-check",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/code-quality-check-system-prompt.txt", "sha256": "3f7c8f4a760484617fc180cd8060be62e2fa109b964363abf931da389ce38a9d" }
+      ]
+    },
+    {
+      "key": "codegen-backend-project",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/codegen-backend-project-system-prompt.txt", "sha256": "b6a12a5198f51d9ee0bc08f41313a40358705b0c93becdc40a72ad7f86e34fe6" }
+      ]
+    },
+    {
+      "key": "codegen-full-stack-project",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/codegen-full-stack-project-system-prompt.txt", "sha256": "fca4498eae953bb099919d1a7a16e9f19dd89ac360d58adeb4f2a1fcce62f994" }
+      ]
+    },
+    {
+      "key": "codegen-html",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/codegen-html-system-prompt.txt", "sha256": "27e2445f8e9481cf43350ea1c4d802c5726dea188f98491431c7895530105bfe" }
+      ]
+    },
+    {
+      "key": "codegen-multi-file",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/codegen-multi-file-system-prompt.txt", "sha256": "f8d2eb2e8a5a8ab16c6458d16a5ef25c1efddcf94a579aa429c2907b62836fd9" }
+      ]
+    },
+    {
+      "key": "codegen-routing",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/codegen-routing-system-prompt.txt", "sha256": "566b3bd5eff5501d14dd4708cfd3ce451a9e5b64377c89c43d988859ed120a75" }
+      ]
+    },
+    {
+      "key": "codegen-vue-project",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/codegen-vue-project-system-prompt.txt", "sha256": "b8aca637ab141e5809081f71b643a7f842c0a3a8fd183e5e06502ea364d46bdf" }
+      ]
+    },
+    {
+      "key": "create-spec",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/create-spec-system-prompt.txt", "sha256": "8ba0440e948f95352f73938779da748011f24458889194f00fa994916665c243" }
+      ]
+    },
+    {
+      "key": "image-collection-plan",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/image-collection-plan-system-prompt.txt", "sha256": "81447ec1d0e9681d7fccb97da6128e911da0452bc2f18a4efef62bb7fad62bea" }
+      ]
+    },
+    {
+      "key": "image-collection",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/image-collection-system-prompt.txt", "sha256": "f863350d7ea38e0c6b10cfec43079a5601b3f73a12048fd3bb7b947918a898ce" }
+      ]
+    },
+    {
+      "key": "prompt-optimizer",
+      "defaultVersion": "v1",
+      "versions": [
+        { "version": "v1", "resource": "prompt/prompt-optimizer-system-prompt.txt", "sha256": "c74b973e3e7b24ee995137cb0f2322a1c6d1b2bac547e829f461deb95d4a613a" }
+      ]
+    }
+  ],
+  "bindings": [
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeEditService", "methodName": "editCode", "promptKey": "code-edit" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGeneratorService", "methodName": "generateHtmlCode", "promptKey": "codegen-html" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGeneratorService", "methodName": "generateMultiFileCode", "promptKey": "codegen-multi-file" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGeneratorService", "methodName": "generateHtmlCodeStream", "promptKey": "codegen-html" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGeneratorService", "methodName": "generateMultiFileCodeStream", "promptKey": "codegen-multi-file" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGeneratorService", "methodName": "generateVueProjectCodeStream", "promptKey": "codegen-vue-project" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGeneratorService", "methodName": "generateBackendProjectCodeStream", "promptKey": "codegen-backend-project" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGeneratorService", "methodName": "generateFullStackProjectCodeStream", "promptKey": "codegen-full-stack-project" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService", "methodName": "routeCodeGenType", "promptKey": "codegen-routing" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AiCreateSpecService", "methodName": "generateSpec", "promptKey": "create-spec" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.AppNameGeneratorService", "methodName": "generateAppName", "promptKey": "app-name" },
+    { "interfaceName": "com.rush.rushaicodemother.ai.PromptOptimizerService", "methodName": "optimizePrompt", "promptKey": "prompt-optimizer" }
+  ]
+}

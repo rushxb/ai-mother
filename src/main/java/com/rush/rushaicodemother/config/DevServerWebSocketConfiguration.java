@@ -1,0 +1,38 @@
+package com.rush.rushaicodemother.config;
+
+import com.rush.rushaicodemother.controller.app.websocket.InternalDevServerWebSocketHandshakeInterceptor;
+import com.rush.rushaicodemother.controller.app.websocket.PublicDevServerWebSocketHandshakeInterceptor;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewPaths;
+import com.rush.rushaicodemother.service.devserver.DevServerWebSocketProxyHandler;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.socket.config.annotation.EnableWebSocket;
+import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+
+/** Registers same-origin browser and signed node-to-node Vite HMR endpoints. */
+@Configuration(proxyBeanMethods = false)
+@EnableWebSocket
+public class DevServerWebSocketConfiguration implements WebSocketConfigurer {
+
+    private final DevServerWebSocketProxyHandler proxyHandler;
+    private final PublicDevServerWebSocketHandshakeInterceptor publicInterceptor;
+    private final InternalDevServerWebSocketHandshakeInterceptor internalInterceptor;
+
+    public DevServerWebSocketConfiguration(
+            DevServerWebSocketProxyHandler proxyHandler,
+            PublicDevServerWebSocketHandshakeInterceptor publicInterceptor,
+            InternalDevServerWebSocketHandshakeInterceptor internalInterceptor
+    ) {
+        this.proxyHandler = proxyHandler;
+        this.publicInterceptor = publicInterceptor;
+        this.internalInterceptor = internalInterceptor;
+    }
+
+    @Override
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        registry.addHandler(proxyHandler, DevServerPreviewPaths.PUBLIC_PROXY_PREFIX + "**")
+                .addInterceptors(publicInterceptor);
+        registry.addHandler(proxyHandler, DevServerPreviewPaths.INTERNAL_PROXY_PREFIX + "**")
+                .addInterceptors(internalInterceptor);
+    }
+}

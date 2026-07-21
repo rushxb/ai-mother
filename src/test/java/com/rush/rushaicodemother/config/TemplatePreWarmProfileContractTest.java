@@ -20,9 +20,9 @@ class TemplatePreWarmProfileContractTest {
     }
 
     @Test
-    void productionProfileShouldDisablePreWarmByDefault() {
+    void productionProfileShouldEnablePreWarmByDefault() {
         assertEquals(
-                "${TEMPLATE_PRE_WARM_ENABLED:false}",
+                "${TEMPLATE_PRE_WARM_ENABLED:true}",
                 readTemplatePreWarmEnabledDefault("application-prod.yml")
         );
     }

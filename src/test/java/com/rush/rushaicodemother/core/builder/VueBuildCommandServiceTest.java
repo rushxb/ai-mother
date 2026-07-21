@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,8 @@ class VueBuildCommandServiceTest {
 
     @Test
     void shouldInstallOnceAndKeepSuccessfulResultWhenStatePersistenceFails() throws Exception {
-        when(dependencyInstaller.ensureInstalled(projectRoot, "task-install"))
+        when(dependencyInstaller.ensureInstalled(
+                projectRoot, "task-install", DependencyInstallMode.REFRESH_FROM_LOCKFILE))
                 .thenReturn(DependencyInstallResult.success("installed"));
         doThrow(new IOException("disk full"))
                 .when(stateStore)
@@ -71,7 +73,8 @@ class VueBuildCommandServiceTest {
         );
 
         assertTrue(result.success());
-        verify(dependencyInstaller).ensureInstalled(projectRoot, "task-install");
+        verify(dependencyInstaller).ensureInstalled(
+                projectRoot, "task-install", DependencyInstallMode.REFRESH_FROM_LOCKFILE);
         verify(stateStore).recordDependencyInstalled(projectRoot, "dependency");
         verify(dependencyInstaller, never()).ensureInstalled(projectRoot);
     }

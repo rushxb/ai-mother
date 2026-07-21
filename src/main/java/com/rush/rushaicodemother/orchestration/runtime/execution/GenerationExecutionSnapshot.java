@@ -12,10 +12,18 @@ public record GenerationExecutionSnapshot(
         Long userId,
         Instant startedAt,
         Instant deadlineAt,
+        String slaProfile,
+        Instant firstPreviewDeadlineAt,
+        Instant firstPreviewReadyAt,
         boolean cancelled,
         String cancellationReason,
         String terminalStatus,
         Map<GenerationBudgetKind, Integer> usages,
         Map<GenerationBudgetKind, Integer> limits
 ) {
+
+    public GenerationExecutionSnapshot {
+        slaProfile = slaProfile == null || slaProfile.isBlank() ? "legacy-default" : slaProfile.trim();
+        firstPreviewDeadlineAt = firstPreviewDeadlineAt == null ? deadlineAt : firstPreviewDeadlineAt;
+    }
 }

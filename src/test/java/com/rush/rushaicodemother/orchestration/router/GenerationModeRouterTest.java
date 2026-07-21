@@ -8,13 +8,16 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GenerationModeRouterTest {
 
-    private final GenerationModeRouter router = new GenerationModeRouter();
+    private final GenerationModeRouter router = new GenerationModeRouter(
+            GenerationRoutingDecisionEngine.defaultEngine()
+    );
 
     @Test
     void shouldRouteMissingWorkspaceToCreate() {
@@ -64,6 +67,29 @@ class GenerationModeRouterTest {
 
         assertEquals(GenerationMode.HEAVY_EXPERT, decision.mode());
         assertEquals(FallbackPolicy.NONE, decision.fallbackPolicy());
+    }
+
+    @Test
+    void customPolicyCanOverrideDefaultRoutingWithoutChangingRouter() {
+        GenerationRoutingDecisionEngine engine = new GenerationRoutingDecisionEngine(List.of(signal ->
+                java.util.Optional.of(GenerationModeDecision.of(
+                        GenerationMode.HEAVY_EXPERT,
+                        0.77,
+                        "custom production policy",
+                        FallbackPolicy.NONE,
+                        ExpectedValidationLevel.EXPERT
+                ))
+        ));
+        GenerationModeRouter policyRouter = new GenerationModeRouter(engine);
+
+        GenerationModeDecision decision = policyRouter.route(
+                request("title color copy change"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+
+        assertEquals(GenerationMode.HEAVY_EXPERT, decision.mode());
+        assertEquals("custom production policy", decision.reason());
     }
 
     private GenerationModeDecision routeExisting(String message) {

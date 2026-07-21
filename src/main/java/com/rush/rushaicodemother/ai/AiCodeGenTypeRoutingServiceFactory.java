@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.ai;
 
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
+import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Scope;
 public class AiCodeGenTypeRoutingServiceFactory {
 
     private final StreamingModelFactory streamingModelFactory;
+    private final PromptSystemMessageTransformer promptSystemMessageTransformer;
 
     /**
      * 创建AI代码生成类型路由服务实例
@@ -28,6 +30,7 @@ public class AiCodeGenTypeRoutingServiceFactory {
         ChatModel chatModel = streamingModelFactory.createRoutingChatModel();
         return AiServices.builder(AiCodeGenTypeRoutingService.class)
                 .chatModel(chatModel)
+                .systemMessageTransformer(promptSystemMessageTransformer::transform)
                 .build();
     }
 

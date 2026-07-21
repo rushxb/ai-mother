@@ -1,0 +1,142 @@
+package com.rush.rushaicodemother.service.browser;
+
+import java.net.URI;
+import java.util.List;
+import java.util.Locale;
+
+/** Bounded browser evidence collected from one controlled local preview. */
+public record BrowserRuntimeObservation(
+        URI requestedUri,
+        URI finalUri,
+        String title,
+        String readyState,
+        int bodyTextLength,
+        int bodyChildCount,
+        boolean appNodeExists,
+        int appNodeChildCount,
+        int visibleElementCount,
+        int documentWidth,
+        int documentHeight,
+        boolean viteErrorOverlayPresent,
+        String firstText,
+        String firstHeading,
+        List<String> scriptUrls,
+        List<String> stylesheetUrls,
+        List<ConsoleMessage> consoleMessages,
+        ScreenshotStats screenshot
+) {
+
+    public BrowserRuntimeObservation {
+        if (requestedUri == null || finalUri == null) {
+            throw new IllegalArgumentException("browser observation URIs are required");
+        }
+        title = bounded(title, 256);
+        readyState = bounded(readyState, 32);
+        bodyTextLength = Math.max(0, bodyTextLength);
+        bodyChildCount = Math.max(0, bodyChildCount);
+        appNodeChildCount = Math.max(0, appNodeChildCount);
+        visibleElementCount = Math.max(0, visibleElementCount);
+        documentWidth = Math.max(0, documentWidth);
+        documentHeight = Math.max(0, documentHeight);
+        firstText = bounded(firstText, 512);
+        firstHeading = bounded(firstHeading, 256);
+        scriptUrls = boundedList(scriptUrls, 20, 512);
+        stylesheetUrls = boundedList(stylesheetUrls, 20, 512);
+        consoleMessages = consoleMessages == null ? List.of() : consoleMessages.stream()
+                .filter(message -> message != null)
+                .limit(50)
+                .toList();
+        screenshot = screenshot == null ? ScreenshotStats.empty() : screenshot;
+    }
+
+    public boolean hasFatalConsoleError() {
+        return consoleMessages.stream().anyMatch(ConsoleMessage::fatal);
+    }
+
+    public boolean looksLikeErrorPage() {
+        String normalizedTitle = title.toLowerCase(Locale.ROOT);
+        String normalizedHeading = firstHeading.toLowerCase(Locale.ROOT);
+        String normalizedText = firstText.toLowerCase(Locale.ROOT);
+        String evidence = normalizedTitle + " " + normalizedHeading + " " + normalizedText;
+        return normalizedTitle.matches(".*\\b(?:404|500)\\b.*")
+                || normalizedHeading.matches("^\\s*(?:404|500)\\b.*")
+                || normalizedText.matches("^\\s*(?:404|500)\\b.*")
+                || evidence.contains("500 internal server error")
+                || evidence.contains("internal server error")
+                || evidence.contains("cannot get /")
+                || evidence.contains("page not found")
+                || evidence.contains("页面不存在")
+                || evidence.contains("服务器错误");
+    }
+
+    private static List<String> boundedList(List<String> values, int maxItems, int maxChars) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .limit(maxItems)
+                .map(value -> bounded(value, maxChars))
+                .toList();
+    }
+
+    private static String bounded(String value, int maxChars) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.replace('\r', ' ').replace('\n', ' ').trim();
+        return normalized.substring(0, Math.min(maxChars, normalized.length()));
+    }
+
+    public record ConsoleMessage(String level, String message) {
+
+        public ConsoleMessage {
+            level = bounded(level, 16).toUpperCase(Locale.ROOT);
+            message = bounded(message, 1_000);
+        }
+
+        public boolean fatal() {
+            String normalized = message.toLowerCase(Locale.ROOT);
+            if (normalized.contains("favicon.ico")) {
+                return false;
+            }
+            return "SEVERE".equals(level)
+                    || normalized.contains("uncaught ")
+                    || normalized.contains("referenceerror")
+                    || normalized.contains("typeerror")
+                    || normalized.contains("syntaxerror")
+                    || normalized.contains("chunkloaderror")
+                    || normalized.contains("failed to fetch dynamically imported module")
+                    || normalized.contains("failed to load resource")
+                    || normalized.contains("net::err_");
+        }
+
+        public String displayValue() {
+            return "UNTRUSTED_BROWSER_LOG " + level + " | " + message;
+        }
+    }
+
+    public record ScreenshotStats(
+            boolean captured,
+            int width,
+            int height,
+            int sampledColorBuckets,
+            int luminanceRange
+    ) {
+
+        public ScreenshotStats {
+            width = Math.max(0, width);
+            height = Math.max(0, height);
+            sampledColorBuckets = Math.max(0, sampledColorBuckets);
+            luminanceRange = Math.max(0, Math.min(255, luminanceRange));
+        }
+
+        public static ScreenshotStats empty() {
+            return new ScreenshotStats(false, 0, 0, 0, 0);
+        }
+
+        public boolean nearUniform() {
+            return !captured || sampledColorBuckets < 3 || luminanceRange < 4;
+        }
+    }
+}

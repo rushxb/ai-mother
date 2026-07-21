@@ -4,8 +4,11 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.BuildLogRecord;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.ModelCallRecord;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.NewBuildLog;
@@ -43,18 +46,31 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
     private static final int MAX_PROVIDER_LENGTH = 64;
     private static final int MAX_MODEL_LENGTH = 128;
     private static final int MAX_FINISH_REASON_LENGTH = 64;
+    private static final int MAX_PROVIDER_REQUEST_ID_LENGTH = 128;
+    private static final int MAX_ERROR_CATEGORY_LENGTH = 64;
+    private static final int MAX_MODEL_METADATA_LENGTH = 12_000;
+    private static final int SHA_256_HEX_LENGTH = 64;
     private static final int MAX_QUERY_LIMIT = 20;
 
     private final GenerationTracePersistenceService persistenceService;
+    private final GenerationExecutionContextService executionContextService;
     private final Clock clock;
 
     @Autowired
-    public DefaultGenerationTraceService(GenerationTracePersistenceService persistenceService) {
-        this(persistenceService, Clock.systemDefaultZone());
+    public DefaultGenerationTraceService(GenerationTracePersistenceService persistenceService,
+                                         GenerationExecutionContextService executionContextService) {
+        this(persistenceService, executionContextService, Clock.systemDefaultZone());
     }
 
     DefaultGenerationTraceService(GenerationTracePersistenceService persistenceService, Clock clock) {
+        this(persistenceService, null, clock);
+    }
+
+    DefaultGenerationTraceService(GenerationTracePersistenceService persistenceService,
+                                  GenerationExecutionContextService executionContextService,
+                                  Clock clock) {
         this.persistenceService = Objects.requireNonNull(persistenceService, "persistenceService");
+        this.executionContextService = executionContextService;
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -76,7 +92,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 throw operationFailed("生成任务 ID 已被不同请求占用，taskId=" + task.taskId());
             }
             if (persistenceService.enrichRuntimeTaskTrace(
-                    existing.recordId(), task, LocalDateTime.now(clock))) {
+                    existing.recordId(), task, executionFence(task.taskId()), LocalDateTime.now(clock))) {
                 return;
             }
             existing = persistenceService.findTaskByTaskId(task.taskId());
@@ -102,7 +118,8 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             return;
         }
         persistenceService.updateRunningTaskStage(
-                task.recordId(), normalizedStage, normalizedMessage, LocalDateTime.now(clock));
+                task.recordId(), normalizedStage, normalizedMessage,
+                executionFence(normalizedTaskId), LocalDateTime.now(clock));
     }
 
     @Override
@@ -115,7 +132,8 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             return;
         }
         persistenceService.updateTaskMemorySummary(
-                task.recordId(), normalizedSummary, LocalDateTime.now(clock));
+                task.recordId(), normalizedSummary,
+                executionFence(normalizedTaskId), LocalDateTime.now(clock));
     }
 
     @Override
@@ -144,7 +162,8 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         }
         String normalizedError = truncate(nullableText(errorMessage), MAX_STAGE_MESSAGE_LENGTH);
         persistenceService.completeRunningTask(
-                task.recordId(), status, endTime, durationMs, normalizedError);
+                task.recordId(), status, endTime, durationMs, normalizedError,
+                executionFence(normalizedTaskId));
         log.info("生成任务 trace 已完成，taskId: {}, status: {}, durationMs: {}",
                 normalizedTaskId, status.getValue(), durationMs);
     }
@@ -259,19 +278,32 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         } catch (RuntimeException exception) {
             throw invalid("模型调用 ID 必须是 UUID");
         }
-        int promptTokens = requireNonNegative(command.promptTokens(), "输入 token 数");
-        int completionTokens = requireNonNegative(command.completionTokens(), "输出 token 数");
-        int totalTokens = requireNonNegative(command.totalTokens(), "总 token 数");
-        long expectedTotal = (long) promptTokens + completionTokens;
-        if (expectedTotal != totalTokens) {
-            throw invalid("总 token 数必须等于输入与输出 token 数之和");
-        }
         if (command.latencyMs() == null || command.latencyMs() < 0) {
             throw invalid("模型调用耗时不合法");
+        }
+        GenerationModelCallStatus status = command.status();
+        if (status == null) {
+            throw invalid("模型调用状态不能为空");
         }
         GenerationModelUsageSource usageSource = command.usageSource();
         if (usageSource == null) {
             throw invalid("模型调用 token 来源不能为空");
+        }
+        Integer promptTokens = nullableNonNegative(command.promptTokens(), "输入 token 数");
+        Integer completionTokens = nullableNonNegative(command.completionTokens(), "输出 token 数");
+        Integer totalTokens = nullableNonNegative(command.totalTokens(), "总 token 数");
+        validateTokenUsage(promptTokens, completionTokens, totalTokens, usageSource);
+        String errorCategory = boundedNullable(
+                command.errorCategory(), MAX_ERROR_CATEGORY_LENGTH, "错误分类");
+        if (status == GenerationModelCallStatus.ERROR && errorCategory == null) {
+            throw invalid("失败模型调用必须包含错误分类");
+        }
+        if (status == GenerationModelCallStatus.SUCCESS && errorCategory != null) {
+            throw invalid("成功模型调用不能包含错误分类");
+        }
+        GenerationModelCallProvenance provenance = command.provenance();
+        if (provenance == null) {
+            throw invalid("模型调用 provenance 不能为空");
         }
         return new NewModelCall(
                 callId,
@@ -280,12 +312,23 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 requirePositiveId(command.userId(), "用户 ID"),
                 requireText(command.provider(), MAX_PROVIDER_LENGTH, "模型提供商"),
                 requireText(command.model(), MAX_MODEL_LENGTH, "模型名称"),
+                status,
+                boundedNullable(command.providerRequestId(), MAX_PROVIDER_REQUEST_ID_LENGTH,
+                        "提供商请求 ID"),
                 promptTokens,
                 completionTokens,
                 totalTokens,
                 command.latencyMs(),
                 boundedNullable(command.finishReason(), MAX_FINISH_REASON_LENGTH, "结束原因"),
                 usageSource,
+                errorCategory,
+                requireSha256(provenance.requestHash(), "请求哈希"),
+                requireSha256(provenance.promptTemplateHash(), "系统提示哈希"),
+                requireSha256(provenance.toolSchemaHash(), "工具 schema 哈希"),
+                requireSha256(provenance.modelConfigHash(), "模型配置哈希"),
+                requireNonNegative(provenance.requestMessageCount(), "请求消息数量"),
+                requireNonNegative(provenance.toolCount(), "工具数量"),
+                boundedNullable(provenance.rawMetadataJson(), MAX_MODEL_METADATA_LENGTH, "模型元数据"),
                 LocalDateTime.now(clock)
         );
     }
@@ -296,6 +339,12 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             throw operationFailed("生成任务 trace 不存在，taskId=" + taskId);
         }
         return task;
+    }
+
+    private GenerationExecutionFence executionFence(String taskId) {
+        return executionContextService == null
+                ? null
+                : executionContextService.getExecutionFence(taskId).orElse(null);
     }
 
     private boolean isRuntimeShell(TaskRecord task) {
@@ -331,12 +380,22 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 && existing.userId() == requested.userId()
                 && Objects.equals(existing.provider(), requested.provider())
                 && Objects.equals(existing.model(), requested.model())
+                && existing.status() == requested.status()
+                && Objects.equals(existing.providerRequestId(), requested.providerRequestId())
                 && Objects.equals(existing.promptTokens(), requested.promptTokens())
                 && Objects.equals(existing.completionTokens(), requested.completionTokens())
                 && Objects.equals(existing.totalTokens(), requested.totalTokens())
                 && Objects.equals(existing.latencyMs(), requested.latencyMs())
                 && Objects.equals(existing.finishReason(), requested.finishReason())
-                && existing.usageSource() == requested.usageSource();
+                && existing.usageSource() == requested.usageSource()
+                && Objects.equals(existing.errorCategory(), requested.errorCategory())
+                && Objects.equals(existing.requestHash(), requested.requestHash())
+                && Objects.equals(existing.promptTemplateHash(), requested.promptTemplateHash())
+                && Objects.equals(existing.toolSchemaHash(), requested.toolSchemaHash())
+                && Objects.equals(existing.modelConfigHash(), requested.modelConfigHash())
+                && Objects.equals(existing.requestMessageCount(), requested.requestMessageCount())
+                && Objects.equals(existing.toolCount(), requested.toolCount())
+                && Objects.equals(existing.rawMetadataJson(), requested.rawMetadataJson());
     }
 
     private List<GenerationBuildTrace> toBuildTraces(List<BuildLogRecord> records) {
@@ -360,6 +419,39 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             throw invalid(fieldName + "不合法");
         }
         return value;
+    }
+
+    private Integer nullableNonNegative(Integer value, String fieldName) {
+        if (value != null && value < 0) {
+            throw invalid(fieldName + "不合法");
+        }
+        return value;
+    }
+
+    private void validateTokenUsage(Integer promptTokens,
+                                    Integer completionTokens,
+                                    Integer totalTokens,
+                                    GenerationModelUsageSource usageSource) {
+        if (usageSource == GenerationModelUsageSource.UNAVAILABLE) {
+            if (promptTokens != null || completionTokens != null || totalTokens != null) {
+                throw invalid("token 来源不可用时不能伪造 token 数量");
+            }
+            return;
+        }
+        if (promptTokens == null || completionTokens == null || totalTokens == null) {
+            throw invalid("已知 token 来源必须包含完整 token 数量");
+        }
+        if ((long) promptTokens + completionTokens != totalTokens) {
+            throw invalid("总 token 数必须等于输入与输出 token 数之和");
+        }
+    }
+
+    private String requireSha256(String value, String fieldName) {
+        String normalized = requireText(value, SHA_256_HEX_LENGTH, fieldName);
+        if (normalized.length() != SHA_256_HEX_LENGTH || !normalized.matches("[a-fA-F0-9]{64}")) {
+            throw invalid(fieldName + "必须是 SHA-256 十六进制值");
+        }
+        return normalized.toLowerCase();
     }
 
     private long requirePositiveId(Long value, String fieldName) {

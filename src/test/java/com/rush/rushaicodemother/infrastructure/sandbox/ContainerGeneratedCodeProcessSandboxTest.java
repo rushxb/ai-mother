@@ -1,0 +1,231 @@
+package com.rush.rushaicodemother.infrastructure.sandbox;
+
+import com.rush.rushaicodemother.config.GeneratedCodeSandboxProperties;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ContainerGeneratedCodeProcessSandboxTest {
+
+    @TempDir
+    Path workspace;
+
+    @Test
+    void shouldBuildLockedDownContainerPlanWithoutNetworkByDefault() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+
+        SandboxProcessPlan plan = sandbox.prepare(
+                request(SandboxNetworkPolicy.NONE),
+                workspace.toAbsolutePath().normalize()
+        );
+
+        List<String> command = plan.hostCommand();
+        assertEquals("container", plan.backend());
+        assertEquals("docker", command.getFirst());
+        assertOption(command, "--network", "none");
+        assertOption(command, "--cap-drop", "ALL");
+        assertOption(command, "--security-opt", "no-new-privileges");
+        assertOption(command, "--pids-limit", "128");
+        assertOption(command, "--memory", "1g");
+        assertOption(command, "--memory-swap", "1g");
+        assertOption(command, "--cpus", "1.5");
+        assertOption(command, "--user", "1000:1000");
+        assertTrue(command.contains("--read-only"));
+        assertTrue(command.contains("--rm"));
+        assertTrue(command.contains("--init"));
+        assertEquals(1, command.stream().filter("--mount"::equals).count());
+        assertTrue(optionValue(command, "--mount").startsWith(
+                "type=bind,source=" + workspace.toAbsolutePath().normalize()));
+        assertTrue(optionValue(command, "--mount").endsWith(",target=/workspace"));
+        assertEquals(Map.of(), plan.hostEnvironment());
+        assertEquals(Set.of("NODE_OPTIONS"), plan.hostEnvironmentVariablesToRemove());
+    }
+
+    @Test
+    void shouldGrantConfiguredNetworkOnlyForDependencyInstallationAndMapWorkspacePaths() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox(true);
+        Path lockfile = workspace.resolve("pnpm-lock.yaml").toAbsolutePath().normalize();
+
+        SandboxProcessPlan plan = sandbox.prepare(
+                ManagedProcessRequest.builder()
+                        .workingDirectory(workspace)
+                        .command(List.of("C:\\tools\\pnpm.cmd", "install", lockfile.toString()))
+                        .environment(Map.of(
+                                "LOCKFILE_PATH", lockfile.toString(),
+                                "HOME", "C:\\Users\\host-user",
+                                "INVALID-NAME", "ignored"
+                        ))
+                        .networkPolicy(SandboxNetworkPolicy.DEPENDENCY_EGRESS)
+                        .build(),
+                workspace.toAbsolutePath().normalize()
+        );
+
+        List<String> command = plan.hostCommand();
+        assertOption(command, "--network", "bridge");
+        assertEquals(2, command.stream().filter("--mount"::equals).count());
+        assertTrue(optionValues(command, "--mount").contains(
+                "type=volume,source=ai-code-mother-pnpm-store-v9,target=/pnpm/store"));
+        int imageIndex = command.indexOf("ai-code-mother/sandbox-node:1");
+        assertTrue(imageIndex > 0);
+        assertEquals(List.of(
+                        "pnpm",
+                        "install",
+                        "/workspace/pnpm-lock.yaml",
+                        "--store-dir",
+                        "/pnpm/store",
+                        "--package-import-method",
+                        "copy",
+                        "--verify-store-integrity"
+                ),
+                command.subList(imageIndex + 1, command.size()));
+        assertTrue(command.contains("LOCKFILE_PATH=/workspace/pnpm-lock.yaml"));
+        assertTrue(command.contains("HOME=/tmp/home"));
+        assertFalse(command.contains("HOME=C:\\Users\\host-user"));
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("INVALID-NAME=")));
+    }
+
+    @Test
+    void shouldNotExposeSharedStoreOutsideManagedPnpmInstall() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox(true);
+        Path normalizedWorkspace = workspace.toAbsolutePath().normalize();
+
+        SandboxProcessPlan buildPlan = sandbox.prepare(
+                request(SandboxNetworkPolicy.DEPENDENCY_EGRESS),
+                normalizedWorkspace
+        );
+        SandboxProcessPlan offlineInstallPlan = sandbox.prepare(
+                ManagedProcessRequest.builder()
+                        .workingDirectory(workspace)
+                        .command(List.of("pnpm", "install"))
+                        .networkPolicy(SandboxNetworkPolicy.NONE)
+                        .build(),
+                normalizedWorkspace
+        );
+
+        for (SandboxProcessPlan plan : List.of(buildPlan, offlineInstallPlan)) {
+            assertEquals(1, plan.hostCommand().stream().filter("--mount"::equals).count());
+            assertFalse(plan.hostCommand().contains("/pnpm/store"));
+        }
+    }
+
+    @Test
+    void shouldRejectCallerOverridesOfReservedPnpmCacheOptions() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox(true);
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("pnpm", "install", "--store-dir=/workspace/untrusted-store"))
+                .networkPolicy(SandboxNetworkPolicy.DEPENDENCY_EGRESS)
+                .build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> sandbox.prepare(request, workspace.toAbsolutePath().normalize())
+        );
+    }
+
+    @Test
+    void shouldKeepDevServerInternalAndPublishThroughControlledGateway() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+        String previewLauncher = "const { createServer } = await import('vite');";
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of(
+                        "node.exe",
+                        "--input-type=module",
+                        "--eval", previewLauncher,
+                        "--",
+                        "--host", "127.0.0.1",
+                        "--port", "5180",
+                        "--strictPort",
+                        "--base", "/api/app/dev-server/proxy/21/"
+                ))
+                .build();
+
+        SandboxProcessPlan plan = sandbox.prepareDevServer(
+                request,
+                workspace.toAbsolutePath().normalize(),
+                5180
+        );
+
+        List<String> command = plan.hostCommand();
+        assertOption(command, "--network", "ai-code-sandbox-internal");
+        assertFalse(command.contains("--publish"));
+        int imageIndex = command.indexOf("ai-code-mother/sandbox-node:1");
+        assertEquals(List.of(
+                    "node",
+                    "--input-type=module",
+                    "--eval", previewLauncher,
+                    "--",
+                    "--host", "0.0.0.0",
+                    "--port", "5180",
+                    "--strictPort",
+                    "--base", "/api/app/dev-server/proxy/21/"
+            ),
+                command.subList(imageIndex + 1, command.size()));
+        assertEquals(2, plan.activationCommands().size());
+        List<String> gatewayCommand = plan.activationCommands().get(0);
+        assertOption(gatewayCommand, "--network", "ai-code-sandbox-internal");
+        assertOption(gatewayCommand, "--publish", "127.0.0.1:5180:5180");
+        assertTrue(gatewayCommand.contains("/opt/ai-code-mother/preview-gateway.js"));
+        assertEquals(List.of(
+                        "docker",
+                        "network",
+                        "connect",
+                        "ai-code-sandbox-preview-gateway",
+                        plan.cleanupResourceIds().get(0)
+                ),
+                plan.activationCommands().get(1));
+        assertEquals(2, plan.cleanupResourceIds().size());
+        assertEquals(plan.cleanupResourceId(), plan.cleanupResourceIds().get(1));
+    }
+
+    private ContainerGeneratedCodeProcessSandbox sandbox() {
+        return sandbox(false);
+    }
+
+    private ContainerGeneratedCodeProcessSandbox sandbox(boolean dependencyCacheEnabled) {
+        GeneratedCodeSandboxProperties properties = new GeneratedCodeSandboxProperties();
+        properties.getContainer().setDependencyCacheEnabled(dependencyCacheEnabled);
+        return new ContainerGeneratedCodeProcessSandbox(properties);
+    }
+
+    private ManagedProcessRequest request(SandboxNetworkPolicy networkPolicy) {
+        return ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("pnpm.cmd", "run", "build"))
+                .environmentVariablesToRemove(Set.of("NODE_OPTIONS"))
+                .networkPolicy(networkPolicy)
+                .build();
+    }
+
+    private void assertOption(List<String> command, String option, String expectedValue) {
+        assertEquals(expectedValue, optionValue(command, option));
+    }
+
+    private String optionValue(List<String> command, String option) {
+        int index = command.indexOf(option);
+        assertTrue(index >= 0, () -> "missing container option: " + option);
+        assertTrue(index + 1 < command.size(), () -> "missing value for container option: " + option);
+        return command.get(index + 1);
+    }
+
+    private List<String> optionValues(List<String> command, String option) {
+        java.util.ArrayList<String> values = new java.util.ArrayList<>();
+        for (int index = 0; index < command.size() - 1; index++) {
+            if (option.equals(command.get(index))) {
+                values.add(command.get(index + 1));
+            }
+        }
+        return List.copyOf(values);
+    }
+}

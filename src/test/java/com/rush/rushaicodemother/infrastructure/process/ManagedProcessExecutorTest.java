@@ -3,6 +3,13 @@ package com.rush.rushaicodemother.infrastructure.process;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.rush.rushaicodemother.infrastructure.sandbox.GeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
+import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
+import com.rush.rushaicodemother.infrastructure.sandbox.HostLocalGeneratedCodeProcessSandbox;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -86,6 +94,37 @@ class ManagedProcessExecutorTest {
 
         assertEquals(expected, result.stdout());
         assertFalse(result.stdout().contains("\uFFFD"));
+    }
+
+    @Test
+    void activeGenerationTraceMustContainSandboxedProcessSpan() {
+        Tracer tracer = mock(Tracer.class);
+        Span parent = mock(Span.class);
+        Span.Builder spanBuilder = mock(Span.Builder.class);
+        Span processSpan = mock(Span.class);
+        Tracer.SpanInScope scope = mock(Tracer.SpanInScope.class);
+        when(tracer.currentSpan()).thenReturn(parent);
+        when(tracer.spanBuilder()).thenReturn(spanBuilder);
+        when(spanBuilder.name("generated_code.process.test-process")).thenReturn(spanBuilder);
+        when(spanBuilder.kind(Span.Kind.CLIENT)).thenReturn(spanBuilder);
+        when(spanBuilder.start()).thenReturn(processSpan);
+        when(tracer.withSpan(processSpan)).thenReturn(scope);
+        ManagedProcessExecutor executor = new ManagedProcessExecutor(
+                processTerminator,
+                builder -> FakeProcess.completed(
+                        0, InputStream.nullInputStream(), InputStream.nullInputStream()),
+                new HostLocalGeneratedCodeProcessSandbox(),
+                GeneratedCodeSandboxMetricsCollector.noOp(),
+                tracer
+        );
+
+        ManagedProcessResult result = executor.execute(requestBuilder().build());
+
+        assertTrue(result.exitedSuccessfully());
+        verify(processSpan).tag("process.status", "completed");
+        verify(processSpan).tag("process.success", true);
+        verify(processSpan).end();
+        verify(scope).close();
     }
 
     @Test
@@ -165,6 +204,110 @@ class ManagedProcessExecutorTest {
                 .map(this::logEventText)
                 .reduce("", (left, right) -> left + "\n" + right);
         assertFalse(loggedContent.contains("secret-value"));
+    }
+
+    @Test
+    void shouldTranslateSandboxPreparationFailureToStartFailure() {
+        AtomicBoolean processStarted = new AtomicBoolean(false);
+        GeneratedCodeProcessSandbox sandbox = (request, directory) -> {
+            throw new IllegalStateException("container runtime unavailable");
+        };
+        ManagedProcessExecutor executor = new ManagedProcessExecutor(
+                processTerminator,
+                builder -> {
+                    processStarted.set(true);
+                    return FakeProcess.completed(0, InputStream.nullInputStream(), InputStream.nullInputStream());
+                },
+                sandbox
+        );
+
+        ManagedProcessResult result = executor.execute(requestBuilder().build());
+
+        assertEquals(ManagedProcessResult.Status.START_FAILED, result.status());
+        assertFalse(processStarted.get());
+    }
+
+    @Test
+    void shouldNotReplaceSuccessfulResultWhenSandboxCleanupFails() {
+        GeneratedCodeProcessSandbox sandbox = new GeneratedCodeProcessSandbox() {
+            @Override
+            public SandboxProcessPlan prepare(ManagedProcessRequest request, Path directory) {
+                return new SandboxProcessPlan(
+                        "test-sandbox",
+                        directory,
+                        request.command(),
+                        request.environment(),
+                        request.environmentVariablesToRemove(),
+                        "cleanup-resource"
+                );
+            }
+
+            @Override
+            public void cleanup(SandboxProcessPlan plan) {
+                throw new IllegalStateException("cleanup failed");
+            }
+        };
+        ManagedProcessExecutor executor = new ManagedProcessExecutor(
+                processTerminator,
+                builder -> FakeProcess.completed(
+                        0,
+                        InputStream.nullInputStream(),
+                        InputStream.nullInputStream()
+                ),
+                sandbox
+        );
+
+        ManagedProcessResult result = executor.execute(requestBuilder().build());
+
+        assertEquals(ManagedProcessResult.Status.COMPLETED, result.status());
+        assertEquals(0, result.exitCode());
+    }
+
+    @Test
+    void shouldRecordSandboxExecutionAndCleanupMetrics() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        GeneratedCodeSandboxMetricsCollector metrics =
+                new GeneratedCodeSandboxMetricsCollector(registry);
+        GeneratedCodeProcessSandbox sandbox = new GeneratedCodeProcessSandbox() {
+            @Override
+            public SandboxProcessPlan prepare(ManagedProcessRequest request, Path directory) {
+                return new SandboxProcessPlan(
+                        "container",
+                        directory,
+                        request.command(),
+                        request.environment(),
+                        request.environmentVariablesToRemove(),
+                        "container-123"
+                );
+            }
+        };
+        ManagedProcessExecutor executor = new ManagedProcessExecutor(
+                processTerminator,
+                builder -> FakeProcess.completed(
+                        0,
+                        InputStream.nullInputStream(),
+                        InputStream.nullInputStream()
+                ),
+                sandbox,
+                metrics
+        );
+
+        ManagedProcessResult result = executor.execute(requestBuilder()
+                .logCategory("project-command")
+                .build());
+
+        assertEquals(ManagedProcessResult.Status.COMPLETED, result.status());
+        assertEquals(1, registry.find("generated_code_sandbox_executions_total")
+                .tag("backend", "container")
+                .tag("workload", "project-command")
+                .tag("status", "completed")
+                .counter()
+                .count(), 0.001);
+        assertEquals(1, registry.find("generated_code_sandbox_cleanup_total")
+                .tag("backend", "container")
+                .tag("status", "success")
+                .counter()
+                .count(), 0.001);
     }
 
     @Test

@@ -1,17 +1,26 @@
 spring:
   datasource:
-    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/rush_ai_code_mother?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
-    username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:123456}
+    url: ${MYSQL_URL}
+    username: ${MYSQL_USERNAME}
+    password: ${MYSQL_PASSWORD}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: ${FLYWAY_BASELINE_VERSION:20260716.5}
+    baseline-description: production-schema-before-flyway
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
       username: ${REDIS_USERNAME:}
-      password: ${REDIS_PASSWORD:}
+      password: ${REDIS_PASSWORD}
   session:
     timeout: ${SESSION_TIMEOUT:8h}
+
+logging:
+  level:
+    com.rush.rushaicodemother.mapper.AiModelMapper: OFF
 
 server:
   forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:none}
@@ -23,10 +32,28 @@ server:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
     allow-credentials: true
   template-pre-warm:
-    enabled: ${TEMPLATE_PRE_WARM_ENABLED:false}
+    enabled: ${TEMPLATE_PRE_WARM_ENABLED:true}
+  generation-event-stream:
+    transport: ${GENERATION_EVENT_STREAM_TRANSPORT:redis}
+  generation-task-queue:
+    transport: ${GENERATION_TASK_QUEUE_TRANSPORT:redis}
+  generated-code-sandbox:
+    container:
+      dependency-cache-enabled: ${GENERATED_CODE_SANDBOX_DEPENDENCY_CACHE_ENABLED:true}
+  ai-model-capacity:
+    enabled: ${AI_MODEL_CAPACITY_ENABLED:true}
+    fail-open: ${AI_MODEL_CAPACITY_FAIL_OPEN:false}
+  ai-model-secrets:
+    active-key-id: ${AI_MODEL_SECRET_ACTIVE_KEY_ID}
+    active-key: ${AI_MODEL_SECRET_ACTIVE_KEY}
+    fingerprint-key: ${AI_MODEL_SECRET_FINGERPRINT_KEY}
+  ai-prompt-catalog:
+    runtime-releases:
+      enabled: ${AI_PROMPT_RUNTIME_RELEASES_ENABLED:true}
+      initial-load-required: ${AI_PROMPT_RUNTIME_RELEASES_INITIAL_LOAD_REQUIRED:true}
 
 springdoc:
   api-docs:
@@ -38,9 +65,16 @@ knife4j:
   enable: false
 
 management:
+  tracing:
+    enabled: ${OTEL_TRACING_ENABLED:true}
+  otlp:
+    tracing:
+      export:
+        enabled: ${OTEL_TRACING_EXPORT_ENABLED:true}
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:}
   endpoint:
     health:
       show-details: never
 
 code:
-  deploy-host: ${CODE_DEPLOY_HOST:http://localhost:91}
+  deploy-host: ${CODE_DEPLOY_HOST}

@@ -261,7 +261,8 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
     ) {
         ErrorCode errorCode = switch (exception.reason()) {
             case UNSAFE_SYMBOLIC_LINK -> ErrorCode.NO_AUTH_ERROR;
-            case LIMIT_EXCEEDED, SOURCE_CHANGED -> ErrorCode.OPERATION_ERROR;
+            case CANCELLED, TIMED_OUT, INTERRUPTED, LIMIT_EXCEEDED, SOURCE_CHANGED ->
+                    ErrorCode.OPERATION_ERROR;
             case INCOMPLETE_COPY, INVALID_PATH -> ErrorCode.SYSTEM_ERROR;
         };
         return new BusinessException(errorCode, operationMessage + ": " + exception.getMessage(), exception);

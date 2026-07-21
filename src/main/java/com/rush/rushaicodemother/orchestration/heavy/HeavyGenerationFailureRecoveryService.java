@@ -1,11 +1,8 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
-import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
@@ -15,11 +12,11 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadl
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
-import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -27,13 +24,34 @@ import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class HeavyGenerationFailureRecoveryService {
 
     private final GenerationAppStateService generationAppStateService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationRollbackRestoreService generationRollbackRestoreService;
-    private final GenerationWorkspaceService generationWorkspaceService;
+
+    @Autowired
+    public HeavyGenerationFailureRecoveryService(
+            GenerationAppStateService generationAppStateService,
+            GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector,
+            GenerationRollbackRestoreService generationRollbackRestoreService
+    ) {
+        this.generationAppStateService = generationAppStateService;
+        this.generationOrchestrationMetricsCollector = generationOrchestrationMetricsCollector;
+        this.generationRollbackRestoreService = generationRollbackRestoreService;
+    }
+
+    /** Compatibility constructor for focused tests and callers compiled against the legacy shape. */
+    public HeavyGenerationFailureRecoveryService(
+            GenerationAppStateService generationAppStateService,
+            GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector,
+            GenerationRollbackRestoreService generationRollbackRestoreService,
+            GenerationWorkspaceService ignoredWorkspaceService,
+            GenerationTaskFenceGuard ignoredFenceGuard
+    ) {
+        this(generationAppStateService, generationOrchestrationMetricsCollector,
+                generationRollbackRestoreService);
+    }
 
     public void emitGenerationError(Long appId,
                                     GenerationPreparation preparation,
@@ -102,6 +120,12 @@ public class HeavyGenerationFailureRecoveryService {
         if (session.isCancelled() || preparation.artifact("rollback_restore") != null) {
             return;
         }
+        // An isolated execution epoch has not mutated the published workspace. Restoring an old
+        // snapshot by appId alone would reintroduce the very TOCTOU race the epoch workspace avoids.
+        // The failed epoch is retained for diagnostics and later janitor reclamation instead.
+        if (session.executionWorkspace() != null) {
+            return;
+        }
         GenerationArtifact rollbackRestore = generationRollbackRestoreService.restoreIfAllowed(
                 appId,
                 preparation.taskId(),
@@ -122,9 +146,11 @@ public class HeavyGenerationFailureRecoveryService {
         if (preparation == null || !preparation.upgradeRequired()) {
             return;
         }
-        cleanupCodeDir(appId, preparation.targetType());
         generationAppStateService.updateOwnedCodeGenType(
                 appId, preparation.taskId(), preparation.originalType());
+        // Failed epochs remain private execution workspaces and are reclaimed by the janitor.
+        // Deleting a path re-resolved from appId + type could remove a newer published version
+        // after lease takeover, so failure recovery deliberately performs no direct filesystem delete.
     }
 
     public Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
@@ -234,23 +260,4 @@ public class HeavyGenerationFailureRecoveryService {
         }
     }
 
-    private void cleanupCodeDir(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
-        if (appId == null || appId <= 0 || codeGenTypeEnum == null) {
-            return;
-        }
-        try {
-            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenTypeEnum);
-            if (!workspace.exists()) {
-                return;
-            }
-            FileUtil.del(workspace.canonicalRootPath().toFile());
-        } catch (Exception exception) {
-            log.warn(
-                    "清理升级失败目录时发生异常，appId: {}, type: {}",
-                    appId,
-                    codeGenTypeEnum.getValue(),
-                    LogExceptionSanitizer.sanitize(exception)
-            );
-        }
-    }
 }

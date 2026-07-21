@@ -6,7 +6,6 @@ import hljs from '@/utils/codeHighlighter'
 import 'highlight.js/styles/github.css'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
-  chatToGenCode,
   stopChatToGenCode,
   getAppVoById,
   deployApp as deployAppApi,
@@ -20,6 +19,13 @@ import {
   startDevServer,
   stopDevServer,
 } from '@/api/appController'
+import {
+  cancelGenerationTask,
+  getActiveGenerationTaskForApp,
+  getGenerationTask,
+  submitGenerationTask,
+  type GenerationTaskStatus,
+} from '@/api/generationTaskController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
 import request from '@/request'
@@ -41,7 +47,12 @@ import ChatMessagesPanel from '@/components/app/chat/ChatMessagesPanel.vue'
 import ChatInputPanel from '@/components/app/chat/ChatInputPanel.vue'
 import SelectedElementAlert from '@/components/app/chat/SelectedElementAlert.vue'
 import AppWorkspacePanel from '@/components/app/chat/AppWorkspacePanel.vue'
-import type { ChatMessage, FileTreeNode, WorkspaceTabKey } from '@/components/app/chat/types'
+import type {
+  AgentEventView,
+  ChatMessage,
+  FileTreeNode,
+  WorkspaceTabKey,
+} from '@/components/app/chat/types'
 import {
   appendPreviewCacheBuster,
   buildModifiedFilePreview,
@@ -73,14 +84,26 @@ import {
   getEventNumber,
   getEventString,
   parseGenerationBusinessError,
+  parseGenerationEventGap,
+  parseGenerationEventSequence,
   parseLegacyGenerationDelta,
   type GenerationStreamEvent,
 } from './chat/domain/generationEvents'
 import { canTransitionGenerationPhase, type GenerationPhase } from './chat/domain/generationState'
 import { createAsyncSerialQueue } from './chat/infrastructure/createAsyncSerialQueue'
 import { createVersionGuard } from './chat/infrastructure/createVersionGuard'
+import { createGenerationTaskResumeStore } from './chat/infrastructure/generationTaskResumeStore'
 import { openExternalUrl } from './chat/infrastructure/previewUrlPolicy'
 import { useUnsavedChangesGuard } from './chat/composables/useUnsavedChangesGuard'
+
+const resolveLocalStorage = (): Storage | undefined => {
+  if (typeof window === 'undefined') return undefined
+  try {
+    return window.localStorage
+  } catch {
+    return undefined
+  }
+}
 
 export default defineComponent({
   components: {
@@ -128,6 +151,9 @@ export default defineComponent({
 
     let generationPollingTimer: ReturnType<typeof window.setInterval> | null = null
     let activeEventSource: EventSource | null = null
+    const activeGenerationTaskId = ref<string>()
+    let activeGenerationLastSequence = 0
+    const generationTaskResumeStore = createGenerationTaskResumeStore(resolveLocalStorage())
     const AUTO_SCROLL_THRESHOLD = 96
     const SCROLL_BUTTON_THRESHOLD = 180
 
@@ -136,6 +162,7 @@ export default defineComponent({
     const previewReady = ref(false)
     const previewRefreshKey = ref(0)
     const devServerRunning = ref(false)
+    const devServerPreviewUrl = ref('')
     const devServerStarting = ref(false)
 
     const activeWorkspaceTab = ref<WorkspaceTabKey>('preview')
@@ -321,6 +348,35 @@ export default defineComponent({
       return 0
     })
 
+    const decideToolApproval = async (
+      agentEvent: AgentEventView,
+      decision: 'approve' | 'reject',
+    ) => {
+      if (!agentEvent.taskId || !agentEvent.action || !agentEvent.approvalId) {
+        message.error('审批请求信息不完整，请刷新后重试')
+        return
+      }
+      try {
+        await request(`/generation/tasks/${encodeURIComponent(agentEvent.taskId)}/approvals`, {
+          method: 'POST',
+          data: {
+            action: agentEvent.action,
+            approvalId: agentEvent.approvalId,
+            decision,
+          },
+        })
+        agentEvent.status = decision === 'approve' ? 'approval_approved' : 'approval_rejected'
+        agentEvent.summary = decision === 'approve'
+          ? '已允许一次该目标操作'
+          : '已拒绝该目标操作'
+        message.success(decision === 'approve' ? '已授权一次' : '已拒绝操作')
+      } catch (error) {
+        console.error('Tool approval decision failed:', error)
+        message.error('审批提交失败，请稍后重试')
+        throw error
+      }
+    }
+
     const generationStageDescription = computed(() => {
       const stage = appInfo.value?.generatingStage || generationPhase.value
       if (stoppingGeneration.value) {
@@ -487,15 +543,36 @@ export default defineComponent({
       activeEventSource = null
     }
 
+    const generationResumeUserId = () => loginUserStore.loginUser.id
+
+    const rememberActiveGenerationTask = (taskId: string, lastSequence: number) => {
+      if (!appId.value) return
+      if (activeGenerationTaskId.value !== taskId) {
+        activeGenerationLastSequence = 0
+      }
+      activeGenerationTaskId.value = taskId
+      activeGenerationLastSequence = Math.max(activeGenerationLastSequence, lastSequence)
+      generationTaskResumeStore.save(generationResumeUserId(), appId.value, {
+        taskId,
+        lastSequence: activeGenerationLastSequence,
+      })
+    }
+
+    const clearActiveGenerationTask = (taskId?: string) => {
+      if (appId.value) {
+        generationTaskResumeStore.clear(generationResumeUserId(), appId.value, taskId)
+      }
+      if (!taskId || activeGenerationTaskId.value === taskId) {
+        activeGenerationTaskId.value = undefined
+        activeGenerationLastSequence = 0
+      }
+    }
+
     const markCurrentGenerationStopped = () => {
       const pendingAiMessageIndex = findPendingAiMessageIndex()
       if (pendingAiMessageIndex >= 0) {
         const targetMessage = messages.value[pendingAiMessageIndex]
         targetMessage.loading = false
-        targetMessage.thinkingActive = false
-        if (targetMessage.thinkingContent) {
-          targetMessage.thinkingCollapsed = true
-        }
         if (!targetMessage.content.includes('[系统] 已停止本次生成')) {
           targetMessage.content = `${targetMessage.content || ''}\n\n[系统] 已停止本次生成`.trim()
         }
@@ -594,7 +671,6 @@ export default defineComponent({
           type: 'ai',
           content: generatingMessage,
           loading: true,
-          thinkingCollapsed: true,
           createTime: getCurrentMessageTime(),
         }
         decorateMessageWithBuildResult(restoredMessage)
@@ -705,6 +781,44 @@ export default defineComponent({
       await sendMessage()
     }
 
+    const terminalGenerationTaskStatuses = new Set([
+      'success',
+      'failed',
+      'cancelled',
+      'deadline_exceeded',
+    ])
+
+    const syncGenerationTaskStatus = (task: GenerationTaskStatus) => {
+      isGenerating.value = !terminalGenerationTaskStatuses.has(task.status)
+      stoppingGeneration.value = Boolean(
+        isGenerating.value && (task.cancellationRequested || task.status === 'cancelling'),
+      )
+      const stage = task.stage || ''
+      setGenerationPhase(
+        stage.includes('repair')
+          ? 'repair'
+          : stage.includes('build') || stage.includes('validation')
+            ? 'build'
+            : 'codegen',
+      )
+      if (appInfo.value) {
+        appInfo.value = {
+          ...appInfo.value,
+          isGenerating: isGenerating.value ? 1 : 0,
+          generatingStage: stage || undefined,
+          generatingMessage: task.stageMessage || '',
+        }
+      }
+      const pendingAiMessageIndex = findPendingAiMessageIndex()
+      if (pendingAiMessageIndex >= 0) {
+        const pendingMessage = messages.value[pendingAiMessageIndex]
+        pendingMessage.loading = isGenerating.value
+        if (!pendingMessage.content && task.stageMessage) {
+          pendingMessage.content = task.stageMessage
+        }
+      }
+    }
+
     const stopCurrentGeneration = async () => {
       if (!appId.value || !isGenerating.value || stoppingGeneration.value || !isOwner.value) {
         return
@@ -713,9 +827,17 @@ export default defineComponent({
       const requestedAppId = appId.value
       stoppingGeneration.value = true
       try {
-        const res = await stopChatToGenCode({
-          appId: requestedAppId,
-        })
+        let taskId = activeGenerationTaskId.value
+        if (!taskId) {
+          const activeTaskRes = await getActiveGenerationTaskForApp(requestedAppId)
+          if (activeTaskRes.data.code === 0 && activeTaskRes.data.data?.taskId) {
+            taskId = activeTaskRes.data.data.taskId
+            rememberActiveGenerationTask(taskId, 0)
+          }
+        }
+        const res = taskId
+          ? await cancelGenerationTask(taskId)
+          : await stopChatToGenCode({ appId: requestedAppId })
         if (!isCurrentAppSession(sessionVersion, requestedAppId)) {
           return
         }
@@ -723,6 +845,10 @@ export default defineComponent({
           throw new Error(res.data.message || '停止生成失败')
         }
         markCurrentGenerationStopped()
+        if (taskId) {
+          rememberActiveGenerationTask(taskId, activeGenerationLastSequence)
+          startGenerationPolling()
+        }
         message.success('已停止生成')
         await fetchAppStateOnly(sessionVersion)
       } catch (error) {
@@ -750,6 +876,43 @@ export default defineComponent({
       const pollingSessionVersion = sessionGuard.current()
       refreshingGenerationState.value = true
       try {
+        const taskId = activeGenerationTaskId.value
+        if (taskId) {
+          const taskRes = await getGenerationTask(taskId)
+          if (!sessionGuard.isCurrent(pollingSessionVersion) || activeGenerationTaskId.value !== taskId) {
+            return
+          }
+          if (taskRes.data.code !== 0 || !taskRes.data.data) {
+            throw new Error(taskRes.data.message || 'Failed to load generation task status')
+          }
+          const task = taskRes.data.data
+          const pendingAiMessageIndex = findPendingAiMessageIndex()
+          syncGenerationTaskStatus(task)
+          if (!terminalGenerationTaskStatuses.has(task.status)) {
+            return
+          }
+          clearActiveGenerationTask(taskId)
+          closeActiveEventSource()
+          stopGenerationPolling()
+          if (task.status === 'cancelled') {
+            markCurrentGenerationStopped()
+            await loadChatHistory(false, pollingSessionVersion)
+            return
+          }
+          if (task.status === 'failed' || task.status === 'deadline_exceeded') {
+            if (pendingAiMessageIndex >= 0) {
+              const pendingMessage = messages.value[pendingAiMessageIndex]
+              pendingMessage.loading = false
+              pendingMessage.generationFailed = true
+              if (task.stageMessage && !pendingMessage.content.includes(task.stageMessage)) {
+                pendingMessage.content = `${pendingMessage.content || ''}\n\n${task.stageMessage}`.trim()
+              }
+            }
+            setGenerationPhase('failed')
+          }
+          await refreshAfterGeneration()
+          return
+        }
         const wasGenerating = Boolean(appInfo.value?.isGenerating)
         const latestAppInfo = await fetchAppStateOnly(pollingSessionVersion)
         if (!latestAppInfo) {
@@ -778,7 +941,7 @@ export default defineComponent({
       }
       generationPollingTimer = window.setInterval(() => {
         void pollGenerationState()
-      }, 1500)
+      }, 5000)
     }
 
     const focusAppNameInput = async () => {
@@ -971,7 +1134,10 @@ export default defineComponent({
           return
         }
         if (res.data.code === 0 && res.data.data) {
-          devServerRunning.value = true
+          devServerRunning.value = res.data.data.running === true
+          devServerPreviewUrl.value = devServerRunning.value
+            ? res.data.data.previewUrl?.trim() || getDevServerPreviewUrl(requestedAppId)
+            : ''
           // 更新 appInfo 中的端口信息
           if (appInfo.value && res.data.data.port) {
             appInfo.value = {
@@ -1001,6 +1167,7 @@ export default defineComponent({
         // A stale stop request must not overwrite the new app session state.
         if (targetAppId === appId.value) {
           devServerRunning.value = false
+          devServerPreviewUrl.value = ''
           devServerStarting.value = false
         }
         console.log('Dev server stopped:', targetAppId)
@@ -1059,6 +1226,13 @@ export default defineComponent({
         }
 
         const restoredGeneratingState = syncGeneratingMessageFromAppInfo()
+        const resumedDurableTask = isOwner.value
+          ? await resumeActiveGenerationTaskForApp(sessionVersion)
+          : false
+        if (resumedDurableTask) {
+          startGenerationPolling()
+          return
+        }
         if (restoredGeneratingState) {
           startGenerationPolling()
           return
@@ -1204,7 +1378,7 @@ export default defineComponent({
       }
 
       // 添加AI消息占位符
-      messages.value.push(createLoadingAiMessage())
+      messages.value.push(aiMessage)
       await startGenerationFromMessage(message, aiMessage, 'update')
     }
 
@@ -1296,7 +1470,11 @@ export default defineComponent({
     }
 
     // 生成代码 - 使用 EventSource 处理流式响应
-    const generateCode = async (userMessage: string, aiMessage: ChatMessage) => {
+    const generateCode = async (
+      userMessage: string,
+      aiMessage: ChatMessage,
+      resume?: { taskId: string; lastSequence: number },
+    ) => {
       const generationSessionVersion = sessionGuard.current()
       const generationAppId = appId.value
       const isGenerationActive = () =>
@@ -1305,35 +1483,45 @@ export default defineComponent({
         messages.value.includes(aiMessage)
       let eventSource: EventSource | null = null
       let streamCompleted = false
-      lastGenerationPrompt.value = userMessage
+      let durableTaskAccepted = Boolean(resume?.taskId)
+      if (userMessage) {
+        lastGenerationPrompt.value = userMessage
+      }
 
       try {
-        const startRes = await chatToGenCode({
-          appId: generationAppId || '',
-          message: userMessage,
-        })
-        if (!isGenerationActive()) {
-          return
+        let taskId = resume?.taskId
+        const initialSequence = resume?.lastSequence ?? 0
+        if (!taskId) {
+          const startRes = await submitGenerationTask({
+            appId: generationAppId || '',
+            message: userMessage,
+          })
+          if (!isGenerationActive()) {
+            return
+          }
+          if (startRes.data.code !== 0 || !startRes.data.data?.taskId) {
+            const errorMsg = startRes.data.message || '启动生成失败'
+            aiMessage.content = errorMsg
+            aiMessage.loading = false
+            aiMessage.generationFailed = true
+            isGenerating.value = false
+            message.error(errorMsg)
+            return
+          }
+          taskId = startRes.data.data.taskId
         }
-        if (startRes.data.code !== 0) {
-          // 直接显示后端返回的错误信息，并停止生成流程
-          const errorMsg = startRes.data.message || '启动生成失败'
-          aiMessage.content = errorMsg
-          aiMessage.loading = false
-          aiMessage.generationFailed = true
-          isGenerating.value = false
-          message.error(errorMsg)
-          return
-        }
+        rememberActiveGenerationTask(taskId, initialSequence)
+        durableTaskAccepted = true
+        closeActiveEventSource()
 
         // 获取 axios 配置的 baseURL
         const baseURL = request.defaults.baseURL || API_BASE_URL
 
         const params = new URLSearchParams({
-          appId: appId.value || '',
+          afterSequence: String(initialSequence),
         })
 
-        const url = `${baseURL}/app/chat/gen/code?${params}`
+        const url = `${baseURL}/generation/tasks/${encodeURIComponent(taskId)}/events?${params}`
 
         // 创建 EventSource 连接
         eventSource = new EventSource(url, {
@@ -1341,19 +1529,21 @@ export default defineComponent({
         })
         activeEventSource = eventSource
 
-        let fullContent = ''
+        let fullContent = aiMessage.content || ''
+        let lastSequence = initialSequence
+        let reconnectNoticeShown = false
 
-        const appendThinkingText = (text: string | undefined) => {
-          if (!text || streamCompleted || !isGenerationActive()) {
-            return
+        const acceptSequencedEvent = (event: MessageEvent) => {
+          const sequence = parseGenerationEventSequence(event)
+          if (sequence === undefined) {
+            return true
           }
-          const shouldStickToBottom = isNearBottom.value
-          const targetMessage = aiMessage
-          targetMessage.thinkingContent = `${targetMessage.thinkingContent || ''}${text}`
-          targetMessage.thinkingActive = true
-          targetMessage.thinkingCollapsed = false
-          targetMessage.loading = false
-          void syncMessagesViewport(shouldStickToBottom)
+          if (sequence <= lastSequence) {
+            return false
+          }
+          lastSequence = sequence
+          rememberActiveGenerationTask(taskId, sequence)
+          return true
         }
 
         const appendGeneratedText = (text: string | undefined) => {
@@ -1365,24 +1555,17 @@ export default defineComponent({
           const targetMessage = aiMessage
           targetMessage.content = fullContent
           targetMessage.loading = false
-          if (targetMessage.thinkingContent) {
-            targetMessage.thinkingActive = false
-            targetMessage.thinkingCollapsed = true
-          }
           void syncMessagesViewport(shouldStickToBottom)
         }
 
         const handleGenerationEvent = (event: MessageEvent) => {
           if (streamCompleted || !isGenerationActive()) return
+          if (!acceptSequencedEvent(event)) return
           const streamEvent = parseGenerationStreamEvent(event)
           if (!streamEvent) {
             return
           }
-          if (streamEvent.type === 'ai_thinking_delta') {
-            appendThinkingText(streamEvent.text)
-          } else {
-            appendGeneratedText(streamEvent.text)
-          }
+          appendGeneratedText(streamEvent.text)
           void fileOperationQueue.enqueue({ streamEvent, sessionVersion: generationSessionVersion })
           if (streamEvent.type === 'agent_event') {
             upsertAgentEvent(aiMessage, streamEvent)
@@ -1390,6 +1573,23 @@ export default defineComponent({
             const agentName = getEventString(streamEvent.data, 'agent') || '智能体'
             currentAgentStageText.value = `${agentName}处理中`
             aiMessage.loading = true
+            return
+          }
+          if (streamEvent.type === 'first_preview_ready') {
+            setGenerationPhase('build')
+            currentAgentStageText.value = ''
+            if (appInfo.value) {
+              appInfo.value = {
+                ...appInfo.value,
+                isGenerating: 1,
+                generatingStage: 'build',
+                generatingMessage: '首个可运行预览已就绪，后台正在继续质量校验',
+              }
+            }
+            startGenerationPolling()
+            aiMessage.generationFailed = false
+            aiMessage.loading = true
+            void showGeneratedResultBeforeValidation()
             return
           }
           if (streamEvent.type === 'generation_stage') {
@@ -1479,20 +1679,33 @@ export default defineComponent({
           }
           if (streamEvent.type === 'generation_stopped') {
             markCurrentGenerationStopped()
+            startGenerationPolling()
             message.info('本次生成已停止')
           }
         }
 
         eventSource.addEventListener('ai_delta', handleGenerationEvent)
-        eventSource.addEventListener('ai_thinking_delta', handleGenerationEvent)
         eventSource.addEventListener('tool_call', handleGenerationEvent)
         eventSource.addEventListener('tool_result', handleGenerationEvent)
         eventSource.addEventListener('agent_event', handleGenerationEvent)
         eventSource.addEventListener('generation_stage', handleGenerationEvent)
+        eventSource.addEventListener('first_preview_ready', handleGenerationEvent)
         eventSource.addEventListener('build_result', handleGenerationEvent)
         eventSource.addEventListener('repair_start', handleGenerationEvent)
         eventSource.addEventListener('generation_error', handleGenerationEvent)
         eventSource.addEventListener('generation_stopped', handleGenerationEvent)
+        eventSource.addEventListener('generation_gap', function (event: MessageEvent) {
+          if (streamCompleted || !isGenerationActive() || !acceptSequencedEvent(event)) return
+          const gap = parseGenerationEventGap(event)
+          console.warn('Generation event replay gap detected:', gap || event.data)
+          message.warning('部分实时生成过程已过期，正在同步任务状态；完成后会刷新最终结果')
+          startGenerationPolling()
+          void pollGenerationState()
+        })
+
+        eventSource.onopen = function () {
+          reconnectNoticeShown = false
+        }
 
         // 兼容旧协议
         eventSource.onmessage = function (event) {
@@ -1502,6 +1715,7 @@ export default defineComponent({
             handleGenerationEvent(event)
             return
           }
+          if (!acceptSequencedEvent(event)) return
           const legacyDelta = parseLegacyGenerationDelta(event)
           if (legacyDelta === undefined) {
             handleError(new Error('Unsupported generation message format'), aiMessage)
@@ -1512,17 +1726,14 @@ export default defineComponent({
         }
 
         // 处理done事件
-        eventSource.addEventListener('done', function () {
+        eventSource.addEventListener('done', function (event: MessageEvent) {
           if (streamCompleted || !isGenerationActive()) return
+          if (!acceptSequencedEvent(event)) return
 
           streamCompleted = true
           stopGenerationPolling()
           isGenerating.value = false
           stoppingGeneration.value = false
-          if (aiMessage?.thinkingContent) {
-            aiMessage.thinkingActive = false
-            aiMessage.thinkingCollapsed = true
-          }
           if (aiMessage) {
             aiMessage.createTime = getCurrentMessageTime()
           }
@@ -1531,30 +1742,12 @@ export default defineComponent({
             activeEventSource = null
           }
 
-          window.setTimeout(async () => {
-            try {
-              const latestAppInfo = await fetchAppStateOnly(generationSessionVersion)
-              if (!latestAppInfo || !isGenerationActive()) {
-                return
-              }
-              if (latestAppInfo.isGenerating) {
-                isGenerating.value = true
-                startGenerationPolling()
-                syncGeneratingMessageFromAppInfo()
-                if (!aiMessage?.generationFailed) {
-                  await showGeneratedResultBeforeValidation()
-                }
-                return
-              }
-              if (!aiMessage?.generationFailed) {
-                setGenerationPhase('done')
-                await showGeneratedResultBeforeValidation()
-              }
-            } catch (error) {
-              if (isGenerationActive()) {
-                console.error('同步生成完成状态失败：', error)
-                startGenerationPolling()
-              }
+          window.setTimeout(() => {
+            if (!isGenerationActive()) return
+            startGenerationPolling()
+            void pollGenerationState()
+            if (!aiMessage?.generationFailed) {
+              void showGeneratedResultBeforeValidation()
             }
           }, 300)
         })
@@ -1562,6 +1755,7 @@ export default defineComponent({
         // 处理business-error事件（后端限流等错误）
         eventSource.addEventListener('business-error', function (event: MessageEvent) {
           if (streamCompleted || !isGenerationActive()) return
+          if (!acceptSequencedEvent(event)) return
 
           try {
             const errorMessage = parseGenerationBusinessError(event) || 'Generation failed'
@@ -1570,10 +1764,6 @@ export default defineComponent({
             // 显示具体的错误信息
             aiMessage.content = `${aiMessage.content || ''}\n\n❌ ${errorMessage}`.trim()
             aiMessage.loading = false
-            aiMessage.thinkingActive = false
-            if (aiMessage.thinkingContent) {
-              aiMessage.thinkingCollapsed = true
-            }
             aiMessage.generationFailed = true
             setGenerationPhase('failed')
             decorateMessageWithBuildResult(aiMessage)
@@ -1582,10 +1772,6 @@ export default defineComponent({
             streamCompleted = true
             isGenerating.value = false
             stoppingGeneration.value = false
-            aiMessage.thinkingActive = false
-            if (aiMessage.thinkingContent) {
-              aiMessage.thinkingCollapsed = true
-            }
             stopStreamingFilePreview(true)
             eventSource?.close()
             if (activeEventSource === eventSource) {
@@ -1599,26 +1785,11 @@ export default defineComponent({
 
         // 处理错误
         eventSource.onerror = function () {
-          if (streamCompleted || !isGenerating.value || !isGenerationActive()) return
-          if (aiMessage?.generationFailed) {
-            streamCompleted = true
-            isGenerating.value = false
-            stoppingGeneration.value = false
-            setGenerationPhase('failed')
-            stopStreamingFilePreview(true)
-            eventSource?.close()
-            if (activeEventSource === eventSource) {
-              activeEventSource = null
-            }
-            return
+          if (streamCompleted || !isGenerationActive()) return
+          if (!reconnectNoticeShown) {
+            reconnectNoticeShown = true
+            message.warning('实时连接已断开，正在自动重连并同步任务状态')
           }
-          streamCompleted = true
-          stopStreamingFilePreview(true)
-          eventSource?.close()
-          if (activeEventSource === eventSource) {
-            activeEventSource = null
-          }
-          message.warning('实时连接已断开，正在同步生成状态')
           startGenerationPolling()
           void pollGenerationState()
         }
@@ -1627,12 +1798,69 @@ export default defineComponent({
           return
         }
         console.error('创建 EventSource 失败：', error)
+        if (durableTaskAccepted && activeGenerationTaskId.value) {
+          message.warning('实时连接暂不可用，已切换为任务状态同步')
+          startGenerationPolling()
+          void pollGenerationState()
+          return
+        }
         handleError(error, aiMessage)
       } finally {
         if (activeEventSource === eventSource && streamCompleted) {
           activeEventSource = null
         }
       }
+    }
+
+    async function resumeActiveGenerationTaskForApp(sessionVersion: number) {
+      const requestedAppId = appId.value
+      if (!requestedAppId || !sessionGuard.isCurrent(sessionVersion)) {
+        return false
+      }
+      const stored = generationTaskResumeStore.load(generationResumeUserId(), requestedAppId)
+      let task: GenerationTaskStatus | undefined
+      try {
+        const activeTaskRes = await getActiveGenerationTaskForApp(requestedAppId)
+        if (activeTaskRes.data.code === 0) {
+          task = activeTaskRes.data.data
+        }
+      } catch (activeLookupError) {
+        console.warn('Failed to discover active generation task:', activeLookupError)
+      }
+      if (!task && stored) {
+        try {
+          const storedTaskRes = await getGenerationTask(stored.taskId)
+          if (storedTaskRes.data.code === 0) {
+            task = storedTaskRes.data.data
+          }
+        } catch (storedLookupError) {
+          console.warn('Failed to restore stored generation task:', storedLookupError)
+        }
+      }
+      if (!sessionGuard.isCurrent(sessionVersion) || appId.value !== requestedAppId) {
+        return false
+      }
+      if (!task?.taskId || terminalGenerationTaskStatuses.has(task.status)) {
+        if (stored) {
+          generationTaskResumeStore.clear(generationResumeUserId(), requestedAppId, stored.taskId)
+        }
+        return false
+      }
+      // A refreshed page has lost its rendered partial text, so rebuild from retained event history.
+      // Same-page network reconnects still resume from Last-Event-ID automatically.
+      const lastSequence = 0
+      rememberActiveGenerationTask(task.taskId, lastSequence)
+      syncGenerationTaskStatus(task)
+      let pendingAiMessageIndex = findPendingAiMessageIndex()
+      if (pendingAiMessageIndex < 0) {
+        messages.value.push(createLoadingAiMessage())
+        pendingAiMessageIndex = messages.value.length - 1
+      }
+      const aiMessage = messages.value[pendingAiMessageIndex]
+      aiMessage.content = ''
+      aiMessage.loading = true
+      await generateCode('', aiMessage, { taskId: task.taskId, lastSequence })
+      return true
     }
 
     // 错误处理函数
@@ -1659,15 +1887,14 @@ export default defineComponent({
         return
       }
       const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-      const devServerPort = appInfo.value?.devServerPort
       // Vue 项目且 dev server 运行中时，使用 dev server URL（通过后端代理）
       if (
         (codeGenType === CodeGenTypeEnum.VUE_PROJECT ||
           codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT) &&
         devServerRunning.value &&
-        devServerPort
+        devServerPreviewUrl.value
       ) {
-        previewUrl.value = getDevServerPreviewUrl(appId.value)
+        previewUrl.value = devServerPreviewUrl.value
       } else {
         previewUrl.value = appendPreviewCacheBuster(getStaticPreviewUrl(codeGenType, appId.value))
       }
@@ -1679,15 +1906,14 @@ export default defineComponent({
     const updatePreview = () => {
       if (appId.value) {
         const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-        const devServerPort = appInfo.value?.devServerPort
         // Vue 项目且 dev server 运行中时，使用 dev server URL
         if (
           (codeGenType === CodeGenTypeEnum.VUE_PROJECT ||
             codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT) &&
           devServerRunning.value &&
-          devServerPort
+          devServerPreviewUrl.value
         ) {
-          previewUrl.value = getDevServerPreviewUrl(appId.value)
+          previewUrl.value = devServerPreviewUrl.value
         } else {
           previewUrl.value = getStaticPreviewUrl(codeGenType, appId.value)
         }
@@ -2463,6 +2689,8 @@ export default defineComponent({
       stopGenerationPolling()
       stopStreamingFilePreview(true)
       closeActiveEventSource()
+      activeGenerationTaskId.value = undefined
+      activeGenerationLastSequence = 0
       fileOperationQueue.reset()
       fileRequestGuard.invalidate()
       visualEditor.dispose()
@@ -2489,6 +2717,7 @@ export default defineComponent({
       previewReady.value = false
       previewRefreshKey.value += 1
       devServerRunning.value = false
+      devServerPreviewUrl.value = ''
       devServerStarting.value = false
       activeWorkspaceTab.value = 'preview'
       setGenerationPhase('idle')
@@ -2587,6 +2816,7 @@ export default defineComponent({
       chatSplitterRef,
       clearSelectedElement,
       deleteApp,
+      decideToolApproval,
       deployApp,
       deploying,
       deployModalVisible,

@@ -1,0 +1,26 @@
+package com.rush.rushaicodemother.model.enums;
+
+import java.util.Arrays;
+
+public enum TenantMembershipStatus {
+    INVITED("invited"),
+    ACTIVE("active"),
+    SUSPENDED("suspended");
+
+    private final String value;
+
+    TenantMembershipStatus(String value) {
+        this.value = value;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    public static TenantMembershipStatus fromValue(String value) {
+        return Arrays.stream(values())
+                .filter(status -> status.value.equalsIgnoreCase(value))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("unsupported tenant membership status"));
+    }
+}

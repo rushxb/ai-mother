@@ -37,8 +37,17 @@ public class DevServerProjectLocator {
 
     /** Returns an existing Vue project directory containing a safe package manifest. */
     public Path locate(App app) {
+        return locate(app, null);
+    }
+
+    /**
+     * Resolves either the user-visible published workspace or an explicitly fenced generation
+     * workspace. The latter is used only by task-scoped validation and never falls back to the
+     * canonical pointer when the execution scope is missing.
+     */
+    public Path locate(App app, DevServerStartOptions startOptions) {
         CodeGenTypeEnum codeGenType = requireSupportedType(app);
-        GenerationWorkspace workspace = resolveWorkspace(app.getId(), codeGenType);
+        GenerationWorkspace workspace = resolveWorkspace(app.getId(), codeGenType, startOptions);
         Path projectDirectory = codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT
                 ? workspace.frontendRootPath()
                 : workspace.canonicalRootPath();
@@ -71,9 +80,15 @@ public class DevServerProjectLocator {
         return codeGenType;
     }
 
-    private GenerationWorkspace resolveWorkspace(Long appId, CodeGenTypeEnum codeGenType) {
+    private GenerationWorkspace resolveWorkspace(Long appId,
+                                                 CodeGenTypeEnum codeGenType,
+                                                 DevServerStartOptions startOptions) {
         try {
-            return generationWorkspaceService.resolve(appId, codeGenType);
+            if (startOptions != null && startOptions.executionFence() != null) {
+                return generationWorkspaceService.resolveExecution(
+                        startOptions.executionFence(), appId, codeGenType);
+            }
+            return generationWorkspaceService.resolveCanonical(appId, codeGenType);
         } catch (BusinessException exception) {
             if (exception.getCode() == ErrorCode.NO_AUTH_ERROR.getCode()) {
                 throw projectNotFound(exception);

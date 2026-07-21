@@ -11,8 +11,10 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationBuildValidationService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspace;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -38,7 +40,11 @@ public class CreatePostGenerationValidationService {
             return ValidationOutcome.skipped("backend_or_non_vue_create");
         }
         GenerationPreparation preparation = createRepairPreparation(codeGenType, userMessage, taskId, result);
-        bindRepairContext(appId, codeGenType, taskId, result);
+        GenerationExecutionFence executionFence = executionFence(session);
+        GenerationExecutionWorkspace executionWorkspace = session == null
+                ? null
+                : session.executionWorkspace();
+        bindRepairContext(appId, codeGenType, taskId, result, executionFence, executionWorkspace);
         try {
             session.emit(GenerationStreamEvent.generationStage("CREATE 模板生成完成，正在执行构建验证...", Map.of(
                     "stage", AppConstant.GENERATING_STAGE_BUILD,
@@ -53,7 +59,11 @@ public class CreatePostGenerationValidationService {
             );
             return new ValidationOutcome(passed, true, passed ? "" : "create_post_generation_validation_failed");
         } finally {
-            generationToolExecutionContextService.clearContext(appId);
+            if (executionFence == null) {
+                generationToolExecutionContextService.clearContext(appId, taskId);
+            } else {
+                generationToolExecutionContextService.clearContext(appId, taskId, executionFence);
+            }
         }
     }
 
@@ -111,7 +121,12 @@ public class CreatePostGenerationValidationService {
         );
     }
 
-    private void bindRepairContext(Long appId, CodeGenTypeEnum codeGenType, String taskId, SlotFillResult result) {
+    private void bindRepairContext(Long appId,
+                                   CodeGenTypeEnum codeGenType,
+                                   String taskId,
+                                   SlotFillResult result,
+                                   GenerationExecutionFence executionFence,
+                                   GenerationExecutionWorkspace executionWorkspace) {
         generationToolExecutionContextService.bindChangePlan(
                 appId,
                 taskId,
@@ -119,8 +134,16 @@ public class CreatePostGenerationValidationService {
                 codeGenType,
                 changePlan(result),
                 true,
-                "create_post_generation_build_repair"
+                "create_post_generation_build_repair",
+                executionWorkspace == null ? null : executionWorkspace.workspace(),
+                executionFence
         );
+    }
+
+    private GenerationExecutionFence executionFence(GenerationSession session) {
+        return session == null || session.executionContext() == null
+                ? null
+                : session.executionContext().executionFence();
     }
 
     public record ValidationOutcome(boolean success, boolean executed, String reason) {

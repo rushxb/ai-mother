@@ -17,6 +17,7 @@ import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
 import com.rush.rushaicodemother.service.lifecycle.AppOperationLockManager;
+import com.rush.rushaicodemother.service.tenant.TenantProvisioningService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -51,6 +52,7 @@ class DefaultAppProvisioningServiceTest {
     private AiCodeGenTypeRoutingService routingService;
     private AppNameGeneratorService appNameGeneratorService;
     private TransactionOperations transactionOperations;
+    private TenantProvisioningService tenantProvisioningService;
     private DefaultAppProvisioningService provisioningService;
 
     @BeforeEach
@@ -65,6 +67,7 @@ class DefaultAppProvisioningServiceTest {
         routingService = mock(AiCodeGenTypeRoutingService.class);
         appNameGeneratorService = mock(AppNameGeneratorService.class);
         transactionOperations = immediateTransactions();
+        tenantProvisioningService = mock(TenantProvisioningService.class);
 
         when(routingServiceFactory.createAiCodeGenTypeRoutingService()).thenReturn(routingService);
         when(appNameGeneratorServiceFactory.createAppNameGeneratorService()).thenReturn(appNameGeneratorService);
@@ -75,6 +78,7 @@ class DefaultAppProvisioningServiceTest {
                 .thenReturn(CodeGenTypeEnum.VUE_PROJECT);
         when(appNameGeneratorService.generateAppName(any(String.class))).thenReturn("应用名称：‘任务看板’");
         when(appMapper.selectCopySourceState(11L)).thenReturn(sourceApp());
+        when(tenantProvisioningService.requirePersonalTenantId(any(User.class))).thenReturn(700L);
 
         rebuildService();
     }
@@ -96,6 +100,7 @@ class DefaultAppProvisioningServiceTest {
         assertEquals(CodeGenTypeEnum.VUE_PROJECT.getValue(), insertedApp.getCodeGenType());
         assertEquals(AppConstant.DEFAULT_APP_PRIORITY, insertedApp.getPriority());
         assertEquals(9L, insertedApp.getUserId());
+        assertEquals(700L, insertedApp.getTenantId());
         assertNull(insertedApp.getDevServerPort());
         verify(aiModelService).ensureGenerationModelsConfigured();
     }
@@ -183,6 +188,7 @@ class DefaultAppProvisioningServiceTest {
         assertEquals("source prompt", targetApp.getInitPrompt());
         assertEquals(CodeGenTypeEnum.HTML.getValue(), targetApp.getCodeGenType());
         assertEquals(21L, targetApp.getUserId());
+        assertEquals(700L, targetApp.getTenantId());
         assertNull(targetApp.getDeployKey());
         assertNull(targetApp.getDeployedTime());
         assertNull(targetApp.getDevServerPort());
@@ -274,6 +280,7 @@ class DefaultAppProvisioningServiceTest {
                 chatHistoryService,
                 artifactLifecycleService,
                 new AppOperationLockManager(),
+                tenantProvisioningService,
                 transactionOperations
         );
     }

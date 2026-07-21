@@ -8,5 +8,7 @@ package com.rush.rushaicodemother.model.enums;
 public enum UserCreditTransactionType {
     ACCOUNT_INITIALIZATION,
     ADMIN_ADJUST,
-    GENERATION_CHARGE
+    GENERATION_CHARGE,
+    GENERATION_RESERVATION,
+    GENERATION_SETTLEMENT
 }

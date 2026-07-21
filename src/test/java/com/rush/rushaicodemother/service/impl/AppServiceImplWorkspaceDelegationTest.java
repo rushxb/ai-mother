@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.impl;
 
+import com.rush.rushaicodemother.application.app.AppAccessPolicy;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.dto.app.AppCodeFileSaveRequest;
@@ -19,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
@@ -29,6 +31,7 @@ class AppServiceImplWorkspaceDelegationTest {
     private AppServiceImpl appService;
     private AppPersistenceService appPersistenceService;
     private AppCodeWorkspaceService workspaceService;
+    private AppAccessPolicy appAccessPolicy;
 
     @BeforeEach
     void setUp() {
@@ -36,6 +39,7 @@ class AppServiceImplWorkspaceDelegationTest {
         appService = fixture.createService();
         appPersistenceService = fixture.persistenceService();
         workspaceService = fixture.workspaceService();
+        appAccessPolicy = fixture.accessPolicy();
     }
 
     @Test
@@ -91,6 +95,9 @@ class AppServiceImplWorkspaceDelegationTest {
         App app = app(14L, 24L);
         User otherUser = user(25L);
         doReturn(app).when(appPersistenceService).findActiveById(14L);
+        doThrow(new BusinessException(ErrorCode.NO_AUTH_ERROR, "denied"))
+                .when(appAccessPolicy)
+                .requireOwner(app, otherUser, "无权限访问该应用代码");
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> appService.listAppCodeFiles(14L, otherUser));
@@ -112,6 +119,7 @@ class AppServiceImplWorkspaceDelegationTest {
         App app = new App();
         app.setId(appId);
         app.setUserId(userId);
+        app.setTenantId(100L);
         return app;
     }
 

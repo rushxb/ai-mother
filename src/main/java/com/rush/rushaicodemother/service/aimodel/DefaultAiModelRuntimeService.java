@@ -6,7 +6,9 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/** AI 运行时敏感配置读取实现。 */
+import java.util.List;
+
+/** Selects the first healthy runtime model from the enabled, sort-ordered fallback pool. */
 @Service
 @RequiredArgsConstructor
 public class DefaultAiModelRuntimeService implements AiModelRuntimeService {
@@ -16,20 +18,38 @@ public class DefaultAiModelRuntimeService implements AiModelRuntimeService {
 
     private final AiModelPersistenceService persistenceService;
     private final AiModelConfigurationPolicy configurationPolicy;
+    private final AiModelCircuitBreaker circuitBreaker;
 
     @Override
     public AiModelRuntimeConfiguration requireRunnableModelByType(String modelType) {
+        return listRunnableModelsByType(modelType).getFirst();
+    }
+
+    @Override
+    public List<AiModelRuntimeConfiguration> listRunnableModelsByType(String modelType) {
         if (StrUtil.isBlank(modelType)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型类型不能为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "model type cannot be blank");
         }
-        return persistenceService.findEnabled(modelType).stream()
+        List<AiModelRuntimeConfiguration> candidates = persistenceService.findEnabled(modelType).stream()
                 .filter(configurationPolicy::isRunnable)
-                .findFirst()
                 .map(configurationPolicy::toRuntimeConfiguration)
-                .orElseThrow(() -> new BusinessException(
+                .toList();
+        if (candidates.isEmpty()) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "No runnable " + modelType + " model is configured"
+            );
+        }
+        List<AiModelRuntimeConfiguration> available = candidates.stream()
+                .filter(candidate -> circuitBreaker.isAvailable(candidate.provider(), candidate.modelId()))
+                .toList();
+        if (available.isEmpty()) {
+            throw new BusinessException(
                         ErrorCode.OPERATION_ERROR,
-                        "请联系系统管理员配置可用的 " + modelType + " 模型"
-                ));
+                        "All configured " + modelType + " models are temporarily unavailable"
+                );
+        }
+        return available;
     }
 
     @Override

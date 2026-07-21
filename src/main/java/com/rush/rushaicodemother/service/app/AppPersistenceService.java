@@ -14,6 +14,9 @@ import java.time.LocalDateTime;
  */
 public interface AppPersistenceService {
 
+    /** Creates an application whose routing and type have already been decided by the caller. */
+    long createPrepared(NewApp app);
+
     /** 查询未删除的应用。 */
     App findActiveById(Long appId);
 
@@ -32,4 +35,12 @@ public interface AppPersistenceService {
 
     /** 持久化应用当前 Dev Server 端口。 */
     void updateDevServerPort(Long appId, int port);
+
+    record NewApp(String appName,
+                  String initPrompt,
+                  String codeGenType,
+                  int priority,
+                  Long userId,
+                  Long tenantId) {
+    }
 }

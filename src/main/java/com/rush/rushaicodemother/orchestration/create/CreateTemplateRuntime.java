@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationCont
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
@@ -37,6 +38,7 @@ public class CreateTemplateRuntime {
     private final CreateRecipeRendererService createRecipeRendererService;
     private final FullStackPortAllocator fullStackPortAllocator;
     private final GenerationPatchApplyService generationPatchApplyService;
+    private final GenerationTaskFenceGuard generationTaskFenceGuard;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final LandingSlotFallbackRenderer landingSlotFallbackRenderer;
     private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
@@ -46,9 +48,10 @@ public class CreateTemplateRuntime {
                                  CreatePreWriteValidationService createPreWriteValidationService,
                                  CreateSpecService createSpecService,
                                  CreateRecipeRendererService createRecipeRendererService,
-                                 FullStackPortAllocator fullStackPortAllocator,
-                                 GenerationPatchApplyService generationPatchApplyService,
-                                 GenerationWorkspaceService generationWorkspaceService,
+                                  FullStackPortAllocator fullStackPortAllocator,
+                                  GenerationPatchApplyService generationPatchApplyService,
+                                  GenerationTaskFenceGuard generationTaskFenceGuard,
+                                  GenerationWorkspaceService generationWorkspaceService,
                                  LandingSlotFallbackRenderer landingSlotFallbackRenderer,
                                  VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService) {
         this.backendProjectTemplateBootstrapService = backendProjectTemplateBootstrapService;
@@ -58,6 +61,7 @@ public class CreateTemplateRuntime {
         this.createRecipeRendererService = createRecipeRendererService;
         this.fullStackPortAllocator = fullStackPortAllocator;
         this.generationPatchApplyService = generationPatchApplyService;
+        this.generationTaskFenceGuard = generationTaskFenceGuard;
         this.generationWorkspaceService = generationWorkspaceService;
         this.landingSlotFallbackRenderer = landingSlotFallbackRenderer;
         this.vueProjectTemplateBootstrapService = vueProjectTemplateBootstrapService;
@@ -70,6 +74,9 @@ public class CreateTemplateRuntime {
     public SlotFillResult generate(App app, GenerationTaskRequest request, CreateGenerationPlan plan, GenerationSession session) {
         if (app == null || request == null || plan == null || plan.slotGroups().isEmpty()) {
             return null;
+        }
+        if (session != null && session.taskId() != null) {
+            generationTaskFenceGuard.assertCurrent(session.taskId());
         }
         BootstrapContext bootstrapContext = bootstrap(app, request, plan);
         if (!bootstrapContext.success()) {
@@ -169,7 +176,10 @@ public class CreateTemplateRuntime {
                     validationResult.durationMs(), executionGroups.size(), "pre_write_validation_failed:" + validationResult.errors());
         }
 
-        String taskId = "create_template_" + System.currentTimeMillis();
+        String taskId = session == null ? null : session.taskId();
+        if (taskId == null || taskId.isBlank()) {
+            taskId = "create_template_" + System.currentTimeMillis();
+        }
         emitStage(session, "写入校验通过，正在应用模板 patch...", Map.of(
                 "stage", "patch_apply",
                 "patchCount", patchPlan.mergedOperationCount()

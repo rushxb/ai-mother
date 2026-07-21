@@ -114,8 +114,11 @@ public class AiModelController {
     @PostMapping("/toggle")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<AiModelAdminVO> toggleModelEnabled(
-            @Valid @RequestBody AiModelToggleRequest toggleRequest) {
-        return ResultUtils.success(aiModelManagementService.toggleModelEnabled(toggleRequest.getId()));
+            @Valid @RequestBody AiModelToggleRequest toggleRequest,
+            HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(aiModelManagementService.toggleModelEnabled(
+                toggleRequest.getId(), toggleRequest.getEvidenceId(), loginUser.getId()));
     }
 
     /** 测试已保存模型的连接（仅管理员）。 */

@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.service.aimodel;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.mapper.AiModelMapper;
 import com.rush.rushaicodemother.model.entity.AiModel;
+import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 
@@ -62,12 +63,15 @@ class DefaultAiModelPersistenceServiceTest {
     }
 
     private AiModelConfiguration configuration() {
+        AiModelProtectedSecret secret = AiModelSecretTestFixtures.protect("secret");
         return AiModelConfiguration.builder()
                 .modelName("Model")
                 .provider("custom")
                 .modelId("model-id")
                 .baseUrl("http://localhost:11434/v1")
-                .apiKey("secret")
+                .secretRef(secret.reference())
+                .secretFingerprint(secret.fingerprint())
+                .secretKeyId(secret.keyId())
                 .maxTokens(4096)
                 .temperature(0.7)
                 .isEnabled(1)
@@ -79,13 +83,16 @@ class DefaultAiModelPersistenceServiceTest {
     }
 
     private AiModel entity() {
+        AiModelProtectedSecret secret = AiModelSecretTestFixtures.protect("secret");
         return AiModel.builder()
                 .id(7L)
                 .modelName("Model")
                 .provider("custom")
                 .modelId("model-id")
                 .baseUrl("http://localhost:11434/v1")
-                .apiKey("secret")
+                .secretRef(secret.reference())
+                .secretFingerprint(secret.fingerprint())
+                .secretKeyId(secret.keyId())
                 .maxTokens(4096)
                 .temperature(0.7)
                 .isEnabled(1)

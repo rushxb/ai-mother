@@ -98,6 +98,26 @@ class PnpmInstallCommandExecutorTest {
     }
 
     @Test
+    void strictLockfileModeMustUseFrozenLockfile() {
+        PnpmInstallCommandExecutor executor = createExecutor();
+
+        assertTrue(executor.buildCommand(false, DependencyInstallMode.REFRESH_FROM_LOCKFILE)
+                .contains("--frozen-lockfile"));
+        assertFalse(executor.buildCommand(false, DependencyInstallMode.REFRESH_FROM_LOCKFILE)
+                .contains("--no-frozen-lockfile"));
+    }
+
+    @Test
+    void lockfileUpdateModeMustExplicitlyAllowLockfileMutation() {
+        PnpmInstallCommandExecutor executor = createExecutor();
+
+        assertTrue(executor.buildCommand(false, DependencyInstallMode.UPDATE_LOCKFILE)
+                .contains("--no-frozen-lockfile"));
+        assertFalse(executor.buildCommand(false, DependencyInstallMode.UPDATE_LOCKFILE)
+                .contains("--frozen-lockfile"));
+    }
+
+    @Test
     void shouldMapManagedProcessTimeoutStatuses() {
         when(processExecutor.execute(any()))
                 .thenReturn(failed(ManagedProcessResult.Status.TIMED_OUT, "总超时"))

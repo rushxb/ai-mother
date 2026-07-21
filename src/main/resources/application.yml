@@ -2,7 +2,7 @@ spring:
   application:
     name: rush-ai-code-mother-backend
   profiles:
-    active: @spring.profiles.active@
+    active: "@spring.profiles.active@"
   lifecycle:
     timeout-per-shutdown-phase: 30s
   session:
@@ -10,6 +10,12 @@ spring:
     timeout: ${SESSION_TIMEOUT:12h}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
+    baseline-on-migrate: false
 
 logging:
   level:
@@ -58,6 +64,36 @@ app:
     ttl-seconds: ${CHAT_MEMORY_TTL_SECONDS:${REDIS_TTL:3600}}
     fallback-max-entries: ${CHAT_MEMORY_FALLBACK_MAX_ENTRIES:1000}
     fallback-expire-after-access: ${CHAT_MEMORY_FALLBACK_EXPIRE_AFTER_ACCESS:2h}
+  memory:
+    working:
+      max-tasks: ${WORKING_MEMORY_MAX_TASKS:2000}
+      retention: ${WORKING_MEMORY_RETENTION:2h}
+      max-recent-events: ${WORKING_MEMORY_MAX_RECENT_EVENTS:100}
+    long-term:
+      enabled: ${MILVUS_MEMORY_ENABLED:false}
+      uri: ${MILVUS_URI:}
+      token: ${MILVUS_TOKEN:}
+      authentication-required: ${MILVUS_AUTHENTICATION_REQUIRED:false}
+      tls-required: ${MILVUS_TLS_REQUIRED:false}
+      database-name: ${MILVUS_DATABASE:default}
+      collection-name: ${MILVUS_MEMORY_COLLECTION:generation_memory_v2}
+      connect-timeout: ${MILVUS_CONNECT_TIMEOUT:3s}
+      request-timeout: ${MILVUS_REQUEST_TIMEOUT:5s}
+      readiness-timeout: ${MILVUS_READINESS_TIMEOUT:60s}
+      readiness-refresh-interval: ${MILVUS_READINESS_REFRESH_INTERVAL:30s}
+      verify-on-startup: ${MILVUS_VERIFY_ON_STARTUP:false}
+      fallback-max-entries: ${MILVUS_FALLBACK_MAX_ENTRIES:5000}
+      fallback-retention: ${MILVUS_FALLBACK_RETENTION:12h}
+      default-top-k: ${MILVUS_MEMORY_TOP_K:6}
+      minimum-score: ${MILVUS_MEMORY_MINIMUM_SCORE:0.45}
+    outbox:
+      enabled: ${GENERATION_MEMORY_OUTBOX_ENABLED:true}
+      scan-interval: ${GENERATION_MEMORY_OUTBOX_SCAN_INTERVAL:30s}
+      batch-size: ${GENERATION_MEMORY_OUTBOX_BATCH_SIZE:50}
+      max-attempts: ${GENERATION_MEMORY_OUTBOX_MAX_ATTEMPTS:10}
+      lease-duration: ${GENERATION_MEMORY_OUTBOX_LEASE_DURATION:2m}
+      initial-retry-delay: ${GENERATION_MEMORY_OUTBOX_INITIAL_RETRY_DELAY:30s}
+      max-retry-delay: ${GENERATION_MEMORY_OUTBOX_MAX_RETRY_DELAY:1h}
   database-resource:
     url-scheme: ${APP_DATABASE_RESOURCE_URL_SCHEME:https}
     domain: ${APP_DATABASE_RESOURCE_DOMAIN:database.nocode.cn}
@@ -66,6 +102,19 @@ app:
     sql-execution-policy: ${APP_DATABASE_RESOURCE_SQL_POLICY:ask_every_time}
   user-credit:
     tokens-per-credit: ${USER_CREDIT_TOKENS_PER_CREDIT:100000}
+    settlement-batch-size: ${USER_CREDIT_SETTLEMENT_BATCH_SIZE:100}
+    settlement-scan-interval: ${USER_CREDIT_SETTLEMENT_SCAN_INTERVAL:30s}
+    reservation:
+      policy-version: ${USER_CREDIT_RESERVATION_POLICY_VERSION:route-token-budget-v1}
+      create-estimated-tokens: ${USER_CREDIT_CREATE_ESTIMATED_TOKENS:150000}
+      light-edit-estimated-tokens: ${USER_CREDIT_LIGHT_EDIT_ESTIMATED_TOKENS:80000}
+      agent-edit-estimated-tokens: ${USER_CREDIT_AGENT_EDIT_ESTIMATED_TOKENS:300000}
+      heavy-expert-estimated-tokens: ${USER_CREDIT_HEAVY_EXPERT_ESTIMATED_TOKENS:600000}
+      html-multiplier-percent: ${USER_CREDIT_HTML_MULTIPLIER_PERCENT:75}
+      multi-file-multiplier-percent: ${USER_CREDIT_MULTI_FILE_MULTIPLIER_PERCENT:100}
+      vue-project-multiplier-percent: ${USER_CREDIT_VUE_PROJECT_MULTIPLIER_PERCENT:120}
+      backend-project-multiplier-percent: ${USER_CREDIT_BACKEND_PROJECT_MULTIPLIER_PERCENT:150}
+      full-stack-project-multiplier-percent: ${USER_CREDIT_FULL_STACK_PROJECT_MULTIPLIER_PERCENT:175}
   rate-limiter:
     lazy-initialization: ${RATE_LIMIT_LAZY_INITIALIZATION:true}
     key-prefix: ${RATE_LIMIT_KEY_PREFIX:rate_limit}
@@ -84,26 +133,155 @@ app:
     generation-log-responses: ${AI_LOG_RESPONSES:false}
     routing-log-requests: ${AI_ROUTING_LOG_REQUESTS:false}
     routing-log-responses: ${AI_ROUTING_LOG_RESPONSES:false}
-    generation-timeout: ${AI_GENERATION_TIMEOUT:8m}
+    generation-timeout: ${AI_GENERATION_TIMEOUT:4m}
     routing-timeout: ${AI_ROUTING_TIMEOUT:30s}
     routing-max-retries: ${AI_ROUTING_MAX_RETRIES:0}
+    failover-max-candidates: ${AI_FAILOVER_MAX_CANDIDATES:2}
     create-spec-timeout: ${AI_CREATE_SPEC_TIMEOUT:10s}
+  ai-model-secrets:
+    active-key-id: ${AI_MODEL_SECRET_ACTIVE_KEY_ID:}
+    active-key: ${AI_MODEL_SECRET_ACTIVE_KEY:}
+    fingerprint-key: ${AI_MODEL_SECRET_FINGERPRINT_KEY:}
+    previous-keys: {}
+    max-secret-bytes: ${AI_MODEL_SECRET_MAX_BYTES:2048}
+    max-reference-bytes: ${AI_MODEL_SECRET_MAX_REFERENCE_BYTES:4096}
+  ai-model-capacity:
+    enabled: ${AI_MODEL_CAPACITY_ENABLED:false}
+    key-prefix: ${AI_MODEL_CAPACITY_KEY_PREFIX:ai:model:capacity:}
+    max-concurrent-per-model: ${AI_MODEL_MAX_CONCURRENT_PER_MODEL:4}
+    requests-per-minute: ${AI_MODEL_REQUESTS_PER_MINUTE:120}
+    tokens-per-minute: ${AI_MODEL_TOKENS_PER_MINUTE:500000}
+    max-reserved-output-tokens: ${AI_MODEL_MAX_RESERVED_OUTPUT_TOKENS:16384}
+    acquire-timeout: ${AI_MODEL_CAPACITY_ACQUIRE_TIMEOUT:250ms}
+    permit-lease: ${AI_MODEL_CAPACITY_PERMIT_LEASE:60s}
+    heartbeat-interval: ${AI_MODEL_CAPACITY_HEARTBEAT_INTERVAL:20s}
+    maximum-hold: ${AI_MODEL_CAPACITY_MAXIMUM_HOLD:16m}
+    maximum-hold-grace: ${AI_MODEL_CAPACITY_MAXIMUM_HOLD_GRACE:30s}
+    scheduler-threads: ${AI_MODEL_CAPACITY_SCHEDULER_THREADS:2}
+    idle-ttl: ${AI_MODEL_CAPACITY_IDLE_TTL:2h}
+    fail-open: ${AI_MODEL_CAPACITY_FAIL_OPEN:false}
+  ai-prompt-catalog:
+    enabled: ${AI_PROMPT_CATALOG_ENABLED:true}
+    manifest: ${AI_PROMPT_CATALOG_MANIFEST:classpath:prompt/prompt-catalog.json}
+    rollout-salt: ${AI_PROMPT_ROLLOUT_SALT:ai-code-mother-prompt-rollout-v1}
+    runtime-releases:
+      enabled: ${AI_PROMPT_RUNTIME_RELEASES_ENABLED:false}
+      initial-load-required: ${AI_PROMPT_RUNTIME_RELEASES_INITIAL_LOAD_REQUIRED:false}
+      refresh-interval: ${AI_PROMPT_RUNTIME_RELEASES_REFRESH_INTERVAL:5s}
+  ai-model-circuit-breaker:
+    failure-threshold: ${AI_MODEL_CIRCUIT_FAILURE_THRESHOLD:1}
+    open-duration: ${AI_MODEL_CIRCUIT_OPEN_DURATION:30s}
+    max-tracked-models: ${AI_MODEL_CIRCUIT_MAX_TRACKED_MODELS:200}
   redis-cache:
     default-ttl: ${REDIS_CACHE_DEFAULT_TTL:30m}
     cache-ttl:
       good_app_page: ${REDIS_CACHE_GOOD_APP_PAGE_TTL:5m}
+  generation-sla:
+    profiles:
+      CREATE:
+        name: create-preview-first
+        first-preview-timeout: ${GENERATION_CREATE_FIRST_PREVIEW_TIMEOUT:60s}
+        total-timeout: ${GENERATION_CREATE_TOTAL_TIMEOUT:10m}
+        model-call-timeout: ${GENERATION_CREATE_MODEL_CALL_TIMEOUT:2m}
+        minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
+        max-model-attempts: ${GENERATION_CREATE_MAX_MODEL_ATTEMPTS:2}
+        max-tool-writes: ${GENERATION_CREATE_MAX_TOOL_WRITES:40}
+        max-build-executions: ${GENERATION_CREATE_MAX_BUILD_EXECUTIONS:2}
+        max-repair-rounds: ${GENERATION_CREATE_MAX_REPAIR_ROUNDS:1}
+      LIGHT_EDIT:
+        name: light-edit-fast
+        first-preview-timeout: ${GENERATION_LIGHT_EDIT_FIRST_PREVIEW_TIMEOUT:90s}
+        total-timeout: ${GENERATION_LIGHT_EDIT_TOTAL_TIMEOUT:4m}
+        model-call-timeout: ${GENERATION_LIGHT_EDIT_MODEL_CALL_TIMEOUT:90s}
+        minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
+        max-model-attempts: ${GENERATION_LIGHT_EDIT_MAX_MODEL_ATTEMPTS:2}
+        max-tool-writes: ${GENERATION_LIGHT_EDIT_MAX_TOOL_WRITES:12}
+        max-build-executions: ${GENERATION_LIGHT_EDIT_MAX_BUILD_EXECUTIONS:1}
+        max-repair-rounds: ${GENERATION_LIGHT_EDIT_MAX_REPAIR_ROUNDS:1}
+      AGENT_EDIT:
+        name: agent-edit-balanced
+        first-preview-timeout: ${GENERATION_AGENT_EDIT_FIRST_PREVIEW_TIMEOUT:3m}
+        total-timeout: ${GENERATION_AGENT_EDIT_TOTAL_TIMEOUT:8m}
+        model-call-timeout: ${GENERATION_AGENT_EDIT_MODEL_CALL_TIMEOUT:3m}
+        minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
+        max-model-attempts: ${GENERATION_AGENT_EDIT_MAX_MODEL_ATTEMPTS:2}
+        max-tool-writes: ${GENERATION_AGENT_EDIT_MAX_TOOL_WRITES:48}
+        max-build-executions: ${GENERATION_AGENT_EDIT_MAX_BUILD_EXECUTIONS:2}
+        max-repair-rounds: ${GENERATION_AGENT_EDIT_MAX_REPAIR_ROUNDS:1}
+      HEAVY_EXPERT:
+        name: heavy-expert-quality
+        first-preview-timeout: ${GENERATION_HEAVY_FIRST_PREVIEW_TIMEOUT:5m}
+        total-timeout: ${GENERATION_HEAVY_TOTAL_TIMEOUT:15m}
+        model-call-timeout: ${GENERATION_HEAVY_MODEL_CALL_TIMEOUT:4m}
+        minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
+        max-model-attempts: ${GENERATION_HEAVY_MAX_MODEL_ATTEMPTS:3}
+        max-tool-writes: ${GENERATION_HEAVY_MAX_TOOL_WRITES:120}
+        max-build-executions: ${GENERATION_HEAVY_MAX_BUILD_EXECUTIONS:3}
+        max-repair-rounds: ${GENERATION_HEAVY_MAX_REPAIR_ROUNDS:2}
+    saturated-agent-edit:
+      name: agent-edit-saturated
+      first-preview-timeout: ${GENERATION_SATURATED_FIRST_PREVIEW_TIMEOUT:2m}
+      total-timeout: ${GENERATION_SATURATED_TOTAL_TIMEOUT:6m}
+      model-call-timeout: ${GENERATION_SATURATED_MODEL_CALL_TIMEOUT:2m}
+      minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
+      max-model-attempts: ${GENERATION_SATURATED_MAX_MODEL_ATTEMPTS:2}
+      max-tool-writes: ${GENERATION_SATURATED_MAX_TOOL_WRITES:24}
+      max-build-executions: ${GENERATION_SATURATED_MAX_BUILD_EXECUTIONS:1}
+      max-repair-rounds: ${GENERATION_SATURATED_MAX_REPAIR_ROUNDS:1}
+  generation-stage-admission:
+    repair-model-minimum: ${GENERATION_STAGE_REPAIR_MODEL_MINIMUM:60s}
+    build-minimum: ${GENERATION_STAGE_BUILD_MINIMUM:45s}
+    runtime-validation-minimum: ${GENERATION_STAGE_RUNTIME_VALIDATION_MINIMUM:15s}
+    terminalization-reserve: ${GENERATION_STAGE_TERMINALIZATION_RESERVE:10s}
+  ai-context-pack:
+    generation-max-tokens: ${AI_CONTEXT_PACK_GENERATION_MAX_TOKENS:2000}
+    repair-max-tokens: ${AI_CONTEXT_PACK_REPAIR_MAX_TOKENS:1500}
+    tokenizer-model: ${AI_CONTEXT_PACK_TOKENIZER_MODEL:gpt-4o}
+    token-safety-margin: ${AI_CONTEXT_PACK_TOKEN_SAFETY_MARGIN:1.15}
+    max-section-tokens: ${AI_CONTEXT_PACK_MAX_SECTION_TOKENS:800}
+    minimum-section-tokens: ${AI_CONTEXT_PACK_MINIMUM_SECTION_TOKENS:64}
+    max-semantic-memory-sections: ${AI_CONTEXT_PACK_MAX_SEMANTIC_MEMORY_SECTIONS:6}
+    semantic-memory-half-life: ${AI_CONTEXT_PACK_SEMANTIC_MEMORY_HALF_LIFE:30d}
+    minimum-semantic-trust: ${AI_CONTEXT_PACK_MINIMUM_SEMANTIC_TRUST:0.25}
   generation-runtime:
-    task-timeout: ${GENERATION_TASK_TIMEOUT:20m}
-    model-call-timeout: ${GENERATION_MODEL_CALL_TIMEOUT:8m}
+    task-timeout: ${GENERATION_TASK_TIMEOUT:10m}
+    model-call-timeout: ${GENERATION_MODEL_CALL_TIMEOUT:4m}
     minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
-    max-model-attempts: ${GENERATION_MAX_MODEL_ATTEMPTS:3}
+    max-model-attempts: ${GENERATION_MAX_MODEL_ATTEMPTS:2}
     max-tool-writes: ${GENERATION_MAX_TOOL_WRITES:80}
-    max-build-executions: ${GENERATION_MAX_BUILD_EXECUTIONS:4}
-    max-repair-rounds: ${GENERATION_MAX_REPAIR_ROUNDS:3}
+    max-build-executions: ${GENERATION_MAX_BUILD_EXECUTIONS:2}
+    max-repair-rounds: ${GENERATION_MAX_REPAIR_ROUNDS:1}
   generation-task-executor:
-    max-concurrency: ${GENERATION_TASK_MAX_CONCURRENCY:32}
-    queue-capacity: ${GENERATION_TASK_QUEUE_CAPACITY:256}
+    max-concurrency: ${GENERATION_TASK_MAX_CONCURRENCY:4}
+    queue-capacity: ${GENERATION_TASK_QUEUE_CAPACITY:32}
     shutdown-timeout: ${GENERATION_TASK_EXECUTOR_SHUTDOWN_TIMEOUT:30s}
+    queue-policy-check-interval: ${GENERATION_TASK_QUEUE_POLICY_CHECK_INTERVAL:250ms}
+  generation-routing:
+    telemetry:
+      task-sample-limit: ${GENERATION_ROUTING_TASK_SAMPLE_LIMIT:20}
+      minimum-task-samples: ${GENERATION_ROUTING_MINIMUM_TASK_SAMPLES:4}
+      high-failure-rate: ${GENERATION_ROUTING_HIGH_FAILURE_RATE:0.5}
+      minimum-feedback-samples: ${GENERATION_ROUTING_MINIMUM_FEEDBACK_SAMPLES:2}
+      high-low-rating-rate: ${GENERATION_ROUTING_HIGH_LOW_RATING_RATE:0.5}
+      high-load-ratio: ${GENERATION_ROUTING_HIGH_LOAD_RATIO:0.8}
+      slow-average-duration: ${GENERATION_ROUTING_SLOW_AVERAGE_DURATION:10m}
+      cache-ttl: ${GENERATION_ROUTING_TELEMETRY_CACHE_TTL:30s}
+      max-cached-applications: ${GENERATION_ROUTING_MAX_CACHED_APPLICATIONS:10000}
+  generation-task-queue:
+    transport: ${GENERATION_TASK_QUEUE_TRANSPORT:local}
+    stream-key: ${GENERATION_TASK_QUEUE_STREAM_KEY:generation:tasks}
+    group: ${GENERATION_TASK_QUEUE_GROUP:generation-workers}
+    dead-letter-stream-key: ${GENERATION_TASK_QUEUE_DLQ_KEY:generation:tasks:dlq}
+    poll-timeout: ${GENERATION_TASK_QUEUE_POLL_TIMEOUT:2s}
+    visibility-timeout: ${GENERATION_TASK_QUEUE_VISIBILITY_TIMEOUT:45s}
+    delivery-heartbeat-interval: ${GENERATION_TASK_QUEUE_DELIVERY_HEARTBEAT_INTERVAL:10s}
+    redispatch-interval: ${GENERATION_TASK_QUEUE_REDISPATCH_INTERVAL:15s}
+    redispatch-after: ${GENERATION_TASK_QUEUE_REDISPATCH_AFTER:30s}
+    read-batch-size: ${GENERATION_TASK_QUEUE_READ_BATCH_SIZE:8}
+    reclaim-batch-size: ${GENERATION_TASK_QUEUE_RECLAIM_BATCH_SIZE:16}
+    max-delivery-attempts: ${GENERATION_TASK_QUEUE_MAX_DELIVERY_ATTEMPTS:5}
+    max-stream-length: ${GENERATION_TASK_QUEUE_MAX_STREAM_LENGTH:100000}
+    redispatch-batch-size: ${GENERATION_TASK_QUEUE_REDISPATCH_BATCH_SIZE:100}
   generation-progress:
     task-sample-limit: ${GENERATION_PROGRESS_TASK_SAMPLE_LIMIT:200}
     span-sample-limit: ${GENERATION_PROGRESS_SPAN_SAMPLE_LIMIT:5000}
@@ -117,17 +295,64 @@ app:
     minimum-running-remaining: ${GENERATION_PROGRESS_MINIMUM_RUNNING_REMAINING:5s}
     fallback-p90-multiplier: ${GENERATION_PROGRESS_FALLBACK_P90_MULTIPLIER:1.5}
     running-progress-cap: ${GENERATION_PROGRESS_RUNNING_CAP:95}
+  generation-benchmark:
+    task-timeout: ${GENERATION_BENCHMARK_TASK_TIMEOUT:12m}
+    cancellation-grace-timeout: ${GENERATION_BENCHMARK_CANCELLATION_GRACE_TIMEOUT:30s}
+    terminal-poll-interval: ${GENERATION_BENCHMARK_TERMINAL_POLL_INTERVAL:100ms}
+    browser-grading:
+      enabled: ${GENERATION_BENCHMARK_BROWSER_GRADING_ENABLED:false}
+      settle-delay: ${GENERATION_BENCHMARK_BROWSER_SETTLE_DELAY:2s}
+    evidence:
+      signing-secret: ${GENERATION_BENCHMARK_EVIDENCE_SIGNING_SECRET:}
+      grader-fingerprint: ${GENERATION_BENCHMARK_GRADER_FINGERPRINT:generation-benchmark-graders-v1}
+      maximum-validity: ${GENERATION_BENCHMARK_EVIDENCE_MAXIMUM_VALIDITY:7d}
+      maximum-report-bytes: ${GENERATION_BENCHMARK_EVIDENCE_MAXIMUM_REPORT_BYTES:5242880}
+    release-gate:
+      minimum-task-count: ${GENERATION_BENCHMARK_MINIMUM_TASK_COUNT:12}
+      minimum-success-rate: ${GENERATION_BENCHMARK_MINIMUM_SUCCESS_RATE:0.95}
+      minimum-build-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_BUILD_PASS_RATE:0.90}
+      minimum-structural-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_STRUCTURAL_EVALUATION_RATE:1.0}
+      minimum-structural-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_STRUCTURAL_PASS_RATE:0.95}
+      minimum-functional-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_FUNCTIONAL_EVALUATION_RATE:0.50}
+      minimum-functional-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_FUNCTIONAL_PASS_RATE:0.90}
+      minimum-diff-scope-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_DIFF_SCOPE_EVALUATION_RATE:0.50}
+      minimum-diff-scope-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_DIFF_SCOPE_PASS_RATE:0.95}
+      minimum-security-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_SECURITY_EVALUATION_RATE:1.0}
+      minimum-security-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_SECURITY_PASS_RATE:1.0}
+      minimum-runtime-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_RUNTIME_EVALUATION_RATE:0.75}
+      minimum-runtime-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_RUNTIME_PASS_RATE:0.90}
+      minimum-visual-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_VISUAL_EVALUATION_RATE:0.75}
+      minimum-visual-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_VISUAL_PASS_RATE:0.90}
+      require-prompt-bundle-id: ${GENERATION_BENCHMARK_REQUIRE_PROMPT_BUNDLE_ID:true}
+      maximum-fallback-rate: ${GENERATION_BENCHMARK_MAXIMUM_FALLBACK_RATE:0.20}
+      maximum-p90-duration: ${GENERATION_BENCHMARK_MAXIMUM_P90_DURATION:5m}
+      maximum-p99-duration: ${GENERATION_BENCHMARK_MAXIMUM_P99_DURATION:10m}
+      maximum-p90-first-token-latency: ${GENERATION_BENCHMARK_MAXIMUM_P90_FIRST_TOKEN_LATENCY:15s}
+      maximum-average-tokens: ${GENERATION_BENCHMARK_MAXIMUM_AVERAGE_TOKENS:250000}
+      maximum-average-credit-cost: ${GENERATION_BENCHMARK_MAXIMUM_AVERAGE_CREDIT_COST:10}
   generation-task-lease:
     owner-id: ${GENERATION_TASK_LEASE_OWNER_ID:}
     lease-duration: ${GENERATION_TASK_LEASE_DURATION:30s}
     heartbeat-interval: ${GENERATION_TASK_HEARTBEAT_INTERVAL:10s}
     recovery-scan-interval: ${GENERATION_TASK_RECOVERY_SCAN_INTERVAL:15s}
     recovery-batch-size: ${GENERATION_TASK_RECOVERY_BATCH_SIZE:50}
+  generation-task-admission:
+    max-non-terminal-tasks-per-user: ${GENERATION_MAX_NON_TERMINAL_TASKS_PER_USER:4}
   generation-session:
     lock-stripes: ${GENERATION_SESSION_LOCK_STRIPES:64}
     max-tracked-sessions: ${GENERATION_SESSION_MAX_TRACKED_SESSIONS:1000}
     completed-replay-retention: ${GENERATION_SESSION_COMPLETED_REPLAY_RETENTION:30s}
     cleanup-interval: ${GENERATION_SESSION_CLEANUP_INTERVAL:5s}
+  generation-sse:
+    heartbeat-interval: ${GENERATION_SSE_HEARTBEAT_INTERVAL:15s}
+  generation-event-stream:
+    transport: ${GENERATION_EVENT_STREAM_TRANSPORT:local}
+    key-prefix: ${GENERATION_EVENT_STREAM_KEY_PREFIX:generation:events:}
+    retention: ${GENERATION_EVENT_STREAM_RETENTION:2h}
+    poll-interval: ${GENERATION_EVENT_STREAM_POLL_INTERVAL:500ms}
+    max-events-per-task: ${GENERATION_EVENT_STREAM_MAX_EVENTS_PER_TASK:500}
+    read-batch-size: ${GENERATION_EVENT_STREAM_READ_BATCH_SIZE:100}
+    max-tracked-tasks: ${GENERATION_EVENT_STREAM_MAX_TRACKED_TASKS:1000}
   generation-task-snapshot:
     enabled: ${GENERATION_TASK_SNAPSHOT_ENABLED:true}
     root-directory: ${GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY:${code.orchestration-task-root-dir:${code.tmp-root-dir:${code.base-dir:${user.dir}}/tmp}/orchestration_tasks}}
@@ -151,6 +376,31 @@ app:
     lock-stripes: ${EDIT_STATE_LOCK_STRIPES:64}
   external-process:
     termination-grace-period: ${EXTERNAL_PROCESS_TERMINATION_GRACE_PERIOD:2s}
+  generated-code-sandbox:
+    mode: ${GENERATED_CODE_SANDBOX_MODE:host-local}
+    container:
+      runtime: ${GENERATED_CODE_SANDBOX_CONTAINER_RUNTIME:docker}
+      image: ${GENERATED_CODE_SANDBOX_CONTAINER_IMAGE:ai-code-mother/sandbox-node:1}
+      workspace-mount: ${GENERATED_CODE_SANDBOX_WORKSPACE_MOUNT:/workspace}
+      user: ${GENERATED_CODE_SANDBOX_CONTAINER_USER:1000:1000}
+      dependency-network: ${GENERATED_CODE_SANDBOX_DEPENDENCY_NETWORK:bridge}
+      dev-server-network: ${GENERATED_CODE_SANDBOX_DEV_SERVER_NETWORK:ai-code-sandbox-internal}
+      preview-gateway-network: ${GENERATED_CODE_SANDBOX_PREVIEW_GATEWAY_NETWORK:ai-code-sandbox-preview-gateway}
+      dependency-cache-enabled: ${GENERATED_CODE_SANDBOX_DEPENDENCY_CACHE_ENABLED:false}
+      pnpm-store-volume: ${GENERATED_CODE_SANDBOX_PNPM_STORE_VOLUME:ai-code-mother-pnpm-store-v9}
+      pnpm-store-mount: ${GENERATED_CODE_SANDBOX_PNPM_STORE_MOUNT:/pnpm/store}
+      memory: ${GENERATED_CODE_SANDBOX_MEMORY:1g}
+      tmpfs-size: ${GENERATED_CODE_SANDBOX_TMPFS_SIZE:256m}
+      preview-gateway-memory: ${GENERATED_CODE_SANDBOX_PREVIEW_GATEWAY_MEMORY:128m}
+      cpus: ${GENERATED_CODE_SANDBOX_CPUS:1.5}
+      pids-limit: ${GENERATED_CODE_SANDBOX_PIDS_LIMIT:128}
+      preview-gateway-cpus: ${GENERATED_CODE_SANDBOX_PREVIEW_GATEWAY_CPUS:0.25}
+      preview-gateway-pids-limit: ${GENERATED_CODE_SANDBOX_PREVIEW_GATEWAY_PIDS_LIMIT:64}
+      read-only-root: ${GENERATED_CODE_SANDBOX_READ_ONLY_ROOT:true}
+      verify-on-startup: ${GENERATED_CODE_SANDBOX_VERIFY_ON_STARTUP:true}
+      startup-verification-timeout: ${GENERATED_CODE_SANDBOX_STARTUP_VERIFICATION_TIMEOUT:10s}
+      activation-timeout: ${GENERATED_CODE_SANDBOX_ACTIVATION_TIMEOUT:10s}
+      cleanup-timeout: ${GENERATED_CODE_SANDBOX_CLEANUP_TIMEOUT:5s}
   node-toolchain:
     node-executable: ${NODE_TOOLCHAIN_NODE_EXECUTABLE:node}
     pnpm-executable: ${NODE_TOOLCHAIN_PNPM_EXECUTABLE:pnpm}
@@ -200,6 +450,10 @@ app:
     max-readable-file-bytes: ${AI_TOOL_MAX_READABLE_FILE_BYTES:1048576}
     max-directory-entries: ${AI_TOOL_MAX_DIRECTORY_ENTRIES:5000}
     max-directory-depth: ${AI_TOOL_MAX_DIRECTORY_DEPTH:32}
+  ai-tool-approval:
+    ttl: ${AI_TOOL_APPROVAL_TTL:10m}
+    expiration-scan-interval: ${AI_TOOL_APPROVAL_EXPIRATION_SCAN_INTERVAL:1m}
+    expiration-batch-size: ${AI_TOOL_APPROVAL_EXPIRATION_BATCH_SIZE:100}
   generation-commit:
     command-timeout: ${GENERATION_COMMIT_COMMAND_TIMEOUT:10s}
     heartbeat-interval: ${GENERATION_COMMIT_HEARTBEAT_INTERVAL:2s}
@@ -210,6 +464,7 @@ app:
     max-pathspec-bytes: ${GENERATION_COMMIT_MAX_PATHSPEC_BYTES:2097152}
   artifact-lifecycle:
     copy-timeout: ${ARTIFACT_COPY_TIMEOUT:15m}
+    execution-workspace-copy-timeout: ${ARTIFACT_EXECUTION_WORKSPACE_COPY_TIMEOUT:2m}
     heartbeat-interval: ${ARTIFACT_COPY_HEARTBEAT_INTERVAL:30s}
     output-drain-timeout: ${ARTIFACT_COPY_OUTPUT_DRAIN_TIMEOUT:5s}
     max-output-length: ${ARTIFACT_COPY_MAX_OUTPUT_LENGTH:8000}
@@ -220,12 +475,27 @@ app:
     max-total-bytes: ${ARTIFACT_COPY_MAX_TOTAL_BYTES:2147483648}
     publish-max-attempts: ${ARTIFACT_PUBLISH_MAX_ATTEMPTS:5}
     publish-retry-delay-millis: ${ARTIFACT_PUBLISH_RETRY_DELAY_MILLIS:50}
+    publication-lock-timeout: ${ARTIFACT_PUBLICATION_LOCK_TIMEOUT:30s}
+    publication-reconciliation-scan-interval: ${ARTIFACT_PUBLICATION_RECONCILIATION_SCAN_INTERVAL:30s}
+    publication-reconciliation-retry-delay: ${ARTIFACT_PUBLICATION_RECONCILIATION_RETRY_DELAY:30s}
+    publication-reconciliation-batch-size: ${ARTIFACT_PUBLICATION_RECONCILIATION_BATCH_SIZE:100}
+    publication-reconciliation-max-attempts: ${ARTIFACT_PUBLICATION_RECONCILIATION_MAX_ATTEMPTS:20}
   dev-server:
     proxy:
       connect-timeout: ${DEV_SERVER_CONNECT_TIMEOUT:3s}
       request-timeout: ${DEV_SERVER_REQUEST_TIMEOUT:30s}
       max-request-body: ${DEV_SERVER_MAX_REQUEST_BODY:2MB}
       max-response-body: ${DEV_SERVER_MAX_RESPONSE_BODY:25MB}
+    websocket-proxy:
+      connect-timeout: ${DEV_SERVER_WS_CONNECT_TIMEOUT:5s}
+      send-time-limit: ${DEV_SERVER_WS_SEND_TIME_LIMIT:10s}
+      send-buffer-size: ${DEV_SERVER_WS_SEND_BUFFER_SIZE:2MB}
+      max-message-size: ${DEV_SERVER_WS_MAX_MESSAGE_SIZE:1MB}
+    internal-routing:
+      base-url-template: ${DEV_SERVER_INTERNAL_BASE_URL_TEMPLATE:http://{nodeId}:8123/api}
+      shared-secret: ${DEV_SERVER_INTERNAL_SHARED_SECRET:}
+      allowed-clock-skew: ${DEV_SERVER_INTERNAL_ALLOWED_CLOCK_SKEW:30s}
+      replay-cache-max-entries: ${DEV_SERVER_INTERNAL_REPLAY_CACHE_MAX_ENTRIES:10000}
     runtime:
       startup-timeout: ${DEV_SERVER_STARTUP_TIMEOUT:30s}
       readiness-poll-interval: ${DEV_SERVER_READINESS_POLL_INTERVAL:200ms}
@@ -238,15 +508,21 @@ app:
       max-servers-per-user: ${DEV_SERVER_MAX_SERVERS_PER_USER:3}
       max-output-line-length: ${DEV_SERVER_MAX_OUTPUT_LINE_LENGTH:2000}
       max-recent-output-lines: ${DEV_SERVER_MAX_RECENT_OUTPUT_LINES:200}
+      node-id: ${DEV_SERVER_NODE_ID:}
+      lease-duration: ${DEV_SERVER_LEASE_DURATION:30s}
+      heartbeat-interval: ${DEV_SERVER_HEARTBEAT_INTERVAL:10s}
+      recovery-scan-interval: ${DEV_SERVER_RECOVERY_SCAN_INTERVAL:15s}
+      recovery-batch-size: ${DEV_SERVER_RECOVERY_BATCH_SIZE:50}
   dependency-install:
-    command-timeout: ${DEPENDENCY_INSTALL_COMMAND_TIMEOUT:5m}
+    command-timeout: ${DEPENDENCY_INSTALL_COMMAND_TIMEOUT:3m}
     idle-timeout: ${DEPENDENCY_INSTALL_IDLE_TIMEOUT:90s}
     heartbeat-interval: ${DEPENDENCY_INSTALL_HEARTBEAT_INTERVAL:15s}
     runtime-validation-timeout: ${DEPENDENCY_RUNTIME_VALIDATION_TIMEOUT:30s}
     output-drain-timeout: ${DEPENDENCY_OUTPUT_DRAIN_TIMEOUT:2s}
-    max-attempts: ${DEPENDENCY_INSTALL_MAX_ATTEMPTS:3}
+    max-attempts: ${DEPENDENCY_INSTALL_MAX_ATTEMPTS:2}
     max-output-length: ${DEPENDENCY_INSTALL_MAX_OUTPUT_LENGTH:12000}
     lock-stripes: ${DEPENDENCY_INSTALL_LOCK_STRIPES:64}
+    lock-policy-check-interval: ${DEPENDENCY_INSTALL_LOCK_POLICY_CHECK_INTERVAL:250ms}
   template-materialization:
     max-files: ${TEMPLATE_MATERIALIZATION_MAX_FILES:2000}
     max-file-bytes: ${TEMPLATE_MATERIALIZATION_MAX_FILE_BYTES:10485760}
@@ -277,6 +553,20 @@ app:
     no-sandbox: ${SCREENSHOT_NO_SANDBOX:false}
 
 management:
+  tracing:
+    enabled: ${OTEL_TRACING_ENABLED:true}
+    sampling:
+      probability: ${OTEL_TRACING_SAMPLING_PROBABILITY:0.1}
+    propagation:
+      consume: W3C
+      produce: W3C
+  otlp:
+    tracing:
+      export:
+        enabled: ${OTEL_TRACING_EXPORT_ENABLED:false}
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:}
+      connect-timeout: ${OTEL_EXPORTER_OTLP_CONNECT_TIMEOUT:3s}
+      timeout: ${OTEL_EXPORTER_OTLP_TIMEOUT:10s}
   endpoints:
     web:
       exposure:

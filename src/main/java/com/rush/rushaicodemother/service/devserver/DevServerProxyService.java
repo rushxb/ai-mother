@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -39,31 +40,41 @@ public class DevServerProxyService {
 
     private final DevServerProxyProperties properties;
     private final ProxyHeaderPolicy headerPolicy;
+    private final DevServerInternalRequestSigner internalRequestSigner;
+    private final DevServerPreviewTargetResolver targetResolver;
     private final HttpClient httpClient;
 
     @Autowired
-    public DevServerProxyService(DevServerProxyProperties properties, ProxyHeaderPolicy headerPolicy) {
-        this(properties, headerPolicy, HttpClient.newBuilder()
+    public DevServerProxyService(DevServerProxyProperties properties,
+                                 ProxyHeaderPolicy headerPolicy,
+                                 DevServerInternalRequestSigner internalRequestSigner,
+                                 DevServerPreviewTargetResolver targetResolver) {
+        this(properties, headerPolicy, internalRequestSigner, targetResolver, HttpClient.newBuilder()
                 .connectTimeout(properties.getConnectTimeout())
                 .followRedirects(HttpClient.Redirect.NEVER)
+                .version(HttpClient.Version.HTTP_1_1)
                 .build());
     }
 
     DevServerProxyService(DevServerProxyProperties properties,
                           ProxyHeaderPolicy headerPolicy,
+                          DevServerInternalRequestSigner internalRequestSigner,
+                          DevServerPreviewTargetResolver targetResolver,
                           HttpClient httpClient) {
         validateProperties(properties);
         this.properties = properties;
         this.headerPolicy = headerPolicy;
+        this.internalRequestSigner = internalRequestSigner;
+        this.targetResolver = targetResolver;
         this.httpClient = httpClient;
     }
 
-    public void proxy(int port,
+    public void proxy(DevServerPreviewRoute route,
                       String path,
                       String queryString,
                       HttpServletRequest request,
                       HttpServletResponse response) {
-        if (port < 1 || port > 65535 || path == null || !path.startsWith("/")) {
+        if (route == null || path == null || !path.startsWith("/")) {
             writeError(response, HttpStatus.BAD_REQUEST.value(), "非法代理目标");
             return;
         }
@@ -76,8 +87,12 @@ public class DevServerProxyService {
 
         try {
             byte[] requestBody = readRequestBody(method, request);
-            URI targetUri = buildTargetUri(port, path, queryString);
-            HttpRequest upstreamRequest = buildUpstreamRequest(targetUri, method, requestBody, request);
+            URI targetUri = targetResolver.httpTarget(route, path, queryString);
+            Map<String, String> internalHeaders = route.local()
+                    ? Map.of()
+                    : internalRequestSigner.sign(method, targetUri, requestBody);
+            HttpRequest upstreamRequest = buildUpstreamRequest(
+                    targetUri, method, requestBody, request, internalHeaders);
             HttpResponse<InputStream> upstreamResponse = httpClient.send(
                     upstreamRequest,
                     HttpResponse.BodyHandlers.ofInputStream()
@@ -95,11 +110,80 @@ public class DevServerProxyService {
             writeError(response, exception.statusCode(), exception.getMessage());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            log.warn("Dev Server 代理请求被中断，port={}，path={}", port, path);
+            log.warn("Dev Server 代理请求被中断，node={}，port={}，path={}",
+                    route.nodeId(), route.port(), path);
             writeError(response, HttpStatus.BAD_GATEWAY.value(), "Dev Server 代理请求失败");
         } catch (IllegalArgumentException | IOException exception) {
-            log.warn("Dev Server 代理请求失败，port={}，path={}，error={}",
-                    port, path, exception.getClass().getSimpleName());
+            log.warn("Dev Server 代理请求失败，node={}，port={}，path={}，error={}",
+                    route.nodeId(), route.port(), path, exception.getClass().getSimpleName());
+            writeError(response, HttpStatus.BAD_GATEWAY.value(), "Dev Server 代理请求失败");
+        }
+    }
+
+    public void proxyLocal(Long appId,
+                           int port,
+                           String path,
+                           String queryString,
+                           HttpServletRequest request,
+                           HttpServletResponse response,
+                           VerifiedDevServerInternalRequest verifiedRequest) {
+        if (port < 1 || port > 65535) {
+            writeError(response, HttpStatus.BAD_REQUEST.value(), "非法代理目标");
+            return;
+        }
+        proxyInternal(
+                appId,
+                port,
+                path,
+                queryString,
+                request,
+                response,
+                verifiedRequest
+        );
+    }
+
+    private void proxyInternal(Long appId,
+                               int port,
+                               String path,
+                               String queryString,
+                               HttpServletRequest request,
+                               HttpServletResponse response,
+                               VerifiedDevServerInternalRequest verifiedRequest) {
+        if (appId == null || appId <= 0 || port < 1 || port > 65535
+                || path == null || !path.startsWith("/")) {
+            writeError(response, HttpStatus.BAD_REQUEST.value(), "非法代理目标");
+            return;
+        }
+        String method = request.getMethod().toUpperCase(Locale.ROOT);
+        if (!ALLOWED_METHODS.contains(method)) {
+            writeError(response, HttpStatus.METHOD_NOT_ALLOWED.value(), "不支持的请求方法");
+            return;
+        }
+        try {
+            byte[] requestBody = readRequestBody(method, request);
+            internalRequestSigner.verifyBody(verifiedRequest, requestBody);
+            URI targetUri = targetResolver.localHttpTarget(appId, port, path, queryString);
+            HttpRequest upstreamRequest = buildUpstreamRequest(
+                    targetUri, method, requestBody, request, Map.of());
+            HttpResponse<InputStream> upstreamResponse = httpClient.send(
+                    upstreamRequest,
+                    HttpResponse.BodyHandlers.ofInputStream()
+            );
+            try (InputStream responseBody = upstreamResponse.body()) {
+                byte[] body = readLimited(
+                        responseBody,
+                        properties.getMaxResponseBody().toBytes(),
+                        HttpStatus.BAD_GATEWAY.value(),
+                        "Dev Server 响应体超过限制"
+                );
+                writeUpstreamResponse(upstreamResponse, body, response);
+            }
+        } catch (PayloadTooLargeException exception) {
+            writeError(response, exception.statusCode(), exception.getMessage());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            writeError(response, HttpStatus.BAD_GATEWAY.value(), "Dev Server 代理请求失败");
+        } catch (IllegalArgumentException | IOException exception) {
             writeError(response, HttpStatus.BAD_GATEWAY.value(), "Dev Server 代理请求失败");
         }
     }
@@ -107,7 +191,8 @@ public class DevServerProxyService {
     private HttpRequest buildUpstreamRequest(URI targetUri,
                                              String method,
                                              byte[] requestBody,
-                                             HttpServletRequest request) {
+                                             HttpServletRequest request,
+                                             Map<String, String> additionalHeaders) {
         HttpRequest.BodyPublisher publisher = requestBody.length == 0
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofByteArray(requestBody);
@@ -127,6 +212,7 @@ public class DevServerProxyService {
                 }
             });
         });
+        additionalHeaders.forEach(builder::header);
         return builder.build();
     }
 
@@ -184,24 +270,6 @@ public class DevServerProxyService {
         if (body.length > 0) {
             response.getOutputStream().write(body);
         }
-    }
-
-    private URI buildTargetUri(int port, String path, String queryString) {
-        if (containsControlCharacter(path) || containsControlCharacter(queryString)) {
-            throw new IllegalArgumentException("代理路径包含非法字符");
-        }
-        String target = "http://127.0.0.1:" + port + path;
-        if (queryString != null && !queryString.isBlank()) {
-            target += "?" + queryString;
-        }
-        return URI.create(target);
-    }
-
-    private boolean containsControlCharacter(String value) {
-        if (value == null) {
-            return false;
-        }
-        return value.chars().anyMatch(character -> character < 0x20 || character == 0x7F);
     }
 
     private void writeError(HttpServletResponse response, int statusCode, String message) {

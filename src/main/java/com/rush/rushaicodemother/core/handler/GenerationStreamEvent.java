@@ -28,6 +28,7 @@ public class GenerationStreamEvent {
     public static final String REPAIR_START = "repair_start";
     public static final String GENERATION_STOPPED = "generation_stopped";
     public static final String DEV_SERVER_VALIDATION = "dev_server_validation";
+    public static final String FIRST_PREVIEW_READY = "first_preview_ready";
 
     private String type;
 
@@ -122,6 +123,14 @@ public class GenerationStreamEvent {
     public static GenerationStreamEvent devServerValidation(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(DEV_SERVER_VALIDATION)
+                .text(StrUtil.blankToDefault(text, ""))
+                .data(data)
+                .build();
+    }
+
+    public static GenerationStreamEvent firstPreviewReady(String text, Map<String, Object> data) {
+        return GenerationStreamEvent.builder()
+                .type(FIRST_PREVIEW_READY)
                 .text(StrUtil.blankToDefault(text, ""))
                 .data(data)
                 .build();

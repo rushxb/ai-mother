@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
 import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -25,12 +26,40 @@ public class DefaultAppPersistenceService implements AppPersistenceService {
             "appName", "appName",
             "priority", "priority",
             "userId", "userId",
+            "tenantId", "tenantId",
             "editTime", "editTime",
             "createTime", "createTime",
             "updateTime", "updateTime"
     ));
 
     private final AppMapper appMapper;
+
+    @Override
+    public long createPrepared(NewApp newApp) {
+        ThrowUtils.throwIf(newApp == null, ErrorCode.PARAMS_ERROR, "应用创建参数不能为空");
+        ThrowUtils.throwIf(newApp.userId() == null || newApp.userId() <= 0,
+                ErrorCode.PARAMS_ERROR, "应用所有者 ID 不合法");
+        ThrowUtils.throwIf(newApp.tenantId() == null || newApp.tenantId() <= 0,
+                ErrorCode.PARAMS_ERROR, "应用租户 ID 不合法");
+        ThrowUtils.throwIf(newApp.codeGenType() == null || newApp.codeGenType().isBlank(),
+                ErrorCode.PARAMS_ERROR, "代码生成类型不能为空");
+        ThrowUtils.throwIf(CodeGenTypeEnum.getEnumByValue(newApp.codeGenType()) == null,
+                ErrorCode.PARAMS_ERROR, "代码生成类型不受支持");
+        ThrowUtils.throwIf(newApp.initPrompt() == null || newApp.initPrompt().isBlank(),
+                ErrorCode.PARAMS_ERROR, "初始化提示词不能为空");
+        App entity = App.builder()
+                .appName(newApp.appName())
+                .initPrompt(newApp.initPrompt())
+                .codeGenType(newApp.codeGenType())
+                .priority(newApp.priority())
+                .userId(newApp.userId())
+                .tenantId(newApp.tenantId())
+                .build();
+        if (appMapper.insertPreparedApp(entity) != 1 || entity.getId() == null || entity.getId() <= 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "创建应用失败");
+        }
+        return entity.getId();
+    }
 
     @Override
     public App findActiveById(Long appId) {

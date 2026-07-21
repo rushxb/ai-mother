@@ -8,6 +8,10 @@ import com.rush.rushaicodemother.model.vo.AiModelAdminVO;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 import com.rush.rushaicodemother.model.vo.AiModelPublicVO;
 import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceRecord;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubject;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier;
+import com.rush.rushaicodemother.service.release.AiReleaseAuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -26,6 +30,9 @@ public class DefaultAiModelManagementService implements AiModelManagementService
     private final AiModelViewAssembler viewAssembler;
     private final AiModelConnectionTester connectionTester;
     private final ApplicationEventPublisher eventPublisher;
+    private final AiModelCandidateFingerprintService candidateFingerprintService;
+    private final GenerationReleaseEvidenceVerifier evidenceVerifier;
+    private final AiReleaseAuditService releaseAuditService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -33,14 +40,16 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         if (operatorUserId <= 0) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "缺少有效的管理员身份");
         }
-        AiModelConfiguration configuration = configurationPolicy.normalizeAndValidate(
-                configurationAssembler.fromCreateCommand(command, operatorUserId)
-        );
+        AiModelConfiguration candidate = configurationAssembler.fromCreateCommand(command, operatorUserId);
+        if (candidate.enabled()) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "新模型必须先以停用状态保存，完成 Benchmark 后再通过证据门禁启用"
+            );
+        }
+        AiModelConfiguration configuration = configurationPolicy.normalizeAndValidate(candidate);
         if (persistenceService.existsActiveIdentity(configuration.getProvider(), configuration.getModelId())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "该模型已存在");
-        }
-        if (configuration.enabled()) {
-            persistenceService.disableOtherEnabledModels(configuration.getModelType(), null);
         }
         long modelId = persistenceService.insert(configuration);
         publishConfigurationChanged();
@@ -54,12 +63,20 @@ public class DefaultAiModelManagementService implements AiModelManagementService
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型更新参数不合法");
         }
         AiModelConfiguration existing = requireLockedModel(command.id());
-        AiModelConfiguration updated = configurationPolicy.normalizeAndValidate(
-                configurationAssembler.applyUpdate(existing, command)
-        );
-        if (updated.enabled()) {
-            persistenceService.disableOtherEnabledModels(updated.getModelType(), updated.getId());
+        if (existing.enabled()) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "在线模型必须先停用，才能修改配置并重新完成 Benchmark"
+            );
         }
+        AiModelConfiguration candidate = configurationAssembler.applyUpdate(existing, command);
+        if (candidate.enabled()) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "模型只能通过带 Benchmark 证据的启用操作上线"
+            );
+        }
+        AiModelConfiguration updated = configurationPolicy.normalizeAndValidate(candidate);
         persistenceService.update(updated);
         publishConfigurationChanged();
     }
@@ -74,7 +91,12 @@ public class DefaultAiModelManagementService implements AiModelManagementService
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public AiModelAdminVO toggleModelEnabled(long modelId) {
+    public AiModelAdminVO toggleModelEnabled(long modelId,
+                                             String evidenceId,
+                                             long operatorUserId) {
+        if (operatorUserId <= 0) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "缺少有效的管理员身份");
+        }
         AiModelConfiguration existing = requireLockedModel(modelId);
         boolean enable = !existing.enabled();
         AiModelConfiguration updated = existing.toBuilder()
@@ -82,9 +104,18 @@ public class DefaultAiModelManagementService implements AiModelManagementService
                 .build();
         if (enable) {
             updated = configurationPolicy.normalizeAndValidate(updated);
-            persistenceService.disableOtherEnabledModels(updated.getModelType(), updated.getId());
+            String candidateFingerprint = candidateFingerprintService.fingerprint(updated);
+            GenerationBenchmarkEvidenceRecord evidence = evidenceVerifier.requirePassed(
+                    evidenceId,
+                    GenerationBenchmarkEvidenceSubject.AI_MODEL_ENABLE,
+                    Long.toString(modelId),
+                    candidateFingerprint
+            );
+            persistenceService.update(updated);
+            releaseAuditService.recordModelEnable(evidence, operatorUserId, modelId);
+        } else {
+            persistenceService.update(updated);
         }
-        persistenceService.update(updated);
         publishConfigurationChanged();
         return viewAssembler.toAdminView(updated);
     }

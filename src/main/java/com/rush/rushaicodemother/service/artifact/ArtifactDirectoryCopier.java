@@ -13,12 +13,14 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
  * Performs bounded artifact directory copies without following symbolic links.
@@ -59,35 +61,88 @@ public class ArtifactDirectoryCopier {
         this.windows = windows;
     }
 
+    /** Copies source code into an isolated execution workspace without dependency/build caches. */
+    public void copyExecutionWorkspace(Path sourceDirectory, Path targetDirectory)
+            throws IOException, InterruptedException {
+        copyExecutionWorkspace(
+                sourceDirectory,
+                targetDirectory,
+                properties.getExecutionWorkspaceCopyTimeout(),
+                () -> false
+        );
+    }
+
+    /**
+     * Copies an execution workspace under the caller's task-wide wall-clock and cancellation policy.
+     */
+    public void copyExecutionWorkspace(Path sourceDirectory,
+                                       Path targetDirectory,
+                                       Duration timeout,
+                                       BooleanSupplier cancellationRequested)
+            throws IOException, InterruptedException {
+        copy(
+                sourceDirectory,
+                targetDirectory,
+                ArtifactCopyProfile.EXECUTION_WORKSPACE,
+                CopyControl.start(timeout, cancellationRequested)
+        );
+    }
+
     void copy(Path sourceDirectory, Path targetDirectory, ArtifactCopyProfile profile)
             throws IOException, InterruptedException {
+        copy(sourceDirectory, targetDirectory, profile, null);
+    }
+
+    private void copy(Path sourceDirectory,
+                      Path targetDirectory,
+                      ArtifactCopyProfile profile,
+                      CopyControl control)
+            throws IOException, InterruptedException {
         Objects.requireNonNull(profile, "profile must not be null");
+        check(control);
         Path sourceRoot = requireExistingDirectory(sourceDirectory, "artifact source directory");
         Path targetRoot = requireNewTarget(targetDirectory);
         rejectOverlappingTrees(sourceRoot, targetRoot);
-        TreeManifest sourceBefore = inspectTree(sourceRoot, profile);
+        TreeManifest sourceBefore = inspectTree(sourceRoot, profile, control);
 
         try {
+            check(control);
             Files.createDirectory(targetRoot);
             if (windows) {
-                robocopyDirectoryCopier.copy(
-                        sourceRoot,
-                        targetRoot,
-                        profile.excludedDirectories(),
-                        profile.excludedFiles()
-                );
+                if (control == null) {
+                    robocopyDirectoryCopier.copy(
+                            sourceRoot,
+                            targetRoot,
+                            profile.excludedDirectories(),
+                            profile.excludedFiles()
+                    );
+                } else {
+                    robocopyDirectoryCopier.copy(
+                            sourceRoot,
+                            targetRoot,
+                            profile.excludedDirectories(),
+                            profile.excludedFiles(),
+                            control.remainingTimeout(),
+                            control::cancellationRequested
+                    );
+                }
             } else {
-                copyWithNio(sourceRoot, targetRoot, profile);
+                copyWithNio(sourceRoot, targetRoot, profile, control);
             }
 
-            TreeManifest sourceAfter = inspectTree(sourceRoot, profile);
+            check(control);
+            TreeManifest sourceAfter = inspectTree(sourceRoot, profile, control);
             if (!sourceBefore.equals(sourceAfter)) {
                 throw new ArtifactCopyException(
                         ArtifactCopyException.Reason.SOURCE_CHANGED,
                         "artifact source changed during copying; retry the operation"
                 );
             }
-            TreeManifest targetManifest = inspectTree(targetRoot, ArtifactCopyProfile.DEPLOYMENT);
+            TreeManifest targetManifest = inspectTree(
+                    targetRoot,
+                    ArtifactCopyProfile.DEPLOYMENT,
+                    control
+            );
             if (!sourceBefore.sameLayout(targetManifest)) {
                 throw new ArtifactCopyException(
                         ArtifactCopyException.Reason.INCOMPLETE_COPY,
@@ -100,11 +155,15 @@ public class ArtifactDirectoryCopier {
         }
     }
 
-    private void copyWithNio(Path sourceRoot, Path targetRoot, ArtifactCopyProfile profile) throws IOException {
+    private void copyWithNio(Path sourceRoot,
+                             Path targetRoot,
+                             ArtifactCopyProfile profile,
+                             CopyControl control) throws IOException {
         Files.walkFileTree(sourceRoot, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
                     throws IOException {
+                check(control);
                 rejectSymbolicLink(directory, attributes, sourceRoot);
                 if (!directory.equals(sourceRoot) && profile.excludesDirectory(fileName(directory))) {
                     return FileVisitResult.SKIP_SUBTREE;
@@ -117,6 +176,7 @@ public class ArtifactDirectoryCopier {
 
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                check(control);
                 rejectUnsafeFile(file, attributes, sourceRoot);
                 if (profile.excludesFile(fileName(file))) {
                     return FileVisitResult.CONTINUE;
@@ -133,10 +193,18 @@ public class ArtifactDirectoryCopier {
         });
     }
 
-    private TreeManifest inspectTree(Path root, ArtifactCopyProfile profile) throws IOException {
-        ManifestCollector collector = new ManifestCollector(root, profile);
+    private TreeManifest inspectTree(Path root,
+                                     ArtifactCopyProfile profile,
+                                     CopyControl control) throws IOException {
+        ManifestCollector collector = new ManifestCollector(root, profile, control);
         Files.walkFileTree(root, collector);
         return collector.toManifest();
+    }
+
+    private void check(CopyControl control) throws ArtifactCopyException {
+        if (control != null) {
+            control.check();
+        }
     }
 
     private Path requireExistingDirectory(Path directory, String label) throws IOException {
@@ -263,17 +331,20 @@ public class ArtifactDirectoryCopier {
 
         private final Path root;
         private final ArtifactCopyProfile profile;
+        private final CopyControl control;
         private final Set<String> directories = new LinkedHashSet<>();
         private final Map<String, FileFingerprint> files = new LinkedHashMap<>();
         private long totalBytes;
 
-        private ManifestCollector(Path root, ArtifactCopyProfile profile) {
+        private ManifestCollector(Path root, ArtifactCopyProfile profile, CopyControl control) {
             this.root = root;
             this.profile = profile;
+            this.control = control;
         }
 
         @Override
         public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
+            check(control);
             rejectSymbolicLink(directory, attributes, root);
             if (!directory.equals(root) && profile.excludesDirectory(fileName(directory))) {
                 return FileVisitResult.SKIP_SUBTREE;
@@ -293,6 +364,7 @@ public class ArtifactDirectoryCopier {
 
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+            check(control);
             rejectUnsafeFile(file, attributes, root);
             if (profile.excludesFile(fileName(file))) {
                 return FileVisitResult.CONTINUE;
@@ -330,6 +402,77 @@ public class ArtifactDirectoryCopier {
 
     private ArtifactCopyException limitExceeded(String message) {
         return new ArtifactCopyException(ArtifactCopyException.Reason.LIMIT_EXCEEDED, message);
+    }
+
+    private static final class CopyControl {
+
+        private final long startedAtNanos;
+        private final long timeoutNanos;
+        private final BooleanSupplier cancellationRequested;
+
+        private CopyControl(long timeoutNanos, BooleanSupplier cancellationRequested) {
+            this.startedAtNanos = System.nanoTime();
+            this.timeoutNanos = timeoutNanos;
+            this.cancellationRequested = cancellationRequested;
+        }
+
+        private static CopyControl start(Duration timeout, BooleanSupplier cancellationRequested) {
+            Objects.requireNonNull(timeout, "artifact copy timeout must not be null");
+            if (timeout.isZero() || timeout.isNegative()) {
+                throw new IllegalArgumentException("artifact copy timeout must be greater than zero");
+            }
+            long timeoutNanos;
+            try {
+                timeoutNanos = timeout.toNanos();
+            } catch (ArithmeticException ignored) {
+                timeoutNanos = Long.MAX_VALUE;
+            }
+            return new CopyControl(
+                    timeoutNanos,
+                    cancellationRequested == null ? () -> false : cancellationRequested
+            );
+        }
+
+        private void check() throws ArtifactCopyException {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new ArtifactCopyException(
+                        ArtifactCopyException.Reason.INTERRUPTED,
+                        "artifact copy thread was interrupted"
+                );
+            }
+            if (cancellationRequested.getAsBoolean()) {
+                throw new ArtifactCopyException(
+                        ArtifactCopyException.Reason.CANCELLED,
+                        "artifact copy was cancelled"
+                );
+            }
+            if (elapsedNanos() >= timeoutNanos) {
+                throw new ArtifactCopyException(
+                        ArtifactCopyException.Reason.TIMED_OUT,
+                        "artifact copy exceeded its wall-clock timeout"
+                );
+            }
+        }
+
+        private Duration remainingTimeout() throws ArtifactCopyException {
+            check();
+            long remainingNanos = timeoutNanos - elapsedNanos();
+            if (remainingNanos <= 0) {
+                throw new ArtifactCopyException(
+                        ArtifactCopyException.Reason.TIMED_OUT,
+                        "artifact copy exceeded its wall-clock timeout"
+                );
+            }
+            return Duration.ofNanos(remainingNanos);
+        }
+
+        private boolean cancellationRequested() {
+            return Thread.currentThread().isInterrupted() || cancellationRequested.getAsBoolean();
+        }
+
+        private long elapsedNanos() {
+            return System.nanoTime() - startedAtNanos;
+        }
     }
 
     private record FileFingerprint(long size, FileTime lastModifiedTime, String fileKey) {

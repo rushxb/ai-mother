@@ -30,6 +30,10 @@ public class GenerationPerformanceSelector {
         if (isFirstGeneration && !isComplex) {
             // 首次简单生成 → 极速模式
             profile = GenerationPerformanceProfile.speedFirst();
+        } else if (isFirstGeneration && isComplex
+                && (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT
+                || codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT)) {
+            profile = GenerationPerformanceProfile.qualityFirst();
         } else if (isFirstGeneration && isComplex) {
             // 首次复杂生成 → 平衡模式（不用 thinking，靠 tool 调用保证质量）
             profile = GenerationPerformanceProfile.balanced();

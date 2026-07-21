@@ -1,25 +1,62 @@
-# 数据库升级迁移规范
+# 数据库迁移规范
 
-本目录保存面向**既有数据库**的一次性 MySQL 8.x 升级脚本。新环境仍使用
-`sql/create_table.sql` 创建完整结构；已有环境不得重新执行完整初始化脚本。
+本目录是生产数据库结构的唯一版本化迁移来源。Maven 构建会将 `B*.sql`、`V*.sql`
+复制到 `classpath:db/migration`，由 Flyway 执行并校验 checksum。
 
-## 执行规则
+## 新数据库
 
-1. 发布前备份数据库，并在同版本预发布副本验证迁移。
-2. 按文件名版本顺序执行尚未应用的脚本，不得跳序。
-3. 已在任何环境执行过的迁移文件禁止修改；修正必须新增更高版本迁移。
-4. 迁移失败时停止发布，不得通过删除约束、清空流水或静默修正账务数据绕过。
-5. 应由部署流水线或具备 DDL 权限的迁移账号执行；应用运行账号只保留业务所需 DML 权限。
-6. 执行记录至少包含版本、文件校验值、开始时间、结束时间、执行人和结果。
+新数据库不执行 `sql/create_table.sql`。Flyway 会选择最新的 `B` baseline migration，
+再顺序执行版本号更高的 `V` migration。
 
-## 当前执行顺序
+当前 baseline：
 
-1. `V20260713__ai_model_write_integrity.sql`
-2. `V20260713__chat_history_integrity.sql`
-3. `V20260714__app_database_resource_integrity.sql`
-4. `V20260714_1__generation_trace_integrity.sql`
-5. `V20260714_2__ai_model_soft_delete_identity.sql`
-6. `V20260714_3__user_credit_integrity.sql`
-7. `V20260714_4__app_generation_state_ownership.sql`
+```text
+B20260716_5__production_schema_baseline.sql
+```
 
-> 文件名用于确定项目约定的顺序；执行前仍应根据目标环境的迁移记录确认哪些版本尚未应用。
+## 已有数据库接入 Flyway
+
+禁止在未核对数据库结构时直接启用 `baseline-on-migrate`。
+
+1. 备份数据库并在预发布副本验证。
+2. 对照目标环境确认已执行到哪个 migration 版本。
+3. 设置 `FLYWAY_ENABLED=true`。
+4. 首次接管时显式设置：
+
+   ```text
+   FLYWAY_BASELINE_ON_MIGRATE=true
+   FLYWAY_BASELINE_VERSION=<目标库已经具备的最高版本>
+   ```
+
+5. 首次成功产生 `flyway_schema_history` 后，恢复：
+
+   ```text
+   FLYWAY_BASELINE_ON_MIGRATE=false
+   ```
+
+默认建议从 `20260716.5` 接管，使 Flyway 继续执行
+`V20260716_6__generation_tool_approval.sql`。如果目标库状态不同，必须使用经过审计的实际版本，
+不得为了启动成功伪造较高 baseline。
+
+## 发布规则
+
+1. 已在任一环境执行的 migration 禁止修改；修复必须新增更高版本文件。
+2. migration 失败必须阻断发布，不允许删除历史记录或修改 checksum 绕过。
+3. 应用生产账号原则上仅保留 DML 权限；迁移使用独立 DDL 账号执行。
+4. 生产禁止 Flyway clean，项目已设置 `clean-disabled=true`。
+5. 集成环境执行：
+
+   ```powershell
+   .\mvnw.cmd -Pintegration-test `
+     -Dintegration.mysql.admin-url="jdbc:mysql://localhost:33306/?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC" `
+     -Dintegration.mysql.username=root `
+     -Dintegration.mysql.password=test `
+     -Dintegration.redis.host=localhost `
+     -Dintegration.redis.port=36379 test
+   ```
+
+6. 发布门禁至少验证：baseline 建库、全部 versioned migration、checksum validate、关键约束和索引。
+
+`V20260718_7__generation_task_submission_idempotency.sql` adds hashed `Idempotency-Key`
+storage, request fingerprints, and the tenant/user/app-scoped uniqueness contract used by
+generation admission. Raw idempotency keys must never be stored or logged.

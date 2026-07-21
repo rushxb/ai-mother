@@ -99,6 +99,11 @@ public class ProjectSearchTool extends BaseTool {
     }
 
     @Override
+    public ToolRiskLevel getRiskLevel() {
+        return ToolRiskLevel.READ_ONLY;
+    }
+
+    @Override
     public String getToolName() {
         return "searchProject";
     }

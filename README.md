@@ -277,7 +277,7 @@ where userAccount = 'your-account';
 4. 根据模型目录填写 API Base URL、模型 ID 和 API Key。
 5. 先执行连接测试，再启用对应的生成、推理或路由模型。
 
-AI 模型凭据存储在数据库模型目录中，不应写入 `application.yml` 或提交到 Git。
+AI 模型 API Key 会在写入时进行 AES-256-GCM envelope encryption；数据库只保存密文引用、HMAC 指纹和 KEK ID。生产环境必须通过 Secret Manager 注入独立的 `AI_MODEL_SECRET_ACTIVE_KEY` 与 `AI_MODEL_SECRET_FINGERPRINT_KEY`，不得把 API Key 或主密钥写入 `application.yml`、日志或 Git。
 
 ### 5. 启动前端
 
@@ -427,6 +427,15 @@ pnpm preview
 | `GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS` | `12000` | 单个关键项目文件可进入生成上下文的最大字符数。 |
 | `GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS` | `100000` | 单次生成项目上下文的总字符预算，不得小于单文件预算。 |
 | `GENERATION_CONTEXT_MAX_READABLE_FILE_BYTES` | `1048576` | 生成上下文允许读取的单个关键文件最大字节数。 |
+| `AI_CONTEXT_PACK_GENERATION_MAX_TOKENS` | `2000` | 常规生成的长期记忆、近期任务和构建证据上下文总 token 预算。 |
+| `AI_CONTEXT_PACK_REPAIR_MAX_TOKENS` | `1500` | 自动修复上下文的独立 token 预算。 |
+| `AI_CONTEXT_PACK_TOKENIZER_MODEL` | `gpt-4o` | 上下文预算使用的 OpenAI-compatible tokenizer；所有生产节点必须保持一致。 |
+| `AI_CONTEXT_PACK_TOKEN_SAFETY_MARGIN` | `1.15` | 针对兼容供应商分词差异和消息 framing 的保守余量，允许范围 `1.0`～`2.0`。 |
+| `AI_CONTEXT_PACK_MAX_SECTION_TOKENS` | `800` | 单个上下文 section 的 token 上限。 |
+| `AI_CONTEXT_PACK_MINIMUM_SECTION_TOKENS` | `64` | 可选 section 被保留时的最小 token 预算。 |
+| `AI_CONTEXT_PACK_MAX_SEMANTIC_MEMORY_SECTIONS` | `6` | 单次模型调用最多选择的长期语义记忆条数。 |
+| `AI_CONTEXT_PACK_SEMANTIC_MEMORY_HALF_LIFE` | `30d` | 长期记忆相关性随时间衰减的半衰期。 |
+| `AI_CONTEXT_PACK_MINIMUM_SEMANTIC_TRUST` | `0.25` | 语义记忆时间衰减后的最低信任权重，允许范围 `0.0`～`1.0`。 |
 | `ARTIFACT_COPY_TIMEOUT` | `15m` | Hard timeout for one Windows robocopy operation. |
 | `ARTIFACT_COPY_HEARTBEAT_INTERVAL` | `30s` | Heartbeat interval while robocopy is running; must be shorter than the copy timeout. |
 | `ARTIFACT_COPY_OUTPUT_DRAIN_TIMEOUT` | `5s` | Maximum wait for bounded process-output consumers to finish. |
@@ -453,6 +462,11 @@ pnpm preview
 | `PATCH_MAX_ROLLBACK_SNAPSHOT_BYTES` | `20971520` | Maximum in-memory pre-mutation snapshot size used for batch rollback. |
 
 更多生产环境变量、超时、限流、Dev Server 和依赖安装参数，请查看 [后端生产环境配置基线](docs/backend-production-configuration.md)。
+
+上下文包预算已由字符比例估算切换为 tokenizer-backed 计数；旧变量
+`AI_CONTEXT_PACK_ESTIMATED_CHARS_PER_TOKEN` 不再读取。历史记忆、近期任务、构建日志和当前错误均以
+untrusted evidence 边界进入模型输入，结构控制标记会被中和；模型调用 provenance 只持久化校验后的
+上下文包摘要和有界元数据，不复制原始提示词、仓库内容或记忆正文。
 
 ## 代码生成模式
 
@@ -495,6 +509,8 @@ java `
 ```
 
 生产环境应为后端运行账号配置最小化的目录权限，并避免让生成目录通过符号链接指向工作区之外。
+
+Dev Server 使用 `dev_server_session` 持久化注册表实现跨实例唯一占用、用户级全局配额、进程租约和 fencing。生产环境必须为每个部署节点配置稳定且唯一的 `DEV_SERVER_NODE_ID`。节点或 JVM 异常退出后，恢复任务会在租约过期后按持久化的 sandbox resource ID 幂等清理 Dev Server 与 preview gateway 容器；不得用进程内 `Map` 或端口记录代替该所有权契约。
 
 生成会话注册表使用固定条带锁，不会为每个历史应用永久保留锁对象；活动会话和短期 SSE 回放会话共享显式总容量。已完成轻量会话只写入过期时间，由单个固定周期任务批量清理，不会为每次完成创建独立延迟任务。多实例容量分别计算，跨实例生成所有权仍以数据库租约为准。
 

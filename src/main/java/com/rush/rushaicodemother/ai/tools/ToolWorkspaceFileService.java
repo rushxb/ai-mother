@@ -59,6 +59,11 @@ public class ToolWorkspaceFileService {
         }
     }
 
+    /** Returns the task identity that bounds external processes started by an AI tool. */
+    public String requireTaskId(Long appId) {
+        return toolPathSupport.resolveTaskId(appId);
+    }
+
     /** Resolves an existing directory inside the bound project workspace. */
     public ToolWorkspaceDirectory resolveDirectory(Long appId, String relativePath) {
         Path projectRoot = resolveProjectRoot(appId);

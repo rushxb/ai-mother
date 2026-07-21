@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.trace;
 
+import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 
 /** 一次可幂等持久化的模型调用用量。 */
@@ -10,11 +11,15 @@ public record GenerationModelCallCommand(
         Long userId,
         String provider,
         String model,
+        GenerationModelCallStatus status,
+        String providerRequestId,
         Integer promptTokens,
         Integer completionTokens,
         Integer totalTokens,
         Long latencyMs,
         String finishReason,
-        GenerationModelUsageSource usageSource
+        GenerationModelUsageSource usageSource,
+        String errorCategory,
+        GenerationModelCallProvenance provenance
 ) {
 }

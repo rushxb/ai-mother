@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -30,19 +31,29 @@ public class GenerationAppStateService {
 
     private final AppMapper appMapper;
     private final GenerationRuntimeProperties runtimeProperties;
+    private final GenerationExecutionContextService executionContextService;
     private final Clock clock;
 
     @Autowired
     public GenerationAppStateService(AppMapper appMapper,
-                                     GenerationRuntimeProperties runtimeProperties) {
-        this(appMapper, runtimeProperties, Clock.systemDefaultZone());
+                                     GenerationRuntimeProperties runtimeProperties,
+                                     GenerationExecutionContextService executionContextService) {
+        this(appMapper, runtimeProperties, executionContextService, Clock.systemDefaultZone());
     }
 
     GenerationAppStateService(AppMapper appMapper,
                               GenerationRuntimeProperties runtimeProperties,
                               Clock clock) {
+        this(appMapper, runtimeProperties, null, clock);
+    }
+
+    GenerationAppStateService(AppMapper appMapper,
+                              GenerationRuntimeProperties runtimeProperties,
+                              GenerationExecutionContextService executionContextService,
+                              Clock clock) {
         this.appMapper = Objects.requireNonNull(appMapper, "appMapper");
         this.runtimeProperties = Objects.requireNonNull(runtimeProperties, "runtimeProperties");
+        this.executionContextService = executionContextService;
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -52,12 +63,14 @@ public class GenerationAppStateService {
                                      CodeGenTypeEnum targetType) {
         long normalizedAppId = requireAppId(appId);
         String normalizedTaskId = requireTaskId(taskId);
+        long executionEpoch = resolveExecutionEpoch(normalizedTaskId);
         String normalizedStage = requireStage(generatingStage);
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime leaseUntil = now.plus(leaseDuration());
         int updatedRows = appMapper.claimGenerationState(
                 normalizedAppId,
                 normalizedTaskId,
+                executionEpoch,
                 normalizedStage,
                 targetType == null ? null : targetType.getValue(),
                 now,
@@ -79,11 +92,13 @@ public class GenerationAppStateService {
                                            String generatingMessage) {
         long normalizedAppId = requireAppId(appId);
         String normalizedTaskId = requireTaskId(taskId);
+        long executionEpoch = resolveExecutionEpoch(normalizedTaskId);
         String normalizedStage = requireStage(generatingStage);
         String normalizedMessage = normalizeMessage(generatingMessage);
         int updatedRows = appMapper.updateOwnedGenerationStage(
                 normalizedAppId,
                 normalizedTaskId,
+                executionEpoch,
                 normalizedStage,
                 normalizedMessage,
                 nextLeaseUntil()
@@ -96,10 +111,12 @@ public class GenerationAppStateService {
                                               String generatingMessage) {
         long normalizedAppId = requireAppId(appId);
         String normalizedTaskId = requireTaskId(taskId);
+        long executionEpoch = resolveExecutionEpoch(normalizedTaskId);
         String normalizedMessage = normalizeMessage(generatingMessage);
         int updatedRows = appMapper.updateOwnedGenerationSnapshot(
                 normalizedAppId,
                 normalizedTaskId,
+                executionEpoch,
                 normalizedMessage,
                 nextLeaseUntil()
         );
@@ -107,20 +124,56 @@ public class GenerationAppStateService {
     }
 
     public void updateOwnedCodeGenType(Long appId, String taskId, CodeGenTypeEnum codeGenType) {
+        String normalizedTaskId = requireTaskId(taskId);
+        updateOwnedCodeGenType(
+                appId,
+                normalizedTaskId,
+                resolveExecutionEpoch(normalizedTaskId),
+                codeGenType
+        );
+    }
+
+    public void updateOwnedCodeGenType(Long appId,
+                                       String taskId,
+                                       long executionEpoch,
+                                       CodeGenTypeEnum codeGenType) {
         if (codeGenType == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "代码生成类型不能为空");
         }
         long normalizedAppId = requireAppId(appId);
         String normalizedTaskId = requireTaskId(taskId);
+        if (executionEpoch < 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "generation execution epoch is invalid");
+        }
         int updatedRows = appMapper.updateOwnedCodeGenType(
-                normalizedAppId, normalizedTaskId, codeGenType.getValue(), nextLeaseUntil());
+                normalizedAppId, normalizedTaskId, executionEpoch,
+                codeGenType.getValue(), nextLeaseUntil());
         requireOwnedWrite(updatedRows, normalizedAppId);
     }
 
     public boolean releaseOwnedGenerationState(Long appId, String taskId) {
+        return releaseOwnedGenerationState(appId, taskId, resolveExecutionEpoch(requireTaskId(taskId)));
+    }
+
+    public boolean releaseOwnedGenerationState(Long appId,
+                                               String taskId,
+                                               long executionEpoch) {
         long normalizedAppId = requireAppId(appId);
         String normalizedTaskId = requireTaskId(taskId);
-        return appMapper.releaseOwnedGenerationState(normalizedAppId, normalizedTaskId) == 1;
+        if (executionEpoch < 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "generation execution epoch is invalid");
+        }
+        return appMapper.releaseOwnedGenerationState(
+                normalizedAppId, normalizedTaskId, executionEpoch) == 1;
+    }
+
+    private long resolveExecutionEpoch(String taskId) {
+        if (executionContextService == null) {
+            return 0L;
+        }
+        return executionContextService.getExecutionFence(taskId)
+                .map(fence -> fence.executionEpoch())
+                .orElse(0L);
     }
 
     private void requireOwnedWrite(int updatedRows, long appId) {

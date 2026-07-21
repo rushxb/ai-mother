@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.controller;
 import com.rush.rushaicodemother.common.BaseResponse;
 import com.rush.rushaicodemother.common.DeleteRequest;
 import com.rush.rushaicodemother.model.dto.aimodel.AiModelAddRequest;
+import com.rush.rushaicodemother.model.dto.aimodel.AiModelToggleRequest;
 import com.rush.rushaicodemother.model.dto.aimodel.AiModelUpdateRequest;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.service.UserService;
@@ -19,6 +20,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AiModelControllerDelegationTest {
+
+    private static final String EVIDENCE_ID = "550e8400-e29b-41d4-a716-446655440000";
 
     private AiModelManagementService managementService;
     private UserService userService;
@@ -74,6 +77,19 @@ class AiModelControllerDelegationTest {
 
         assertTrue(response.getData());
         verify(managementService).deleteModel(7L);
+    }
+
+    @Test
+    void toggleMustForwardAuthenticatedOperatorAndEvidenceReference() {
+        AiModelToggleRequest request = new AiModelToggleRequest();
+        request.setId(7L);
+        request.setEvidenceId(EVIDENCE_ID);
+        HttpServletRequest servletRequest = mock(HttpServletRequest.class);
+        when(userService.getLoginUser(servletRequest)).thenReturn(User.builder().id(9L).build());
+
+        controller.toggleModelEnabled(request, servletRequest);
+
+        verify(managementService).toggleModelEnabled(7L, EVIDENCE_ID, 9L);
     }
 
     private AiModelAddRequest createRequest() {

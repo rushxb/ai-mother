@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.security.password.PasswordVerificationResult;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
 import com.rush.rushaicodemother.service.user.UserViewConverter;
+import com.rush.rushaicodemother.service.tenant.TenantProvisioningService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +42,8 @@ class UserServiceImplSecurityTest {
                 passwordHashService,
                 mock(UserCreditService.class),
                 userPersistenceService,
-                userViewConverter
+                userViewConverter,
+                mock(TenantProvisioningService.class)
         );
     }
 

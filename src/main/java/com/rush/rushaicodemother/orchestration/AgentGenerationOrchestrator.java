@@ -56,11 +56,14 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     @Override
     public GenerationOrchestrationResult prepare(GenerationOrchestrationRequest request) {
         Long appId = request.app() == null ? null : request.app().getId();
-        GenerationOrchestrationTask task = StrUtil.isBlank(request.taskId())
-                ? taskStore.create(appId, request.userMessage())
-                : taskStore.create(request.taskId(), appId, request.userMessage());
-        boolean heavyPath = routingSupport.shouldUseHeavyPath(request);
+        GenerationOrchestrationTask task = restoreOrCreateTask(request, appId);
+        boolean heavyPath = resolveOrchestrationMode(request, task);
         String orchestrationMode = heavyPath ? "heavy" : "light";
+        task.setOrchestrationMode(orchestrationMode);
+        if (request.app() != null && task.getUserId() == null) {
+            task.setUserId(request.app().getUserId());
+        }
+        taskStore.save(task);
         metricsCollector.recordRun(orchestrationMode, "started");
         GenerationAgentContext context = new GenerationAgentContext(request, task, heavyPath);
         List<GenerationAgentNode> nodes = selectNodes(heavyPath);
@@ -116,6 +119,40 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
             );
             throw e;
         }
+    }
+
+    private GenerationOrchestrationTask restoreOrCreateTask(GenerationOrchestrationRequest request, Long appId) {
+        if (StrUtil.isBlank(request.taskId())) {
+            return taskStore.create(appId, request.userMessage());
+        }
+        return taskStore.load(appId, request.taskId())
+                .map(task -> validateResumableTask(task, request))
+                .orElseGet(() -> taskStore.create(request.taskId(), appId, request.userMessage()));
+    }
+
+    private GenerationOrchestrationTask validateResumableTask(GenerationOrchestrationTask task,
+                                                               GenerationOrchestrationRequest request) {
+        if (!taskStore.matchesRequest(task, request.userMessage())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "任务恢复请求与原始请求不一致");
+        }
+        if (task.getRuntimeState() != null && task.getRuntimeState().terminal()) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务已终止，不能从终态检查点恢复");
+        }
+        return task;
+    }
+
+    private boolean resolveOrchestrationMode(GenerationOrchestrationRequest request,
+                                             GenerationOrchestrationTask task) {
+        if (StrUtil.isBlank(task.getOrchestrationMode())) {
+            return routingSupport.shouldUseHeavyPath(request);
+        }
+        if ("heavy".equals(task.getOrchestrationMode())) {
+            return true;
+        }
+        if ("light".equals(task.getOrchestrationMode())) {
+            return false;
+        }
+        throw new BusinessException(ErrorCode.OPERATION_ERROR, "任务检查点包含未知编排模式");
     }
 
     private List<GenerationAgentNode> selectNodes(boolean heavyPath) {

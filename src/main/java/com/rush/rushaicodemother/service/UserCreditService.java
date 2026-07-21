@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service;
 
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
+import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
 
 public interface UserCreditService {
 
@@ -21,4 +22,7 @@ public interface UserCreditService {
 
     /** 根据任务模型调用记录结算积分。 */
     void chargeGenerationTask(String taskId);
+
+    /** 在任务进入 durable queue 前原子冻结预计积分。 */
+    void reserveGenerationTask(GenerationCreditReservationCommand command);
 }

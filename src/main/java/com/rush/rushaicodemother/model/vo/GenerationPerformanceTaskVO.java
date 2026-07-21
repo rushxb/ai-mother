@@ -22,6 +22,8 @@ public class GenerationPerformanceTaskVO {
 
     private String routerReason;
 
+    private String routingDecisionCode;
+
     private String fallbackPolicy;
 
     private String fallbackReason;

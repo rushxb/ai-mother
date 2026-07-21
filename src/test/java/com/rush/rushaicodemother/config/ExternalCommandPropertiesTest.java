@@ -49,6 +49,14 @@ class ExternalCommandPropertiesTest {
 
         assertFalse(validator.validate(properties).isEmpty());
     }
+
+    @Test
+    void shouldRejectNonPositiveExecutionWorkspaceCopyTimeout() {
+        ArtifactLifecycleProperties properties = new ArtifactLifecycleProperties();
+        properties.setExecutionWorkspaceCopyTimeout(Duration.ZERO);
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
     @Test
     void shouldRejectArtifactCopyCountsAndDepthOutsideSupportedRange() {
         ArtifactLifecycleProperties invalidFiles = new ArtifactLifecycleProperties();

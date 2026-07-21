@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
+
 import lombok.Builder;
 
 import java.nio.charset.Charset;
@@ -34,7 +36,8 @@ public record ManagedProcessRequest(
         String logCategory,
         String logContext,
         BooleanSupplier cancellationRequested,
-        ManagedProcessLifecycle lifecycle
+        ManagedProcessLifecycle lifecycle,
+        SandboxNetworkPolicy networkPolicy
 ) {
 
     public ManagedProcessRequest {
@@ -49,5 +52,6 @@ public record ManagedProcessRequest(
         outputCharset = outputCharset == null ? StandardCharsets.UTF_8 : outputCharset;
         cancellationRequested = cancellationRequested == null ? () -> false : cancellationRequested;
         lifecycle = lifecycle == null ? ManagedProcessLifecycle.NO_OP : lifecycle;
+        networkPolicy = networkPolicy == null ? SandboxNetworkPolicy.NONE : networkPolicy;
     }
 }

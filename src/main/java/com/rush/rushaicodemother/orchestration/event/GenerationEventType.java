@@ -16,6 +16,7 @@ public enum GenerationEventType {
     VALIDATION_START("validation_start"),
     VALIDATION_RESULT("validation_result"),
     DEV_SERVER_VALIDATION_RESULT("dev_server_validation_result"),
+    FIRST_PREVIEW_READY("first_preview_ready"),
     INDEX_UPDATE("index_update"),
     TASK_DONE("task_done"),
     TASK_FAILED("task_failed"),

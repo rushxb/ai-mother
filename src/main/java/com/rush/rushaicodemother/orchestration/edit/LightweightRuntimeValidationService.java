@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,14 +56,15 @@ public class LightweightRuntimeValidationService {
             List<PatchOperation> patchOperations,
             PatchApplyResult applyResult,
             EditValidationPlan validationPlan,
-            EditFileSnapshotService.EditFileSnapshot editSnapshot) {
+            EditFileSnapshotService.EditFileSnapshot editSnapshot,
+            boolean managedModelCalls) {
         BackgroundValidationService.ValidationResult validationResult = executeValidation(
                 taskId, app, loginUser, workspace, patchOperations, validationPlan, userMessage);
         int repairRound = 2;
         while (!validationResult.isSuccess() && repairRound <= MAX_RUNTIME_REPAIR_ROUNDS) {
             RuntimeRepairAttempt repairAttempt = retryRepair(
                     request, app, loginUser, taskId, workspace, userMessage, projectContext,
-                    validationPlan, validationResult, editSnapshot, repairRound);
+                    validationPlan, validationResult, editSnapshot, repairRound, managedModelCalls);
             validationResult = repairAttempt.validationResult();
             if (repairAttempt.success()) {
                 editResult = repairAttempt.editResult();
@@ -82,16 +84,17 @@ public class LightweightRuntimeValidationService {
         );
     }
 
-    public void scheduleBackgroundValidation(String taskId,
-                                             App app,
-                                             User loginUser,
-                                             GenerationWorkspace workspace,
-                                             List<PatchOperation> patchOperations,
-                                             EditValidationPlan validationPlan,
-                                             String userMessage) {
-        backgroundValidationService.executeBackgroundValidation(
-                taskId, app.getId(), loginUser.getId(), workspace,
-                patchOperations, validationPlan, userMessage);
+    /** Executes the publication gate synchronously inside the owning task epoch. */
+    public BackgroundValidationService.ValidationResult validateOnce(
+            String taskId,
+            App app,
+            User loginUser,
+            GenerationWorkspace workspace,
+            List<PatchOperation> patchOperations,
+            EditValidationPlan validationPlan,
+            String userMessage) {
+        return executeValidation(
+                taskId, app, loginUser, workspace, patchOperations, validationPlan, userMessage);
     }
 
     public EditFileSnapshotService.RestoreResult rollback(GenerationTaskRequest request,
@@ -99,7 +102,8 @@ public class LightweightRuntimeValidationService {
                                                           String taskId,
                                                           EditFileSnapshotService.EditFileSnapshot editSnapshot,
                                                           Path projectRoot) {
-        EditFileSnapshotService.RestoreResult restoreResult = editFileSnapshotService.restore(editSnapshot);
+        EditFileSnapshotService.RestoreResult restoreResult =
+                editFileSnapshotService.restore(taskId, editSnapshot);
         generationEventPublisher.publishSafely(request, GenerationEventType.EDIT_ROLLBACK,
                 "运行时修复验证失败，已回滚本次编辑", Map.of(
                         "taskId", taskId,
@@ -128,7 +132,8 @@ public class LightweightRuntimeValidationService {
                                              EditValidationPlan previousValidationPlan,
                                              BackgroundValidationService.ValidationResult previousValidationResult,
                                              EditFileSnapshotService.EditFileSnapshot editSnapshot,
-                                             int round) {
+                                             int round,
+                                             boolean managedModelCalls) {
         generationEventPublisher.publishSafely(request, GenerationEventType.REPAIR_START,
                 "修复后验证失败，开始自动二次修复", Map.of(
                         "taskId", taskId,
@@ -139,7 +144,10 @@ public class LightweightRuntimeValidationService {
         try {
             String retryContext = contextAssembler.rebuildAfterValidationFailure(
                     workspace, userMessage, previousValidationResult, projectContext);
-            EditResult retryEditResult = lightweightEditAiService.retryAfterValidationFailure(
+            EditResult retryEditResult = managedModelCalls
+                    ? lightweightEditAiService.retryAfterValidationFailureManaged(
+                    taskId, userMessage, retryContext, previousValidationResult)
+                    : lightweightEditAiService.retryAfterValidationFailure(
                     userMessage, retryContext, previousValidationResult);
             List<PatchOperation> retryOperations = retryEditResult == null
                     ? List.of()
@@ -181,6 +189,8 @@ public class LightweightRuntimeValidationService {
                     retryValidationPlan,
                     retryValidationResult
             );
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (Exception exception) {
             log.warn("Runtime edit repair retry failed, appId: {}, taskId: {}", app.getId(), taskId, LogExceptionSanitizer.sanitize(exception));
             return RuntimeRepairAttempt.failed(BackgroundValidationService.ValidationResult.failed(

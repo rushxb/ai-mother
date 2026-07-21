@@ -8,6 +8,14 @@ public record GenerationTaskResult(
         String taskId,
         String route,
         GenerationWorkspace workspace,
-        Flux<GenerationStreamEvent> contentFlux
+        Flux<GenerationStreamEvent> contentFlux,
+        boolean created
 ) {
+
+    public GenerationTaskResult(String taskId,
+                                String route,
+                                GenerationWorkspace workspace,
+                                Flux<GenerationStreamEvent> contentFlux) {
+        this(taskId, route, workspace, contentFlux, true);
+    }
 }

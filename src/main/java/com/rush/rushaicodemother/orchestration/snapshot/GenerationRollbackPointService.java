@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.extern.slf4j.Slf4j;
@@ -27,12 +28,14 @@ public class GenerationRollbackPointService {
     private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final SnapshotNamePolicy snapshotNamePolicy;
+    private final GenerationTaskFenceGuard generationTaskFenceGuard;
 
     public GenerationRollbackPointService(
             GenerationWorkspaceService generationWorkspaceService,
             GenerationSnapshotWorkspaceService snapshotWorkspaceService,
             WorkspaceFileSystemService workspaceFileSystemService,
-            SnapshotNamePolicy snapshotNamePolicy
+            SnapshotNamePolicy snapshotNamePolicy,
+            GenerationTaskFenceGuard generationTaskFenceGuard
     ) {
         this.generationWorkspaceService = Objects.requireNonNull(
                 generationWorkspaceService,
@@ -47,6 +50,8 @@ public class GenerationRollbackPointService {
                 "workspaceFileSystemService must not be null"
         );
         this.snapshotNamePolicy = Objects.requireNonNull(snapshotNamePolicy, "snapshotNamePolicy must not be null");
+        this.generationTaskFenceGuard = Objects.requireNonNull(
+                generationTaskFenceGuard, "generationTaskFenceGuard must not be null");
     }
 
     public GenerationArtifact prepareRollbackPoint(GenerationOrchestrationRequest request,
@@ -88,6 +93,7 @@ public class GenerationRollbackPointService {
                         "project_directory_missing"
                 );
             }
+            generationTaskFenceGuard.assertCurrent(taskId);
             snapshotWorkspaceService.prepareApplicationRoot(appId);
             String snapshotName = buildSnapshotName(taskId);
             Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, snapshotName);

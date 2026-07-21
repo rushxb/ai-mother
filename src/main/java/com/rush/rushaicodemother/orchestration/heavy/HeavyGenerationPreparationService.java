@@ -12,6 +12,9 @@ import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextSe
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentAssembler;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentDecision;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +31,25 @@ public class HeavyGenerationPreparationService {
     private final GenerationOrchestrator generationOrchestrator;
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
     private final GeneratedProjectContextService generatedProjectContextService;
+    private final GenerationWorkspaceService generationWorkspaceService;
+
+    /** Compatibility constructor for legacy callers that do not run inside a durable execution scope. */
+    public HeavyGenerationPreparationService(
+            HeavyGenerationIntentAssembler heavyGenerationIntentAssembler,
+            GenerationMemoryContextService generationMemoryContextService,
+            GenerationOrchestrator generationOrchestrator,
+            GenerationToolExecutionContextService generationToolExecutionContextService,
+            GeneratedProjectContextService generatedProjectContextService
+    ) {
+        this(
+                heavyGenerationIntentAssembler,
+                generationMemoryContextService,
+                generationOrchestrator,
+                generationToolExecutionContextService,
+                generatedProjectContextService,
+                null
+        );
+    }
 
     public GenerationPreparation prepare(App app, String userMessage) {
         return prepare(null, app, userMessage);
@@ -124,6 +146,38 @@ public class HeavyGenerationPreparationService {
                 allowUnplannedWrite,
                 "orchestration_context"
         );
+        if (generationWorkspaceService == null) {
+            return;
+        }
+        try {
+            generationToolExecutionContextService.bindWorkspace(
+                    app.getId(),
+                    preparation.taskId(),
+                    generationWorkspaceService.resolve(app.getId(), preparation.targetType())
+            );
+        } catch (RuntimeException ignored) {
+            // Legacy, unmanaged preparation callers have no execution scope.
+        }
+    }
+
+    public void restoreToolExecutionContext(App app, GenerationPreparation preparation) {
+        bindToolExecutionContext(app, preparation);
+    }
+
+    /** Restores tool policy state and pins it to the exact resumed execution workspace. */
+    public void restoreToolExecutionContext(App app,
+                                            GenerationPreparation preparation,
+                                            GenerationExecutionFence executionFence,
+                                            GenerationWorkspace workspace) {
+        bindToolExecutionContext(app, preparation);
+        if (app != null && preparation != null && executionFence != null) {
+            generationToolExecutionContextService.bindExecutionFence(
+                    app.getId(), preparation.taskId(), executionFence);
+            if (workspace != null) {
+                generationToolExecutionContextService.bindWorkspace(
+                        app.getId(), preparation.taskId(), workspace, executionFence);
+            }
+        }
     }
 
     private Supplier<String> createProjectContextSupplier(App app) {

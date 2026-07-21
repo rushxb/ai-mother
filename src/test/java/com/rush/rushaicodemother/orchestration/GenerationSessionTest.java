@@ -1,7 +1,10 @@
 package com.rush.rushaicodemother.orchestration;
 
+import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -10,8 +13,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class GenerationSessionTest {
+
+    @Test
+    void emittedEventsAndCompletionMustReachSharedTaskTransport() {
+        GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
+        when(executionContext.taskId()).thenReturn("task-shared-stream");
+        GenerationEventStream eventStream = mock(GenerationEventStream.class);
+        GenerationSession session = new GenerationSession(null, executionContext, eventStream);
+        GenerationStreamEvent first = GenerationStreamEvent.aiDelta("hello");
+        GenerationStreamEvent second = GenerationStreamEvent.aiDelta("world");
+
+        session.emit(first);
+        session.emit(second);
+        session.complete();
+
+        verify(eventStream).publish("task-shared-stream", first);
+        verify(eventStream).publish("task-shared-stream", second);
+        verify(eventStream).complete("task-shared-stream");
+    }
 
     @Test
     void cancelInvokesRegisteredHandleOnlyOnce() {

@@ -21,6 +21,9 @@ public class ArtifactLifecycleProperties {
     /** 单次 robocopy 复制的总超时。 */
     private Duration copyTimeout = Duration.ofMinutes(15);
 
+    /** Maximum wall-clock time for seeding one isolated execution workspace. */
+    private Duration executionWorkspaceCopyTimeout = Duration.ofMinutes(2);
+
     /** robocopy 运行期间的心跳日志间隔。 */
     private Duration heartbeatInterval = Duration.ofSeconds(30);
 
@@ -65,9 +68,26 @@ public class ArtifactLifecycleProperties {
     @Max(5_000)
     private long publishRetryDelayMillis = 50;
 
+    /** Maximum time to wait for the per-application publication lock. */
+    private Duration publicationLockTimeout = Duration.ofSeconds(30);
+
+    /** Interval between durable publication reconciliation scans. */
+    private Duration publicationReconciliationScanInterval = Duration.ofSeconds(30);
+
+    /** Delay before another node may reclaim the same publication reconciliation item. */
+    private Duration publicationReconciliationRetryDelay = Duration.ofSeconds(30);
+
+    @Min(1)
+    @Max(1000)
+    private int publicationReconciliationBatchSize = 100;
+
+    @Min(1)
+    @Max(100)
+    private int publicationReconciliationMaxAttempts = 20;
+
     @AssertTrue(message = "产物复制命令相关超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
-        return Stream.of(copyTimeout, heartbeatInterval, outputDrainTimeout)
+        return Stream.of(copyTimeout, executionWorkspaceCopyTimeout, heartbeatInterval, outputDrainTimeout)
                 .allMatch(duration -> duration != null && !duration.isZero() && !duration.isNegative());
     }
 
@@ -81,5 +101,18 @@ public class ArtifactLifecycleProperties {
     @AssertTrue(message = "artifact maxTotalBytes must be greater than or equal to maxFileBytes")
     public boolean isCopySizeLimitValid() {
         return maxTotalBytes >= maxFileBytes;
+    }
+
+    @AssertTrue(message = "publication lock timeout must be positive")
+    public boolean isPublicationLockTimeoutValid() {
+        return publicationLockTimeout != null
+                && !publicationLockTimeout.isZero()
+                && !publicationLockTimeout.isNegative()
+                && publicationReconciliationScanInterval != null
+                && !publicationReconciliationScanInterval.isZero()
+                && !publicationReconciliationScanInterval.isNegative()
+                && publicationReconciliationRetryDelay != null
+                && !publicationReconciliationRetryDelay.isZero()
+                && !publicationReconciliationRetryDelay.isNegative();
     }
 }

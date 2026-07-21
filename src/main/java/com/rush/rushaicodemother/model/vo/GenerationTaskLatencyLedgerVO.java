@@ -1,0 +1,59 @@
+package com.rush.rushaicodemother.model.vo;
+
+import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedger;
+
+import java.time.Instant;
+import java.util.List;
+
+/** Administrator view of a task's non-double-counted wall-clock attribution. */
+public record GenerationTaskLatencyLedgerVO(
+        String taskId,
+        Long appId,
+        Long userId,
+        String route,
+        String status,
+        String stage,
+        Instant submittedAt,
+        Instant deadlineAt,
+        Instant completedAt,
+        Instant calculatedAt,
+        long totalLatencyMs,
+        long attributedLatencyMs,
+        long unattributedLatencyMs,
+        double attributionCoveragePercent,
+        long overlappingLatencyMs,
+        long deadlineOvershootMs,
+        int spanCount,
+        int usableSpanCount,
+        boolean spanLimitReached,
+        String dominantCategory,
+        List<CategoryLatencyVO> categories
+) {
+
+    public static GenerationTaskLatencyLedgerVO from(GenerationTaskLatencyLedger ledger) {
+        return new GenerationTaskLatencyLedgerVO(
+                ledger.taskId(), ledger.appId(), ledger.userId(), ledger.route(),
+                ledger.status(), ledger.stage(), ledger.submittedAt(), ledger.deadlineAt(),
+                ledger.completedAt(), ledger.calculatedAt(), ledger.totalLatencyMs(),
+                ledger.attributedLatencyMs(), ledger.unattributedLatencyMs(),
+                ledger.attributionCoveragePercent(), ledger.overlappingLatencyMs(),
+                ledger.deadlineOvershootMs(), ledger.spanCount(), ledger.usableSpanCount(),
+                ledger.spanLimitReached(), ledger.dominantCategory(),
+                ledger.categories().stream().map(CategoryLatencyVO::from).toList()
+        );
+    }
+
+    public record CategoryLatencyVO(
+            String category,
+            int spanCount,
+            long attributedDurationMs,
+            long inclusiveDurationMs,
+            double taskPercent
+    ) {
+        private static CategoryLatencyVO from(GenerationTaskLatencyLedger.CategoryLatency category) {
+            return new CategoryLatencyVO(
+                    category.category(), category.spanCount(), category.attributedDurationMs(),
+                    category.inclusiveDurationMs(), category.taskPercent());
+        }
+    }
+}

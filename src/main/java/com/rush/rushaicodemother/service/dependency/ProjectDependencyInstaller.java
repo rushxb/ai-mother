@@ -17,6 +17,13 @@ public interface ProjectDependencyInstaller {
      * deadline and cancellation propagation; legacy callers remain supported by the base method.
      */
     default DependencyInstallResult ensureInstalled(Path projectDirectory, String taskId) {
+        return ensureInstalled(projectDirectory, taskId, DependencyInstallMode.REUSE_IF_VALID);
+    }
+
+    /** Executes dependency provisioning under an explicit lockfile mutation policy. */
+    default DependencyInstallResult ensureInstalled(Path projectDirectory,
+                                                    String taskId,
+                                                    DependencyInstallMode mode) {
         return ensureInstalled(projectDirectory);
     }
 

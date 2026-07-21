@@ -2,13 +2,20 @@ package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
+import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import cn.hutool.crypto.digest.DigestUtil;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -19,17 +26,23 @@ import java.nio.file.Path;
  */
 @Slf4j
 @Component
-public class FileDeleteTool extends BaseTool {
+public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
 
     private final ToolExecutionGateway toolExecutionGateway;
     private final ToolWorkspaceFileService workspaceFileService;
+    private final GenerationToolExecutionContextService toolExecutionContextService;
+    private final ToolApprovalService toolApprovalService;
 
     public FileDeleteTool(
             ToolExecutionGateway toolExecutionGateway,
-            ToolWorkspaceFileService workspaceFileService
+            ToolWorkspaceFileService workspaceFileService,
+            GenerationToolExecutionContextService toolExecutionContextService,
+            ToolApprovalService toolApprovalService
     ) {
         this.toolExecutionGateway = toolExecutionGateway;
         this.workspaceFileService = workspaceFileService;
+        this.toolExecutionContextService = toolExecutionContextService;
+        this.toolApprovalService = toolApprovalService;
     }
 
     @Tool("删除指定路径的文件")
@@ -53,6 +66,7 @@ public class FileDeleteTool extends BaseTool {
             if (isImportantFile(fileName)) {
                 return "错误：不允许删除重要文件 - " + fileName;
             }
+            requireApproval(appId, normalizedPath);
             PatchApplyResult result = applyWithGlobalChangePlan(
                     appId,
                     file.projectRoot(),
@@ -65,6 +79,8 @@ public class FileDeleteTool extends BaseTool {
             return "删除文件失败: " + normalizedPath + ", 原因: " + result.reason();
         } catch (ToolInputException e) {
             return renderInputError("删除文件失败: ", e);
+        } catch (GenerationApprovalRequiredException approvalRequired) {
+            throw approvalRequired;
         } catch (Exception e) {
             log.error("删除文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
             return "删除文件失败，请稍后重试";
@@ -73,6 +89,61 @@ public class FileDeleteTool extends BaseTool {
 
     private PatchApplyResult applyWithGlobalChangePlan(Long appId, Path projectRoot, PatchOperation operation) {
         return toolExecutionGateway.applyPatch(appId, projectRoot, operation, "tool-delete-file", "delete_file");
+    }
+
+    @Override
+    public void authorizeInvocation(ToolExecutionRequest request, Long appId) {
+        if (request == null || request.arguments() == null || request.arguments().isBlank()) {
+            return;
+        }
+        JSONObject arguments;
+        try {
+            arguments = JSONUtil.parseObj(request.arguments());
+        } catch (RuntimeException malformedArguments) {
+            return;
+        }
+        String relativeFilePath = arguments.getStr("relativeFilePath");
+        if (relativeFilePath == null || relativeFilePath.isBlank()) {
+            return;
+        }
+        try {
+            ToolWorkspaceFileService.ToolWorkspaceFile file =
+                    workspaceFileService.resolveFile(appId, relativeFilePath);
+            if (!workspaceFileService.exists(file)
+                    || !workspaceFileService.isRegularFile(file)
+                    || isImportantFile(file.fileName())) {
+                return;
+            }
+            requireApproval(appId, file.relativePath());
+        } catch (ToolInputException invalidInput) {
+            // The tool method renders the normal input error; no destructive side effect is possible here.
+        }
+    }
+
+    private void requireApproval(Long appId, String normalizedPath) {
+        String taskId = toolExecutionContextService.getContext(appId)
+                .map(context -> context.taskId())
+                .orElse(null);
+        if (taskId == null || taskId.isBlank()) {
+            throw new ToolInputException("破坏性文件操作缺少生成任务上下文");
+        }
+        DestructiveToolAction action = DestructiveToolAction.FILE_DELETE;
+        String approvalId = DigestUtil.sha256Hex(
+                appId + ":" + action.name() + ":" + normalizedPath);
+        GenerationToolExecutionContextService.ToolInvocationExecution invocation =
+                toolExecutionContextService.currentInvocation().orElse(null);
+        if (!toolApprovalService.isExecutionAuthorized(taskId, action, approvalId, invocation)) {
+            throw new GenerationApprovalRequiredException(
+                    taskId,
+                    action,
+                    approvalId,
+                    java.util.Map.of(
+                            "appId", appId,
+                            "relativeFilePath", normalizedPath,
+                            "action", action.value()
+                    )
+            );
+        }
     }
 
     /**
@@ -91,6 +162,11 @@ public class FileDeleteTool extends BaseTool {
             }
         }
         return false;
+    }
+
+    @Override
+    public ToolRiskLevel getRiskLevel() {
+        return ToolRiskLevel.DESTRUCTIVE;
     }
 
     @Override

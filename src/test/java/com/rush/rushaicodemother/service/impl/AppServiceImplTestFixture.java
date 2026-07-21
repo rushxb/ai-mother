@@ -1,12 +1,13 @@
 package com.rush.rushaicodemother.service.impl;
 
 import com.rush.rushaicodemother.ai.PromptOptimizerServiceFactory;
+import com.rush.rushaicodemother.application.app.AppAccessPolicy;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotencyService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
-import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
-import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.deployment.AppDeploymentService;
 import com.rush.rushaicodemother.service.workspace.AppCodeWorkspaceService;
 
@@ -19,9 +20,7 @@ import static org.mockito.Mockito.mock;
  */
 final class AppServiceImplTestFixture {
 
-    private final UserCreditService userCreditService = mock(UserCreditService.class);
     private final AppPersistenceService appPersistenceService = mock(AppPersistenceService.class);
-    private final AiModelRuntimeService aiModelService = mock(AiModelRuntimeService.class);
     private final PromptOptimizerServiceFactory promptOptimizerServiceFactory =
             mock(PromptOptimizerServiceFactory.class);
     private final AppDatabaseResourceService appDatabaseResourceService =
@@ -30,10 +29,15 @@ final class AppServiceImplTestFixture {
             mock(AppCodeWorkspaceService.class);
     private final AppDeploymentService appDeploymentService =
             mock(AppDeploymentService.class);
+    private final AppAccessPolicy appAccessPolicy = mock(AppAccessPolicy.class);
     private GenerationTaskOrchestrator generationTaskOrchestrator =
             mock(GenerationTaskOrchestrator.class);
     private GenerationEventPublisher generationEventPublisher =
             mock(GenerationEventPublisher.class);
+    private GenerationTaskQueryService generationTaskQueryService =
+            mock(GenerationTaskQueryService.class);
+    private final GenerationTaskIdempotencyService generationTaskIdempotencyService =
+            mock(GenerationTaskIdempotencyService.class);
 
     AppServiceImplTestFixture withGenerationTaskOrchestrator(
             GenerationTaskOrchestrator generationTaskOrchestrator) {
@@ -47,17 +51,24 @@ final class AppServiceImplTestFixture {
         return this;
     }
 
+    AppServiceImplTestFixture withGenerationTaskQueryService(
+            GenerationTaskQueryService generationTaskQueryService) {
+        this.generationTaskQueryService = generationTaskQueryService;
+        return this;
+    }
+
     AppServiceImpl createService() {
         return new AppServiceImpl(
-                userCreditService,
                 appPersistenceService,
-                aiModelService,
                 promptOptimizerServiceFactory,
                 generationTaskOrchestrator,
                 generationEventPublisher,
+                generationTaskQueryService,
+                generationTaskIdempotencyService,
                 appDatabaseResourceService,
                 appCodeWorkspaceService,
-                appDeploymentService
+                appDeploymentService,
+                appAccessPolicy
         );
     }
 
@@ -73,11 +84,12 @@ final class AppServiceImplTestFixture {
         return appDeploymentService;
     }
 
+    AppAccessPolicy accessPolicy() {
+        return appAccessPolicy;
+    }
+
     AppDatabaseResourceService databaseResourceService() {
         return appDatabaseResourceService;
     }
 
-    UserCreditService creditService() {
-        return userCreditService;
-    }
 }

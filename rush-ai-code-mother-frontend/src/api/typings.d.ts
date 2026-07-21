@@ -517,6 +517,11 @@ declare namespace API {
     protocol?: string
   }
 
+  type AiModelToggleRequest = {
+    id: number
+    evidenceId?: string
+  }
+
   type AiModelQueryRequest = {
     pageNum?: number
     pageSize?: number

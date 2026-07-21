@@ -6,8 +6,10 @@ import com.rush.rushaicodemother.common.ResultUtils;
 import com.rush.rushaicodemother.constant.UserConstant;
 import com.rush.rushaicodemother.model.vo.GenerationDurationProfileVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceSummaryVO;
+import com.rush.rushaicodemother.model.vo.GenerationTaskLatencyLedgerVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskSpanVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedgerService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfileService;
 import jakarta.validation.constraints.Pattern;
@@ -32,6 +34,7 @@ public class GenerationPerformanceController {
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationSpanQueryService generationSpanQueryService;
     private final GenerationDurationProfileService generationDurationProfileService;
+    private final GenerationTaskLatencyLedgerService generationTaskLatencyLedgerService;
 
     @GetMapping("/admin/summary")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
@@ -60,6 +63,16 @@ public class GenerationPerformanceController {
                 .toList();
         return ResultUtils.success(spans);
     }
+
+    @GetMapping("/admin/tasks/{taskId}/latency-ledger")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<GenerationTaskLatencyLedgerVO> getTaskLatencyLedger(
+            @PathVariable String taskId
+    ) {
+        return ResultUtils.success(GenerationTaskLatencyLedgerVO.from(
+                generationTaskLatencyLedgerService.getLedger(taskId)));
+    }
+
     @GetMapping("/admin/routes/{route}/duration-profile")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<GenerationDurationProfileVO> getRouteDurationProfile(

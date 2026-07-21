@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.ai.AiCodeEditService;
 import com.rush.rushaicodemother.ai.AiCodeEditServiceFactory;
 import com.rush.rushaicodemother.ai.model.EditResult;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
@@ -16,13 +15,29 @@ import java.util.List;
 public class AgentEditRepairService {
 
     private final AiCodeEditServiceFactory aiCodeEditServiceFactory;
+    private final GenerationEditModelInvoker editModelInvoker;
     private final AgentEditPlanningService planningService;
 
     public RepairAttempt repair(String userMessage,
                                 String projectContext,
                                 BackgroundValidationService.ValidationResult validationResult,
                                 PatchApplyResult applyResult) {
-        AiCodeEditService aiCodeEditService = aiCodeEditServiceFactory.createAiCodeEditService();
+        return repairInternal(null, userMessage, projectContext, validationResult, applyResult);
+    }
+
+    public RepairAttempt repair(String taskId,
+                                String userMessage,
+                                String projectContext,
+                                BackgroundValidationService.ValidationResult validationResult,
+                                PatchApplyResult applyResult) {
+        return repairInternal(taskId, userMessage, projectContext, validationResult, applyResult);
+    }
+
+    private RepairAttempt repairInternal(String taskId,
+                                         String userMessage,
+                                         String projectContext,
+                                         BackgroundValidationService.ValidationResult validationResult,
+                                         PatchApplyResult applyResult) {
         String repairMessage = """
                 %s
 
@@ -40,7 +55,9 @@ public class AgentEditRepairService {
                 StrUtil.blankToDefault(userMessage, ""),
                 buildFailureMessage(validationResult, applyResult)
         );
-        EditResult editResult = aiCodeEditService.editCode(repairMessage, projectContext);
+        EditResult editResult = taskId == null
+                ? aiCodeEditServiceFactory.createAiCodeEditService().editCode(repairMessage, projectContext)
+                : editModelInvoker.invokeManaged(taskId, "agent_repair", repairMessage, projectContext);
         List<PatchOperation> operations = planningService.convertToPatchOperations(editResult);
         return new RepairAttempt(editResult, operations);
     }

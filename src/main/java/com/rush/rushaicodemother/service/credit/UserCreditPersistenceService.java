@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.service.credit;
 
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
 
+import java.util.List;
+
 /** 用户积分模块的显式持久化边界。 */
 public interface UserCreditPersistenceService {
 
@@ -20,6 +22,8 @@ public interface UserCreditPersistenceService {
     void appendTransaction(NewCreditTransaction transaction);
 
     void settleGenerationTask(Long taskRecordId, long creditCost, long totalTokens);
+
+    List<String> findUnsettledTerminalTaskIds(int limit);
 
     record CreditAccount(long userId, long balance) {
     }

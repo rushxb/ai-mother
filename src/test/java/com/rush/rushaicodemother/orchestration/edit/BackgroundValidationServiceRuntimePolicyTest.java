@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -47,7 +48,7 @@ class BackgroundValidationServiceRuntimePolicyTest {
                 new GenerationExecutionCancelledException("user requested stop");
         when(devServerManager.isRunning(11L)).thenReturn(true);
         when(devServerManager.getPort(11L)).thenReturn(5180);
-        when(projectBuilder.buildProjectWithResult(any(String.class))).thenThrow(cancellation);
+        when(projectBuilder.buildProjectWithResult(any(String.class), eq("task-1"))).thenThrow(cancellation);
         when(executionContextService.shouldStop("task-1")).thenReturn(true);
 
         GenerationExecutionCancelledException thrown = assertThrows(

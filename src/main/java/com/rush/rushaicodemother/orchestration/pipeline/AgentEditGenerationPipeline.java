@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.edit.AgentEditGenerationService;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditResult;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,7 +50,7 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
         try {
             session.throwIfCancelled();
             AgentEditResult editResult = agentEditGenerationService.execute(
-                    execution.taskId(), request.taskRequest(), request.modeDecision());
+                    execution.taskId(), request.taskRequest(), request.modeDecision(), request.workspace());
             if (editResult == null) {
                 return GenerationPipelineOutcome.fallback(route(), "agent_edit_not_applicable");
             }
@@ -90,6 +91,8 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
             ));
             generationPerformanceMonitorService.finishTask(execution.taskId(), "success");
             return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.SUCCESS);
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (RuntimeException failure) {
             log.warn("AGENT_EDIT 路径执行失败，appId: {}, taskId: {}, error: {}",
                     app.getId(), execution.taskId(), LogExceptionSanitizer.sanitizeMessage(failure));

@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +44,17 @@ public class DevServerValidationService {
             Long userId,
             CodeGenTypeEnum codeGenType
     ) {
+        return validate(taskId, appId, userId, codeGenType, null);
+    }
+
+    /** Runs validation against the exact isolated workspace owned by the supplied fence. */
+    public DevServerValidationResult validate(
+            String taskId,
+            Long appId,
+            Long userId,
+            CodeGenTypeEnum codeGenType,
+            GenerationExecutionFence executionFence
+    ) {
         validateRequest(taskId, appId, userId, codeGenType);
         generationExecutionContextService.assertCanContinue(taskId);
         Duration startupTimeout = generationExecutionContextService.clampTimeout(
@@ -63,7 +75,8 @@ public class DevServerValidationService {
             DevServerStartOptions startOptions = new DevServerStartOptions(
                     taskId,
                     startupTimeout,
-                    () -> generationExecutionContextService.shouldStop(taskId)
+                    () -> generationExecutionContextService.shouldStop(taskId),
+                    executionFence
             );
             try {
                 startResult = devServerManager.startDevServer(app, userId, startOptions);

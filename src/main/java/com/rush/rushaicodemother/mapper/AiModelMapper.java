@@ -13,7 +13,8 @@ import java.util.List;
 public interface AiModelMapper {
 
     @Select("""
-            SELECT id, modelName, provider, modelId, description, baseUrl, apiKey,
+            SELECT id, modelName, provider, modelId, description, baseUrl,
+                   secretRef, secretFingerprint, secretKeyId,
                    maxTokens, temperature, isEnabled, modelType, supportsThinking,
                    sortOrder, configJson, userId, editTime, createTime, updateTime, isDelete
             FROM ai_model
@@ -23,7 +24,8 @@ public interface AiModelMapper {
     AiModel selectActiveById(@Param("modelId") Long modelId);
 
     @Select("""
-            SELECT id, modelName, provider, modelId, description, baseUrl, apiKey,
+            SELECT id, modelName, provider, modelId, description, baseUrl,
+                   secretRef, secretFingerprint, secretKeyId,
                    maxTokens, temperature, isEnabled, modelType, supportsThinking,
                    sortOrder, configJson, userId, editTime, createTime, updateTime, isDelete
             FROM ai_model
@@ -35,7 +37,8 @@ public interface AiModelMapper {
 
     @Select("""
             <script>
-            SELECT id, modelName, provider, modelId, description, baseUrl, apiKey,
+            SELECT id, modelName, provider, modelId, description, baseUrl,
+                   secretRef, secretFingerprint, secretKeyId,
                    maxTokens, temperature, isEnabled, modelType, supportsThinking,
                    sortOrder, configJson, userId, editTime, createTime, updateTime, isDelete
             FROM ai_model
@@ -88,7 +91,8 @@ public interface AiModelMapper {
 
     @Select("""
             <script>
-            SELECT id, modelName, provider, modelId, description, baseUrl, apiKey,
+            SELECT id, modelName, provider, modelId, description, baseUrl,
+                   secretRef, secretFingerprint, secretKeyId,
                    maxTokens, temperature, isEnabled, modelType, supportsThinking,
                    sortOrder, configJson, userId, editTime, createTime, updateTime, isDelete
             FROM ai_model
@@ -122,11 +126,13 @@ public interface AiModelMapper {
 
     @Insert("""
             INSERT INTO ai_model (
-                modelName, provider, modelId, description, baseUrl, apiKey,
+                modelName, provider, modelId, description, baseUrl,
+                secretRef, secretFingerprint, secretKeyId,
                 maxTokens, temperature, isEnabled, modelType, supportsThinking,
                 sortOrder, configJson, userId, isDelete
             ) VALUES (
-                #{modelName}, #{provider}, #{modelId}, #{description}, #{baseUrl}, #{apiKey},
+                #{modelName}, #{provider}, #{modelId}, #{description}, #{baseUrl},
+                #{secretRef}, #{secretFingerprint}, #{secretKeyId},
                 #{maxTokens}, #{temperature}, #{isEnabled}, #{modelType}, #{supportsThinking},
                 #{sortOrder}, #{configJson}, #{userId}, 0
             )
@@ -141,7 +147,9 @@ public interface AiModelMapper {
                 modelId = #{modelId},
                 description = #{description},
                 baseUrl = #{baseUrl},
-                apiKey = #{apiKey},
+                secretRef = #{secretRef},
+                secretFingerprint = #{secretFingerprint},
+                secretKeyId = #{secretKeyId},
                 maxTokens = #{maxTokens},
                 temperature = #{temperature},
                 isEnabled = #{isEnabled},
@@ -156,28 +164,61 @@ public interface AiModelMapper {
     int updateActiveModel(AiModel model);
 
     @Update("""
-            <script>
-            UPDATE ai_model
-            SET isEnabled = 0,
-                editTime = CURRENT_TIMESTAMP
-            WHERE modelType = #{modelType}
-              AND isEnabled = 1
-              AND isDelete = 0
-            <if test="excludedModelId != null">
-              AND id != #{excludedModelId}
-            </if>
-            </script>
-            """)
-    int disableOtherEnabledModels(@Param("modelType") String modelType,
-                                  @Param("excludedModelId") Long excludedModelId);
-
-    @Update("""
             UPDATE ai_model
             SET isEnabled = 0,
                 isDelete = 1,
+                secretRef = NULL,
+                secretFingerprint = NULL,
+                secretKeyId = NULL,
                 editTime = CURRENT_TIMESTAMP
             WHERE id = #{modelId}
               AND isDelete = 0
             """)
     int logicallyDeleteActiveModel(@Param("modelId") Long modelId);
+
+    @Select("""
+            SELECT id, secretRef, secretFingerprint, secretKeyId, isDelete
+            FROM ai_model
+            WHERE id > #{afterId}
+              AND (secretRef IS NOT NULL
+                   OR secretFingerprint IS NOT NULL
+                   OR secretKeyId IS NOT NULL)
+            ORDER BY id ASC
+            LIMIT #{batchSize}
+            """)
+    List<AiModel> selectSecretMigrationBatch(@Param("afterId") long afterId,
+                                             @Param("batchSize") int batchSize);
+
+    @Select("""
+            SELECT id, secretRef, secretFingerprint, secretKeyId, isDelete
+            FROM ai_model
+            WHERE id = #{modelId}
+            """)
+    AiModel selectStoredSecretById(@Param("modelId") long modelId);
+
+    @Update("""
+            UPDATE ai_model
+            SET secretRef = #{secretRef},
+                secretFingerprint = #{secretFingerprint},
+                secretKeyId = #{secretKeyId},
+                editTime = CURRENT_TIMESTAMP
+            WHERE id = #{modelId}
+              AND SHA2(secretRef, 256) = #{expectedLegacySecretSha256}
+            """)
+    int replaceStoredSecretIfCurrent(@Param("modelId") long modelId,
+                                     @Param("expectedLegacySecretSha256") String expectedLegacySecretSha256,
+                                     @Param("secretRef") String secretRef,
+                                     @Param("secretFingerprint") String secretFingerprint,
+                                     @Param("secretKeyId") String secretKeyId);
+
+    @Update("""
+            UPDATE ai_model
+            SET secretRef = NULL,
+                secretFingerprint = NULL,
+                secretKeyId = NULL,
+                editTime = CURRENT_TIMESTAMP
+            WHERE id = #{modelId}
+              AND isDelete = 1
+            """)
+    int clearDeletedStoredSecret(@Param("modelId") long modelId);
 }

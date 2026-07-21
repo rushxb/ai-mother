@@ -5,27 +5,34 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /** 将管理命令显式装配为模块内部配置，保护创建人和审计字段。 */
 @Component
+@RequiredArgsConstructor
 public class AiModelConfigurationAssembler {
 
-    private static final int DEFAULT_ENABLED = 1;
+    private static final int DEFAULT_ENABLED = 0;
     private static final int DEFAULT_SORT_ORDER = 0;
+
+    private final AiModelSecretService secretService;
 
     public AiModelConfiguration fromCreateCommand(AiModelManagementService.CreateCommand command,
                                                    Long operatorUserId) {
         if (command == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型配置不能为空");
         }
+        AiModelProtectedSecret protectedSecret = secretService.protect(command.apiKey());
         return AiModelConfiguration.builder()
                 .modelName(command.modelName())
                 .provider(command.provider())
                 .modelId(command.modelId())
                 .description(command.description())
                 .baseUrl(command.baseUrl())
-                .apiKey(command.apiKey())
+                .secretRef(protectedSecret.reference())
+                .secretFingerprint(protectedSecret.fingerprint())
+                .secretKeyId(protectedSecret.keyId())
                 .maxTokens(command.maxTokens())
                 .temperature(command.temperature())
                 .isEnabled(command.isEnabled() == null ? DEFAULT_ENABLED : command.isEnabled())
@@ -63,7 +70,10 @@ public class AiModelConfigurationAssembler {
             builder.baseUrl(command.baseUrl());
         }
         if (StrUtil.isNotBlank(command.apiKey())) {
-            builder.apiKey(command.apiKey());
+            AiModelProtectedSecret protectedSecret = secretService.protect(command.apiKey());
+            builder.secretRef(protectedSecret.reference())
+                    .secretFingerprint(protectedSecret.fingerprint())
+                    .secretKeyId(protectedSecret.keyId());
         }
         if (command.maxTokens() != null) {
             builder.maxTokens(command.maxTokens());

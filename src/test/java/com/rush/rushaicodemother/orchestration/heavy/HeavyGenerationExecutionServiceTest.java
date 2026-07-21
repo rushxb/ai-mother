@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
@@ -41,7 +42,7 @@ import static org.mockito.Mockito.when;
 class HeavyGenerationExecutionServiceTest {
 
     @Test
-    void autoRepairPromptMustNotForwardRawFailureDetailsToMemoryOrModel() {
+    void autoRepairPromptMustPreserveSanitizedDiagnosticForMemoryAndModel() {
         GenerationMemoryContextService memoryContextService = mock(GenerationMemoryContextService.class);
         HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
         HeavyGenerationExecutionService service = new HeavyGenerationExecutionService(
@@ -54,7 +55,9 @@ class HeavyGenerationExecutionServiceTest {
                 failureRecoveryService,
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
-                mock(StreamHandlerExecutor.class)
+                mock(StreamHandlerExecutor.class),
+                mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
+                mock(GenerationStageAdmissionService.class)
         );
         GenerationPreparation preparation = new GenerationPreparation(
                 CodeGenTypeEnum.VUE_PROJECT,
@@ -71,21 +74,26 @@ class HeavyGenerationExecutionServiceTest {
         RuntimeException failure = new RuntimeException("provider-api-key=secret-value");
         GenerationErrorClassifier.GenerationError classifiedFailure = GenerationErrorClassifier.classify(failure);
         when(failureRecoveryService.classifyGenerationError(failure)).thenReturn(classifiedFailure);
+        String sanitizedDiagnostic = "provider-api-key=[REDACTED]";
         when(memoryContextService.buildAutoRepairMemoryContext(
                 43L,
                 "task-43",
-                classifiedFailure.message(),
+                sanitizedDiagnostic,
                 1
         )).thenReturn("");
 
         String prompt = service.buildAutoRepairPrompt(43L, preparation, failure, 1);
 
         assertTrue(prompt.contains(classifiedFailure.message()));
+        assertTrue(prompt.contains(sanitizedDiagnostic));
+        assertTrue(prompt.contains("BEGIN_UNTRUSTED_VALIDATION_DIAGNOSTIC"));
+        assertTrue(prompt.contains("编排器会统一执行构建与运行时复验"));
+        assertFalse(prompt.contains("必须先调用本地构建诊断工具"));
         assertFalse(prompt.contains("secret-value"));
         verify(memoryContextService).buildAutoRepairMemoryContext(
                 43L,
                 "task-43",
-                classifiedFailure.message(),
+                sanitizedDiagnostic,
                 1
         );
     }
@@ -111,7 +119,9 @@ class HeavyGenerationExecutionServiceTest {
                 failureRecoveryService,
                 completionService,
                 new GenerationWorkspaceService(new CodeStorageProperties()),
-                streamHandlerExecutor
+                streamHandlerExecutor,
+                mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
+                mock(GenerationStageAdmissionService.class)
         ));
         GenerationPreparation preparation = new GenerationPreparation(
                 CodeGenTypeEnum.HTML,

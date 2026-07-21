@@ -1,5 +1,12 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
+import com.rush.rushaicodemother.infrastructure.sandbox.GeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.HostLocalGeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
+import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -24,40 +31,119 @@ public class ManagedProcessExecutor {
 
     private final ProjectProcessTerminator processTerminator;
     private final ProcessStarter processStarter;
+    private final GeneratedCodeProcessSandbox processSandbox;
+    private final GeneratedCodeSandboxMetricsCollector sandboxMetrics;
+    private final Tracer tracer;
 
     @Autowired
+    public ManagedProcessExecutor(ProjectProcessTerminator processTerminator,
+                                  GeneratedCodeProcessSandbox processSandbox,
+                                  GeneratedCodeSandboxMetricsCollector sandboxMetrics,
+                                  Tracer tracer) {
+        this(processTerminator, ProcessBuilder::start, processSandbox, sandboxMetrics, tracer);
+    }
+
+    public ManagedProcessExecutor(ProjectProcessTerminator processTerminator,
+                                  GeneratedCodeProcessSandbox processSandbox,
+                                  GeneratedCodeSandboxMetricsCollector sandboxMetrics) {
+        this(processTerminator, ProcessBuilder::start, processSandbox, sandboxMetrics, Tracer.NOOP);
+    }
+
     public ManagedProcessExecutor(ProjectProcessTerminator processTerminator) {
-        this(processTerminator, ProcessBuilder::start);
+        this(processTerminator, ProcessBuilder::start, new HostLocalGeneratedCodeProcessSandbox(),
+                GeneratedCodeSandboxMetricsCollector.noOp(), Tracer.NOOP);
     }
 
     ManagedProcessExecutor(
             ProjectProcessTerminator processTerminator,
             ProcessStarter processStarter
     ) {
+        this(processTerminator, processStarter, new HostLocalGeneratedCodeProcessSandbox(),
+                GeneratedCodeSandboxMetricsCollector.noOp(), Tracer.NOOP);
+    }
+
+    ManagedProcessExecutor(
+            ProjectProcessTerminator processTerminator,
+            ProcessStarter processStarter,
+            GeneratedCodeProcessSandbox processSandbox
+    ) {
+        this(processTerminator, processStarter, processSandbox,
+                GeneratedCodeSandboxMetricsCollector.noOp(), Tracer.NOOP);
+    }
+
+    ManagedProcessExecutor(
+            ProjectProcessTerminator processTerminator,
+            ProcessStarter processStarter,
+            GeneratedCodeProcessSandbox processSandbox,
+            GeneratedCodeSandboxMetricsCollector sandboxMetrics
+    ) {
+        this(processTerminator, processStarter, processSandbox, sandboxMetrics, Tracer.NOOP);
+    }
+
+    ManagedProcessExecutor(
+            ProjectProcessTerminator processTerminator,
+            ProcessStarter processStarter,
+            GeneratedCodeProcessSandbox processSandbox,
+            GeneratedCodeSandboxMetricsCollector sandboxMetrics,
+            Tracer tracer
+    ) {
         this.processTerminator = processTerminator;
         this.processStarter = processStarter;
+        this.processSandbox = processSandbox;
+        this.sandboxMetrics = sandboxMetrics;
+        this.tracer = tracer;
     }
 
     public ManagedProcessResult execute(ManagedProcessRequest request) {
+        Span parent = tracer.currentSpan();
+        if (parent == null) {
+            return executeInternal(request);
+        }
+        String category = normalizeLogValue(request == null ? null : request.logCategory(), "external-process")
+                .replaceAll("[^A-Za-z0-9_.-]", "_");
+        Span span = tracer.spanBuilder()
+                .name("generated_code.process." + category)
+                .kind(Span.Kind.CLIENT)
+                .start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            ManagedProcessResult result = executeInternal(request);
+            span.tag("process.status", result.status().name().toLowerCase());
+            span.tag("process.success", result.exitedSuccessfully());
+            if (!result.exitedSuccessfully()) {
+                span.event("generated_code.process.failed");
+            }
+            return result;
+        } catch (RuntimeException | Error failure) {
+            span.error(failure);
+            throw failure;
+        } finally {
+            span.end();
+        }
+    }
+
+    private ManagedProcessResult executeInternal(ManagedProcessRequest request) {
+        long startedAtNanos = System.nanoTime();
         validateRequest(request);
         Path workingDirectory = normalizeWorkingDirectory(request.workingDirectory());
+        SandboxProcessPlan processPlan = null;
         String commandText = displayCommand(request);
         Process process = null;
         ProcessOutputCollector stdoutCollector = null;
         ProcessOutputCollector stderrCollector = null;
         List<CompletableFuture<Void>> outputCompletions = List.of();
 
-        log.info("执行外部进程: category={}, command={}, context={}",
-                normalizeLogValue(request.logCategory(), "external-process"),
-                commandText,
-                normalizeLogValue(request.logContext(), "unknown"));
-
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(request.command());
-            processBuilder.directory(workingDirectory.toFile());
+            processPlan = processSandbox.prepare(request, workingDirectory);
+            log.info("执行外部进程: category={}, sandbox={}, command={}, context={}",
+                    normalizeLogValue(request.logCategory(), "external-process"),
+                    processPlan.backend(),
+                    commandText,
+                    normalizeLogValue(request.logContext(), "unknown"));
+            ProcessBuilder processBuilder = new ProcessBuilder(processPlan.hostCommand());
+            processBuilder.directory(processPlan.hostWorkingDirectory().toFile());
             processBuilder.redirectErrorStream(request.redirectErrorStream());
-            processBuilder.environment().putAll(request.environment());
-            request.environmentVariablesToRemove().forEach(processBuilder.environment()::remove);
+            processBuilder.environment().putAll(processPlan.hostEnvironment());
+            processPlan.hostEnvironmentVariablesToRemove().forEach(processBuilder.environment()::remove);
 
             process = processStarter.start(processBuilder);
             request.lifecycle().onStarted(process);
@@ -87,51 +173,83 @@ public class ManagedProcessExecutor {
             if (!waitOutcome.completed()) {
                 processTerminator.terminate(process);
                 awaitOutputCompletion(outputCompletions, request.outputDrainTimeout());
-                return result(
+                return measuredResult(result(
                         waitOutcome.status(),
                         commandText,
                         null,
                         stdoutCollector,
                         stderrCollector,
                         waitOutcome.errorDetail()
-                );
+                ), processPlan, request, startedAtNanos);
             }
 
             awaitOutputCompletion(outputCompletions, request.outputDrainTimeout());
-            return result(
+            return measuredResult(result(
                     ManagedProcessResult.Status.COMPLETED,
                     commandText,
                     process.exitValue(),
                     stdoutCollector,
                     stderrCollector,
                     null
-            );
+            ), processPlan, request, startedAtNanos);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             terminateAndDrain(process, outputCompletions, request.outputDrainTimeout());
-            return result(
+            return measuredResult(result(
                     ManagedProcessResult.Status.INTERRUPTED,
                     commandText,
                     null,
                     stdoutCollector,
                     stderrCollector,
                     "外部进程执行线程被中断"
-            );
+            ), processPlan, request, startedAtNanos);
         } catch (IOException | RuntimeException exception) {
             terminateAndDrain(process, outputCompletions, request.outputDrainTimeout());
             log.error("启动或执行外部进程失败: command={}, exceptionType={}",
                     commandText, exception.getClass().getName());
-            return result(
+            return measuredResult(result(
                     ManagedProcessResult.Status.START_FAILED,
                     commandText,
                     null,
                     stdoutCollector,
                     stderrCollector,
                     "外部进程启动失败，请检查运行环境和命令配置"
-            );
+            ), processPlan, request, startedAtNanos);
         } finally {
             notifyFinished(request.lifecycle(), process, commandText);
+            cleanupSandbox(processPlan, commandText);
         }
+    }
+
+    private void cleanupSandbox(SandboxProcessPlan processPlan, String commandText) {
+        if (processPlan == null) {
+            return;
+        }
+        try {
+            processSandbox.cleanup(processPlan);
+            if (!processPlan.cleanupResourceId().isBlank()) {
+                sandboxMetrics.recordCleanup(processPlan.backend(), "success");
+            }
+        } catch (RuntimeException exception) {
+            sandboxMetrics.recordCleanup(processPlan.backend(), "failure");
+            log.warn("Sandbox 清理失败: backend={}, command={}, exceptionType={}",
+                    processPlan.backend(), commandText, exception.getClass().getName());
+        }
+    }
+
+    private ManagedProcessResult measuredResult(
+            ManagedProcessResult result,
+            SandboxProcessPlan processPlan,
+            ManagedProcessRequest request,
+            long startedAtNanos
+    ) {
+        sandboxMetrics.recordExecution(
+                processPlan == null ? "unknown" : processPlan.backend(),
+                request.logCategory(),
+                result.status().name(),
+                Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos))
+        );
+        return result;
     }
 
     private void notifyFinished(

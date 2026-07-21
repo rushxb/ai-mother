@@ -51,6 +51,9 @@ public abstract class BaseTool {
      */
     public abstract String getDisplayName();
 
+    /** Maximum risk of any operation exposed by this tool. */
+    public abstract ToolRiskLevel getRiskLevel();
+
     /**
      * 生成工具请求时的返回值（显示给用户）
      *

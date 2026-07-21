@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
+import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
 import com.rush.rushaicodemother.service.credit.UserCreditCostCalculator;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditAccount;
@@ -150,6 +151,56 @@ class UserCreditServiceImplTest {
     }
 
     @Test
+    void generationReservationMustFreezeQuotedCreditWithAnIdempotentLedger() {
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 10L));
+
+        creditService.reserveGenerationTask(reservationCommand(3L, "policy-v1:LIGHT_EDIT:VUE_PROJECT"));
+
+        verify(persistenceService).updateBalance(7L, 7L);
+        ArgumentCaptor<NewCreditTransaction> captor =
+                ArgumentCaptor.forClass(NewCreditTransaction.class);
+        verify(persistenceService).appendTransaction(captor.capture());
+        NewCreditTransaction transaction = captor.getValue();
+        assertEquals(-3L, transaction.changeAmount());
+        assertEquals(7L, transaction.balanceAfter());
+        assertEquals(UserCreditTransactionType.GENERATION_RESERVATION, transaction.type());
+        assertEquals("task-1", transaction.bizId());
+        assertEquals("reservation:policy-v1:LIGHT_EDIT:VUE_PROJECT", transaction.remark());
+        assertNull(transaction.tokenCount());
+    }
+
+    @Test
+    void repeatedGenerationReservationMustNotFreezeCreditTwice() {
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 7L));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:policy-v1:LIGHT_EDIT:VUE_PROJECT", null, null
+                ));
+
+        creditService.reserveGenerationTask(reservationCommand(3L, "policy-v1:LIGHT_EDIT:VUE_PROJECT"));
+
+        verify(persistenceService, never()).updateBalance(anyLong(), anyLong());
+        verify(persistenceService, never()).appendTransaction(any());
+    }
+
+    @Test
+    void generationReservationMustRejectInsufficientBalanceBeforeDurableSubmission() {
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 2L));
+
+        BusinessException failure = assertThrows(
+                BusinessException.class,
+                () -> creditService.reserveGenerationTask(
+                        reservationCommand(3L, "policy-v1:LIGHT_EDIT:VUE_PROJECT"))
+        );
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), failure.getCode());
+        verify(persistenceService, never()).updateBalance(anyLong(), anyLong());
+        verify(persistenceService, never()).appendTransaction(any());
+    }
+
+    @Test
     void reusedRequestIdWithDifferentPayloadMustFailExplicitly() {
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 7L));
         when(persistenceService.findTransaction(UserCreditTransactionType.ADMIN_ADJUST, REQUEST_ID))
@@ -230,6 +281,104 @@ class UserCreditServiceImplTest {
     }
 
     @Test
+    void reservedGenerationSettlementMustRefundUnusedCredit() {
+        when(persistenceService.lockGenerationTask("task-1"))
+                .thenReturn(new GenerationCreditTask(101L, "task-1", 7L, false));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:policy-v1", null, null
+                ));
+        when(persistenceService.sumPositiveTaskTokens("task-1")).thenReturn(100_000L);
+        when(costCalculator.calculate(100_000L)).thenReturn(1L);
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 5L));
+
+        creditService.chargeGenerationTask("task-1");
+
+        verify(persistenceService).updateBalance(7L, 9L);
+        ArgumentCaptor<NewCreditTransaction> captor =
+                ArgumentCaptor.forClass(NewCreditTransaction.class);
+        verify(persistenceService).appendTransaction(captor.capture());
+        NewCreditTransaction settlement = captor.getValue();
+        assertEquals(UserCreditTransactionType.GENERATION_SETTLEMENT, settlement.type());
+        assertEquals(4L, settlement.changeAmount());
+        assertEquals(9L, settlement.balanceAfter());
+        assertEquals(100_000L, settlement.tokenCount());
+        verify(persistenceService).settleGenerationTask(101L, 1L, 100_000L);
+    }
+
+    @Test
+    void reservedGenerationSettlementMustCaptureAvailableOverageWithoutNegativeBalance() {
+        when(persistenceService.lockGenerationTask("task-1"))
+                .thenReturn(new GenerationCreditTask(101L, "task-1", 7L, false));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, -2L, 1L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:policy-v1", null, null
+                ));
+        when(persistenceService.sumPositiveTaskTokens("task-1")).thenReturn(500_000L);
+        when(costCalculator.calculate(500_000L)).thenReturn(5L);
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 1L));
+
+        creditService.chargeGenerationTask("task-1");
+
+        verify(persistenceService).updateBalance(7L, 0L);
+        ArgumentCaptor<NewCreditTransaction> captor =
+                ArgumentCaptor.forClass(NewCreditTransaction.class);
+        verify(persistenceService).appendTransaction(captor.capture());
+        NewCreditTransaction settlement = captor.getValue();
+        assertEquals(-1L, settlement.changeAmount());
+        assertEquals(0L, settlement.balanceAfter());
+        verify(persistenceService).settleGenerationTask(101L, 3L, 500_000L);
+    }
+
+    @Test
+    void cancelledBeforeModelUseMustReleaseTheEntireReservation() {
+        when(persistenceService.lockGenerationTask("task-1"))
+                .thenReturn(new GenerationCreditTask(101L, "task-1", 7L, false));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:policy-v1", null, null
+                ));
+        when(costCalculator.calculate(0L)).thenReturn(0L);
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 7L));
+
+        creditService.chargeGenerationTask("task-1");
+
+        verify(persistenceService).updateBalance(7L, 10L);
+        verify(persistenceService).settleGenerationTask(101L, 0L, 0L);
+    }
+
+    @Test
+    void persistedReservationSettlementMustRecoverTaskMarkerWithoutChangingBalanceAgain() {
+        when(persistenceService.lockGenerationTask("task-1"))
+                .thenReturn(new GenerationCreditTask(101L, "task-1", 7L, false));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_SETTLEMENT, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, 2L, 9L, UserCreditTransactionType.GENERATION_SETTLEMENT,
+                        "task-1", "settled", null, 100_000L
+                ));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:policy-v1", null, null
+                ));
+
+        creditService.chargeGenerationTask("task-1");
+
+        verify(persistenceService).settleGenerationTask(101L, 1L, 100_000L);
+        verify(persistenceService, never()).lockActiveAccount(any());
+        verify(persistenceService, never()).appendTransaction(any());
+        verifyNoInteractions(costCalculator);
+    }
+
+    @Test
     void zeroCostGenerationMustStillWriteLedgerForAuditAndIdempotency() {
         when(persistenceService.lockGenerationTask("task-1"))
                 .thenReturn(new GenerationCreditTask(101L, "task-1", 7L, false));
@@ -293,5 +442,9 @@ class UserCreditServiceImplTest {
 
     private AdminCreditAdjustmentCommand adjustment(long amount, String remark) {
         return new AdminCreditAdjustmentCommand(REQUEST_ID, 7L, amount, remark, 9L);
+    }
+
+    private GenerationCreditReservationCommand reservationCommand(long amount, String pricingReference) {
+        return new GenerationCreditReservationCommand("task-1", 7L, amount, pricingReference);
     }
 }

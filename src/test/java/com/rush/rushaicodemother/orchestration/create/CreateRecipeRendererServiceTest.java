@@ -204,7 +204,22 @@ class CreateRecipeRendererServiceTest {
             Process process = new ProcessBuilder("go", "version")
                     .redirectErrorStream(true)
                     .start();
-            return process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0;
+            if (!process.waitFor(5, TimeUnit.SECONDS) || process.exitValue() != 0) {
+                return false;
+            }
+            Process goRootProcess = new ProcessBuilder("go", "env", "GOROOT")
+                    .redirectErrorStream(true)
+                    .start();
+            if (!goRootProcess.waitFor(5, TimeUnit.SECONDS) || goRootProcess.exitValue() != 0) {
+                return false;
+            }
+            String goRoot = new String(
+                    goRootProcess.getInputStream().readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8
+            ).trim();
+            return !goRoot.isBlank()
+                    && Files.isRegularFile(Path.of(goRoot, "src", "os", "os.go"))
+                    && Files.isRegularFile(Path.of(goRoot, "src", "encoding", "json", "encode.go"));
         } catch (Exception e) {
             return false;
         }

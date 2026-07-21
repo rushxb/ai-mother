@@ -14,6 +14,7 @@ public record GenerationTaskRecoveryCandidate(
         Instant deadlineAt,
         boolean cancellationRequested,
         String cancellationReason,
+        long executionEpoch,
         long version
 ) {
 }

@@ -118,10 +118,15 @@ class ProjectProcessTerminatorTest {
         );
         return new ProcessBuilder(
                 javaExecutable.toString(),
+                "-Xms8m",
+                "-Xmx32m",
+                "-XX:MaxMetaspaceSize=64m",
+                "-XX:+UseSerialGC",
+                "-XX:ActiveProcessorCount=1",
                 "-cp",
                 System.getProperty("java.class.path"),
                 mainClass
-        ).redirectErrorStream(true).start();
+        ).start();
     }
 
     private void awaitProcessExit(ProcessHandle process, Duration timeout) throws InterruptedException {
@@ -150,6 +155,11 @@ class ProjectProcessTerminatorTest {
             );
             Process child = new ProcessBuilder(
                     javaExecutable.toString(),
+                    "-Xms8m",
+                    "-Xmx32m",
+                    "-XX:MaxMetaspaceSize=64m",
+                    "-XX:+UseSerialGC",
+                    "-XX:ActiveProcessorCount=1",
                     "-cp",
                     System.getProperty("java.class.path"),
                     ProcessTreeChild.class.getName()

@@ -34,7 +34,11 @@ public class GenerationOrchestrationMetricsCollector {
     private final ConcurrentMap<String, Counter> patchResultCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> patchApplyCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> autoRepairCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> runtimeValidationCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> stageAdmissionCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> userWaitTimers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Timer> firstPreviewTimers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> slaOutcomeCounters = new ConcurrentHashMap<>();
 
     public void recordRun(String orchestrationMode, String status) {
         String mode = normalize(orchestrationMode);
@@ -270,6 +274,38 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    public void recordRuntimeValidation(String orchestrationMode, String targetType, String status) {
+        String mode = normalize(orchestrationMode);
+        String type = normalize(targetType);
+        String normalizedStatus = normalize(status);
+        String key = String.join(":", mode, type, normalizedStatus);
+        Counter counter = runtimeValidationCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_orchestration_runtime_validation_total")
+                        .description("代码生成结果运行时验收次数")
+                        .tag("orchestration_mode", mode)
+                        .tag("target_type", type)
+                        .tag("status", normalizedStatus)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    public void recordStageAdmission(String orchestrationMode, String stage, String outcome) {
+        String mode = normalize(orchestrationMode);
+        String normalizedStage = normalize(stage);
+        String normalizedOutcome = normalize(outcome);
+        String key = String.join(":", mode, normalizedStage, normalizedOutcome);
+        Counter counter = stageAdmissionCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_stage_admission_total")
+                        .description("Generation stages admitted, rejected or skipped by remaining-time policy")
+                        .tag("orchestration_mode", mode)
+                        .tag("stage", normalizedStage)
+                        .tag("outcome", normalizedOutcome)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
     public void recordUserWaitDuration(String orchestrationMode, String targetType, String status, Duration duration) {
         String mode = normalize(orchestrationMode);
         String type = normalize(targetType);
@@ -284,6 +320,46 @@ public class GenerationOrchestrationMetricsCollector {
                         .register(meterRegistry)
         );
         timer.record(nonNegative(duration));
+    }
+
+    public void recordFirstPreviewDuration(String orchestrationMode,
+                                           String targetType,
+                                           String status,
+                                           Duration duration) {
+        String mode = normalize(orchestrationMode);
+        String type = normalize(targetType);
+        String normalizedStatus = normalize(status);
+        String key = String.join(":", mode, type, normalizedStatus);
+        Timer timer = firstPreviewTimers.computeIfAbsent(key, unused ->
+                Timer.builder("generation_time_to_first_preview_seconds")
+                        .description("Time from durable submission until the first usable preview")
+                        .tag("orchestration_mode", mode)
+                        .tag("target_type", type)
+                        .tag("sla_status", normalizedStatus)
+                        .register(meterRegistry)
+        );
+        timer.record(nonNegative(duration));
+    }
+
+    public void recordSlaOutcome(String orchestrationMode,
+                                 String milestone,
+                                 String status,
+                                 String reason) {
+        String mode = normalize(orchestrationMode);
+        String normalizedMilestone = normalize(milestone);
+        String normalizedStatus = normalize(status);
+        String normalizedReason = normalize(reason);
+        String key = String.join(":", mode, normalizedMilestone, normalizedStatus, normalizedReason);
+        Counter counter = slaOutcomeCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_sla_outcomes_total")
+                        .description("Generation SLA milestone outcomes")
+                        .tag("orchestration_mode", mode)
+                        .tag("milestone", normalizedMilestone)
+                        .tag("status", normalizedStatus)
+                        .tag("reason", normalizedReason)
+                        .register(meterRegistry)
+        );
+        counter.increment();
     }
 
     private void recordSummary(String name,

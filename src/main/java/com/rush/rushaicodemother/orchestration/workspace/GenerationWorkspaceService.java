@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.FileAlreadyExistsException;
@@ -26,7 +27,8 @@ import java.util.Set;
 public class GenerationWorkspaceService {
 
     public static final Set<String> HIDDEN_FILE_NAMES = Set.of(
-            ".git", ".idea", "node_modules", "node_modle", "node_module", "dist", "target", ".DS_Store"
+            ".git", ".idea", "node_modules", "node_modle", "node_module", "dist", "target", ".DS_Store",
+            ".generation-publication-owner"
     );
 
     public static final Set<String> EDITABLE_EXTENSIONS = Set.of(
@@ -35,11 +37,36 @@ public class GenerationWorkspaceService {
     );
 
     private final CodeStorageProperties storageProperties;
+    private final GenerationWorkspaceExecutionScope executionScope;
+    private final GenerationWorkspacePublicationCatalog publicationCatalog;
 
+    /** Compatibility constructor for non-Spring callers and focused unit tests. */
     public GenerationWorkspaceService(CodeStorageProperties storageProperties) {
+        this(storageProperties, new GenerationWorkspaceExecutionScope(),
+                new GenerationWorkspacePublicationCatalog(storageProperties));
+    }
+
+    public GenerationWorkspaceService(CodeStorageProperties storageProperties,
+                                      GenerationWorkspaceExecutionScope executionScope) {
+        this(storageProperties, executionScope,
+                new GenerationWorkspacePublicationCatalog(storageProperties));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GenerationWorkspaceService(CodeStorageProperties storageProperties,
+                                      GenerationWorkspaceExecutionScope executionScope,
+                                      GenerationWorkspacePublicationCatalog publicationCatalog) {
         this.storageProperties = Objects.requireNonNull(
                 storageProperties,
                 "storageProperties must not be null"
+        );
+        this.executionScope = Objects.requireNonNull(
+                executionScope,
+                "executionScope must not be null"
+        );
+        this.publicationCatalog = Objects.requireNonNull(
+                publicationCatalog,
+                "publicationCatalog must not be null"
         );
     }
 
@@ -53,14 +80,74 @@ public class GenerationWorkspaceService {
     /** Resolves a workspace without forcing orchestration code to construct a persistence entity. */
     public GenerationWorkspace resolve(Long appId, CodeGenTypeEnum codeGenType) {
         validateIdentity(appId, codeGenType);
+        GenerationExecutionWorkspace executionWorkspace = executionScope.current(appId, codeGenType).orElse(null);
+        if (executionWorkspace != null) {
+            return executionWorkspace.workspace();
+        }
+        return resolveCanonical(appId, codeGenType);
+    }
+
+    /** Resolves the user-visible canonical application workspace, bypassing execution scoping. */
+    public GenerationWorkspace resolveCanonical(Long appId, CodeGenTypeEnum codeGenType) {
+        validateIdentity(appId, codeGenType);
         try {
             WorkspaceLocation location = resolveLocation(appId, codeGenType);
-            return createWorkspace(appId, codeGenType, location);
+            return createWorkspace(appId, codeGenType, location, null);
         } catch (BusinessException exception) {
             throw exception;
         } catch (Exception exception) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成工作区解析失败", exception);
         }
+    }
+
+    /** Resolves the exact publication owned by one durable task, rejecting a stale/current mismatch. */
+    public GenerationWorkspace resolvePublished(Long appId,
+                                                CodeGenTypeEnum codeGenType,
+                                                String expectedTaskId) {
+        validateIdentity(appId, codeGenType);
+        if (expectedTaskId == null || !expectedTaskId.matches("[A-Za-z0-9_-]{1,128}")) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "published workspace task identity is invalid");
+        }
+        try {
+            GenerationWorkspacePublicationPointer pointer = publicationCatalog.findCurrent(appId, codeGenType)
+                    .orElseThrow(() -> new BusinessException(
+                            ErrorCode.OPERATION_ERROR,
+                            "published workspace pointer is unavailable"));
+            if (!expectedTaskId.equals(pointer.taskId())) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                        "published workspace belongs to a different generation task");
+            }
+            Path outputRoot = canonicalOutputRoot();
+            Path publishedWorkspace = publicationCatalog.resolveWorkspace(pointer);
+            ensureWithinOutputRoot(publishedWorkspace, outputRoot);
+            return createWorkspace(
+                    appId,
+                    codeGenType,
+                    new WorkspaceLocation(
+                            declaredWorkspaceRoot(outputRoot, appId, codeGenType),
+                            publishedWorkspace),
+                    true
+            );
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "published workspace resolution failed", exception);
+        }
+    }
+
+    /** Resolves one exact task/epoch workspace for asynchronous callbacks that cannot use ThreadLocal scope. */
+    public GenerationWorkspace resolveExecution(GenerationExecutionFence fence,
+                                                Long appId,
+                                                CodeGenTypeEnum codeGenType) {
+        validateIdentity(appId, codeGenType);
+        return executionScope.find(fence, appId, codeGenType)
+                .map(GenerationExecutionWorkspace::workspace)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.OPERATION_ERROR,
+                        "execution workspace scope is unavailable"
+                ));
     }
 
     /**
@@ -83,11 +170,13 @@ public class GenerationWorkspaceService {
             );
         }
         for (CodeGenTypeEnum codeGenType : CodeGenTypeEnum.values()) {
-            if (!candidate.equals(declaredWorkspaceRoot(outputRoot, appId, codeGenType))) {
-                continue;
-            }
             try {
-                return resolve(appId, codeGenType);
+                GenerationWorkspace workspace = resolveCanonical(appId, codeGenType);
+                Path declaredRoot = declaredWorkspaceRoot(outputRoot, appId, codeGenType);
+                if (candidate.equals(declaredRoot)
+                        || candidate.equals(workspace.canonicalRootPath())) {
+                    return workspace;
+                }
             } catch (BusinessException exception) {
                 ReportedWorkspaceResolutionException.Reason reason =
                         exception.getCode() == ErrorCode.NO_AUTH_ERROR.getCode()
@@ -110,7 +199,14 @@ public class GenerationWorkspaceService {
      */
     public GenerationWorkspace prepare(Long appId, CodeGenTypeEnum codeGenType) {
         validateIdentity(appId, codeGenType);
+        GenerationExecutionWorkspace executionWorkspace = executionScope.current(appId, codeGenType).orElse(null);
+        if (executionWorkspace != null) {
+            return executionWorkspace.workspace();
+        }
         try {
+            if (publicationCatalog.findCurrentWorkspace(appId, codeGenType).isPresent()) {
+                return resolveCanonical(appId, codeGenType);
+            }
             Path outputRoot = canonicalOutputRoot();
             Files.createDirectories(outputRoot);
             validateDirectory(outputRoot, "生成代码根目录无效");
@@ -124,7 +220,7 @@ public class GenerationWorkspaceService {
                 }
             }
             validateDirectory(workspaceRoot, "生成工作区路径不是安全目录");
-            return resolve(appId, codeGenType);
+            return resolveCanonical(appId, codeGenType);
         } catch (BusinessException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -132,9 +228,65 @@ public class GenerationWorkspaceService {
         }
     }
 
+    /**
+     * Describes a workspace path already created by the execution-workspace materializer.
+     * Callers cannot use this method to escape the configured output root or execution subtree.
+     */
+    public GenerationWorkspace resolveExecutionWorkspace(Long appId,
+                                                          CodeGenTypeEnum codeGenType,
+                                                          Path workspaceRoot) {
+        return resolveExecutionWorkspace(appId, codeGenType, workspaceRoot, null);
+    }
+
+    /**
+     * Describes an execution directory while preserving whether it was seeded from an existing
+     * user project. The directory is created eagerly, so physical existence alone is not enough
+     * to decide whether the CREATE pipeline should handle the task.
+     */
+    public GenerationWorkspace resolveExecutionWorkspace(Long appId,
+                                                          CodeGenTypeEnum codeGenType,
+                                                          Path workspaceRoot,
+                                                          Boolean logicalExists) {
+        validateIdentity(appId, codeGenType);
+        if (workspaceRoot == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "execution workspace path is required");
+        }
+        try {
+            Path outputRoot = canonicalOutputRoot();
+            Path executionRoot = outputRoot.resolve(GenerationExecutionWorkspaceService.EXECUTION_ROOT_NAME)
+                    .normalize();
+            Path candidate = workspaceRoot.toAbsolutePath().normalize();
+            if (!candidate.startsWith(executionRoot)
+                    || candidate.equals(executionRoot)
+                    || candidate.getFileName() == null
+                    || !WORKSPACE_DIRECTORY_NAME.equals(candidate.getFileName().toString())) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "execution workspace path is invalid");
+            }
+            validateDirectory(candidate, "execution workspace path is unsafe");
+            Path canonicalRootPath = candidate.toRealPath(LinkOption.NOFOLLOW_LINKS);
+            ensureWithinOutputRoot(canonicalRootPath, outputRoot);
+            return createWorkspace(
+                    appId,
+                    codeGenType,
+                    new WorkspaceLocation(candidate, canonicalRootPath),
+                    logicalExists
+            );
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "execution workspace resolution failed", exception);
+        }
+    }
+
     private WorkspaceLocation resolveLocation(Long appId, CodeGenTypeEnum codeGenType) throws Exception {
         Path outputRoot = canonicalOutputRoot();
         Path rootPath = declaredWorkspaceRoot(outputRoot, appId, codeGenType);
+        Path publishedWorkspace = publicationCatalog.findCurrentWorkspace(appId, codeGenType)
+                .orElse(null);
+        if (publishedWorkspace != null) {
+            ensureWithinOutputRoot(publishedWorkspace, outputRoot);
+            return new WorkspaceLocation(rootPath, publishedWorkspace);
+        }
         if (Files.exists(rootPath, LinkOption.NOFOLLOW_LINKS)) {
             validateDirectory(rootPath, "生成工作区路径不是安全目录");
         }
@@ -182,10 +334,13 @@ public class GenerationWorkspaceService {
         }
     }
 
+    private static final String WORKSPACE_DIRECTORY_NAME = "workspace";
+
     private GenerationWorkspace createWorkspace(
             Long appId,
             CodeGenTypeEnum codeGenType,
-            WorkspaceLocation location
+            WorkspaceLocation location,
+            Boolean logicalExists
     ) {
         Path canonicalRootPath = location.canonicalRootPath();
         Path frontendRootPath = codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT
@@ -201,7 +356,9 @@ public class GenerationWorkspaceService {
                 codeGenType,
                 location.rootPath(),
                 canonicalRootPath,
-                Files.isDirectory(canonicalRootPath, LinkOption.NOFOLLOW_LINKS),
+                logicalExists == null
+                        ? Files.isDirectory(canonicalRootPath, LinkOption.NOFOLLOW_LINKS)
+                        : logicalExists,
                 frontendRootPath.normalize(),
                 backendRootPath == null ? null : backendRootPath.normalize(),
                 HIDDEN_FILE_NAMES,

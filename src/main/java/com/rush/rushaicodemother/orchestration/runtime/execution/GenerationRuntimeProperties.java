@@ -20,15 +20,15 @@ import java.util.EnumMap;
 @ConfigurationProperties(prefix = "app.generation-runtime")
 public class GenerationRuntimeProperties {
 
-    private Duration taskTimeout = Duration.ofMinutes(20);
+    private Duration taskTimeout = Duration.ofMinutes(10);
 
-    private Duration modelCallTimeout = Duration.ofMinutes(8);
+    private Duration modelCallTimeout = Duration.ofMinutes(4);
 
     private Duration minimumOperationTimeout = Duration.ofMillis(500);
 
     @Min(1)
     @Max(10)
-    private int maxModelAttempts = 3;
+    private int maxModelAttempts = 2;
 
     @Min(1)
     @Max(500)
@@ -36,11 +36,11 @@ public class GenerationRuntimeProperties {
 
     @Min(1)
     @Max(20)
-    private int maxBuildExecutions = 4;
+    private int maxBuildExecutions = 2;
 
     @Min(1)
     @Max(10)
-    private int maxRepairRounds = 3;
+    private int maxRepairRounds = 1;
 
     public GenerationExecutionLimits toLimits() {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);

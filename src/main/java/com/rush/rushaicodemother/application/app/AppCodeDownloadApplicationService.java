@@ -35,7 +35,7 @@ public class AppCodeDownloadApplicationService {
 
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.OPERATION_ERROR, "应用代码生成类型无效");
-        GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
+        GenerationWorkspace workspace = generationWorkspaceService.resolveCanonical(appId, codeGenType);
         ThrowUtils.throwIf(!workspace.exists(), ErrorCode.NOT_FOUND_ERROR, "应用代码不存在，请先生成代码");
         projectDownloadService.downloadProjectAsZip(
                 workspace.canonicalRootPath().toString(),

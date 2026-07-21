@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -76,6 +75,11 @@ public class FileWriteTool extends BaseTool {
     }
 
     @Override
+    public ToolRiskLevel getRiskLevel() {
+        return ToolRiskLevel.WRITE;
+    }
+
+    @Override
     public String getToolName() {
         return "writeFile";
     }
@@ -88,13 +92,9 @@ public class FileWriteTool extends BaseTool {
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");
-        String suffix = FileUtil.getSuffix(relativeFilePath);
-        String content = arguments.getStr("content");
-        return String.format("""
-                        [工具调用] %s %s
-                        ```%s
-                        %s
-                        ```
-                        """, getDisplayName(), relativeFilePath, suffix, content);
+        return String.format(
+                "[工具调用] %s %s（内容已写入工作区，可在代码面板查看）",
+                getDisplayName(), relativeFilePath
+        );
     }
 }

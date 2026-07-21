@@ -5,131 +5,195 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
-import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
-import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
-import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
+import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
-import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
+import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContext;
+import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import reactor.core.publisher.Flux;
 
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class GenerationTaskSubmissionServiceTest {
 
-    private GenerationSessionRegistry sessionRegistry;
-    private GenerationExecutionContextService executionContextService;
-    private GenerationPipelineExecutor pipelineExecutor;
+    private static final Instant NOW = Instant.parse("2026-07-17T02:00:00Z");
+
+    private GenerationTaskDispatcher dispatcher;
+    private GenerationTaskAdmissionService admissionService;
     private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private GenerationEventStream eventStream;
+    private GenerationSlaPolicy generationSlaPolicy;
+    private GenerationTraceContextBridge traceContextBridge;
 
     @BeforeEach
     void setUp() {
-        sessionRegistry = new GenerationSessionRegistry(new GenerationSessionProperties());
-        executionContextService = new GenerationExecutionContextService(new GenerationRuntimeProperties());
-        pipelineExecutor = mock(GenerationPipelineExecutor.class);
+        dispatcher = mock(GenerationTaskDispatcher.class);
+        admissionService = mock(GenerationTaskAdmissionService.class);
         runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
+        eventStream = mock(GenerationEventStream.class);
+        traceContextBridge = mock(GenerationTraceContextBridge.class);
+        when(admissionService.admit(any(GenerationTaskCommand.class), any(GenerationTaskIdempotency.class)))
+                .thenAnswer(invocation -> {
+                    GenerationTaskCommand command = invocation.getArgument(0);
+                    return GenerationTaskAdmissionResult.created(command.taskId(), command.route());
+                });
+        when(traceContextBridge.capture()).thenReturn(new GenerationTraceContext(
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", null));
+        GenerationRuntimeProperties runtimeProperties = new GenerationRuntimeProperties();
+        runtimeProperties.setTaskTimeout(Duration.ofMinutes(12));
+        generationSlaPolicy = (decision, targetType) -> new GenerationSlaEnvelope(
+                "test-profile",
+                Duration.ofMinutes(1),
+                Duration.ofMinutes(12),
+                runtimeProperties.getModelCallTimeout(),
+                runtimeProperties.getMinimumOperationTimeout(),
+                runtimeProperties.toLimits().budgets(),
+                "test"
+        );
     }
 
     @Test
-    void submitMustReturnBeforePipelineExecutionAndReuseOneTaskEnvelope() {
-        CapturingExecutor executor = new CapturingExecutor();
-        GenerationTaskSubmissionService service = service(executor, "task-submit-1");
+    void submitMustPersistReconstructableCommandBeforeDispatchAndReturnTaskStream() {
+        Flux<?> expectedStream = Flux.empty();
+        when(eventStream.stream("task-submit-1")).thenReturn((Flux) expectedStream);
+        GenerationTaskSubmissionService service = service("task-submit-1");
 
         GenerationTaskResult result = service.submit(request(1L));
 
+        ArgumentCaptor<GenerationTaskCommand> commandCaptor =
+                ArgumentCaptor.forClass(GenerationTaskCommand.class);
+        InOrder order = inOrder(admissionService, dispatcher, eventStream);
+        order.verify(admissionService).admit(
+                commandCaptor.capture(), org.mockito.ArgumentMatchers.eq(GenerationTaskIdempotency.none()));
+        order.verify(dispatcher).dispatch("task-submit-1");
+        order.verify(eventStream).stream("task-submit-1");
+
+        GenerationTaskCommand command = commandCaptor.getValue();
+        assertEquals("task-submit-1", command.taskId());
+        assertEquals(1L, command.appId());
+        assertEquals(2L, command.userId());
+        assertEquals(100L, command.tenantId());
+        assertEquals("update title", command.userPrompt());
+        assertEquals(NOW, command.submittedAt());
+        assertEquals(NOW.plus(Duration.ofMinutes(12)), command.deadlineAt());
+        assertEquals("test-profile", command.slaEnvelope().profile());
+        assertEquals("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                command.traceContext().traceparent());
+        assertEquals("lightweight_edit", command.route());
         assertEquals("task-submit-1", result.taskId());
-        assertNotNull(executor.submittedTask);
-        verify(pipelineExecutor, never()).execute(any());
-        assertEquals("task-submit-1", sessionRegistry.get(1L).taskId());
-        assertEquals(sessionRegistry.get(1L), sessionRegistry.getByTaskId("task-submit-1"));
-        assertTrue(executionContextService.getByTaskId("task-submit-1").isPresent());
-        verify(runtimeLifecycleService).submit(
-                org.mockito.ArgumentMatchers.argThat(execution ->
-                        "task-submit-1".equals(execution.taskId())),
-                org.mockito.ArgumentMatchers.eq("lightweight_edit"));
-
-        executor.submittedTask.run();
-
-        verify(pipelineExecutor).execute(any(GenerationPipelineRequest.class));
+        assertSame(expectedStream, result.contentFlux());
     }
 
     @Test
-    void durableShellMustBeCreatedBeforeExecutorCanObserveTask() {
-        GenerationTaskExecutor executor = mock(GenerationTaskExecutor.class);
-        GenerationTaskSubmissionService service = service(executor, "task-order");
+    void idempotentReplayMustReturnOriginalTaskWithoutDispatchOrCompensation() {
+        GenerationTaskIdempotency idempotency =
+                new GenerationTaskIdempotency("a".repeat(64), "b".repeat(64));
+        when(admissionService.admit(any(GenerationTaskCommand.class),
+                org.mockito.ArgumentMatchers.eq(idempotency)))
+                .thenReturn(GenerationTaskAdmissionResult.reused(
+                        "task-original", "heavy_generation"));
+        Flux<?> expectedStream = Flux.empty();
+        when(eventStream.stream("task-original")).thenReturn((Flux) expectedStream);
+        GenerationEventPublisher recentPublisher = mock(GenerationEventPublisher.class);
+        GenerationTaskSubmissionService service = service("task-unused-candidate", recentPublisher);
 
-        service.submit(request(1L));
+        GenerationTaskResult result = service.submit(request(1L), idempotency);
 
-        InOrder order = inOrder(runtimeLifecycleService, executor);
-        order.verify(runtimeLifecycleService).submit(
-                org.mockito.ArgumentMatchers.argThat(execution ->
-                        "task-order".equals(execution.taskId())),
-                org.mockito.ArgumentMatchers.eq("lightweight_edit"));
-        order.verify(executor).execute(
-                org.mockito.ArgumentMatchers.eq("task-order"),
-                org.mockito.ArgumentMatchers.any(Runnable.class));
+        assertEquals("task-original", result.taskId());
+        assertEquals("heavy_generation", result.route());
+        assertFalse(result.created());
+        assertSame(expectedStream, result.contentFlux());
+        verify(dispatcher, never()).dispatch(org.mockito.ArgumentMatchers.anyString());
+        verify(runtimeLifecycleService, never()).completeUnowned(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(GenerationTaskStatus.class),
+                org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(recentPublisher);
     }
 
     @Test
-    void activeTaskMustRejectConcurrentSubmissionForSameApplication() {
-        CapturingExecutor executor = new CapturingExecutor();
-        GenerationTaskSubmissionService service = service(executor, "task-concurrent");
-        service.submit(request(1L));
+    void durableSubmissionRejectionMustNotDispatchOrCreateEventSubscription() {
+        BusinessException rejection = mock(BusinessException.class);
+        doThrow(rejection).when(admissionService).admit(
+                any(GenerationTaskCommand.class), any(GenerationTaskIdempotency.class));
+        GenerationTaskSubmissionService service = service("task-concurrent");
 
-        assertThrows(BusinessException.class, () -> service.submit(request(1L)));
+        assertSame(rejection, assertThrows(BusinessException.class, () -> service.submit(request(1L))));
+
+        verify(dispatcher, never()).dispatch("task-concurrent");
+        verify(eventStream, never()).stream("task-concurrent");
+        verify(runtimeLifecycleService, never()).completeUnowned(
+                "task-concurrent", GenerationTaskStatus.FAILED, "submission_failed");
     }
 
     @Test
-    void executorRejectionMustCompensateSessionAndExecutionContext() {
-        GenerationTaskExecutor rejectingExecutor = (taskId, task) -> {
-            throw new IllegalStateException("executor unavailable");
-        };
-        GenerationTaskSubmissionService service = service(rejectingExecutor, "task-rejected");
+    void dispatcherFailureMustCompensatePersistedTaskAsFailed() {
+        doThrow(new IllegalStateException("local executor unavailable"))
+                .when(dispatcher).dispatch("task-rejected");
+        GenerationTaskSubmissionService service = service("task-rejected");
 
         assertThrows(IllegalStateException.class, () -> service.submit(request(1L)));
 
-        assertNull(sessionRegistry.get(1L));
-        assertNull(sessionRegistry.getByTaskId("task-rejected"));
-        assertTrue(executionContextService.getByTaskId("task-rejected").isEmpty());
-        verify(runtimeLifecycleService).complete(
+        verify(runtimeLifecycleService).completeUnowned(
                 "task-rejected", GenerationTaskStatus.FAILED, "submission_failed");
+        verify(eventStream, never()).stream("task-rejected");
     }
 
-    private GenerationTaskSubmissionService service(GenerationTaskExecutor executor, String taskId) {
+    private GenerationTaskSubmissionService service(String taskId) {
+        return service(taskId, null);
+    }
+
+    private GenerationTaskSubmissionService service(String taskId,
+                                                    GenerationEventPublisher recentPublisher) {
         return new GenerationTaskSubmissionService(
                 () -> taskId,
-                executionContextService,
-                sessionRegistry,
-                executor,
-                pipelineExecutor,
-                runtimeLifecycleService
-        );
+                generationSlaPolicy,
+                dispatcher,
+                admissionService,
+                runtimeLifecycleService,
+                eventStream,
+                recentPublisher,
+                traceContextBridge,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private GenerationPipelineRequest request(Long appId) {
         App app = new App();
         app.setId(appId);
+        app.setTenantId(100L);
         app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
         User user = new User();
         user.setId(2L);
@@ -143,16 +207,6 @@ class GenerationTaskSubmissionServiceTest {
                 new GenerationTaskRequest(app, "update title", user),
                 CodeGenTypeEnum.VUE_PROJECT,
                 workspace,
-                decision
-        );
-    }
-
-    private static final class CapturingExecutor implements GenerationTaskExecutor {
-        private Runnable submittedTask;
-
-        @Override
-        public void execute(String taskId, Runnable task) {
-            this.submittedTask = task;
-        }
+                decision);
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.util.unit.DataSize;
 
 import java.io.ByteArrayInputStream;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -19,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -31,16 +33,25 @@ class DevServerProxyServiceTest {
         DevServerProxyProperties properties = new DevServerProxyProperties();
         properties.setMaxRequestBody(DataSize.ofBytes(4));
         HttpClient httpClient = mock(HttpClient.class);
+        DevServerInternalRequestSigner requestSigner = mock(DevServerInternalRequestSigner.class);
         DevServerProxyService service = new DevServerProxyService(
                 properties,
                 new ProxyHeaderPolicy(),
+                requestSigner,
+                new DevServerPreviewTargetResolver(new DevServerPreviewPathFactory("/api")),
                 httpClient
         );
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/upload");
         request.setContent("12345".getBytes(StandardCharsets.UTF_8));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        service.proxy(5173, "/upload", null, request, response);
+        service.proxy(
+                DevServerPreviewRoute.local(21L, "preview-node-a", 5173),
+                "/upload",
+                null,
+                request,
+                response
+        );
 
         assertEquals(413, response.getStatus());
         verify(httpClient, never()).send(any(), any());
@@ -51,6 +62,7 @@ class DevServerProxyServiceTest {
     void shouldProxyPatchBodyWithoutForwardingCredentialsOrSetCookie() throws Exception {
         DevServerProxyProperties properties = new DevServerProxyProperties();
         HttpClient httpClient = mock(HttpClient.class);
+        DevServerInternalRequestSigner requestSigner = mock(DevServerInternalRequestSigner.class);
         HttpResponse upstreamResponse = mock(HttpResponse.class);
         when(upstreamResponse.statusCode()).thenReturn(200);
         when(upstreamResponse.body()).thenReturn(new ByteArrayInputStream("ok".getBytes(StandardCharsets.UTF_8)));
@@ -66,6 +78,8 @@ class DevServerProxyServiceTest {
         DevServerProxyService service = new DevServerProxyService(
                 properties,
                 new ProxyHeaderPolicy(),
+                requestSigner,
+                new DevServerPreviewTargetResolver(new DevServerPreviewPathFactory("/api")),
                 httpClient
         );
         MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/resource");
@@ -75,7 +89,13 @@ class DevServerProxyServiceTest {
         request.addHeader("Content-Type", "application/json");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        service.proxy(5173, "/resource", "mode=edit", request, response);
+        service.proxy(
+                DevServerPreviewRoute.local(21L, "preview-node-a", 5173),
+                "/resource",
+                "mode=edit",
+                request,
+                response
+        );
 
         assertEquals(200, response.getStatus());
         assertEquals("ok", response.getContentAsString());
@@ -84,8 +104,65 @@ class DevServerProxyServiceTest {
         verify(httpClient).send(requestCaptor.capture(), any(HttpResponse.BodyHandler.class));
         HttpRequest upstreamRequest = requestCaptor.getValue();
         assertEquals("PATCH", upstreamRequest.method());
-        assertTrue(upstreamRequest.uri().toString().endsWith("/resource?mode=edit"));
+        assertEquals(
+                "http://127.0.0.1:5173/api/app/dev-server/proxy/21/resource?mode=edit",
+                upstreamRequest.uri().toString()
+        );
         assertTrue(upstreamRequest.headers().firstValue("Content-Type").isPresent());
+        assertTrue(upstreamRequest.headers().firstValue("Authorization").isEmpty());
+        assertTrue(upstreamRequest.headers().firstValue("Cookie").isEmpty());
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void remoteRouteMustUseServerGeneratedSignatureAndDropForgedInternalHeaders() throws Exception {
+        DevServerProxyProperties properties = new DevServerProxyProperties();
+        HttpClient httpClient = mock(HttpClient.class);
+        DevServerInternalRequestSigner requestSigner = mock(DevServerInternalRequestSigner.class);
+        HttpResponse upstreamResponse = mock(HttpResponse.class);
+        when(upstreamResponse.statusCode()).thenReturn(200);
+        when(upstreamResponse.body()).thenReturn(new ByteArrayInputStream(new byte[0]));
+        when(upstreamResponse.headers()).thenReturn(java.net.http.HttpHeaders.of(Map.of(), (name, value) -> true));
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(upstreamResponse);
+        URI signedTarget = URI.create(
+                "http://preview-node-b:8123/api/internal/dev-server/proxy/21/@vite/client?token=abc"
+        );
+        when(requestSigner.sign(eq("GET"), eq(signedTarget), any(byte[].class)))
+                .thenReturn(Map.of(
+                        DevServerInternalRequestSigner.SOURCE_NODE_HEADER, "preview-node-a",
+                        DevServerInternalRequestSigner.SIGNATURE_HEADER, "trusted-signature"
+                ));
+        DevServerProxyService service = new DevServerProxyService(
+                properties,
+                new ProxyHeaderPolicy(),
+                requestSigner,
+                new DevServerPreviewTargetResolver(new DevServerPreviewPathFactory("/api")),
+                httpClient
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/@vite/client");
+        request.addHeader("Authorization", "Bearer browser-secret");
+        request.addHeader("Cookie", "session=browser-secret");
+        request.addHeader(DevServerInternalRequestSigner.SOURCE_NODE_HEADER, "attacker-node");
+        request.addHeader(DevServerInternalRequestSigner.SIGNATURE_HEADER, "forged-signature");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DevServerPreviewRoute route = DevServerPreviewRoute.remote(
+                21L,
+                "preview-node-b",
+                5180,
+                URI.create("http://preview-node-b:8123/api")
+        );
+
+        service.proxy(route, "/@vite/client", "token=abc", request, response);
+
+        ArgumentCaptor<HttpRequest> requestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(httpClient).send(requestCaptor.capture(), any(HttpResponse.BodyHandler.class));
+        HttpRequest upstreamRequest = requestCaptor.getValue();
+        assertEquals(signedTarget, upstreamRequest.uri());
+        assertEquals("preview-node-a", upstreamRequest.headers()
+                .firstValue(DevServerInternalRequestSigner.SOURCE_NODE_HEADER).orElseThrow());
+        assertEquals("trusted-signature", upstreamRequest.headers()
+                .firstValue(DevServerInternalRequestSigner.SIGNATURE_HEADER).orElseThrow());
         assertTrue(upstreamRequest.headers().firstValue("Authorization").isEmpty());
         assertTrue(upstreamRequest.headers().firstValue("Cookie").isEmpty());
     }

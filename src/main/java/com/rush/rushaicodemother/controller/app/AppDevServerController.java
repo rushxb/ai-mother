@@ -9,6 +9,8 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.DevServerStatusVO;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.devserver.DevServerProxyService;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewPaths;
+import com.rush.rushaicodemother.service.devserver.DevServerPreviewRoute;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.constraints.Positive;
@@ -29,7 +31,7 @@ import org.springframework.web.servlet.HandlerMapping;
 @RequestMapping("/app")
 public class AppDevServerController {
 
-    private static final String PROXY_ROUTE_PREFIX = "/app/dev-server/proxy/";
+    private static final String PROXY_ROUTE_PREFIX = DevServerPreviewPaths.PUBLIC_PROXY_PREFIX;
 
     private final AppDevServerApplicationService devServerApplicationService;
     private final DevServerProxyService devServerProxyService;
@@ -62,9 +64,9 @@ public class AppDevServerController {
                                HttpServletRequest request,
                                HttpServletResponse response) {
         User loginUser = userService.getLoginUser(request);
-        int port = devServerApplicationService.requireProxyPort(appId, loginUser);
+        DevServerPreviewRoute route = devServerApplicationService.requireProxyRoute(appId, loginUser);
         String targetPath = extractTargetPath(appId, request);
-        devServerProxyService.proxy(port, targetPath, request.getQueryString(), request, response);
+        devServerProxyService.proxy(route, targetPath, request.getQueryString(), request, response);
     }
 
     private String extractTargetPath(Long appId, HttpServletRequest request) {

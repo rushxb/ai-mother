@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.ai;
 
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
+import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import org.springframework.context.annotation.Scope;
 public class PromptOptimizerServiceFactory {
 
     private final StreamingModelFactory streamingModelFactory;
+    private final PromptSystemMessageTransformer promptSystemMessageTransformer;
 
     /**
      * 创建提示词优化服务
@@ -28,6 +30,7 @@ public class PromptOptimizerServiceFactory {
         ChatModel chatModel = streamingModelFactory.createRoutingChatModel();
         return AiServices.builder(PromptOptimizerService.class)
                 .chatModel(chatModel)
+                .systemMessageTransformer(promptSystemMessageTransformer::transform)
                 .build();
     }
 }

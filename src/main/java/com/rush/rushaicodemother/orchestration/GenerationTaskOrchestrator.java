@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineReques
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -35,9 +36,15 @@ public class GenerationTaskOrchestrator {
     private final GenerationTaskControlService generationTaskControlService;
 
     public GenerationTaskResult start(GenerationTaskRequest request) {
+        return start(request, GenerationTaskIdempotency.none());
+    }
+
+    public GenerationTaskResult start(GenerationTaskRequest request,
+                                      GenerationTaskIdempotency idempotency) {
         ThrowUtils.throwIf(request == null || request.app() == null || request.loginUser() == null,
                 ErrorCode.PARAMS_ERROR, "生成任务参数错误");
         ThrowUtils.throwIf(StrUtil.isBlank(request.message()), ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        ThrowUtils.throwIf(idempotency == null, ErrorCode.PARAMS_ERROR, "生成任务幂等参数错误");
 
         App app = request.app();
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
@@ -50,7 +57,7 @@ public class GenerationTaskOrchestrator {
                 codeGenType,
                 workspace,
                 decision
-        ));
+        ), idempotency);
     }
 
     public Flux<GenerationStreamEvent> getStream(Long appId) {

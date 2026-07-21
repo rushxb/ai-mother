@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.config.TemplatePreWarmProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
+import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SyncTaskExecutor;
@@ -17,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -33,7 +35,8 @@ class TemplateNodeModulesPreWarmRunnerTest {
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
         WorkspaceFileSystemService fileSystemService = fileSystemService();
         AtomicReference<Path> installedProject = new AtomicReference<>();
-        when(installer.ensureInstalled(any(Path.class))).thenAnswer(invocation -> {
+        when(installer.ensureInstalled(
+                any(Path.class), isNull(), eq(DependencyInstallMode.REFRESH_FROM_LOCKFILE))).thenAnswer(invocation -> {
             Path project = invocation.getArgument(0);
             installedProject.set(project);
             Files.createDirectories(project.resolve("node_modules"));
@@ -52,7 +55,8 @@ class TemplateNodeModulesPreWarmRunnerTest {
         Path project = installedProject.get();
         assertNotNull(project);
         verify(materializer).materializeIntoExistingDirectory(eq("vue-web-basic"), any(Path.class));
-        verify(installer, times(1)).ensureInstalled(any(Path.class));
+        verify(installer, times(1)).ensureInstalled(
+                any(Path.class), isNull(), eq(DependencyInstallMode.REFRESH_FROM_LOCKFILE));
         verify(preWarmService).registerPreWarmedModules(eq("vue-web-basic"), any(Path.class));
         verify(installer, never()).cancel(project);
 
@@ -68,7 +72,8 @@ class TemplateNodeModulesPreWarmRunnerTest {
         ProjectTemplateMaterializer materializer = mock(ProjectTemplateMaterializer.class);
         ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
         AtomicReference<Path> installedProject = new AtomicReference<>();
-        when(installer.ensureInstalled(any(Path.class))).thenAnswer(invocation -> {
+        when(installer.ensureInstalled(
+                any(Path.class), isNull(), eq(DependencyInstallMode.REFRESH_FROM_LOCKFILE))).thenAnswer(invocation -> {
             Path project = invocation.getArgument(0);
             installedProject.set(project);
             return DependencyInstallResult.failed(DependencyInstallResult.Status.FAILED, "", "install failed");

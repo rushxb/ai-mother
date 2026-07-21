@@ -8,11 +8,13 @@ import com.rush.rushaicodemother.model.dto.chathistory.ChatHistoryQueryRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.ChatHistory;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.enums.TenantRole;
 import com.rush.rushaicodemother.model.vo.ChatHistoryAdminVO;
 import com.rush.rushaicodemother.model.vo.ChatHistoryCursorPageVO;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.chathistory.ChatHistorySlice;
+import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -23,8 +25,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,10 +36,12 @@ class ChatHistoryQueryApplicationServiceTest {
 
     private final AppPersistenceService appPersistenceService = mock(AppPersistenceService.class);
     private final ChatHistoryService chatHistoryService = mock(ChatHistoryService.class);
+    private final TenantAuthorizationService tenantAuthorizationService =
+            mock(TenantAuthorizationService.class);
     private final ChatHistoryQueryApplicationService service = new ChatHistoryQueryApplicationService(
             appPersistenceService,
             chatHistoryService,
-            new AppAccessPolicy(),
+            new AppAccessPolicy(tenantAuthorizationService),
             new ChatHistoryViewAssembler()
     );
 
@@ -45,7 +51,7 @@ class ChatHistoryQueryApplicationServiceTest {
         User owner = User.builder().id(20L).build();
         LocalDateTime cursor = LocalDateTime.of(2026, 7, 13, 10, 30);
         LocalDateTime createdAt = LocalDateTime.of(2026, 7, 13, 10, 20);
-        App app = App.builder().id(appId).userId(owner.getId()).build();
+        App app = App.builder().id(appId).userId(owner.getId()).tenantId(100L).build();
         ChatHistory history = ChatHistory.builder()
                 .id(90L)
                 .appId(appId)
@@ -73,9 +79,15 @@ class ChatHistoryQueryApplicationServiceTest {
     @Test
     void unrelatedUserCannotQueryHistory() {
         Long appId = 10L;
-        App app = App.builder().id(appId).userId(20L).build();
+        App app = App.builder().id(appId).userId(20L).tenantId(100L).build();
         User actor = User.builder().id(30L).build();
         when(appPersistenceService.findActiveById(appId)).thenReturn(app);
+        doThrow(new BusinessException(ErrorCode.NO_AUTH_ERROR, "denied"))
+                .when(tenantAuthorizationService)
+                .requireRole(org.mockito.ArgumentMatchers.eq(100L),
+                        org.mockito.ArgumentMatchers.eq(30L),
+                        org.mockito.ArgumentMatchers.eq(TenantRole.ADMIN),
+                        anyString());
 
         BusinessException exception = assertThrows(
                 BusinessException.class,

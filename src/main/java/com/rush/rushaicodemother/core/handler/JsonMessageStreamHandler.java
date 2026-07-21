@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.core.handler;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -29,6 +30,10 @@ import java.util.Set;
 @Component
 @RequiredArgsConstructor
 public class JsonMessageStreamHandler {
+
+    private static final int MAX_PUBLIC_TOOL_TEXT_LENGTH = 1_200;
+    private static final int MAX_PUBLIC_FILE_PREVIEW_LENGTH = 8_000;
+    private static final int MAX_TOOL_ARGUMENT_BUFFER_LENGTH = 256_000;
 
     private final ToolManager toolManager;
 
@@ -87,7 +92,8 @@ public class JsonMessageStreamHandler {
                 return event;
             }
             case GenerationStreamEvent.AI_THINKING_DELTA -> {
-                return event;
+                // Legacy defense-in-depth: private reasoning must never reach clients or history.
+                return null;
             }
             case GenerationStreamEvent.TOOL_CALL -> {
                 String toolId = event.getData() == null ? null : stringValue(event.getData().get("requestId"));
@@ -145,18 +151,19 @@ public class JsonMessageStreamHandler {
                     String fallbackResult = String.format("[工具调用] %s\n%s",
                             toolName,
                             StrUtil.blankToDefault(event.getText(), "(无结果)"));
-                    String output = String.format("\n\n%s\n\n", fallbackResult);
+                    String output = publicToolOutput(fallbackResult);
                     chatHistoryStringBuilder.append(output);
-                    return GenerationStreamEvent.toolResult(output, Map.of(
-                            "requestId", StrUtil.blankToDefault(toolId, ""),
-                            "toolName", toolName,
-                            "registered", false,
-                            "result", StrUtil.blankToDefault(event.getText(), "")
+                    return GenerationStreamEvent.toolResult(output, buildToolEventData(
+                            toolId,
+                            toolName,
+                            false,
+                            arguments,
+                            StrUtil.blankToDefault(event.getText(), "")
                     ));
                 }
                 String result = tool.generateToolExecutedResult(jsonObject, event.getText());
                 // 输出前端和要持久化的内容
-                String output = String.format("\n\n%s\n\n", result);
+                String output = publicToolOutput(result);
                 chatHistoryStringBuilder.append(output);
                 return GenerationStreamEvent.toolResult(output, buildToolEventData(
                         toolId,
@@ -203,8 +210,15 @@ public class JsonMessageStreamHandler {
         data.put("requestId", StrUtil.blankToDefault(requestId, ""));
         data.put("toolName", toolName);
         data.put("registered", registered);
-        data.put("arguments", StrUtil.blankToDefault(arguments, ""));
-        data.put("result", StrUtil.blankToDefault(result, ""));
+        BaseTool tool = toolManager.getTool(toolName);
+        if (tool != null && tool.getRiskLevel() != null) {
+            data.put("riskLevel", tool.getRiskLevel().name().toLowerCase(java.util.Locale.ROOT));
+        }
+        String resultSummary = PublicDiagnosticSanitizer.sanitizeSingleLine(
+                result, MAX_PUBLIC_TOOL_TEXT_LENGTH);
+        if (StrUtil.isNotBlank(resultSummary)) {
+            data.put("resultSummary", resultSummary);
+        }
         appendFileOperationData(data, arguments);
         return data;
     }
@@ -217,10 +231,13 @@ public class JsonMessageStreamHandler {
         String chunk = StrUtil.blankToDefault(argumentsChunk, "");
         String bufferKey = resolveToolBufferKey(toolId, toolName, toolIndex);
         if (StrUtil.isBlank(bufferKey)) {
-            return chunk;
+            return StrUtil.subPre(chunk, MAX_TOOL_ARGUMENT_BUFFER_LENGTH);
         }
         StringBuilder buffer = toolArgumentBuffers.computeIfAbsent(bufferKey, key -> new StringBuilder());
-        buffer.append(chunk);
+        int remaining = MAX_TOOL_ARGUMENT_BUFFER_LENGTH - buffer.length();
+        if (remaining > 0) {
+            buffer.append(StrUtil.subPre(chunk, remaining));
+        }
         return buffer.toString();
     }
 
@@ -258,22 +275,22 @@ public class JsonMessageStreamHandler {
             JSONObject jsonObject = JSONUtil.parseObj(arguments);
             String filePath = jsonObject.getStr("relativeFilePath");
             if (StrUtil.isNotBlank(filePath)) {
-                data.put("filePath", filePath);
+                data.put("filePath", PublicDiagnosticSanitizer.sanitizeSingleLine(filePath, 512));
                 parsed = true;
             }
             String content = jsonObject.getStr("content");
             if (content != null) {
-                data.put("content", content);
+                putPublicFilePreview(data, "content", content);
                 parsed = true;
             }
             String oldContent = jsonObject.getStr("oldContent");
             if (oldContent != null) {
-                data.put("oldContent", oldContent);
+                putPublicFilePreview(data, "oldContent", oldContent);
                 parsed = true;
             }
             String newContent = jsonObject.getStr("newContent");
             if (newContent != null) {
-                data.put("newContent", newContent);
+                putPublicFilePreview(data, "newContent", newContent);
                 parsed = true;
             }
         } catch (Exception e) {
@@ -294,15 +311,37 @@ public class JsonMessageStreamHandler {
     private void putCompletedJsonStringValue(Map<String, Object> data, String arguments, String sourceKey, String targetKey) {
         String value = extractJsonStringValue(arguments, sourceKey, false);
         if (value != null) {
-            data.put(targetKey, value);
+            if ("filePath".equals(targetKey)) {
+                data.put(targetKey, PublicDiagnosticSanitizer.sanitizeSingleLine(value, 512));
+            } else {
+                putPublicFilePreview(data, targetKey, value);
+            }
         }
     }
 
     private void putPartialJsonStringValue(Map<String, Object> data, String arguments, String sourceKey, String targetKey) {
         String value = extractJsonStringValue(arguments, sourceKey, true);
         if (value != null) {
-            data.put(targetKey, value);
+            putPublicFilePreview(data, targetKey, value);
         }
+    }
+
+    private void putPublicFilePreview(Map<String, Object> data, String key, String value) {
+        String publicPreview = PublicDiagnosticSanitizer.sanitizeForPublicOutput(
+                value, MAX_PUBLIC_FILE_PREVIEW_LENGTH);
+        data.put(key, publicPreview);
+        if (value.length() > MAX_PUBLIC_FILE_PREVIEW_LENGTH
+                || publicPreview.contains("diagnostic output truncated")) {
+            data.put("previewTruncated", true);
+        }
+    }
+
+    private String publicToolOutput(String value) {
+        String summary = PublicDiagnosticSanitizer.sanitizeForPublicOutput(
+                StrUtil.blankToDefault(value, "[工具调用] 执行完成"),
+                MAX_PUBLIC_TOOL_TEXT_LENGTH
+        );
+        return String.format("\n\n%s\n\n", summary);
     }
 
     private String extractJsonStringValue(String jsonText, String key, boolean allowUnclosedValue) {

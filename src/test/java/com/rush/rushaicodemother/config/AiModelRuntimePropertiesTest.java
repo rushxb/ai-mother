@@ -53,4 +53,14 @@ class AiModelRuntimePropertiesTest {
 
         assertFalse(validator.validate(properties).isEmpty());
     }
+
+    @Test
+    void shouldRejectUnboundedFailoverCandidateCount() {
+        AiModelRuntimeProperties properties = new AiModelRuntimeProperties();
+        properties.setFailoverMaxCandidates(0);
+        assertFalse(validator.validate(properties).isEmpty());
+
+        properties.setFailoverMaxCandidates(6);
+        assertFalse(validator.validate(properties).isEmpty());
+    }
 }

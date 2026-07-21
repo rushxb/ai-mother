@@ -28,13 +28,19 @@ public class VueProjectBuildTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         String projectPath = resolveProjectPath(relativeProjectPath, appId);
+        String taskId = toolPathSupport.resolveTaskId(appId);
         log.info("开始执行 Vue 项目构建诊断，appId: {}, projectPath: {}", appId, projectPath);
-        VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath);
+        VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, taskId);
         return buildResult.toPublicDiagnosticReport();
     }
 
     private String resolveProjectPath(String relativeProjectPath, Long appId) {
         return toolPathSupport.resolvePath(relativeProjectPath, appId).toString();
+    }
+
+    @Override
+    public ToolRiskLevel getRiskLevel() {
+        return ToolRiskLevel.EXTERNAL_SIDE_EFFECT;
     }
 
     @Override

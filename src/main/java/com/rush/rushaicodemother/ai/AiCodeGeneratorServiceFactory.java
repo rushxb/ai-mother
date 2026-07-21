@@ -5,13 +5,17 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.rush.rushaicodemother.ai.guardrail.PromptSafetyInputGuardrail;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
+import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
 import com.rush.rushaicodemother.ai.tools.*;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
+import com.rush.rushaicodemother.model.event.AiModelCircuitOpenedEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
@@ -21,6 +25,7 @@ import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.EventListener;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
@@ -45,8 +50,15 @@ public class AiCodeGeneratorServiceFactory {
 
     private final StreamingModelFactory streamingModelFactory;
 
+    private final ToolExecutionFailurePolicy toolExecutionFailurePolicy;
+
+    private final AiToolInvocationPolicy aiToolInvocationPolicy;
+
+    private final PromptSystemMessageTransformer promptSystemMessageTransformer;
+
     private static final int DEFAULT_CHAT_MEMORY_MESSAGES = 20;
-    private static final int HEAVY_PROJECT_MEMORY_MESSAGES = 4;
+    private static final int HEAVY_PROJECT_MEMORY_MESSAGES = 8;
+    private static final int HEAVY_PROJECT_INITIAL_HISTORY_MESSAGES = 4;
 
     /**
      * AI 服务实例缓存
@@ -124,7 +136,8 @@ public class AiCodeGeneratorServiceFactory {
                 .maxMessages(maxMemoryMessages)
                 .build();
         // 从数据库中加载对话历史到记忆中
-        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, maxMemoryMessages);
+        chatHistoryService.loadChatHistoryToMemory(
+                appId, chatMemory, resolveInitialHistoryMessageCount(codeGenType, maxMemoryMessages));
         return switch (codeGenType) {
             // Vue、后端和全栈项目生成，使用工具调用和推理模型
             case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> {
@@ -135,13 +148,20 @@ public class AiCodeGeneratorServiceFactory {
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(streamingModel)
+                        .systemMessageTransformer(promptSystemMessageTransformer::transform)
                         .chatMemoryProvider(memoryId -> chatMemory)
                         .tools((Object[]) toolManager.getToolsForCodeGen(codeGenType))
+                        .beforeToolExecution(event ->
+                                aiToolInvocationPolicy.authorize(event, codeGenType, profile))
+                        .afterToolExecution(toolExecution ->
+                                aiToolInvocationPolicy.clearActiveInvocation())
                         // 处理工具调用幻觉问题
                         .hallucinatedToolNameStrategy(toolExecutionRequest ->
                                 ToolExecutionResultMessage.from(toolExecutionRequest,
                                         "Error: there is no tool called " + toolExecutionRequest.name())
                         )
+                        .toolExecutionErrorHandler((failure, context) ->
+                                toolExecutionFailurePolicy.handle(failure, context, codeGenType, profile))
                         .maxToolCallingRoundTrips(maxToolInvocations)
                         .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
                         .build();
@@ -153,6 +173,7 @@ public class AiCodeGeneratorServiceFactory {
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
+                        .systemMessageTransformer(promptSystemMessageTransformer::transform)
                         .chatMemory(chatMemory)
                         .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
                         .build();
@@ -181,6 +202,13 @@ public class AiCodeGeneratorServiceFactory {
         serviceCache.invalidateAll();
     }
 
+    @EventListener
+    public void onAiModelCircuitOpened(AiModelCircuitOpenedEvent event) {
+        log.warn("AI model circuit opened; invalidating cached AI services, provider={}, modelId={}",
+                event.provider(), event.modelId());
+        serviceCache.invalidateAll();
+    }
+
 
     /**
      * 解析最大工具调用次数。
@@ -203,6 +231,14 @@ public class AiCodeGeneratorServiceFactory {
         return switch (codeGenType) {
             case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> HEAVY_PROJECT_MEMORY_MESSAGES;
             default -> DEFAULT_CHAT_MEMORY_MESSAGES;
+        };
+    }
+
+    private int resolveInitialHistoryMessageCount(CodeGenTypeEnum codeGenType, int memoryMessageCount) {
+        return switch (codeGenType) {
+            case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT ->
+                    Math.min(memoryMessageCount, HEAVY_PROJECT_INITIAL_HISTORY_MESSAGES);
+            default -> memoryMessageCount;
         };
     }
 

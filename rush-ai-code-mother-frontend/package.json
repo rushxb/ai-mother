@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "vite",
     "pure-build": "vite build",
@@ -54,11 +55,6 @@
   },
   "overrides": {
     "mockjs": {
-      "commander": "5.1.0"
-    }
-  },
-  "pnpm": {
-    "overrides": {
       "commander": "5.1.0"
     }
   }

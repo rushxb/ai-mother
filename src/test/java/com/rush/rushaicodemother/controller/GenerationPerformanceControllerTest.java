@@ -6,6 +6,8 @@ import com.rush.rushaicodemother.constant.UserConstant;
 import com.rush.rushaicodemother.model.vo.GenerationDurationProfileVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskSpanVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedger;
+import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedgerService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfile;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfileService;
@@ -29,7 +31,8 @@ class GenerationPerformanceControllerTest {
         GenerationPerformanceMonitorService monitorService = mock(GenerationPerformanceMonitorService.class);
         GenerationSpanQueryService queryService = mock(GenerationSpanQueryService.class);
         GenerationPerformanceController controller = new GenerationPerformanceController(
-                monitorService, queryService, mock(GenerationDurationProfileService.class));
+                monitorService, queryService, mock(GenerationDurationProfileService.class),
+                mock(GenerationTaskLatencyLedgerService.class));
         Instant startedAt = Instant.parse("2026-07-16T02:00:00Z");
         Instant endedAt = startedAt.plusSeconds(12);
         when(queryService.findByTaskId("task-span-1", 25)).thenReturn(List.of(
@@ -86,7 +89,8 @@ class GenerationPerformanceControllerTest {
                         "build", "build", 18, 120_000L, 240_000L, 300_000L)),
                 computedAt));
         GenerationPerformanceController controller = new GenerationPerformanceController(
-                monitorService, queryService, profileService);
+                monitorService, queryService, profileService,
+                mock(GenerationTaskLatencyLedgerService.class));
 
         BaseResponse<GenerationDurationProfileVO> response = controller.getRouteDurationProfile("heavy");
 
@@ -102,6 +106,46 @@ class GenerationPerformanceControllerTest {
     void routeDurationProfileEndpointMustRemainAdministratorOnly() throws NoSuchMethodException {
         Method method = GenerationPerformanceController.class
                 .getMethod("getRouteDurationProfile", String.class);
+
+        AuthCheck authCheck = method.getAnnotation(AuthCheck.class);
+
+        assertNotNull(authCheck);
+        assertEquals(UserConstant.ADMIN_ROLE, authCheck.mustRole());
+    }
+
+    @Test
+    void getTaskLatencyLedgerMustExposeCriticalPathAndCoverageDiagnostics() {
+        GenerationTaskLatencyLedgerService ledgerService = mock(GenerationTaskLatencyLedgerService.class);
+        GenerationPerformanceController controller = new GenerationPerformanceController(
+                mock(GenerationPerformanceMonitorService.class),
+                mock(GenerationSpanQueryService.class),
+                mock(GenerationDurationProfileService.class),
+                ledgerService
+        );
+        Instant submittedAt = Instant.parse("2026-07-18T01:00:00Z");
+        when(ledgerService.getLedger("task-ledger-1")).thenReturn(new GenerationTaskLatencyLedger(
+                "task-ledger-1", 1L, 2L, "heavy_generation", "success", "completed",
+                submittedAt, submittedAt.plusSeconds(90), submittedAt.plusSeconds(100),
+                submittedAt.plusSeconds(101), 100_000L, 90_000L, 10_000L, 90.0d,
+                20_000L, 10_000L, 3, 3, false, "model",
+                List.of(new GenerationTaskLatencyLedger.CategoryLatency(
+                        "model", 1, 60_000L, 60_000L, 60.0d))
+        ));
+
+        var response = controller.getTaskLatencyLedger("task-ledger-1");
+
+        assertEquals(0, response.getCode());
+        assertEquals(100_000L, response.getData().totalLatencyMs());
+        assertEquals(90.0d, response.getData().attributionCoveragePercent());
+        assertEquals("model", response.getData().dominantCategory());
+        assertEquals(60_000L, response.getData().categories().getFirst().attributedDurationMs());
+        verify(ledgerService).getLedger("task-ledger-1");
+    }
+
+    @Test
+    void taskLatencyLedgerEndpointMustRemainAdministratorOnly() throws NoSuchMethodException {
+        Method method = GenerationPerformanceController.class
+                .getMethod("getTaskLatencyLedger", String.class);
 
         AuthCheck authCheck = method.getAnnotation(AuthCheck.class);
 

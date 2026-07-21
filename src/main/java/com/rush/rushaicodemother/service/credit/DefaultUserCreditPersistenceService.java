@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 /** 用户积分持久化边界的 MyBatis 实现。 */
 @Repository
 @RequiredArgsConstructor
@@ -127,6 +129,21 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         }
     }
 
+    @Override
+    public List<String> findUnsettledTerminalTaskIds(int limit) {
+        if (limit <= 0 || limit > 500) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分结算扫描批次必须在 1 到 500 之间");
+        }
+        List<String> taskIds = mapper.selectUnsettledTerminalTaskIds(limit);
+        if (taskIds == null || taskIds.isEmpty()) {
+            return List.of();
+        }
+        for (String taskId : taskIds) {
+            requireBusinessId(taskId, "生成任务 ID");
+        }
+        return List.copyOf(taskIds);
+    }
+
     private CreditAccount toCreditAccount(User user) {
         if (user == null) {
             return null;
@@ -184,6 +201,8 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
             case ACCOUNT_INITIALIZATION -> validateAccountInitialization(transaction);
             case ADMIN_ADJUST -> validateAdminAdjustment(transaction);
             case GENERATION_CHARGE -> validateGenerationCharge(transaction);
+            case GENERATION_RESERVATION -> validateGenerationReservation(transaction);
+            case GENERATION_SETTLEMENT -> validateGenerationSettlement(transaction);
         }
     }
 
@@ -205,6 +224,20 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         if (transaction.changeAmount() > 0 || transaction.adminUserId() != null
                 || transaction.tokenCount() == null || transaction.tokenCount() < 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分流水参数不合法");
+        }
+    }
+
+    private void validateGenerationReservation(NewCreditTransaction transaction) {
+        if (transaction.changeAmount() >= 0 || transaction.adminUserId() != null
+                || transaction.tokenCount() != null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分预授权流水参数不合法");
+        }
+    }
+
+    private void validateGenerationSettlement(NewCreditTransaction transaction) {
+        if (transaction.adminUserId() != null
+                || transaction.tokenCount() == null || transaction.tokenCount() < 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分结算流水参数不合法");
         }
     }
 

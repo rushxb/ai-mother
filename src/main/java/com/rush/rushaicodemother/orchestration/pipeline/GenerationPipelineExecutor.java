@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
@@ -19,6 +20,7 @@ import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceReleaseService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -49,11 +51,34 @@ public class GenerationPipelineExecutor {
     private final GenerationExecutionContextService generationExecutionContextService;
     private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
+    private final GenerationWorkspaceReleaseService workspaceReleaseService;
+    private final GenerationTaskLifecycleService generationTaskLifecycleService;
+
+    /** Compatibility constructor for focused tests created before publication became mandatory. */
+    public GenerationPipelineExecutor(
+            List<GenerationPipeline> generationPipelines,
+            GenerationEventPublisher generationEventPublisher,
+            GenerationSessionRegistry generationSessionRegistry,
+            GenerationExecutionContextService generationExecutionContextService,
+            GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+            GenerationPerformanceMonitorService generationPerformanceMonitorService
+    ) {
+        this(
+                generationPipelines,
+                generationEventPublisher,
+                generationSessionRegistry,
+                generationExecutionContextService,
+                generationTaskRuntimeLifecycleService,
+                generationPerformanceMonitorService,
+                null,
+                null
+        );
+    }
 
     public void execute(GenerationPipelineRequest request) {
         GenerationTaskExecution execution = request.requireExecution();
         try {
-            generationTaskRuntimeLifecycleService.activate(execution.taskId());
+            generationTaskRuntimeLifecycleService.activate(execution.executionFence());
             generationPerformanceMonitorService.recordSpan(
                     execution.taskId(),
                     "queue_wait",
@@ -155,6 +180,27 @@ public class GenerationPipelineExecutor {
     private void completeManagedTask(GenerationPipelineRequest request, GenerationTaskStatus status) {
         GenerationTaskExecution execution = request.requireExecution();
         GenerationSession session = execution.session();
+        if (status == GenerationTaskStatus.SUCCESS) {
+            session.throwIfCancelled();
+            if (workspaceReleaseService != null) {
+                workspaceReleaseService.release(
+                        session,
+                        session.executionWorkspace() == null
+                                ? request.codeGenType()
+                                : session.executionWorkspace().codeGenType()
+                );
+            }
+            if (generationTaskLifecycleService != null) {
+                generationTaskLifecycleService.completeGenerationAndCharge(
+                        execution.taskId(), request.taskRequest().app().getId(), status, null);
+            }
+            generationEventPublisher.publishSafely(
+                    request.taskRequest(), GenerationEventType.TASK_DONE, "生成任务已发布", Map.of(
+                            "taskId", execution.taskId(),
+                            "route", request.modeDecision().route(),
+                            "status", status.getValue()
+                    ));
+        }
         if (session.tryBeginCompletion()) {
             session.complete();
         }
@@ -195,6 +241,17 @@ public class GenerationPipelineExecutor {
                         "reason", PIPELINE_FAILURE_REASON
                 )
         );
+        if (generationTaskLifecycleService != null) {
+            try {
+                generationTaskLifecycleService.completeGeneration(
+                        execution.taskId(), request.taskRequest().app().getId(),
+                        outcome.taskStatus(), PIPELINE_FAILURE_REASON);
+            } catch (RuntimeException lifecycleFailure) {
+                failure.addSuppressed(lifecycleFailure);
+                log.error("Failed to finalize application generation state, taskId: {}",
+                        execution.taskId(), LogExceptionSanitizer.sanitize(lifecycleFailure));
+            }
+        }
         finalizeRuntime(request, execution, session, outcome.taskStatus(), PIPELINE_FAILURE_REASON);
     }
 
@@ -204,7 +261,8 @@ public class GenerationPipelineExecutor {
                                  GenerationTaskStatus status,
                                  String reason) {
         try {
-            generationTaskRuntimeLifecycleService.complete(execution.taskId(), status, reason);
+            generationTaskRuntimeLifecycleService.completeOwned(
+                    execution.executionFence(), status, reason);
         } catch (RuntimeException persistenceFailure) {
             log.error("Failed to finalize durable generation task, taskId: {}",
                     execution.taskId(), LogExceptionSanitizer.sanitize(persistenceFailure));
@@ -215,7 +273,11 @@ public class GenerationPipelineExecutor {
             log.error("Failed to retain generation session for replay, taskId: {}",
                     execution.taskId(), LogExceptionSanitizer.sanitize(retentionFailure));
         } finally {
-            generationExecutionContextService.finish(execution.taskId(), status.getValue());
+            // A worker can finish after lease recovery has already installed a newer
+            // execution epoch for the same task.  Never let the old worker remove the
+            // newer epoch's context by task id alone.
+            generationExecutionContextService.finishIfOwned(
+                    execution.taskId(), execution.executionFence(), status.getValue());
         }
     }
 

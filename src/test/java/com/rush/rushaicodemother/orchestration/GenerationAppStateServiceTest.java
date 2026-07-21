@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,12 +17,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -46,7 +50,7 @@ class GenerationAppStateServiceTest {
 
     @Test
     void claimMustPersistTaskOwnerTargetTypeAndBoundedLease() {
-        when(appMapper.claimGenerationState(any(), any(), any(), any(), any(), any()))
+        when(appMapper.claimGenerationState(any(), any(), anyLong(), any(), any(), any(), any()))
                 .thenReturn(1);
         ArgumentCaptor<LocalDateTime> nowCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
         ArgumentCaptor<LocalDateTime> leaseCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
@@ -54,7 +58,7 @@ class GenerationAppStateServiceTest {
         stateService.claimGenerationState(11L, "task-1", "create", CodeGenTypeEnum.VUE_PROJECT);
 
         verify(appMapper).claimGenerationState(
-                eq(11L), eq("task-1"), eq("create"), eq("vue_project"),
+                eq(11L), eq("task-1"), eq(0L), eq("create"), eq("vue_project"),
                 nowCaptor.capture(), leaseCaptor.capture());
         assertEquals(LocalDateTime.of(2026, 7, 14, 6, 0), nowCaptor.getValue());
         assertEquals(Duration.ofMinutes(21),
@@ -64,7 +68,7 @@ class GenerationAppStateServiceTest {
 
     @Test
     void claimMustDifferentiateMissingApplicationFromConcurrentOwner() {
-        when(appMapper.claimGenerationState(any(), any(), any(), any(), any(), any()))
+        when(appMapper.claimGenerationState(any(), any(), anyLong(), any(), any(), any(), any()))
                 .thenReturn(0);
 
         BusinessException missing = assertThrows(
@@ -108,7 +112,7 @@ class GenerationAppStateServiceTest {
 
     @Test
     void releaseMustBeOwnerScopedAndIdempotent() {
-        when(appMapper.releaseOwnedGenerationState(11L, "task-1"))
+        when(appMapper.releaseOwnedGenerationState(11L, "task-1", 0L))
                 .thenReturn(1)
                 .thenReturn(0);
 
@@ -125,6 +129,25 @@ class GenerationAppStateServiceTest {
         assertThrows(BusinessException.class, () -> stateService.updateOwnedGenerationStage(
                 11L, "task-1", " ", "message"));
 
-        verify(appMapper, never()).claimGenerationState(any(), any(), any(), any(), any(), any());
+        verify(appMapper, never()).claimGenerationState(
+                any(), any(), anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void activeExecutionFenceEpochMustBeForwardedToOwnedWrites() {
+        GenerationExecutionContextService executionContextService =
+                mock(GenerationExecutionContextService.class);
+        when(executionContextService.getExecutionFence("task-1")).thenReturn(Optional.of(
+                new GenerationExecutionFence("task-1", "worker-a", 7L)));
+        stateService = new GenerationAppStateService(
+                appMapper, runtimeProperties, executionContextService, FIXED_CLOCK);
+        when(appMapper.updateOwnedGenerationStage(
+                eq(11L), eq("task-1"), eq(7L), eq("build"), eq("building"), any()))
+                .thenReturn(1);
+
+        stateService.updateOwnedGenerationStage(11L, "task-1", "build", "building");
+
+        verify(appMapper).updateOwnedGenerationStage(
+                eq(11L), eq("task-1"), eq(7L), eq("build"), eq("building"), any());
     }
 }

@@ -8,7 +8,14 @@ export interface BuildResultView {
 export interface AgentEventView {
   agent: string
   stage: string
-  status: 'pending' | 'running' | 'done' | 'failed'
+  status:
+    | 'pending'
+    | 'running'
+    | 'done'
+    | 'failed'
+    | 'approval_required'
+    | 'approval_approved'
+    | 'approval_rejected'
   summary: string
   dagNode?: string
   durationMs?: number
@@ -16,6 +23,9 @@ export interface AgentEventView {
   qualityGate?: string
   recoverable?: boolean
   artifact?: Record<string, unknown>
+  action?: string
+  approvalId?: string
+  request?: Record<string, unknown>
 }
 
 export interface ChatMessage {
@@ -23,9 +33,6 @@ export interface ChatMessage {
   type: 'user' | 'ai'
   content: string
   loading?: boolean
-  thinkingContent?: string
-  thinkingActive?: boolean
-  thinkingCollapsed?: boolean
   createTime?: string
   feedback?: 'like' | 'dislike'
   buildResult?: BuildResultView

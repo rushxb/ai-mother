@@ -21,6 +21,7 @@ import java.util.stream.Stream;
 public class DevServerRuntimeProperties {
 
     private static final Duration MAX_RUNTIME_DURATION = Duration.ofHours(1);
+    private static final String SAFE_NODE_ID_PATTERN = "[A-Za-z0-9][A-Za-z0-9._-]{0,127}";
 
     /** Dev Server 从创建进程到确认就绪的最大时长。 */
     private Duration startupTimeout = Duration.ofSeconds(30);
@@ -65,6 +66,23 @@ public class DevServerRuntimeProperties {
     @Max(10_000)
     private int maxRecentOutputLines = 200;
 
+    /** Stable deployment node identity. Production must configure this explicitly. */
+    private String nodeId;
+
+    /** Ownership lease for a durable Dev Server session. */
+    private Duration leaseDuration = Duration.ofSeconds(30);
+
+    /** Interval used by the owning process to renew its session lease. */
+    private Duration heartbeatInterval = Duration.ofSeconds(10);
+
+    /** Interval used to scan for expired Dev Server sessions. */
+    private Duration recoveryScanInterval = Duration.ofSeconds(15);
+
+    /** Maximum expired sessions recovered in one scan. */
+    @Min(1)
+    @Max(500)
+    private int recoveryBatchSize = 50;
+
     @AssertTrue(message = "Dev Server 运行时超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
         return configuredDurations()
@@ -84,8 +102,18 @@ public class DevServerRuntimeProperties {
                 validationErrorCollectionWindow,
                 validationPollInterval,
                 outputDrainTimeout,
-                stopTimeout
+                stopTimeout,
+                leaseDuration,
+                heartbeatInterval,
+                recoveryScanInterval
         );
+    }
+
+    @AssertTrue(message = "Dev Server heartbeat interval must be shorter than its ownership lease")
+    public boolean isLeaseConfigurationValid() {
+        return leaseDuration != null
+                && heartbeatInterval != null
+                && heartbeatInterval.compareTo(leaseDuration) < 0;
     }
 
     @AssertTrue(message = "Dev Server 就绪检查间隔必须小于启动超时")
@@ -98,6 +126,11 @@ public class DevServerRuntimeProperties {
     @AssertTrue(message = "Dev Server 端口范围配置无效")
     public boolean isPortRangeValid() {
         return portRangeStart <= portRangeEnd;
+    }
+
+    @AssertTrue(message = "Dev Server node id must be safe for internal routing")
+    public boolean isNodeIdValid() {
+        return nodeId == null || nodeId.isBlank() || nodeId.trim().matches(SAFE_NODE_ID_PATTERN);
     }
 
 }

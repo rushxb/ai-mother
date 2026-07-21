@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.mapper;
 import com.mybatisflex.core.BaseMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
@@ -13,12 +15,22 @@ import java.time.LocalDateTime;
  */
 public interface AppMapper extends BaseMapper<App> {
 
+    @Insert("""
+            INSERT INTO app (
+                appName, initPrompt, codeGenType, priority, userId, tenantId
+            ) VALUES (
+                #{appName}, #{initPrompt}, #{codeGenType}, #{priority}, #{userId}, #{tenantId}
+            )
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    int insertPreparedApp(App app);
+
     /** 查询一条未删除应用的完整元数据。 */
     @Select("""
             select id, appName, cover, initPrompt, codeGenType, deployKey, deployedTime,
                    isGenerating, generatingMessage, generatingStage, generatingTaskId,
                    generationLeaseUntil, devServerPort, priority,
-                   userId, editTime, createTime, updateTime, isDelete
+                   userId, tenantId, editTime, createTime, updateTime, isDelete
             from app
             where id = #{appId} and isDelete = 0
             """)
@@ -45,12 +57,12 @@ public interface AppMapper extends BaseMapper<App> {
     int updateActiveDevServerPort(@Param("appId") Long appId, @Param("port") int port);
 
     /** 获取启动 Dev Server 所需的最小应用状态。 */
-    @Select("select id, userId, codeGenType, devServerPort from app "
+    @Select("select id, userId, tenantId, codeGenType, devServerPort from app "
             + "where id = #{appId} and isDelete = 0")
     App selectDevServerTarget(@Param("appId") Long appId);
 
     /** 获取复制锁内需要重新确认的最新源应用状态。 */
-    @Select("select id, appName, cover, initPrompt, codeGenType from app "
+    @Select("select id, appName, cover, initPrompt, codeGenType, userId, tenantId from app "
             + "where id = #{appId} and isDelete = 0")
     App selectCopySourceState(@Param("appId") Long appId);
 
@@ -75,7 +87,7 @@ public interface AppMapper extends BaseMapper<App> {
                                  @Param("deployedTime") LocalDateTime deployedTime,
                                  @Param("cover") String cover);
     /** 获取应用当前生成状态所有权，用于区分记录不存在与并发占用。 */
-    @Select("select id, isGenerating, generatingTaskId, generationLeaseUntil from app "
+    @Select("select id, isGenerating, generatingTaskId, generationExecutionEpoch, generationLeaseUntil from app "
             + "where id = #{appId} and isDelete = 0")
     App selectGenerationState(@Param("appId") Long appId);
 
@@ -89,10 +101,8 @@ public interface AppMapper extends BaseMapper<App> {
                 generatingMessage = '',
                 generatingStage = #{generatingStage},
                 generatingTaskId = #{taskId},
+                generationExecutionEpoch = #{executionEpoch},
                 generationLeaseUntil = #{leaseUntil}
-                <if test="targetCodeGenType != null">
-                    , codeGenType = #{targetCodeGenType}
-                </if>
             where id = #{appId}
               and isDelete = 0
               and (
@@ -100,12 +110,14 @@ public interface AppMapper extends BaseMapper<App> {
                     or generatingTaskId is null
                     or generationLeaseUntil is null
                     or generationLeaseUntil &lt;= #{now}
-                    or generatingTaskId = #{taskId}
+                    or (generatingTaskId = #{taskId}
+                        and generationExecutionEpoch = #{executionEpoch})
               )
             </script>
             """)
     int claimGenerationState(@Param("appId") Long appId,
                              @Param("taskId") String taskId,
+                             @Param("executionEpoch") long executionEpoch,
                              @Param("generatingStage") String generatingStage,
                              @Param("targetCodeGenType") String targetCodeGenType,
                              @Param("now") LocalDateTime now,
@@ -122,9 +134,11 @@ public interface AppMapper extends BaseMapper<App> {
               and isDelete = 0
               and isGenerating = 1
               and generatingTaskId = #{taskId}
+              and generationExecutionEpoch = #{executionEpoch}
             """)
     int updateOwnedGenerationStage(@Param("appId") Long appId,
                                    @Param("taskId") String taskId,
+                                   @Param("executionEpoch") long executionEpoch,
                                    @Param("generatingStage") String generatingStage,
                                    @Param("generatingMessage") String generatingMessage,
                                    @Param("leaseUntil") LocalDateTime leaseUntil);
@@ -139,9 +153,11 @@ public interface AppMapper extends BaseMapper<App> {
               and isDelete = 0
               and isGenerating = 1
               and generatingTaskId = #{taskId}
+              and generationExecutionEpoch = #{executionEpoch}
             """)
     int updateOwnedGenerationSnapshot(@Param("appId") Long appId,
                                       @Param("taskId") String taskId,
+                                      @Param("executionEpoch") long executionEpoch,
                                       @Param("generatingMessage") String generatingMessage,
                                       @Param("leaseUntil") LocalDateTime leaseUntil);
 
@@ -154,10 +170,12 @@ public interface AppMapper extends BaseMapper<App> {
               and isDelete = 0
               and isGenerating = 1
               and generatingTaskId = #{taskId}
+              and generationExecutionEpoch = #{executionEpoch}
             """)
     int updateOwnedCodeGenType(@Param("appId") Long appId,
-                               @Param("taskId") String taskId,
-                               @Param("codeGenType") String codeGenType,
+                                @Param("taskId") String taskId,
+                                @Param("executionEpoch") long executionEpoch,
+                                @Param("codeGenType") String codeGenType,
                                @Param("leaseUntil") LocalDateTime leaseUntil);
 
     /** 只有当前任务所有者可以释放应用生成状态。 */
@@ -167,12 +185,15 @@ public interface AppMapper extends BaseMapper<App> {
                 generatingMessage = '',
                 generatingStage = null,
                 generatingTaskId = null,
+                generationExecutionEpoch = null,
                 generationLeaseUntil = null
             where id = #{appId}
               and isDelete = 0
               and generatingTaskId = #{taskId}
+              and generationExecutionEpoch = #{executionEpoch}
             """)
     int releaseOwnedGenerationState(@Param("appId") Long appId,
-                                    @Param("taskId") String taskId);
+                                    @Param("taskId") String taskId,
+                                    @Param("executionEpoch") long executionEpoch);
 
 }

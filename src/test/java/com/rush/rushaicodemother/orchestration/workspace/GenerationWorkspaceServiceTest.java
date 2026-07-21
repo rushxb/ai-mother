@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -122,6 +123,40 @@ class GenerationWorkspaceServiceTest {
 
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), exception.getCode());
     }
+
+    @Test
+    void shouldResolveOnlyThePublishedWorkspaceOwnedByTheExpectedTask() throws Exception {
+        Path outputRoot = tempDirectory.resolve("published-output");
+        CodeStorageProperties properties = new CodeStorageProperties();
+        properties.setOutputRootDir(outputRoot);
+        properties.setDeployRootDir(tempDirectory.resolve("published-deploy"));
+        properties.setSnapshotRootDir(tempDirectory.resolve("published-snapshot"));
+        GenerationWorkspacePublicationCatalog catalog =
+                new GenerationWorkspacePublicationCatalog(properties);
+        GenerationWorkspaceService publishedService = new GenerationWorkspaceService(
+                properties, new GenerationWorkspaceExecutionScope(), catalog);
+        GenerationWorkspacePublicationPointer pointer = new GenerationWorkspacePublicationPointer(
+                GenerationWorkspacePublicationPointer.CURRENT_SCHEMA_VERSION,
+                904L,
+                CodeGenTypeEnum.VUE_PROJECT,
+                "task-published",
+                7L,
+                Instant.parse("2026-07-20T10:00:00Z")
+        );
+        Path publishedRoot = catalog.prepareVersionParent(pointer).resolve("workspace");
+        Files.createDirectory(publishedRoot);
+        Files.writeString(publishedRoot.resolve("package.json"), "{}");
+        catalog.writeOwnerMarker(publishedRoot, pointer);
+        catalog.activate(pointer);
+
+        GenerationWorkspace workspace = publishedService.resolvePublished(
+                904L, CodeGenTypeEnum.VUE_PROJECT, "task-published");
+
+        assertEquals(publishedRoot.toRealPath(), workspace.canonicalRootPath());
+        assertThrows(BusinessException.class, () -> publishedService.resolvePublished(
+                904L, CodeGenTypeEnum.VUE_PROJECT, "task-stale"));
+    }
+
     private GenerationWorkspaceService service(Path outputRoot) {
         CodeStorageProperties properties = new CodeStorageProperties();
         properties.setOutputRootDir(outputRoot);

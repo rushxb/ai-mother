@@ -103,6 +103,12 @@ public class App implements Serializable {
     private LocalDateTime generationLeaseUntil;
 
     /**
+     * Fencing epoch of the worker that currently owns the generation state.
+     */
+    @Column("generationExecutionEpoch")
+    private Long generationExecutionEpoch;
+
+    /**
      * Vue 开发服务器端口号（预览用）
      */
     @Column("devServerPort")
@@ -118,6 +124,12 @@ public class App implements Serializable {
      */
     @Column("userId")
     private Long userId;
+
+    /**
+     * 数据所属租户。userId 仅保留创建人/审计语义，授权必须以 tenantId 为边界。
+     */
+    @Column("tenantId")
+    private Long tenantId;
 
     /**
      * 编辑时间

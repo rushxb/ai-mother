@@ -18,6 +18,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
+import com.rush.rushaicodemother.orchestration.dag.GenerationDagCheckpointRecoveryPolicy;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
@@ -135,8 +136,10 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         if (!taskStore.matchesRequest(task, request.userMessage())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "任务恢复请求与原始请求不一致");
         }
-        if (task.getRuntimeState() != null && task.getRuntimeState().terminal()) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务已终止，不能从终态检查点恢复");
+        GenerationDagCheckpointRecoveryPolicy.Assessment assessment =
+                GenerationDagCheckpointRecoveryPolicy.assess(task);
+        if (!assessment.automaticallyRecoverable()) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, assessment.reason());
         }
         return task;
     }
@@ -172,6 +175,9 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private void attachRollbackPoint(GenerationOrchestrationRequest request,
                                      GenerationAgentContext context,
                                      CodeGenTypeEnum targetType) {
+        if (context.getArtifact("rollback_point").isPresent()) {
+            return;
+        }
         GenerationArtifact artifact = rollbackPointService.prepareRollbackPoint(
                 request,
                 targetType,

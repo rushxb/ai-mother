@@ -42,7 +42,7 @@ public class BackgroundValidationService {
     private final DevServerValidationService devServerValidationService;
     private final GenerationExecutionContextService generationExecutionContextService;
 
-    /** Executes the validation gate inside the owning task workspace. */
+    /** 在所属任务工作空间内执行验证门。 */
     public ValidationResult executeValidation(
             String taskId,
             Long appId,

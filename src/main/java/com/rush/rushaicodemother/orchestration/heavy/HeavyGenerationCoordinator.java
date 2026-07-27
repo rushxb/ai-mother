@@ -41,6 +41,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceRele
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -49,10 +50,10 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 
-/** Coordinates the complete lifecycle of the heavy generation workflow. */
+/** 协调重型发电工作流程的完整生命周期。 */
 @Slf4j
 @Component
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class HeavyGenerationCoordinator {
 
     private final GenerationEventPublisher generationEventPublisher;
@@ -73,7 +74,7 @@ public class HeavyGenerationCoordinator {
     private final GenerationExecutionWorkspaceService executionWorkspaceService;
     private final GenerationWorkspaceReleaseService workspaceReleaseService;
 
-    /** Compatibility constructor for tests and unmanaged callers predating epoch-owned workspaces. */
+    /** 用于测试和非托管调用者的兼容性构造函数早于 epoch 拥有的工作区。 */
     public HeavyGenerationCoordinator(
             GenerationEventPublisher generationEventPublisher,
             GenerationSessionRegistry generationSessionRegistry,
@@ -112,7 +113,7 @@ public class HeavyGenerationCoordinator {
         );
     }
 
-    /** Starts heavy generation with an execution envelope allocated by the task runtime. */
+    /** 使用任务运行时分配的执行包络开始大量生成。 */
     public void startManaged(GenerationPipelineRequest pipelineRequest) {
         if (pipelineRequest.execution() == null) {
             throw new IllegalArgumentException("managed heavy generation requires a task execution envelope");
@@ -121,8 +122,8 @@ public class HeavyGenerationCoordinator {
     }
 
     /**
-     * Starts heavy generation. Requests from the production orchestrator carry a preallocated
-     * execution envelope; the legacy allocation path remains for isolated compatibility callers.
+     * 开始大量生成。来自生产协调器的请求带有预分配的
+     * 执行信封；遗留分配路径仍然供隔离的兼容性调用者使用。
      */
     public GenerationTaskResult start(GenerationPipelineRequest pipelineRequest) {
         GenerationTaskRequest request = pipelineRequest.taskRequest();
@@ -331,11 +332,10 @@ public class HeavyGenerationCoordinator {
                             "预注册的生成会话与当前应用不匹配");
                 }
             }
-            generationTaskLifecycleService.recordUserMessage(appId, loginUser.getId(), message);
             boolean lifecycleStarted = false;
             try {
                 executionContext.assertCanContinue();
-                generationTaskLifecycleService.startGeneration(
+                generationTaskLifecycleService.startOrTransitionGeneration(
                         preparation.taskId(),
                         appId,
                         loginUser.getId(),
@@ -366,7 +366,7 @@ public class HeavyGenerationCoordinator {
                 if (preRegisteredSession == null) {
                     generationSessionRegistry.remove(appId);
                 }
-                if (lifecycleStarted) {
+                if (lifecycleStarted && preRegisteredSession == null) {
                     try {
                         generationTaskLifecycleService.completeGeneration(
                                 preparation.taskId(),
@@ -421,6 +421,9 @@ public class HeavyGenerationCoordinator {
                 : pipelineRequest.execution().executionFence();
         runInitializationCleanupStep(taskId, "clear tool context", startupFailure,
                 () -> clearToolExecutionContext(appId, taskId, executionFence));
+        if (pipelineRequest.execution() != null) {
+            return;
+        }
         if (performanceStarted) {
             runInitializationCleanupStep(taskId, "finish performance task", startupFailure,
                     () -> generationPerformanceMonitorService.finishTask(taskId, outcome.status()));

@@ -8,10 +8,11 @@ import com.rush.rushaicodemother.model.vo.AiModelAdminVO;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 import com.rush.rushaicodemother.model.vo.AiModelPublicVO;
 import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceCandidate;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceRecord;
-import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubject;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier;
 import com.rush.rushaicodemother.service.release.AiReleaseAuditService;
+import com.rush.rushaicodemother.service.release.AiReleaseCoordinationLock;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -30,9 +31,9 @@ public class DefaultAiModelManagementService implements AiModelManagementService
     private final AiModelViewAssembler viewAssembler;
     private final AiModelConnectionTester connectionTester;
     private final ApplicationEventPublisher eventPublisher;
-    private final AiModelCandidateFingerprintService candidateFingerprintService;
     private final GenerationReleaseEvidenceVerifier evidenceVerifier;
     private final AiReleaseAuditService releaseAuditService;
+    private final AiReleaseCoordinationLock coordinationLock;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -84,6 +85,7 @@ public class DefaultAiModelManagementService implements AiModelManagementService
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteModel(long modelId) {
+        coordinationLock.acquire();
         requireLockedModel(modelId);
         persistenceService.logicallyDelete(modelId);
         publishConfigurationChanged();
@@ -97,6 +99,7 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         if (operatorUserId <= 0) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "缺少有效的管理员身份");
         }
+        coordinationLock.acquire();
         AiModelConfiguration existing = requireLockedModel(modelId);
         boolean enable = !existing.enabled();
         AiModelConfiguration updated = existing.toBuilder()
@@ -104,12 +107,9 @@ public class DefaultAiModelManagementService implements AiModelManagementService
                 .build();
         if (enable) {
             updated = configurationPolicy.normalizeAndValidate(updated);
-            String candidateFingerprint = candidateFingerprintService.fingerprint(updated);
             GenerationBenchmarkEvidenceRecord evidence = evidenceVerifier.requirePassed(
                     evidenceId,
-                    GenerationBenchmarkEvidenceSubject.AI_MODEL_ENABLE,
-                    Long.toString(modelId),
-                    candidateFingerprint
+                    new GenerationBenchmarkEvidenceCandidate.AiModelEnable(modelId)
             );
             persistenceService.update(updated);
             releaseAuditService.recordModelEnable(evidence, operatorUserId, modelId);

@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.service.devserver;
 
-/** Stable application paths shared by HTTP, WebSocket, and Vite routing. */
+/** HTTP、WebSocket、Vite 路由共享的稳定应用路径。 */
 public final class DevServerPreviewPaths {
 
     public static final String PUBLIC_PROXY_PREFIX = "/app/dev-server/proxy/";

@@ -5,7 +5,7 @@ import lombok.Data;
 
 import java.time.Instant;
 
-/** Durable critical-path span returned by the administrator diagnostics API. */
+/** 管理员诊断 API 返回的持久关键路径跨度。 */
 @Data
 @Builder
 public class GenerationTaskSpanVO {

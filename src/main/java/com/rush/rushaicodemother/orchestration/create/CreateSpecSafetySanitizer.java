@@ -4,6 +4,9 @@ import cn.hutool.core.util.StrUtil;
 
 import java.util.regex.Pattern;
 
+/**
+ * 创建规格安全安全净化器。
+ */
 public class CreateSpecSafetySanitizer {
 
     private static final Pattern HTML_TAG = Pattern.compile("<[^>]+>");

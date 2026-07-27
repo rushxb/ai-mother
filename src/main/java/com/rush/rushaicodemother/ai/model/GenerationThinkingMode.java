@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.model;
 
-/** User-visible reasoning policy; raw chain-of-thought is never exposed. */
+/** 用户可见的推理策略；原始的思想链永远不会暴露。 */
 public enum GenerationThinkingMode {
     FAST,
     STANDARD,

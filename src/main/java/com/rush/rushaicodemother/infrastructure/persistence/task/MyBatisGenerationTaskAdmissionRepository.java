@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Objects;
 import java.util.Optional;
 
-/** MySQL-backed admission lock shared by every API instance. */
+/** 每个 API 实例共享 MySQL 支持的准入锁。 */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskAdmissionRepository {

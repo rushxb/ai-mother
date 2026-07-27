@@ -27,7 +27,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-/** Creates and restores task/epoch-owned workspaces below the generated-code filesystem. */
+/** 在生成代码文件系统下创建并恢复任务/纪元拥有的工作空间。 */
 @Slf4j
 @Service
 public class GenerationExecutionWorkspaceService {
@@ -63,7 +63,7 @@ public class GenerationExecutionWorkspaceService {
                 artifactLifecycleProperties, "artifactLifecycleProperties");
     }
 
-    /** Registers one fence and eagerly materializes its persisted command workspace. */
+    /** 注册一个栅栏并急切地实现其持久的命令工作区。 */
     public GenerationExecutionWorkspace register(GenerationExecutionFence fence,
                                                  Long appId,
                                                  CodeGenTypeEnum baseCodeGenType) {
@@ -82,7 +82,7 @@ public class GenerationExecutionWorkspaceService {
         return executionScope.require(fence, appId, baseCodeGenType);
     }
 
-    /** Resolves or lazily materializes another project type owned by the same execution fence. */
+    /** 解决或延迟实现同一执行栅栏拥有的另一个项目类型。 */
     public GenerationExecutionWorkspace require(GenerationExecutionFence fence,
                                                 Long appId,
                                                 CodeGenTypeEnum codeGenType) {

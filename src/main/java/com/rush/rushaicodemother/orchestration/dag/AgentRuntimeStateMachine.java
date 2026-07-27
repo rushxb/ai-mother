@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
-/** Domain state machine that owns workflow transitions and versioned checkpoint metadata. */
+/** 拥有工作流转换和版本化检查点元数据的域状态机。 */
 public final class AgentRuntimeStateMachine {
 
     public synchronized void startNode(GenerationOrchestrationTask task, GenerationAgentNode node) {

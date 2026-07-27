@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.memory;
 import java.time.Instant;
 import java.util.List;
 
-/** Durable outbox for idempotent deletion of derived semantic-memory records. */
+/** 用于幂等删除派生语义内存记录的持久发件箱。 */
 public interface SemanticMemoryDeletionOutboxRepository {
 
     void enqueueApplicationDeletion(Long tenantId,
@@ -23,4 +23,6 @@ public interface SemanticMemoryDeletionOutboxRepository {
                        String error,
                        Instant failedAt,
                        Instant nextAttemptAt);
+
+    SemanticMemoryOutboxBacklog inspectBacklog(Instant now);
 }

@@ -5,6 +5,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
+/**
+ * 提示词摘要。
+ */
 final class PromptDigest {
 
     private PromptDigest() {

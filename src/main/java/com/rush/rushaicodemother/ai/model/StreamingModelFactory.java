@@ -4,9 +4,10 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import com.rush.rushaicodemother.ai.model.failover.AiModelCandidate;
 import com.rush.rushaicodemother.ai.model.failover.FailoverChatModel;
 import com.rush.rushaicodemother.ai.model.failover.FailoverStreamingChatModel;
+import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgePolicy;
+import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgeScheduler;
 import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
 import com.rush.rushaicodemother.ai.model.capacity.CapacityControlledChatModel;
-import com.rush.rushaicodemother.ai.model.capacity.CapacityControlledStreamingChatModel;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -41,6 +42,7 @@ public class StreamingModelFactory {
 
     private static final String MODEL_TYPE_CHAT = "chat";
     private static final String MODEL_TYPE_REASONING = "reasoning";
+    private static final String MODEL_TYPE_ROUTING = "routing";
 
     private final AiModelMonitorListener aiModelMonitorListener;
 
@@ -55,6 +57,10 @@ public class StreamingModelFactory {
     private final AiModelCapacityGuard aiModelCapacityGuard;
 
     private final AiModelSecretService aiModelSecretService;
+
+    private final FirstTokenHedgeScheduler firstTokenHedgeScheduler;
+
+    private final AiStreamingCallRuntime streamingCallRuntime;
 
     /**
      * 根据性能配置创建流式模型。
@@ -80,29 +86,69 @@ public class StreamingModelFactory {
     }
 
     /**
-     * Creates a task-scoped streaming pool whose concrete provider attempts share one timeout.
+     * 创建一个任务范围的流池，其具体提供者尝试共享一个超时。
      *
-     * <p>The callback is invoked immediately before every real provider request, including
-     * failover candidates. This lets the task runtime account for physical requests rather than
-     * counting one logical agent turn as one request.</p>
+     * <p>回调在每个真实提供者请求之前立即调用，包括
+     * 故障转移候选者。这让任务运行时考虑物理请求而不是
+     * 将一个逻辑代理轮次计为一个请求。</p>
      */
     public StreamingChatModel createExecutionModel(GenerationPerformanceProfile profile,
                                                     Duration totalTimeout,
                                                     Runnable beforeProviderAttempt) {
+        return createExecutionStreamingModel(
+                profile, totalTimeout, beforeProviderAttempt, null, true);
+    }
+
+    /** 创建区分逻辑模型回合与 provider 故障转移预算的任务级流式模型。 */
+    public StreamingChatModel createExecutionModel(GenerationPerformanceProfile profile,
+                                                    Duration totalTimeout,
+                                                    Runnable beforeModelTurn,
+                                                    Runnable beforeProviderFailoverAttempt) {
+        return createExecutionStreamingModel(
+                profile, totalTimeout, beforeModelTurn, beforeProviderFailoverAttempt, false);
+    }
+
+    /** 为 HTML、多文件等快速任务创建任务级 chat 流式模型。 */
+    public StreamingChatModel createExecutionChatModel(Duration totalTimeout,
+                                                       Runnable beforeModelTurn,
+                                                       Runnable beforeProviderFailoverAttempt) {
+        return createExecutionStreamingModel(
+                GenerationPerformanceProfile.speedFirst(), totalTimeout,
+                beforeModelTurn, beforeProviderFailoverAttempt, false);
+    }
+
+    /** 为受管同步编辑调用创建任务级故障转移模型。 */
+    public ChatModel createExecutionRoutingChatModel(Duration totalTimeout,
+                                                     Runnable beforeModelTurn,
+                                                     Runnable beforeProviderFailoverAttempt) {
         if (totalTimeout == null || totalTimeout.isZero() || totalTimeout.isNegative()) {
             throw new IllegalArgumentException("execution model timeout must be positive");
         }
-        Duration effectiveTimeout = totalTimeout.compareTo(runtimeProperties.getGenerationTimeout()) <= 0
+        Duration effectiveTimeout = totalTimeout.compareTo(runtimeProperties.getRoutingTimeout()) <= 0
                 ? totalTimeout
-                : runtimeProperties.getGenerationTimeout();
-        String modelType = profile == null
-                ? MODEL_TYPE_REASONING
-                : resolveModelType(profile.modelTier());
-        boolean enableThinking = profile == null || profile.thinkingEnabled();
+                : runtimeProperties.getRoutingTimeout();
+        List<AiModelRuntimeConfiguration> models = getRoutingModels(
+                "任务级同步编辑执行");
+        return createTimeBoundedChatPool(
+                models, effectiveTimeout, 0, false,
+                beforeModelTurn, beforeProviderFailoverAttempt);
+    }
+
+    /** 为受管 CREATE 规格调用创建共享任务截止时间与预算回调的同步模型。 */
+    public ChatModel createExecutionCreateSpecChatModel(Duration totalTimeout,
+                                                        Runnable beforeModelTurn,
+                                                        Runnable beforeProviderFailoverAttempt) {
+        if (totalTimeout == null || totalTimeout.isZero() || totalTimeout.isNegative()) {
+            throw new IllegalArgumentException("CREATE 规格模型超时必须大于 0");
+        }
+        Duration effectiveTimeout = totalTimeout.compareTo(runtimeProperties.getCreateSpecTimeout()) <= 0
+                ? totalTimeout
+                : runtimeProperties.getCreateSpecTimeout();
         List<AiModelRuntimeConfiguration> models = getRequiredEnabledModelsByType(
-                modelType, "task-scoped streaming execution");
-        return createTimeBoundedStreamingPool(
-                models, effectiveTimeout, enableThinking, beforeProviderAttempt);
+                MODEL_TYPE_CHAT, "受管 CREATE 规格生成任务");
+        return createTimeBoundedChatPool(
+                models, effectiveTimeout, 0, false,
+                beforeModelTurn, beforeProviderFailoverAttempt);
     }
 
     /**
@@ -152,11 +198,11 @@ public class StreamingModelFactory {
     }
 
     /**
-     * Creates a routing model with a caller-provided total wall-clock timeout.
+     * 使用调用者提供的总挂钟超时创建路由模型。
      *
-     * <p>Managed edit calls pass {@code maxRetries=0}; retry policy is owned by the task runtime
-     * rather than hidden inside the provider client. The timeout is partitioned across candidates
-     * so serial failover cannot multiply the caller's deadline.</p>
+     * <p>托管编辑调用传递{@code maxRetries=0}；重试策略由任务运行时拥有
+     * 而不是隐藏在提供者客户端内部。超时在候选者之间分配
+     * 因此串行故障转移不能增加调用者的截止日期。</p>
      */
     public ChatModel createRoutingChatModel(Duration timeout, int maxRetries) {
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
@@ -168,8 +214,8 @@ public class StreamingModelFactory {
         Duration effectiveTimeout = timeout.compareTo(runtimeProperties.getRoutingTimeout()) <= 0
                 ? timeout
                 : runtimeProperties.getRoutingTimeout();
-        List<AiModelRuntimeConfiguration> models = getRequiredEnabledModelsByType(
-                MODEL_TYPE_CHAT, "路由/意图/轻量同步任务");
+        List<AiModelRuntimeConfiguration> models = getRoutingModels(
+                "路由、意图识别与轻量同步任务");
         AiModelRuntimeConfiguration dbModel = models.getFirst();
         log.info("使用数据库快速同步模型配置: usage=routing, provider={}, modelId={}, modelType={}, timeoutSeconds={}, maxRetries={}",
                 dbModel.provider(), dbModel.modelId(), dbModel.modelType(),
@@ -228,6 +274,12 @@ public class StreamingModelFactory {
         try {
             List<AiModelRuntimeConfiguration> available =
                     aiModelRuntimeService.listRunnableModelsByType(modelType);
+            if (available == null || available.isEmpty()) {
+                throw new BusinessException(
+                        ErrorCode.OPERATION_ERROR,
+                        "没有可运行的 " + modelType + " 模型"
+                );
+            }
             int limit = Math.max(1, runtimeProperties.getFailoverMaxCandidates());
             if (available.size() <= limit) {
                 return available;
@@ -243,6 +295,15 @@ public class StreamingModelFactory {
         }
     }
 
+    private List<AiModelRuntimeConfiguration> getRoutingModels(String usage) {
+        try {
+            return getRequiredEnabledModelsByType(MODEL_TYPE_ROUTING, usage);
+        } catch (BusinessException unavailable) {
+            log.info("未配置可运行的 routing 模型，回退到 chat 模型，usage={}", usage);
+            return getRequiredEnabledModelsByType(MODEL_TYPE_CHAT, usage);
+        }
+    }
+
     private StreamingChatModel createStreamingPool(
             List<AiModelRuntimeConfiguration> models,
             Function<AiModelRuntimeConfiguration, StreamingChatModel> modelFactory,
@@ -250,14 +311,15 @@ public class StreamingModelFactory {
         List<AiModelCandidate<StreamingChatModel>> candidates = models.stream()
                 .map(model -> new AiModelCandidate<StreamingChatModel>(
                         model.provider(), model.modelId(),
-                        new CapacityControlledStreamingChatModel(
+                        streamingCallRuntime.capacityControlled(
                                 model.provider(), model.modelId(), model.maxTokens(),
                                 modelFactory.apply(model), aiModelCapacityGuard, upstreamTimeout)))
                 .toList();
         if (candidates.size() == 1) {
             return candidates.getFirst().model();
         }
-        return new FailoverStreamingChatModel(candidates, aiModelMetricsCollector);
+        return new FailoverStreamingChatModel(
+                candidates, aiModelMetricsCollector, streamingCallRuntime.cancellationBridge());
     }
 
     private StreamingChatModel createTimeBoundedStreamingPool(
@@ -265,6 +327,54 @@ public class StreamingModelFactory {
             Duration totalTimeout,
             boolean enableThinking,
             Runnable beforeProviderAttempt) {
+        List<AiModelCandidate<StreamingChatModel>> candidates = createTimeBoundedStreamingCandidates(
+                models, totalTimeout, enableThinking);
+        return new FailoverStreamingChatModel(
+                candidates, aiModelMetricsCollector, beforeProviderAttempt,
+                resolveFirstTokenHedgePolicy(candidates, totalTimeout),
+                streamingCallRuntime.cancellationBridge());
+    }
+
+    private StreamingChatModel createTimeBoundedStreamingPool(
+            List<AiModelRuntimeConfiguration> models,
+            Duration totalTimeout,
+            boolean enableThinking,
+            Runnable beforeModelTurn,
+            Runnable beforeProviderFailoverAttempt) {
+        List<AiModelCandidate<StreamingChatModel>> candidates = createTimeBoundedStreamingCandidates(
+                models, totalTimeout, enableThinking);
+        return new FailoverStreamingChatModel(
+                candidates, aiModelMetricsCollector,
+                beforeModelTurn, beforeProviderFailoverAttempt,
+                resolveFirstTokenHedgePolicy(candidates, totalTimeout),
+                streamingCallRuntime.cancellationBridge());
+    }
+
+    FirstTokenHedgePolicy resolveFirstTokenHedgePolicy(
+            List<AiModelCandidate<StreamingChatModel>> candidates,
+            Duration totalTimeout) {
+        if (!runtimeProperties.isFirstTokenHedgeEnabled() || candidates.size() < 2) {
+            return FirstTokenHedgePolicy.disabled();
+        }
+        Duration delay = runtimeProperties.getFirstTokenHedgeDelay();
+        Duration firstCandidateTimeout = allocateTimeoutSlices(
+                totalTimeout, candidates.size()).getFirst();
+        if (delay == null || delay.isZero() || delay.isNegative()
+                || delay.compareTo(firstCandidateTimeout) >= 0) {
+            return FirstTokenHedgePolicy.disabled();
+        }
+        return new FirstTokenHedgePolicy(
+                true,
+                delay,
+                runtimeProperties.isFirstTokenHedgeRequireDistinctProvider(),
+                firstTokenHedgeScheduler
+        );
+    }
+
+    private List<AiModelCandidate<StreamingChatModel>> createTimeBoundedStreamingCandidates(
+            List<AiModelRuntimeConfiguration> models,
+            Duration totalTimeout,
+            boolean enableThinking) {
         List<Duration> timeoutSlices = allocateTimeoutSlices(totalTimeout, models.size());
         List<AiModelCandidate<StreamingChatModel>> candidates = new ArrayList<>(models.size());
         for (int index = 0; index < models.size(); index++) {
@@ -273,12 +383,11 @@ public class StreamingModelFactory {
                     model, enableThinking, timeoutSlices.get(index));
             candidates.add(new AiModelCandidate<>(
                     model.provider(), model.modelId(),
-                     new CapacityControlledStreamingChatModel(
+                     streamingCallRuntime.capacityControlled(
                              model.provider(), model.modelId(), model.maxTokens(),
                              streamingModel, aiModelCapacityGuard, timeoutSlices.get(index))));
         }
-        return new FailoverStreamingChatModel(
-                candidates, aiModelMetricsCollector, beforeProviderAttempt);
+        return List.copyOf(candidates);
     }
 
     private ChatModel createChatPool(
@@ -303,6 +412,17 @@ public class StreamingModelFactory {
             Duration totalTimeout,
             int maxRetries,
             boolean enableThinking) {
+        return createTimeBoundedChatPool(
+                models, totalTimeout, maxRetries, enableThinking, null, null);
+    }
+
+    private ChatModel createTimeBoundedChatPool(
+            List<AiModelRuntimeConfiguration> models,
+            Duration totalTimeout,
+            int maxRetries,
+            boolean enableThinking,
+            Runnable beforeModelTurn,
+            Runnable beforeProviderFailoverAttempt) {
         int attemptsPerCandidate = Math.addExact(maxRetries, 1);
         int timeoutSlices = Math.multiplyExact(models.size(), attemptsPerCandidate);
         List<Duration> attemptTimeouts = allocateTimeoutSlices(totalTimeout, timeoutSlices);
@@ -318,10 +438,40 @@ public class StreamingModelFactory {
                             model.provider(), model.modelId(), model.maxTokens(),
                             chatModel, aiModelCapacityGuard, candidateTimeout)));
         }
-        if (candidates.size() == 1) {
+        if (candidates.size() == 1 && beforeModelTurn == null
+                && beforeProviderFailoverAttempt == null) {
             return candidates.getFirst().model();
         }
-        return new FailoverChatModel(candidates, aiModelMetricsCollector, totalTimeout);
+        return new FailoverChatModel(
+                candidates, aiModelMetricsCollector, totalTimeout,
+                beforeModelTurn, beforeProviderFailoverAttempt);
+    }
+
+    private StreamingChatModel createExecutionStreamingModel(
+            GenerationPerformanceProfile profile,
+            Duration totalTimeout,
+            Runnable firstAdmission,
+            Runnable failoverAdmission,
+            boolean countEveryProviderAttempt) {
+        if (totalTimeout == null || totalTimeout.isZero() || totalTimeout.isNegative()) {
+            throw new IllegalArgumentException("execution model timeout must be positive");
+        }
+        Duration effectiveTimeout = totalTimeout.compareTo(runtimeProperties.getGenerationTimeout()) <= 0
+                ? totalTimeout
+                : runtimeProperties.getGenerationTimeout();
+        String modelType = profile == null
+                ? MODEL_TYPE_REASONING
+                : resolveModelType(profile.modelTier());
+        boolean enableThinking = profile == null || profile.thinkingEnabled();
+        List<AiModelRuntimeConfiguration> models = getRequiredEnabledModelsByType(
+                modelType, "task-scoped streaming execution");
+        if (countEveryProviderAttempt) {
+            return createTimeBoundedStreamingPool(
+                    models, effectiveTimeout, enableThinking, firstAdmission);
+        }
+        return createTimeBoundedStreamingPool(
+                models, effectiveTimeout, enableThinking,
+                firstAdmission, failoverAdmission);
     }
 
     static List<Duration> allocateTimeoutSlices(Duration totalTimeout, int sliceCount) {
@@ -362,6 +512,7 @@ public class StreamingModelFactory {
                                                   boolean enableThinking,
                                                   Duration timeout) {
         var builder = OpenAiStreamingChatModel.builder()
+                .httpClientBuilder(streamingCallRuntime.httpClientBuilder())
                 .apiKey(aiModelSecretService.resolve(
                         dbModel.secretRef(), dbModel.secretFingerprint()))
                 .baseUrl(dbModel.baseUrl())

@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -13,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Low-cardinality operational metrics for prompt release refresh and mutations. */
+/** 用于及时发布刷新和变更的低基数操作指标。 */
 @Component
 public class PromptReleaseMetricsCollector {
 
@@ -29,6 +30,7 @@ public class PromptReleaseMetricsCollector {
     private final ConcurrentMap<String, Timer> refreshTimers = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> mutationCounters = new ConcurrentHashMap<>();
 
+    @Autowired
     public PromptReleaseMetricsCollector(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
         Gauge.builder("ai_prompt_release_active_revision", activeRevision, AtomicLong::get)

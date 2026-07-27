@@ -35,6 +35,7 @@ class ChatMemoryPropertiesTest {
         properties.setTtlSeconds(0);
         properties.setFallbackMaxEntries(0);
         properties.setFallbackExpireAfterAccess(Duration.ZERO);
+        properties.setCompletedToolArgumentsMaxChars(1_023);
 
         assertFalse(validator.validate(properties).isEmpty());
     }

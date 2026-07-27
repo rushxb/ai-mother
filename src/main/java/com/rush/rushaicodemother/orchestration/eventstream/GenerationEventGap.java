@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.eventstream;
 
-/** Recovery metadata emitted when replay retention no longer covers the requested cursor. */
+/** 当重播保留不再覆盖请求的游标时发出恢复元数据。 */
 public record GenerationEventGap(
         long requestedSeq,
         long firstAvailableSeq,

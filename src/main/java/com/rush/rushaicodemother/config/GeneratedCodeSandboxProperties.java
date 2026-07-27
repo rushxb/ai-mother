@@ -14,7 +14,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Runtime isolation settings for commands executed against AI-generated workspaces. */
+/** 针对 AI 生成的工作区执行的命令的运行时隔离设置。 */
 @Data
 @Component
 @Validated
@@ -47,6 +47,7 @@ public class GeneratedCodeSandboxProperties {
         private String pnpmStoreMount = "/pnpm/store";
         private String memory = "1g";
         private String tmpfsSize = "256m";
+        private String goBuildTmpfsSize = "512m";
         private String previewGatewayMemory = "128m";
 
         @DecimalMin("0.1")
@@ -90,6 +91,7 @@ public class GeneratedCodeSandboxProperties {
                     && !containerPathsOverlap(pnpmStoreMount, "/tmp")
                     && isDockerSize(memory)
                     && isDockerSize(tmpfsSize)
+                    && isDockerSize(goBuildTmpfsSize)
                     && isDockerSize(previewGatewayMemory)
                     && isSafeUser(user)
                     && positive(startupVerificationTimeout)

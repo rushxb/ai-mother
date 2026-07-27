@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
-/** Typed lifecycle for the deterministic generation-agent workflow. */
+/** 确定性生成代理工作流程的类型化生命周期。 */
 public enum AgentRuntimeState {
     INITIALIZED(false),
     RUNNING(false),

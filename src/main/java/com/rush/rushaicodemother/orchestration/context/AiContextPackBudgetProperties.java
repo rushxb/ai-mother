@@ -13,7 +13,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Bounded token-estimation policy for context packs. */
+/** 上下文包的有界令牌估计策略。 */
 @Data
 @Component
 @Validated
@@ -28,11 +28,11 @@ public class AiContextPackBudgetProperties {
     @Max(32_000)
     private int repairMaxTokens = 1_500;
 
-    /** Stable tokenizer used for OpenAI-compatible model input budgeting. */
+    /** 用于 OpenAI 兼容模型输入预算的稳定分词器。 */
     @NotBlank
     private String tokenizerModel = "gpt-4o";
 
-    /** Covers tokenizer differences across OpenAI-compatible providers and prompt framing. */
+    /** 涵盖 OpenAI 兼容提供商和提示框架之间的分词器差异。 */
     @DecimalMin("1.0")
     @DecimalMax("2.0")
     private double tokenSafetyMargin = 1.15;

@@ -59,11 +59,14 @@ cos:
     bucket: ${COS_BUCKET:}
 
 app:
+  background-jobs:
+    enabled: ${BACKGROUND_JOBS_ENABLED:true}
   chat-memory:
     key-prefix: ${CHAT_MEMORY_KEY_PREFIX:chat-memory:}
     ttl-seconds: ${CHAT_MEMORY_TTL_SECONDS:${REDIS_TTL:3600}}
     fallback-max-entries: ${CHAT_MEMORY_FALLBACK_MAX_ENTRIES:1000}
     fallback-expire-after-access: ${CHAT_MEMORY_FALLBACK_EXPIRE_AFTER_ACCESS:2h}
+    completed-tool-arguments-max-chars: ${CHAT_MEMORY_COMPLETED_TOOL_ARGUMENTS_MAX_CHARS:8192}
   memory:
     working:
       max-tasks: ${WORKING_MEMORY_MAX_TASKS:2000}
@@ -94,6 +97,13 @@ app:
       lease-duration: ${GENERATION_MEMORY_OUTBOX_LEASE_DURATION:2m}
       initial-retry-delay: ${GENERATION_MEMORY_OUTBOX_INITIAL_RETRY_DELAY:30s}
       max-retry-delay: ${GENERATION_MEMORY_OUTBOX_MAX_RETRY_DELAY:1h}
+  generation-memory-context:
+    parallel-reads-enabled: ${GENERATION_MEMORY_CONTEXT_PARALLEL_READS_ENABLED:false}
+    max-concurrent-reads: ${GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_READS:12}
+    preparation-overlap-enabled: ${GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_ENABLED:false}
+    max-concurrent-preparation-overlaps: ${GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_PREPARATION_OVERLAPS:4}
+    preparation-overlap-timeout: ${GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_TIMEOUT:30s}
+    shutdown-timeout: ${GENERATION_MEMORY_CONTEXT_SHUTDOWN_TIMEOUT:10s}
   database-resource:
     url-scheme: ${APP_DATABASE_RESOURCE_URL_SCHEME:https}
     domain: ${APP_DATABASE_RESOURCE_DOMAIN:database.nocode.cn}
@@ -134,9 +144,17 @@ app:
     routing-log-requests: ${AI_ROUTING_LOG_REQUESTS:false}
     routing-log-responses: ${AI_ROUTING_LOG_RESPONSES:false}
     generation-timeout: ${AI_GENERATION_TIMEOUT:4m}
+    first-signal-timeout: ${AI_FIRST_SIGNAL_TIMEOUT:45s}
     routing-timeout: ${AI_ROUTING_TIMEOUT:30s}
     routing-max-retries: ${AI_ROUTING_MAX_RETRIES:0}
     failover-max-candidates: ${AI_FAILOVER_MAX_CANDIDATES:2}
+    local-first-heavy-routing-enabled: ${AI_LOCAL_FIRST_HEAVY_ROUTING_ENABLED:true}
+    first-token-hedge-enabled: ${AI_FIRST_TOKEN_HEDGE_ENABLED:false}
+    first-token-hedge-delay: ${AI_FIRST_TOKEN_HEDGE_DELAY:3s}
+    first-token-hedge-require-distinct-provider: ${AI_FIRST_TOKEN_HEDGE_REQUIRE_DISTINCT_PROVIDER:true}
+    root-model-retry-min-delay: ${AI_ROOT_MODEL_RETRY_MIN_DELAY:3s}
+    root-model-retry-max-delay: ${AI_ROOT_MODEL_RETRY_MAX_DELAY:20s}
+    root-model-retry-jitter: ${AI_ROOT_MODEL_RETRY_JITTER:0.35}
     create-spec-timeout: ${AI_CREATE_SPEC_TIMEOUT:10s}
   ai-model-secrets:
     active-key-id: ${AI_MODEL_SECRET_ACTIVE_KEY_ID:}
@@ -181,54 +199,71 @@ app:
       CREATE:
         name: create-preview-first
         first-preview-timeout: ${GENERATION_CREATE_FIRST_PREVIEW_TIMEOUT:60s}
+        first-preview-completion-reserve: ${GENERATION_CREATE_FIRST_PREVIEW_COMPLETION_RESERVE:45s}
         total-timeout: ${GENERATION_CREATE_TOTAL_TIMEOUT:10m}
         model-call-timeout: ${GENERATION_CREATE_MODEL_CALL_TIMEOUT:2m}
         minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
-        max-model-attempts: ${GENERATION_CREATE_MAX_MODEL_ATTEMPTS:2}
+        max-root-model-attempts: ${GENERATION_CREATE_MAX_ROOT_MODEL_ATTEMPTS:${GENERATION_CREATE_MAX_MODEL_ATTEMPTS:4}}
+        max-model-turns: ${GENERATION_CREATE_MAX_MODEL_TURNS:18}
+        max-provider-failover-attempts: ${GENERATION_CREATE_MAX_PROVIDER_FAILOVER_ATTEMPTS:4}
         max-tool-writes: ${GENERATION_CREATE_MAX_TOOL_WRITES:40}
         max-build-executions: ${GENERATION_CREATE_MAX_BUILD_EXECUTIONS:2}
         max-repair-rounds: ${GENERATION_CREATE_MAX_REPAIR_ROUNDS:1}
       LIGHT_EDIT:
         name: light-edit-fast
         first-preview-timeout: ${GENERATION_LIGHT_EDIT_FIRST_PREVIEW_TIMEOUT:90s}
+        first-preview-completion-reserve: ${GENERATION_LIGHT_EDIT_FIRST_PREVIEW_COMPLETION_RESERVE:30s}
         total-timeout: ${GENERATION_LIGHT_EDIT_TOTAL_TIMEOUT:4m}
         model-call-timeout: ${GENERATION_LIGHT_EDIT_MODEL_CALL_TIMEOUT:90s}
         minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
-        max-model-attempts: ${GENERATION_LIGHT_EDIT_MAX_MODEL_ATTEMPTS:2}
+        max-root-model-attempts: ${GENERATION_LIGHT_EDIT_MAX_ROOT_MODEL_ATTEMPTS:${GENERATION_LIGHT_EDIT_MAX_MODEL_ATTEMPTS:2}}
+        max-model-turns: ${GENERATION_LIGHT_EDIT_MAX_MODEL_TURNS:4}
+        max-provider-failover-attempts: ${GENERATION_LIGHT_EDIT_MAX_PROVIDER_FAILOVER_ATTEMPTS:2}
         max-tool-writes: ${GENERATION_LIGHT_EDIT_MAX_TOOL_WRITES:12}
         max-build-executions: ${GENERATION_LIGHT_EDIT_MAX_BUILD_EXECUTIONS:1}
         max-repair-rounds: ${GENERATION_LIGHT_EDIT_MAX_REPAIR_ROUNDS:1}
       AGENT_EDIT:
         name: agent-edit-balanced
         first-preview-timeout: ${GENERATION_AGENT_EDIT_FIRST_PREVIEW_TIMEOUT:3m}
+        first-preview-completion-reserve: ${GENERATION_AGENT_EDIT_FIRST_PREVIEW_COMPLETION_RESERVE:45s}
         total-timeout: ${GENERATION_AGENT_EDIT_TOTAL_TIMEOUT:8m}
         model-call-timeout: ${GENERATION_AGENT_EDIT_MODEL_CALL_TIMEOUT:3m}
         minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
-        max-model-attempts: ${GENERATION_AGENT_EDIT_MAX_MODEL_ATTEMPTS:2}
+        max-root-model-attempts: ${GENERATION_AGENT_EDIT_MAX_ROOT_MODEL_ATTEMPTS:${GENERATION_AGENT_EDIT_MAX_MODEL_ATTEMPTS:2}}
+        max-model-turns: ${GENERATION_AGENT_EDIT_MAX_MODEL_TURNS:12}
+        max-provider-failover-attempts: ${GENERATION_AGENT_EDIT_MAX_PROVIDER_FAILOVER_ATTEMPTS:4}
         max-tool-writes: ${GENERATION_AGENT_EDIT_MAX_TOOL_WRITES:48}
         max-build-executions: ${GENERATION_AGENT_EDIT_MAX_BUILD_EXECUTIONS:2}
         max-repair-rounds: ${GENERATION_AGENT_EDIT_MAX_REPAIR_ROUNDS:1}
       HEAVY_EXPERT:
         name: heavy-expert-quality
         first-preview-timeout: ${GENERATION_HEAVY_FIRST_PREVIEW_TIMEOUT:5m}
+        first-preview-completion-reserve: ${GENERATION_HEAVY_FIRST_PREVIEW_COMPLETION_RESERVE:60s}
         total-timeout: ${GENERATION_HEAVY_TOTAL_TIMEOUT:15m}
         model-call-timeout: ${GENERATION_HEAVY_MODEL_CALL_TIMEOUT:4m}
         minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
-        max-model-attempts: ${GENERATION_HEAVY_MAX_MODEL_ATTEMPTS:3}
+        max-root-model-attempts: ${GENERATION_HEAVY_MAX_ROOT_MODEL_ATTEMPTS:${GENERATION_HEAVY_MAX_MODEL_ATTEMPTS:4}}
+        max-model-turns: ${GENERATION_HEAVY_MAX_MODEL_TURNS:24}
+        max-provider-failover-attempts: ${GENERATION_HEAVY_MAX_PROVIDER_FAILOVER_ATTEMPTS:6}
         max-tool-writes: ${GENERATION_HEAVY_MAX_TOOL_WRITES:120}
         max-build-executions: ${GENERATION_HEAVY_MAX_BUILD_EXECUTIONS:3}
         max-repair-rounds: ${GENERATION_HEAVY_MAX_REPAIR_ROUNDS:2}
     saturated-agent-edit:
       name: agent-edit-saturated
       first-preview-timeout: ${GENERATION_SATURATED_FIRST_PREVIEW_TIMEOUT:2m}
+      first-preview-completion-reserve: ${GENERATION_SATURATED_FIRST_PREVIEW_COMPLETION_RESERVE:30s}
       total-timeout: ${GENERATION_SATURATED_TOTAL_TIMEOUT:6m}
       model-call-timeout: ${GENERATION_SATURATED_MODEL_CALL_TIMEOUT:2m}
       minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
-      max-model-attempts: ${GENERATION_SATURATED_MAX_MODEL_ATTEMPTS:2}
+      max-root-model-attempts: ${GENERATION_SATURATED_MAX_ROOT_MODEL_ATTEMPTS:${GENERATION_SATURATED_MAX_MODEL_ATTEMPTS:2}}
+      max-model-turns: ${GENERATION_SATURATED_MAX_MODEL_TURNS:8}
+      max-provider-failover-attempts: ${GENERATION_SATURATED_MAX_PROVIDER_FAILOVER_ATTEMPTS:2}
       max-tool-writes: ${GENERATION_SATURATED_MAX_TOOL_WRITES:24}
       max-build-executions: ${GENERATION_SATURATED_MAX_BUILD_EXECUTIONS:1}
       max-repair-rounds: ${GENERATION_SATURATED_MAX_REPAIR_ROUNDS:1}
   generation-stage-admission:
+    model-turn-minimum: ${GENERATION_STAGE_MODEL_TURN_MINIMUM:30s}
+    model-handoff-reserve: ${GENERATION_STAGE_MODEL_HANDOFF_RESERVE:2s}
     repair-model-minimum: ${GENERATION_STAGE_REPAIR_MODEL_MINIMUM:60s}
     build-minimum: ${GENERATION_STAGE_BUILD_MINIMUM:45s}
     runtime-validation-minimum: ${GENERATION_STAGE_RUNTIME_VALIDATION_MINIMUM:15s}
@@ -247,7 +282,12 @@ app:
     task-timeout: ${GENERATION_TASK_TIMEOUT:10m}
     model-call-timeout: ${GENERATION_MODEL_CALL_TIMEOUT:4m}
     minimum-operation-timeout: ${GENERATION_MINIMUM_OPERATION_TIMEOUT:500ms}
-    max-model-attempts: ${GENERATION_MAX_MODEL_ATTEMPTS:2}
+    first-preview-completion-reserve: ${GENERATION_FIRST_PREVIEW_COMPLETION_RESERVE:10s}
+    stream-snapshot-update-interval: ${GENERATION_STREAM_SNAPSHOT_UPDATE_INTERVAL:5s}
+    stream-snapshot-max-chars: ${GENERATION_STREAM_SNAPSHOT_MAX_CHARS:20000}
+    max-root-model-attempts: ${GENERATION_MAX_ROOT_MODEL_ATTEMPTS:${GENERATION_MAX_MODEL_ATTEMPTS:3}}
+    max-model-turns: ${GENERATION_MAX_MODEL_TURNS:16}
+    max-provider-failover-attempts: ${GENERATION_MAX_PROVIDER_FAILOVER_ATTEMPTS:4}
     max-tool-writes: ${GENERATION_MAX_TOOL_WRITES:80}
     max-build-executions: ${GENERATION_MAX_BUILD_EXECUTIONS:2}
     max-repair-rounds: ${GENERATION_MAX_REPAIR_ROUNDS:1}
@@ -299,35 +339,69 @@ app:
     task-timeout: ${GENERATION_BENCHMARK_TASK_TIMEOUT:12m}
     cancellation-grace-timeout: ${GENERATION_BENCHMARK_CANCELLATION_GRACE_TIMEOUT:30s}
     terminal-poll-interval: ${GENERATION_BENCHMARK_TERMINAL_POLL_INTERVAL:100ms}
+    first-preview-observation-timeout: ${GENERATION_BENCHMARK_FIRST_PREVIEW_OBSERVATION_TIMEOUT:2s}
+    worker:
+      enabled: ${GENERATION_BENCHMARK_WORKER_ENABLED:false}
+      output-file: ${GENERATION_BENCHMARK_WORKER_OUTPUT_FILE:}
+      evidence-validity: ${GENERATION_BENCHMARK_WORKER_EVIDENCE_VALIDITY:1d}
+      candidate:
+        subject-type: ${GENERATION_BENCHMARK_WORKER_CANDIDATE_TYPE:}
+        model-id: ${GENERATION_BENCHMARK_WORKER_MODEL_ID:0}
+        prompt-key: ${GENERATION_BENCHMARK_WORKER_PROMPT_KEY:}
+        stable-version: ${GENERATION_BENCHMARK_WORKER_STABLE_VERSION:}
+        canary-version: ${GENERATION_BENCHMARK_WORKER_CANARY_VERSION:}
+        canary-percentage: ${GENERATION_BENCHMARK_WORKER_CANARY_PERCENTAGE:0}
     browser-grading:
       enabled: ${GENERATION_BENCHMARK_BROWSER_GRADING_ENABLED:false}
       settle-delay: ${GENERATION_BENCHMARK_BROWSER_SETTLE_DELAY:2s}
+    backend-grading:
+      enabled: ${GENERATION_BENCHMARK_BACKEND_GRADING_ENABLED:false}
+      startup-timeout: ${GENERATION_BENCHMARK_BACKEND_STARTUP_TIMEOUT:45s}
+      request-timeout: ${GENERATION_BENCHMARK_BACKEND_REQUEST_TIMEOUT:3s}
+      poll-interval: ${GENERATION_BENCHMARK_BACKEND_POLL_INTERVAL:100ms}
+      process-timeout: ${GENERATION_BENCHMARK_BACKEND_PROCESS_TIMEOUT:2m}
+      heartbeat-interval: ${GENERATION_BENCHMARK_BACKEND_HEARTBEAT_INTERVAL:5s}
+      output-drain-timeout: ${GENERATION_BENCHMARK_BACKEND_OUTPUT_DRAIN_TIMEOUT:2s}
+      shutdown-timeout: ${GENERATION_BENCHMARK_BACKEND_SHUTDOWN_TIMEOUT:10s}
+      max-output-length: ${GENERATION_BENCHMARK_BACKEND_MAX_OUTPUT_LENGTH:65536}
+      max-response-bytes: ${GENERATION_BENCHMARK_BACKEND_MAX_RESPONSE_BYTES:65536}
+      port-range-start: ${GENERATION_BENCHMARK_BACKEND_PORT_RANGE_START:19000}
+      port-range-end: ${GENERATION_BENCHMARK_BACKEND_PORT_RANGE_END:19999}
+      workspace-root: ${GENERATION_BENCHMARK_BACKEND_WORKSPACE_ROOT:${java.io.tmpdir}/ai-code-mother/benchmark-backend-runtime}
     evidence:
       signing-secret: ${GENERATION_BENCHMARK_EVIDENCE_SIGNING_SECRET:}
-      grader-fingerprint: ${GENERATION_BENCHMARK_GRADER_FINGERPRINT:generation-benchmark-graders-v1}
+      grader-fingerprint: ${GENERATION_BENCHMARK_GRADER_FINGERPRINT:generation-benchmark-graders-v6}
       maximum-validity: ${GENERATION_BENCHMARK_EVIDENCE_MAXIMUM_VALIDITY:7d}
       maximum-report-bytes: ${GENERATION_BENCHMARK_EVIDENCE_MAXIMUM_REPORT_BYTES:5242880}
     release-gate:
-      minimum-task-count: ${GENERATION_BENCHMARK_MINIMUM_TASK_COUNT:12}
+      minimum-task-count: ${GENERATION_BENCHMARK_MINIMUM_TASK_COUNT:32}
       minimum-success-rate: ${GENERATION_BENCHMARK_MINIMUM_SUCCESS_RATE:0.95}
       minimum-build-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_BUILD_PASS_RATE:0.90}
       minimum-structural-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_STRUCTURAL_EVALUATION_RATE:1.0}
       minimum-structural-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_STRUCTURAL_PASS_RATE:0.95}
-      minimum-functional-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_FUNCTIONAL_EVALUATION_RATE:0.50}
+      minimum-functional-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_FUNCTIONAL_EVALUATION_RATE:1.0}
       minimum-functional-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_FUNCTIONAL_PASS_RATE:0.90}
-      minimum-diff-scope-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_DIFF_SCOPE_EVALUATION_RATE:0.50}
+      minimum-diff-scope-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_DIFF_SCOPE_EVALUATION_RATE:1.0}
       minimum-diff-scope-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_DIFF_SCOPE_PASS_RATE:0.95}
       minimum-security-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_SECURITY_EVALUATION_RATE:1.0}
       minimum-security-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_SECURITY_PASS_RATE:1.0}
-      minimum-runtime-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_RUNTIME_EVALUATION_RATE:0.75}
+      minimum-runtime-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_RUNTIME_EVALUATION_RATE:1.0}
       minimum-runtime-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_RUNTIME_PASS_RATE:0.90}
-      minimum-visual-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_VISUAL_EVALUATION_RATE:0.75}
+      minimum-visual-evaluation-rate: ${GENERATION_BENCHMARK_MINIMUM_VISUAL_EVALUATION_RATE:1.0}
       minimum-visual-pass-rate: ${GENERATION_BENCHMARK_MINIMUM_VISUAL_PASS_RATE:0.90}
       require-prompt-bundle-id: ${GENERATION_BENCHMARK_REQUIRE_PROMPT_BUNDLE_ID:true}
       maximum-fallback-rate: ${GENERATION_BENCHMARK_MAXIMUM_FALLBACK_RATE:0.20}
       maximum-p90-duration: ${GENERATION_BENCHMARK_MAXIMUM_P90_DURATION:5m}
       maximum-p99-duration: ${GENERATION_BENCHMARK_MAXIMUM_P99_DURATION:10m}
       maximum-p90-first-token-latency: ${GENERATION_BENCHMARK_MAXIMUM_P90_FIRST_TOKEN_LATENCY:15s}
+      maximum-p99-first-token-latency: ${GENERATION_BENCHMARK_MAXIMUM_P99_FIRST_TOKEN_LATENCY:30s}
+      minimum-first-preview-observation-rate: ${GENERATION_BENCHMARK_MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE:1.0}
+      maximum-p90-first-preview-latency-by-mode:
+        CREATE: ${GENERATION_BENCHMARK_MAXIMUM_P90_CREATE_FIRST_PREVIEW_LATENCY:${GENERATION_CREATE_FIRST_PREVIEW_TIMEOUT:60s}}
+        LIGHT_EDIT: ${GENERATION_BENCHMARK_MAXIMUM_P90_LIGHT_EDIT_FIRST_PREVIEW_LATENCY:${GENERATION_LIGHT_EDIT_FIRST_PREVIEW_TIMEOUT:90s}}
+        AGENT_EDIT: ${GENERATION_BENCHMARK_MAXIMUM_P90_AGENT_EDIT_FIRST_PREVIEW_LATENCY:${GENERATION_AGENT_EDIT_FIRST_PREVIEW_TIMEOUT:3m}}
+        HEAVY_EXPERT: ${GENERATION_BENCHMARK_MAXIMUM_P90_HEAVY_FIRST_PREVIEW_LATENCY:${GENERATION_HEAVY_FIRST_PREVIEW_TIMEOUT:5m}}
+      maximum-p99-first-preview-latency: ${GENERATION_BENCHMARK_MAXIMUM_P99_FIRST_PREVIEW_LATENCY:${GENERATION_HEAVY_FIRST_PREVIEW_TIMEOUT:5m}}
       maximum-average-tokens: ${GENERATION_BENCHMARK_MAXIMUM_AVERAGE_TOKENS:250000}
       maximum-average-credit-cost: ${GENERATION_BENCHMARK_MAXIMUM_AVERAGE_CREDIT_COST:10}
   generation-task-lease:
@@ -353,8 +427,14 @@ app:
     max-events-per-task: ${GENERATION_EVENT_STREAM_MAX_EVENTS_PER_TASK:500}
     read-batch-size: ${GENERATION_EVENT_STREAM_READ_BATCH_SIZE:100}
     max-tracked-tasks: ${GENERATION_EVENT_STREAM_MAX_TRACKED_TASKS:1000}
+    delta-coalescing-enabled: ${GENERATION_EVENT_STREAM_DELTA_COALESCING_ENABLED:true}
+    delta-flush-interval: ${GENERATION_EVENT_STREAM_DELTA_FLUSH_INTERVAL:40ms}
+    delta-max-chars: ${GENERATION_EVENT_STREAM_DELTA_MAX_CHARS:2048}
   generation-task-snapshot:
     enabled: ${GENERATION_TASK_SNAPSHOT_ENABLED:true}
+    replay-safe-start-checkpoint-elision-enabled: ${GENERATION_REPLAY_SAFE_START_CHECKPOINT_ELISION_ENABLED:false}
+    replay-safe-completion-checkpoint-coalescing-enabled: ${GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_COALESCING_ENABLED:false}
+    replay-safe-completion-checkpoint-interval: ${GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_INTERVAL:4}
     root-directory: ${GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY:${code.orchestration-task-root-dir:${code.tmp-root-dir:${code.base-dir:${user.dir}}/tmp}/orchestration_tasks}}
     max-snapshot-bytes: ${GENERATION_TASK_SNAPSHOT_MAX_BYTES:2097152}
     max-snapshots-per-app: ${GENERATION_TASK_SNAPSHOT_MAX_PER_APP:100}
@@ -391,6 +471,7 @@ app:
       pnpm-store-mount: ${GENERATED_CODE_SANDBOX_PNPM_STORE_MOUNT:/pnpm/store}
       memory: ${GENERATED_CODE_SANDBOX_MEMORY:1g}
       tmpfs-size: ${GENERATED_CODE_SANDBOX_TMPFS_SIZE:256m}
+      go-build-tmpfs-size: ${GENERATED_CODE_SANDBOX_GO_BUILD_TMPFS_SIZE:512m}
       preview-gateway-memory: ${GENERATED_CODE_SANDBOX_PREVIEW_GATEWAY_MEMORY:128m}
       cpus: ${GENERATED_CODE_SANDBOX_CPUS:1.5}
       pids-limit: ${GENERATED_CODE_SANDBOX_PIDS_LIMIT:128}
@@ -404,11 +485,15 @@ app:
   node-toolchain:
     node-executable: ${NODE_TOOLCHAIN_NODE_EXECUTABLE:node}
     pnpm-executable: ${NODE_TOOLCHAIN_PNPM_EXECUTABLE:pnpm}
+  go-toolchain:
+    go-executable: ${GO_TOOLCHAIN_GO_EXECUTABLE:go}
   project-command:
     tool-script-timeout: ${PROJECT_COMMAND_TOOL_SCRIPT_TIMEOUT:5m}
     light-validation-timeout: ${PROJECT_COMMAND_LIGHT_VALIDATION_TIMEOUT:90s}
     light-build-timeout: ${PROJECT_COMMAND_LIGHT_BUILD_TIMEOUT:3m}
     full-build-timeout: ${PROJECT_COMMAND_FULL_BUILD_TIMEOUT:4m}
+    go-test-timeout: ${PROJECT_COMMAND_GO_TEST_TIMEOUT:3m}
+    go-test-idle-timeout: ${PROJECT_COMMAND_GO_TEST_IDLE_TIMEOUT:2m}
     idle-timeout: ${PROJECT_COMMAND_IDLE_TIMEOUT:90s}
     heartbeat-interval: ${PROJECT_COMMAND_HEARTBEAT_INTERVAL:15s}
     output-drain-timeout: ${PROJECT_COMMAND_OUTPUT_DRAIN_TIMEOUT:2s}
@@ -429,8 +514,8 @@ app:
     publish-retry-delay-millis: ${WORKSPACE_PUBLISH_RETRY_DELAY_MILLIS:50}
   generation-project-context:
     max-project-index-files: ${GENERATION_CONTEXT_MAX_PROJECT_INDEX_FILES:80}
-    max-single-file-chars: ${GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS:12000}
-    max-total-context-chars: ${GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS:100000}
+    max-single-file-chars: ${GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS:1400}
+    max-total-context-chars: ${GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS:10000}
     max-readable-file-bytes: ${GENERATION_CONTEXT_MAX_READABLE_FILE_BYTES:1048576}
   edit-locator:
     max-candidate-files: ${EDIT_LOCATOR_MAX_CANDIDATE_FILES:8}
@@ -450,6 +535,20 @@ app:
     max-readable-file-bytes: ${AI_TOOL_MAX_READABLE_FILE_BYTES:1048576}
     max-directory-entries: ${AI_TOOL_MAX_DIRECTORY_ENTRIES:5000}
     max-directory-depth: ${AI_TOOL_MAX_DIRECTORY_DEPTH:32}
+    max-batch-write-files: ${AI_TOOL_MAX_BATCH_WRITE_FILES:20}
+    max-batch-write-total-chars: ${AI_TOOL_MAX_BATCH_WRITE_TOTAL_CHARS:500000}
+  ai-tool-loop-guard:
+    maximum-tracked-tasks: ${AI_TOOL_LOOP_GUARD_MAXIMUM_TRACKED_TASKS:10000}
+    retention: ${AI_TOOL_LOOP_GUARD_RETENTION:2h}
+    max-identical-calls: ${AI_TOOL_LOOP_GUARD_MAX_IDENTICAL_CALLS:2}
+    max-no-progress-calls: ${AI_TOOL_LOOP_GUARD_MAX_NO_PROGRESS_CALLS:6}
+    history-size: ${AI_TOOL_LOOP_GUARD_HISTORY_SIZE:24}
+  ai-agent-productivity:
+    maximum-tracked-tasks: ${AI_AGENT_PRODUCTIVITY_MAXIMUM_TRACKED_TASKS:10000}
+    retention: ${AI_AGENT_PRODUCTIVITY_RETENTION:2h}
+    max-read-only-calls-without-mutation: ${AI_AGENT_PRODUCTIVITY_MAX_READ_ONLY_CALLS_WITHOUT_MUTATION:8}
+    max-model-turns-without-mutation: ${AI_AGENT_PRODUCTIVITY_MAX_MODEL_TURNS_WITHOUT_MUTATION:3}
+    forced-action-turns-before-finalize: ${AI_AGENT_PRODUCTIVITY_FORCED_ACTION_TURNS_BEFORE_FINALIZE:2}
   ai-tool-approval:
     ttl: ${AI_TOOL_APPROVAL_TTL:10m}
     expiration-scan-interval: ${AI_TOOL_APPROVAL_EXPIRATION_SCAN_INTERVAL:1m}
@@ -500,6 +599,7 @@ app:
       startup-timeout: ${DEV_SERVER_STARTUP_TIMEOUT:30s}
       readiness-poll-interval: ${DEV_SERVER_READINESS_POLL_INTERVAL:200ms}
       validation-error-collection-window: ${DEV_SERVER_VALIDATION_ERROR_COLLECTION_WINDOW:5s}
+      validation-critical-error-drain-window: ${DEV_SERVER_VALIDATION_CRITICAL_ERROR_DRAIN_WINDOW:300ms}
       validation-poll-interval: ${DEV_SERVER_VALIDATION_POLL_INTERVAL:100ms}
       output-drain-timeout: ${DEV_SERVER_OUTPUT_DRAIN_TIMEOUT:2s}
       stop-timeout: ${DEV_SERVER_STOP_TIMEOUT:10s}

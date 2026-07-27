@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.memory;
 
 import com.rush.rushaicodemother.config.MilvusMemoryProperties;
+import com.rush.rushaicodemother.monitor.SemanticMemoryMetricsCollector;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.common.ConsistencyLevel;
 import io.milvus.v2.service.collection.request.CreateCollectionReq;
@@ -14,13 +15,15 @@ import io.milvus.v2.service.index.request.DescribeIndexReq;
 import io.milvus.v2.service.index.request.ListIndexesReq;
 import io.milvus.v2.service.index.response.DescribeIndexResp;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Creates and periodically revalidates the versioned Milvus memory collection. */
+/** 创建并定期重新验证版本化的 Milvus 内存集合。 */
 @Component
 @ConditionalOnProperty(prefix = "app.memory.long-term", name = "enabled", havingValue = "true")
 public class MilvusMemoryCollectionManager {
@@ -28,16 +31,26 @@ public class MilvusMemoryCollectionManager {
     private final MilvusClientV2 client;
     private final MilvusMemoryProperties properties;
     private final MemoryEmbeddingService embeddingService;
+    private final SemanticMemoryMetricsCollector metrics;
     private final Object monitor = new Object();
     private volatile long lastVerifiedNanos = Long.MIN_VALUE;
     private volatile boolean ready;
 
+    MilvusMemoryCollectionManager(MilvusClientV2 client,
+                                  MilvusMemoryProperties properties,
+                                  MemoryEmbeddingService embeddingService) {
+        this(client, properties, embeddingService, SemanticMemoryMetricsCollector.noOp());
+    }
+
+    @Autowired
     public MilvusMemoryCollectionManager(MilvusClientV2 client,
                                          MilvusMemoryProperties properties,
-                                         MemoryEmbeddingService embeddingService) {
+                                         MemoryEmbeddingService embeddingService,
+                                         SemanticMemoryMetricsCollector metrics) {
         this.client = client;
         this.properties = properties;
         this.embeddingService = embeddingService;
+        this.metrics = metrics;
     }
 
     public void ensureReady() {
@@ -50,6 +63,7 @@ public class MilvusMemoryCollectionManager {
             if (fresh(now)) {
                 return;
             }
+            long started = System.nanoTime();
             try {
                 ensureCollectionExists();
                 DescribeCollectionResp description = client.describeCollection(
@@ -62,8 +76,10 @@ public class MilvusMemoryCollectionManager {
                 ensureLoaded();
                 ready = true;
                 lastVerifiedNanos = now;
+                metrics.recordReadiness("ready", elapsed(started));
             } catch (RuntimeException failure) {
                 invalidate();
+                metrics.recordReadiness("failure", elapsed(started));
                 throw failure;
             }
         }
@@ -170,5 +186,9 @@ public class MilvusMemoryCollectionManager {
                 .databaseName(properties.getDatabaseName())
                 .collectionName(properties.getCollectionName())
                 .build()));
+    }
+
+    private Duration elapsed(long startedNanos) {
+        return Duration.ofNanos(Math.max(0, System.nanoTime() - startedNanos));
     }
 }

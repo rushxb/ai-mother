@@ -8,6 +8,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
+/**
+ * 落地页创建配方渲染器。
+ */
 @Component
 final class LandingCreateRecipeRenderer implements CreateRecipeRenderer {
 

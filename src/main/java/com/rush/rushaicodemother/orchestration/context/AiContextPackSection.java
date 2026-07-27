@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.context;
 
 import java.util.Map;
 
-/** One provenance-aware context block. */
+/** 一个来源感知上下文块。 */
 public record AiContextPackSection(
         AiContextPackSectionType type,
         String title,

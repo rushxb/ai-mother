@@ -9,14 +9,13 @@ import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
-import com.rush.rushaicodemother.memory.GenerationSemanticMemoryService;
-import com.rush.rushaicodemother.memory.MemoryType;
+import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryRequest;
+import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -24,11 +23,11 @@ public class HeavyGenerationSessionCompletionService {
 
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
-    private final GenerationSemanticMemoryService semanticMemoryService;
+    private final GenerationOutcomeMemoryService outcomeMemoryService;
 
     /**
-     * Persists terminal lifecycle data after the caller has atomically claimed session completion.
-     * Stream completion and infrastructure cleanup remain the orchestrator's responsibility.
+     * 在调用者自动声明会话完成后保留终端生命周期数据。
+     * 流完成和基础设施清理仍然是协调器的责任。
      */
     public void completeClaimed(Long appId,
                                 GenerationSession session,
@@ -44,13 +43,23 @@ public class HeavyGenerationSessionCompletionService {
         String memorySummary = buildMemorySummary(preparation, status);
         RuntimeException lifecycleFailure = null;
         try {
-            generationTaskLifecycleService.completeGenerationAndCharge(
-                    preparation.taskId(),
-                    appId,
-                    outcome.taskStatus(),
-                    null,
-                    memorySummary
-            );
+            if (outcome == GenerationTerminalOutcome.SUCCESS) {
+                generationTaskLifecycleService.completeGenerationAndCharge(
+                        preparation.taskId(),
+                        appId,
+                        outcome.taskStatus(),
+                        null,
+                        memorySummary
+                );
+            } else {
+                generationTaskLifecycleService.completeGeneration(
+                        preparation.taskId(),
+                        appId,
+                        outcome.taskStatus(),
+                        outcome.status(),
+                        memorySummary
+                );
+            }
         } catch (RuntimeException failure) {
             lifecycleFailure = failure;
             throw failure;
@@ -136,26 +145,17 @@ public class HeavyGenerationSessionCompletionService {
                 || session.taskRequest().app().getTenantId() == null) {
             return;
         }
-        String userPrompt = session.taskRequest().message();
-        String content = "User request: " + StrUtil.blankToDefault(userPrompt, "")
-                + "\nOutcome: " + memorySummary;
-        semanticMemoryService.rememberAsync(
+        outcomeMemoryService.remember(new GenerationOutcomeMemoryRequest(
+                preparation.taskId(),
                 session.taskRequest().app().getTenantId(),
                 appId,
                 session.taskRequest().loginUser().getId(),
-                preparation.taskId(),
-                outcome == GenerationTerminalOutcome.SUCCESS
-                        ? MemoryType.TASK_OUTCOME
-                        : MemoryType.FAILURE_LESSON,
-                content,
-                Map.of(
-                        "status", outcome.status(),
-                        "orchestrationMode", orchestrationMode(preparation),
-                        "targetType", preparation.targetType() == null
-                                ? "unknown"
-                                : preparation.targetType().getValue()
-                )
-        );
+                outcome.taskStatus(),
+                session.taskRequest().message(),
+                memorySummary,
+                orchestrationMode(preparation),
+                preparation.targetType() == null ? "unknown" : preparation.targetType().getValue()
+        ));
     }
 
 }

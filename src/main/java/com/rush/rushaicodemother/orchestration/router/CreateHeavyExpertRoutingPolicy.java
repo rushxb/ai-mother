@@ -6,6 +6,9 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * 创建重型Expert路由决策策略。
+ */
 @Component
 @Order(10)
 public class CreateHeavyExpertRoutingPolicy implements GenerationRoutingPolicy {

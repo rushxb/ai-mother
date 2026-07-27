@@ -2,8 +2,10 @@ package com.rush.rushaicodemother.infrastructure.persistence.memory;
 
 import cn.hutool.crypto.digest.DigestUtil;
 import com.rush.rushaicodemother.mapper.SemanticMemoryDeletionOutboxMapper;
+import com.rush.rushaicodemother.mapper.projection.SemanticMemoryOutboxBacklogRow;
 import com.rush.rushaicodemother.memory.SemanticMemoryDeletionOutboxItem;
 import com.rush.rushaicodemother.memory.SemanticMemoryDeletionOutboxRepository;
+import com.rush.rushaicodemother.memory.SemanticMemoryOutboxBacklog;
 import com.rush.rushaicodemother.model.entity.SemanticMemoryDeletionOutboxEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -15,6 +17,9 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * MyBatis语义记忆删除事务发件箱持久化仓储。
+ */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisSemanticMemoryDeletionOutboxRepository
@@ -98,6 +103,24 @@ public class MyBatisSemanticMemoryDeletionOutboxRepository
                 toLocal(failedAt), toLocal(nextAttemptAt)) == 1;
     }
 
+    @Override
+    public SemanticMemoryOutboxBacklog inspectBacklog(Instant now) {
+        requireInstant(now, "now");
+        SemanticMemoryOutboxBacklogRow row = mapper.inspectBacklog(toLocal(now));
+        if (row == null) {
+            return SemanticMemoryOutboxBacklog.empty();
+        }
+        return new SemanticMemoryOutboxBacklog(
+                count(row.getPending()),
+                count(row.getRetrying()),
+                count(row.getLeased()),
+                count(row.getDeadLetter()),
+                row.getOldestPendingAt() == null
+                        ? null
+                        : row.getOldestPendingAt().atZone(databaseZone).toInstant()
+        );
+    }
+
     private LocalDateTime toLocal(Instant instant) {
         return LocalDateTime.ofInstant(instant, databaseZone);
     }
@@ -132,5 +155,9 @@ public class MyBatisSemanticMemoryDeletionOutboxRepository
         if (value == null) {
             throw new IllegalArgumentException(field + " is required");
         }
+    }
+
+    private long count(Long value) {
+        return value == null ? 0 : value;
     }
 }

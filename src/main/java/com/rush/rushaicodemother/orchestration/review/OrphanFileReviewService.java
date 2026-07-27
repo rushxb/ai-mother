@@ -16,6 +16,9 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
 
+/**
+ * Orphan文件Review服务实现。
+ */
 @Component
 @Slf4j
 public class OrphanFileReviewService {

@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.prompt.release;
 
-/** Stable/canary pointers for one immutable prompt definition. */
+/** 用于一个不可变提示定义的稳定/金丝雀指针。 */
 public record PromptReleaseSpec(
         String stableVersion,
         String canaryVersion,

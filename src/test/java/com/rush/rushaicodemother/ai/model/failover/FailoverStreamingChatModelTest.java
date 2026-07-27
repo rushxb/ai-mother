@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.ai.model.failover;
 
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
+import com.rush.rushaicodemother.core.handler.GenerationCancellationAwareStreamingHandler;
+import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -15,11 +17,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -188,6 +192,35 @@ class FailoverStreamingChatModelTest {
     }
 
     @Test
+    void modelTurnAndProviderFailoverMustUseSeparateAdmissions() {
+        StreamingChatModel primary = mock(StreamingChatModel.class);
+        StreamingChatModel fallback = mock(StreamingChatModel.class);
+        ChatResponse response = mock(ChatResponse.class);
+        AtomicInteger modelTurns = new AtomicInteger();
+        AtomicInteger providerFailovers = new AtomicInteger();
+        doAnswer(invocation -> {
+            invocation.<StreamingChatResponseHandler>getArgument(1)
+                    .onError(new RuntimeException("503 primary unavailable"));
+            return null;
+        }).when(primary).chat(eq(request), any(StreamingChatResponseHandler.class));
+        doAnswer(invocation -> {
+            invocation.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response);
+            return null;
+        }).when(fallback).chat(eq(request), any(StreamingChatResponseHandler.class));
+        RecordingHandler downstream = new RecordingHandler();
+        FailoverStreamingChatModel model = new FailoverStreamingChatModel(List.of(
+                new AiModelCandidate<>("provider-a", "primary", primary),
+                new AiModelCandidate<>("provider-b", "fallback", fallback)
+        ), metrics, modelTurns::incrementAndGet, providerFailovers::incrementAndGet);
+
+        model.chat(request, downstream);
+
+        assertEquals(1, modelTurns.get());
+        assertEquals(1, providerFailovers.get());
+        assertSame(response, downstream.response);
+    }
+
+    @Test
     void exhaustedProviderAttemptBudgetMustPreventTheFallbackRequest() {
         StreamingChatModel primary = mock(StreamingChatModel.class);
         StreamingChatModel fallback = mock(StreamingChatModel.class);
@@ -212,6 +245,141 @@ class FailoverStreamingChatModelTest {
         verifyNoInteractions(fallback);
     }
 
+    @Test
+    void taskScopedStreamingPoolMustStartTheNextTurnFromTheSuccessfulFallback() {
+        StreamingChatModel primary = mock(StreamingChatModel.class);
+        StreamingChatModel fallback = mock(StreamingChatModel.class);
+        ChatResponse first = mock(ChatResponse.class);
+        ChatResponse second = mock(ChatResponse.class);
+        AtomicInteger modelTurns = new AtomicInteger();
+        AtomicInteger providerFailovers = new AtomicInteger();
+        doAnswer(invocation -> {
+            invocation.<StreamingChatResponseHandler>getArgument(1)
+                    .onError(new RuntimeException("503 primary unavailable"));
+            return null;
+        }).when(primary).chat(eq(request), any(StreamingChatResponseHandler.class));
+        AtomicInteger fallbackCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            ChatResponse response = fallbackCalls.getAndIncrement() == 0 ? first : second;
+            invocation.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response);
+            return null;
+        }).when(fallback).chat(eq(request), any(StreamingChatResponseHandler.class));
+        FailoverStreamingChatModel model = new FailoverStreamingChatModel(List.of(
+                new AiModelCandidate<>("provider-a", "primary", primary),
+                new AiModelCandidate<>("provider-b", "fallback", fallback)
+        ), metrics, modelTurns::incrementAndGet, providerFailovers::incrementAndGet);
+        RecordingHandler firstTurn = new RecordingHandler();
+        RecordingHandler secondTurn = new RecordingHandler();
+
+        model.chat(request, firstTurn);
+        model.chat(request, secondTurn);
+
+        assertSame(first, firstTurn.response);
+        assertSame(second, secondTurn.response);
+        verify(primary, times(1)).chat(eq(request), any(StreamingChatResponseHandler.class));
+        verify(fallback, times(2)).chat(eq(request), any(StreamingChatResponseHandler.class));
+        assertEquals(2, modelTurns.get());
+        assertEquals(1, providerFailovers.get());
+    }
+
+    @Test
+    void failedStickyStreamingFallbackMustWrapToARecoveredPrimary() {
+        StreamingChatModel primary = mock(StreamingChatModel.class);
+        StreamingChatModel fallback = mock(StreamingChatModel.class);
+        ChatResponse fallbackResponse = mock(ChatResponse.class);
+        ChatResponse primaryResponse = mock(ChatResponse.class);
+        AtomicInteger modelTurns = new AtomicInteger();
+        AtomicInteger providerFailovers = new AtomicInteger();
+        AtomicInteger primaryCalls = new AtomicInteger();
+        AtomicInteger fallbackCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (primaryCalls.getAndIncrement() == 0) {
+                handler.onError(new RuntimeException("503 primary unavailable"));
+            } else {
+                handler.onCompleteResponse(primaryResponse);
+            }
+            return null;
+        }).when(primary).chat(eq(request), any(StreamingChatResponseHandler.class));
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (fallbackCalls.getAndIncrement() == 0) {
+                handler.onCompleteResponse(fallbackResponse);
+            } else {
+                handler.onError(new RuntimeException("503 fallback unavailable"));
+            }
+            return null;
+        }).when(fallback).chat(eq(request), any(StreamingChatResponseHandler.class));
+        FailoverStreamingChatModel model = new FailoverStreamingChatModel(List.of(
+                new AiModelCandidate<>("provider-a", "primary", primary),
+                new AiModelCandidate<>("provider-b", "fallback", fallback)
+        ), metrics, modelTurns::incrementAndGet, providerFailovers::incrementAndGet);
+        RecordingHandler firstTurn = new RecordingHandler();
+        RecordingHandler secondTurn = new RecordingHandler();
+
+        model.chat(request, firstTurn);
+        model.chat(request, secondTurn);
+
+        assertSame(fallbackResponse, firstTurn.response);
+        assertSame(primaryResponse, secondTurn.response);
+        verify(primary, times(2)).chat(eq(request), any(StreamingChatResponseHandler.class));
+        verify(fallback, times(2)).chat(eq(request), any(StreamingChatResponseHandler.class));
+        assertEquals(2, modelTurns.get());
+        assertEquals(2, providerFailovers.get());
+    }
+
+    @Test
+    void cancellationRegistrationMustReachTheActiveProviderBeforeAnyOutput() {
+        StreamingChatModel primary = mock(StreamingChatModel.class);
+        StreamingChatModel fallback = mock(StreamingChatModel.class);
+        AtomicInteger providerCancellations = new AtomicInteger();
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (handler instanceof GenerationCancellationAwareStreamingHandler awareHandler) {
+                awareHandler.registerCancellationHandle(providerCancellations::incrementAndGet);
+            }
+            return null;
+        }).when(primary).chat(eq(request), any(StreamingChatResponseHandler.class));
+        RecordingHandler downstream = new RecordingHandler();
+
+        model(primary, fallback).chat(request, downstream);
+
+        assertNotNull(downstream.cancellation.get());
+        downstream.cancellation.get().cancel();
+        assertEquals(1, providerCancellations.get());
+        verifyNoInteractions(fallback);
+    }
+
+    @Test
+    void lateCancellationFromFailedCandidateMustNotReplaceTheActiveCandidate() {
+        StreamingChatModel primary = mock(StreamingChatModel.class);
+        StreamingChatModel fallback = mock(StreamingChatModel.class);
+        AtomicReference<GenerationCancellationAwareStreamingHandler> primaryHandler =
+                new AtomicReference<>();
+        AtomicInteger latePrimaryCancellations = new AtomicInteger();
+        AtomicInteger fallbackCancellations = new AtomicInteger();
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            primaryHandler.set((GenerationCancellationAwareStreamingHandler) handler);
+            handler.onError(new RuntimeException("503 primary unavailable"));
+            return null;
+        }).when(primary).chat(eq(request), any(StreamingChatResponseHandler.class));
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            ((GenerationCancellationAwareStreamingHandler) handler)
+                    .registerCancellationHandle(fallbackCancellations::incrementAndGet);
+            return null;
+        }).when(fallback).chat(eq(request), any(StreamingChatResponseHandler.class));
+        RecordingHandler downstream = new RecordingHandler();
+
+        model(primary, fallback).chat(request, downstream);
+        primaryHandler.get().registerCancellationHandle(latePrimaryCancellations::incrementAndGet);
+        downstream.cancellation.get().cancel();
+
+        assertEquals(1, latePrimaryCancellations.get());
+        assertEquals(1, fallbackCancellations.get());
+    }
+
     private FailoverStreamingChatModel model(StreamingChatModel primary,
                                              StreamingChatModel fallback) {
         return model(primary, fallback, () -> { });
@@ -226,11 +394,17 @@ class FailoverStreamingChatModelTest {
         ), metrics, beforeProviderAttempt);
     }
 
-    private static final class RecordingHandler implements StreamingChatResponseHandler {
+    private static final class RecordingHandler implements GenerationCancellationAwareStreamingHandler {
         private final List<String> partialResponses = new ArrayList<>();
         private final List<PartialToolCall> partialToolCalls = new ArrayList<>();
         private final List<Throwable> errors = new ArrayList<>();
+        private final AtomicReference<GenerationCancellationHandle> cancellation = new AtomicReference<>();
         private ChatResponse response;
+
+        @Override
+        public void registerCancellationHandle(GenerationCancellationHandle cancellationHandle) {
+            cancellation.set(cancellationHandle);
+        }
 
         @Override
         public void onPartialResponse(String partialResponse) {

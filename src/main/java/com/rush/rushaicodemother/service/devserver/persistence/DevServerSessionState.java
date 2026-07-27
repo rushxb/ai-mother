@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.service.devserver.persistence;
 
-/** Durable Dev Server lifecycle states shared by orchestration and persistence. */
+/** 持久开发服务器生命周期状态由编排和持久性共享。 */
 public enum DevServerSessionState {
     STARTING,
     RUNNING,

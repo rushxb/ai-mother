@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 
-/** Persisted benchmark fixture and its best-effort cleanup action. */
+/** 坚持基准装置及其尽最大努力的清理行动。 */
 public record GenerationBenchmarkFixture(
         GenerationTaskRequest request,
         GenerationBenchmarkValidationPlan validationPlan,

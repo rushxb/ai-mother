@@ -10,13 +10,14 @@ import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.trace.GenerationTaskStartCommand;
+import com.rush.rushaicodemother.service.trace.GenerationTaskTraceStartResult;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Shared lifecycle operations for generation routes.
+ * 生成路线的共享生命周期操作。
  */
 @Service
 @RequiredArgsConstructor
@@ -87,6 +88,38 @@ public class GenerationTaskLifecycleService {
         );
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public void startOrTransitionGeneration(String taskId,
+                                            Long appId,
+                                            Long userId,
+                                            CodeGenTypeEnum originalType,
+                                            CodeGenTypeEnum targetType,
+                                            String userPrompt,
+                                            String enhancedPrompt,
+                                            boolean requiresBuildValidation,
+                                            String qualityGate,
+                                            String orchestrationMode,
+                                            String generatingStage) {
+        generationAppStateService.claimGenerationState(appId, taskId, generatingStage, targetType);
+        GenerationTaskTraceStartResult startResult = generationTraceService.startOrTransitionTask(
+                new GenerationTaskStartCommand(
+                        taskId,
+                        appId,
+                        userId,
+                        originalType,
+                        targetType,
+                        userPrompt,
+                        enhancedPrompt,
+                        requiresBuildValidation,
+                        qualityGate,
+                        orchestrationMode
+                )
+        );
+        if (startResult.shouldRecordUserMessage()) {
+            recordUserMessage(appId, userId, userPrompt);
+        }
+    }
+
     private void startTrace(String taskId,
                             Long appId,
                             Long userId,
@@ -123,6 +156,16 @@ public class GenerationTaskLifecycleService {
         boolean released = generationAppStateService.releaseOwnedGenerationState(appId, taskId);
         generationTraceService.completeTask(taskId, status, errorMessage);
         return released;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public boolean completeGeneration(String taskId,
+                                      Long appId,
+                                      GenerationTaskStatus status,
+                                      String errorMessage,
+                                      String memorySummary) {
+        generationTraceService.updateMemorySummary(taskId, memorySummary);
+        return completeGeneration(taskId, appId, status, errorMessage);
     }
 
     @Transactional(rollbackFor = Exception.class)

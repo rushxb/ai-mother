@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** Bounded classpath-template materialization limits. */
+/** 有界的类路径模板具体化限制。 */
 @Data
 @Component
 @Validated

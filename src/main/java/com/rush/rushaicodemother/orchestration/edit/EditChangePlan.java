@@ -4,6 +4,9 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 
 import java.util.List;
 
+/**
+ * 编辑变更计划的不可变数据载体。
+ */
 public record EditChangePlan(
         String scope,
         List<String> modifyFiles,

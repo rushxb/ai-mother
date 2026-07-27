@@ -18,7 +18,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * Creates bounded rollback snapshots for generated application workspaces.
+ * 为生成的应用程序工作区创建有界回滚快照。
  */
 @Slf4j
 @Component
@@ -97,6 +97,19 @@ public class GenerationRollbackPointService {
             snapshotWorkspaceService.prepareApplicationRoot(appId);
             String snapshotName = buildSnapshotName(taskId);
             Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, snapshotName);
+            if (workspaceFileSystemService.isDirectory(snapshotPath)) {
+                int existingFileCount = workspaceFileSystemService.scanProject(snapshotPath).files().size();
+                return RollbackPoint.created(
+                        appId,
+                        taskId,
+                        snapshotName,
+                        snapshotPath.toString(),
+                        projectPath.toString(),
+                        sourceTypeValue,
+                        targetTypeValue,
+                        existingFileCount
+                );
+            }
             WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
             return RollbackPoint.created(
                     appId,
@@ -130,6 +143,8 @@ public class GenerationRollbackPointService {
     }
 
     private String buildSnapshotName(String taskId) {
-        return snapshotNamePolicy.createTaskScopedName("pre_generation", taskId);
+        return taskId == null || taskId.isBlank()
+                ? snapshotNamePolicy.createTaskScopedName("pre_generation", taskId)
+                : snapshotNamePolicy.createStableTaskScopedName("pre_generation", taskId);
     }
 }

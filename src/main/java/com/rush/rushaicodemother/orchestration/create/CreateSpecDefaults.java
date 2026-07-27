@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Local CREATE spec fallback used when the fast AI spec model is unavailable.
+ * 当快速 AI 规范模型不可用时，使用本地 CREATE 规范回退。
  */
 public class CreateSpecDefaults {
 

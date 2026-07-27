@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceServ
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -13,7 +14,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Safe, deterministic file operations shared by benchmark fixture and grader rules. */
+/** 为评测夹具和评分规则提供确定且受工作区约束的文件操作。 */
 @Component
 public class GenerationBenchmarkWorkspaceInspector {
 
@@ -32,7 +33,7 @@ public class GenerationBenchmarkWorkspaceInspector {
                 digests.put(relativePath(normalizedRoot, path), sha256(path));
             }
         } catch (Exception failure) {
-            throw new IllegalStateException("unable to capture benchmark workspace snapshot", failure);
+            throw new IllegalStateException("无法采集评测工作区快照", failure);
         }
         return new GenerationBenchmarkWorkspaceSnapshot(normalizedRoot, digests);
     }
@@ -45,7 +46,36 @@ public class GenerationBenchmarkWorkspaceInspector {
         try {
             return Files.readString(target, StandardCharsets.UTF_8);
         } catch (Exception failure) {
-            throw new IllegalStateException("unable to read benchmark workspace file", failure);
+            throw new IllegalStateException("无法读取评测工作区文件", failure);
+        }
+    }
+
+    public String readUtf8(Path root, String relativePath, int maximumChars) {
+        if (maximumChars <= 0) {
+            throw new IllegalArgumentException("评测文件字符上限必须为正数");
+        }
+        Path target = resolve(root, relativePath);
+        if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+            return "";
+        }
+        try (Reader reader = Files.newBufferedReader(target, StandardCharsets.UTF_8)) {
+            StringBuilder content = new StringBuilder(Math.min(maximumChars, 8_192));
+            char[] buffer = new char[Math.min(maximumChars, 8_192)];
+            int read;
+            while ((read = reader.read(buffer)) >= 0) {
+                if (read == 0) {
+                    continue;
+                }
+                if (content.length() + read > maximumChars) {
+                    throw new IllegalStateException("评测源码文件超过字符上限");
+                }
+                content.append(buffer, 0, read);
+            }
+            return content.toString();
+        } catch (IllegalStateException failure) {
+            throw failure;
+        } catch (Exception failure) {
+            throw new IllegalStateException("无法读取评测工作区文件", failure);
         }
     }
 
@@ -55,7 +85,7 @@ public class GenerationBenchmarkWorkspaceInspector {
             Files.createDirectories(target.getParent());
             Files.writeString(target, content == null ? "" : content, StandardCharsets.UTF_8);
         } catch (Exception failure) {
-            throw new IllegalStateException("unable to write benchmark workspace fixture", failure);
+            throw new IllegalStateException("无法写入评测工作区夹具", failure);
         }
     }
 
@@ -66,18 +96,32 @@ public class GenerationBenchmarkWorkspaceInspector {
     public Path resolve(Path root, String relativePath) {
         Path normalizedRoot = normalizeRoot(root);
         if (relativePath == null || relativePath.isBlank()) {
-            throw new IllegalArgumentException("benchmark relative path is required");
+            throw new IllegalArgumentException("评测相对路径不能为空");
         }
         Path target = normalizedRoot.resolve(relativePath.replace('\\', '/')).normalize();
         if (!target.startsWith(normalizedRoot)) {
-            throw new IllegalArgumentException("benchmark path escapes workspace root");
+            throw new IllegalArgumentException("评测路径不能越出工作区");
         }
+        rejectSymbolicLinks(normalizedRoot, target);
         return target;
+    }
+
+    private void rejectSymbolicLinks(Path root, Path target) {
+        Path current = root;
+        if (Files.isSymbolicLink(current)) {
+            throw new IllegalArgumentException("评测工作区不能使用符号链接");
+        }
+        for (Path segment : root.relativize(target)) {
+            current = current.resolve(segment);
+            if (Files.isSymbolicLink(current)) {
+                throw new IllegalArgumentException("评测源码路径不能经过符号链接");
+            }
+        }
     }
 
     private Path normalizeRoot(Path root) {
         if (root == null) {
-            throw new IllegalArgumentException("benchmark workspace root is required");
+            throw new IllegalArgumentException("评测工作区根目录不能为空");
         }
         return root.toAbsolutePath().normalize();
     }

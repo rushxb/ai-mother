@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.model.enums;
 
 import java.util.Arrays;
 
+/**
+ * 租户成员关系状态的可选类型。
+ */
 public enum TenantMembershipStatus {
     INVITED("invited"),
     ACTIVE("active"),

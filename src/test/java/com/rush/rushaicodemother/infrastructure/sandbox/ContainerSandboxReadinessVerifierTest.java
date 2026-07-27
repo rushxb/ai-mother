@@ -40,6 +40,9 @@ class ContainerSandboxReadinessVerifierTest {
         verifier.afterSingletonsInstantiated();
 
         assertFalse(commands.stream().anyMatch(command -> command.contains("volume")));
+        assertTrue(commands.stream().anyMatch(command -> command.containsAll(List.of("node", "--version"))));
+        assertTrue(commands.stream().anyMatch(command -> command.containsAll(List.of("pnpm", "--version"))));
+        assertTrue(commands.stream().anyMatch(command -> command.containsAll(List.of("go", "version"))));
     }
 
     @Test
@@ -54,7 +57,7 @@ class ContainerSandboxReadinessVerifierTest {
                 verifier::afterSingletonsInstantiated
         );
 
-        assertTrue(exception.getMessage().contains("pnpm store volume"));
+        assertTrue(exception.getMessage().contains("pnpm 缓存卷"));
     }
 
     private ContainerSandboxReadinessVerifier verifier(

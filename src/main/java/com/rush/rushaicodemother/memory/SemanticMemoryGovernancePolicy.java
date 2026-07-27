@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Shared data contract enforced before semantic memory reaches any storage backend. */
+/** 在语义内存到达任何存储后端之前强制执行共享数据契约。 */
 public final class SemanticMemoryGovernancePolicy {
 
     public static final int MAX_CONTENT_UTF8_BYTES = 30_000;
@@ -92,6 +92,12 @@ public final class SemanticMemoryGovernancePolicy {
         validateVector(memory.embedding(), expectedDimension);
     }
 
+    public static void validateMemory(SemanticMemory memory) {
+        validateStoredMemory(memory);
+        float[] embedding = memory.embedding();
+        validateVector(embedding, embedding.length);
+    }
+
     public static void validateStoredMemory(SemanticMemory memory) {
         if (memory == null
                 || memory.id() == null || !MEMORY_ID.matcher(memory.id()).matches()
@@ -106,6 +112,13 @@ public final class SemanticMemoryGovernancePolicy {
             throw new IllegalArgumentException("invalid semantic memory");
         }
         validateMetadata(memory.metadata());
+        if (!"v2".equals(memory.metadata().get("schemaVersion"))
+                || !"untrusted_history".equals(memory.metadata().get("trust"))
+                || !DigestUtil.sha256Hex(memory.content()).equals(memory.metadata().get("contentDigest"))
+                || !(memory.metadata().get("source") instanceof String source)
+                || !SOURCE.matcher(source).matches()) {
+            throw new IllegalArgumentException("semantic memory reserved metadata is invalid");
+        }
     }
 
     public static void validateQuery(SemanticMemoryQuery query, int expectedDimension) {
@@ -120,6 +133,14 @@ public final class SemanticMemoryGovernancePolicy {
         validateVector(query.embedding(), expectedDimension);
     }
 
+    public static void validateQuery(SemanticMemoryQuery query) {
+        if (query == null) {
+            throw new IllegalArgumentException("invalid semantic memory query");
+        }
+        float[] embedding = query.embedding();
+        validateQuery(query, embedding.length);
+    }
+
     public static void validateMetadata(Map<String, Object> metadata) {
         if (metadata == null || metadata.size() > MAX_METADATA_KEYS
                 || !PERSISTED_METADATA_KEYS.containsAll(metadata.keySet())
@@ -127,7 +148,7 @@ public final class SemanticMemoryGovernancePolicy {
             throw new IllegalArgumentException("semantic memory metadata violates the storage policy");
         }
         for (Map.Entry<String, Object> entry : metadata.entrySet()) {
-            if (entry.getKey() == null || scalar(entry.getValue()) == null) {
+            if (entry.getKey() == null || !persistedScalar(entry.getValue())) {
                 throw new IllegalArgumentException("semantic memory metadata must contain scalar values only");
             }
         }
@@ -214,6 +235,26 @@ public final class SemanticMemoryGovernancePolicy {
         return normalized.codePointCount(0, normalized.length()) <= MAX_METADATA_STRING_CHARS
                 ? normalized
                 : truncateCodePoints(normalized, MAX_METADATA_STRING_CHARS);
+    }
+
+    private static boolean persistedScalar(Object value) {
+        if (value instanceof Boolean || value instanceof Byte || value instanceof Short
+                || value instanceof Integer || value instanceof Long) {
+            return true;
+        }
+        if (value instanceof Float number) {
+            return Float.isFinite(number);
+        }
+        if (value instanceof Double number) {
+            return Double.isFinite(number);
+        }
+        if (value instanceof Number number) {
+            return Double.isFinite(number.doubleValue());
+        }
+        if (!(value instanceof String text) || text.isBlank()) {
+            return false;
+        }
+        return text.codePointCount(0, text.length()) <= MAX_METADATA_STRING_CHARS;
     }
 
     private static String truncateCodePoints(String value, int maxCodePoints) {

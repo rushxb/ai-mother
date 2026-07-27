@@ -8,29 +8,29 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** Resource limits for assembling generated-project context supplied to AI orchestration. */
+/** 用于组装提供给 AI 编排的生成项目上下文的资源限制。 */
 @Data
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.generation-project-context")
 public class GenerationProjectContextProperties {
 
-    /** Maximum number of project paths included in the model-facing index. */
+    /** 面向模型的索引中包含的项目路径的最大数量。 */
     @Min(1)
     @Max(10_000)
     private int maxProjectIndexFiles = 80;
 
-    /** Maximum number of characters contributed by one selected project file. */
+    /** 一个选定项目文件贡献的最大字符数。 */
     @Min(1_024)
     @Max(1_000_000)
-    private int maxSingleFileChars = 12_000;
+    private int maxSingleFileChars = 1_400;
 
-    /** Maximum total size of the assembled project context. */
+    /** 组装项目上下文的最大总大小。 */
     @Min(1_024)
     @Max(5_000_000)
-    private int maxTotalContextChars = 100_000;
+    private int maxTotalContextChars = 10_000;
 
-    /** Maximum file size accepted by the bounded workspace reader. */
+    /** 有界工作区读取器接受的最大文件大小。 */
     @Min(1_024L)
     @Max(104_857_600L)
     private long maxReadableFileBytes = 1_048_576L;

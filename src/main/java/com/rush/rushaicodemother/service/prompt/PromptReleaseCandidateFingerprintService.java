@@ -7,14 +7,17 @@ import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseRecord;
 import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseRepository;
 import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseRuntime;
 import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseSpec;
+import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseState;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.ReleaseCandidateFingerprint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** Fingerprints the complete desired prompt bundle after applying one candidate mutation. */
+/** 应用一个候选变更后，对完整的所需提示包进行指纹识别。 */
 @Component
 @RequiredArgsConstructor
 public class PromptReleaseCandidateFingerprintService {
@@ -24,15 +27,7 @@ public class PromptReleaseCandidateFingerprintService {
     private final PromptReleaseRuntime runtime;
 
     public String fingerprint(String promptKey, PromptReleaseSpec candidate) {
-        TreeMap<String, PromptReleaseSpec> desired = new TreeMap<>();
-        PromptCatalogSnapshot active = promptCatalog.snapshot();
-        active.releases().forEach((key, release) -> desired.put(key, new PromptReleaseSpec(
-                release.stableVersion(), release.canaryVersion(), release.canaryPercentage())));
-        for (PromptReleaseRecord release : repository.loadCurrent().releases().values()) {
-            desired.put(release.promptKey(), release.release());
-        }
-        desired.put(promptKey, candidate);
-
+        TreeMap<String, PromptReleaseSpec> desired = desiredReleases(promptKey, candidate);
         PromptReleaseCapabilities capabilities = runtime.capabilities();
         StringBuilder canonical = new StringBuilder("prompt-release-candidate-v1|");
         for (Map.Entry<String, PromptReleaseSpec> entry : desired.entrySet()) {
@@ -51,5 +46,34 @@ public class PromptReleaseCandidateFingerprintService {
                     canonical, Integer.toString(release.canaryPercentage()));
         }
         return ReleaseCandidateFingerprint.sha256(canonical.toString());
+    }
+
+    public String promptBundleFingerprint(String promptKey, PromptReleaseSpec candidate) {
+        PromptReleaseState current = repository.loadCurrent();
+        Map<String, PromptReleaseRecord> releases = new LinkedHashMap<>(current.releases());
+        PromptReleaseRecord existing = releases.get(promptKey);
+        releases.put(promptKey, new PromptReleaseRecord(
+                promptKey,
+                candidate,
+                current.revision(),
+                existing == null ? 0L : existing.updatedBy(),
+                "Benchmark 候选预演",
+                existing == null ? Instant.EPOCH : existing.updatedAt()
+        ));
+        return runtime.preview(new PromptReleaseState(current.revision(), releases)).bundleId();
+    }
+
+    private TreeMap<String, PromptReleaseSpec> desiredReleases(
+            String promptKey,
+            PromptReleaseSpec candidate) {
+        TreeMap<String, PromptReleaseSpec> desired = new TreeMap<>();
+        PromptCatalogSnapshot active = promptCatalog.snapshot();
+        active.releases().forEach((key, release) -> desired.put(key, new PromptReleaseSpec(
+                release.stableVersion(), release.canaryVersion(), release.canaryPercentage())));
+        for (PromptReleaseRecord release : repository.loadCurrent().releases().values()) {
+            desired.put(release.promptKey(), release.release());
+        }
+        desired.put(promptKey, candidate);
+        return desired;
     }
 }

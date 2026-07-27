@@ -9,6 +9,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 创建补丁Merge服务实现。
+ */
 @Service
 public class CreatePatchMergeService {
 

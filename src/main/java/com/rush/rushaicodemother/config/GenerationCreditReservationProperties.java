@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** Route-aware credit reservation policy used before durable generation submission. */
+/** 在持久生成提交之前使用的路由感知信用预留策略。 */
 @Data
 @Component
 @Validated

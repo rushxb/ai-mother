@@ -49,6 +49,7 @@ class DevServerValidationServiceTest {
         manager = mock(DevServerManager.class);
         properties = new DevServerRuntimeProperties();
         properties.setValidationErrorCollectionWindow(Duration.ofMillis(1));
+        properties.setValidationCriticalErrorDrainWindow(Duration.ofMillis(1));
         properties.setValidationPollInterval(Duration.ofMillis(1));
         executionContextService = mock(GenerationExecutionContextService.class);
         when(executionContextService.clampTimeout(anyString(), any(Duration.class)))
@@ -200,6 +201,44 @@ class DevServerValidationServiceTest {
 
         assertEquals(DevServerValidationResult.ValidationStatus.FAILED, result.status());
         assertEquals(1, result.criticalErrorCount());
+    }
+
+    @Test
+    void criticalOutputMustDrainItsDiagnosticBurstWithoutWaitingForTheFullWindow() throws Exception {
+        properties.setValidationErrorCollectionWindow(Duration.ofSeconds(5));
+        properties.setValidationCriticalErrorDrainWindow(Duration.ofMillis(300));
+        properties.setValidationPollInterval(Duration.ofMillis(5));
+        ExecutorService outputExecutor = Executors.newSingleThreadExecutor();
+        try {
+            when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                    .thenAnswer(invocation -> {
+                        collectorReference.get().feedLine(
+                                "[vite] Internal server error: broken import");
+                        outputExecutor.submit(() -> {
+                            try {
+                                Thread.sleep(30L);
+                                collectorReference.get().feedLine(
+                                        "Error: Cannot find module 'late-module'");
+                            } catch (InterruptedException exception) {
+                                Thread.currentThread().interrupt();
+                            }
+                        });
+                        return new DevServerStartResult(5180, false);
+                    });
+            long startedNanos = System.nanoTime();
+
+            DevServerValidationResult result = service.validate(
+                    "task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT
+            );
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(
+                    System.nanoTime() - startedNanos);
+
+            assertEquals(DevServerValidationResult.ValidationStatus.FAILED, result.status());
+            assertEquals(2, result.criticalErrorCount());
+            assertTrue(elapsedMillis < 1_000L);
+        } finally {
+            outputExecutor.shutdownNow();
+        }
     }
 
     @Test

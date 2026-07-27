@@ -4,7 +4,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationT
 
 import java.time.Instant;
 
-/** Public ETA view. Estimates are telemetry-derived ranges rather than completion guarantees. */
+/** 公共预计到达时间视图。估计值是遥测得出的范围，而不是完成保证。 */
 public record GenerationTaskProgressVO(
         boolean available,
         long elapsedMs,

@@ -7,6 +7,9 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 生成上下文压缩服务实现。
+ */
 @Service
 public class GenerationContextCompressionServiceImpl implements GenerationContextCompressionService {
 

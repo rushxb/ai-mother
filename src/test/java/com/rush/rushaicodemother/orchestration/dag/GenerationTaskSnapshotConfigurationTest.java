@@ -47,6 +47,9 @@ class GenerationTaskSnapshotConfigurationTest {
                     assertThat(properties.getMaxSnapshotsPerApp()).isEqualTo(100);
                     assertThat(properties.getRetention()).isEqualTo(Duration.ofDays(7));
                     assertThat(properties.getLockStripes()).isEqualTo(64);
+                    assertThat(properties.isReplaySafeStartCheckpointElisionEnabled()).isFalse();
+                    assertThat(properties.isReplaySafeCompletionCheckpointCoalescingEnabled()).isFalse();
+                    assertThat(properties.getReplaySafeCompletionCheckpointInterval()).isEqualTo(4);
                 });
     }
 
@@ -59,6 +62,9 @@ class GenerationTaskSnapshotConfigurationTest {
         contextRunner
                 .withPropertyValues(
                         "GENERATION_TASK_SNAPSHOT_ENABLED=false",
+                        "GENERATION_REPLAY_SAFE_START_CHECKPOINT_ELISION_ENABLED=true",
+                        "GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_COALESCING_ENABLED=true",
+                        "GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_INTERVAL=8",
                         "GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY=" + propertyPath(snapshotDirectory),
                         "GENERATION_TASK_SNAPSHOT_MAX_BYTES=65536",
                         "GENERATION_TASK_SNAPSHOT_MAX_PER_APP=12",
@@ -70,6 +76,9 @@ class GenerationTaskSnapshotConfigurationTest {
                     GenerationTaskSnapshotProperties properties =
                             context.getBean(GenerationTaskSnapshotProperties.class);
                     assertThat(properties.isEnabled()).isFalse();
+                    assertThat(properties.isReplaySafeStartCheckpointElisionEnabled()).isTrue();
+                    assertThat(properties.isReplaySafeCompletionCheckpointCoalescingEnabled()).isTrue();
+                    assertThat(properties.getReplaySafeCompletionCheckpointInterval()).isEqualTo(8);
                     assertThat(properties.getRootDirectory()).isEqualTo(snapshotDirectory);
                     assertThat(properties.getMaxSnapshotBytes()).isEqualTo(65_536);
                     assertThat(properties.getMaxSnapshotsPerApp()).isEqualTo(12);
@@ -82,6 +91,18 @@ class GenerationTaskSnapshotConfigurationTest {
     void invalidSnapshotLimitsMustFailApplicationContextStartup() {
         contextRunner
                 .withPropertyValues("GENERATION_TASK_SNAPSHOT_MAX_BYTES=1024")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("app.generation-task-snapshot");
+                });
+    }
+
+    @Test
+    void completionCoalescingWithoutStartElisionMustFailApplicationContextStartup() {
+        contextRunner
+                .withPropertyValues(
+                        "GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_COALESCING_ENABLED=true")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())

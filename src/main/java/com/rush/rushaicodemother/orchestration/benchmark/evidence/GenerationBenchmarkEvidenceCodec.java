@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRepo
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** Keeps the signed report byte representation separate from its parsed assessment model. */
+/** 将签名的报告字节表示与其解析的评估模型分开。 */
 @Component
 @RequiredArgsConstructor
 public class GenerationBenchmarkEvidenceCodec {
@@ -17,14 +17,37 @@ public class GenerationBenchmarkEvidenceCodec {
 
     public GenerationBenchmarkReport parseReport(String reportJson) {
         try {
-            return objectMapper.readValue(reportJson, GenerationBenchmarkReport.class);
+            return requireCurrentSchema(
+                    objectMapper.readValue(reportJson, GenerationBenchmarkReport.class));
         } catch (JsonProcessingException malformed) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,
-                    "Benchmark evidence report JSON is invalid", malformed);
+                    "Benchmark 证据报告 JSON 无效", malformed);
+        }
+    }
+
+    public String serializeReport(GenerationBenchmarkReport report) {
+        if (report == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Benchmark 报告不能为空");
+        }
+        requireCurrentSchema(report);
+        try {
+            return objectMapper.writeValueAsString(report);
+        } catch (JsonProcessingException failure) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    "Benchmark 报告无法序列化", failure);
         }
     }
 
     public String reportSha256(String reportJson) {
         return ReleaseCandidateFingerprint.sha256(reportJson);
+    }
+
+    private GenerationBenchmarkReport requireCurrentSchema(GenerationBenchmarkReport report) {
+        if (report == null
+                || report.schemaVersion() != GenerationBenchmarkReport.CURRENT_SCHEMA_VERSION) {
+            throw new BusinessException(
+                    ErrorCode.PARAMS_ERROR, "Benchmark 证据报告版本不受支持");
+        }
+        return report;
     }
 }

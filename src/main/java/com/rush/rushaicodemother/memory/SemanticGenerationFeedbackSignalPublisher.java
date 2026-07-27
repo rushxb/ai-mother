@@ -12,10 +12,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Stores explicit user feedback in long-term semantic memory.
+ * 将明确的用户反馈存储在长期语义记忆中。
  *
- * <p>Feedback is intentionally remembered as untrusted history. Later context-pack assembly can
- * recall it as a preference or improvement hint, but must not treat it as a direct instruction.</p>
+ * <p>Feedback 被故意记录为不可信历史记录。稍后的上下文包组件可以
+ * 将其视为偏好或改进提示，但不得将其视为直接指令。</p>
  */
 @Slf4j
 @Component

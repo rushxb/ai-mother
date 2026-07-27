@@ -4,7 +4,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 
 import java.time.Instant;
 
-/** Optimistic-lock snapshot used to safely terminalize an expired, non-resumable task. */
+/** 乐观锁快照用于安全地终止过期的、不可恢复的任务。 */
 public record GenerationTaskRecoveryCandidate(
         String taskId,
         Long appId,

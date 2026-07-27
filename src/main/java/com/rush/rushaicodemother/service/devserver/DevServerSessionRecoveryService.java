@@ -15,7 +15,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
-/** Claims expired durable sessions and removes their sandbox resources idempotently. */
+/** 声明过期的持久会话并幂等地删除其沙箱资源。 */
 @Slf4j
 @Service
 public class DevServerSessionRecoveryService {

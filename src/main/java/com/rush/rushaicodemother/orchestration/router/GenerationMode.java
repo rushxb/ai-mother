@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.router;
 
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 
+/**
+ * 生成模式的可选类型。
+ */
 public enum GenerationMode {
 
     CREATE(GenerationRoute.CREATE),

@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.memory;
 import java.time.Instant;
 import java.util.List;
 
-/** Durable source-of-truth bridge from relational generation traces to the Milvus derived index. */
+/** 从关系生成痕迹到 Milvus 派生索引的持久真相来源桥梁。 */
 public interface GenerationMemoryOutboxRepository {
 
     List<GenerationMemoryOutboxItem> claimBatch(Instant now,
@@ -19,4 +19,6 @@ public interface GenerationMemoryOutboxRepository {
                        String error,
                        Instant failedAt,
                        Instant nextAttemptAt);
+
+    SemanticMemoryOutboxBacklog inspectBacklog(Instant now, int maxAttempts);
 }

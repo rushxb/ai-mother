@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -41,6 +42,8 @@ class AiModelMonitorListenerTest {
     private AiModelMetricsCollector metrics;
     private GenerationTraceService traceService;
     private AiModelCircuitBreaker circuitBreaker;
+    private GenerationPerformanceMonitorService performanceMonitorService;
+    private AiModelInvocationObserver invocationObserver;
     private ChatModelListener listener;
 
     @BeforeEach
@@ -48,11 +51,16 @@ class AiModelMonitorListenerTest {
         metrics = mock(AiModelMetricsCollector.class);
         traceService = mock(GenerationTraceService.class);
         circuitBreaker = mock(AiModelCircuitBreaker.class);
+        invocationObserver = mock(AiModelInvocationObserver.class);
+        performanceMonitorService = new GenerationPerformanceMonitorService();
+        performanceMonitorService.startTask("task-1", 1L, 2L, "heavy", "vue_project");
         AiModelMonitorListener monitor = new AiModelMonitorListener(
                 metrics,
                 traceService,
                 circuitBreaker,
-                new AiModelProvenanceFactory(new ObjectMapper())
+                new AiModelProvenanceFactory(new ObjectMapper()),
+                performanceMonitorService,
+                java.util.List.of(invocationObserver)
         );
         listener = monitor.forModel("xiaomi", "mimo-v2-flash");
         MonitorContextHolder.setContext(MonitorContext.builder()
@@ -72,6 +80,7 @@ class AiModelMonitorListenerTest {
         ChatRequest request = request();
         Map<Object, Object> attributes = new HashMap<>();
         listener.onRequest(new ChatModelRequestContext(request, ModelProvider.OPEN_AI, attributes));
+        verify(invocationObserver).onRequest("xiaomi", "mimo-v2-flash");
         MonitorContextHolder.clearContext();
 
         ChatResponse response = ChatResponse.builder()
@@ -98,6 +107,9 @@ class AiModelMonitorListenerTest {
         assertNotNull(call.provenance());
         assertEquals(64, call.provenance().requestHash().length());
         verify(circuitBreaker).recordSuccess("xiaomi", "mimo-v2-flash");
+        assertTrue(performanceMonitorService.getSummary(10).getRecentTasks().getFirst().getSpans().stream()
+                .anyMatch(span -> "model_provider_attempt".equals(span.getStage())
+                        && "success".equals(span.getStatus())));
     }
 
     @Test

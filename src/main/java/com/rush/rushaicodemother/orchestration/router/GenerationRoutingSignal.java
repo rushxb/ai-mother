@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import java.util.List;
 import java.util.Locale;
 
-/** Immutable signal bundle consumed by routing policies. */
+/** 路由策略消耗的不可变信号包。 */
 public record GenerationRoutingSignal(
         GenerationTaskRequest request,
         CodeGenTypeEnum codeGenType,

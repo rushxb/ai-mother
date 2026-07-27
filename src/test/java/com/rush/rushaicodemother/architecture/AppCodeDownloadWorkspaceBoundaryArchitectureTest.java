@@ -30,7 +30,7 @@ class AppCodeDownloadWorkspaceBoundaryArchitectureTest {
         String source = Files.readString(SOURCE);
 
         assertTrue(source.contains("GenerationWorkspaceService"));
-        assertTrue(source.contains("generationWorkspaceService.resolve("));
+        assertTrue(source.contains("generationWorkspaceService.resolveCanonical("));
         assertTrue(source.contains("workspace.canonicalRootPath()"));
         for (String forbidden : FORBIDDEN_PATH_IMPLEMENTATION) {
             assertFalse(source.contains(forbidden),

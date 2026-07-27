@@ -28,7 +28,7 @@ class GenerationModeRouterTest {
         );
 
         assertEquals(GenerationMode.CREATE, decision.mode());
-        assertEquals(FallbackPolicy.NONE, decision.fallbackPolicy());
+        assertEquals(FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT, decision.fallbackPolicy());
     }
 
     @Test

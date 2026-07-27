@@ -23,31 +23,28 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Pre-warms Node.js template dependencies on an isolated bounded executor. */
+/** 在隔离的有界执行器中预热 Node.js 模板依赖的共享 pnpm store。 */
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "app.template-pre-warm", name = "enabled", havingValue = "true")
 public class TemplateNodeModulesPreWarmRunner {
 
-    private final TemplatePreWarmService templatePreWarmService;
     private final ProjectTemplateMaterializer templateMaterializer;
     private final ProjectDependencyInstaller projectDependencyInstaller;
     private final TemplatePreWarmProperties properties;
     private final TaskExecutor taskExecutor;
     private final WorkspaceFileSystemService workspaceFileSystemService;
-    private final Set<Path> retainedTempDirectories = ConcurrentHashMap.newKeySet();
+    private final Set<Path> activeTempDirectories = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private final Object lifecycleMonitor = new Object();
 
     public TemplateNodeModulesPreWarmRunner(
-            TemplatePreWarmService templatePreWarmService,
             ProjectTemplateMaterializer templateMaterializer,
             ProjectDependencyInstaller projectDependencyInstaller,
             TemplatePreWarmProperties properties,
             @Qualifier(TemplatePreWarmConfiguration.TEMPLATE_PRE_WARM_TASK_EXECUTOR) TaskExecutor taskExecutor,
             WorkspaceFileSystemService workspaceFileSystemService
     ) {
-        this.templatePreWarmService = templatePreWarmService;
         this.templateMaterializer = templateMaterializer;
         this.projectDependencyInstaller = projectDependencyInstaller;
         this.properties = properties;
@@ -89,12 +86,11 @@ public class TemplateNodeModulesPreWarmRunner {
             return;
         }
         Path tempDirectory = null;
-        boolean retained = false;
         try {
             tempDirectory = Files.createTempDirectory("template-prewarm-" + templateId + "-")
                     .toAbsolutePath()
                     .normalize();
-            retainedTempDirectories.add(tempDirectory);
+            activeTempDirectories.add(tempDirectory);
             templateMaterializer.materializeIntoExistingDirectory(templateId, tempDirectory);
 
             if (shuttingDown.get()) {
@@ -116,18 +112,11 @@ public class TemplateNodeModulesPreWarmRunner {
                 return;
             }
 
-            synchronized (lifecycleMonitor) {
-                if (shuttingDown.get()) {
-                    projectDependencyInstaller.cancel(tempDirectory);
-                    return;
-                }
-                templatePreWarmService.registerPreWarmedModules(
-                        templateId,
-                        tempDirectory.resolve("node_modules")
-                );
-                retained = true;
+            if (shuttingDown.get()) {
+                projectDependencyInstaller.cancel(tempDirectory);
+                return;
             }
-            log.info("Template pre-warm completed: templateId={}", templateId);
+            log.info("模板依赖共享 pnpm store 预热完成：templateId={}", templateId);
         } catch (Exception exception) {
             log.warn(
                     "Template pre-warm failed with an exception: templateId={}, error={}",
@@ -135,8 +124,8 @@ public class TemplateNodeModulesPreWarmRunner {
                     LogExceptionSanitizer.sanitizeMessage(exception)
             );
         } finally {
-            if (tempDirectory != null && !retained) {
-                retainedTempDirectories.remove(tempDirectory);
+            if (tempDirectory != null) {
+                activeTempDirectories.remove(tempDirectory);
                 deleteTempDirectory(tempDirectory);
             }
         }
@@ -147,11 +136,11 @@ public class TemplateNodeModulesPreWarmRunner {
         List<Path> directoriesToDelete;
         synchronized (lifecycleMonitor) {
             shuttingDown.set(true);
-            directoriesToDelete = List.copyOf(retainedTempDirectories);
+            directoriesToDelete = List.copyOf(activeTempDirectories);
         }
         for (Path tempDirectory : directoriesToDelete) {
             projectDependencyInstaller.cancel(tempDirectory);
-            retainedTempDirectories.remove(tempDirectory);
+            activeTempDirectories.remove(tempDirectory);
             deleteTempDirectory(tempDirectory);
         }
     }

@@ -21,7 +21,7 @@ public class ArtifactLifecycleProperties {
     /** 单次 robocopy 复制的总超时。 */
     private Duration copyTimeout = Duration.ofMinutes(15);
 
-    /** Maximum wall-clock time for seeding one isolated execution workspace. */
+    /** 播种一个独立执行工作区的最大挂钟时间。 */
     private Duration executionWorkspaceCopyTimeout = Duration.ofMinutes(2);
 
     /** robocopy 运行期间的心跳日志间隔。 */
@@ -35,46 +35,46 @@ public class ArtifactLifecycleProperties {
     @Max(1_000_000)
     private int maxOutputLength = 8_000;
 
-    /** Maximum number of files accepted in one artifact copy. */
+    /** 一份工件副本中接受的最大文件数。 */
     @Min(1)
     @Max(1_000_000)
     private int maxFiles = 20_000;
 
-    /** Maximum number of directories, excluding the source root. */
+    /** 最大目录数，不包括源根目录。 */
     @Min(1)
     @Max(100_000)
     private int maxDirectories = 5_000;
 
-    /** Maximum directory depth relative to the source root. */
+    /** 相对于源根目录的最大目录深度。 */
     @Min(1)
     @Max(256)
     private int maxDirectoryDepth = 64;
 
-    /** Maximum size of one artifact file in bytes. */
+    /** 一个工件文件的最大大小（以字节为单位）。 */
     @Min(1_024L)
     private long maxFileBytes = 100L * 1024 * 1024;
 
-    /** Maximum cumulative file size for one artifact copy in bytes. */
+    /** 一份工件副本的最大累积文件大小（以字节为单位）。 */
     @Min(1_048_576L)
     private long maxTotalBytes = 2L * 1024 * 1024 * 1024;
 
-    /** Maximum attempts for publishing or switching an artifact directory. */
+    /** 发布或切换工件目录的最大尝试次数。 */
     @Min(1)
     @Max(20)
     private int publishMaxAttempts = 5;
 
-    /** Delay between retries after a transient directory access denial. */
+    /** 短暂目录访问拒绝后重试之间的延迟。 */
     @Min(0)
     @Max(5_000)
     private long publishRetryDelayMillis = 50;
 
-    /** Maximum time to wait for the per-application publication lock. */
+    /** 等待每个应用程序发布锁的最长时间。 */
     private Duration publicationLockTimeout = Duration.ofSeconds(30);
 
-    /** Interval between durable publication reconciliation scans. */
+    /** 持久发布协调扫描之间的间隔。 */
     private Duration publicationReconciliationScanInterval = Duration.ofSeconds(30);
 
-    /** Delay before another node may reclaim the same publication reconciliation item. */
+    /** 另一个节点可以回收同一发布协调项之前的延迟。 */
     private Duration publicationReconciliationRetryDelay = Duration.ofSeconds(30);
 
     @Min(1)

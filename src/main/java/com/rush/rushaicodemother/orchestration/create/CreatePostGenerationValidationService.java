@@ -22,6 +22,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 创建Post生成校验服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class CreatePostGenerationValidationService {
@@ -36,8 +39,10 @@ public class CreatePostGenerationValidationService {
                                       String taskId,
                                       SlotFillResult result,
                                       GenerationSession session) {
-        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            return ValidationOutcome.skipped("backend_or_non_vue_create");
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT
+                && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT
+                && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
+            return ValidationOutcome.skipped("non_project_create");
         }
         GenerationPreparation preparation = createRepairPreparation(codeGenType, userMessage, taskId, result);
         GenerationExecutionFence executionFence = executionFence(session);

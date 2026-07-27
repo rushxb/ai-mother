@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
-/** MyBatis adapter that loads bounded duration samples for route-level historical profiles. */
+/** MyBatis 适配器为路由级历史配置文件加载有界持续时间样本。 */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisGenerationDurationSampleRepository implements GenerationDurationSampleRepository {

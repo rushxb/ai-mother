@@ -1,0 +1,99 @@
+package com.rush.rushaicodemother.ai.model;
+
+import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
+import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
+import com.rush.rushaicodemother.ai.provenance.AiModelProvenanceFactory;
+import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
+import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgeScheduler;
+import com.rush.rushaicodemother.ai.model.transport.CancellableAiStreamingRequestExecutor;
+import com.rush.rushaicodemother.ai.tools.ToolManager;
+import com.rush.rushaicodemother.config.AiModelCircuitBreakerProperties;
+import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
+import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
+import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
+import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutPolicy;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationStreamingModelCallSupervisor;
+import com.rush.rushaicodemother.orchestration.runtime.model.ManagedGenerationModelTimeoutScheduler;
+import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
+import com.rush.rushaicodemother.orchestration.tool.CompletedToolCallContextCompactor;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
+import com.rush.rushaicodemother.service.ChatHistoryService;
+import com.rush.rushaicodemother.service.aimodel.AiModelCircuitBreaker;
+import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
+import com.rush.rushaicodemother.service.aimodel.AiModelSecretService;
+import com.rush.rushaicodemother.service.trace.GenerationTraceService;
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
+class ProductionAiWiringTest {
+
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withBean(AiModelRuntimeProperties.class, AiModelRuntimeProperties::new)
+            .withBean(AiModelMetricsCollector.class,
+                    () -> new AiModelMetricsCollector(new SimpleMeterRegistry()))
+            .withBean(GenerationPerformanceMonitorService.class,
+                    GenerationPerformanceMonitorService::new)
+            .withBean(GenerationTraceService.class,
+                    () -> mock(GenerationTraceService.class))
+            .withBean(AiModelProvenanceFactory.class,
+                    () -> mock(AiModelProvenanceFactory.class))
+            .withBean(AiModelRuntimeService.class,
+                    () -> mock(AiModelRuntimeService.class))
+            .withBean(OpenAiThinkingPolicy.class,
+                    () -> mock(OpenAiThinkingPolicy.class))
+            .withBean(AiModelCapacityGuard.class,
+                    () -> mock(AiModelCapacityGuard.class))
+            .withBean(AiModelSecretService.class,
+                    () -> mock(AiModelSecretService.class))
+            .withBean(FirstTokenHedgeScheduler.class,
+                    () -> mock(FirstTokenHedgeScheduler.class))
+            .withBean(ChatMemoryStore.class,
+                    () -> mock(ChatMemoryStore.class))
+            .withBean(ChatHistoryService.class,
+                    () -> mock(ChatHistoryService.class))
+            .withBean(ToolManager.class,
+                    () -> mock(ToolManager.class))
+            .withBean(ToolExecutionFailurePolicy.class,
+                    () -> mock(ToolExecutionFailurePolicy.class))
+            .withBean(AiToolInvocationPolicy.class,
+                    () -> mock(AiToolInvocationPolicy.class))
+            .withBean(PromptSystemMessageTransformer.class,
+                    () -> mock(PromptSystemMessageTransformer.class))
+            .withBean(CompletedToolCallContextCompactor.class,
+                    () -> mock(CompletedToolCallContextCompactor.class))
+            .withUserConfiguration(
+                    AiModelCircuitBreakerProperties.class,
+                    AiModelCircuitBreaker.class,
+                    AiModelMonitorListener.class,
+                    GenerationModelInvocationCancellationBridge.class,
+                    GenerationModelTimeoutPolicy.class,
+                    CancellableAiStreamingRequestExecutor.class,
+                    ManagedGenerationModelTimeoutScheduler.class,
+                    AiModelTimeoutMonitor.class,
+                    AiStreamingCallRuntime.class,
+                    StreamingModelFactory.class,
+                    AiCodeGeneratorServiceFactory.class,
+                    GenerationStreamingModelCallSupervisor.class
+            );
+
+    @Test
+    void shouldCreateProductionAiChainUsingExplicitConstructors() {
+        contextRunner.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).hasSingleBean(AiModelCircuitBreaker.class);
+            assertThat(context).hasSingleBean(AiModelMonitorListener.class);
+            assertThat(context).hasSingleBean(StreamingModelFactory.class);
+            assertThat(context).hasSingleBean(AiCodeGeneratorServiceFactory.class);
+            assertThat(context).hasSingleBean(CancellableAiStreamingRequestExecutor.class);
+            assertThat(context).hasSingleBean(GenerationStreamingModelCallSupervisor.class);
+        });
+    }
+}

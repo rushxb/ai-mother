@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
-/** Default UUID-based generation task identity strategy. */
+/** 默认的基于UUID的生成任务身份策略。 */
 @Component
 public class UuidGenerationTaskIdGenerator implements GenerationTaskIdGenerator {
 

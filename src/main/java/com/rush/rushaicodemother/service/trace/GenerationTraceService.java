@@ -10,6 +10,8 @@ public interface GenerationTraceService {
 
     void startTask(GenerationTaskStartCommand command);
 
+    GenerationTaskTraceStartResult startOrTransitionTask(GenerationTaskStartCommand command);
+
     void updateStage(String taskId, String stage, String stageMessage);
 
     void updateMemorySummary(String taskId, String memorySummary);

@@ -7,7 +7,7 @@ import org.springframework.web.socket.WebSocketSession;
 import java.net.URI;
 import java.util.concurrent.CompletableFuture;
 
-/** Outbound WebSocket connection port used by the Preview bridge. */
+/** 预览桥使用的出站 WebSocket 连接端口。 */
 public interface DevServerWebSocketConnector {
 
     CompletableFuture<WebSocketSession> connect(

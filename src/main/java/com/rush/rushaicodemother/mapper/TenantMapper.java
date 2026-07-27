@@ -6,6 +6,9 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+/**
+ * 租户数据访问映射器。
+ */
 public interface TenantMapper {
 
     @Insert("""

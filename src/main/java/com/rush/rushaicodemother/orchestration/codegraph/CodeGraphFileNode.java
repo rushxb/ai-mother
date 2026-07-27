@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.codegraph;
 
 import java.util.List;
 
+/**
+ * 代码图文件节点的不可变数据载体。
+ */
 public record CodeGraphFileNode(
         String relativePath,
         String extension,

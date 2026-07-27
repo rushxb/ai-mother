@@ -1,12 +1,12 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
-/** Controls how process output is exposed to application logs without affecting bounded result capture. */
+/** 控制如何将进程输出公开给应用程序日志，而不影响有限结果捕获。 */
 public enum ManagedProcessOutputLogPolicy {
 
-    /** Emit each completed process-output line at INFO level. */
+    /** 在 INFO 级别发出每个已完成的过程输出行。 */
     STREAM(true, true),
 
-    /** Keep output in the bounded result only; heartbeats and timeout logs contain metadata, not output content. */
+    /** 仅将输出保留在有界结果中；心跳和超时日志包含元数据，而不是输出内容。 */
     SUMMARY(false, false);
 
     private final boolean lineLoggingEnabled;

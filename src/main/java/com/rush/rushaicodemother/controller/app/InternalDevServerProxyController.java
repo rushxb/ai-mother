@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.HandlerMapping;
 
-/** Signed node-to-node hop; never accepts a browser session as authorization. */
+/** 签名的节点到节点跳；从不接受浏览器会话作为授权。 */
 @Validated
 @RestController
 @RequiredArgsConstructor

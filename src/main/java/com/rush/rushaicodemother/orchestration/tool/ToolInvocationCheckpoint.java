@@ -4,7 +4,7 @@ import cn.hutool.crypto.digest.DigestUtil;
 
 import java.time.Instant;
 
-/** Immutable checkpoint for the exact model tool invocation that is waiting for a decision. */
+/** 等待决策的确切模型工具调用的不可变检查点。 */
 public record ToolInvocationCheckpoint(
         int schemaVersion,
         String requestId,

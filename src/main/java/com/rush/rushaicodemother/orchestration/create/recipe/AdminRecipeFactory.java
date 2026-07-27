@@ -9,6 +9,9 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSu
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.normalizeFields;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
 
+/**
+ * 管理端配方对象工厂。
+ */
 @Component
 final class AdminRecipeFactory {
 

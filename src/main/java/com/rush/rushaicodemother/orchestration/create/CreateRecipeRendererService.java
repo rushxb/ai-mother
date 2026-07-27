@@ -12,10 +12,10 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Routes deterministic CREATE rendering to the module that owns the selected template.
+ * 将确定性 CREATE 渲染路由到拥有所选模板的模块。
  *
- * <p>This service intentionally contains only registry validation and dispatch. Template-specific
- * recipe construction and source rendering belong to independent renderer modules.</p>
+ * <p>此服务有意仅包含注册表验证和调度。模板特定
+ * 配方构建和源渲染属于独立的渲染器模块。</p>
  */
 @Service
 public class CreateRecipeRendererService {

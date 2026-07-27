@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
     private final GenerationRoutingSupport routingSupport;
 
     public PlannerAgentNode(GenerationAgentSupport support, GenerationRoutingSupport routingSupport) {
-        super("planner", "Planner", "planning", List.of());
+        super("planner", "Planner", "planning", List.of(), GenerationNodeReplayPolicy.REPLAY_SAFE);
         this.support = support;
         this.routingSupport = routingSupport;
     }
@@ -44,9 +45,11 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         List<GenerationRecipe> matchedRecipes = support.matchRecipes(userMessage, "");
         List<GenerationSkill> matchedSkills = support.matchSkills(userMessage);
         App app = context.getRequest().app();
-        List<Map<String, Object>> indexHits = patchFirst
-                ? support.collectIndexRecallPayloads(app, userMessage, 3)
-                : List.of();
+        GenerationAgentSupport.ProjectIndexRecall indexRecall = patchFirst
+                ? support.collectProjectIndexRecall(app, userMessage, 3)
+                : new GenerationAgentSupport.ProjectIndexRecall(null, List.of());
+        context.setWorkspaceIndexSnapshot(indexRecall.indexSnapshot());
+        List<Map<String, Object>> indexHits = indexRecall.indexHits();
         List<String> goals = new java.util.ArrayList<>(List.of(
                 "保留现有项目能力并尽量复用结构",
                 complex ? "按模块拆分生成任务，允许并行处理" : "采用单模块增量生成策略",

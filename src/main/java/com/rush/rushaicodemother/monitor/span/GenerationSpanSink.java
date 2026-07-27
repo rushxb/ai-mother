@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.monitor.span;
 
-/** Observer port for completed generation spans. Implementations must be safe to call repeatedly. */
+/** 完整生成跨度的观察者端口。实现必须能够安全地重复调用。 */
 @FunctionalInterface
 public interface GenerationSpanSink {
 

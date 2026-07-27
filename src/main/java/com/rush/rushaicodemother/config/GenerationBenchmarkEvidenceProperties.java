@@ -10,17 +10,17 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Trust and retention policy for externally evaluated immutable benchmark evidence. */
+/** 外部评估的不可变基准证据的信任和保留政策。 */
 @Data
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.generation-benchmark.evidence")
 public class GenerationBenchmarkEvidenceProperties {
 
-    /** Must be supplied by a secret manager in environments that ingest or verify evidence. */
+    /** 必须由秘密管理者在摄取或验证证据的环境中提供。 */
     private String signingSecret = "";
 
-    private String graderFingerprint = "generation-benchmark-graders-v1";
+    private String graderFingerprint = "generation-benchmark-graders-v6";
 
     private Duration maximumValidity = Duration.ofDays(7);
 

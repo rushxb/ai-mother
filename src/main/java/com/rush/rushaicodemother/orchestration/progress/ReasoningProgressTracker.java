@@ -8,11 +8,11 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Converts private model-reasoning signals into bounded, user-safe progress events.
+ * 将私有模型推理信号转换为有界的、用户安全的进度事件。
  *
- * <p>The tracker deliberately never accepts reasoning text. This keeps hidden chain-of-thought
- * out of SSE, replay streams, logs and chat history while still making long model calls visible
- * to users.</p>
+ * <p>跟踪器故意不接受推理文本。这保持了隐藏的思路
+ * 在 SSE 之外，重放流、日志和聊天历史记录，同时仍然使长模型调用可见
+ * 致用户.</p>
  */
 public final class ReasoningProgressTracker {
 

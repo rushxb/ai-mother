@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Rejects frontend patches that introduce undeclared bare package imports. */
+/** 拒绝引入未声明的裸包导入的前端补丁。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor

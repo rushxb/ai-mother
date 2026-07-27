@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.orchestration.create.SlotGroup;
 import com.rush.rushaicodemother.orchestration.create.TemplateVariableManifest;
 
 /**
- * Extension point for one deterministic CREATE template recipe.
+ * 一个确定性 CREATE 模板配方的扩展点。
  */
 public interface CreateRecipeRenderer {
 

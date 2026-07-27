@@ -13,7 +13,7 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.Map;
 
-/** Maps domain generation events to the shared SSE wire format. */
+/** 将域生成事件映射到共享 SSE 有线格式。 */
 @Component
 public class GenerationSseEventMapper {
 
@@ -52,7 +52,7 @@ public class GenerationSseEventMapper {
                         .build()));
     }
 
-    /** Maps the durable task stream without inventing a completion event when the log has no terminal marker. */
+    /** 当日志没有终止标记时，映射持久任务流而不创建完成事件。 */
     public Flux<ServerSentEvent<String>> mapSequenced(Flux<SequencedGenerationEvent> events) {
         if (events == null) {
             throw new IllegalArgumentException("sequenced generation event stream cannot be null");

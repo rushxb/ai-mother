@@ -7,7 +7,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
-/** Unicode-aware lexical relevance used to rerank short-term traces, including Chinese text. */
+/** Unicode 感知的词汇相关性用于对短期跟踪（包括中文文本）进行重新排序。 */
 @Component
 public class AiContextRelevanceScorer {
 

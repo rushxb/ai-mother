@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** Explicit SQL adapter for durable generation-task runtime ownership. */
+/** 用于持久生成任务运行时所有权的显式 SQL 适配器。 */
 public interface GenerationTaskRuntimeMapper {
 
     @Insert("""

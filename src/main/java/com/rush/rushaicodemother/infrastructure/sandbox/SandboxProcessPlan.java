@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Host process specification produced by a sandbox backend. */
+/** 由沙箱后端生成的主机进程规范。 */
 public record SandboxProcessPlan(
         String backend,
         Path hostWorkingDirectory,

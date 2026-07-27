@@ -12,10 +12,10 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * Owns the canonical filesystem boundary for application-scoped generation snapshots.
+ * 拥有应用程序范围生成快照的规范文件系统边界。
  *
- * <p>Snapshot consumers must obtain application and snapshot directories from this service instead
- * of rebuilding paths from storage constants, application identifiers or snapshot names.</p>
+ * <p>Snapshot 使用者必须从此服务获取应用程序和快照目录
+ * 从存储常量、应用程序标识符或快照名称重建路径。</p>
  */
 @Service
 public class GenerationSnapshotWorkspaceService {
@@ -37,7 +37,7 @@ public class GenerationSnapshotWorkspaceService {
         this.snapshotNamePolicy = Objects.requireNonNull(snapshotNamePolicy, "snapshotNamePolicy must not be null");
     }
 
-    /** Resolves an application snapshot root without creating it. */
+    /** 解析应用程序快照根而不创建它。 */
     public Path resolveApplicationRoot(Long appId) {
         requireAppId(appId);
         Path storageRoot = storageProperties.snapshotRoot();
@@ -48,7 +48,7 @@ public class GenerationSnapshotWorkspaceService {
         return applicationRoot;
     }
 
-    /** Creates and validates the application snapshot root. */
+    /** 创建并验证应用程序快照根。 */
     public Path prepareApplicationRoot(Long appId) {
         Path applicationRoot = resolveApplicationRoot(appId);
         try {
@@ -59,7 +59,7 @@ public class GenerationSnapshotWorkspaceService {
         }
     }
 
-    /** Resolves one validated snapshot directory path without requiring it to exist. */
+    /** 解析一个经过验证的快照目录路径，而不要求它存在。 */
     public Path resolveSnapshot(Long appId, String snapshotName) {
         String normalizedName = snapshotNamePolicy.validateRequired(snapshotName);
         Path applicationRoot = resolveApplicationRoot(appId);
@@ -69,7 +69,7 @@ public class GenerationSnapshotWorkspaceService {
         return snapshotPath;
     }
 
-    /** Resolves one existing non-symbolic-link snapshot directory. */
+    /** 解析一个现有的非符号链接快照目录。 */
     public Path resolveExistingSnapshot(Long appId, String snapshotName) {
         Path applicationRoot = resolveApplicationRoot(appId);
         Path expected = resolveSnapshot(appId, snapshotName);
@@ -81,8 +81,8 @@ public class GenerationSnapshotWorkspaceService {
     }
 
     /**
-     * Validates that an artifact-reported snapshot path is exactly the canonical path for its app and
-     * snapshot name. Prefix-only membership is intentionally insufficient.
+     * 验证工件报告的快照路径正是其应用程序的规范路径，并且
+     * 快照名称。仅前缀成员资格是故意不够的。
      */
     public Path resolveReportedSnapshot(Long appId, String snapshotName, String reportedPath) {
         if (reportedPath == null || reportedPath.isBlank()) {

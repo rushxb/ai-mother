@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
-/** Loads durable release pointers and atomically swaps the runtime prompt catalog. */
+/** 加载持久发布指针并自动交换运行时提示目录。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor

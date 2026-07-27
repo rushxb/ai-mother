@@ -13,6 +13,9 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/**
+ * 生成模型调用的持久化实体。
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -23,21 +26,26 @@ public class GenerationModelCall implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
+    /** 主键编号。 */
     @Id(keyType = KeyType.Auto)
     private Long id;
 
     @Column("callId")
     private String callId;
 
+    /** 生成任务编号。 */
     @Column("taskId")
     private String taskId;
 
+    /** 应用编号。 */
     @Column("appId")
     private Long appId;
 
+    /** 用户编号。 */
     @Column("userId")
     private Long userId;
 
+    /** 模型提供方。 */
     private String provider;
 
     private String model;
@@ -54,6 +62,7 @@ public class GenerationModelCall implements Serializable {
     @Column("completionTokens")
     private Integer completionTokens;
 
+    /** 总令牌数。 */
     @Column("totalTokens")
     private Integer totalTokens;
 
@@ -90,9 +99,11 @@ public class GenerationModelCall implements Serializable {
     @Column("rawMetadataJson")
     private String rawMetadataJson;
 
+    /** 创建时间。 */
     @Column("createTime")
     private LocalDateTime createTime;
 
+    /** 逻辑删除标记。 */
     @Column(value = "isDelete", isLogicDelete = true)
     private Integer isDelete;
 }

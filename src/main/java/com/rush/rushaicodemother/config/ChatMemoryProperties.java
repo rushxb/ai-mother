@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.config;
 
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -34,6 +35,10 @@ public class ChatMemoryProperties {
 
     @NotNull
     private Duration fallbackExpireAfterAccess = Duration.ofHours(2);
+
+    @Min(1_024)
+    @Max(262_144)
+    private int completedToolArgumentsMaxChars = 8_192;
 
     @AssertTrue(message = "对话记忆内存回退过期时间必须大于 0")
     public boolean isFallbackExpirationValid() {

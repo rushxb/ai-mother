@@ -1,11 +1,11 @@
 package com.rush.rushaicodemother.orchestration.runtime.execution;
 
 /**
- * Immutable worker identity used to reject side effects from an expired generation execution.
+ * 不可变的工作人员身份用于拒绝过期生成执行带来的副作用。
  *
- * <p>The epoch is monotonically increased by the durable task store whenever execution ownership
- * is issued or revoked. A worker write is valid only while all three values still match the
- * persisted lease.</p>
+ * <p>每当执行所有权时，持久任务存储的纪元单调增加
+ * 已发布或撤销。仅当所有三个值仍然匹配时，工作人员写入才有效
+ * 持续租约.</p>
  */
 public record GenerationExecutionFence(
         String taskId,

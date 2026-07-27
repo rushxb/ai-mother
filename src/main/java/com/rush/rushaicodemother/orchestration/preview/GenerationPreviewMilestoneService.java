@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Publishes the first usable preview exactly once and records its SLA outcome. */
+/** 首个用户可见版本发布后，幂等发送预览事件并记录 SLA 结果。 */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -28,6 +28,19 @@ public class GenerationPreviewMilestoneService {
     private final GenerationEventPublisher eventPublisher;
 
     public boolean publishRuntimeReady(GenerationSession session, CodeGenTypeEnum targetType) {
+        return publishReady(session, targetType, "runtime", "首个可运行预览已就绪");
+    }
+
+    public boolean publishBuildReady(GenerationSession session, CodeGenTypeEnum targetType) {
+        return publishReady(session, targetType, "build", "首个可用构建产物已就绪");
+    }
+
+    private boolean publishReady(
+            GenerationSession session,
+            CodeGenTypeEnum targetType,
+            String previewLevel,
+            String message
+    ) {
         if (session == null || session.executionContext() == null) {
             return false;
         }
@@ -43,16 +56,16 @@ public class GenerationPreviewMilestoneService {
         data.put("taskId", context.taskId());
         data.put("route", route);
         data.put("targetType", target);
-        data.put("previewLevel", "runtime");
+        data.put("previewLevel", previewLevel);
         data.put("elapsedMs", milestone.elapsed().toMillis());
         data.put("slaStatus", slaStatus);
         data.put("slaProfile", context.slaProfile());
         data.put("firstPreviewDeadlineAt", milestone.deadlineAt().toString());
 
-        session.emit(GenerationStreamEvent.firstPreviewReady("首个可运行预览已就绪", Map.copyOf(data)));
+        session.emit(GenerationStreamEvent.firstPreviewReady(message, Map.copyOf(data)));
         eventPublisher.publishSafely(
                 session.taskRequest(), GenerationEventType.FIRST_PREVIEW_READY,
-                "首个可运行预览已就绪", Map.copyOf(data));
+                message, Map.copyOf(data));
         recordTelemetry(context, milestone, route, target, slaStatus);
         return true;
     }
@@ -71,7 +84,7 @@ public class GenerationPreviewMilestoneService {
                     route, "first_preview", slaStatus,
                     milestone.slaBreached() ? "deadline_exceeded" : "within_deadline");
         } catch (RuntimeException telemetryFailure) {
-            log.warn("First-preview telemetry failed without interrupting generation, taskId: {}",
+            log.warn("首预览遥测记录失败，生成流程继续执行，taskId: {}",
                     context.taskId(), telemetryFailure);
         }
     }

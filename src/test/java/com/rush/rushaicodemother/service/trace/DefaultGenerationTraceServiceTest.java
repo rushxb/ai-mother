@@ -134,6 +134,47 @@ class DefaultGenerationTraceServiceTest {
     }
 
     @Test
+    void runningTaskMayTransitionRouteWithoutChangingTaskIdentityOrUserPrompt() {
+        TaskRecord createTask = createTaskRecord(GenerationTaskStatus.RUNNING, "创建页面");
+        when(persistenceService.insertTask(any())).thenReturn(false);
+        when(persistenceService.findTaskByTaskId("task-1")).thenReturn(createTask);
+        when(persistenceService.lockTaskByTaskId("task-1")).thenReturn(createTask);
+        GenerationTaskStartCommand heavyCommand = heavyStartCommand("创建页面");
+
+        GenerationTaskTraceStartResult result = service.startOrTransitionTask(heavyCommand);
+
+        assertEquals(GenerationTaskTraceStartResult.TRANSITIONED, result);
+        ArgumentCaptor<NewTask> taskCaptor = ArgumentCaptor.forClass(NewTask.class);
+        verify(persistenceService).transitionRunningTaskTrace(
+                eq(10L), taskCaptor.capture(), isNull(), eq(NOW_LOCAL));
+        assertEquals("task-1", taskCaptor.getValue().taskId());
+        assertEquals("创建页面", taskCaptor.getValue().userPrompt());
+        assertEquals("heavy_generation", taskCaptor.getValue().orchestrationMode());
+        assertEquals("expert", taskCaptor.getValue().qualityGate());
+    }
+
+    @Test
+    void routeTransitionMustRejectDifferentPromptAndTerminalTask() {
+        when(persistenceService.insertTask(any())).thenReturn(false);
+        when(persistenceService.findTaskByTaskId("task-1"))
+                .thenReturn(createTaskRecord(GenerationTaskStatus.RUNNING, "创建页面"));
+        when(persistenceService.lockTaskByTaskId("task-1"))
+                .thenReturn(createTaskRecord(GenerationTaskStatus.RUNNING, "创建页面"));
+
+        assertThrows(BusinessException.class,
+                () -> service.startOrTransitionTask(heavyStartCommand("不同提示词")));
+
+        when(persistenceService.findTaskByTaskId("task-1"))
+                .thenReturn(createTaskRecord(GenerationTaskStatus.FAILED, "创建页面"));
+        when(persistenceService.lockTaskByTaskId("task-1"))
+                .thenReturn(createTaskRecord(GenerationTaskStatus.FAILED, "创建页面"));
+        assertThrows(BusinessException.class,
+                () -> service.startOrTransitionTask(heavyStartCommand("创建页面")));
+        verify(persistenceService, never()).transitionRunningTaskTrace(
+                anyLong(), any(), any(), any());
+    }
+
+    @Test
     void completeTaskMustUsePersistedStartTimeToCalculateDuration() {
         when(persistenceService.lockTaskByTaskId("task-1"))
                 .thenReturn(taskRecord(GenerationTaskStatus.RUNNING));
@@ -247,6 +288,13 @@ class DefaultGenerationTraceServiceTest {
         );
     }
 
+    private GenerationTaskStartCommand heavyStartCommand(String userPrompt) {
+        return new GenerationTaskStartCommand(
+                "task-1", 1L, 2L, CodeGenTypeEnum.VUE_PROJECT, CodeGenTypeEnum.VUE_PROJECT,
+                userPrompt, "重型专家增强提示词", true, "expert", "heavy_generation"
+        );
+    }
+
     private GenerationModelCallCommand modelCallCommand() {
         return new GenerationModelCallCommand(
                 CALL_ID, "task-1", 1L, 2L, "openai", "gpt-test",
@@ -283,6 +331,17 @@ class DefaultGenerationTraceServiceTest {
                 10L, "task-1", 1L, 2L, "html", "vue_project", status,
                 "start", null, "创建页面", "增强提示词", true,
                 "strict", "agent", NOW_LOCAL.minusSeconds(10),
+                status.isTerminal() ? NOW_LOCAL : null,
+                status.isTerminal() ? 10_000L : null,
+                null, null, NOW_LOCAL.minusSeconds(10)
+        );
+    }
+
+    private TaskRecord createTaskRecord(GenerationTaskStatus status, String userPrompt) {
+        return new TaskRecord(
+                10L, "task-1", 1L, 2L, "vue_project", "vue_project", status,
+                "create", null, userPrompt, userPrompt, true,
+                "create", "create", NOW_LOCAL.minusSeconds(10),
                 status.isTerminal() ? NOW_LOCAL : null,
                 status.isTerminal() ? 10_000L : null,
                 null, null, NOW_LOCAL.minusSeconds(10)

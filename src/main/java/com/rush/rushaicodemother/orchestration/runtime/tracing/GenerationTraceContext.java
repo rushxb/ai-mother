@@ -7,10 +7,10 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Persistable W3C trace carrier for work that crosses durable queue and process boundaries.
+ * 持久的 W3C 跟踪载体，用于跨越持久队列和进程边界的工作。
  *
- * <p>Only trace identity is retained. Baggage is deliberately excluded because it may contain
- * user or tenant data and would otherwise become part of the durable task payload.</p>
+ * <p>仅保留痕迹标识。行李被故意排除在外，因为它可能含有
+ * 用户或租户数据，否则将成为持久任务负载的一部分。</p>
  */
 public record GenerationTraceContext(String traceparent, String tracestate) {
 

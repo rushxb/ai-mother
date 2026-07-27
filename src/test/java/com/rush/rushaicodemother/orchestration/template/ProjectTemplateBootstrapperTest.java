@@ -19,8 +19,7 @@ class ProjectTemplateBootstrapperTest {
                 TemplateMaterializationException.class,
                 () -> fixture.templateBootstrapper.bootstrap(
                         ProjectTemplateCatalog.VUE_BASIC,
-                        Path.of(""),
-                        false
+                        Path.of("")
                 )
         );
 

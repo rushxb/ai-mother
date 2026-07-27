@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.net.URI;
 
-/** Resolves trusted Preview routes while preserving Vite's application-scoped public base. */
+/** 解析可信预览路由，同时保留 Vite 应用范围的公共基础。 */
 @Component
 public class DevServerPreviewTargetResolver {
 

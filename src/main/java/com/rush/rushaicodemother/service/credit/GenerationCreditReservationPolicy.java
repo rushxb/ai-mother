@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
-/** Produces a conservative route/type quote without coupling billing to a specific model vendor. */
+/** 生成保守的路线/类型报价，而不将计费与特定模型供应商耦合。 */
 @Component
 @RequiredArgsConstructor
 public class GenerationCreditReservationPolicy {

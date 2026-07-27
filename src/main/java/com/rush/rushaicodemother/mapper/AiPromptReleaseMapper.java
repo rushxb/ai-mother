@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** Explicit atomic SQL for runtime prompt release pointers and audit history. */
+/** 用于运行时提示发布指针和审核历史记录的显式原子 SQL。 */
 public interface AiPromptReleaseMapper {
 
     @Select("SELECT revision FROM ai_prompt_release_bundle WHERE id = 1")

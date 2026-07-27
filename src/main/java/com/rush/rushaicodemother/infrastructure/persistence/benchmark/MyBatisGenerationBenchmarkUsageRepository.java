@@ -7,6 +7,9 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkUsag
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+/**
+ * MyBatis生成基准测试用量持久化仓储。
+ */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisGenerationBenchmarkUsageRepository implements GenerationBenchmarkUsageRepository {

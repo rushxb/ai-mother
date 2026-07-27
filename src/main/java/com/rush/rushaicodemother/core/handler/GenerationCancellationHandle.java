@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.core.handler;
 
 /**
- * Project-owned contract for cancelling an active AI generation request.
+ * 项目拥有的合同，用于取消主动人工智能生成请求。
  */
 @FunctionalInterface
 public interface GenerationCancellationHandle {

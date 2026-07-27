@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedger;
 import java.time.Instant;
 import java.util.List;
 
-/** Administrator view of a task's non-double-counted wall-clock attribution. */
+/** 任务的非重复计数挂钟归因的管理员视图。 */
 public record GenerationTaskLatencyLedgerVO(
         String taskId,
         Long appId,

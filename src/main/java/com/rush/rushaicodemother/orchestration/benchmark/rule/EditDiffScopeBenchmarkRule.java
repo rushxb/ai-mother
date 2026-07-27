@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** Rejects broad or dependency-changing edits when a benchmark only requires source changes. */
+/** 当基准仅需要源更改时，拒绝广泛或依赖项更改的编辑。 */
 @Component
 public class EditDiffScopeBenchmarkRule implements GenerationBenchmarkValidationRule {
 

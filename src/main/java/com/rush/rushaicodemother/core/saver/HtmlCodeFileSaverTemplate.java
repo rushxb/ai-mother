@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 
-/** Persists a single-file HTML generation result. */
+/** 持久化单文件 HTML 生成结果。 */
 @Component
 public final class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlCodeResult> {
 

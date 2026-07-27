@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Value-first context selection with semantic-memory trust decay and a hard rendered-size cap. */
+/** 具有语义记忆信任衰减和硬渲染大小上限的价值优先上下文选择。 */
 @Component
 public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
 

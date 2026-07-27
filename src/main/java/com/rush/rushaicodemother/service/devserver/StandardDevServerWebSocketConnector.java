@@ -10,7 +10,7 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import java.net.URI;
 import java.util.concurrent.CompletableFuture;
 
-/** JSR-356 client adapter for local Vite and signed owner-node WebSocket connections. */
+/** 用于本地 Vite 和签名所有者节点 WebSocket 连接的 JSR-356 客户端适配器。 */
 @Component
 public class StandardDevServerWebSocketConnector implements DevServerWebSocketConnector {
 

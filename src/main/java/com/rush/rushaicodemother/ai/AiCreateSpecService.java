@@ -6,7 +6,7 @@ import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 
 /**
- * AI service for compact CREATE variable specs.
+ * 用于紧凑创建可变规格的人工智能服务。
  */
 public interface AiCreateSpecService {
 

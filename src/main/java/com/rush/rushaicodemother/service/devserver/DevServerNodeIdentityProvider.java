@@ -7,7 +7,7 @@ import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.util.UUID;
 
-/** Provides stable node identity and process-unique lease ownership fencing. */
+/** 提供稳定的节点身份和流程独特的租赁所有权围栏。 */
 @Component
 public class DevServerNodeIdentityProvider {
 

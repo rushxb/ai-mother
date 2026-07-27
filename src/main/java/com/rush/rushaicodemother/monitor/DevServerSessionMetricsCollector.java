@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.monitor;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
@@ -9,7 +10,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Low-cardinality operational metrics for durable Dev Server ownership. */
+/** 持久开发服务器所有权的低基数运营指标。 */
 @Component
 public class DevServerSessionMetricsCollector {
 
@@ -26,6 +27,7 @@ public class DevServerSessionMetricsCollector {
     private final MeterRegistry meterRegistry;
     private final ConcurrentMap<String, Counter> counters = new ConcurrentHashMap<>();
 
+    @Autowired
     public DevServerSessionMetricsCollector(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
     }

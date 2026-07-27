@@ -1,12 +1,16 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.config.GenerationBenchmarkReleaseProperties;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
-/** Deterministic release gate evaluated from end-to-end benchmark evidence. */
+/** 根据端到端基准证据评估确定性发布门。 */
 @Component
 public class GenerationBenchmarkReleaseGate {
 
@@ -21,6 +25,9 @@ public class GenerationBenchmarkReleaseGate {
             throw new IllegalArgumentException("benchmark report cannot be null");
         }
         List<String> violations = new ArrayList<>();
+        if (report.schemaVersion() != GenerationBenchmarkReport.CURRENT_SCHEMA_VERSION) {
+            violations.add("report_schema_unsupported");
+        }
         if (report.totalTasks() < properties.getMinimumTaskCount()) {
             violations.add("task_count_below_minimum");
         }
@@ -84,6 +91,16 @@ public class GenerationBenchmarkReleaseGate {
         if (report.p90FirstTokenLatencyMs() > properties.getMaximumP90FirstTokenLatency().toMillis()) {
             violations.add("p90_first_token_latency_above_maximum");
         }
+        if (report.p99FirstTokenLatencyMs() > properties.getMaximumP99FirstTokenLatency().toMillis()) {
+            violations.add("p99_first_token_latency_above_maximum");
+        }
+        if (report.firstPreviewObservationRate() < properties.getMinimumFirstPreviewObservationRate()) {
+            violations.add("first_preview_observation_rate_below_minimum");
+        }
+        if (report.p99FirstPreviewLatencyMs() > properties.getMaximumP99FirstPreviewLatency().toMillis()) {
+            violations.add("p99_first_preview_latency_above_maximum");
+        }
+        assessFirstPreviewModes(report.modeStats(), violations);
         if (report.totalTasks() > 0
                 && (double) report.totalTokens() / report.totalTasks() > properties.getMaximumAverageTokens()) {
             violations.add("average_tokens_above_maximum");
@@ -94,6 +111,32 @@ public class GenerationBenchmarkReleaseGate {
             violations.add("average_credit_cost_above_maximum");
         }
         return new GenerationBenchmarkReleaseAssessment(violations.isEmpty(), violations, report);
+    }
+
+    private void assessFirstPreviewModes(
+            Map<String, GenerationBenchmarkReport.ModeStats> modeStats,
+            List<String> violations
+    ) {
+        for (Map.Entry<String, GenerationBenchmarkReport.ModeStats> entry : modeStats.entrySet()) {
+            GenerationMode mode;
+            try {
+                mode = GenerationMode.valueOf(entry.getKey());
+            } catch (IllegalArgumentException invalidMode) {
+                violations.add("first_preview_mode_unsupported");
+                continue;
+            }
+            GenerationBenchmarkReport.ModeStats stats = entry.getValue();
+            String violationPrefix = mode.name().toLowerCase(Locale.ROOT);
+            if (stats.firstPreviewObservationRate() < properties.getMinimumFirstPreviewObservationRate()) {
+                violations.add(violationPrefix + "_first_preview_observation_rate_below_minimum");
+            }
+            Duration maximum = properties.getMaximumP90FirstPreviewLatencyByMode().get(mode);
+            if (maximum == null) {
+                violations.add(violationPrefix + "_first_preview_latency_limit_missing");
+            } else if (stats.p90FirstPreviewLatencyMs() > maximum.toMillis()) {
+                violations.add(violationPrefix + "_p90_first_preview_latency_above_maximum");
+            }
+        }
     }
 
     private void assessQualityDimension(GenerationBenchmarkReport report,

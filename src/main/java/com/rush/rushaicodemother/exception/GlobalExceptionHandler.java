@@ -22,11 +22,11 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
- * Central exception boundary for REST controllers.
+ * REST 控制器的中央异常边界。
  *
- * <p>The current client protocol represents failures through {@link BaseResponse#getCode()}.
- * Responses therefore remain HTTP 200 in this migration to avoid silently changing existing
- * Axios control flow. HTTP status semantics require a coordinated client and server migration.</p>
+ * <p>当前客户端协议通过{@link BaseResponse#getCode()}表示失败。
+ * 因此，在此迁移中响应仍保持 HTTP 200，以避免默默更改现有的
+ * axios控制流程。 HTTP 状态语义需要协调的客户端和服务器迁移。</p>
  */
 @Hidden
 @RestControllerAdvice

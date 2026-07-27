@@ -225,6 +225,65 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
     }
 
     @Test
+    void shouldRequireStrongBenchmarkEvidenceSigningSecretWithoutExposingIt() {
+        Map<String, Object> missing = validProductionProperties();
+        missing.remove("app.generation-benchmark.evidence.signing-secret");
+
+        ProductionConfigurationException missingException = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(missing), null)
+        );
+        assertTrue(missingException.getMessage().contains(
+                "app.generation-benchmark.evidence.signing-secret"));
+
+        Map<String, Object> weak = validProductionProperties();
+        String weakSecret = "benchmark-secret-too-short";
+        weak.put("app.generation-benchmark.evidence.signing-secret", weakSecret);
+
+        ProductionConfigurationException weakException = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(weak), null)
+        );
+        assertTrue(weakException.getMessage().contains(
+                "app.generation-benchmark.evidence.signing-secret"));
+        assertFalse(weakException.getMessage().contains(weakSecret));
+    }
+
+    @Test
+    void shouldRequireAuthenticatedTlsMilvusWithStartupVerification() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.memory.long-term.uri", "http://milvus.internal:19530");
+        properties.put("app.memory.long-term.authentication-required", "false");
+        properties.put("app.memory.long-term.tls-required", "false");
+        properties.put("app.memory.long-term.verify-on-startup", "false");
+        properties.put("app.memory.outbox.enabled", "false");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.memory.long-term.uri"));
+        assertTrue(exception.getMessage().contains("app.memory.long-term.authentication-required"));
+        assertTrue(exception.getMessage().contains("app.memory.long-term.tls-required"));
+        assertTrue(exception.getMessage().contains("app.memory.long-term.verify-on-startup"));
+        assertTrue(exception.getMessage().contains("app.memory.outbox.enabled"));
+    }
+
+    @Test
+    void shouldRejectLoopbackMilvusEndpointInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.memory.long-term.uri", "https://127.0.0.1:19530");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.memory.long-term.uri"));
+    }
+
+    @Test
     void shouldRequireAiModelEnvelopeKeysInProduction() {
         Map<String, Object> properties = validProductionProperties();
         properties.remove("app.ai-model-secrets.active-key");
@@ -238,6 +297,42 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         assertTrue(exception.getMessage().contains("app.ai-model-secrets.active-key"));
         assertTrue(exception.getMessage().contains("app.ai-model-secrets.fingerprint-key"));
         assertFalse(exception.getMessage().contains(SENSITIVE_VALUE));
+    }
+
+    @Test
+    void shouldRejectLocalGenerationTransportsInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.generation-event-stream.transport", "local");
+        properties.put("app.generation-task-queue.transport", "local");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains("app.generation-event-stream.transport"));
+        assertTrue(exception.getMessage().contains("app.generation-task-queue.transport"));
+    }
+
+    @Test
+    void benchmarkWorkerMustRequireIsolatedLocalTransportsAndGraders() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put("app.generation-benchmark.worker.enabled", "true");
+        properties.put("app.generation-event-stream.transport", "local");
+        properties.put("app.generation-task-queue.transport", "local");
+        properties.put("app.background-jobs.enabled", "false");
+        properties.put("app.generation-benchmark.browser-grading.enabled", "true");
+        properties.put("app.generation-benchmark.backend-grading.enabled", "true");
+
+        assertDoesNotThrow(() -> processor.postProcessEnvironment(
+                productionEnvironment(properties), null));
+
+        properties.put("app.background-jobs.enabled", "true");
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+        assertTrue(exception.getMessage().contains("app.background-jobs.enabled"));
     }
 
     @Test
@@ -439,6 +534,17 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
             assertTrue(content.contains("active-key: ${AI_MODEL_SECRET_ACTIVE_KEY}"));
             assertTrue(content.contains("fingerprint-key: ${AI_MODEL_SECRET_FINGERPRINT_KEY}"));
             assertTrue(content.contains(
+                    "transport: ${GENERATION_EVENT_STREAM_TRANSPORT:redis}"));
+            assertTrue(content.contains(
+                    "transport: ${GENERATION_TASK_QUEUE_TRANSPORT:redis}"));
+            assertTrue(content.contains(
+                    "signing-secret: ${GENERATION_BENCHMARK_EVIDENCE_SIGNING_SECRET}"));
+            assertTrue(content.contains("uri: ${MILVUS_URI}"));
+            assertTrue(content.contains("token: ${MILVUS_TOKEN}"));
+            assertTrue(content.contains("authentication-required: ${MILVUS_AUTHENTICATION_REQUIRED:true}"));
+            assertTrue(content.contains("tls-required: ${MILVUS_TLS_REQUIRED:true}"));
+            assertTrue(content.contains("verify-on-startup: ${MILVUS_VERIFY_ON_STARTUP:true}"));
+            assertTrue(content.contains(
                     "dependency-cache-enabled: ${GENERATED_CODE_SANDBOX_DEPENDENCY_CACHE_ENABLED:true}"));
             assertFalse(content.contains("MYSQL_PASSWORD:123456"));
             assertFalse(content.contains("CORS_ALLOWED_ORIGINS:http://localhost"));
@@ -513,6 +619,13 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         properties.put("management.otlp.tracing.export.enabled", "true");
         properties.put("management.otlp.tracing.endpoint", "http://otel-collector:4318/v1/traces");
         properties.put("logging.level.com.rush.rushaicodemother.mapper.AiModelMapper", "OFF");
+        properties.put("app.generation-event-stream.transport", "redis");
+        properties.put("app.generation-task-queue.transport", "redis");
+        properties.put("app.background-jobs.enabled", "true");
+        properties.put(
+                "app.generation-benchmark.evidence.signing-secret",
+                "0123456789abcdef0123456789abcdef"
+        );
         properties.put("app.ai-model-capacity.enabled", "true");
         properties.put("app.ai-model-capacity.fail-open", "false");
         properties.put("app.ai-model-secrets.active-key-id", "production-kek-v1");
@@ -521,6 +634,13 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         properties.put("app.ai-prompt-catalog.enabled", "true");
         properties.put("app.ai-prompt-catalog.runtime-releases.enabled", "true");
         properties.put("app.ai-prompt-catalog.runtime-releases.initial-load-required", "true");
+        properties.put("app.memory.long-term.enabled", "true");
+        properties.put("app.memory.long-term.uri", "https://milvus.internal:19530");
+        properties.put("app.memory.long-term.token", SENSITIVE_VALUE);
+        properties.put("app.memory.long-term.authentication-required", "true");
+        properties.put("app.memory.long-term.tls-required", "true");
+        properties.put("app.memory.long-term.verify-on-startup", "true");
+        properties.put("app.memory.outbox.enabled", "true");
         return properties;
     }
 

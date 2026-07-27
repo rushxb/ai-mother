@@ -5,6 +5,9 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.util.List;
 
+/**
+ * ReferenceSearch服务实现。
+ */
 @Service
 public class ReferenceSearchService {
 

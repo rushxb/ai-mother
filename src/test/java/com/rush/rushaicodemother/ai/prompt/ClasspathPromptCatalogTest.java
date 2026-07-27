@@ -79,6 +79,48 @@ class ClasspathPromptCatalogTest {
     }
 
     @Test
+    void productionCatalogMustActivateBatchWritePromptsAndRetainV1Rollback() {
+        AiPromptCatalogProperties properties = properties();
+        properties.setManifest("classpath:prompt/prompt-catalog.json");
+        PromptRolloutSubject vueGeneration = new PromptRolloutSubject(
+                "com.rush.rushaicodemother.ai.AiCodeGeneratorService",
+                "generateVueProjectCodeStream",
+                "app-42"
+        );
+        PromptRolloutSubject backendGeneration = new PromptRolloutSubject(
+                "com.rush.rushaicodemother.ai.AiCodeGeneratorService",
+                "generateBackendProjectCodeStream",
+                "app-42"
+        );
+        PromptRolloutSubject fullStackGeneration = new PromptRolloutSubject(
+                "com.rush.rushaicodemother.ai.AiCodeGeneratorService",
+                "generateFullStackProjectCodeStream",
+                "app-42"
+        );
+        ClasspathPromptCatalog defaultCatalog = catalog(properties);
+
+        PromptSelection defaultSelection = defaultCatalog.select(vueGeneration).orElseThrow();
+        assertEquals("v2", defaultSelection.version());
+        assertTrue(defaultSelection.content().contains("writeFiles"));
+        assertEquals("v2", defaultCatalog.select(backendGeneration).orElseThrow().version());
+        assertTrue(defaultCatalog.select(backendGeneration).orElseThrow().content().contains("writeFiles"));
+        assertEquals("v2", defaultCatalog.select(fullStackGeneration).orElseThrow().version());
+        assertTrue(defaultCatalog.select(fullStackGeneration).orElseThrow().content().contains("writeFiles"));
+        assertTrue(defaultCatalog.capabilities().supports("codegen-vue-project", "v1"));
+        assertTrue(defaultCatalog.capabilities().supports("codegen-vue-project", "v2"));
+        assertTrue(defaultCatalog.capabilities().supports("codegen-backend-project", "v2"));
+        assertTrue(defaultCatalog.capabilities().supports("codegen-full-stack-project", "v2"));
+
+        AiPromptCatalogProperties.Release release = new AiPromptCatalogProperties.Release();
+        release.setStableVersion("v1");
+        properties.getReleases().put("codegen-vue-project", release);
+        ClasspathPromptCatalog rollbackCatalog = catalog(properties);
+        PromptSelection rollbackSelection = rollbackCatalog.select(vueGeneration).orElseThrow();
+        assertEquals("v1", rollbackSelection.version());
+        assertFalse(rollbackSelection.content().contains("writeFiles"));
+    }
+
+    @Test
     void transformerMustRejectBoundPromptOutsideCatalog() {
         ClasspathPromptCatalog catalog = catalog(properties());
         PromptSystemMessageTransformer transformer = new PromptSystemMessageTransformer(catalog);
@@ -121,6 +163,24 @@ class ClasspathPromptCatalogTest {
         PromptReleaseState invalid = state(2L, new PromptReleaseSpec("v3", "", 0));
         assertThrows(IllegalStateException.class, () -> catalog.activate(invalid));
         assertEquals(1L, catalog.activeRevision());
+        assertEquals("v2", catalog.select(subject("tenant-1")).orElseThrow().version());
+    }
+
+    @Test
+    void previewMustNotMutateActiveStateAndMustMatchActivation() {
+        ClasspathPromptCatalog catalog = catalog(properties());
+        PromptCatalogSnapshot baseline = catalog.snapshot();
+        PromptReleaseState versionTwo = state(1L, new PromptReleaseSpec("v2", "", 0));
+
+        PromptCatalogSnapshot preview = catalog.preview(versionTwo);
+
+        assertNotEquals(baseline, preview);
+        assertEquals(0L, catalog.activeRevision());
+        assertEquals(baseline, catalog.snapshot());
+        assertEquals("v1", catalog.select(subject("tenant-1")).orElseThrow().version());
+
+        assertTrue(catalog.activate(versionTwo));
+        assertEquals(preview, catalog.snapshot());
         assertEquals("v2", catalog.select(subject("tenant-1")).orElseThrow().version());
     }
 

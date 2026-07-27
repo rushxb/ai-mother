@@ -9,6 +9,9 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 生成工具审批数据访问映射器。
+ */
 public interface GenerationToolApprovalMapper {
 
     @Insert("""

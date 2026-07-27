@@ -9,12 +9,16 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
+/**
+ * 生成 SSE配置属性。
+ */
 @Data
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.generation-sse")
 public class GenerationSseProperties {
 
+    /** 心跳间隔。 */
     @NotNull
     private Duration heartbeatInterval = Duration.ofSeconds(15);
 

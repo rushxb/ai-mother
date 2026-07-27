@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
-/** One executable route in the generation runtime. */
+/** 生成运行时中的一条可执行路径。 */
 public interface GenerationPipeline {
 
     String route();

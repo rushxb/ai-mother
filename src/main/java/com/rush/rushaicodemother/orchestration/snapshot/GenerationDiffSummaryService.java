@@ -78,7 +78,7 @@ public class GenerationDiffSummaryService {
         return summarize(appId, targetType, taskId, rollbackPointArtifact, workspace);
     }
 
-    /** Summarizes against an explicitly captured workspace, safe for asynchronous callbacks. */
+    /** 针对显式捕获的工作区进行汇总，对于异步回调来说是安全的。 */
     public DiffSummary summarize(Long appId,
                                  CodeGenTypeEnum targetType,
                                  String taskId,

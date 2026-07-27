@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceCo
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Micrometer/OTel adapter for W3C trace propagation through durable generation commands. */
+/** Micrometer/OTel 适配器，用于通过持久生成命令进行 W3C 跟踪传播。 */
 @Component
 @ConditionalOnProperty(name = "management.tracing.enabled", havingValue = "true", matchIfMissing = true)
 public class MicrometerGenerationTraceContextBridge implements GenerationTraceContextBridge {
@@ -24,6 +25,7 @@ public class MicrometerGenerationTraceContextBridge implements GenerationTraceCo
     private final Propagator propagator;
     private final GenerationTraceParentRegistry parentRegistry;
 
+    @Autowired
     public MicrometerGenerationTraceContextBridge(Tracer tracer,
                                                   Propagator propagator,
                                                   GenerationTraceParentRegistry parentRegistry) {

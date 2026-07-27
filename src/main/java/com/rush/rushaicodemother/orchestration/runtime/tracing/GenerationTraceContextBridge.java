@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.runtime.tracing;
 
 import java.util.Map;
 
-/** Infrastructure port for capturing and continuing a generation trace across durable work. */
+/** 用于捕获并继续跨持久工作的生成跟踪的基础设施端口。 */
 public interface GenerationTraceContextBridge {
 
     GenerationTraceContextBridge NOOP = new GenerationTraceContextBridge() {

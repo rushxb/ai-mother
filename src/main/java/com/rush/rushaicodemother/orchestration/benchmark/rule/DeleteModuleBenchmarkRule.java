@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Seeds an explicitly unused statistics module and verifies deletion plus reference cleanup. */
+/** 播种明确未使用的统计模块并验证删除和引用清理。 */
 @Component
 public class DeleteModuleBenchmarkRule implements GenerationBenchmarkValidationRule {
 

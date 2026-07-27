@@ -9,7 +9,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-/** Bounded local semantic-memory fallback used when Milvus is unavailable. */
+/** Milvus 不可用时使用有界本地语义内存回退。 */
 @Component
 public class InMemoryLongTermMemoryStore implements LongTermMemoryStore {
     private final Cache<String, SemanticMemory> memories;
@@ -23,16 +23,13 @@ public class InMemoryLongTermMemoryStore implements LongTermMemoryStore {
 
     @Override
     public void upsert(SemanticMemory memory) {
-        if (memory != null && memory.id() != null && !memory.id().isBlank()) {
-            memories.put(memory.id(), memory);
-        }
+        SemanticMemoryGovernancePolicy.validateMemory(memory);
+        memories.put(memory.id(), memory);
     }
 
     @Override
     public List<SemanticMemoryHit> search(SemanticMemoryQuery query) {
-        if (query == null || query.embedding().length == 0 || query.topK() <= 0) {
-            return List.of();
-        }
+        SemanticMemoryGovernancePolicy.validateQuery(query);
         return memories.asMap().values().stream()
                 .filter(memory -> Objects.equals(memory.tenantId(), query.tenantId()))
                 .filter(memory -> Objects.equals(memory.appId(), query.appId()))

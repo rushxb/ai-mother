@@ -4,6 +4,7 @@ import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import com.rush.rushaicodemother.ai.tools.BaseTool;
+import com.rush.rushaicodemother.ai.tools.ExitTool;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.ai.tools.ToolRiskLevel;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
@@ -13,7 +14,11 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationStreamingModelCallSupervisor;
+import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -27,10 +32,12 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -42,8 +49,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 
 class AiToolContinuationEngineTest {
 
@@ -90,7 +99,7 @@ class AiToolContinuationEngineTest {
         AiToolContinuationEngine engine = new AiToolContinuationEngine(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 approvalService, new GenerationToolExecutionContextService(),
-                mock(AiToolInvocationPolicy.class), modelCallSupervisor);
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
         GenerationExecutionContext executionContext = executionContext();
 
         List<GenerationStreamEvent> events = engine.continueAfterDecision(
@@ -114,7 +123,8 @@ class AiToolContinuationEngineTest {
                 GenerationStreamEvent.TOOL_RESULT.equals(event.getType())));
         assertTrue(events.stream().anyMatch(event ->
                 GenerationStreamEvent.GENERATION_STAGE.equals(event.getType())));
-        assertEquals(1, executionContext.used(GenerationBudgetKind.MODEL_ATTEMPT));
+        assertEquals(1, executionContext.used(GenerationBudgetKind.MODEL_TURN));
+        assertEquals(0, executionContext.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
     }
 
     @Test
@@ -138,7 +148,7 @@ class AiToolContinuationEngineTest {
         AiToolContinuationEngine engine = new AiToolContinuationEngine(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
-                mock(AiToolInvocationPolicy.class), modelCallSupervisor);
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
         ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
                 ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
                 pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
@@ -158,6 +168,99 @@ class AiToolContinuationEngineTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals(Boolean.TRUE, result.isError());
+    }
+
+    @Test
+    void continuationMustReserveCompletionWindowInsteadOfStartingAnotherModelTurn() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
+                .id("call-1")
+                .name("manageSnapshot")
+                .arguments("{}")
+                .build();
+        memoryStore.updateMessages(11L, List.of(
+                UserMessage.from("keep current project"),
+                AiMessage.builder().toolExecutionRequests(List.of(pendingRequest)).build()
+        ));
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{new CountingSnapshotTool()});
+        StreamingChatModel delegate = mock(StreamingChatModel.class);
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, delegate);
+        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+                memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
+                mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
+        ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
+                ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
+                pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
+                "{\"taskId\":\"task-1\"}", NOW);
+        GenerationExecutionContext executionContext = expiringExecutionContext();
+
+        List<GenerationStreamEvent> events = engine.continueAfterDecision(
+                        approval(ToolApprovalStatus.REJECTED, checkpoint),
+                        state(executionContext, checkpoint, memoryStore.getMessages(11L)),
+                        executionContext,
+                        () -> false,
+                        ignored -> { })
+                .collectList()
+                .block();
+
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.AGENT_EVENT.equals(event.getType())
+                        && "reserved_completion".equals(event.getData().get("status"))));
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.GENERATION_STAGE.equals(event.getType())
+                        && "codegen_done".equals(event.getData().get("stage"))));
+        assertEquals(0, executionContext.used(GenerationBudgetKind.MODEL_TURN));
+        verifyNoInteractions(delegate);
+    }
+
+    @Test
+    void supervisedTurnTimeoutAtCompletionBoundaryMustContinueToEngineeringValidation() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
+                .id("call-1")
+                .name("manageSnapshot")
+                .arguments("{}")
+                .build();
+        memoryStore.updateMessages(11L, List.of(
+                UserMessage.from("keep current project"),
+                AiMessage.builder().toolExecutionRequests(List.of(pendingRequest)).build()
+        ));
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{new CountingSnapshotTool()});
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, new SilentStreamingModel());
+        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+                memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
+                mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
+                passthroughPolicy(), modelCallSupervisor,
+                shortWindowStageAdmissionService());
+        ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
+                ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
+                pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
+                "{\"taskId\":\"task-1\"}", NOW);
+        GenerationExecutionContext executionContext = shortWindowExecutionContext();
+
+        List<GenerationStreamEvent> events = engine.continueAfterDecision(
+                        approval(ToolApprovalStatus.REJECTED, checkpoint),
+                        state(executionContext, checkpoint, memoryStore.getMessages(11L)),
+                        executionContext,
+                        () -> false,
+                        ignored -> { })
+                .collectList()
+                .block(Duration.ofSeconds(2));
+
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.AGENT_EVENT.equals(event.getType())
+                        && "reserved_completion".equals(event.getData().get("status"))));
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.GENERATION_STAGE.equals(event.getType())
+                        && "codegen_done".equals(event.getData().get("stage"))));
+        assertEquals(1, executionContext.used(GenerationBudgetKind.MODEL_TURN));
     }
 
     @Test
@@ -190,7 +293,7 @@ class AiToolContinuationEngineTest {
         AiToolContinuationEngine engine = new AiToolContinuationEngine(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 approvalService, new GenerationToolExecutionContextService(),
-                mock(AiToolInvocationPolicy.class), modelCallSupervisor);
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
         GenerationExecutionContext executionContext = executionContext();
 
         engine.continueAfterDecision(
@@ -229,7 +332,7 @@ class AiToolContinuationEngineTest {
         AiToolContinuationEngine engine = new AiToolContinuationEngine(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
-                mock(AiToolInvocationPolicy.class), modelCallSupervisor);
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
         ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
                 ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
                 pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
@@ -244,7 +347,46 @@ class AiToolContinuationEngineTest {
 
         assertEquals(2, model.calls.get());
         assertEquals(1, tool.executions.get());
-        assertEquals(2, executionContext.used(GenerationBudgetKind.MODEL_ATTEMPT));
+        assertEquals(2, executionContext.used(GenerationBudgetKind.MODEL_TURN));
+        assertEquals(0, executionContext.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
+    }
+
+    @Test
+    void exitToolMustCompleteContinuationWithoutAnotherModelTurn() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
+                .id("call-1")
+                .name("manageSnapshot")
+                .arguments("{}")
+                .build();
+        memoryStore.updateMessages(11L, List.of(
+                UserMessage.from("完成后退出"),
+                AiMessage.builder().toolExecutionRequests(List.of(pendingRequest)).build()
+        ));
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{new CountingSnapshotTool(), new ExitTool()});
+        ExitStreamingModel model = new ExitStreamingModel();
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, model);
+        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+                memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
+                mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
+        ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
+                ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
+                pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
+                "{\"taskId\":\"task-1\"}", NOW);
+        GenerationExecutionContext executionContext = executionContext();
+
+        engine.continueAfterDecision(
+                        approval(ToolApprovalStatus.REJECTED, checkpoint),
+                        state(executionContext, checkpoint, memoryStore.getMessages(11L)),
+                        executionContext, () -> false, ignored -> { })
+                .blockLast();
+
+        assertEquals(1, model.calls.get());
+        assertEquals(1, executionContext.used(GenerationBudgetKind.MODEL_TURN));
     }
 
     @Test
@@ -265,8 +407,8 @@ class AiToolContinuationEngineTest {
         AiToolContinuationEngine engine = new AiToolContinuationEngine(
                 memoryStore, toolManager, mock(StreamingModelFactory.class),
                 mock(ToolExecutionFailurePolicy.class), mock(ToolApprovalService.class),
-                new GenerationToolExecutionContextService(), mock(AiToolInvocationPolicy.class),
-                modelCallSupervisor);
+                new GenerationToolExecutionContextService(), passthroughPolicy(),
+                modelCallSupervisor, stageAdmissionService());
         GenerationExecutionContext executionContext = executionContext();
 
         assertThrows(IllegalStateException.class, () -> engine.continueAfterDecision(
@@ -287,16 +429,25 @@ class AiToolContinuationEngineTest {
 
     private void stubExecutionModel(StreamingModelFactory modelFactory,
                                     StreamingChatModel delegate) {
-        when(modelFactory.createExecutionModel(any(), any(), any())).thenAnswer(invocation -> {
-            Runnable beforeProviderAttempt = invocation.getArgument(2);
+        when(modelFactory.createExecutionModel(any(), any(), any(), any())).thenAnswer(invocation -> {
+            Runnable beforeModelTurn = invocation.getArgument(2);
             return new StreamingChatModel() {
                 @Override
                 public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
-                    beforeProviderAttempt.run();
+                    if (beforeModelTurn != null) {
+                        beforeModelTurn.run();
+                    }
                     delegate.doChat(request, handler);
                 }
             };
         });
+    }
+
+    private AiToolInvocationPolicy passthroughPolicy() {
+        AiToolInvocationPolicy policy = mock(AiToolInvocationPolicy.class);
+        when(policy.governModelTurn(any(String.class), anyInt(), any(ChatRequest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        return policy;
     }
 
     private GenerationExecutionContext executionContext() {
@@ -306,6 +457,60 @@ class AiToolContinuationEngineTest {
                 runtimeProperties.toLimits(), Clock.fixed(NOW, ZoneOffset.UTC));
         context.bindExecutionFence(new GenerationExecutionFence("task-1", "test-worker", 1L));
         return context;
+    }
+
+    private GenerationExecutionContext expiringExecutionContext() {
+        GenerationRuntimeProperties runtimeProperties = new GenerationRuntimeProperties();
+        GenerationExecutionContext context = new GenerationExecutionContext(
+                "task-1", 11L, 7L, NOW.minus(Duration.ofMinutes(9)),
+                runtimeProperties.toLimits(), Clock.fixed(NOW, ZoneOffset.UTC));
+        context.bindExecutionFence(new GenerationExecutionFence("task-1", "test-worker", 1L));
+        return context;
+    }
+
+    private GenerationExecutionContext shortWindowExecutionContext() {
+        Map<GenerationBudgetKind, Integer> budgets = new java.util.EnumMap<>(GenerationBudgetKind.class);
+        for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
+            budgets.put(kind, 3);
+        }
+        GenerationExecutionContext context = new GenerationExecutionContext(
+                "task-1",
+                11L,
+                7L,
+                NOW,
+                new com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits(
+                        Duration.ofMillis(200),
+                        Duration.ofMillis(200),
+                        Duration.ofMillis(1),
+                        budgets
+                ),
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+        context.bindExecutionFence(new GenerationExecutionFence("task-1", "test-worker", 1L));
+        return context;
+    }
+
+    private GenerationStageAdmissionService stageAdmissionService() {
+        return new GenerationStageAdmissionService(
+                new GenerationStageAdmissionProperties(),
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                new GenerationPerformanceMonitorService()
+        );
+    }
+
+    private GenerationStageAdmissionService shortWindowStageAdmissionService() {
+        GenerationStageAdmissionProperties properties = new GenerationStageAdmissionProperties();
+        properties.setModelTurnMinimum(Duration.ofMillis(10));
+        properties.setModelHandoffReserve(Duration.ofMillis(10));
+        properties.setRepairModelMinimum(Duration.ofMillis(10));
+        properties.setBuildMinimum(Duration.ofMillis(10));
+        properties.setRuntimeValidationMinimum(Duration.ofMillis(10));
+        properties.setTerminalizationReserve(Duration.ofMillis(10));
+        return new GenerationStageAdmissionService(
+                properties,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                new GenerationPerformanceMonitorService()
+        );
     }
 
     private GenerationToolContinuationState state(GenerationExecutionContext context,
@@ -362,6 +567,13 @@ class AiToolContinuationEngineTest {
         }
     }
 
+    private static final class SilentStreamingModel implements StreamingChatModel {
+        @Override
+        public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+            // 由调用监督器触发受保护完成边界。
+        }
+    }
+
     private static final class TwoTurnStreamingModel implements StreamingChatModel {
         private final AtomicInteger calls = new AtomicInteger();
 
@@ -381,6 +593,24 @@ class AiToolContinuationEngineTest {
             }
             handler.onCompleteResponse(ChatResponse.builder()
                     .aiMessage(AiMessage.from("continued after tool"))
+                    .build());
+        }
+    }
+
+    private static final class ExitStreamingModel implements StreamingChatModel {
+        private final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+            calls.incrementAndGet();
+            handler.onCompleteResponse(ChatResponse.builder()
+                    .aiMessage(AiMessage.builder()
+                            .toolExecutionRequests(List.of(ToolExecutionRequest.builder()
+                                    .id("exit-1")
+                                    .name("exitTool")
+                                    .arguments("{}")
+                                    .build()))
+                            .build())
                     .build());
         }
     }

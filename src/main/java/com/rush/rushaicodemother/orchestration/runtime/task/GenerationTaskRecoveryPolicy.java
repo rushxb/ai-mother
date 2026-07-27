@@ -8,9 +8,9 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Selects the truthful terminal state for an expired lease. Cancellation takes precedence because
- * it is an explicit durable user intent; an elapsed absolute deadline is classified separately;
- * every other orphan remains a non-recoverable worker failure until checkpoints are versioned.
+ * 选择过期租约的真实终止状态。取消优先，因为
+ * 这是明确的持久的用户意图；已过的绝对期限单独分类；
+ * 在检查点版本化之前，所有其他孤儿仍然是不可恢复的工作故障。
  */
 @Component
 public class GenerationTaskRecoveryPolicy {

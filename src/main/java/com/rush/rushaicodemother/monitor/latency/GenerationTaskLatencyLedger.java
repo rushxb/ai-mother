@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.monitor.latency;
 import java.time.Instant;
 import java.util.List;
 
-/** Immutable task-level wall-clock attribution used by administrator diagnostics. */
+/** 管理员诊断使用的不可变任务级挂钟归因。 */
 public record GenerationTaskLatencyLedger(
         String taskId,
         Long appId,
@@ -32,7 +32,7 @@ public record GenerationTaskLatencyLedger(
         categories = categories == null ? List.of() : List.copyOf(categories);
     }
 
-    /** Inclusive duration may overlap other categories; attributed duration never does. */
+    /** 包含的持续时间可能与其他类别重叠；归因持续时间永远不会。 */
     public record CategoryLatency(
             String category,
             int spanCount,

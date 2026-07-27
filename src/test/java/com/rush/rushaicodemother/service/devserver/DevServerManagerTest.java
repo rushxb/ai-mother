@@ -15,6 +15,7 @@ import org.mockito.ArgumentCaptor;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -155,6 +156,72 @@ class DevServerManagerTest {
         externalCancellation.set(false);
         manager.stopDevServer(11L);
         assertTrue(cancellationCaptor.getValue().getAsBoolean());
+    }
+
+    @Test
+    void managedEnvironmentMustReachProcessAndPreventMismatchedSessionReuse() {
+        Path project = tempDirectory.resolve("project-11");
+        ProcessFixture fixture = processFixture();
+        Duration startupTimeout = Duration.ofSeconds(3);
+        Map<String, String> environment = Map.of(
+                "VITE_API_BASE_URL",
+                "http://127.0.0.1:19001/api"
+        );
+        DevServerStartOptions options = new DevServerStartOptions(
+                "benchmark-fullstack",
+                startupTimeout,
+                () -> false,
+                null,
+                environment
+        );
+        when(projectLocator.locate(any(App.class), eq(options))).thenReturn(project);
+        when(portAllocator.reserve(11L, null)).thenReturn(5180);
+        when(outputHub.sink(11L)).thenReturn(line -> { });
+        when(dependencyInstaller.ensureInstalled(project, "benchmark-fullstack"))
+                .thenReturn(DependencyInstallResult.success("ok"));
+        when(processRunner.start(
+                eq(project),
+                eq(5180),
+                eq(11L),
+                any(),
+                eq(startupTimeout),
+                any(),
+                eq(environment)
+        )).thenReturn(fixture.session(project, 5180));
+
+        DevServerStartResult result = manager.startDevServer(
+                app(11L, 7L, CodeGenTypeEnum.FULL_STACK_PROJECT),
+                7L,
+                options
+        );
+
+        assertTrue(result.startedByCaller());
+        verify(processRunner).start(
+                eq(project),
+                eq(5180),
+                eq(11L),
+                any(),
+                eq(startupTimeout),
+                any(),
+                eq(environment)
+        );
+
+        DevServerStartOptions mismatched = new DevServerStartOptions(
+                "benchmark-fullstack",
+                startupTimeout,
+                () -> false,
+                null,
+                Map.of("VITE_API_BASE_URL", "http://127.0.0.1:19002/api")
+        );
+        when(projectLocator.locate(any(App.class), eq(mismatched))).thenReturn(project);
+        assertThrows(
+                BusinessException.class,
+                () -> manager.startDevServer(
+                        app(11L, 7L, CodeGenTypeEnum.FULL_STACK_PROJECT),
+                        7L,
+                        mismatched
+                )
+        );
     }
 
     @Test

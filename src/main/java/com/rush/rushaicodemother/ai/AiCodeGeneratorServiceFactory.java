@@ -15,7 +15,9 @@ import com.rush.rushaicodemother.model.event.AiModelCircuitOpenedEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
+import com.rush.rushaicodemother.orchestration.tool.CompletedToolCallContextCompactor;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
@@ -55,6 +57,10 @@ public class AiCodeGeneratorServiceFactory {
     private final AiToolInvocationPolicy aiToolInvocationPolicy;
 
     private final PromptSystemMessageTransformer promptSystemMessageTransformer;
+
+    private final CompletedToolCallContextCompactor completedToolCallContextCompactor;
+
+    private final GenerationModelInvocationCancellationBridge modelCancellationBridge;
 
     private static final int DEFAULT_CHAT_MEMORY_MESSAGES = 20;
     private static final int HEAVY_PROJECT_MEMORY_MESSAGES = 8;
@@ -115,6 +121,29 @@ public class AiCodeGeneratorServiceFactory {
     }
 
     /**
+     * 为单个持久化任务创建独占 AI 服务，使模型回合和 provider 故障转移使用该任务自己的预算。
+     * 任务级回调不能进入跨任务缓存，否则会把后续请求计入旧任务。
+     */
+    public AiCodeGeneratorService createTaskScopedAiCodeGeneratorService(
+            long appId,
+            CodeGenTypeEnum codeGenType,
+            GenerationPerformanceProfile profile,
+            Duration modelCallTimeout,
+            Runnable beforeModelTurn,
+            Runnable beforeProviderFailoverAttempt) {
+        validateRequest(appId, codeGenType);
+        StreamingChatModel executionModel = switch (codeGenType) {
+            case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT ->
+                    streamingModelFactory.createExecutionModel(
+                            profile, modelCallTimeout,
+                            beforeModelTurn, beforeProviderFailoverAttempt);
+            case HTML, MULTI_FILE -> streamingModelFactory.createExecutionChatModel(
+                    modelCallTimeout, beforeModelTurn, beforeProviderFailoverAttempt);
+        };
+        return createAiCodeGeneratorService(appId, codeGenType, profile, executionModel);
+    }
+
+    /**
      * 创建新的 AI 服务实例
      *
      * @param appId       应用 id
@@ -125,6 +154,14 @@ public class AiCodeGeneratorServiceFactory {
     private AiCodeGeneratorService createAiCodeGeneratorService(long appId,
                                                                   CodeGenTypeEnum codeGenType,
                                                                   GenerationPerformanceProfile profile) {
+        return createAiCodeGeneratorService(appId, codeGenType, profile, null);
+    }
+
+    private AiCodeGeneratorService createAiCodeGeneratorService(
+            long appId,
+            CodeGenTypeEnum codeGenType,
+            GenerationPerformanceProfile profile,
+            StreamingChatModel executionModel) {
         log.info("为 appId: {} 创建新的 AI 服务实例, codeGenType={}, profile={}",
                 appId, codeGenType, profile != null ? profile.modelTier() : "default");
         // 根据 appId 构建独立的对话记忆
@@ -142,19 +179,22 @@ public class AiCodeGeneratorServiceFactory {
             // Vue、后端和全栈项目生成，使用工具调用和推理模型
             case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> {
                 // 根据性能配置选择流式模型
-                StreamingChatModel streamingModel = selectStreamingModel(codeGenType, profile);
+                StreamingChatModel streamingModel = executionModel == null
+                        ? selectStreamingModel(codeGenType, profile)
+                        : executionModel;
                 ChatModel chatModel = streamingModelFactory.createPrimaryChatModel();
                 int maxToolInvocations = resolveMaxToolInvocations(codeGenType, profile);
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(streamingModel)
                         .systemMessageTransformer(promptSystemMessageTransformer::transform)
+                        .chatRequestTransformer(request -> aiToolInvocationPolicy.governModelTurn(
+                                appId, completedToolCallContextCompactor.compact(request)))
                         .chatMemoryProvider(memoryId -> chatMemory)
                         .tools((Object[]) toolManager.getToolsForCodeGen(codeGenType))
                         .beforeToolExecution(event ->
                                 aiToolInvocationPolicy.authorize(event, codeGenType, profile))
-                        .afterToolExecution(toolExecution ->
-                                aiToolInvocationPolicy.clearActiveInvocation())
+                        .afterToolExecution(aiToolInvocationPolicy::complete)
                         // 处理工具调用幻觉问题
                         .hallucinatedToolNameStrategy(toolExecutionRequest ->
                                 ToolExecutionResultMessage.from(toolExecutionRequest,
@@ -163,18 +203,22 @@ public class AiCodeGeneratorServiceFactory {
                         .toolExecutionErrorHandler((failure, context) ->
                                 toolExecutionFailurePolicy.handle(failure, context, codeGenType, profile))
                         .maxToolCallingRoundTrips(maxToolInvocations)
+                        .registerListener(modelCancellationBridge.requestIssuedListener())
                         .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
                         .build();
             }
             // HTML 和 多文件生成，使用流式对话模型
             case HTML, MULTI_FILE -> {
-                StreamingChatModel openAiStreamingChatModel = streamingModelFactory.createChatModel();
+                StreamingChatModel openAiStreamingChatModel = executionModel == null
+                        ? streamingModelFactory.createChatModel()
+                        : executionModel;
                 ChatModel chatModel = streamingModelFactory.createPrimaryChatModel();
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
                         .systemMessageTransformer(promptSystemMessageTransformer::transform)
                         .chatMemory(chatMemory)
+                        .registerListener(modelCancellationBridge.requestIssuedListener())
                         .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
                         .build();
             }
@@ -255,6 +299,8 @@ public class AiCodeGeneratorServiceFactory {
         if (profile == null) {
             return baseKey + "_default";
         }
-        return baseKey + "_" + profile.modelTier().name() + "_" + profile.thinkingEnabled();
+        return baseKey + "_" + profile.modelTier().name()
+                + "_" + profile.thinkingEnabled()
+                + "_tools_" + profile.maxToolInvocations();
     }
 }

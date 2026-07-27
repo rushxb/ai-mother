@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.service.aimodel;
 
-/** Persistable output of protecting one provider API key. */
+/** 保护一个提供商 API 密钥的持久输出。 */
 public record AiModelProtectedSecret(
         String reference,
         String fingerprint,

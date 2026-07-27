@@ -14,12 +14,13 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
- * Admits expensive stages only when the task can still finish their required downstream work.
+ * 仅当任务仍然可以完成其所需的下游工作时才承认昂贵的阶段。
  *
- * <p>Configured values are minimum useful windows, not operation timeouts. Actual model, build and
- * Dev Server calls remain independently clamped to the absolute task deadline.</p>
+ * <p> 配置的值是最小有用窗口，而不是操作超时。实际模型、构建和
+ * 开发服务器调用保持独立地限制在绝对任务截止日期内。</p>
  */
 @Slf4j
 @Service
@@ -27,12 +28,13 @@ import java.util.Map;
 public class GenerationStageAdmissionService {
 
     private static final String REASON_INSUFFICIENT_TIME = "insufficient_remaining_time";
+    private static final String REASON_COMPLETION_WINDOW_RESERVED = "completion_window_reserved";
 
     private final GenerationStageAdmissionProperties properties;
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GenerationPerformanceMonitorService performanceMonitorService;
 
-    /** Fails fast when a mandatory build plus its downstream validation cannot fit. */
+    /** 当强制构建及其下游验证无法适应时，会快速失败。 */
     public void requireBuild(GenerationSession session,
                              GenerationPreparation preparation,
                              String orchestrationMode) {
@@ -47,7 +49,7 @@ public class GenerationStageAdmissionService {
         throw decision.toDeadlineException(taskId(session, preparation));
     }
 
-    /** Fails fast when runtime validation would consume the time reserved for terminalization. */
+    /** 当运行时验证会消耗为终端化保留的时间时，会快速失败。 */
     public void requireRuntimeValidation(GenerationSession session,
                                          GenerationPreparation preparation,
                                          String orchestrationMode) {
@@ -68,7 +70,7 @@ public class GenerationStageAdmissionService {
         throw decision.toDeadlineException(taskId(session, preparation));
     }
 
-    /** Returns false, without consuming repair budget, when a complete repair cycle cannot fit. */
+    /** 当完整的维修周期无法容纳时，返回 false，不消耗维修预算。 */
     public boolean allowRepair(GenerationSession session,
                                GenerationPreparation preparation,
                                String orchestrationMode,
@@ -88,9 +90,58 @@ public class GenerationStageAdmissionService {
         return false;
     }
 
-    /** Side-effect-free check used to keep streamed willAutoRepair flags truthful. */
+    /** 用于保持流式传输 willAutoRepair 标志真实的无副作用检查。 */
     public boolean canRepair(GenerationSession session, GenerationPreparation preparation) {
         return evaluateRepair(session, preparation).admitted();
+    }
+
+    /**
+     * 在模型回合开始前原子消费回合预算，并返回受完成窗口约束的单回合超时。
+     */
+    public ModelTurnWindow requireModelTurn(GenerationExecutionContext context,
+                                            CodeGenTypeEnum targetType,
+                                            String orchestrationMode) {
+        ModelTurnDecision decision = evaluateModelTurn(context, targetType);
+        if (!decision.admitted()) {
+            recordModelTurnReservation(context, orchestrationMode, decision);
+            throw decision.toException(context.taskId());
+        }
+        context.consume(GenerationBudgetKind.MODEL_TURN);
+        return decision.window();
+    }
+
+    /**
+     * 为根模型尝试计算共享墙钟窗口，但不消费逻辑模型回合预算。
+     */
+    public ModelTurnWindow requireModelAttemptWindow(GenerationExecutionContext context,
+                                                     CodeGenTypeEnum targetType,
+                                                     String orchestrationMode) {
+        ModelTurnDecision decision = evaluateModelTurn(context, targetType);
+        if (!decision.admitted()) {
+            recordModelTurnReservation(context, orchestrationMode, decision);
+            throw decision.toException(context.taskId());
+        }
+        return decision.window();
+    }
+
+    /** 记录根模型墙钟窗口已经抵达受保护的完成边界。 */
+    public GenerationModelTurnAdmissionException completionWindowReached(
+            GenerationExecutionContext context,
+            String orchestrationMode,
+            ModelTurnWindow window) {
+        Objects.requireNonNull(context, "模型完成窗口必须绑定生成任务上下文");
+        Objects.requireNonNull(window, "模型完成窗口不能为空");
+        Duration remaining = context.remainingDuration();
+        Duration required = window.minimumRequired();
+        Duration reserve = window.completionReserve();
+        ModelTurnDecision decision = ModelTurnDecision.rejected(
+                remaining,
+                required,
+                reserve,
+                window.timeout()
+        );
+        recordModelTurnReservation(context, orchestrationMode, decision);
+        return decision.toException(context.taskId());
     }
 
     private Decision evaluateRepair(GenerationSession session, GenerationPreparation preparation) {
@@ -101,6 +152,37 @@ public class GenerationStageAdmissionService {
                     .plus(runtimeWindowIfRequired(preparation));
         }
         return evaluate(session, "repair", required);
+    }
+
+    private ModelTurnDecision evaluateModelTurn(GenerationExecutionContext context,
+                                                CodeGenTypeEnum targetType) {
+        if (context == null) {
+            throw new IllegalArgumentException("模型回合准入必须绑定生成任务上下文");
+        }
+        context.assertCanContinue();
+        Duration completionReserve = properties.modelCompletionReserve(targetType);
+        Duration minimumRequired = properties.modelTurnMinimumRequired(targetType);
+        Duration remaining = context.remainingDuration();
+        Duration availableForModel = remaining.minus(completionReserve);
+        if (availableForModel.isNegative()) {
+            availableForModel = Duration.ZERO;
+        }
+        Duration requested = context.limits().modelCallTimeout();
+        Duration timeout = minimum(requested, availableForModel);
+        boolean admitted = remaining.compareTo(minimumRequired) >= 0;
+        boolean completionWindowLimited = admitted && requested.compareTo(availableForModel) > 0;
+        return new ModelTurnDecision(
+                admitted,
+                remaining,
+                minimumRequired,
+                completionReserve,
+                timeout,
+                completionWindowLimited
+        );
+    }
+
+    private Duration minimum(Duration first, Duration second) {
+        return first.compareTo(second) <= 0 ? first : second;
     }
 
     private Decision evaluate(GenerationSession session, String stage, Duration required) {
@@ -169,6 +251,29 @@ public class GenerationStageAdmissionService {
                 decision.remaining().toMillis(), decision.required().toMillis());
     }
 
+    private void recordModelTurnReservation(GenerationExecutionContext context,
+                                            String orchestrationMode,
+                                            ModelTurnDecision decision) {
+        metricsCollector.recordStageAdmission(orchestrationMode, "model_turn", "reserved_completion");
+        String detail = "reason=" + REASON_COMPLETION_WINDOW_RESERVED
+                + ",remainingMs=" + decision.remaining().toMillis()
+                + ",requiredMs=" + decision.minimumRequired().toMillis()
+                + ",completionReserveMs=" + decision.completionReserve().toMillis();
+        performanceMonitorService.recordSpan(
+                context == null ? null : context.taskId(),
+                "model_turn_admission_reserved",
+                GenerationSpanCategory.MODEL,
+                "reserved_completion",
+                Duration.ZERO,
+                detail
+        );
+        log.info("模型回合准入停止，taskId={}, remainingMs={}, requiredMs={}, completionReserveMs={}",
+                context == null ? null : context.taskId(),
+                decision.remaining().toMillis(),
+                decision.minimumRequired().toMillis(),
+                decision.completionReserve().toMillis());
+    }
+
     private String taskId(GenerationSession session, GenerationPreparation preparation) {
         if (session != null && session.taskId() != null && !session.taskId().isBlank()) {
             return session.taskId();
@@ -194,6 +299,69 @@ public class GenerationStageAdmissionService {
 
         private GenerationDeadlineExceededException toDeadlineException(String taskId) {
             return new GenerationDeadlineExceededException(taskId, stage, remaining, required);
+        }
+    }
+
+    /** 模型调用可使用的墙钟窗口以及被保护的后续完成窗口。 */
+    public record ModelTurnWindow(Duration timeout,
+                                  Duration completionReserve,
+                                  Duration minimumRequired,
+                                  boolean completionWindowLimited) {
+
+        public ModelTurnWindow {
+            if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+                throw new IllegalArgumentException("模型回合超时必须大于 0");
+            }
+            if (completionReserve == null || completionReserve.isZero() || completionReserve.isNegative()) {
+                throw new IllegalArgumentException("模型完成预留必须大于 0");
+            }
+            if (minimumRequired == null || minimumRequired.compareTo(completionReserve) <= 0) {
+                throw new IllegalArgumentException("模型回合最小窗口必须大于完成预留");
+            }
+        }
+    }
+
+    private record ModelTurnDecision(boolean admitted,
+                                     Duration remaining,
+                                     Duration minimumRequired,
+                                     Duration completionReserve,
+                                     Duration timeout,
+                                     boolean completionWindowLimited) {
+
+        private static ModelTurnDecision rejected(Duration remaining,
+                                                  Duration minimumRequired,
+                                                  Duration completionReserve,
+                                                  Duration timeout) {
+            return new ModelTurnDecision(
+                    false,
+                    nonNegative(remaining),
+                    nonNegative(minimumRequired),
+                    nonNegative(completionReserve),
+                    nonNegative(timeout),
+                    true
+            );
+        }
+
+        private ModelTurnWindow window() {
+            return new ModelTurnWindow(
+                    timeout,
+                    completionReserve,
+                    minimumRequired,
+                    completionWindowLimited
+            );
+        }
+
+        private GenerationModelTurnAdmissionException toException(String taskId) {
+            return new GenerationModelTurnAdmissionException(
+                    taskId,
+                    remaining,
+                    minimumRequired,
+                    completionReserve
+            );
+        }
+
+        private static Duration nonNegative(Duration value) {
+            return value == null || value.isNegative() ? Duration.ZERO : value;
         }
     }
 }

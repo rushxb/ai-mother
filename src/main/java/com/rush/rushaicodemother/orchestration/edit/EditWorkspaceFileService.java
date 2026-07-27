@@ -29,7 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Centralizes path validation, bounded traversal, and bounded UTF-8 reads for edit workflows.
+ * 集中编辑工作流程的路径验证、有界遍历和有界 UTF-8 读取。
  */
 @Slf4j
 @Service
@@ -80,7 +80,7 @@ public class EditWorkspaceFileService {
                 }
                 ByteBuffer buffer = ByteBuffer.allocate((int) size);
                 while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
-                    // Read through the already-open, no-follow file handle.
+                    // 通读已经打开的、无后续的文件句柄。
                 }
                 ByteBuffer overflowProbe = ByteBuffer.allocate(1);
                 if (channel.read(overflowProbe) >= 0) {

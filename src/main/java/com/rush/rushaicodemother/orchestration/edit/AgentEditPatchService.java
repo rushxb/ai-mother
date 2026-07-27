@@ -9,6 +9,9 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.util.List;
 
+/**
+ * 智能体编辑补丁服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class AgentEditPatchService {

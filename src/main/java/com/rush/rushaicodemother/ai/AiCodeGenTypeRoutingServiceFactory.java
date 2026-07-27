@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 
+import java.time.Duration;
+
 /**
  * AI代码生成类型路由服务工厂
  *
@@ -28,6 +30,25 @@ public class AiCodeGenTypeRoutingServiceFactory {
      */
     public AiCodeGenTypeRoutingService createAiCodeGenTypeRoutingService() {
         ChatModel chatModel = streamingModelFactory.createRoutingChatModel();
+        return createService(chatModel);
+    }
+
+    /** 创建具有调用方总超时且不执行 SDK 重试的路由服务。 */
+    public AiCodeGenTypeRoutingService createAiCodeGenTypeRoutingService(Duration timeout) {
+        ChatModel chatModel = streamingModelFactory.createRoutingChatModel(timeout, 0);
+        return createService(chatModel);
+    }
+
+    public AiCodeGenTypeRoutingService createExecutionAiCodeGenTypeRoutingService(
+            Duration timeout,
+            Runnable beforeModelTurn,
+            Runnable beforeProviderFailoverAttempt) {
+        ChatModel chatModel = streamingModelFactory.createExecutionRoutingChatModel(
+                timeout, beforeModelTurn, beforeProviderFailoverAttempt);
+        return createService(chatModel);
+    }
+
+    private AiCodeGenTypeRoutingService createService(ChatModel chatModel) {
         return AiServices.builder(AiCodeGenTypeRoutingService.class)
                 .chatModel(chatModel)
                 .systemMessageTransformer(promptSystemMessageTransformer::transform)

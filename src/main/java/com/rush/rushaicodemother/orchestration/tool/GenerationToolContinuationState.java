@@ -9,7 +9,7 @@ import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceCo
 
 import java.time.Instant;
 
-/** Versioned state required to continue the model tool loop without replaying the pipeline. */
+/** 继续模型工具循环而不重放管道所需的版本化状态。 */
 public record GenerationToolContinuationState(
         int schemaVersion,
         String taskId,

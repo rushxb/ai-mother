@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-/** Persistence port for distributed Dev Server ownership and recovery. */
+/** 用于分布式开发服务器所有权和恢复的持久性端口。 */
 public interface DevServerSessionRegistry {
 
     DevServerSessionClaimResult claimStarting(

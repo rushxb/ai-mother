@@ -331,7 +331,13 @@ pnpm dev
 java -jar target/rush-ai-code-mother-0.0.1-SNAPSHOT.jar
 ```
 
-默认测试会排除标记为 `external` 的外部依赖测试，避免本地测试意外访问真实第三方服务。
+默认测试会排除标记为 `external` 和 `integration` 的测试，避免本地测试意外访问真实第三方服务。Redis 持久化契约可使用隔离实例显式验证：
+
+```powershell
+docker run --rm -d --name ai-mother-redis-it -p 56379:6379 redis:7-alpine
+.\mvnw.cmd -Pintegration-test '-Dtest=RedisChatMemoryRestartIntegrationTest,RedisGenerationRuntimeIntegrationTest' '-Dintegration.redis.host=127.0.0.1' '-Dintegration.redis.port=56379' test
+docker stop ai-mother-redis-it
+```
 
 ### 前端
 
@@ -369,9 +375,46 @@ pnpm preview
 | `REDIS_PORT` | `6379` | Redis 端口 |
 | `REDIS_DATABASE` | 开发 `7`、生产 `0` | Redis Database |
 | `REDIS_PASSWORD` | 空 | Redis 密码 |
+| `GENERATION_EVENT_STREAM_TRANSPORT` | 开发 `local`、生产 `redis` | 跨实例生成事件传输；生产环境必须使用 Redis Streams |
+| `GENERATION_EVENT_STREAM_DELTA_COALESCING_ENABLED` | `true` | 是否仅在 Redis 共享传输边界合并相邻 AI 文本增量；首段、工具和终态事件仍立即写入 |
+| `GENERATION_EVENT_STREAM_DELTA_FLUSH_INTERVAL` | `40ms` | 文本增量最大等待窗口，允许 `10ms` 至 `1s` |
+| `GENERATION_EVENT_STREAM_DELTA_MAX_CHARS` | `2048` | 单次文本增量缓冲字符上限，允许 `64` 至 `65536`；达到上限立即冲刷 |
 | `CHAT_MEMORY_TTL_SECONDS` | `3600` | Redis 对话记忆 TTL（秒） |
 | `CHAT_MEMORY_FALLBACK_MAX_ENTRIES` | `1000` | Redis 故障期间进程内回退状态总容量；待回灌变更不会被静默淘汰 |
 | `CHAT_MEMORY_FALLBACK_EXPIRE_AFTER_ACCESS` | `2h` | 已同步对话记忆副本的访问过期时间；不作用于待回灌变更 |
+| `CHAT_MEMORY_COMPLETED_TOOL_ARGUMENTS_MAX_CHARS` | `8192` | 已完成写文件调用在后续模型请求中的参数保留阈值；超限后只保留路径和落盘占位符 |
+| `WORKING_MEMORY_MAX_TASKS` | `2000` | 单实例短期任务工作记忆容量 |
+| `WORKING_MEMORY_RETENTION` | `2h` | 短期任务工作记忆保留时间 |
+| `WORKING_MEMORY_MAX_RECENT_EVENTS` | `100` | 单任务保留的最近事件上限 |
+| `MILVUS_MEMORY_ENABLED` | `false`（生产强制 `true`） | 是否启用 Milvus 长期语义记忆；关闭时 generation outbox 不会把进程内缓存误标为持久化成功 |
+| `MILVUS_URI` | 空 | Milvus SDK 的 gRPC/HTTPS 入口；生产必填，不能填写 REST `9091` 或 etcd `2379` 地址 |
+| `MILVUS_TOKEN` | 空 | Milvus 认证 token；生产通过 Secret 注入 |
+| `MILVUS_AUTHENTICATION_REQUIRED` | `false`（生产强制 `true`） | 是否要求非空 token |
+| `MILVUS_TLS_REQUIRED` | `false`（生产强制 `true`） | 是否只允许 HTTPS Milvus endpoint |
+| `MILVUS_DATABASE` | `default` | Milvus database 名称 |
+| `MILVUS_MEMORY_COLLECTION` | `generation_memory_v2` | 显式版本化的长期记忆 collection；不兼容旧 schema 时禁止原地复用 |
+| `MILVUS_CONNECT_TIMEOUT` | `3s` | Milvus 建连超时 |
+| `MILVUS_REQUEST_TIMEOUT` | `5s` | Milvus RPC deadline |
+| `MILVUS_READINESS_TIMEOUT` | `60s` | collection/index load 与创建的同步等待上限 |
+| `MILVUS_READINESS_REFRESH_INTERVAL` | `30s` | schema、index、load 状态重新校验周期 |
+| `MILVUS_VERIFY_ON_STARTUP` | `false`（生产强制 `true`） | 启动时是否 fail-fast 验证 Milvus 完整契约 |
+| `MILVUS_FALLBACK_MAX_ENTRIES` | `5000` | 单实例有界长期记忆回退缓存容量 |
+| `MILVUS_FALLBACK_RETENTION` | `12h` | 长期记忆回退缓存保留时间 |
+| `MILVUS_MEMORY_TOP_K` | `6` | 单次长期记忆召回上限 |
+| `MILVUS_MEMORY_MINIMUM_SCORE` | `0.45` | COSINE 召回最低分数 |
+| `GENERATION_MEMORY_CONTEXT_PARALLEL_READS_ENABLED` | `false` | 是否并行读取最近任务、构建日志和长期语义记忆；发布前必须用 Benchmark 证明首 Token 收益且无质量回退 |
+| `GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_READS` | `12` | 单实例生成记忆上下文只读 I/O 的全局并发上限 |
+| `GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_ENABLED` | `false` | 是否让记忆构建与 Planner、模板准备和项目索引重叠执行；仅允许经 Benchmark 灰度开启 |
+| `GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_PREPARATION_OVERLAPS` | `4` | 单实例可并行运行的记忆准备任务上限；许可耗尽时受任务 deadline 约束等待 |
+| `GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_TIMEOUT` | `30s` | 单次记忆重叠任务从提交到 Context 汇合的最大时长，并受任务总 deadline 进一步收紧 |
+| `GENERATION_MEMORY_CONTEXT_SHUTDOWN_TIMEOUT` | `10s` | 应用关闭时等待生成记忆读取任务收口的上限 |
+| `GENERATION_MEMORY_OUTBOX_ENABLED` | `true` | generation memory 与应用删除 durable outbox 开关；生产强制开启 |
+| `GENERATION_MEMORY_OUTBOX_SCAN_INTERVAL` | `30s` | outbox 扫描周期 |
+| `GENERATION_MEMORY_OUTBOX_BATCH_SIZE` | `50` | 单轮最多 claim 的任务数，最大 `500` |
+| `GENERATION_MEMORY_OUTBOX_MAX_ATTEMPTS` | `10` | generation memory 最大尝试次数；达到后进入可观测 dead-letter |
+| `GENERATION_MEMORY_OUTBOX_LEASE_DURATION` | `2m` | 多实例 worker claim 租约时长 |
+| `GENERATION_MEMORY_OUTBOX_INITIAL_RETRY_DELAY` | `30s` | 首次指数退避时长 |
+| `GENERATION_MEMORY_OUTBOX_MAX_RETRY_DELAY` | `1h` | 指数退避上限 |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | 生产环境前端 Origin 白名单 |
 | `CODE_DEPLOY_HOST` | `http://localhost:91` | 已部署应用的公开访问根地址 |
 | `CODE_OUTPUT_ROOT_DIR` | `tmp/code_output` | AI 生成工作区根目录 |
@@ -386,13 +429,63 @@ pnpm preview
 | `TEMPLATE_MATERIALIZATION_MAX_DIRECTORY_DEPTH` | `32` | 模板资源最大目录深度 |
 | `TEMPLATE_MATERIALIZATION_PUBLISH_MAX_ATTEMPTS` | `5` | Windows 等文件系统发生瞬时目录发布冲突时的最大尝试次数 |
 | `TEMPLATE_MATERIALIZATION_PUBLISH_RETRY_DELAY_MILLIS` | `50` | 模板目录发布重试间隔（毫秒） |
+| `GO_TOOLCHAIN_GO_EXECUTABLE` | `go` | 受控 Go 构建测试使用的可执行文件名或绝对路径 |
+| `PROJECT_COMMAND_GO_TEST_TIMEOUT` | `3m` | 后端 Go 项目完整测试的总超时 |
+| `PROJECT_COMMAND_GO_TEST_IDLE_TIMEOUT` | `2m` | Go 构建或测试持续无输出时的超时 |
+| `GENERATED_CODE_SANDBOX_GO_BUILD_TMPFS_SIZE` | `512m` | 容器内受控离线 `go build/install/run/test` 专用可执行 tmpfs 上限；普通 `/tmp` 仍为 `noexec` |
+| `GENERATION_BENCHMARK_BROWSER_GRADING_ENABLED` | `false` | 浏览器 Runtime/Visual 评分开关；专用发布门禁 Worker 必须开启 |
+| `GENERATION_BENCHMARK_BACKEND_GRADING_ENABLED` | `false` | 后端与全栈真实运行时评分开关；专用发布门禁 Worker 必须开启 |
+| `GENERATION_BENCHMARK_BACKEND_STARTUP_TIMEOUT` | `45s` | 候选后端启动和健康检查总等待上限 |
+| `GENERATION_BENCHMARK_BACKEND_REQUEST_TIMEOUT` | `3s` | 单次后端回环健康请求超时 |
+| `GENERATION_BENCHMARK_BACKEND_POLL_INTERVAL` | `100ms` | 后端启动健康轮询间隔 |
+| `GENERATION_BENCHMARK_BACKEND_PROCESS_TIMEOUT` | `2m` | 候选后端和启动就绪模板测试的进程总超时 |
+| `GENERATION_BENCHMARK_BACKEND_HEARTBEAT_INTERVAL` | `5s` | 受管后端进程心跳间隔 |
+| `GENERATION_BENCHMARK_BACKEND_OUTPUT_DRAIN_TIMEOUT` | `2s` | 进程退出后排空输出消费者的等待上限 |
+| `GENERATION_BENCHMARK_BACKEND_SHUTDOWN_TIMEOUT` | `10s` | 评分结束后等待候选后端收口的上限 |
+| `GENERATION_BENCHMARK_BACKEND_MAX_OUTPUT_LENGTH` | `65536` | 单个候选后端最多保留的进程输出字符数 |
+| `GENERATION_BENCHMARK_BACKEND_MAX_RESPONSE_BYTES` | `65536` | 后端健康响应体最大字节数 |
+| `GENERATION_BENCHMARK_BACKEND_PORT_RANGE_START` | `19000` | 节点本地后端评分端口池起始值 |
+| `GENERATION_BENCHMARK_BACKEND_PORT_RANGE_END` | `19999` | 节点本地后端评分端口池结束值 |
+| `GENERATION_BENCHMARK_BACKEND_WORKSPACE_ROOT` | JVM 临时目录下的 `ai-code-mother/benchmark-backend-runtime` | 一次性候选副本和启动就绪检查目录 |
+| `GENERATION_BENCHMARK_GRADER_FINGERPRINT` | `generation-benchmark-graders-v6` | 当前评分器协议指纹；评分代码、数据集和证据消费者必须同步升级 |
+| `GENERATION_BENCHMARK_WORKER_OUTPUT_FILE` | Worker 启用时必填 | 原子写入的 CI 结果 JSON 绝对路径或工作目录相对路径 |
+| `GENERATION_BENCHMARK_WORKER_EVIDENCE_VALIDITY` | `1d` | 通过门禁后签发证据的有效期，不得超过 `7d` |
+| `GENERATION_BENCHMARK_WORKER_CANDIDATE_TYPE` | Worker 启用时必填 | `AI_MODEL_ENABLE` 或 `PROMPT_RELEASE` |
+| `GENERATION_BENCHMARK_WORKER_MODEL_ID` | `0` | 模型启用候选的数据库编号；Prompt 候选必须保持 `0` |
+| `GENERATION_BENCHMARK_WORKER_PROMPT_KEY` | 空 | Prompt 发布候选的 Prompt Key |
+| `GENERATION_BENCHMARK_WORKER_STABLE_VERSION` | 空 | Prompt 发布候选的稳定版本 |
+| `GENERATION_BENCHMARK_WORKER_CANARY_VERSION` | 空 | 灰度比例大于 `0` 时必填的灰度版本 |
+| `GENERATION_BENCHMARK_WORKER_CANARY_PERCENTAGE` | `0` | Prompt 候选灰度比例，范围 `0` 到 `100` |
+| `GENERATION_BENCHMARK_FIRST_PREVIEW_OBSERVATION_TIMEOUT` | `2s` | durable 任务已终态但跨节点事件仍在传输时，等待首预览里程碑到达的有界窗口 |
+| `GENERATION_BENCHMARK_MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE` | `1.0` | 发布报告必须观测到首预览的任务比例；缺失值不会按 `0ms` 计入统计 |
+| `GENERATION_BENCHMARK_MAXIMUM_P90_FIRST_TOKEN_LATENCY` | `15s` | 全数据集首 Token p90 上限 |
+| `GENERATION_BENCHMARK_MAXIMUM_P99_FIRST_TOKEN_LATENCY` | `30s` | 全数据集首 Token p99 尾延迟上限；不得低于 p90 上限 |
+| `GENERATION_BENCHMARK_MAXIMUM_P90_CREATE_FIRST_PREVIEW_LATENCY` | `60s` | CREATE 路由首预览 p90 上限，默认跟随在线路由 SLA |
+| `GENERATION_BENCHMARK_MAXIMUM_P90_LIGHT_EDIT_FIRST_PREVIEW_LATENCY` | `90s` | LIGHT_EDIT 路由首预览 p90 上限，默认跟随在线路由 SLA |
+| `GENERATION_BENCHMARK_MAXIMUM_P90_AGENT_EDIT_FIRST_PREVIEW_LATENCY` | `3m` | AGENT_EDIT 路由首预览 p90 上限，默认跟随在线路由 SLA |
+| `GENERATION_BENCHMARK_MAXIMUM_P90_HEAVY_FIRST_PREVIEW_LATENCY` | `5m` | HEAVY_EXPERT 路由首预览 p90 上限，默认跟随在线路由 SLA |
+| `GENERATION_BENCHMARK_MAXIMUM_P99_FIRST_PREVIEW_LATENCY` | `5m` | 全数据集首预览 p99 尾延迟上限 |
 | `AI_LOG_REQUESTS` | `false` | 是否记录生成模型请求 |
 | `AI_LOG_RESPONSES` | `false` | 是否记录生成模型响应 |
+| `AI_LOCAL_FIRST_HEAVY_ROUTING_ENABLED` | `true` | HEAVY 目标类型是否优先使用高置信本地规则；关闭后恢复为所有 HEAVY 请求调用类型路由模型 |
+| `AI_FIRST_TOKEN_HEDGE_ENABLED` | `false` | 是否为任务级限时流式请求启用首 Token 对冲 |
+| `AI_FIRST_TOKEN_HEDGE_DELAY` | `3s` | 主候选无输出时启动单个影子候选前的等待时间，范围 `250ms` 至 `30s` |
+| `AI_FIRST_TOKEN_HEDGE_REQUIRE_DISTINCT_PROVIDER` | `true` | 是否要求主候选与影子候选来自不同供应商 |
+| `AI_ROOT_MODEL_RETRY_MIN_DELAY` | `3s` | 零输出瞬态失败后刷新健康模型池前的最小退避，范围 `100ms` 至 `1m` |
+| `AI_ROOT_MODEL_RETRY_MAX_DELAY` | `20s` | 根模型指数退避上限，不得小于最小退避且不得超过 `1m` |
+| `AI_ROOT_MODEL_RETRY_JITTER` | `0.35` | 根模型退避随机抖动比例，范围 `0.0` 至 `1.0` |
+| `GENERATION_<ROUTE>_FIRST_PREVIEW_COMPLETION_RESERVE` | CREATE `45s`、LIGHT_EDIT `30s`、AGENT_EDIT `45s`、HEAVY `60s`、SATURATED `30s` | 在路由首预览 SLA 内为本地渲染、校验、写入和发布保留的确定性完成窗口；进入该窗口后取消或跳过可选 AI 增强，不会终止整个任务 |
+| `GENERATION_FIRST_PREVIEW_COMPLETION_RESERVE` | `10s` | 未携带路由 SLA 信封的兼容执行路径完成预留 |
+| `GENERATION_STREAM_SNAPSHOT_UPDATE_INTERVAL` | `5s` | 重型生成断线快照写入数据库的最小间隔，范围 `100ms` 至 `1m`；实时事件会先推送，不等待快照写入 |
+| `GENERATION_STREAM_SNAPSHOT_MAX_CHARS` | `20000` | 数据库断线快照保留的尾部字符上限，范围 `1` 至 `100000` |
 | `GENERATION_SESSION_LOCK_STRIPES` | `64` | 单实例生成启动互斥的固定条带锁数量；不会按应用 ID 增长。 |
 | `GENERATION_SESSION_MAX_TRACKED_SESSIONS` | `1000` | 单实例活动会话与短期回放会话总容量；满载时新应用生成请求明确返回服务暂不可用。 |
 | `GENERATION_SESSION_COMPLETED_REPLAY_RETENTION` | `30s` | 已完成轻量会话为 SSE 重连保留的时间，最长 `1h`。 |
 | `GENERATION_SESSION_CLEANUP_INTERVAL` | `5s` | 批量清理过期回放会话的固定周期，不得大于回放保留时间。 |
 | `GENERATION_TASK_SNAPSHOT_ENABLED` | `true` | 是否保存本机编排诊断快照；关闭后不影响数据库生成状态 |
+| `GENERATION_REPLAY_SAFE_START_CHECKPOINT_ELISION_ENABLED` | `false` | 是否省略显式可重放 DAG 节点的开始检查点；必须先通过 Benchmark 并灰度开启 |
+| `GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_COALESCING_ENABLED` | `false` | 是否合并连续可重放节点的完成检查点；只能与开始检查点省略同时启用 |
+| `GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_INTERVAL` | `4` | 连续完成多少个可重放节点后强制建立持久化边界，范围 `2` 至 `64` |
 | `GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY` | `tmp/orchestration_tasks` | 编排诊断快照根目录 |
 | `GENERATION_TASK_SNAPSHOT_MAX_BYTES` | `2097152` | 单个编排诊断快照最大 UTF-8 字节数 |
 | `GENERATION_TASK_SNAPSHOT_MAX_PER_APP` | `100` | 单个应用最多保留的诊断快照数 |
@@ -424,8 +517,8 @@ pnpm preview
 | `WORKSPACE_PUBLISH_MAX_ATTEMPTS` | `5` | Windows 瞬时目录占用导致发布失败时，快照创建、工作区恢复和原目录回切的最大尝试次数。 |
 | `WORKSPACE_PUBLISH_RETRY_DELAY_MILLIS` | `50` | 工作区目录发布遇到瞬时访问拒绝后的重试间隔（毫秒）；重试期间出现的目标目录不会被覆盖。 |
 | `GENERATION_CONTEXT_MAX_PROJECT_INDEX_FILES` | `80` | 生成提示词中的项目索引最多包含的文件数。 |
-| `GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS` | `12000` | 单个关键项目文件可进入生成上下文的最大字符数。 |
-| `GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS` | `100000` | 单次生成项目上下文的总字符预算，不得小于单文件预算。 |
+| `GENERATION_CONTEXT_MAX_SINGLE_FILE_CHARS` | `1400` | 单个语义索引选中文件可进入生成上下文的最大字符数。 |
+| `GENERATION_CONTEXT_MAX_TOTAL_CONTEXT_CHARS` | `10000` | 单次生成项目上下文的总字符预算，不得小于单文件预算。 |
 | `GENERATION_CONTEXT_MAX_READABLE_FILE_BYTES` | `1048576` | 生成上下文允许读取的单个关键文件最大字节数。 |
 | `AI_CONTEXT_PACK_GENERATION_MAX_TOKENS` | `2000` | 常规生成的长期记忆、近期任务和构建证据上下文总 token 预算。 |
 | `AI_CONTEXT_PACK_REPAIR_MAX_TOKENS` | `1500` | 自动修复上下文的独立 token 预算。 |
@@ -463,10 +556,55 @@ pnpm preview
 
 更多生产环境变量、超时、限流、Dev Server 和依赖安装参数，请查看 [后端生产环境配置基线](docs/backend-production-configuration.md)。
 
+专用 Benchmark Worker 必须同时开启 Browser 与 Backend grading。数据集 `2.1.0` 的全部 `32` 条任务都要求真实 Runtime 证据，Vue 与全栈共 `25` 条任务还要求 Visual 证据。Backend grading 开启后，Worker 会在接收任务前通过当前沙箱离线编译并测试内置 Go+SQLite 模板，同时验证一次性工作区可创建和清理；生产环境推荐使用摘要固定且已验证的容器镜像，Host-Local 必须提供完整 Go SDK 和离线模块缓存。
+
+### 候选 Benchmark Worker
+
+Worker 必须使用与发布控制面相同的已提交制品，并按 `prod,benchmark-worker` 的顺序激活 profile。后一个 profile 会关闭 Web Server、普通后台调度、Redis 任务消费者和跨节点事件流；模型池和 Prompt bundle 在整轮评测前冻结，任何数据库候选或依赖状态漂移都会拒绝签发证据。模型启用候选会在对应模型类型内置于首选位置，并且必须在完整门禁执行窗口内观测到至少一次真实 provider 请求；窗口外请求不计数。物理请求次数进入 HMAC 证据签名协议 `v2`，入库与发布验签会再次校验。
+
+模型启用候选示例：
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = "prod,benchmark-worker"
+$env:GENERATION_BENCHMARK_WORKER_OUTPUT_FILE = "D:\benchmark\model-42.json"
+$env:GENERATION_BENCHMARK_WORKER_CANDIDATE_TYPE = "AI_MODEL_ENABLE"
+$env:GENERATION_BENCHMARK_WORKER_MODEL_ID = "42"
+java -jar .\target\rush-ai-code-mother-0.0.1-SNAPSHOT.jar
+```
+
+Prompt 发布候选示例：
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = "prod,benchmark-worker"
+$env:GENERATION_BENCHMARK_WORKER_OUTPUT_FILE = "D:\benchmark\prompt-v2.json"
+$env:GENERATION_BENCHMARK_WORKER_CANDIDATE_TYPE = "PROMPT_RELEASE"
+$env:GENERATION_BENCHMARK_WORKER_PROMPT_KEY = "codegen-vue-project"
+$env:GENERATION_BENCHMARK_WORKER_STABLE_VERSION = "v2"
+$env:GENERATION_BENCHMARK_WORKER_CANARY_VERSION = ""
+$env:GENERATION_BENCHMARK_WORKER_CANARY_PERCENTAGE = "0"
+java -jar .\target\rush-ai-code-mother-0.0.1-SNAPSHOT.jar
+```
+
+以上命令仍需注入完整生产数据库、Redis、Milvus、模型密钥、证据签名密钥、Chrome/ChromeDriver 和容器沙箱配置。Worker 通过后会在同一控制数据库中完成 envelope 签名、验签和证据入库，并将 `evidenceId`、`candidatePhysicalRequestCount` 与完整报告按结果 schema `v2` 原子写入结果文件。退出码 `0` 表示证据已通过并入库，`2` 表示评测完整但门禁拒绝，`1` 表示配置、执行、身份漂移、候选零调用或证据链发生故障。CI 只能把退出码 `0` 视为可晋升。
+
 上下文包预算已由字符比例估算切换为 tokenizer-backed 计数；旧变量
 `AI_CONTEXT_PACK_ESTIMATED_CHARS_PER_TOKEN` 不再读取。历史记忆、近期任务、构建日志和当前错误均以
 untrusted evidence 边界进入模型输入，结构控制标记会被中和；模型调用 provenance 只持久化校验后的
 上下文包摘要和有界元数据，不复制原始提示词、仓库内容或记忆正文。
+
+### 长期语义记忆
+
+长期记忆使用 `tenantId + appId` 作为授权边界，`userId` 仅保留来源和审计语义。默认
+`generation_memory_v2` collection 禁用 dynamic field，使用应用分配的 SHA-256 主键、
+`AUTOINDEX + COSINE`、强一致读取，并持久化 embedding model/version 与 row schema；搜索 filter
+和结果解码会双重核验租户、应用和 embedding 契约。collection、字段、维度、主键、索引或 load
+状态不兼容时会 fail-closed，不会尝试危险的原地兼容。
+
+`V20260721_1__semantic_memory_production_contract.sql` 建立带租约的 generation/deletion outbox，
+`V20260721_2__semantic_memory_v2_reindex_contract.sql` 增加关系库索引契约版本。历史 v1 任务会按新契约
+自动重新 claim，并获得独立的重试预算，无需批量清空 `memoryIndexedAt`。应用删除会在同一 MySQL
+事务内先写 deletion outbox，再删除关系数据；Milvus 删除由多实例 worker 幂等执行。生产发布和告警
+要求见 [后端生产环境配置基线](docs/backend-production-configuration.md)。
 
 ## 代码生成模式
 
@@ -513,6 +651,8 @@ java `
 Dev Server 使用 `dev_server_session` 持久化注册表实现跨实例唯一占用、用户级全局配额、进程租约和 fencing。生产环境必须为每个部署节点配置稳定且唯一的 `DEV_SERVER_NODE_ID`。节点或 JVM 异常退出后，恢复任务会在租约过期后按持久化的 sandbox resource ID 幂等清理 Dev Server 与 preview gateway 容器；不得用进程内 `Map` 或端口记录代替该所有权契约。
 
 生成会话注册表使用固定条带锁，不会为每个历史应用永久保留锁对象；活动会话和短期 SSE 回放会话共享显式总容量。已完成轻量会话只写入过期时间，由单个固定周期任务批量清理，不会为每次完成创建独立延迟任务。多实例容量分别计算，跨实例生成所有权仍以数据库租约为准。
+
+生产 Redis 事件流只合并相邻且不带结构化数据的 `AI_DELTA`。第一段文本立即写入；工具、阶段、错误、完成和关闭都是强制顺序边界。异步冲刷失败会保留缓冲内容并最多重试 3 次，重试耗尽后由下一顺序边界再次冲刷。该策略不改变本机会话、trace、短期记忆和最终生成文件；Redis 写入次数、耗时与合并规模分别通过 `generation_event_stream_redis_appends_total`、`generation_event_stream_redis_append_duration_seconds`、`generation_event_stream_delta_inputs_total`、`generation_event_stream_delta_flushes_total`、`generation_event_stream_delta_events_per_flush` 和 `generation_event_stream_delta_chars_per_flush` 监控。
 
 编排任务快照只用于节点本地诊断，不是任务生命周期的权威数据源；应用生成所有权、租约和 trace 状态以数据库为准。快照采用同目录临时文件原子替换，并受单文件大小、单应用数量和保留期限约束。多实例部署应使用各节点独立目录；只有共享存储已经保证单写者语义时才允许共享该目录。
 

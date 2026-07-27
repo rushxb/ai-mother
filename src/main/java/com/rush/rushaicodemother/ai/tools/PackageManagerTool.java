@@ -5,20 +5,14 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.ai.tools.policy.DependencyPolicyService;
-import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
-import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
-import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
-import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-
-import java.nio.file.Path;
 
 /**
  * package.json 管理工具
@@ -30,24 +24,21 @@ public class PackageManagerTool extends BaseTool {
 
     private final DependencyPolicyService dependencyPolicyService;
     private final ToolExecutionGateway toolExecutionGateway;
-    private final ProjectDependencyInstaller projectDependencyInstaller;
     private final ToolWorkspaceFileService workspaceFileService;
 
     public PackageManagerTool(
             DependencyPolicyService dependencyPolicyService,
             ToolExecutionGateway toolExecutionGateway,
-            ProjectDependencyInstaller projectDependencyInstaller,
             ToolWorkspaceFileService workspaceFileService
     ) {
         this.dependencyPolicyService = dependencyPolicyService;
         this.toolExecutionGateway = toolExecutionGateway;
-        this.projectDependencyInstaller = projectDependencyInstaller;
         this.workspaceFileService = workspaceFileService;
     }
 
-    @Tool("管理 package.json 的依赖和 scripts，支持查看、添加、更新、删除依赖，或修改 scripts；必要时可执行 pnpm install 同步锁文件。")
+    @Tool("管理 package.json 的依赖和 scripts；依赖安装由后续构建校验流水线统一执行。")
     public String managePackageJson(
-            @P("操作类型：getPackageJson、addDependency、updateDependency、removeDependency、setScript、removeScript、installDependencies")
+            @P("操作类型：getPackageJson、addDependency、updateDependency、removeDependency、setScript、removeScript、installDependencies（仅移交构建阶段）")
             String action,
             @P("依赖名称；依赖操作时必填")
             String packageName,
@@ -59,7 +50,7 @@ public class PackageManagerTool extends BaseTool {
             String scriptName,
             @P("脚本命令；setScript 时必填")
             String scriptCommand,
-            @P("执行 package.json 修改后是否立即运行 pnpm install，同步 lock 文件")
+            @P("是否请求构建校验阶段同步安装依赖和 lock 文件")
             Boolean runInstall,
             @P("依赖新增、更新或删除原因；依赖变更时必填")
             String reason,
@@ -69,25 +60,24 @@ public class PackageManagerTool extends BaseTool {
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory =
                     workspaceFileService.resolveDirectory(appId, null);
             ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile =
-                    workspaceFileService.resolveFile(projectDirectory, "package.json");
+                    resolvePackageJsonFile(projectDirectory);
             if (!workspaceFileService.isRegularFile(packageJsonFile)) {
                 return "错误：package.json 不存在";
             }
-            Path packageJsonPath = packageJsonFile.absolutePath();
             JSONObject packageJson = JSONUtil.parseObj(workspaceFileService.readUtf8(packageJsonFile));
             String normalizedAction = StrUtil.blankToDefault(action, "getPackageJson");
             return switch (normalizedAction) {
                 case "getPackageJson" -> JSONUtil.toJsonPrettyStr(packageJson);
                 case "addDependency", "updateDependency" ->
-                handleUpsertDependency(appId, packageJsonPath, packageJson, normalizedAction, packageName, version,
+                handleUpsertDependency(appId, packageJsonFile, packageJson, normalizedAction, packageName, version,
                                 dependencyType, runInstall, reason);
                 case "removeDependency" ->
-                        handleRemoveDependency(appId, packageJsonPath, packageJson, packageName, dependencyType, runInstall);
+                        handleRemoveDependency(appId, packageJsonFile, packageJson, packageName, dependencyType, runInstall);
                 case "setScript" ->
-                        handleSetScript(appId, packageJsonPath, packageJson, scriptName, scriptCommand, runInstall);
+                        handleSetScript(appId, packageJsonFile, packageJson, scriptName, scriptCommand, runInstall);
                 case "removeScript" ->
-                        handleRemoveScript(appId, packageJsonPath, packageJson, scriptName, runInstall);
-                case "installDependencies" -> runInstall(appId, packageJsonPath.getParent(), "installDependencies");
+                        handleRemoveScript(appId, packageJsonFile, packageJson, scriptName, runInstall);
+                case "installDependencies" -> deferredInstallMessage();
                 default -> "错误：不支持的操作类型 - " + normalizedAction;
             };
         } catch (ToolInputException e) {
@@ -98,7 +88,22 @@ public class PackageManagerTool extends BaseTool {
         }
     }
 
-    private String handleUpsertDependency(Long appId, Path packageJsonPath, JSONObject packageJson, String action, String packageName,
+    private ToolWorkspaceFileService.ToolWorkspaceFile resolvePackageJsonFile(
+            ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory
+    ) {
+        ToolWorkspaceFileService.ToolWorkspaceFile rootPackage =
+                workspaceFileService.resolveFile(projectDirectory, "package.json");
+        if (workspaceFileService.isRegularFile(rootPackage)) {
+            return rootPackage;
+        }
+        return workspaceFileService.resolveFile(projectDirectory, "frontend/package.json");
+    }
+
+    private String handleUpsertDependency(Long appId,
+                                          ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
+                                          JSONObject packageJson,
+                                          String action,
+                                          String packageName,
                                           String version, String dependencyType, Boolean runInstall, String reason) {
         DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateAddOrUpdate(
                 packageName, version, dependencyType, reason
@@ -114,7 +119,7 @@ public class PackageManagerTool extends BaseTool {
         }
         String oldVersion = section.getStr(packageName);
         section.set(packageName, version);
-        String writeError = writePackageJson(appId, packageJsonPath, packageJson, action);
+        String writeError = writePackageJson(appId, packageJsonFile, packageJson, action);
         if (writeError != null) {
             return writeError;
         }
@@ -137,11 +142,14 @@ public class PackageManagerTool extends BaseTool {
         if (StrUtil.isNotBlank(oldVersion)) {
             builder.append("（旧版本: ").append(oldVersion).append("）");
         }
-        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, action);
+        appendDeferredInstallIfRequested(builder, runInstall);
         return builder.toString();
     }
 
-    private String handleRemoveDependency(Long appId, Path packageJsonPath, JSONObject packageJson, String packageName,
+    private String handleRemoveDependency(Long appId,
+                                          ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
+                                          JSONObject packageJson,
+                                          String packageName,
                                           String dependencyType, Boolean runInstall) {
         DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateRemove(packageName, dependencyType);
         if (!decision.allowed()) {
@@ -153,16 +161,20 @@ public class PackageManagerTool extends BaseTool {
             return "提示：在 " + sectionName + " 中未找到依赖 - " + packageName;
         }
         section.remove(packageName);
-        String writeError = writePackageJson(appId, packageJsonPath, packageJson, "removeDependency");
+        String writeError = writePackageJson(appId, packageJsonFile, packageJson, "removeDependency");
         if (writeError != null) {
             return writeError;
         }
         StringBuilder builder = new StringBuilder("已删除依赖: " + packageName + "（" + sectionName + "）");
-        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, "removeDependency");
+        appendDeferredInstallIfRequested(builder, runInstall);
         return builder.toString();
     }
 
-    private String handleSetScript(Long appId, Path packageJsonPath, JSONObject packageJson, String scriptName, String scriptCommand,
+    private String handleSetScript(Long appId,
+                                   ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
+                                   JSONObject packageJson,
+                                   String scriptName,
+                                   String scriptCommand,
                                    Boolean runInstall) {
         DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateScript(scriptName, scriptCommand);
         if (!decision.allowed()) {
@@ -175,7 +187,7 @@ public class PackageManagerTool extends BaseTool {
         }
         String oldCommand = scripts.getStr(scriptName);
         scripts.set(scriptName, scriptCommand);
-        String writeError = writePackageJson(appId, packageJsonPath, packageJson, "setScript");
+        String writeError = writePackageJson(appId, packageJsonFile, packageJson, "setScript");
         if (writeError != null) {
             return writeError;
         }
@@ -184,11 +196,15 @@ public class PackageManagerTool extends BaseTool {
         if (StrUtil.isNotBlank(oldCommand)) {
             builder.append("（旧命令: ").append(oldCommand).append("）");
         }
-        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, "setScript");
+        appendDeferredInstallIfRequested(builder, runInstall);
         return builder.toString();
     }
 
-    private String handleRemoveScript(Long appId, Path packageJsonPath, JSONObject packageJson, String scriptName, Boolean runInstall) {
+    private String handleRemoveScript(Long appId,
+                                      ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
+                                      JSONObject packageJson,
+                                      String scriptName,
+                                      Boolean runInstall) {
         if (StrUtil.isBlank(scriptName)) {
             return "错误：脚本名称不能为空";
         }
@@ -197,61 +213,35 @@ public class PackageManagerTool extends BaseTool {
             return "提示：未找到脚本 - " + scriptName;
         }
         scripts.remove(scriptName);
-        String writeError = writePackageJson(appId, packageJsonPath, packageJson, "removeScript");
+        String writeError = writePackageJson(appId, packageJsonFile, packageJson, "removeScript");
         if (writeError != null) {
             return writeError;
         }
         StringBuilder builder = new StringBuilder("已删除脚本: " + scriptName);
-        appendInstallResultIfNeeded(appId, builder, packageJsonPath.getParent(), runInstall, "removeScript");
+        appendDeferredInstallIfRequested(builder, runInstall);
         return builder.toString();
     }
 
-    private void appendInstallResultIfNeeded(Long appId,
-                                             StringBuilder builder,
-                                             Path projectDir,
-                                             Boolean runInstall,
-                                             String actionSource) {
+    private void appendDeferredInstallIfRequested(StringBuilder builder, Boolean runInstall) {
         if (!Boolean.TRUE.equals(runInstall)) {
             return;
         }
-        builder.append("\n\n").append(runInstall(appId, projectDir, actionSource));
+        builder.append("\n\n").append(deferredInstallMessage());
     }
 
-    private String runInstall(Long appId, Path projectDir, String actionSource) {
-        DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateInstall(actionSource);
-        if (!decision.allowed()) {
-            return "[pnpm install]\n依赖策略拒绝: " + decision.reason();
-        }
-        DependencyInstallResult result = projectDependencyInstaller.ensureInstalled(
-                projectDir,
-                workspaceFileService.requireTaskId(appId),
-                DependencyInstallMode.UPDATE_LOCKFILE
-        );
-        return formatInstallResult(decision, result);
+    private String deferredInstallMessage() {
+        return "依赖安装已移交构建校验流水线，代码生成回合不重复执行 pnpm install";
     }
 
-    private String formatInstallResult(
-            DependencyPolicyService.PolicyDecision decision,
-            DependencyInstallResult result
-    ) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("[pnpm install]\n")
-                .append("policy: ").append(decision.reason()).append('\n')
-                .append("结果: ").append(result.success() ? "成功" : "失败").append('\n')
-                .append("状态: ").append(result.status()).append('\n');
-        if (!result.success()) {
-            builder.append("异常: ").append(result.errorDetail()).append('\n');
-        }
-        builder.append("日志:\n")
-                .append(StrUtil.isBlank(result.output()) ? "(无输出)" : result.output().trim());
-        return PublicDiagnosticSanitizer.sanitizeForPublicOutput(builder.toString());
-    }
-
-    private String writePackageJson(Long appId, Path packageJsonPath, JSONObject packageJson, String reason) {
+    private String writePackageJson(Long appId,
+                                    ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
+                                    JSONObject packageJson,
+                                    String reason) {
         PatchApplyResult result = toolExecutionGateway.applyPatch(
                 appId,
-                packageJsonPath.getParent(),
-                PatchOperation.modify("package.json", JSONUtil.toJsonPrettyStr(packageJson)),
+                packageJsonFile.projectRoot(),
+                PatchOperation.modify(
+                        packageJsonFile.relativePath(), JSONUtil.toJsonPrettyStr(packageJson)),
                 "tool-package-json",
                 reason
         );
@@ -263,7 +253,12 @@ public class PackageManagerTool extends BaseTool {
 
     @Override
     public ToolRiskLevel getRiskLevel() {
-        return ToolRiskLevel.EXTERNAL_SIDE_EFFECT;
+        return ToolRiskLevel.WRITE;
+    }
+
+    @Override
+    public boolean canMutateWorkspace() {
+        return true;
     }
 
     @Override

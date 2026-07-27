@@ -11,12 +11,16 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
+/**
+ * 生成记忆事务发件箱配置属性。
+ */
 @Data
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.memory.outbox")
 public class GenerationMemoryOutboxProperties {
 
+    /** 是否启用。 */
     private boolean enabled = true;
 
     @NotNull
@@ -26,6 +30,7 @@ public class GenerationMemoryOutboxProperties {
     @Max(500)
     private int batchSize = 50;
 
+    /** 最大尝试次数。 */
     @Min(1)
     @Max(100)
     private int maxAttempts = 10;

@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Keeps generation orchestration operational when distributed tracing is explicitly disabled. */
+/** 当明确禁用分布式跟踪时，保持生成编排的运行。 */
 @Configuration(proxyBeanMethods = false)
 public class GenerationTracingConfiguration {
 

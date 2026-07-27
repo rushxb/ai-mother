@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.config.DevServerInternalRoutingProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -23,7 +24,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-/** HMAC-authenticates node-to-node Preview proxy hops and rejects bounded replay attempts. */
+/** HMAC 对节点到节点预览代理跃点进行身份验证并拒绝有界重播尝试。 */
 @Component
 public class DevServerInternalRequestSigner {
 
@@ -47,6 +48,7 @@ public class DevServerInternalRequestSigner {
     private final Supplier<String> nonceSupplier;
     private final Cache<String, Boolean> consumedNonces;
 
+    @Autowired
     public DevServerInternalRequestSigner(
             DevServerInternalRoutingProperties properties,
             DevServerNodeIdentityProvider identityProvider

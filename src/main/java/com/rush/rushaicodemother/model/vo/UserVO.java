@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 public class UserVO implements Serializable {
 
     /**
-     * id
+     * 编号
      */
     private Long id;
     

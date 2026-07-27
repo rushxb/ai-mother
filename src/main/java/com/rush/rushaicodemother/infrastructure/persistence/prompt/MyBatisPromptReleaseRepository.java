@@ -24,6 +24,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+/**
+ * MyBatis提示词发布持久化仓储。
+ */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {

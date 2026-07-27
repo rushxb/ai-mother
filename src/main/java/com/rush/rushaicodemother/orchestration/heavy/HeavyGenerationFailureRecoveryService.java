@@ -41,7 +41,7 @@ public class HeavyGenerationFailureRecoveryService {
         this.generationRollbackRestoreService = generationRollbackRestoreService;
     }
 
-    /** Compatibility constructor for focused tests and callers compiled against the legacy shape. */
+    /** 针对遗留形状编译的重点测试和调用者的兼容性构造函数。 */
     public HeavyGenerationFailureRecoveryService(
             GenerationAppStateService generationAppStateService,
             GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector,
@@ -120,9 +120,9 @@ public class HeavyGenerationFailureRecoveryService {
         if (session.isCancelled() || preparation.artifact("rollback_restore") != null) {
             return;
         }
-        // An isolated execution epoch has not mutated the published workspace. Restoring an old
-        // snapshot by appId alone would reintroduce the very TOCTOU race the epoch workspace avoids.
-        // The failed epoch is retained for diagnostics and later janitor reclamation instead.
+        // 孤立的执行纪元并未改变已发布的工作空间。恢复旧的
+        // 仅通过 appId 进行快照就会重新引入 epoch 工作区所避免的 TOCTOU 竞赛。
+        // 失败的纪元将被保留用于诊断和稍后的管理员回收。
         if (session.executionWorkspace() != null) {
             return;
         }
@@ -148,9 +148,9 @@ public class HeavyGenerationFailureRecoveryService {
         }
         generationAppStateService.updateOwnedCodeGenType(
                 appId, preparation.taskId(), preparation.originalType());
-        // Failed epochs remain private execution workspaces and are reclaimed by the janitor.
-        // Deleting a path re-resolved from appId + type could remove a newer published version
-        // after lease takeover, so failure recovery deliberately performs no direct filesystem delete.
+        // 失败的纪元仍然是私有执行工作区，并由管理员回收。
+        // 删除从 appId + type 重新解析的路径可能会删除较新的已发布版本
+        // 租约接管后，因此故障恢复故意不执行直接文件系统删除。
     }
 
     public Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,

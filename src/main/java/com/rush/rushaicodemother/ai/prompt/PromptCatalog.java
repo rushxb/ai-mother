@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.ai.prompt;
 
 import java.util.Optional;
 
-/** Runtime port for immutable prompt versions and deterministic release selection. */
+/** 用于不可变提示版本和确定性版本选择的运行时端口。 */
 public interface PromptCatalog {
 
     Optional<PromptSelection> select(PromptRolloutSubject subject);

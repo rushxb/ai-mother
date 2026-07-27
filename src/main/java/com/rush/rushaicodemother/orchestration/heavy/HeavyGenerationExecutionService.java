@@ -21,6 +21,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine;
@@ -40,15 +41,18 @@ import reactor.core.publisher.Flux;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 
+/**
+ * 重型生成执行服务实现。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class HeavyGenerationExecutionService {
 
-    private static final int MAX_GENERATION_SNAPSHOT_CHARS = 20000;
-    private static final long GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS = 1000;
     private static final int MAX_REPAIR_DIAGNOSTIC_CHARS = 8_000;
 
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
@@ -63,6 +67,7 @@ public class HeavyGenerationExecutionService {
     private final StreamHandlerExecutor streamHandlerExecutor;
     private final AiToolContinuationEngine toolContinuationEngine;
     private final GenerationStageAdmissionService generationStageAdmissionService;
+    private final GenerationRuntimeProperties generationRuntimeProperties;
 
     public void runGenerationWithAutoRepair(Long appId,
                                             User loginUser,
@@ -79,7 +84,11 @@ public class HeavyGenerationExecutionService {
         ) && preparation.requiresBuildValidation() ? session.remainingBudget(GenerationBudgetKind.REPAIR_ROUND) : 0;
 
         boolean isFirstGeneration = AppConstant.GENERATING_STAGE_CREATE.equals(preparation.generatingStage());
-        boolean isComplex = isComplexPrompt(currentPrompt);
+        Optional<Boolean> plannedComplexity = preparation.plannedComplexity();
+        boolean isComplex = plannedComplexity.orElse(true);
+        String complexitySource = plannedComplexity.isPresent()
+                ? "planner_artifact"
+                : "conservative_fallback";
         GenerationPerformanceProfile profile = generationPerformanceSelector.select(
                 isFirstGeneration, isComplex, preparation.targetType());
 
@@ -104,16 +113,18 @@ public class HeavyGenerationExecutionService {
                 )));
                 profile = GenerationPerformanceProfile.qualityFirst();
             }
-            session.emit(GenerationStreamEvent.agentEvent("", Map.of(
-                    "agent", "ReasoningPolicy",
-                    "stage", "reasoning",
-                    "status", "selected",
-                    "summary", "Reasoning policy selected without exposing private chain-of-thought",
-                    "thinkingMode", profile.thinkingMode().name().toLowerCase(),
-                    "modelTier", profile.modelTier().name().toLowerCase(),
-                    "thinkingEnabled", profile.thinkingEnabled(),
-                    "repairRound", round,
-                    "taskId", preparation.taskId()
+            session.emit(GenerationStreamEvent.agentEvent("", Map.ofEntries(
+                    Map.entry("agent", "ReasoningPolicy"),
+                    Map.entry("stage", "reasoning"),
+                    Map.entry("status", "selected"),
+                    Map.entry("summary", "已选择推理策略，不展示模型私有思维链"),
+                    Map.entry("thinkingMode", profile.thinkingMode().name().toLowerCase()),
+                    Map.entry("modelTier", profile.modelTier().name().toLowerCase()),
+                    Map.entry("thinkingEnabled", profile.thinkingEnabled()),
+                    Map.entry("complexRequest", isComplex),
+                    Map.entry("complexitySource", complexitySource),
+                    Map.entry("repairRound", round),
+                    Map.entry("taskId", preparation.taskId())
             )));
             try {
                 executeGenerationRound(appId, loginUser, preparation.targetType(), currentPrompt,
@@ -186,10 +197,10 @@ public class HeavyGenerationExecutionService {
                 .takeUntilOther(session.cancelSignal())
                 .doOnNext(event -> {
                     session.throwIfCancelled();
+                    session.emit(event);
                     appendGenerationSnapshotChunk(generatedContent, event.getText());
                     updateGenerationSnapshotIfDue(
                             appId, session, generatedContent, lastSnapshotUpdateAt);
-                    session.emit(event);
                 })
                 .doOnComplete(session::throwIfCancelled)
                 .blockLast();
@@ -215,10 +226,10 @@ public class HeavyGenerationExecutionService {
                 .takeUntilOther(session.cancelSignal())
                 .doOnNext(event -> {
                     session.throwIfCancelled();
+                    session.emit(event);
                     appendGenerationSnapshotChunk(generatedContent, event.getText());
                     updateGenerationSnapshotIfDue(
                             appId, session, generatedContent, lastSnapshotUpdateAt);
-                    session.emit(event);
                 })
                 .doOnComplete(session::throwIfCancelled)
                 .blockLast();
@@ -266,18 +277,6 @@ public class HeavyGenerationExecutionService {
                 4. 不要主动启动构建或 Dev Server 长时进程；完成必要修改后，编排器会统一执行构建与运行时复验。
                 """.formatted(memorySection, repairRound,
                 generationError.category(), generationError.message(), publicDiagnostic);
-    }
-
-    private boolean isComplexPrompt(String prompt) {
-        if (StrUtil.isBlank(prompt)) {
-            return false;
-        }
-        String normalized = prompt.toLowerCase();
-        return normalized.contains("vue") || normalized.contains("组件") || normalized.contains("路由")
-                || normalized.contains("模块") || normalized.contains("后台") || normalized.contains("管理系统")
-                || normalized.contains("登录") || normalized.contains("注册") || normalized.contains("api")
-                || normalized.contains("接口") || normalized.contains("状态管理") || normalized.contains("多页面")
-                || normalized.contains("工作台") || normalized.contains("dashboard") || normalized.contains("crud");
     }
 
     private void verifyGeneratedProjectReady(Long appId,
@@ -329,15 +328,30 @@ public class HeavyGenerationExecutionService {
                                                StringBuilder generatedContent,
                                                long[] lastSnapshotUpdateAt) {
         long now = System.currentTimeMillis();
-        if (now - lastSnapshotUpdateAt[0] < GENERATION_SNAPSHOT_UPDATE_INTERVAL_MILLIS) {
+        if (lastSnapshotUpdateAt[0] == 0L) {
+            lastSnapshotUpdateAt[0] = now;
+            return;
+        }
+        long elapsedMillis = now - lastSnapshotUpdateAt[0];
+        if (elapsedMillis >= 0L
+                && elapsedMillis < generationRuntimeProperties.getStreamSnapshotUpdateInterval().toMillis()) {
             return;
         }
         if (session == null || session.preparation() == null) {
             throw new IllegalStateException("heavy generation session preparation is required");
         }
-        lastSnapshotUpdateAt[0] = now;
-        generationAppStateService.updateOwnedGenerationSnapshot(
-                appId, session.preparation().taskId(), generatedContent.toString());
+        long startedAtNanos = System.nanoTime();
+        try {
+            generationAppStateService.updateOwnedGenerationSnapshot(
+                    appId, session.preparation().taskId(), generatedContent.toString());
+            lastSnapshotUpdateAt[0] = now;
+            generationOrchestrationMetricsCollector.recordStreamSnapshotWrite(
+                    "persisted", elapsedSince(startedAtNanos));
+        } catch (RuntimeException failure) {
+            generationOrchestrationMetricsCollector.recordStreamSnapshotWrite(
+                    "failed", elapsedSince(startedAtNanos));
+            throw failure;
+        }
     }
 
     private void appendGenerationSnapshotChunk(StringBuilder generatedContent, String chunk) {
@@ -345,10 +359,14 @@ public class HeavyGenerationExecutionService {
             return;
         }
         generatedContent.append(chunk);
-        int overflowChars = generatedContent.length() - MAX_GENERATION_SNAPSHOT_CHARS;
+        int overflowChars = generatedContent.length() - generationRuntimeProperties.getStreamSnapshotMaxChars();
         if (overflowChars > 0) {
             generatedContent.delete(0, overflowChars);
         }
+    }
+
+    private Duration elapsedSince(long startedAtNanos) {
+        return Duration.ofNanos(Math.max(0L, System.nanoTime() - startedAtNanos));
     }
 
     private String orchestrationMode(GenerationPreparation preparation) {

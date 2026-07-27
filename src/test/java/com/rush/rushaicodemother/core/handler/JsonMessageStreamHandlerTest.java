@@ -156,6 +156,40 @@ class JsonMessageStreamHandlerTest {
     }
 
     @Test
+    void batchWriteEventMustExposeOnlyBoundedFileMetadata() {
+        String secret = "batch-source-secret-do-not-publish";
+        ToolManager toolManager = mock(ToolManager.class);
+        BaseTool tool = mock(BaseTool.class);
+        when(toolManager.getTool("writeFiles")).thenReturn(tool);
+        when(tool.getRiskLevel()).thenReturn(ToolRiskLevel.WRITE);
+        when(tool.generateToolRequestResponse()).thenReturn("write batch");
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler(toolManager);
+        User loginUser = new User();
+        loginUser.setId(1L);
+
+        GenerationStreamEvent event = handler.handle(
+                        Flux.just(GenerationStreamEvent.toolCall("", Map.of(
+                                "toolName", "writeFiles",
+                                "arguments", "{\"files\":["
+                                        + "{\"relativeFilePath\":\"src/App.vue\",\"content\":\"" + secret + "\"},"
+                                        + "{\"relativeFilePath\":\"src/main.js\",\"content\":\"main\"}]}",
+                                "requestId", "batch-1",
+                                "toolIndex", 0
+                        ))),
+                        mock(ChatHistoryService.class),
+                        1L,
+                        loginUser
+                )
+                .blockFirst();
+
+        assertEquals(2, event.getData().get("fileCount"));
+        assertEquals(List.of("src/App.vue", "src/main.js"), event.getData().get("filePaths"));
+        assertFalse(event.getData().containsKey("content"));
+        assertFalse(event.getData().containsKey("arguments"));
+        assertFalse(String.valueOf(event.getData()).contains(secret));
+    }
+
+    @Test
     void toolResultMustNotPersistRawArgumentsResultsOrSecretsInHistory() {
         String secret = "history-secret-do-not-store";
         ToolManager toolManager = mock(ToolManager.class);

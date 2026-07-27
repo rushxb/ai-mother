@@ -19,7 +19,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-/** Applies lightweight-edit patches and owns the single rejection-driven model retry. */
+/** 应用轻量级编辑补丁并拥有单一拒绝驱动模型重试。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor

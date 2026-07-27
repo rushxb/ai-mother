@@ -4,6 +4,8 @@ import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.config.TemplateMaterializationProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceExecutionScope;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationCatalog;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -18,12 +20,13 @@ class TemplateBootstrapConsumerBeanWiringTest {
             context.register(
                     CodeStorageProperties.class,
                     WorkspaceFileSystemProperties.class,
-                    TemplateMaterializationProperties.class,
-                    WorkspaceFileSystemService.class,
-                    GenerationWorkspaceService.class,
+                     TemplateMaterializationProperties.class,
+                     WorkspaceFileSystemService.class,
+                     GenerationWorkspaceExecutionScope.class,
+                     GenerationWorkspacePublicationCatalog.class,
+                     GenerationWorkspaceService.class,
                     ProjectTemplateCatalog.class,
                     ProjectTemplateMaterializer.class,
-                    TemplatePreWarmService.class,
                     ProjectTemplateBootstrapper.class,
                     VueProjectTemplateBootstrapService.class,
                     BackendProjectTemplateBootstrapService.class
@@ -33,7 +36,6 @@ class TemplateBootstrapConsumerBeanWiringTest {
 
             assertNotNull(context.getBean(ProjectTemplateCatalog.class));
             assertNotNull(context.getBean(ProjectTemplateMaterializer.class));
-            assertNotNull(context.getBean(TemplatePreWarmService.class));
             assertNotNull(context.getBean(ProjectTemplateBootstrapper.class));
             assertNotNull(context.getBean(VueProjectTemplateBootstrapService.class));
             assertNotNull(context.getBean(BackendProjectTemplateBootstrapService.class));

@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** Cluster-wide user admission policy that prevents one account from monopolizing durable work. */
+/** 集群范围的用户准入策略，防止一个帐户垄断持久工作。 */
 @Component
 @RequiredArgsConstructor
 public class GenerationTaskConcurrencyAdmissionPolicy {

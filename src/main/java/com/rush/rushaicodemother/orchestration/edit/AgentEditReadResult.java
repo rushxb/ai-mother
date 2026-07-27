@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.orchestration.edit;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 智能体编辑Read执行结果。
+ */
 public record AgentEditReadResult(
         String intent,
         List<EditFileCandidate> candidateFiles,

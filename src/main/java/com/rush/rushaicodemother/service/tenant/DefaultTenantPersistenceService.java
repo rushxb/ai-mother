@@ -15,6 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
+/**
+ * 租户持久化服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class DefaultTenantPersistenceService implements TenantPersistenceService {

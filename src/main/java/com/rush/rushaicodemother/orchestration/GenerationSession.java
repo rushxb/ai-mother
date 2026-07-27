@@ -76,7 +76,7 @@ public final class GenerationSession {
         return preparationRef.get();
     }
 
-    /** Binds preparation once it becomes available after asynchronous task submission. */
+    /** 异步任务提交后，一旦准备变得可用，就将其绑定。 */
     public void bindPreparation(GenerationPreparation preparation) {
         if (preparation == null) {
             throw new IllegalArgumentException("generation preparation cannot be null");
@@ -103,7 +103,7 @@ public final class GenerationSession {
         return executionContext;
     }
 
-    /** Binds the writable workspace for the current durable execution epoch. */
+    /** 绑定当前持久执行时期的可写工作空间。 */
     public void bindExecutionWorkspace(GenerationExecutionWorkspace executionWorkspace) {
         if (executionWorkspace == null || taskId() == null
                 || !taskId().equals(executionWorkspace.taskId())) {
@@ -129,7 +129,7 @@ public final class GenerationSession {
         return executionWorkspaceRef.get();
     }
 
-    /** Records the currently selected route; fallback may update it while preserving task identity. */
+    /** 记录当前选择的路线；回退可以在保留任务标识的同时更新它。 */
     public void recordRoute(String route) {
         if (route == null || route.isBlank()) {
             throw new IllegalArgumentException("generation route cannot be blank");
@@ -145,7 +145,7 @@ public final class GenerationSession {
         return routeRef.get();
     }
 
-    /** Binds immutable request metadata required to publish a terminal task event from any completion path. */
+    /** 绑定从任何完成路径发布终端任务事件所需的不可变请求元数据。 */
     public void bindTaskRequest(GenerationTaskRequest taskRequest) {
         if (taskRequest == null) {
             return;
@@ -171,7 +171,7 @@ public final class GenerationSession {
     }
 
     /**
-     * Claims terminalization for exactly one caller while still allowing it to emit the final stream event.
+     * 声明恰好一个调用者终止，同时仍然允许它发出最终的流事件。
      */
     public boolean tryBeginCompletion() {
         return completionStarted.compareAndSet(false, true);
@@ -229,7 +229,7 @@ public final class GenerationSession {
         cancel("user_requested");
     }
 
-    /** Cancels the session while preserving the first authoritative cancellation reason. */
+    /** 取消会话，同时保留第一个权威取消原因。 */
     public void cancel(String reason) {
         String normalizedReason = reason == null || reason.isBlank() ? "cancelled" : reason.trim();
         if (executionContext != null) {
@@ -260,8 +260,8 @@ public final class GenerationSession {
     }
 
     /**
-     * Reserves one unit from the task-wide budget when this session is runtime-managed.
-     * Legacy sessions without an execution context remain supported for isolated tests and old routes.
+     * 当此会话由运行时管理时，从任务范围预算中保留一个单位。
+     * 没有执行上下文的旧会话仍然支持隔离测试和旧路由。
      */
     public int consumeBudget(GenerationBudgetKind kind) {
         return executionContext == null ? 0 : executionContext.consume(kind);
@@ -271,7 +271,7 @@ public final class GenerationSession {
         return executionContext != null && executionContext.hasRemainingBudget(kind);
     }
 
-    /** Returns the immutable task-level limit; unmanaged legacy sessions expose no automatic-repair budget. */
+    /** 返回不可变的任务级别限制；非托管遗留会话不公开任何自动修复预算。 */
     public int budgetLimit(GenerationBudgetKind kind) {
         return executionContext == null ? 0 : executionContext.limit(kind);
     }

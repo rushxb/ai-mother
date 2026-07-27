@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Repairs terminal tasks whose idempotent credit settlement was interrupted after task completion. */
+/** 修复任务完成后幂等信用结算中断的终端任务。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor

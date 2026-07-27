@@ -53,6 +53,22 @@ class GenerationPreviewMilestoneServiceTest {
                 "create", "first_preview", "met", "within_deadline");
     }
 
+    @Test
+    void publishesBackendBuildArtifactMilestoneWithoutClaimingRuntimeReadiness() {
+        GenerationPreviewMilestoneService service = new GenerationPreviewMilestoneService(
+                mock(GenerationPerformanceMonitorService.class),
+                mock(GenerationOrchestrationMetricsCollector.class),
+                mock(GenerationEventPublisher.class)
+        );
+        GenerationSession session = session();
+
+        assertTrue(service.publishBuildReady(session, CodeGenTypeEnum.BACKEND_PROJECT));
+
+        GenerationStreamEvent event = session.asFlux().blockFirst(Duration.ofSeconds(1));
+        assertEquals("build", event.getData().get("previewLevel"));
+        assertEquals("首个可用构建产物已就绪", event.getText());
+    }
+
     private GenerationSession session() {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {

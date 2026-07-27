@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.orchestration.runtime.execution;
 
 /**
- * Base exception for a generation task that cannot continue because its execution policy was exhausted.
+ * 由于执行策略已用尽而无法继续的生成任务的基本异常。
  */
 public class GenerationExecutionPolicyException extends RuntimeException {
 

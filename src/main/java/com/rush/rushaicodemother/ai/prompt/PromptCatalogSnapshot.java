@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.ai.prompt;
 
 import java.util.Map;
 
-/** Immutable release bundle attached to benchmarks and model provenance. */
+/** 附加到基准和模型来源的不可变发行包。 */
 public record PromptCatalogSnapshot(
         String bundleId,
         Map<String, PromptRelease> releases

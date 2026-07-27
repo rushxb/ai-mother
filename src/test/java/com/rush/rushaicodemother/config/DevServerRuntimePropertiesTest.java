@@ -37,6 +37,15 @@ class DevServerRuntimePropertiesTest {
     }
 
     @Test
+    void shouldRejectCriticalDrainWindowLongerThanFullCollectionWindow() {
+        DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
+        properties.setValidationErrorCollectionWindow(Duration.ofMillis(100));
+        properties.setValidationCriticalErrorDrainWindow(Duration.ofMillis(101));
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
     void shouldRejectHeartbeatThatCannotRenewBeforeLeaseExpiration() {
         DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
         properties.setLeaseDuration(Duration.ofSeconds(10));

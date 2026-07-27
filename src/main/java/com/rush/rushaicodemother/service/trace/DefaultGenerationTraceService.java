@@ -77,11 +77,22 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
     @Override
     @Transactional
     public void startTask(GenerationTaskStartCommand command) {
+        startTask(command, false);
+    }
+
+    @Override
+    @Transactional
+    public GenerationTaskTraceStartResult startOrTransitionTask(GenerationTaskStartCommand command) {
+        return startTask(command, true);
+    }
+
+    private GenerationTaskTraceStartResult startTask(GenerationTaskStartCommand command,
+                                                      boolean allowRunningTransition) {
         NewTask task = normalizeStartCommand(command);
         if (persistenceService.insertTask(task)) {
             log.info("生成任务 trace 已创建，taskId: {}, appId: {}, userId: {}, targetType: {}, orchestrationMode: {}",
                     task.taskId(), task.appId(), task.userId(), task.targetCodeGenType(), task.orchestrationMode());
-            return;
+            return GenerationTaskTraceStartResult.STARTED;
         }
         TaskRecord existing = persistenceService.findTaskByTaskId(task.taskId());
         if (existing == null) {
@@ -93,13 +104,28 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             }
             if (persistenceService.enrichRuntimeTaskTrace(
                     existing.recordId(), task, executionFence(task.taskId()), LocalDateTime.now(clock))) {
-                return;
+                return GenerationTaskTraceStartResult.STARTED;
             }
             existing = persistenceService.findTaskByTaskId(task.taskId());
         }
-        if (existing == null || !sameTaskPayload(existing, task)) {
-            throw operationFailed("生成任务 ID 已被不同请求占用，taskId=" + task.taskId());
+        if (existing != null && sameTaskPayload(existing, task)) {
+            return GenerationTaskTraceStartResult.REUSED;
         }
+        if (!allowRunningTransition) {
+            throw taskIdentityConflict(task.taskId());
+        }
+        TaskRecord locked = persistenceService.lockTaskByTaskId(task.taskId());
+        if (locked != null && sameTaskPayload(locked, task)) {
+            return GenerationTaskTraceStartResult.REUSED;
+        }
+        if (!canTransitionRunningTask(locked, task)) {
+            throw taskIdentityConflict(task.taskId());
+        }
+        persistenceService.transitionRunningTaskTrace(
+                locked.recordId(), task, executionFence(task.taskId()), LocalDateTime.now(clock));
+        log.info("生成任务 trace 路由已迁移，taskId: {}, orchestrationMode: {}, targetType: {}",
+                task.taskId(), task.orchestrationMode(), task.targetCodeGenType());
+        return GenerationTaskTraceStartResult.TRANSITIONED;
     }
 
     @Override
@@ -371,6 +397,17 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 && existing.requiresBuildValidation() == requested.requiresBuildValidation()
                 && Objects.equals(existing.qualityGate(), requested.qualityGate())
                 && Objects.equals(existing.orchestrationMode(), requested.orchestrationMode());
+    }
+
+    private boolean canTransitionRunningTask(TaskRecord existing, NewTask requested) {
+        return existing != null
+                && existing.status() == GenerationTaskStatus.RUNNING
+                && sameTaskIdentity(existing, requested)
+                && Objects.equals(existing.userPrompt(), requested.userPrompt());
+    }
+
+    private BusinessException taskIdentityConflict(String taskId) {
+        return operationFailed("生成任务 ID 已被不同请求占用或当前状态不允许迁移，taskId=" + taskId);
     }
 
     private boolean sameModelCallPayload(ModelCallRecord existing, NewModelCall requested) {

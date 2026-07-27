@@ -10,7 +10,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
-/** Validates transport idempotency keys and derives stable, non-reversible submission hashes. */
+/** 验证传输幂等性密钥并派生稳定的、不可逆的提交哈希值。 */
 @Component
 public class GenerationTaskIdempotencyService {
 

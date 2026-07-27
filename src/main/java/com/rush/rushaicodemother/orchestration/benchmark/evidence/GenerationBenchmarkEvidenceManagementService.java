@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReleaseAssessment;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReleaseGate;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReport;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReportValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -16,7 +17,7 @@ import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Verifies and stores signed immutable evidence without running a long benchmark in a release request. */
+/** 验签并存储不可变证据，发布请求本身不执行耗时 Benchmark。 */
 @Service
 @RequiredArgsConstructor
 public class GenerationBenchmarkEvidenceManagementService {
@@ -27,21 +28,26 @@ public class GenerationBenchmarkEvidenceManagementService {
     private final GenerationBenchmarkEvidenceCodec codec;
     private final GenerationBenchmarkEvidenceSignatureService signatureService;
     private final GenerationBenchmarkDatasetFingerprintService datasetFingerprintService;
+    private final GenerationBenchmarkReportValidator reportValidator;
     private final GenerationBenchmarkReleaseGate releaseGate;
+    private final GenerationBenchmarkEvidenceProvenanceValidator provenanceValidator;
     private final GenerationBenchmarkEvidenceProperties properties;
     private final Clock clock = Clock.systemUTC();
 
     public GenerationBenchmarkEvidenceRecord ingest(GenerationBenchmarkEvidenceSubmission submission) {
         if (submission == null || submission.subjectType() == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Benchmark evidence is incomplete");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Benchmark 证据不完整");
         }
         String reportJson = requireReport(submission.reportJson());
         GenerationBenchmarkEvidencePayload payload = payload(submission, codec.reportSha256(reportJson));
+        requireCurrentExecutionAttestation(payload);
         validateEnvironmentAndTime(payload, clock.instant());
         if (!signatureService.verify(payload, submission.signature())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "Benchmark evidence signature is invalid");
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "Benchmark 证据签名无效");
         }
         GenerationBenchmarkReport report = codec.parseReport(reportJson);
+        reportValidator.validate(report);
+        provenanceValidator.validate(payload, report);
         GenerationBenchmarkReleaseAssessment assessment = releaseGate.assess(report);
         GenerationBenchmarkEvidenceRecord evidence = new GenerationBenchmarkEvidenceRecord(
                 UUID.randomUUID().toString(),
@@ -60,15 +66,17 @@ public class GenerationBenchmarkEvidenceManagementService {
         String normalized = requireEvidenceId(evidenceId);
         return repository.findByEvidenceId(normalized)
                 .orElseThrow(() -> new BusinessException(
-                        ErrorCode.NOT_FOUND_ERROR, "Benchmark evidence does not exist"));
+                        ErrorCode.NOT_FOUND_ERROR, "Benchmark 证据不存在"));
     }
 
     private GenerationBenchmarkEvidencePayload payload(GenerationBenchmarkEvidenceSubmission submission,
                                                        String reportSha256) {
         return new GenerationBenchmarkEvidencePayload(
+                submission.signatureVersion(),
                 submission.subjectType(),
                 requireText(submission.subjectKey(), 128, "subjectKey"),
                 requireSha256(submission.candidateFingerprint(), "candidateFingerprint"),
+                submission.candidatePhysicalRequestCount(),
                 requireSha256(submission.datasetFingerprint(), "datasetFingerprint"),
                 requireText(submission.graderFingerprint(), 128, "graderFingerprint"),
                 requireSha256(submission.runtimeConfigFingerprint(), "runtimeConfigFingerprint"),
@@ -81,21 +89,33 @@ public class GenerationBenchmarkEvidenceManagementService {
         );
     }
 
+    private void requireCurrentExecutionAttestation(GenerationBenchmarkEvidencePayload payload) {
+        if (!GenerationBenchmarkEvidenceProtocol.hasCurrentAttestation(
+                payload.signatureVersion(),
+                payload.subjectType(),
+                payload.candidatePhysicalRequestCount())) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "Benchmark 证据签名协议或候选执行证明无效"
+            );
+        }
+    }
+
     private void validateEnvironmentAndTime(GenerationBenchmarkEvidencePayload payload, Instant now) {
         if (!payload.datasetFingerprint().equals(datasetFingerprintService.currentFingerprint())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "Benchmark evidence dataset fingerprint is stale");
+                    "Benchmark 证据数据集指纹已过期");
         }
         if (!payload.graderFingerprint().equals(properties.getGraderFingerprint())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "Benchmark evidence grader fingerprint is stale");
+                    "Benchmark 证据评分器指纹已过期");
         }
         if (payload.evaluatedAt() == null || payload.expiresAt() == null
                 || payload.evaluatedAt().isAfter(now.plus(MAX_CLOCK_SKEW))
                 || !payload.expiresAt().isAfter(now)
                 || payload.expiresAt().isAfter(payload.evaluatedAt().plus(properties.getMaximumValidity()))) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "Benchmark evidence validity window is invalid");
+                    "Benchmark 证据有效时间窗口无效");
         }
     }
 
@@ -103,7 +123,7 @@ public class GenerationBenchmarkEvidenceManagementService {
         if (reportJson == null || reportJson.isBlank()
                 || reportJson.getBytes(StandardCharsets.UTF_8).length > properties.getMaximumReportBytes()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,
-                    "Benchmark evidence report is empty or too large");
+                    "Benchmark 证据报告为空或超过大小上限");
         }
         return reportJson;
     }
@@ -111,15 +131,15 @@ public class GenerationBenchmarkEvidenceManagementService {
     private String requireSha256(String value, String field) {
         String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
         if (!normalized.matches("[0-9a-f]{64}")) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, field + " must be SHA-256");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, field + " 必须是 SHA-256");
         }
         return normalized;
     }
 
     private String requireGitCommit(String value) {
         String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-        if (!normalized.matches("[0-9a-f]{7,64}")) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "gitCommit is invalid");
+        if (!GenerationReleaseProvenanceManifest.isFullGitCommit(normalized)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "gitCommit 必须是完整提交哈希");
         }
         return normalized;
     }
@@ -128,7 +148,7 @@ public class GenerationBenchmarkEvidenceManagementService {
         String normalized = value == null ? "" : value.trim();
         if (normalized.isBlank() || normalized.length() > maximumLength
                 || normalized.chars().anyMatch(Character::isISOControl)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, field + " is invalid");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, field + " 无效");
         }
         return normalized;
     }
@@ -137,7 +157,7 @@ public class GenerationBenchmarkEvidenceManagementService {
         try {
             return UUID.fromString(evidenceId == null ? "" : evidenceId.trim()).toString();
         } catch (IllegalArgumentException invalid) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "evidenceId is invalid", invalid);
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "evidenceId 无效", invalid);
         }
     }
 }

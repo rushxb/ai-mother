@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.workspace;
 
-/** Commits relational publication metadata and the journal state in one database transaction. */
+/** 在一个数据库事务中提交关系发布元数据和日志状态。 */
 @FunctionalInterface
 public interface GenerationWorkspacePublicationCommitter {
 

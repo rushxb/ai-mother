@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** Resource limits for file-system access performed by AI tools. */
+/** AI 工具执行的文件系统访问的资源限制。 */
 @Data
 @Component
 @Validated
@@ -25,4 +25,12 @@ public class AiToolWorkspaceProperties {
     @Min(1)
     @Max(128)
     private int maxDirectoryDepth = 32;
+
+    @Min(1)
+    @Max(100)
+    private int maxBatchWriteFiles = 20;
+
+    @Min(1_024)
+    @Max(5_000_000)
+    private int maxBatchWriteTotalChars = 500_000;
 }

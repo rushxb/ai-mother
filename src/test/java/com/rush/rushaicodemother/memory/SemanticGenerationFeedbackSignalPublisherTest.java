@@ -24,6 +24,7 @@ class SemanticGenerationFeedbackSignalPublisherTest {
         publisher.publish(new GenerationFeedbackSignal(
                 "task-1",
                 10L,
+                20L,
                 7L,
                 GenerationTaskStatus.SUCCESS,
                 5,
@@ -35,6 +36,7 @@ class SemanticGenerationFeedbackSignalPublisherTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> metadataCaptor = ArgumentCaptor.forClass(Map.class);
         verify(semanticMemoryService).rememberAsync(
+                eq(20L),
                 eq(10L),
                 eq(7L),
                 eq("task-1"),
@@ -58,6 +60,7 @@ class SemanticGenerationFeedbackSignalPublisherTest {
         publisher.publish(new GenerationFeedbackSignal(
                 "task-2",
                 10L,
+                20L,
                 7L,
                 GenerationTaskStatus.SUCCESS,
                 2,
@@ -69,6 +72,7 @@ class SemanticGenerationFeedbackSignalPublisherTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> metadataCaptor = ArgumentCaptor.forClass(Map.class);
         verify(semanticMemoryService).rememberAsync(
+                eq(20L),
                 eq(10L),
                 eq(7L),
                 eq("task-2"),

@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationD
 import java.time.Instant;
 import java.util.List;
 
-/** Administrator diagnostics for route-level total and operation duration percentiles. */
+/** 管理员对路线级总时间和操作持续时间百分位进行诊断。 */
 public record GenerationDurationProfileVO(
         String route,
         int taskSampleSize,

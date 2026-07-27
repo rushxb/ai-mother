@@ -12,7 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Validates an entire patch batch without mutating the workspace. */
+/** 验证整个补丁批次而不改变工作区。 */
 @Component
 @RequiredArgsConstructor
 public class PatchOperationValidator {

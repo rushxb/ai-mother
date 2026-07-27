@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
-/** Independent quality dimensions produced by deterministic benchmark graders. */
+/** 由确定性基准分级机生成的独立质量维度。 */
 public enum GenerationBenchmarkQualityDimension {
     STRUCTURAL,
     FUNCTIONAL,

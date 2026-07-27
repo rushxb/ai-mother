@@ -230,6 +230,7 @@ class PnpmProjectDependencyInstallerTest {
         runtimeProperties.setTaskTimeout(Duration.ofMillis(100));
         runtimeProperties.setModelCallTimeout(Duration.ofMillis(50));
         runtimeProperties.setMinimumOperationTimeout(Duration.ofMillis(1));
+        runtimeProperties.setFirstPreviewCompletionReserve(Duration.ofMillis(1));
         GenerationExecutionContextService contextService = new GenerationExecutionContextService(runtimeProperties);
         contextService.start("lock-deadline", 1L, 2L);
         PnpmProjectDependencyInstaller installer = new PnpmProjectDependencyInstaller(

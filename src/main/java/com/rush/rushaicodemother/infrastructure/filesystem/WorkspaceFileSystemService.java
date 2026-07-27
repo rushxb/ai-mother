@@ -38,10 +38,10 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Deep file-system module for workspace scans, bounded reads, and transactional directory copies.
+ * 用于工作区扫描、有限读取和事务目录复制的深层文件系统模块。
  *
- * <p>The implementation never follows symbolic links. Every read is checked against metadata captured
- * by the scan that selected the file, and snapshot copies are staged before becoming visible.</p>
+ * <p>实现不会跟随符号链接。每次读取都依据扫描选中文件时捕获的元数据进行复核；
+ * 快照副本完成暂存后才会对外可见。</p>
  */
 @Component
 public class WorkspaceFileSystemService {
@@ -86,7 +86,7 @@ public class WorkspaceFileSystemService {
         this.moveOperation = Objects.requireNonNull(moveOperation, "moveOperation must not be null");
     }
 
-    /** Scans a project once and returns stable relative-path metadata for downstream consumers. */
+    /** 扫描一次项目并为下游消费者返回稳定的相对路径元数据。 */
     public WorkspaceScan scanProject(Path rootDirectory) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
         ScanCollector collector = new ScanCollector(root);
@@ -95,7 +95,7 @@ public class WorkspaceFileSystemService {
         return new WorkspaceScan(root, collector.files, collector.totalBytes);
     }
 
-    /** Lists a bounded interactive tree while preserving visible empty directories. */
+    /** 列出有界交互式树，同时保留可见的空目录。 */
     public List<WorkspaceTreeNode> listTree(Path rootDirectory,
                                             int requestedMaxDepth,
                                             WorkspaceTreeFilter filter) throws IOException {
@@ -116,7 +116,7 @@ public class WorkspaceFileSystemService {
         return collector.listDirectory(root, 1);
     }
 
-    /** Resolves one existing regular file and captures the identity required by later safe reads or writes. */
+    /** 解析一个现有的常规文件并捕获以后安全读取或写入所需的身份。 */
     public WorkspaceFileMetadata resolveExistingFile(Path rootDirectory, String relativePath) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
         Path absolutePath = resolveRelativeFile(root, relativePath);
@@ -124,7 +124,7 @@ public class WorkspaceFileSystemService {
         return metadata(root, absolutePath, attributes);
     }
 
-    /** Reads an explicitly resolved UTF-8 file under a caller-provided resource limit. */
+    /** 在调用者提供的资源限制下读取显式解析的 UTF-8 文件。 */
     public String readUtf8(Path rootDirectory, WorkspaceFileMetadata file, long requestedMaxBytes)
             throws IOException {
         Objects.requireNonNull(file, "file must not be null");
@@ -132,10 +132,10 @@ public class WorkspaceFileSystemService {
     }
 
     /**
-     * Replaces an existing UTF-8 file only if it still has the expected identity.
+     * 仅当现有 UTF-8 文件仍具有预期标识时才替换它。
      *
-     * <p>Writes are serialized per path within this process, forced to durable storage before replacement,
-     * and use an atomic move whenever the underlying file system supports it.</p>
+     * <p>进程内的写入按路径串行执行；替换前强制刷入持久存储，并在底层文件系统
+     * 支持时使用原子移动。</p>
      */
     public WorkspaceFileMetadata replaceUtf8Atomically(Path rootDirectory,
                                                         WorkspaceFileMetadata expectedFile,
@@ -184,7 +184,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
-    /** Deletes one existing regular file without following symbolic links. */
+    /** 删除一个现有的常规文件而不遵循符号链接。 */
     public boolean deleteFileIfExists(Path rootDirectory, String relativePath) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
         Path target = resolveRelativeFile(root, relativePath);
@@ -213,7 +213,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
-    /** Reads a scanned file as UTF-8 without following links or accepting a changed file identity. */
+    /** 将扫描的文件读取为 UTF-8，不跟随符号链接，也不接受标识已变化的文件。 */
     public String readUtf8(WorkspaceScan scan, WorkspaceFileMetadata file, long requestedMaxBytes) throws IOException {
         Objects.requireNonNull(scan, "scan must not be null");
         Objects.requireNonNull(file, "file must not be null");
@@ -258,7 +258,7 @@ public class WorkspaceFileSystemService {
         return output.toString(StandardCharsets.UTF_8);
     }
 
-    /** Reads an optional generated UTF-8 file below a workspace root. */
+    /** 读取工作区根目录下可选生成的 UTF-8 文件。 */
     public Optional<String> readOptionalUtf8(Path rootDirectory, String relativePath, long requestedMaxBytes)
             throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
@@ -275,7 +275,7 @@ public class WorkspaceFileSystemService {
         return Optional.of(readUtf8File(root, metadata, effectiveLimit));
     }
 
-    /** Writes a generated UTF-8 file through a sibling temporary file and atomic replacement when supported. */
+    /** 通过同级临时文件和原子替换（如果支持）写入生成的 UTF-8 文件。 */
     public void writeUtf8Atomically(Path rootDirectory, String relativePath, String content) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
         byte[] bytes = Objects.requireNonNullElse(content, "").getBytes(StandardCharsets.UTF_8);
@@ -314,7 +314,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
-    /** Compares two scanned files without loading either complete file into memory. */
+    /** 比较两个扫描的文件，而不将任一完整文件加载到内存中。 */
     public boolean contentEquals(WorkspaceScan leftScan,
                                  WorkspaceFileMetadata left,
                                  WorkspaceScan rightScan,
@@ -339,7 +339,7 @@ public class WorkspaceFileSystemService {
         return equal;
     }
 
-    /** Creates a complete directory copy without exposing a partially copied target. */
+    /** 创建完整的目录副本，而不暴露部分复制的目标。 */
     public WorkspaceCopyResult copyDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
         Path source = requireExistingDirectory(sourceDirectory);
         Path target = normalizeRequiredPath(targetDirectory);
@@ -367,7 +367,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
-    /** Replaces a directory through a staged copy and restores the original directory if the swap fails. */
+    /** 通过暂存副本替换目录，并在交换失败时恢复原始目录。 */
     public WorkspaceCopyResult replaceDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
         Path source = requireExistingDirectory(sourceDirectory);
         Path target = requireExistingDirectory(targetDirectory);
@@ -399,7 +399,7 @@ public class WorkspaceFileSystemService {
                 try {
                     moveWithoutReplace(displaced, target);
                 } catch (IOException ignored) {
-                    // The original exception remains authoritative; a durable snapshot backup still exists.
+                    // 仍以原始异常为准；持久化的快照备份依然存在。
                 }
             }
             if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
@@ -408,7 +408,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
-    /** Deletes a directory tree without following any symbolic link. */
+    /** 删除目录树而不遵循任何符号链接。 */
     public void deleteDirectory(Path directory) throws IOException {
         Path normalized = normalizeRequiredPath(directory);
         if (!Files.exists(normalized, LinkOption.NOFOLLOW_LINKS)) {
@@ -418,7 +418,7 @@ public class WorkspaceFileSystemService {
         deleteTreeIfExists(normalized);
     }
 
-    /** Lists immediate non-symbolic-link child directories with a bounded result size. */
+    /** 列出具有有限结果大小的直接非符号链接子目录。 */
     public List<WorkspaceDirectoryMetadata> listChildDirectories(Path rootDirectory) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
         List<WorkspaceDirectoryMetadata> directories = new ArrayList<>();
@@ -460,10 +460,10 @@ public class WorkspaceFileSystemService {
     }
 
     /**
-     * Resolves an existing direct child directory without following symbolic links.
+     * 解析现有的直接子目录而不遵循符号链接。
      *
-     * <p>This is intended for domain services that receive an absolute directory from an artifact or
-     * an external command and must prove that it is exactly one level below a configured trust root.</p>
+     * <p>这适用于从工件或接收绝对目录的域服务
+     * 一个外部命令，必须证明它恰好比配置的信任根低一级。</p>
      */
     public Path resolveExistingDirectChildDirectory(Path rootDirectory, Path childDirectory) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
@@ -475,7 +475,7 @@ public class WorkspaceFileSystemService {
         return requireExistingDirectory(child);
     }
 
-    /** Resolves one existing regular file below a workspace root without following symbolic links. */
+    /** 解析工作区根目录下的一个现有常规文件，无需遵循符号链接。 */
     public Path resolveExistingRegularFile(Path rootDirectory, String relativePath) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
         Path file = resolveRelativeFile(root, relativePath);

@@ -4,7 +4,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 
-/** Bounded browser evidence collected from one controlled local preview. */
+/** 从一个受控本地预览收集的有界浏览器证据。 */
 public record BrowserRuntimeObservation(
         URI requestedUri,
         URI finalUri,

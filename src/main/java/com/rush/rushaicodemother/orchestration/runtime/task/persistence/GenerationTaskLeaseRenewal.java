@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
-/** Result of one owner-and-epoch-scoped lease heartbeat. */
+/** 一个所有者和纪元范围的租赁心跳的结果。 */
 public record GenerationTaskLeaseRenewal(
         boolean renewed,
         GenerationTaskLease lease,

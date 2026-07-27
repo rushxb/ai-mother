@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Bounded bidirectional bridge for Vite HMR across local or owner-node Preview routes. */
+/** Vite HMR 跨本地或所有者节点预览路由的有界双向桥。 */
 @Slf4j
 @Component
 public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler

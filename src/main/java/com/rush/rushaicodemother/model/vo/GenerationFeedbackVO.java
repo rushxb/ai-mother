@@ -4,6 +4,9 @@ import com.rush.rushaicodemother.model.entity.GenerationFeedback;
 
 import java.time.LocalDateTime;
 
+/**
+ * 生成反馈接口视图对象。
+ */
 public record GenerationFeedbackVO(
         Long id,
         String taskId,

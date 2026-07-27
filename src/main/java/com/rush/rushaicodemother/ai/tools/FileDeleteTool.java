@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredEx
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import cn.hutool.crypto.digest.DigestUtil;
 import org.springframework.stereotype.Component;
 
@@ -81,6 +82,8 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
             return renderInputError("删除文件失败: ", e);
         } catch (GenerationApprovalRequiredException approvalRequired) {
             throw approvalRequired;
+        } catch (GenerationExecutionPolicyException policyFailure) {
+            throw policyFailure;
         } catch (Exception e) {
             log.error("删除文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
             return "删除文件失败，请稍后重试";
@@ -116,7 +119,7 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
             }
             requireApproval(appId, file.relativePath());
         } catch (ToolInputException invalidInput) {
-            // The tool method renders the normal input error; no destructive side effect is possible here.
+            // 工具方法渲染正常输入错误；这里不可能产生破坏性的副作用。
         }
     }
 
@@ -167,6 +170,11 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
     @Override
     public ToolRiskLevel getRiskLevel() {
         return ToolRiskLevel.DESTRUCTIVE;
+    }
+
+    @Override
+    public boolean canMutateWorkspace() {
+        return true;
     }
 
     @Override

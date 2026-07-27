@@ -9,7 +9,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Bounded connection, message, and backpressure limits for Preview WebSocket proxying. */
+/** 预览 WebSocket 代理的有界连接、消息和反压限制。 */
 @Data
 @Component
 @Validated

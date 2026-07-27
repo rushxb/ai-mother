@@ -26,10 +26,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Filesystem catalog for versioned published workspaces.
+ * 版本化已发布工作空间的文件系统目录。
  *
- * <p>Large directories are never swapped in place. Publication moves a completed execution
- * workspace to a unique version directory, then atomically replaces one small pointer file.</p>
+ * <p>大目录永远不会就地交换。发布移动已完成的执行
+ * 工作区到一个唯一的版本目录，然后自动替换一个小指针文件。</p>
  */
 @Component
 public class GenerationWorkspacePublicationCatalog {
@@ -95,7 +95,7 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
-    /** Creates and returns the parent into which the final workspace directory will be moved. */
+    /** 创建并返回最终工作区目录将移动到的父级。 */
     public Path prepareVersionParent(GenerationWorkspacePublicationPointer pointer) {
         Objects.requireNonNull(pointer, "pointer");
         try {
@@ -259,9 +259,9 @@ public class GenerationWorkspacePublicationCatalog {
                 Files.createDirectories(outputRoot);
             }
             if (!Files.exists(outputRoot, LinkOption.NOFOLLOW_LINKS)) {
-                // Before the first generation there is no catalog yet. Read-only lookups must
-                // report an empty catalog instead of turning normal first-use state into an
-                // availability failure.
+                // 第一代之前还没有目录。只读查找必须
+                // 报告一个空目录，而不是将正常的首次使用状态转变为
+                // 可用性故障。
                 Path child = outputRoot.resolve(childName).normalize();
                 ensureDirectChildPath(outputRoot, child);
                 return child;
@@ -343,7 +343,7 @@ public class GenerationWorkspacePublicationCatalog {
             try {
                 Files.deleteIfExists(temporary);
             } catch (IOException ignored) {
-                // A failed temporary-file cleanup is safe for correctness and handled by the janitor.
+                // 失败的临时文件清理对于正确性来说是安全的，并由管理员处理。
             }
         }
     }

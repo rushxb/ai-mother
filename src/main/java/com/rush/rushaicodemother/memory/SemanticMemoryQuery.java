@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.memory;
 
 import java.util.Set;
 
+/**
+ * 语义记忆查询的不可变数据载体。
+ */
 public record SemanticMemoryQuery(
         Long tenantId,
         Long appId,

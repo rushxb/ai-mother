@@ -6,21 +6,26 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doAnswer;
 
@@ -327,6 +332,324 @@ class GenerationDagRunnerTest {
         assertEquals(0, executions.get());
     }
 
+    @Test
+    void completedCheckpointMissingCurrentDagNodeMustFailClosed() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                mock(GenerationExecutionContextService.class)
+        );
+        AtomicInteger firstExecutions = new AtomicInteger();
+        AtomicInteger secondExecutions = new AtomicInteger();
+        List<GenerationAgentNode> nodes = List.of(
+                countingNode("first", List.of(), firstExecutions),
+                countingNode("second", List.of("first"), secondExecutions)
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-incomplete-completed");
+        task.setAppId(1L);
+        task.setStatus("completed");
+        task.setRuntimeState(AgentRuntimeState.COMPLETED);
+        task.setDagFingerprint(fingerprint(nodes));
+        task.setLastCompletedNode("first");
+        task.setCheckpointVersion(2L);
+        task.setTerminationReason("success");
+        task.getNodeStatuses().put("first", "done");
+
+        GenerationDagRecoveryException failure = assertThrows(
+                GenerationDagRecoveryException.class,
+                () -> runner.run(nodes, new GenerationAgentContext(newRequest(), task, true)));
+
+        assertEquals(GenerationDagRecoveryException.Reason.GRAPH_MISMATCH, failure.reason());
+        assertEquals(0, firstExecutions.get());
+        assertEquals(0, secondExecutions.get());
+        assertEquals("completed", task.getStatus());
+        assertEquals(AgentRuntimeState.COMPLETED, task.getRuntimeState());
+    }
+
+    @Test
+    void replaySafeStartCheckpointElisionMustRemainDisabledByDefault() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        List<String> persistedCurrentNodes = new ArrayList<>();
+        doAnswer(invocation -> {
+            GenerationOrchestrationTask saved = invocation.getArgument(0);
+            persistedCurrentNodes.add(saved.getCurrentNode() == null ? "" : saved.getCurrentNode());
+            return null;
+        }).when(taskStore).save(org.mockito.ArgumentMatchers.any());
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                mock(GenerationExecutionContextService.class)
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-replay-safe-default");
+        task.setAppId(1L);
+        task.setStatus("running");
+
+        runner.run(
+                List.of(replaySafeNode("safe", new AtomicInteger(), new AtomicBoolean(false))),
+                new GenerationAgentContext(newRequest(), task, true)
+        );
+
+        assertEquals(List.of("", "safe", "", ""), persistedCurrentNodes);
+    }
+
+    @Test
+    void enabledElisionMustReplaySafeNodeFromLastDurableBoundaryAfterProcessLoss() {
+        GenerationTaskSnapshotProperties properties = new GenerationTaskSnapshotProperties();
+        properties.setReplaySafeStartCheckpointElisionEnabled(true);
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        AtomicReference<String> persistedSnapshot = new AtomicReference<>();
+        doAnswer(invocation -> {
+            GenerationOrchestrationTask saved = invocation.getArgument(0);
+            persistedSnapshot.set(cn.hutool.json.JSONUtil.toJsonStr(saved));
+            return null;
+        }).when(taskStore).save(org.mockito.ArgumentMatchers.any());
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(meterRegistry),
+                mock(GenerationExecutionContextService.class),
+                properties
+        );
+        AtomicInteger executions = new AtomicInteger();
+        AtomicBoolean loseProcessOnFirstExecution = new AtomicBoolean(true);
+        List<GenerationAgentNode> nodes = List.of(
+                replaySafeNode("safe", executions, loseProcessOnFirstExecution));
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-replay-safe-crash");
+        task.setAppId(1L);
+        task.setStatus("running");
+
+        assertThrows(SimulatedProcessLoss.class, () -> runner.run(
+                nodes, new GenerationAgentContext(newRequest(), task, true)));
+
+        GenerationOrchestrationTask persisted = cn.hutool.json.JSONUtil.toBean(
+                persistedSnapshot.get(), GenerationOrchestrationTask.class);
+        assertNull(persisted.getCurrentNode());
+        assertFalse(persisted.getNodeStatuses().containsKey("safe"));
+
+        runner.run(nodes, new GenerationAgentContext(newRequest(), persisted, true));
+
+        assertEquals(2, executions.get());
+        assertEquals(AgentRuntimeState.COMPLETED, persisted.getRuntimeState());
+        assertEquals(2, meterRegistry.find("generation_orchestration_node_start_checkpoints_total")
+                .tag("dag_node", "safe")
+                .tag("outcome", "elided")
+                .counter()
+                .count(), 0.001);
+    }
+
+    @Test
+    void enabledCompletionCoalescingMustPersistAtTheConfiguredInterval() {
+        GenerationTaskSnapshotProperties properties = new GenerationTaskSnapshotProperties();
+        properties.setReplaySafeStartCheckpointElisionEnabled(true);
+        properties.setReplaySafeCompletionCheckpointCoalescingEnabled(true);
+        properties.setReplaySafeCompletionCheckpointInterval(3);
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        List<String> durableLastCompletedNodes = new ArrayList<>();
+        doAnswer(invocation -> {
+            GenerationOrchestrationTask saved = invocation.getArgument(0);
+            durableLastCompletedNodes.add(saved.getLastCompletedNode() == null
+                    ? ""
+                    : saved.getLastCompletedNode());
+            return null;
+        }).when(taskStore).save(org.mockito.ArgumentMatchers.any());
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(meterRegistry),
+                mock(GenerationExecutionContextService.class),
+                properties
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-completion-coalescing-interval");
+        task.setAppId(1L);
+        task.setStatus("running");
+
+        runner.run(
+                List.of(
+                        replaySafeNode("first", new AtomicInteger(), new AtomicBoolean(false)),
+                        replaySafeNode("second", new AtomicInteger(), new AtomicBoolean(false)),
+                        replaySafeNode("third", new AtomicInteger(), new AtomicBoolean(false)),
+                        replaySafeNode("fourth", new AtomicInteger(), new AtomicBoolean(false))
+                ),
+                new GenerationAgentContext(newRequest(), task, true)
+        );
+
+        assertEquals(List.of("", "third", "fourth"), durableLastCompletedNodes);
+        assertEquals(1, meterRegistry.find("generation_orchestration_node_completion_checkpoints_total")
+                .tag("dag_node", "first")
+                .tag("outcome", "coalesced")
+                .counter()
+                .count(), 0.001);
+        assertEquals(1, meterRegistry.find("generation_orchestration_node_completion_checkpoints_total")
+                .tag("dag_node", "third")
+                .tag("outcome", "persisted")
+                .counter()
+                .count(), 0.001);
+    }
+
+    @Test
+    void processLossAfterCoalescedCompletionMustReplayFromLastDurableBoundary() {
+        GenerationTaskSnapshotProperties properties = new GenerationTaskSnapshotProperties();
+        properties.setReplaySafeStartCheckpointElisionEnabled(true);
+        properties.setReplaySafeCompletionCheckpointCoalescingEnabled(true);
+        properties.setReplaySafeCompletionCheckpointInterval(4);
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        AtomicReference<String> persistedSnapshot = new AtomicReference<>();
+        doAnswer(invocation -> {
+            GenerationOrchestrationTask saved = invocation.getArgument(0);
+            persistedSnapshot.set(cn.hutool.json.JSONUtil.toJsonStr(saved));
+            return null;
+        }).when(taskStore).save(org.mockito.ArgumentMatchers.any());
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                mock(GenerationExecutionContextService.class),
+                properties
+        );
+        AtomicInteger firstExecutions = new AtomicInteger();
+        AtomicInteger secondExecutions = new AtomicInteger();
+        List<GenerationAgentNode> nodes = List.of(
+                replaySafeNode("first", firstExecutions, new AtomicBoolean(false)),
+                replaySafeNode("second", secondExecutions, new AtomicBoolean(true))
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-completion-coalescing-crash");
+        task.setAppId(1L);
+        task.setStatus("running");
+
+        assertThrows(SimulatedProcessLoss.class, () -> runner.run(
+                nodes, new GenerationAgentContext(newRequest(), task, true)));
+
+        GenerationOrchestrationTask persisted = cn.hutool.json.JSONUtil.toBean(
+                persistedSnapshot.get(), GenerationOrchestrationTask.class);
+        assertFalse(persisted.getNodeStatuses().containsKey("first"));
+        assertFalse(persisted.getNodeStatuses().containsKey("second"));
+
+        runner.run(nodes, new GenerationAgentContext(newRequest(), persisted, true));
+
+        assertEquals(2, firstExecutions.get());
+        assertEquals(2, secondExecutions.get());
+        assertEquals(AgentRuntimeState.COMPLETED, persisted.getRuntimeState());
+    }
+
+    @Test
+    void nonReplaySafeNodeStartMustFlushEarlierCoalescedCompletions() {
+        GenerationTaskSnapshotProperties properties = new GenerationTaskSnapshotProperties();
+        properties.setReplaySafeStartCheckpointElisionEnabled(true);
+        properties.setReplaySafeCompletionCheckpointCoalescingEnabled(true);
+        properties.setReplaySafeCompletionCheckpointInterval(4);
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        List<String> durableSnapshots = new ArrayList<>();
+        doAnswer(invocation -> {
+            GenerationOrchestrationTask saved = invocation.getArgument(0);
+            durableSnapshots.add(cn.hutool.json.JSONUtil.toJsonStr(saved));
+            return null;
+        }).when(taskStore).save(org.mockito.ArgumentMatchers.any());
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                mock(GenerationExecutionContextService.class),
+                properties
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-completion-coalescing-boundary");
+        task.setAppId(1L);
+        task.setStatus("running");
+
+        runner.run(
+                List.of(
+                        replaySafeNode("safe", new AtomicInteger(), new AtomicBoolean(false)),
+                        countingNode("unsafe", List.of("safe"), new AtomicInteger())
+                ),
+                new GenerationAgentContext(newRequest(), task, true)
+        );
+
+        assertTrue(durableSnapshots.stream()
+                .map(snapshot -> cn.hutool.json.JSONUtil.toBean(
+                        snapshot, GenerationOrchestrationTask.class))
+                .anyMatch(snapshot -> "done".equals(snapshot.getNodeStatuses().get("safe"))
+                        && "running".equals(snapshot.getNodeStatuses().get("unsafe"))));
+    }
+
+    @Test
+    void ordinaryFailureMustPersistEarlierCoalescedNodeState() {
+        assertTerminalFailurePersistsEarlierCoalescedNodeState(
+                new IllegalStateException("expected failure"),
+                "runtime"
+        );
+    }
+
+    @Test
+    void cancellationMustPersistEarlierCoalescedNodeState() {
+        assertTerminalFailurePersistsEarlierCoalescedNodeState(
+                new GenerationExecutionCancelledException("user_requested"),
+                "model_cancelled"
+        );
+    }
+
+    private void assertTerminalFailurePersistsEarlierCoalescedNodeState(RuntimeException terminalFailure,
+                                                                         String expectedCategory) {
+        GenerationTaskSnapshotProperties properties = new GenerationTaskSnapshotProperties();
+        properties.setReplaySafeStartCheckpointElisionEnabled(true);
+        properties.setReplaySafeCompletionCheckpointCoalescingEnabled(true);
+        properties.setReplaySafeCompletionCheckpointInterval(4);
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        List<String> durableSnapshots = new ArrayList<>();
+        doAnswer(invocation -> {
+            GenerationOrchestrationTask saved = invocation.getArgument(0);
+            durableSnapshots.add(cn.hutool.json.JSONUtil.toJsonStr(saved));
+            return null;
+        }).when(taskStore).save(org.mockito.ArgumentMatchers.any());
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                mock(GenerationExecutionContextService.class),
+                properties
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-coalesced-terminal-" + expectedCategory);
+        task.setAppId(1L);
+        task.setStatus("running");
+        GenerationArtifact firstArtifact = GenerationArtifact.of(
+                "first_artifact",
+                "First",
+                "first",
+                Map.of("value", "durable")
+        );
+
+        assertThrows(CompletionException.class, () -> runner.run(
+                List.of(
+                        replaySafeResultNode(
+                                "first",
+                                List.of(),
+                                AgentNodeResult.of("first done", List.of(firstArtifact), Map.of())
+                        ),
+                        replaySafeFailingNode("second", List.of("first"), terminalFailure)
+                ),
+                new GenerationAgentContext(newRequest(), task, true)
+        ));
+
+        GenerationOrchestrationTask persisted = cn.hutool.json.JSONUtil.toBean(
+                durableSnapshots.getLast(), GenerationOrchestrationTask.class);
+        assertEquals("failed", persisted.getStatus());
+        assertEquals(AgentRuntimeState.FAILED, persisted.getRuntimeState());
+        assertEquals(expectedCategory, persisted.getTerminationReason());
+        assertEquals("done", persisted.getNodeStatuses().get("first"));
+        assertEquals("failed", persisted.getNodeStatuses().get("second"));
+        assertTrue(persisted.getArtifacts().containsKey("first_artifact"));
+        assertTrue(persisted.getEvents().stream().anyMatch(event ->
+                "first".equals(event.getData().get("dagNode"))
+                        && "done".equals(event.getData().get("status"))));
+        assertTrue(persisted.getEvents().stream().anyMatch(event ->
+                "second".equals(event.getData().get("dagNode"))
+                        && "failed".equals(event.getData().get("status"))
+                        && expectedCategory.equals(event.getData().get("category"))));
+    }
+
     private GenerationOrchestrationRequest newRequest() {
         return new GenerationOrchestrationRequest(
                 null,
@@ -334,7 +657,6 @@ class GenerationDagRunnerTest {
                 CodeGenTypeEnum.VUE_PROJECT,
                 "generating",
                 false,
-                () -> "",
                 ignored -> CodeGenTypeEnum.VUE_PROJECT,
                 ""
         );
@@ -408,6 +730,97 @@ class GenerationDagRunnerTest {
         };
     }
 
+    private GenerationAgentNode replaySafeNode(String key,
+                                               AtomicInteger executions,
+                                               AtomicBoolean loseProcessOnFirstExecution) {
+        return new GenerationAgentNode() {
+            @Override
+            public String key() {
+                return key;
+            }
+
+            @Override
+            public String agentName() {
+                return key;
+            }
+
+            @Override
+            public String stage() {
+                return "test";
+            }
+
+            @Override
+            public List<String> dependencies() {
+                return List.of();
+            }
+
+            @Override
+            public GenerationNodeReplayPolicy replayPolicy() {
+                return GenerationNodeReplayPolicy.REPLAY_SAFE;
+            }
+
+            @Override
+            public AgentNodeResult execute(GenerationAgentContext ignored) {
+                executions.incrementAndGet();
+                if (loseProcessOnFirstExecution.compareAndSet(true, false)) {
+                    throw new SimulatedProcessLoss();
+                }
+                return AgentNodeResult.of("done", List.of(), Map.of());
+            }
+        };
+    }
+
+    private GenerationAgentNode replaySafeResultNode(String key,
+                                                      List<String> dependencies,
+                                                      AgentNodeResult result) {
+        return replaySafeExecutingNode(key, dependencies, ignored -> result);
+    }
+
+    private GenerationAgentNode replaySafeFailingNode(String key,
+                                                       List<String> dependencies,
+                                                       RuntimeException failure) {
+        return replaySafeExecutingNode(key, dependencies, ignored -> {
+            throw failure;
+        });
+    }
+
+    private GenerationAgentNode replaySafeExecutingNode(
+            String key,
+            List<String> dependencies,
+            java.util.function.Function<GenerationAgentContext, AgentNodeResult> execution) {
+        return new GenerationAgentNode() {
+            @Override
+            public String key() {
+                return key;
+            }
+
+            @Override
+            public String agentName() {
+                return key;
+            }
+
+            @Override
+            public String stage() {
+                return "test";
+            }
+
+            @Override
+            public List<String> dependencies() {
+                return dependencies;
+            }
+
+            @Override
+            public GenerationNodeReplayPolicy replayPolicy() {
+                return GenerationNodeReplayPolicy.REPLAY_SAFE;
+            }
+
+            @Override
+            public AgentNodeResult execute(GenerationAgentContext context) {
+                return execution.apply(context);
+            }
+        };
+    }
+
     private String fingerprint(List<GenerationAgentNode> nodes) {
         StringBuilder canonical = new StringBuilder();
         for (int index = 0; index < nodes.size(); index++) {
@@ -415,11 +828,15 @@ class GenerationDagRunnerTest {
             canonical.append(index).append('\u0000')
                     .append(node.key()).append('\u0000')
                     .append(node.agentName()).append('\u0000')
-                    .append(node.stage()).append('\u0000');
+                    .append(node.stage()).append('\u0000')
+                    .append(node.replayPolicy().name()).append('\u0000');
             node.dependencies().stream().sorted().forEach(dependency ->
                     canonical.append(dependency).append('\u0001'));
             canonical.append('\u0002');
         }
         return DigestUtil.sha256Hex(canonical.toString());
+    }
+
+    private static final class SimulatedProcessLoss extends Error {
     }
 }

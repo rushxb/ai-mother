@@ -57,7 +57,9 @@ class GenerationCreditReservationPolicyTest {
                 Duration.ofMinutes(2),
                 Duration.ofMillis(500),
                 Map.of(
-                        GenerationBudgetKind.MODEL_ATTEMPT, 2,
+                        GenerationBudgetKind.ROOT_MODEL_ATTEMPT, 2,
+                        GenerationBudgetKind.MODEL_TURN, 8,
+                        GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT, 2,
                         GenerationBudgetKind.TOOL_WRITE, 10,
                         GenerationBudgetKind.BUILD_EXECUTION, 1,
                         GenerationBudgetKind.REPAIR_ROUND, 1

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -487,7 +488,9 @@ class GenerationCommitServiceTest {
         ManagedProcessExecutor processExecutor = new ManagedProcessExecutor(
                 new ProjectProcessTerminator(new ExternalProcessProperties())
         );
-        return new GitCommandExecutor(processExecutor, new GenerationCommitProperties());
+        GenerationCommitProperties properties = new GenerationCommitProperties();
+        properties.setCommandTimeout(Duration.ofSeconds(30));
+        return new GitCommandExecutor(processExecutor, properties);
     }
 
     private GenerationArtifact diffArtifact(Long appId, Path projectRoot, String changedFile) {

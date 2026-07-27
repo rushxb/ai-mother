@@ -21,7 +21,7 @@ class ProjectCommandPropertiesTest {
     @Test
     void shouldRejectNonPositiveDuration() {
         ProjectCommandProperties properties = new ProjectCommandProperties();
-        properties.setIdleTimeout(Duration.ZERO);
+        properties.setGoTestTimeout(Duration.ZERO);
 
         assertFalse(validator.validate(properties).isEmpty());
     }

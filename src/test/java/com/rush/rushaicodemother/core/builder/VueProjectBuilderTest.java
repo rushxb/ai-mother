@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.core.builder;
 
 import cn.hutool.json.JSONObject;
+import com.rush.rushaicodemother.config.ProjectCommandProperties;
+import com.rush.rushaicodemother.monitor.ProjectBuildCoordinationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +12,13 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -18,8 +27,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -44,7 +55,10 @@ class VueProjectBuilderTest {
         stateStore = mock(VueBuildStateStore.class);
         scriptResolver = mock(VueProjectScriptResolver.class);
         commandService = mock(VueBuildCommandService.class);
-        resultRegistry = mock(VueBuildResultRegistry.class);
+        resultRegistry = new VueBuildResultRegistry(
+                new ProjectCommandProperties(),
+                ProjectBuildCoordinationMetricsCollector.noOp()
+        );
         executionContextService = mock(GenerationExecutionContextService.class);
         builder = new VueProjectBuilder(
                 snapshotService,
@@ -78,7 +92,8 @@ class VueProjectBuilderTest {
         verifyNoInteractions(commandService);
         verify(executionContextService, never())
                 .consumeIfPresent("task-reuse", GenerationBudgetKind.BUILD_EXECUTION);
-        verify(resultRegistry).remember(projectRoot, snapshot, result);
+        assertEquals(1, resultRegistry.size());
+        assertEquals(1, resultRegistry.reusableSize());
     }
 
     @Test
@@ -168,7 +183,7 @@ class VueProjectBuilderTest {
         assertEquals("package.json \u89e3\u6790\u5931\u8d25", result.summary());
         verify(snapshotService, never()).capture(any(), any());
         verifyNoInteractions(commandService);
-        verifyNoInteractions(resultRegistry);
+        assertEquals(0, resultRegistry.size());
     }
 
     @Test
@@ -188,18 +203,224 @@ class VueProjectBuilderTest {
         assertEquals("dist", result.stage());
         assertSame(buildResult, result.buildResult());
         verify(stateStore, never()).persist(any(), any());
-        verify(resultRegistry).remember(projectRoot, snapshot, result);
+        assertEquals(0, resultRegistry.size());
+        assertEquals(0, resultRegistry.reusableSize());
+    }
+
+    @Test
+    void shouldReuseSuccessfulStableBuildWithinSameTask() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        VueBuildState staleState = new VueBuildState("dependency", "old-critical", "presentation");
+        when(stateStore.read(projectRoot)).thenReturn(staleState, VueBuildState.fromSnapshot(snapshot));
+        when(commandService.installDependencies(projectRoot, true, "dependency", "task-same"))
+                .thenReturn(VueBuildCommandResult.skipped("pnpm install", "cached"));
+        when(commandService.executeFullBuild(any(), any(), eq("task-same")))
+                .thenReturn(VueBuildCommandResult.success("pnpm run build", 0, "ok"));
+
+        VueBuildResult first = builder.buildProjectWithResult(projectRoot.toString(), "task-same");
+        VueBuildResult second = builder.buildProjectWithResult(projectRoot.toString(), "task-same");
+
+        assertTrue(first.success());
+        assertEquals("done", first.stage());
+        assertTrue(second.success());
+        assertEquals("task-reuse", second.stage());
+        verify(commandService).executeFullBuild(eq(projectRoot), any(), eq("task-same"));
+        verify(executionContextService)
+                .consumeIfPresent("task-same", GenerationBudgetKind.BUILD_EXECUTION);
+    }
+
+    @Test
+    void shouldMergeConcurrentBuilderCallsForSameTaskAndSnapshot() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        AtomicBoolean artifactCurrent = new AtomicBoolean();
+        VueBuildState staleState = new VueBuildState("dependency", "old-critical", "presentation");
+        when(stateStore.read(projectRoot)).thenAnswer(invocation -> artifactCurrent.get()
+                ? VueBuildState.fromSnapshot(snapshot)
+                : staleState);
+        doAnswer(invocation -> {
+            artifactCurrent.set(true);
+            return null;
+        }).when(stateStore).persist(projectRoot, snapshot);
+        when(commandService.installDependencies(projectRoot, true, "dependency", "task-concurrent"))
+                .thenReturn(VueBuildCommandResult.skipped("pnpm install", "cached"));
+        when(commandService.executeFullBuild(any(), any(), eq("task-concurrent"))).thenAnswer(invocation -> {
+            Thread.sleep(100);
+            return VueBuildCommandResult.success("pnpm run build", 0, "ok");
+        });
+        CountDownLatch callersReady = new CountDownLatch(8);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<VueBuildResult>> futures = new ArrayList<>();
+            for (int index = 0; index < 8; index++) {
+                futures.add(executor.submit(() -> {
+                    callersReady.countDown();
+                    start.await();
+                    return builder.buildProjectWithResult(projectRoot.toString(), "task-concurrent");
+                }));
+            }
+            callersReady.await();
+            start.countDown();
+
+            for (Future<VueBuildResult> future : futures) {
+                assertTrue(future.get().success());
+            }
+        }
+
+        verify(commandService).executeFullBuild(eq(projectRoot), any(), eq("task-concurrent"));
+        verify(executionContextService)
+                .consumeIfPresent("task-concurrent", GenerationBudgetKind.BUILD_EXECUTION);
+        assertEquals(1, resultRegistry.reusableSize());
+        assertEquals(0, resultRegistry.inFlightSize());
+    }
+
+    @Test
+    void shouldNotReuseSuccessfulBuildAcrossTasks() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        when(stateStore.read(projectRoot))
+                .thenReturn(new VueBuildState("dependency", "old-critical", "presentation"));
+        when(commandService.installDependencies(eq(projectRoot), eq(true), eq("dependency"), any()))
+                .thenReturn(VueBuildCommandResult.skipped("pnpm install", "cached"));
+        when(commandService.executeFullBuild(eq(projectRoot), any(), any()))
+                .thenReturn(VueBuildCommandResult.success("pnpm run build", 0, "ok"));
+
+        VueBuildResult first = builder.buildProjectWithResult(projectRoot.toString(), "task-one");
+        VueBuildResult second = builder.buildProjectWithResult(projectRoot.toString(), "task-two");
+
+        assertTrue(first.success());
+        assertTrue(second.success());
+        assertEquals("done", second.stage());
+        verify(commandService, times(2)).executeFullBuild(eq(projectRoot), any(), any());
+        verify(executionContextService)
+                .consumeIfPresent("task-one", GenerationBudgetKind.BUILD_EXECUTION);
+        verify(executionContextService)
+                .consumeIfPresent("task-two", GenerationBudgetKind.BUILD_EXECUTION);
+    }
+
+    @Test
+    void shouldRebuildWhenCachedSuccessNoLongerMatchesArtifactState() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        VueBuildState staleState = new VueBuildState("dependency", "old-critical", "presentation");
+        VueBuildState otherArtifactState = new VueBuildState("dependency", "other-critical", "presentation");
+        when(stateStore.read(projectRoot)).thenReturn(staleState, otherArtifactState, otherArtifactState);
+        when(commandService.installDependencies(projectRoot, true, "dependency", "task-artifact"))
+                .thenReturn(VueBuildCommandResult.skipped("pnpm install", "cached"));
+        when(commandService.executeFullBuild(any(), any(), eq("task-artifact")))
+                .thenReturn(VueBuildCommandResult.success("pnpm run build", 0, "ok"));
+
+        VueBuildResult first = builder.buildProjectWithResult(projectRoot.toString(), "task-artifact");
+        VueBuildResult second = builder.buildProjectWithResult(projectRoot.toString(), "task-artifact");
+
+        assertTrue(first.success());
+        assertTrue(second.success());
+        assertEquals("done", second.stage());
+        verify(commandService, times(2)).executeFullBuild(eq(projectRoot), any(), eq("task-artifact"));
+        verify(executionContextService, times(2))
+                .consumeIfPresent("task-artifact", GenerationBudgetKind.BUILD_EXECUTION);
+    }
+
+    @Test
+    void shouldNeverCacheFailedBuildResult() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        when(stateStore.read(projectRoot))
+                .thenReturn(new VueBuildState("dependency", "old-critical", "presentation"));
+        when(commandService.installDependencies(projectRoot, true, "dependency", "task-failed"))
+                .thenReturn(VueBuildCommandResult.skipped("pnpm install", "cached"));
+        when(commandService.executeFullBuild(any(), any(), eq("task-failed"))).thenReturn(
+                VueBuildCommandResult.failed("pnpm run build", 1, "failed"),
+                VueBuildCommandResult.success("pnpm run build", 0, "ok")
+        );
+
+        VueBuildResult first = builder.buildProjectWithResult(projectRoot.toString(), "task-failed");
+        VueBuildResult second = builder.buildProjectWithResult(projectRoot.toString(), "task-failed");
+
+        assertFalse(first.success());
+        assertTrue(second.success());
+        assertEquals("done", second.stage());
+        verify(commandService, times(2)).executeFullBuild(eq(projectRoot), any(), eq("task-failed"));
+        assertEquals(1, resultRegistry.reusableSize());
+    }
+
+    @Test
+    void shouldRejectSuccessWhenSourceChangesDuringBuild() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        VueProjectSnapshot changedSnapshot = new VueProjectSnapshot(
+                "dependency",
+                "changed-critical",
+                "presentation"
+        );
+        when(snapshotService.capture(eq(projectRoot), any(JSONObject.class)))
+                .thenReturn(snapshot, changedSnapshot);
+        when(stateStore.read(projectRoot))
+                .thenReturn(new VueBuildState("dependency", "old-critical", "presentation"));
+        when(commandService.installDependencies(projectRoot, true, "dependency", "task-unstable"))
+                .thenReturn(VueBuildCommandResult.skipped("pnpm install", "cached"));
+        when(commandService.executeFullBuild(any(), any(), eq("task-unstable")))
+                .thenReturn(VueBuildCommandResult.success("pnpm run build", 0, "ok"));
+
+        VueBuildResult result = builder.buildProjectWithResult(projectRoot.toString(), "task-unstable");
+
+        assertFalse(result.success());
+        assertEquals("snapshot", result.stage());
+        verify(stateStore, never()).persist(any(), any());
+        assertEquals(0, resultRegistry.reusableSize());
+        assertEquals(0, resultRegistry.size());
+    }
+
+    @Test
+    void shouldRejectDistReuseWhenSourceChangesDuringValidation() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        VueProjectSnapshot changedSnapshot = new VueProjectSnapshot(
+                "dependency",
+                "critical",
+                "changed-presentation"
+        );
+        when(snapshotService.capture(eq(projectRoot), any(JSONObject.class)))
+                .thenReturn(snapshot, changedSnapshot);
+        when(stateStore.read(projectRoot)).thenReturn(VueBuildState.fromSnapshot(snapshot));
+
+        VueBuildResult result = builder.buildProjectWithResult(projectRoot.toString(), "task-reuse-unstable");
+
+        assertFalse(result.success());
+        assertEquals("snapshot", result.stage());
+        verifyNoInteractions(commandService);
+        verify(executionContextService, never())
+                .consumeIfPresent("task-reuse-unstable", GenerationBudgetKind.BUILD_EXECUTION);
+        verify(stateStore, never()).persist(any(), any());
+        assertEquals(0, resultRegistry.reusableSize());
     }
 
     @Test
     void shouldReturnRecentResultWhenCurrentSnapshotMatchesRegistryKey() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        when(stateStore.read(projectRoot)).thenReturn(VueBuildState.fromSnapshot(snapshot));
         VueBuildResult expected = VueBuildResult.reused(projectRoot.toString());
-        when(resultRegistry.find(projectRoot, snapshot)).thenReturn(expected);
+        resultRegistry.rememberSuccessful(projectRoot, snapshot, expected);
 
         VueBuildResult result = builder.getRecentBuildResult(projectRoot.toString());
 
         assertSame(expected, result);
-        verify(resultRegistry).find(projectRoot, snapshot);
+    }
+
+    @Test
+    void shouldHideRecentResultWhenArtifactStateNoLongerMatches() throws Exception {
+        createDirectory("node_modules");
+        createDirectory("dist");
+        when(stateStore.read(projectRoot))
+                .thenReturn(new VueBuildState("dependency", "other-critical", "presentation"));
+        resultRegistry.rememberSuccessful(projectRoot, snapshot, VueBuildResult.reused(projectRoot.toString()));
+
+        VueBuildResult result = builder.getRecentBuildResult(projectRoot.toString());
+
+        assertNull(result);
     }
 
     @Test
@@ -210,19 +431,17 @@ class VueProjectBuilderTest {
                 "presentation"
         );
         when(snapshotService.capture(eq(projectRoot), any(JSONObject.class))).thenReturn(changedSnapshot);
-        when(resultRegistry.find(projectRoot, changedSnapshot)).thenReturn(null);
 
         VueBuildResult result = builder.getRecentBuildResult(projectRoot.toString());
 
         assertNull(result);
-        verify(resultRegistry).find(projectRoot, changedSnapshot);
     }
 
     @Test
     void shouldReturnNullForInvalidRecentBuildProjectPath() {
         assertNull(builder.getRecentBuildResult("\0invalid"));
 
-        verifyNoInteractions(resultRegistry);
+        assertEquals(0, resultRegistry.size());
     }
 
     private void createDirectory(String relativePath) throws Exception {

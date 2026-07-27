@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.ai.prompt.release;
 import java.util.List;
 import java.util.Optional;
 
-/** Persistence port for atomic prompt release pointers and immutable audit history. */
+/** 用于原子提示释放指针和不可变审计历史记录的持久端口。 */
 public interface PromptReleaseRepository {
 
     PromptReleaseState loadCurrent();

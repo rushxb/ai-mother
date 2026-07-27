@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.create.CreatePostGenerationValidationService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -20,6 +21,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.template.SlotFillGenerationService;
+import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
@@ -27,20 +29,26 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SlotFillGenerationPipelineTest {
 
     @Test
-    void shouldCompleteUnifiedTaskAsFailedWhenCreateProducesNoPatch() {
+    void shouldHandoffToHeavyExpertWhenCreateProducesNoPatch() {
         SlotFillGenerationService slotFillService = mock(SlotFillGenerationService.class);
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
         GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
@@ -53,14 +61,25 @@ class SlotFillGenerationPipelineTest {
 
         GenerationPipelineOutcome outcome = pipeline.execute(request);
 
-        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
-        GenerationStreamEvent error = request.execution().session().asFlux()
-                .filter(event -> GenerationStreamEvent.GENERATION_ERROR.equals(event.getType()))
-                .blockFirst(Duration.ofSeconds(1));
-        assertNotNull(error);
-        verify(monitor).finishTask("create-task-1", "failed");
-        verify(lifecycleService).completeGeneration(
-                "create-task-1", 1L, GenerationTaskStatus.FAILED, "create_generation_failed");
+        assertEquals(GenerationPipelineDisposition.FALLBACK, outcome.disposition());
+        assertNull(outcome.terminalStatus());
+        assertEquals("create_generation_failed", outcome.reason());
+        assertNull(outcome.resultSummary());
+        List<GenerationStreamEvent> events = request.execution().session().asFlux()
+                .take(Duration.ofMillis(30))
+                .collectList()
+                .block(Duration.ofSeconds(1));
+        assertNotNull(events);
+        assertTrue(events.stream().noneMatch(
+                event -> GenerationStreamEvent.GENERATION_ERROR.equals(event.getType())));
+        assertTrue(eventPublisher.recent(1L).stream().noneMatch(
+                event -> event.type() == GenerationEventType.TASK_FAILED));
+        verify(monitor, never()).finishTask("create-task-1", "failed");
+        verify(lifecycleService, never()).completeGeneration(
+                org.mockito.ArgumentMatchers.eq("create-task-1"),
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(GenerationTaskStatus.FAILED),
+                org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -75,9 +94,9 @@ class SlotFillGenerationPipelineTest {
 
         pipeline.execute(request);
 
-        verify(lifecycleService).startGeneration(
+        verify(lifecycleService).startOrTransitionGeneration(
                 org.mockito.ArgumentMatchers.eq("stable-task-id"),
-                any(App.class), any(User.class),
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(2L),
                 org.mockito.ArgumentMatchers.eq(CodeGenTypeEnum.VUE_PROJECT),
                 org.mockito.ArgumentMatchers.eq(CodeGenTypeEnum.VUE_PROJECT),
                 any(), any(), org.mockito.ArgumentMatchers.eq(true),
@@ -97,15 +116,76 @@ class SlotFillGenerationPipelineTest {
                 .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
         GenerationPipelineRequest request = request("create-secret-test");
 
-        pipeline.execute(request);
-        GenerationStreamEvent error = request.execution().session().asFlux()
-                .filter(event -> GenerationStreamEvent.GENERATION_ERROR.equals(event.getType()))
-                .blockFirst(Duration.ofSeconds(1));
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+        List<GenerationStreamEvent> events = request.execution().session().asFlux()
+                .take(Duration.ofMillis(30))
+                .collectList()
+                .block(Duration.ofSeconds(1));
 
-        assertNotNull(error);
-        assertEquals("CREATE 模板生成失败，请稍后重试", error.getText());
-        assertFalse(error.getData().toString().contains("secret-value"));
+        assertEquals(GenerationPipelineDisposition.FALLBACK, outcome.disposition());
+        assertEquals("create_generation_failed", outcome.reason());
+        assertNotNull(events);
+        assertTrue(events.stream().noneMatch(
+                event -> GenerationStreamEvent.GENERATION_ERROR.equals(event.getType())));
+        assertFalse(events.toString().contains("secret-value"));
         assertFalse(eventPublisher.recent(1L).toString().contains("secret-value"));
+        assertNull(outcome.resultSummary());
+    }
+
+    @Test
+    void validationFailureMustHandoffWithoutPublishingTerminalFailure() {
+        SlotFillGenerationService slotFillService = mock(SlotFillGenerationService.class);
+        GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
+        CreatePostGenerationValidationService validationService =
+                mock(CreatePostGenerationValidationService.class);
+        GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
+        SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
+                mock(GenerationTaskLifecycleService.class), monitor, validationService,
+                eventPublisher, slotFillService);
+        SlotFillResult result = SlotFillResult.success(
+                "vue-base", List.of("hero"), List.of(), "模板已生成", 128);
+        when(slotFillService.tryGenerate(any(), any(), any())).thenReturn(result);
+        when(validationService.validate(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new CreatePostGenerationValidationService.ValidationOutcome(
+                        false, true, "provider-api-key=secret-value"));
+        GenerationPipelineRequest request = request("create-validation-fallback");
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationPipelineDisposition.FALLBACK, outcome.disposition());
+        assertEquals("create_validation_failed", outcome.reason());
+        assertTrue(eventPublisher.recent(1L).stream().noneMatch(
+                event -> event.type() == GenerationEventType.TASK_FAILED));
+        assertFalse(eventPublisher.recent(1L).toString().contains("secret-value"));
+        verify(monitor, never()).finishTask("create-validation-fallback", "failed");
+        verify(monitor).recordCreateTelemetry(
+                org.mockito.ArgumentMatchers.eq("create-validation-fallback"),
+                org.mockito.ArgumentMatchers.argThat(telemetry -> Boolean.TRUE.equals(telemetry.get("fallback"))));
+    }
+
+    @Test
+    void lifecycleInitializationFailureMustRemainTerminal() {
+        GenerationTaskLifecycleService lifecycleService = mock(GenerationTaskLifecycleService.class);
+        GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
+        GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
+        SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
+                lifecycleService, monitor, mock(CreatePostGenerationValidationService.class),
+                eventPublisher, mock(SlotFillGenerationService.class));
+        doThrow(new IllegalStateException("trace unavailable"))
+                .when(lifecycleService).startOrTransitionGeneration(
+                        any(), any(), any(), any(), any(), any(), any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any());
+        GenerationPipelineRequest request = request("create-init-failed");
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationPipelineDisposition.COMPLETED, outcome.disposition());
+        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
+        assertEquals("create_generation_failed", outcome.reason());
+        assertTrue(outcome.resultSummary().contains("CREATE 生命周期初始化"));
+        assertTrue(eventPublisher.recent(1L).stream().anyMatch(
+                event -> event.type() == GenerationEventType.TASK_FAILED));
+        verify(monitor).finishTask("create-init-failed", "failed");
     }
 
     private GenerationPipelineRequest request(String taskId) {
@@ -119,7 +199,7 @@ class SlotFillGenerationPipelineTest {
                 1L, CodeGenTypeEnum.VUE_PROJECT, root, root, false, root, root, Set.of(), Set.of());
         GenerationModeDecision decision = GenerationModeDecision.of(
                 GenerationMode.CREATE, 0.9, "missing workspace",
-                FallbackPolicy.NONE, ExpectedValidationLevel.BUILD);
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT, ExpectedValidationLevel.BUILD);
         GenerationTaskRequest taskRequest = new GenerationTaskRequest(app, "做一个商城落地页", user);
         GenerationExecutionContext context = new GenerationExecutionContext(
                 taskId, 1L, 2L, Instant.now(), new GenerationRuntimeProperties().toLimits(), Clock.systemUTC());

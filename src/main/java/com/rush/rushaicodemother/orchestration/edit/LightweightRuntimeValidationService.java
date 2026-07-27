@@ -21,7 +21,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-/** Runs synchronous validation, bounded repair rounds, and rollback for runtime-error edits. */
+/** 运行同步验证、有限修复轮次以及运行时错误编辑的回滚。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -65,6 +65,9 @@ public class LightweightRuntimeValidationService {
             RuntimeRepairAttempt repairAttempt = retryRepair(
                     request, app, loginUser, taskId, workspace, userMessage, projectContext,
                     validationPlan, validationResult, editSnapshot, repairRound, managedModelCalls);
+            if (repairAttempt.unavailable()) {
+                break;
+            }
             validationResult = repairAttempt.validationResult();
             if (repairAttempt.success()) {
                 editResult = repairAttempt.editResult();
@@ -84,7 +87,7 @@ public class LightweightRuntimeValidationService {
         );
     }
 
-    /** Executes the publication gate synchronously inside the owning task epoch. */
+    /** 在所属任务纪元内同步执行发布门。 */
     public BackgroundValidationService.ValidationResult validateOnce(
             String taskId,
             App app,
@@ -149,9 +152,10 @@ public class LightweightRuntimeValidationService {
                     taskId, userMessage, retryContext, previousValidationResult)
                     : lightweightEditAiService.retryAfterValidationFailure(
                     userMessage, retryContext, previousValidationResult);
-            List<PatchOperation> retryOperations = retryEditResult == null
-                    ? List.of()
-                    : operationConverter.convert(retryEditResult.operations());
+            if (retryEditResult == null) {
+                return RuntimeRepairAttempt.unavailable(previousValidationResult);
+            }
+            List<PatchOperation> retryOperations = operationConverter.convert(retryEditResult.operations());
             if (retryOperations.isEmpty()) {
                 return RuntimeRepairAttempt.failed(previousValidationResult);
             }
@@ -217,6 +221,7 @@ public class LightweightRuntimeValidationService {
 
     private record RuntimeRepairAttempt(
             boolean success,
+            boolean unavailable,
             EditResult editResult,
             List<PatchOperation> patchOperations,
             PatchApplyResult applyResult,
@@ -230,12 +235,18 @@ public class LightweightRuntimeValidationService {
                 EditValidationPlan validationPlan,
                 BackgroundValidationService.ValidationResult validationResult) {
             return new RuntimeRepairAttempt(
-                    true, editResult, List.copyOf(patchOperations), applyResult, validationPlan, validationResult);
+                    true, false, editResult, List.copyOf(patchOperations),
+                    applyResult, validationPlan, validationResult);
         }
 
         private static RuntimeRepairAttempt failed(
                 BackgroundValidationService.ValidationResult validationResult) {
-            return new RuntimeRepairAttempt(false, null, List.of(), null, null, validationResult);
+            return new RuntimeRepairAttempt(false, false, null, List.of(), null, null, validationResult);
+        }
+
+        private static RuntimeRepairAttempt unavailable(
+                BackgroundValidationService.ValidationResult validationResult) {
+            return new RuntimeRepairAttempt(false, true, null, List.of(), null, null, validationResult);
         }
     }
 }

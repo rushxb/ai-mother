@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.service.artifact;
 import java.util.List;
 import java.util.Locale;
 
-/** Defines which generated artifacts are eligible for a lifecycle copy. */
+/** 定义哪些生成的工件有资格获得生命周期副本。 */
 enum ArtifactCopyProfile {
 
     EXECUTION_WORKSPACE(

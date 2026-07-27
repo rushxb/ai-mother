@@ -13,7 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Versioned Milvus collection contract. Incompatible changes require a new collection name. */
+/** 版本化 Milvus 集合合约。不兼容的更改需要新的集合名称。 */
 final class MilvusMemorySchema {
 
     static final int SCHEMA_VERSION = 2;

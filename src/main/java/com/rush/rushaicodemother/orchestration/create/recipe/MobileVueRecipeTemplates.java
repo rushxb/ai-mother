@@ -6,7 +6,7 @@ import java.util.List;
 
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.escape;
 
-/** Renders the mobile Vue template payloads. */
+/** 渲染移动 Vue 模板有效负载。 */
 @Component
 final class MobileVueRecipeTemplates {
 

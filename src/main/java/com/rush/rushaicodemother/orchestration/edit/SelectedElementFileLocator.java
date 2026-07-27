@@ -14,7 +14,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Locates source files from visual-editor DOM selector and text signals. */
+/** 从可视化编辑器 DOM 选择器和文本信号中查找源文件。 */
 @Service
 @RequiredArgsConstructor
 public class SelectedElementFileLocator {

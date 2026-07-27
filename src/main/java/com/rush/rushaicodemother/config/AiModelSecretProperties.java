@@ -11,7 +11,7 @@ import org.springframework.validation.annotation.Validated;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Key-ring configuration for envelope-encrypted AI provider credentials. */
+/** 信封加密的 AI 提供商凭证的密钥环配置。 */
 @Data
 @Component
 @Validated
@@ -20,15 +20,15 @@ public class AiModelSecretProperties {
 
     private String activeKeyId;
 
-    /** Base64-encoded 256-bit key-encryption key. */
+    /** Base64 编码的 256 位密钥加密密钥。 */
     @ToString.Exclude
     private String activeKey;
 
-    /** Base64-encoded 256-bit HMAC key kept stable across encryption-key rotations. */
+    /** Base64 编码的 256 位 HMAC 密钥在加密密钥轮换中保持稳定。 */
     @ToString.Exclude
     private String fingerprintKey;
 
-    /** Previous key-encryption keys retained only while old references are being rewrapped. */
+    /** 仅当旧引用被重新包装时才会保留以前的密钥加密密钥。 */
     @ToString.Exclude
     private Map<String, String> previousKeys = new LinkedHashMap<>();
 

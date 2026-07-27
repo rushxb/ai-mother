@@ -27,6 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * 提示词发布后端接口控制器。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor

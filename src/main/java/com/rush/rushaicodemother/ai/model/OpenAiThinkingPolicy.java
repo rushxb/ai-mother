@@ -7,7 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Resolves official LangChain4j thinking options and provider-specific request parameters.
+ * 解决LangChain4j官方思维选项和提供商特定的请求参数。
  */
 @Component
 public class OpenAiThinkingPolicy {

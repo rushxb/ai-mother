@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
-/** Fail-closed rejection of a checkpoint that cannot be replayed without ambiguity. */
+/** 失败关闭拒绝无法无歧义重播的检查点。 */
 public final class GenerationDagRecoveryException extends IllegalStateException {
 
     private final Reason reason;

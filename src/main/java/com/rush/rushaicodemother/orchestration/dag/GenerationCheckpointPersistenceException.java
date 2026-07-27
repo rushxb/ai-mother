@@ -1,10 +1,10 @@
 package com.rush.rushaicodemother.orchestration.dag;
 
 /**
- * Raised when a workflow checkpoint cannot be durably committed.
+ * 当工作流检查点无法持久提交时引发。
  *
- * <p>Callers must stop the workflow when this exception is raised. Continuing after a failed
- * checkpoint can repeat model, tool, build, or workspace side effects after recovery.</p>
+ * 当引发此异常时，<p>Callers 必须停止工作流程。失败后继续
+ * 检查点可以在恢复后重复模型、工具、构建或工作区副作用。</p>
  */
 public final class GenerationCheckpointPersistenceException extends IllegalStateException {
 

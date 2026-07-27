@@ -80,6 +80,31 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
     }
 
     @Override
+    public void transitionRunningTaskTrace(long recordId,
+                                           NewTask task,
+                                           GenerationExecutionFence fence,
+                                           LocalDateTime updateTime) {
+        requirePositive(recordId, "生成任务记录 ID");
+        requireTask(task);
+        requireTime(updateTime, "trace 路由迁移时间");
+        requireOneAffectedRow(
+                mapper.transitionRunningTaskTrace(
+                        recordId,
+                        task.originalCodeGenType(),
+                        task.targetCodeGenType(),
+                        task.enhancedPrompt(),
+                        task.requiresBuildValidation() ? 1 : 0,
+                        task.qualityGate(),
+                        task.orchestrationMode(),
+                        leaseOwner(fence),
+                        executionEpoch(fence),
+                        updateTime
+                ),
+                "迁移运行中生成任务路由"
+        );
+    }
+
+    @Override
     public void updateRunningTaskStage(long recordId,
                                        String stage,
                                        String stageMessage,

@@ -4,13 +4,21 @@ import com.rush.rushaicodemother.ai.model.CreateSpec;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.MonitorContext;
+import com.rush.rushaicodemother.monitor.MonitorContextHolder;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationStoppedException;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.create.recipe.CreateRecipeRendererTestFactory;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecutorProperties;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
@@ -19,10 +27,19 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceServ
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -34,6 +51,288 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CreateTemplateRuntimeTest {
+
+    @Test
+    void shouldGenerateCreateSpecInParallelWithTemplateBootstrap() throws Exception {
+        Path projectRoot = Path.of("target/test-workspaces/create-template-runtime/parallel/vue_project_1")
+                .toAbsolutePath()
+                .normalize();
+        CountDownLatch specStarted = new CountDownLatch(1);
+        CountDownLatch allowSpecCompletion = new CountDownLatch(1);
+        CreateSpecService createSpecService = mock(CreateSpecService.class);
+        VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
+        GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
+        GenerationTaskExecutorProperties properties = new GenerationTaskExecutorProperties();
+        properties.setMaxConcurrency(1);
+        CreateSpecTaskExecutor createSpecTaskExecutor = new CreateSpecTaskExecutor(properties);
+        GenerationSession session = mock(GenerationSession.class);
+        when(session.taskId()).thenReturn("create-parallel-task");
+        when(session.isActive()).thenReturn(true);
+        when(createSpecService.generateManaged(anyString(), anyString(), any())).thenAnswer(ignored -> {
+            MonitorContext monitorContext = MonitorContextHolder.getContext();
+            assertEquals("create-parallel-task", monitorContext == null ? null : monitorContext.getTaskId());
+            specStarted.countDown();
+            assertTrue(allowSpecCompletion.await(5, TimeUnit.SECONDS), "模板 bootstrap 未与规格生成并行执行");
+            return new CreateSpecService.SpecResult(true, fitnessSpec(), "ai_spec");
+        });
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
+                .thenAnswer(ignored -> {
+                    assertTrue(specStarted.await(5, TimeUnit.SECONDS), "规格生成未在模板 bootstrap 前启动");
+                    allowSpecCompletion.countDown();
+                    return VueProjectTemplateBootstrapService.BootstrapResult.created(
+                            "vue-web-landing", projectRoot.toString(), 1);
+                });
+        when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
+                .thenReturn(PatchApplyResult.applied(
+                        1L, "create-parallel-task", projectRoot.toString(), 1,
+                        List.of("src/data/landingData.ts")));
+        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+                mock(BackendProjectTemplateBootstrapService.class),
+                new CreatePatchMergeService(),
+                new CreatePreWriteValidationService(
+                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                createSpecService,
+                CreateRecipeRendererTestFactory.create(),
+                null,
+                patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
+                new LandingSlotFallbackRenderer(),
+                vueBootstrapService,
+                new GenerationPerformanceMonitorService(),
+                createSpecTaskExecutor
+        );
+
+        try {
+            SlotFillResult result = runtime.generate(
+                    app(), request("做一个 FitPilot 健身房 SaaS 官网"), landingDataPlan(), session);
+
+            assertEquals(1, result.filledSlotCount());
+            assertTrue(result.patchOperations().getFirst().content().contains("FitPilot"));
+            verify(vueBootstrapService).bootstrapIfNecessary(
+                    1L, CodeGenTypeEnum.VUE_PROJECT, "做一个 FitPilot 健身房 SaaS 官网");
+            verify(createSpecService).generateManaged(anyString(), anyString(), any());
+        } finally {
+            allowSpecCompletion.countDown();
+            createSpecTaskExecutor.shutdown();
+        }
+    }
+
+    @Test
+    void shouldFallbackToSynchronousSpecAfterBootstrapWhenParallelCapacityIsFull() throws Exception {
+        Path projectRoot = Path.of("target/test-workspaces/create-template-runtime/saturated/vue_project_1")
+                .toAbsolutePath()
+                .normalize();
+        GenerationTaskExecutorProperties properties = new GenerationTaskExecutorProperties();
+        properties.setMaxConcurrency(1);
+        CreateSpecTaskExecutor createSpecTaskExecutor = new CreateSpecTaskExecutor(properties);
+        CountDownLatch capacityHeld = new CountDownLatch(1);
+        CountDownLatch releaseCapacity = new CountDownLatch(1);
+        Future<?> capacityHolder = createSpecTaskExecutor.submit(null, () -> {
+            capacityHeld.countDown();
+            releaseCapacity.await();
+            return null;
+        });
+        assertTrue(capacityHeld.await(5, TimeUnit.SECONDS));
+
+        AtomicBoolean bootstrapCompleted = new AtomicBoolean(false);
+        CreateSpecService createSpecService = mock(CreateSpecService.class);
+        VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
+        GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
+                .thenAnswer(ignored -> {
+                    bootstrapCompleted.set(true);
+                    return VueProjectTemplateBootstrapService.BootstrapResult.created(
+                            "vue-web-landing", projectRoot.toString(), 1);
+                });
+        when(createSpecService.generate(anyString(), any())).thenAnswer(ignored -> {
+            assertTrue(bootstrapCompleted.get(), "执行器饱和时应在模板 bootstrap 后同步生成规格");
+            return new CreateSpecService.SpecResult(true, fitnessSpec(), "ai_spec");
+        });
+        when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
+                .thenReturn(PatchApplyResult.applied(
+                        1L, "task", projectRoot.toString(), 1, List.of("src/data/landingData.ts")));
+        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+                mock(BackendProjectTemplateBootstrapService.class),
+                new CreatePatchMergeService(),
+                new CreatePreWriteValidationService(
+                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                createSpecService,
+                CreateRecipeRendererTestFactory.create(),
+                null,
+                patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
+                new LandingSlotFallbackRenderer(),
+                vueBootstrapService,
+                new GenerationPerformanceMonitorService(),
+                createSpecTaskExecutor
+        );
+
+        try {
+            SlotFillResult result = runtime.generate(app(), request(), landingDataPlan());
+
+            assertEquals(1, result.filledSlotCount());
+            assertTrue(result.patchOperations().getFirst().content().contains("FitPilot"));
+            verify(createSpecService).generate(anyString(), any());
+        } finally {
+            releaseCapacity.countDown();
+            capacityHolder.get(5, TimeUnit.SECONDS);
+            createSpecTaskExecutor.shutdown();
+        }
+    }
+
+    @Test
+    void shouldCancelParallelSpecWhenGenerationTaskIsCancelled() throws Exception {
+        Path projectRoot = Path.of("target/test-workspaces/create-template-runtime/cancelled/vue_project_1")
+                .toAbsolutePath()
+                .normalize();
+        GenerationTaskExecutorProperties properties = new GenerationTaskExecutorProperties();
+        properties.setMaxConcurrency(1);
+        CreateSpecTaskExecutor createSpecTaskExecutor = new CreateSpecTaskExecutor(properties);
+        CountDownLatch specStarted = new CountDownLatch(1);
+        CountDownLatch keepSpecBlocked = new CountDownLatch(1);
+        CountDownLatch specInterrupted = new CountDownLatch(1);
+        GenerationExecutionContext executionContext = new GenerationExecutionContext(
+                "create-cancelled-task",
+                1L,
+                2L,
+                Instant.now(),
+                new GenerationRuntimeProperties().toLimits(),
+                Clock.systemUTC()
+        );
+        GenerationSession session = new GenerationSession(null, executionContext);
+        CreateSpecService createSpecService = mock(CreateSpecService.class);
+        VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
+        when(createSpecService.generateManaged(anyString(), anyString(), any())).thenAnswer(ignored -> {
+            specStarted.countDown();
+            try {
+                keepSpecBlocked.await();
+                return new CreateSpecService.SpecResult(true, fitnessSpec(), "ai_spec");
+            } catch (InterruptedException interrupted) {
+                specInterrupted.countDown();
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("CREATE 规格模型调用已被中断", interrupted);
+            }
+        });
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
+                .thenAnswer(ignored -> {
+                    assertTrue(specStarted.await(5, TimeUnit.SECONDS));
+                    executionContext.cancel("user_requested");
+                    return VueProjectTemplateBootstrapService.BootstrapResult.created(
+                            "vue-web-landing", projectRoot.toString(), 1);
+                });
+        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+                mock(BackendProjectTemplateBootstrapService.class),
+                new CreatePatchMergeService(),
+                new CreatePreWriteValidationService(
+                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                createSpecService,
+                CreateRecipeRendererTestFactory.create(),
+                null,
+                mock(GenerationPatchApplyService.class),
+                mock(GenerationTaskFenceGuard.class),
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
+                new LandingSlotFallbackRenderer(),
+                vueBootstrapService,
+                new GenerationPerformanceMonitorService(),
+                createSpecTaskExecutor
+        );
+
+        try {
+            assertThrows(GenerationStoppedException.class,
+                    () -> runtime.generate(app(), request(), landingDataPlan(), session));
+            assertTrue(specInterrupted.await(5, TimeUnit.SECONDS), "任务取消后规格子线程未被中断");
+        } finally {
+            keepSpecBlocked.countDown();
+            createSpecTaskExecutor.shutdown();
+        }
+    }
+
+    @Test
+    void shouldCancelParallelSpecAndUseLocalSpecWhenPreviewReserveBegins() throws Exception {
+        Path projectRoot = Path.of("target/test-workspaces/create-template-runtime/preview-cutoff/vue_project_1")
+                .toAbsolutePath()
+                .normalize();
+        GenerationTaskExecutorProperties executorProperties = new GenerationTaskExecutorProperties();
+        executorProperties.setMaxConcurrency(1);
+        CreateSpecTaskExecutor createSpecTaskExecutor = new CreateSpecTaskExecutor(executorProperties);
+        CountDownLatch specStarted = new CountDownLatch(1);
+        CountDownLatch keepSpecBlocked = new CountDownLatch(1);
+        CountDownLatch specInterrupted = new CountDownLatch(1);
+        Instant startedAt = Instant.parse("2026-07-22T00:00:00Z");
+        GenerationRuntimeProperties runtimeProperties = new GenerationRuntimeProperties();
+        runtimeProperties.setTaskTimeout(Duration.ofSeconds(60));
+        runtimeProperties.setModelCallTimeout(Duration.ofSeconds(20));
+        runtimeProperties.setFirstPreviewCompletionReserve(Duration.ofSeconds(45));
+        GenerationExecutionContext executionContext = new GenerationExecutionContext(
+                "create-preview-cutoff-task",
+                1L,
+                2L,
+                startedAt,
+                runtimeProperties.toLimits(),
+                Clock.fixed(startedAt.plusSeconds(16), ZoneOffset.UTC)
+        );
+        GenerationSession session = new GenerationSession(null, executionContext);
+        CreateSpecService createSpecService = mock(CreateSpecService.class);
+        VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
+        GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
+        when(createSpecService.generateManaged(anyString(), anyString(), any())).thenAnswer(ignored -> {
+            specStarted.countDown();
+            try {
+                keepSpecBlocked.await();
+                return new CreateSpecService.SpecResult(true, fitnessSpec(), "ai_spec");
+            } catch (InterruptedException interrupted) {
+                specInterrupted.countDown();
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("CREATE 规格模型调用已被首预览预留窗口中断", interrupted);
+            }
+        });
+        when(createSpecService.generateLocal(anyString(), any(), anyString()))
+                .thenReturn(new CreateSpecService.SpecResult(
+                        true, fitnessSpec(), "local_spec_first_preview_wait_cutoff"));
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
+                .thenAnswer(ignored -> {
+                    assertTrue(specStarted.await(5, TimeUnit.SECONDS));
+                    return VueProjectTemplateBootstrapService.BootstrapResult.created(
+                            "vue-web-landing", projectRoot.toString(), 1);
+                });
+        when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
+                .thenReturn(PatchApplyResult.applied(
+                        1L, "create-preview-cutoff-task", projectRoot.toString(), 1,
+                        List.of("src/data/landingData.ts")));
+        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+                mock(BackendProjectTemplateBootstrapService.class),
+                new CreatePatchMergeService(),
+                new CreatePreWriteValidationService(
+                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                createSpecService,
+                CreateRecipeRendererTestFactory.create(),
+                null,
+                patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
+                new LandingSlotFallbackRenderer(),
+                vueBootstrapService,
+                new GenerationPerformanceMonitorService(),
+                createSpecTaskExecutor
+        );
+
+        try {
+            SlotFillResult result = runtime.generate(app(), request(), landingDataPlan(), session);
+
+            assertEquals(1, result.filledSlotCount());
+            Map<?, ?> telemetry = (Map<?, ?>) result.metadata().get("telemetry");
+            assertEquals(0, telemetry.get("aiCallCount"));
+            assertEquals(true, telemetry.get("degraded"));
+            assertTrue(specInterrupted.await(5, TimeUnit.SECONDS), "首预览预留生效后规格线程未被中断");
+            verify(createSpecService).generateLocal(
+                    anyString(), any(), org.mockito.ArgumentMatchers.eq("local_spec_first_preview_wait_cutoff"));
+        } finally {
+            keepSpecBlocked.countDown();
+            createSpecTaskExecutor.shutdown();
+        }
+    }
 
     @Test
     void shouldUseAiCreateSpecRecipeForLandingCreate() {
@@ -53,8 +352,15 @@ class CreateTemplateRuntimeTest {
                 ));
         when(createSpecService.generate(anyString(), any()))
                 .thenReturn(new CreateSpecService.SpecResult(true, fitnessSpec(), ""));
+        when(createSpecService.generateManaged(anyString(), anyString(), any()))
+                .thenReturn(new CreateSpecService.SpecResult(true, fitnessSpec(), ""));
         when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
                 .thenReturn(PatchApplyResult.applied(1L, "task", projectRoot.toString(), 1, List.of("src/data/landingData.ts")));
+        GenerationPerformanceMonitorService performanceMonitorService = new GenerationPerformanceMonitorService();
+        performanceMonitorService.startTask(
+                "create-task", 1L, 2L, "create", CodeGenTypeEnum.VUE_PROJECT.getValue());
+        GenerationSession session = mock(GenerationSession.class);
+        when(session.taskId()).thenReturn("create-task");
 
         CreateTemplateRuntime runtime = new CreateTemplateRuntime(
                 mock(BackendProjectTemplateBootstrapService.class),
@@ -67,10 +373,13 @@ class CreateTemplateRuntimeTest {
                 mock(GenerationTaskFenceGuard.class),
                 workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
                 new LandingSlotFallbackRenderer(),
-                vueBootstrapService
+                vueBootstrapService,
+                performanceMonitorService
         );
 
         SlotFillResult result = runtime.generate(app(), request("做一个 FitPilot 健身房 SaaS 官网"), landingDataPlan());
+
+        runtime.generate(app(), request(), landingDataPlan(), session);
 
         assertEquals(1, result.filledSlotCount());
         assertEquals(1, result.patchOperationCount());
@@ -81,6 +390,20 @@ class CreateTemplateRuntimeTest {
         Map<?, ?> telemetry = (Map<?, ?>) result.metadata().get("telemetry");
         assertEquals(1, telemetry.get("aiCallCount"));
         assertEquals(false, telemetry.get("degraded"));
+        assertTrue(performanceMonitorService.getSummary(10).getRecentTasks().getFirst()
+                .getFirstTokenLatencyMs() > 0);
+        List<String> stages = performanceMonitorService.getSummary(10).getRecentTasks().getFirst()
+                .getSpans().stream()
+                .map(span -> span.getStage())
+                .toList();
+        assertTrue(stages.containsAll(List.of(
+                "create_bootstrap",
+                "create_spec_model",
+                "create_recipe_render",
+                "create_pre_write_validation",
+                "create_patch_apply",
+                "model_time_to_first_signal"
+        )));
     }
 
     @Test
@@ -311,7 +634,8 @@ class CreateTemplateRuntimeTest {
         assertEquals(1, result.patchOperationCount());
         Map<?, ?> telemetry = (Map<?, ?>) result.metadata().get("telemetry");
         assertEquals(false, telemetry.get("fallback"));
-        assertEquals(false, telemetry.get("degraded"));
+        assertEquals(true, telemetry.get("degraded"));
+        assertEquals(1, telemetry.get("aiCallCount"));
         verify(patchApplyService, times(1)).applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString());
     }
 

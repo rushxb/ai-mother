@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
+import com.rush.rushaicodemother.orchestration.dag.GenerationDagCheckpointRecoveryPolicy;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationScheduler;
@@ -18,9 +19,9 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Terminalizes expired tasks that cannot yet be resumed because no versioned checkpoint exists.
- * This is deliberately honest recovery: it preserves cancellation/deadline semantics, prevents
- * zombie ownership, and never pretends that interrupted generation work has resumed.
+ * 终止由于不存在版本化检查点而无法恢复的过期任务。
+ * 这是故意诚实的恢复：它保留取消/截止日期语义，防止
+ *僵尸所有权，并且从不假装中断的生成工作已经恢复。
  */
 @Slf4j
 @Service
@@ -165,7 +166,17 @@ public class GenerationTaskRecoveryService {
 
     private boolean hasRecoverableDagCheckpoint(GenerationTaskRecoveryCandidate candidate) {
         try {
-            return orchestrationTaskStore.load(candidate.appId(), candidate.taskId()).isPresent();
+            var checkpoint = orchestrationTaskStore.load(candidate.appId(), candidate.taskId()).orElse(null);
+            if (checkpoint == null) {
+                return false;
+            }
+            GenerationDagCheckpointRecoveryPolicy.Assessment assessment =
+                    GenerationDagCheckpointRecoveryPolicy.assess(checkpoint);
+            if (!assessment.automaticallyRecoverable()) {
+                log.warn("生成 DAG 检查点不能自动恢复，taskId: {}，原因: {}",
+                        candidate.taskId(), assessment.reason());
+            }
+            return assessment.automaticallyRecoverable();
         } catch (RuntimeException corruptedCheckpoint) {
             log.warn("Generation DAG checkpoint is unavailable for recovery, taskId: {}",
                     candidate.taskId(), LogExceptionSanitizer.sanitize(corruptedCheckpoint));

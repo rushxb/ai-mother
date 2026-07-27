@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.progress;
 
 import java.util.List;
 
-/** Persistence port for bounded historical task and operation duration samples. */
+/** 有界历史任务和操作持续时间样本的持久性端口。 */
 public interface GenerationDurationSampleRepository {
 
     GenerationDurationSamples loadRecentSuccessfulSamples(String route,

@@ -32,6 +32,12 @@ public class ProjectCommandProperties {
     /** Vue 项目全量构建脚本的总超时。 */
     private Duration fullBuildTimeout = Duration.ofMinutes(4);
 
+    /** Go 项目执行完整测试的总超时。 */
+    private Duration goTestTimeout = Duration.ofMinutes(3);
+
+    /** Go 编译或测试持续无输出时的超时。 */
+    private Duration goTestIdleTimeout = Duration.ofMinutes(2);
+
     /** 命令持续无输出的超时。 */
     private Duration idleTimeout = Duration.ofSeconds(90);
 
@@ -46,7 +52,7 @@ public class ProjectCommandProperties {
     @Max(1_000_000)
     private int maxOutputLength = 12_000;
 
-    /** 内存中最多保留的最近 Vue 构建结果数量。 */
+    /** 内存中最多保留的最近项目构建结果数量。 */
     @Min(10)
     @Max(10_000)
     private int recentBuildResultMaxEntries = 500;
@@ -58,6 +64,8 @@ public class ProjectCommandProperties {
                         lightValidationTimeout,
                         lightBuildTimeout,
                         fullBuildTimeout,
+                        goTestTimeout,
+                        goTestIdleTimeout,
                         idleTimeout,
                         heartbeatInterval,
                         outputDrainTimeout
@@ -70,7 +78,8 @@ public class ProjectCommandProperties {
         if (heartbeatInterval == null) {
             return false;
         }
-        return Stream.of(toolScriptTimeout, lightValidationTimeout, lightBuildTimeout, fullBuildTimeout)
+        return Stream.of(toolScriptTimeout, lightValidationTimeout, lightBuildTimeout,
+                        fullBuildTimeout, goTestTimeout, goTestIdleTimeout)
                 .allMatch(timeout -> timeout != null && heartbeatInterval.compareTo(timeout) < 0);
     }
 }

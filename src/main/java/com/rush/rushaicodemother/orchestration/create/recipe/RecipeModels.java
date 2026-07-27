@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.create.recipe;
 
 import java.util.List;
 
+/**
+ * 管理端配方的不可变数据载体。
+ */
 record AdminRecipe(String brand,
                    String domain,
                    String primary,

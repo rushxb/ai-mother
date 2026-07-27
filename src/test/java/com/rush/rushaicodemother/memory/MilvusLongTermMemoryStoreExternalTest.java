@@ -7,6 +7,8 @@ import io.milvus.v2.service.collection.request.DropCollectionReq;
 import io.milvus.v2.service.collection.request.HasCollectionReq;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
+import cn.hutool.crypto.digest.DigestUtil;
 
 import java.time.Instant;
 import java.util.List;
@@ -23,9 +25,11 @@ class MilvusLongTermMemoryStoreExternalTest {
 
     @Test
     void memoryMustRoundTripThroughConfiguredMilvus() {
+        String uri = System.getProperty("milvusUri");
+        Assumptions.assumeTrue(uri != null && !uri.isBlank(), "-DmilvusUri is required");
         String collection = "generation_memory_it_" + System.currentTimeMillis();
         MilvusMemoryProperties properties = new MilvusMemoryProperties();
-        properties.setUri(System.getProperty("milvusUri", "http://192.168.20.138:19530"));
+        properties.setUri(uri);
         properties.setCollectionName(collection);
         MilvusClientV2 client = new MilvusClientV2(ConnectConfig.builder()
                 .uri(properties.getUri())
@@ -36,25 +40,30 @@ class MilvusLongTermMemoryStoreExternalTest {
                 .build());
         try {
             MemoryEmbeddingService embeddingService = new BgeMemoryEmbeddingService();
-            MilvusLongTermMemoryStore store = new MilvusLongTermMemoryStore(
+            MilvusMemoryCollectionManager collectionManager = new MilvusMemoryCollectionManager(
                     client, properties, embeddingService);
+            MilvusLongTermMemoryStore store = new MilvusLongTermMemoryStore(
+                    client, properties, embeddingService, collectionManager);
             String content = "用户偏好：后台页面使用紧凑表格与蓝色主题";
             float[] embedding = embeddingService.embed(content);
             store.upsert(new SemanticMemory(
-                    UUID.randomUUID().toString(), 991L, 992L, "task-it",
-                    MemoryType.USER_PREFERENCE, content, Map.of("source", "integration"),
+                    DigestUtil.sha256Hex(UUID.randomUUID().toString()),
+                    990L, 991L, 992L, "task-it",
+                    MemoryType.USER_PREFERENCE, content,
+                    SemanticMemoryGovernancePolicy.governMetadata(
+                            Map.of("source", "integration"), content),
                     embedding, Instant.now()
             ));
 
             List<SemanticMemoryHit> hits = store.search(new SemanticMemoryQuery(
-                    991L, 992L, embedding, Set.of(MemoryType.USER_PREFERENCE), 3, 0.5));
+                    990L, 991L, embedding, Set.of(MemoryType.USER_PREFERENCE), 3, 0.5));
 
             assertFalse(hits.isEmpty());
             assertEquals(content, hits.getFirst().memory().content());
 
-            store.deleteByApplication(991L, 992L);
+            store.deleteByApplication(990L, 991L);
             List<SemanticMemoryHit> deletedHits = store.search(new SemanticMemoryQuery(
-                    991L, 992L, embedding, Set.of(MemoryType.USER_PREFERENCE), 3, 0.5));
+                    990L, 991L, embedding, Set.of(MemoryType.USER_PREFERENCE), 3, 0.5));
             assertTrue(deletedHits.isEmpty());
         } finally {
             if (Boolean.TRUE.equals(client.hasCollection(HasCollectionReq.builder()

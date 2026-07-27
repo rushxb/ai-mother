@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-/** Persistence port for submission, cancellation, worker lease and recovery metadata. */
+/** 用于提交、取消、工作器租赁和恢复元数据的持久性端口。 */
 public interface DurableGenerationTaskRepository {
     void createSubmitted(GenerationTaskSubmissionRecord task);
 

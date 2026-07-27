@@ -11,7 +11,7 @@ import org.springframework.validation.annotation.Validated;
 import java.net.URI;
 import java.time.Duration;
 
-/** Internal node-to-node routing and authentication for durable Preview sessions. */
+/** 用于持久预览会话的内部节点到节点路由和身份验证。 */
 @Data
 @Component
 @Validated
@@ -21,16 +21,16 @@ public class DevServerInternalRoutingProperties {
     private static final String NODE_ID_PLACEHOLDER = "{nodeId}";
     private static final Duration MAX_CLOCK_SKEW = Duration.ofMinutes(5);
 
-    /** Resolves a durable node id to that node's internal application base URL. */
+    /** 将持久节点 ID 解析为该节点的内部应用程序基本 URL。 */
     private String baseUrlTemplate = "http://{nodeId}:8123/api";
 
-    /** Shared HMAC secret. It may be blank in single-node development, but is mandatory in prod. */
+    /** 共享 HMAC 秘密。在单节点开发中可能为空，但在产品中是强制的。 */
     private String sharedSecret = "";
 
-    /** Maximum accepted difference between sender and receiver clocks. */
+    /** 发送器和接收器时钟之间可接受的最大差异。 */
     private Duration allowedClockSkew = Duration.ofSeconds(30);
 
-    /** Bounded nonce cache used to reject replayed internal requests. */
+    /** 有界随机数缓存用于拒绝重播的内部请求。 */
     @Min(100)
     @Max(1_000_000)
     private int replayCacheMaxEntries = 10_000;

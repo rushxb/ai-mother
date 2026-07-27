@@ -22,11 +22,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 
+/**
+ * 智能体编辑生成处理流水线。
+ */
 @Slf4j
 @Order(30)
 @Component
 @RequiredArgsConstructor
 public class AgentEditGenerationPipeline implements GenerationPipeline {
+
+    private static final String AGENT_EDIT_FAILURE_REASON = "agent_edit_failed";
 
     private final AgentEditGenerationService agentEditGenerationService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
@@ -76,7 +81,12 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                         )
                 ));
                 generationPerformanceMonitorService.finishTask(execution.taskId(), "failed");
-                return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.FAILED);
+                return GenerationPipelineOutcome.completed(
+                        route(),
+                        GenerationTaskStatus.FAILED,
+                        AGENT_EDIT_FAILURE_REASON,
+                        buildResultSummary("失败", editResult)
+                );
             }
             session.emit(GenerationStreamEvent.agentEvent(
                     editResult.summary(),
@@ -90,7 +100,12 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                     )
             ));
             generationPerformanceMonitorService.finishTask(execution.taskId(), "success");
-            return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.SUCCESS);
+            return GenerationPipelineOutcome.completed(
+                    route(),
+                    GenerationTaskStatus.SUCCESS,
+                    null,
+                    buildResultSummary("成功", editResult)
+            );
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;
         } catch (RuntimeException failure) {
@@ -101,8 +116,26 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                     Map.of("route", route(), "taskId", execution.taskId(), "status", "failed")
             ));
             generationPerformanceMonitorService.finishTask(execution.taskId(), "failed");
-            return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.FAILED);
+            return GenerationPipelineOutcome.completed(
+                    route(),
+                    GenerationTaskStatus.FAILED,
+                    AGENT_EDIT_FAILURE_REASON,
+                    "任务状态：失败\n执行路径：AGENT_EDIT\n失败原因：智能编辑执行失败，请稍后重试"
+            );
         }
+    }
+
+    private String buildResultSummary(String status, AgentEditResult result) {
+        String changedFiles = result.changedFiles().stream()
+                .limit(30)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("无");
+        return "任务状态：" + status
+                + "\n执行路径：AGENT_EDIT"
+                + "\n结果摘要：" + result.summary()
+                + "\n修改文件数量：" + result.changedFiles().size()
+                + "\n修改文件：" + changedFiles
+                + "\n修复轮次：" + result.repairRounds();
     }
 
     private void assertTaskIdentity(String expectedTaskId, String actualTaskId) {

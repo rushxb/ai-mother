@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.create.recipe;
 
 import org.springframework.stereotype.Component;
 
-/** Renders the Go application service layer. */
+/** 渲染Go应用程序服务层。 */
 @Component
 final class BackendServiceTemplate {
 

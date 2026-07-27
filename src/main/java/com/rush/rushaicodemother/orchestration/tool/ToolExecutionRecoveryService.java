@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.Optional;
 
-/** Atomically turns an orphaned durable tool continuation back into resumable waiting work. */
+/** 以原子方式将孤立的持久工具延续转回可恢复的等待工作。 */
 @Service
 @RequiredArgsConstructor
 public class ToolExecutionRecoveryService {

@@ -9,6 +9,9 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 开发服务器会话数据访问映射器。
+ */
 public interface DevServerSessionMapper {
 
     @Select("SELECT id FROM user WHERE id = #{userId} FOR UPDATE")

@@ -18,7 +18,7 @@ public class UserCreditProperties {
     @Min(1)
     private long tokensPerCredit = 100_000L;
 
-    /** Maximum terminal tasks reconciled by one background settlement pass. */
+    /** 一张后台结算通证可核对最大终端任务数。 */
     @Min(1)
     @Max(500)
     private int settlementBatchSize = 100;

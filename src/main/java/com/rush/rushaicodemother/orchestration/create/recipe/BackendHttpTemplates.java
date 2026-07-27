@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.tableName;
 
-/** Renders HTTP handlers and server composition for a Go backend module. */
+/** 呈现 Go 后端模块的 HTTP 处理程序和服务器组合。 */
 @Component
 final class BackendHttpTemplates {
 

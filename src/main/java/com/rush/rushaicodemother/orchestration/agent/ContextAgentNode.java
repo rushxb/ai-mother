@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.context.AiContextBoundaryService;
 import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
@@ -36,7 +37,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
     public ContextAgentNode(GenerationAgentSupport support,
                             AiContextBoundaryService contextBoundaryService,
                             GenerationWorkingMemoryService workingMemoryService) {
-        super("context", "Context", "context", List.of("template"));
+        super("context", "Context", "context", List.of("template"), GenerationNodeReplayPolicy.REPLAY_SAFE);
         this.support = support;
         this.contextBoundaryService = contextBoundaryService;
         this.workingMemoryService = workingMemoryService;
@@ -64,7 +65,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                         app,
                         targetType,
                         context.getRequest().userMessage(),
-                        rootDir
+                        rootDir,
+                        context.getWorkspaceIndexSnapshot()
                 );
             }
         }
@@ -93,7 +95,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
         payload.put("contextSecretsRedacted", protectedContext.redacted());
         payload.put("contextTruncated", protectedContext.truncated());
         payload.put("contextSourceChars", protectedContext.sourceChars());
-        payload.put("memoryContext", StrUtil.blankToDefault(context.getRequest().memoryContext(), ""));
+        payload.put("memoryContext", StrUtil.blankToDefault(context.getRequest().resolveMemoryContext(), ""));
         payload.put("hasGeneratedCode", context.getRequest().hasGeneratedCode());
         payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
         payload.put("recipes", support.buildRecipePayloads(matchedRecipes));

@@ -17,7 +17,7 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
 
-/** Authenticates an owner-node WebSocket hop and fences it against the durable local lease. */
+/** 验证所有者节点 WebSocket 跃点并根据持久本地租约将其隔离。 */
 @Component
 public class InternalDevServerWebSocketHandshakeInterceptor implements HandshakeInterceptor {
 
@@ -86,7 +86,7 @@ public class InternalDevServerWebSocketHandshakeInterceptor implements Handshake
             WebSocketHandler wsHandler,
             Exception exception
     ) {
-        // Signature nonce state is already consumed by the verifier.
+        // 签名随机数状态已被验证者消耗。
     }
 
     private boolean reject(ServerHttpResponse response, HttpStatus status) {

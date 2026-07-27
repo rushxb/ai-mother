@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.benchmark.evidence;
 import java.time.Instant;
 import java.util.List;
 
-/** Immutable release evidence persisted after signature and deterministic gate verification. */
+/** 经过签名和确定性门禁校验后持久化的不可变发布证据。 */
 public record GenerationBenchmarkEvidenceRecord(
         String evidenceId,
         GenerationBenchmarkEvidencePayload payload,

@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
@@ -20,6 +21,8 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
@@ -34,6 +37,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,6 +56,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     private final GenerationBenchmarkRequestFactory requestFactory = new GenerationBenchmarkRequestFactory();
     private final GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
     private final GenerationPerformanceMonitorService performanceMonitorService = new GenerationPerformanceMonitorService();
+    private final GenerationSpanQueryService spanQueryService = mock(GenerationSpanQueryService.class);
     private final GenerationBenchmarkUsageRepository usageRepository = mock(GenerationBenchmarkUsageRepository.class);
     private final GenerationBenchmarkValidationEngine validationEngine = mock(GenerationBenchmarkValidationEngine.class);
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
@@ -81,7 +86,9 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                     taskId,
                     "create",
                     null,
-                    Flux.just(GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))
+                    Flux.just(
+                            firstPreview(450),
+                            GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))
             );
         });
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
@@ -94,6 +101,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         assertTrue(result.buildPassed());
         assertEquals(2, result.aiCallCount());
         assertEquals("CREATE", result.mode());
+        assertEquals(450L, result.firstPreviewLatencyMs());
     }
 
     @Test
@@ -103,7 +111,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 "bench-task-2",
                 "create",
                 null,
-                Flux.just(GenerationStreamEvent.agentEvent("done", Map.of()))
+                Flux.just(firstPreview(500), GenerationStreamEvent.agentEvent("done", Map.of()))
         ));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
 
@@ -146,7 +154,8 @@ class OrchestratedGenerationBenchmarkExecutorTest {
             GenerationTaskRequest request = invocation.getArgument(0);
             eventPublisher.publish(request, GenerationEventType.VALIDATION_RESULT, "validated", Map.of("status", "success"));
             eventPublisher.publish(request, GenerationEventType.TASK_DONE, "done", Map.of());
-            return new GenerationTaskResult("bench-task-4", "agent_edit", null, Flux.never());
+            return new GenerationTaskResult(
+                    "bench-task-4", "agent_edit", null, Flux.just(firstPreview(350)));
         });
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
 
@@ -200,7 +209,9 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
         when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
                 "bench-task-quality", "agent_edit", null,
-                Flux.just(GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))
+                Flux.just(
+                        firstPreview(400),
+                        GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))
         ));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
         GenerationBenchmarkQualityEvidence evidence = new GenerationBenchmarkQualityEvidence(java.util.List.of(
@@ -218,6 +229,90 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 ArgumentCaptor.forClass(GenerationBenchmarkValidationPlan.class);
         verify(validationEngine).evaluate(plan.capture());
         assertSame(publishedWorkspace, plan.getValue().workspace());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"CREATE", "LIGHT_EDIT", "AGENT_EDIT", "HEAVY_EXPERT"})
+    void shouldCaptureFirstPreviewForEveryGenerationMode(String mode) {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-preview-" + mode.toLowerCase(),
+                mode.toLowerCase(),
+                null,
+                Flux.just(firstPreview(0))
+        ));
+
+        GenerationBenchmarkRunResult result = executor(orchestrator).execute(
+                new GenerationBenchmarkTask(
+                        "preview-" + mode.toLowerCase(), mode, "vue_project", "generate", "fast"));
+
+        assertTrue(result.success());
+        assertEquals(0L, result.firstPreviewLatencyMs());
+        assertTrue(result.firstPreviewObserved());
+    }
+
+    @Test
+    void successfulTaskWithoutPreviewMustRemainExplicitlyUnobserved() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-preview-missing", "create", null, Flux.empty()));
+
+        GenerationBenchmarkRunResult result = executor(orchestrator).execute(
+                new GenerationBenchmarkTask(
+                        "preview-missing", "CREATE", "vue_project", "generate", "fast"));
+
+        assertTrue(result.success());
+        assertNull(result.firstPreviewLatencyMs());
+        assertFalse(result.firstPreviewObserved());
+    }
+
+    @Test
+    void shouldDrainDelayedTaskStreamAfterDurableTerminalState() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-preview-delayed",
+                "create",
+                null,
+                Flux.just(firstPreview(321)).delaySubscription(Duration.ofMillis(20))
+        ));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        ReflectionTestUtils.setField(
+                executor, "firstPreviewObservationTimeout", Duration.ofMillis(200));
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "preview-delayed", "CREATE", "vue_project", "generate", "fast"));
+
+        assertTrue(result.success());
+        assertEquals(321L, result.firstPreviewLatencyMs());
+    }
+
+    @Test
+    void shouldRecoverFirstPreviewFromDurableTraceAcrossWorkerInstances() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+                "bench-preview-trace", "create", null, Flux.empty()));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        when(spanQueryService.findByTaskId(
+                "bench-preview-trace", GenerationSpanQueryService.MAX_LIMIT)).thenReturn(java.util.List.of(
+                new GenerationSpanQueryService.StoredSpan(
+                        "span-preview",
+                        "bench-preview-trace",
+                        "time_to_first_preview",
+                        "pipeline",
+                        "met",
+                        Instant.now().minusMillis(777),
+                        Instant.now(),
+                        777,
+                        "create-preview-first"
+                )
+        ));
+
+        GenerationBenchmarkRunResult result = executor.execute(
+                new GenerationBenchmarkTask(
+                        "preview-trace", "CREATE", "vue_project", "generate", "fast"));
+
+        assertTrue(result.success());
+        assertEquals(777L, result.firstPreviewLatencyMs());
     }
 
     @Test
@@ -298,6 +393,8 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         when(fixtureService.create(any())).thenAnswer(invocation -> fixture(invocation.getArgument(0)));
         when(usageRepository.findByTaskId(any())).thenReturn(GenerationBenchmarkUsage.empty());
         when(validationEngine.evaluate(any())).thenReturn(GenerationBenchmarkQualityEvidence.empty());
+        when(spanQueryService.findByTaskId(anyString(), eq(GenerationSpanQueryService.MAX_LIMIT)))
+                .thenReturn(java.util.List.of());
         when(runtimeLifecycleService.findByTaskId(anyString())).thenAnswer(invocation -> Optional.of(
                 record(invocation.getArgument(0), GenerationTaskStatus.SUCCESS)));
         when(runtimeLifecycleService.requestCancellation(anyString(), anyString())).thenReturn(true);
@@ -308,6 +405,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 orchestrator,
                 eventPublisher,
                 performanceMonitorService,
+                spanQueryService,
                 usageRepository,
                 validationEngine,
                 runtimeLifecycleService,
@@ -316,7 +414,13 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(200));
         ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(50));
         ReflectionTestUtils.setField(executor, "terminalPollInterval", Duration.ofMillis(1));
+        ReflectionTestUtils.setField(executor, "firstPreviewObservationTimeout", Duration.ofMillis(20));
         return executor;
+    }
+
+    private GenerationStreamEvent firstPreview(long elapsedMs) {
+        return GenerationStreamEvent.firstPreviewReady(
+                "preview ready", Map.of("elapsedMs", elapsedMs));
     }
 
     private GenerationBenchmarkFixture fixture(GenerationBenchmarkTask task) {

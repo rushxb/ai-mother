@@ -13,14 +13,14 @@ public interface ProjectDependencyInstaller {
     DependencyInstallResult ensureInstalled(Path projectDirectory);
 
     /**
-     * Ensures dependencies for a managed generation task. Implementations may use the task id for
-     * deadline and cancellation propagation; legacy callers remain supported by the base method.
+     * 确保托管生成任务的依赖性。实现可以使用任务 id
+     * 截止日期和取消传播；旧调用者仍然受基本方法支持。
      */
     default DependencyInstallResult ensureInstalled(Path projectDirectory, String taskId) {
         return ensureInstalled(projectDirectory, taskId, DependencyInstallMode.REUSE_IF_VALID);
     }
 
-    /** Executes dependency provisioning under an explicit lockfile mutation policy. */
+    /** 在显式锁定文件变更策略下执行依赖项配置。 */
     default DependencyInstallResult ensureInstalled(Path projectDirectory,
                                                     String taskId,
                                                     DependencyInstallMode mode) {

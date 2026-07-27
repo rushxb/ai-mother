@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
-/** In-process adapter for development and isolated tests. */
+/** 用于开发和隔离测试的进程内适配器。 */
 @Component
 @ConditionalOnProperty(prefix = "app.generation-event-stream", name = "transport",
         havingValue = "local", matchIfMissing = true)

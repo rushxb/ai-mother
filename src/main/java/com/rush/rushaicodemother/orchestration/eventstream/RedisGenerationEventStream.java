@@ -4,6 +4,8 @@ import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.config.GenerationEventStreamProperties;
 import com.rush.rushaicodemother.core.handler.GenerationPublicEventSanitizer;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.monitor.GenerationEventStreamMetricsCollector;
+import jakarta.annotation.PreDestroy;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.ReadOffset;
@@ -23,10 +25,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Redis Streams adapter used by production nodes for replayable cross-instance SSE delivery. */
+/** 生产节点使用的 Redis Streams 适配器，提供可重放的跨实例 SSE 事件。 */
 @Component
 @ConditionalOnProperty(prefix = "app.generation-event-stream", name = "transport", havingValue = "redis")
-public class RedisGenerationEventStream implements GenerationEventStream {
+public class RedisGenerationEventStream implements GenerationEventStream, AutoCloseable {
 
     private static final String FIELD_SEQUENCE = "sequence";
     private static final String FIELD_KIND = "kind";
@@ -62,11 +64,30 @@ public class RedisGenerationEventStream implements GenerationEventStream {
 
     private final StringRedisTemplate redisTemplate;
     private final GenerationEventStreamProperties properties;
+    private final GenerationEventStreamMetricsCollector metricsCollector;
+    private final GenerationEventDeltaCoalescer deltaCoalescer;
 
     public RedisGenerationEventStream(StringRedisTemplate redisTemplate,
-                                      GenerationEventStreamProperties properties) {
+                                      GenerationEventStreamProperties properties,
+                                      GenerationEventStreamMetricsCollector metricsCollector) {
         this.redisTemplate = redisTemplate;
         this.properties = properties;
+        this.metricsCollector = metricsCollector;
+        this.deltaCoalescer = new GenerationEventDeltaCoalescer(
+                properties,
+                new GenerationEventDeltaCoalescer.EventWriter() {
+                    @Override
+                    public void publish(String taskId, GenerationStreamEvent event) {
+                        appendEvent(taskId, event);
+                    }
+
+                    @Override
+                    public void complete(String taskId) {
+                        append(taskId, KIND_COMPLETE, "");
+                    }
+                },
+                metricsCollector
+        );
     }
 
     @Override
@@ -78,7 +99,7 @@ public class RedisGenerationEventStream implements GenerationEventStream {
         if (publicEvent == null) {
             return;
         }
-        append(taskId, KIND_EVENT, JSONUtil.toJsonStr(publicEvent));
+        deltaCoalescer.publish(taskId, publicEvent);
     }
 
     @Override
@@ -86,7 +107,7 @@ public class RedisGenerationEventStream implements GenerationEventStream {
         if (!validTaskId(taskId)) {
             return;
         }
-        append(taskId, KIND_COMPLETE, "");
+        deltaCoalescer.complete(taskId);
     }
 
     @Override
@@ -100,7 +121,7 @@ public class RedisGenerationEventStream implements GenerationEventStream {
             return Flux.empty();
         }
         if (afterSequence < 0) {
-            throw new IllegalArgumentException("generation event cursor cannot be negative");
+            throw new IllegalArgumentException("生成事件游标不能为负数");
         }
         String streamKey = key(taskId);
         return Flux.defer(() -> resumableStream(streamKey, afterSequence));
@@ -125,21 +146,36 @@ public class RedisGenerationEventStream implements GenerationEventStream {
     }
 
     private void append(String taskId, String kind, String payload) {
-        String streamKey = key(taskId);
-        Long sequence = redisTemplate.execute(
-                APPEND_SCRIPT,
-                List.of(streamKey, sequenceKey(streamKey)),
-                kind,
-                payload,
-                Integer.toString(properties.getMaxEventsPerTask()),
-                Long.toString(properties.getRetention().toMillis())
-        );
-        if (sequence == null || sequence <= 0) {
-            throw new IllegalStateException("Redis generation event append returned an invalid sequence");
+        long startedAt = System.nanoTime();
+        boolean success = false;
+        try {
+            String streamKey = key(taskId);
+            Long sequence = redisTemplate.execute(
+                    APPEND_SCRIPT,
+                    List.of(streamKey, sequenceKey(streamKey)),
+                    kind,
+                    payload,
+                    Integer.toString(properties.getMaxEventsPerTask()),
+                    Long.toString(properties.getRetention().toMillis())
+            );
+            if (sequence == null || sequence <= 0) {
+                throw new IllegalStateException("Redis 生成事件追加返回了无效序号");
+            }
+            success = true;
+        } finally {
+            metricsCollector.recordRedisAppend(
+                    kind,
+                    success ? "success" : "failed",
+                    Duration.ofNanos(Math.max(0L, System.nanoTime() - startedAt))
+            );
         }
     }
 
-    @SuppressWarnings("unchecked") // Spring Data exposes StreamOffset<K> through a generic varargs API.
+    private void appendEvent(String taskId, GenerationStreamEvent event) {
+        append(taskId, KIND_EVENT, JSONUtil.toJsonStr(event));
+    }
+
+    @SuppressWarnings("unchecked") // Spring Data 通过泛型可变参数暴露 StreamOffset<K>。
     private List<MapRecord<String, String, String>> read(String streamKey, String offset) {
         List<MapRecord<String, String, String>> records = redisTemplate
                 .<String, String>opsForStream().read(
@@ -162,13 +198,13 @@ public class RedisGenerationEventStream implements GenerationEventStream {
             return SequencedGenerationEvent.complete(sequence);
         }
         if (!KIND_EVENT.equals(kind)) {
-            throw new IllegalStateException("Redis generation event record has an unsupported kind");
+            throw new IllegalStateException("Redis 生成事件记录包含不支持的类型");
         }
         String payload = values.get(FIELD_PAYLOAD);
         GenerationStreamEvent event = GenerationPublicEventSanitizer.sanitize(
                 JSONUtil.toBean(payload, GenerationStreamEvent.class));
         if (event == null) {
-            throw new IllegalStateException("Redis generation event record has no public payload");
+            throw new IllegalStateException("Redis 生成事件记录缺少公开载荷");
         }
         return SequencedGenerationEvent.event(sequence, event);
     }
@@ -180,12 +216,12 @@ public class RedisGenerationEventStream implements GenerationEventStream {
         try {
             long sequence = Long.parseLong(value);
             if (sequence <= 0) {
-                throw new IllegalArgumentException("sequence must be positive");
+                throw new IllegalArgumentException("事件序号必须为正数");
             }
             legacySequence.accumulateAndGet(sequence, Math::max);
             return sequence;
         } catch (RuntimeException invalidSequence) {
-            throw new IllegalStateException("Redis generation event record has an invalid sequence", invalidSequence);
+            throw new IllegalStateException("Redis 生成事件记录包含无效序号", invalidSequence);
         }
     }
 
@@ -193,12 +229,18 @@ public class RedisGenerationEventStream implements GenerationEventStream {
         return properties.getKeyPrefix() + taskId;
     }
 
-    /** Uses a hash tag whose value equals the untagged stream key, keeping both Lua keys in one cluster slot. */
+    /** 使用与原始流键一致的哈希标签，确保两个 Lua 键位于同一 Redis Cluster 槽。 */
     private String sequenceKey(String streamKey) {
         return "{" + streamKey + "}:sequence";
     }
 
     private boolean validTaskId(String taskId) {
         return taskId != null && taskId.matches("[A-Za-z0-9_-]{1,128}");
+    }
+
+    @Override
+    @PreDestroy
+    public void close() {
+        deltaCoalescer.close();
     }
 }

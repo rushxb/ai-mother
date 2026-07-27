@@ -1,5 +1,8 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
+/**
+ * 工具审批状态的可选类型。
+ */
 public enum ToolApprovalStatus {
     PENDING("pending"),
     APPROVED("approved"),

@@ -8,7 +8,7 @@ import java.util.List;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.normalizeFieldType;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
 
-/** Renders typed admin data modules and deterministic mock records. */
+/** 呈现类型化管理数据模块和确定性模拟记录。 */
 @Component
 final class AdminDataTemplates {
 

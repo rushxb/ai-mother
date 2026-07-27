@@ -90,7 +90,7 @@ public class GenerationSessionRegistry {
         }
     }
 
-    /** Returns an active or replay-retained session by task identity. */
+    /** 按任务标识返回活动或重播保留的会话。 */
     public GenerationSession getByTaskId(String taskId) {
         String validatedTaskId = requireTaskId(taskId);
         TaskSessionReference reference = sessionsByTaskId.get(validatedTaskId);

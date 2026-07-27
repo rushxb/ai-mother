@@ -47,7 +47,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
-/** Task-oriented generation API; legacy app-scoped endpoints remain compatibility adapters. */
+/** 面向任务的生成API；旧版应用程序范围的端点仍然是兼容性适配器。 */
 @Validated
 @RestController
 @RequiredArgsConstructor

@@ -7,6 +7,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+/**
+ * 重型生成处理流水线。
+ */
 @Order(100)
 @Component
 @RequiredArgsConstructor

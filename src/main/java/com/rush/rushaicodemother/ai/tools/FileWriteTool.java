@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -63,6 +64,8 @@ public class FileWriteTool extends BaseTool {
             return "文件写入失败: " + normalizedPath + ", 原因: " + result.reason();
         } catch (ToolInputException e) {
             return renderInputError("文件写入失败: ", e);
+        } catch (GenerationExecutionPolicyException policyFailure) {
+            throw policyFailure;
         } catch (Exception e) {
             log.error("文件写入失败，relativeFilePath: {}", relativeFilePath,
                     LogExceptionSanitizer.sanitize(e));
@@ -77,6 +80,11 @@ public class FileWriteTool extends BaseTool {
     @Override
     public ToolRiskLevel getRiskLevel() {
         return ToolRiskLevel.WRITE;
+    }
+
+    @Override
+    public boolean canMutateWorkspace() {
+        return true;
     }
 
     @Override

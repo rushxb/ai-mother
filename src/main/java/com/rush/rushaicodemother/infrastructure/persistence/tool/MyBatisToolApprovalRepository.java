@@ -23,6 +23,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
 
+/**
+ * MyBatis工具审批持久化仓储。
+ */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisToolApprovalRepository implements ToolApprovalRepository {

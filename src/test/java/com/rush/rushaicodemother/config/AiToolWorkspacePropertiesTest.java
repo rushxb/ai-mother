@@ -22,6 +22,8 @@ class AiToolWorkspacePropertiesTest {
         properties.setMaxReadableFileBytes(10_485_761L);
         properties.setMaxDirectoryEntries(100_001);
         properties.setMaxDirectoryDepth(129);
+        properties.setMaxBatchWriteFiles(101);
+        properties.setMaxBatchWriteTotalChars(5_000_001);
 
         assertFalse(validator.validate(properties).isEmpty());
     }
@@ -31,6 +33,8 @@ class AiToolWorkspacePropertiesTest {
         AiToolWorkspaceProperties properties = new AiToolWorkspaceProperties();
         properties.setMaxDirectoryEntries(0);
         properties.setMaxDirectoryDepth(0);
+        properties.setMaxBatchWriteFiles(0);
+        properties.setMaxBatchWriteTotalChars(1_023);
 
         assertFalse(validator.validate(properties).isEmpty());
     }

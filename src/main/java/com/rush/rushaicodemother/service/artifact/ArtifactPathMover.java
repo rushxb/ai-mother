@@ -16,11 +16,11 @@ import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 
 /**
- * Moves artifact directories without replacement and tolerates bounded transient access denials.
+ * 移动工件目录而不进行替换，并容忍有限的瞬时访问拒绝。
  *
- * <p>Windows virus scanners and file indexers can briefly keep a newly copied directory open. A
- * short, configurable retry closes that platform-specific reliability gap without hiding permanent
- * permission failures or overwriting a destination published by another request.</p>
+ * <p>Windows 病毒扫描程序和文件索引器可以短暂保持新复制的目录打开。一个
+ * 简短的、可配置的重试缩小了特定于平台的可靠性差距，而不会隐藏永久性的
+ * 权限失败或覆盖另一个请求发布的目的地。</p>
  */
 @Component
 public class ArtifactPathMover {
@@ -38,7 +38,7 @@ public class ArtifactPathMover {
         this.moveOperation = Objects.requireNonNull(moveOperation, "moveOperation must not be null");
     }
 
-    /** Moves {@code source} to an absent {@code target}; an existing target is never replaced. */
+    /** 将 {@code source} 移动到不存在的 {@code target}；现有目标永远不会被替换。 */
     public void move(Path source, Path target) throws IOException {
         Path normalizedSource = requirePath(source, "source");
         Path normalizedTarget = requirePath(target, "target");

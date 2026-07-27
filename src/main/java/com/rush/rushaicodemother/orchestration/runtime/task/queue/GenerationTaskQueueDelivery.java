@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.queue;
 
-/** One Redis Streams delivery with the metadata required for ACK, reclaim and DLQ. */
+/** 一个 Redis Streams 交付，包含 ACK、回收和 DLQ 所需的元数据。 */
 public record GenerationTaskQueueDelivery(
         String messageId,
         String taskId,

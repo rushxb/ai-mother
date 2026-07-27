@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Durable lease implementation with local lease-deadline fencing during database outages. */
+/** 在数据库中断期间通过本地租赁截止日期进行持久租赁实施。 */
 @Component
 public class DurableDevServerSessionLeaseCoordinator
         implements DevServerSessionLeaseCoordinator, DevServerSandboxPlanListener {

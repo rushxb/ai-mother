@@ -5,13 +5,14 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionRecord;
 import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionRegistry;
 import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionState;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 
-/** Resolves Preview traffic to the local runtime or the durable owner node. */
+/** 将预览流量解析到本地运行时或持久所有者节点。 */
 @Service
 public class DevServerPreviewRoutingService {
 
@@ -21,6 +22,7 @@ public class DevServerPreviewRoutingService {
     private final DevServerNodeRouteResolver nodeRouteResolver;
     private final Clock clock;
 
+    @Autowired
     public DevServerPreviewRoutingService(
             DevServerManager devServerManager,
             DevServerSessionRegistry registry,
@@ -107,7 +109,7 @@ public class DevServerPreviewRoutingService {
         );
     }
 
-    /** Validates that an authenticated internal hop reached the actual process owner. */
+    /** 验证经过身份验证的内部跃点是否已到达实际流程所有者。 */
     public int requireLocalRunningPort(Long appId) {
         DevServerSessionRecord record = registry.findByAppId(appId).orElse(null);
         Integer localPort = devServerManager.getPort(appId);

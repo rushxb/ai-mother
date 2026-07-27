@@ -7,6 +7,9 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
+/**
+ * 生成流水线请求参数。
+ */
 public record GenerationPipelineRequest(
         GenerationTaskRequest taskRequest,
         CodeGenTypeEnum codeGenType,

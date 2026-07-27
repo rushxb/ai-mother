@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
-/** Transactional admission outcome used to prevent duplicate dispatch after an idempotent replay. */
+/** 事务准入结果用于防止幂等重放后的重复调度。 */
 public record GenerationTaskAdmissionResult(
         String taskId,
         String route,

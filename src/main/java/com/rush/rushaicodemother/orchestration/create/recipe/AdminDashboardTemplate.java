@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.escape;
 
-/** Renders the admin dashboard view. */
+/** 呈现管理仪表板视图。 */
 @Component
 final class AdminDashboardTemplate {
 

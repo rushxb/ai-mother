@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** Resource and context limits used while locating files for AI-assisted edits. */
+/** 定位文件进行 AI 辅助编辑时使用的资源和上下文限制。 */
 @Data
 @Component
 @Validated

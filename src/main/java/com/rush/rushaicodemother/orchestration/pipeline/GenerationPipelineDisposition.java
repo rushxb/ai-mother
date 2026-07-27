@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
-/** Describes who owns task completion after a pipeline invocation returns. */
+/** 描述管道调用返回后谁拥有任务完成权。 */
 public enum GenerationPipelineDisposition {
     COMPLETED,
     RUNNING,

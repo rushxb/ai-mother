@@ -21,6 +21,9 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * 重型生成Finalization服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class HeavyGenerationFinalizationService {

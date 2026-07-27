@@ -34,7 +34,7 @@ public class BackendIntentDetector {
      * 前端优先关键词 - 即使包含后端相关内容，也优先选择前端
      */
     private static final Set<String> FRONTEND_PRIORITY_KEYWORDS = Set.of(
-            "前端", "页面", "界面", "ui", "ux",
+            "前端", "页面", "界面",
             "vue", "react", "angular", "svelte",
             "组件", "路由", "表单", "列表", "搜索",
             "dashboard", "后台管理", "管理系统页面",
@@ -47,7 +47,7 @@ public class BackendIntentDetector {
      */
     private static final Set<String> FULLSTACK_KEYWORDS = Set.of(
             "全栈", "前后端", "前端和后端", "前端加后端",
-            "前端调用后端", "接口联调", "完整应用",
+            "前端调用后端", "接口联调",
             "前后端联调", "全栈开发", "fullstack", "full-stack"
     );
 
@@ -55,7 +55,7 @@ public class BackendIntentDetector {
      * 后端关键词正则模式
      */
     private static final Pattern BACKEND_PATTERN = Pattern.compile(
-            "(后端|服务端|api|接口|数据库|sqlite|mysql|go\\s*backend|crud\\s*接口)",
+            "(后端|服务端|(?<![a-z0-9])api(?![a-z0-9])|接口|数据库|sqlite|mysql|postgresql|go\\s*backend|crud\\s*接口)",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -63,7 +63,7 @@ public class BackendIntentDetector {
      * 前端关键词正则模式
      */
     private static final Pattern FRONTEND_PATTERN = Pattern.compile(
-            "(前端|页面|界面|ui|ux|vue|react|组件|路由|表单|dashboard|管理系统页面)",
+            "(前端|页面|界面|(?<![a-z0-9])(?:ui|ux|vue|react|angular|svelte)(?![a-z0-9])|组件|路由|表单|dashboard|管理系统页面)",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -82,7 +82,7 @@ public class BackendIntentDetector {
 
         // 1. 检查是否明确要求全栈
         if (containsFullstackKeyword(normalized)) {
-            log.info("检测到全栈关键词，用户消息: {}", userMessage);
+            log.info("检测到全栈关键词");
             return BackendIntentResult.fullstack();
         }
 
@@ -95,18 +95,18 @@ public class BackendIntentDetector {
         // 4. 决策逻辑
         if (hasExplicitBackend && !hasFrontendPriority) {
             // 明确要求后端，且没有前端优先关键词
-            log.info("检测到明确后端关键词，用户消息: {}", userMessage);
+            log.info("检测到明确后端关键词");
             return BackendIntentResult.explicitBackend();
         }
 
         if (hasExplicitBackend && hasFrontendPriority) {
             // 同时包含后端和前端关键词，需要 AI 进一步判断
-            log.info("检测到混合关键词（前端+后端），需要 AI 路由决策，用户消息: {}", userMessage);
+            log.info("检测到混合关键词（前端+后端），需要 AI 路由决策");
             return BackendIntentResult.ambiguous();
         }
 
         // 默认：前端优先
-        log.info("未检测到明确后端关键词，默认前端优先，用户消息: {}", userMessage);
+        log.info("未检测到明确后端关键词，默认前端优先");
         return BackendIntentResult.none();
     }
 
@@ -129,49 +129,54 @@ public class BackendIntentDetector {
             }
 
             case EXPLICIT_BACKEND -> {
-                // 明确后端意图，允许后端或全栈
-                if (aiRoutedType == CodeGenTypeEnum.VUE_PROJECT) {
-                    // AI 路由为前端，但用户明确要求后端，升级为后端
+                // 明确后端意图时不允许模型把任务扩大成全栈或降级成前端
+                if (aiRoutedType != CodeGenTypeEnum.BACKEND_PROJECT) {
                     log.info("用户明确要求后端，AI 路由类型 {} 被升级为 BACKEND_PROJECT", aiRoutedType);
-                    yield CodeGenTypeEnum.BACKEND_PROJECT;
                 }
-                yield aiRoutedType;
+                yield CodeGenTypeEnum.BACKEND_PROJECT;
             }
 
             case FULLSTACK -> {
-                // 全栈意图，允许全栈或后端
-                if (aiRoutedType == CodeGenTypeEnum.VUE_PROJECT) {
+                if (aiRoutedType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
                     log.info("用户明确要求全栈，AI 路由类型 {} 被升级为 FULL_STACK_PROJECT", aiRoutedType);
-                    yield CodeGenTypeEnum.FULL_STACK_PROJECT;
                 }
-                yield aiRoutedType;
+                yield CodeGenTypeEnum.FULL_STACK_PROJECT;
             }
 
             case AMBIGUOUS -> {
-                // 模糊意图，依赖 AI 决策，但默认前端
-                if (aiRoutedType == CodeGenTypeEnum.BACKEND_PROJECT) {
-                    // AI 路由为后端，但意图模糊，降级为前端
+                // 混合意图只允许全栈或工程化前端，避免落入不完整的后端或静态页面
+                if (aiRoutedType != CodeGenTypeEnum.FULL_STACK_PROJECT
+                        && aiRoutedType != CodeGenTypeEnum.VUE_PROJECT) {
                     log.info("意图模糊，AI 路由类型 {} 被降级为 VUE_PROJECT", aiRoutedType);
-                    yield CodeGenTypeEnum.VUE_PROJECT;
                 }
-                yield aiRoutedType;
+                yield aiRoutedType == CodeGenTypeEnum.FULL_STACK_PROJECT
+                        ? CodeGenTypeEnum.FULL_STACK_PROJECT
+                        : CodeGenTypeEnum.VUE_PROJECT;
             }
         };
     }
 
     private boolean containsExplicitBackendKeyword(String text) {
         return EXPLICIT_BACKEND_KEYWORDS.stream()
-                .anyMatch(keyword -> text.contains(keyword.toLowerCase()));
+                .anyMatch(keyword -> text.contains(keyword.toLowerCase()))
+                || BACKEND_PATTERN.matcher(text).find();
     }
 
     private boolean containsFrontendPriorityKeyword(String text) {
         return FRONTEND_PRIORITY_KEYWORDS.stream()
-                .anyMatch(keyword -> text.contains(keyword.toLowerCase()));
+                .anyMatch(keyword -> text.contains(keyword.toLowerCase()))
+                || FRONTEND_PATTERN.matcher(text).find();
     }
 
     private boolean containsFullstackKeyword(String text) {
-        return FULLSTACK_KEYWORDS.stream()
+        boolean hasExplicitFullstackKeyword = FULLSTACK_KEYWORDS.stream()
                 .anyMatch(keyword -> text.contains(keyword.toLowerCase()));
+        if (hasExplicitFullstackKeyword) {
+            return true;
+        }
+        return text.contains("完整应用")
+                && BACKEND_PATTERN.matcher(text).find()
+                && FRONTEND_PATTERN.matcher(text).find();
     }
 
     /**

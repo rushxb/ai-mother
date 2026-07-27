@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
-/** Runtime identity and workspace required by managed benchmark graders. */
+/** 托管基准评分者所需的运行时身份和工作区。 */
 public record GenerationBenchmarkRuntimeContext(
         GenerationBenchmarkTask task,
         GenerationWorkspace workspace,

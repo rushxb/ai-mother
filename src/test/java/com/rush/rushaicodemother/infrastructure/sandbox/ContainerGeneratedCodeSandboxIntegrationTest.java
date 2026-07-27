@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -212,6 +213,100 @@ class ContainerGeneratedCodeSandboxIntegrationTest {
     }
 
     @Test
+    void shouldRunGoTestsOfflineWithDedicatedExecutableTmpfs() throws Exception {
+        Files.writeString(workspace.resolve("go.mod"), "module sandbox-probe\n\ngo 1.23\n", StandardCharsets.UTF_8);
+        Files.writeString(
+                workspace.resolve("probe_test.go"),
+                "package probe\n\nimport \"testing\"\n\nfunc TestProbe(t *testing.T) {}\n",
+                StandardCharsets.UTF_8
+        );
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("go", "test", "-mod=readonly", "-count=1", "-trimpath", "./..."))
+                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .build();
+        SandboxProcessPlan plan = sandbox.prepare(request, workspace.toRealPath());
+
+        ProcessResult result = runPlan(plan);
+        sandbox.cleanup(plan);
+
+        assertEquals(0, result.exitCode(), result.stderr() + result.stdout());
+        assertContainerAbsent(plan.cleanupResourceId());
+    }
+
+    @Test
+    void shouldRunGoBackendThroughControlledLoopbackGateway() throws Exception {
+        int port = freePort();
+        Files.writeString(
+                workspace.resolve("go.mod"),
+                "module sandbox-backend\n\ngo 1.23\n",
+                StandardCharsets.UTF_8
+        );
+        Files.writeString(
+                workspace.resolve("main.go"),
+                """
+                        package main
+
+                        import (
+                            "net/http"
+                            "os"
+                        )
+
+                        func main() {
+                            address := os.Getenv("SERVER_ADDR")
+                            http.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
+                                writer.Header().Set("Content-Type", "application/json")
+                                _, _ = writer.Write([]byte(`{"code":0,"data":{"status":"ok"},"message":"ok"}`))
+                            })
+                            if err := http.ListenAndServe(address, nil); err != nil {
+                                panic(err)
+                            }
+                        }
+                        """,
+                StandardCharsets.UTF_8
+        );
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("go", "run", "-mod=readonly", "."))
+                .environment(Map.of("SERVER_ADDR", "127.0.0.1:" + port))
+                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .build();
+        SandboxProcessPlan plan = sandbox.prepareDevServer(request, workspace.toRealPath(), port);
+        Process process = startPlan(plan);
+        sandbox.activate(plan);
+
+        try {
+            String gatewayName = plan.cleanupResourceIds().get(0);
+            String body = waitForHttp(
+                    port,
+                    process,
+                    gatewayName,
+                    Duration.ofSeconds(45)
+            );
+            JsonNode backendInspect = waitForInspect(plan.cleanupResourceId(), process);
+            JsonNode gatewayInspect = waitForInspect(gatewayName, process);
+            JsonNode binding = gatewayInspect.path("HostConfig")
+                    .path("PortBindings")
+                    .path(port + "/tcp")
+                    .get(0);
+
+            assertTrue(body.contains("\"status\":\"ok\""));
+            assertTrue(backendInspect.path("Config").path("Env").toString()
+                    .contains("SERVER_ADDR=0.0.0.0:" + port));
+            assertTrue(backendInspect.path("HostConfig").path("Tmpfs").has("/tmp/go-build"));
+            assertTrue(backendInspect.path("HostConfig").path("PortBindings").isEmpty());
+            assertEquals("127.0.0.1", binding.path("HostIp").asText());
+            assertEquals(String.valueOf(port), binding.path("HostPort").asText());
+        } finally {
+            sandbox.cleanup(plan);
+            process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        }
+        for (String resourceId : plan.cleanupResourceIds()) {
+            assertContainerAbsent(resourceId);
+        }
+    }
+
+    @Test
     void shouldPublishDevServerOnlyOnHostLoopbackThroughInternalNetwork() throws Exception {
         int port = freePort();
         String server = """
@@ -310,6 +405,20 @@ class ContainerGeneratedCodeSandboxIntegrationTest {
             Process containerProcess,
             String gatewayContainerName
     ) throws Exception {
+        return waitForHttp(
+                port,
+                containerProcess,
+                gatewayContainerName,
+                Duration.ofSeconds(10)
+        );
+    }
+
+    private String waitForHttp(
+            int port,
+            Process containerProcess,
+            String gatewayContainerName,
+            Duration readinessTimeout
+    ) throws Exception {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(500))
                 .version(HttpClient.Version.HTTP_1_1)
@@ -318,7 +427,7 @@ class ContainerGeneratedCodeSandboxIntegrationTest {
                 .timeout(Duration.ofSeconds(1))
                 .GET()
                 .build();
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        long deadline = System.nanoTime() + readinessTimeout.toNanos();
         String lastObservation = "no HTTP attempt completed";
         while (System.nanoTime() < deadline) {
             if (!containerProcess.isAlive()) {

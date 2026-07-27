@@ -12,6 +12,8 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.service.tool.BeforeToolExecution;
+import dev.langchain4j.service.tool.ToolExecution;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,6 +37,8 @@ class AiToolInvocationPolicyTest {
     private ToolManager toolManager;
     private GenerationToolExecutionContextService executionContexts;
     private ToolExecutionFailurePolicy failurePolicy;
+    private GenerationToolLoopGuard toolLoopGuard;
+    private GenerationAgentProductivityGuard productivityGuard;
     private AiToolInvocationPolicy policy;
 
     @BeforeEach
@@ -42,7 +46,10 @@ class AiToolInvocationPolicyTest {
         toolManager = mock(ToolManager.class);
         executionContexts = new GenerationToolExecutionContextService();
         failurePolicy = mock(ToolExecutionFailurePolicy.class);
-        policy = new AiToolInvocationPolicy(toolManager, executionContexts, failurePolicy);
+        toolLoopGuard = mock(GenerationToolLoopGuard.class);
+        productivityGuard = mock(GenerationAgentProductivityGuard.class);
+        policy = new AiToolInvocationPolicy(
+                toolManager, executionContexts, failurePolicy, toolLoopGuard, productivityGuard);
     }
 
     @Test
@@ -158,6 +165,26 @@ class AiToolInvocationPolicyTest {
                 CodeGenTypeEnum.VUE_PROJECT,
                 profile,
                 UserMessage.from("test"));
+    }
+
+    @Test
+    void successfulToolLifecycleMustReachLoopGuardAndClearTheFence() {
+        bindContext(CodeGenTypeEnum.VUE_PROJECT);
+        BaseTool tool = new TestTool("readFile", ToolRiskLevel.READ_ONLY);
+        allow(tool);
+        ToolExecutionRequest request = request(tool.getToolName(), "{\"path\":\"src/App.vue\"}");
+        BeforeToolExecution before = event(request);
+
+        policy.authorize(before, CodeGenTypeEnum.VUE_PROJECT, GenerationPerformanceProfile.balanced());
+        policy.complete(ToolExecution.builder()
+                .request(request)
+                .result(ToolExecutionResult.builder().resultText("content").build())
+                .invocationContext(before.invocationContext())
+                .build());
+
+        verify(toolLoopGuard).beforeInvocation(TASK_ID, request);
+        verify(toolLoopGuard).completeInvocation(TASK_ID, request, "content", false);
+        verify(productivityGuard).recordToolCompletion(TASK_ID, "readFile");
     }
 
     private void bindContext(CodeGenTypeEnum codeGenType) {

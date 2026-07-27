@@ -1,7 +1,9 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
+import com.rush.rushaicodemother.core.error.GenerationAgentLoopException;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.service.tool.ToolErrorContext;
@@ -9,7 +11,7 @@ import dev.langchain4j.service.tool.ToolErrorHandlerResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** Converts tool failures into safe model results or a durable approval suspension signal. */
+/** 将工具故障转换为安全模型结果或持久的批准暂停信号。 */
 @Component
 @RequiredArgsConstructor
 public class ToolExecutionFailurePolicy {
@@ -21,6 +23,14 @@ public class ToolExecutionFailurePolicy {
                                          ToolErrorContext context,
                                          CodeGenTypeEnum codeGenType,
                                          GenerationPerformanceProfile profile) {
+        GenerationAgentLoopException loopFailure = findAgentLoop(failure);
+        if (loopFailure != null) {
+            throw loopFailure;
+        }
+        GenerationExecutionPolicyException policyFailure = findExecutionPolicyFailure(failure);
+        if (policyFailure != null) {
+            throw policyFailure;
+        }
         GenerationApprovalRequiredException approvalRequired = findApprovalRequired(failure);
         if (approvalRequired == null) {
             return ToolErrorHandlerResult.text("Tool execution failed. Inspect the inputs and choose a safe alternative.");
@@ -75,6 +85,28 @@ public class ToolExecutionFailurePolicy {
         while (current != null) {
             if (current instanceof GenerationApprovalRequiredException approvalRequired) {
                 return approvalRequired;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private GenerationAgentLoopException findAgentLoop(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof GenerationAgentLoopException loopFailure) {
+                return loopFailure;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private GenerationExecutionPolicyException findExecutionPolicyFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof GenerationExecutionPolicyException policyFailure) {
+                return policyFailure;
             }
             current = current.getCause();
         }

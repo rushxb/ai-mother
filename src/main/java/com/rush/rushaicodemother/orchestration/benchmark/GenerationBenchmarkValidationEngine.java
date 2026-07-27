@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Applies composable fixture rules, captures the baseline and grades the resulting workspace. */
+/** 应用可组合夹具规则，捕获基线并对生成的工作空间进行分级。 */
 @Slf4j
 @Component
 public class GenerationBenchmarkValidationEngine {

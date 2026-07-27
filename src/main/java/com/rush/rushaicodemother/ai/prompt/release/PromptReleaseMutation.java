@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.prompt.release;
 
-/** Optimistic, audited mutation submitted to the durable release repository. */
+/** 乐观的、经过审核的突变已提交到持久发布存储库。 */
 public record PromptReleaseMutation(
         String promptKey,
         PromptReleaseSpec release,

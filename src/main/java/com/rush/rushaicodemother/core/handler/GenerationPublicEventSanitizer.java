@@ -12,11 +12,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Projects internal generation events onto the bounded, secret-safe contract exposed to users.
+ * 将内部生成事件投射到向用户公开的有界、安全的合约上。
  *
- * <p>Tool arguments and raw execution results belong to the model/tool runtime and must not be
- * reused as SSE, replay, trace, or working-memory payloads. File-operation previews are retained
- * only as explicitly selected, redacted, and size-bounded fields.</p>
+ * <p>Tool 参数和原始执行结果属于模型/工具运行时，不得
+ * 重用为 SSE、重放、跟踪或工作内存有效负载。保留文件操作预览
+ * 仅作为明确选择、编辑和大小限制的字段。</p>
  */
 public final class GenerationPublicEventSanitizer {
 
@@ -43,7 +43,7 @@ public final class GenerationPublicEventSanitizer {
     private GenerationPublicEventSanitizer() {
     }
 
-    /** Returns {@code null} when an event is private and must not cross a public boundary. */
+    /** 当事件是私有的且不得跨越公共边界时，返回 {@code null}。 */
     public static GenerationStreamEvent sanitize(GenerationStreamEvent event) {
         if (event == null || GenerationStreamEvent.AI_THINKING_DELTA.equals(event.getType())) {
             return null;

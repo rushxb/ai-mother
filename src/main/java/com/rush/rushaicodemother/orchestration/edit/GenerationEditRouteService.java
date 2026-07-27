@@ -70,7 +70,7 @@ public class GenerationEditRouteService {
         return route(app, userMessage, generationWorkspaceService.resolve(app, codeGenType));
     }
 
-    /** Routes using the exact workspace selected for the current durable execution epoch. */
+    /** 使用为当前持久执行时期选择的确切工作空间的路由。 */
     public GenerationEditRouteResult route(App app,
                                            String userMessage,
                                            GenerationWorkspace workspace) {

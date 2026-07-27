@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
-/** Fail-closed signal for an AI tool invocation that violates the central capability policy. */
+/** 针对违反中央功能策略的 AI 工具调用的故障关闭信号。 */
 public final class ToolPolicyViolationException extends RuntimeException {
 
     private final String violationCode;

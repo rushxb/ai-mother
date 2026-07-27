@@ -24,7 +24,7 @@ import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
-/** Classpath-backed immutable prompt catalog with deterministic stable/canary releases. */
+/** 类路径支持的不可变提示目录，具有确定性的稳定/金丝雀版本。 */
 @Component
 public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRuntime {
 
@@ -115,6 +115,14 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
     @Override
     public long activeRevision() {
         return runtimeState.get().revision();
+    }
+
+    @Override
+    public PromptCatalogSnapshot preview(PromptReleaseState state) {
+        if (state == null) {
+            throw new IllegalArgumentException("Prompt 发布预演状态不能为空");
+        }
+        return buildRuntimeState(state.revision(), mergeReleaseOverrides(state)).snapshot();
     }
 
     @Override

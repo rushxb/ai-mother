@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-/** Append-only audit linking an applied AI release mutation to its exact benchmark evidence. */
+/** 仅附加审核将应用的 AI 版本变更与其确切的基准证据联系起来。 */
 @Service
 @RequiredArgsConstructor
 public class AiReleaseAuditService {

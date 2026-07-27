@@ -23,11 +23,11 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 /**
- * Performs bounded artifact directory copies without following symbolic links.
+ * 执行有界工件目录复制，无需遵循符号链接。
  *
- * <p>The source is inspected before and after copying, and the staged target is inspected
- * independently. A result is accepted only when the source remained stable and the target layout
- * matches the source manifest.</p>
+ * <p>复制前后检查源，检查暂存目标
+ * 独立。仅当源保持稳定并且目标布局保持稳定时才接受结果
+ * 与源清单匹配。</p>
  */
 @Component
 public class ArtifactDirectoryCopier {
@@ -61,7 +61,7 @@ public class ArtifactDirectoryCopier {
         this.windows = windows;
     }
 
-    /** Copies source code into an isolated execution workspace without dependency/build caches. */
+    /** 将源代码复制到独立的执行工作区中，无需依赖/构建缓存。 */
     public void copyExecutionWorkspace(Path sourceDirectory, Path targetDirectory)
             throws IOException, InterruptedException {
         copyExecutionWorkspace(
@@ -73,7 +73,7 @@ public class ArtifactDirectoryCopier {
     }
 
     /**
-     * Copies an execution workspace under the caller's task-wide wall-clock and cancellation policy.
+     * 在调用者的任务范围挂钟和取消策略下复制执行工作区。
      */
     public void copyExecutionWorkspace(Path sourceDirectory,
                                        Path targetDirectory,

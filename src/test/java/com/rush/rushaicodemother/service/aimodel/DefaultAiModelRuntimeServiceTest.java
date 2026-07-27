@@ -14,18 +14,19 @@ import static org.mockito.Mockito.when;
 
 class DefaultAiModelRuntimeServiceTest {
 
-    private final AiModelPersistenceService persistenceService = mock(AiModelPersistenceService.class);
+    private final AiModelEnabledConfigurationSource configurationSource =
+            mock(AiModelEnabledConfigurationSource.class);
     private final AiModelCircuitBreaker circuitBreaker = mock(AiModelCircuitBreaker.class);
     private final AiModelSecretService secretService = AiModelSecretTestFixtures.service();
     private final DefaultAiModelRuntimeService service = new DefaultAiModelRuntimeService(
-            persistenceService,
+            configurationSource,
             new AiModelConfigurationPolicy(secretService),
             circuitBreaker
     );
 
     @Test
     void mustSkipInvalidEnabledRecordsAndReturnMinimalRuntimeConfiguration() {
-        when(persistenceService.findEnabled("chat")).thenReturn(List.of(
+        when(configurationSource.findEnabled("chat")).thenReturn(List.of(
                 configuration("", "bad"),
                 configuration("secret", "good")
         ));
@@ -40,8 +41,8 @@ class DefaultAiModelRuntimeServiceTest {
 
     @Test
     void generationPreflightMustRequireChatAndReasoningModels() {
-        when(persistenceService.findEnabled("chat")).thenReturn(List.of(configuration("secret", "chat-model")));
-        when(persistenceService.findEnabled("reasoning"))
+        when(configurationSource.findEnabled("chat")).thenReturn(List.of(configuration("secret", "chat-model")));
+        when(configurationSource.findEnabled("reasoning"))
                 .thenReturn(List.of(configuration("secret", "reasoning-model").toBuilder()
                         .modelType("reasoning")
                         .build()));
@@ -50,20 +51,20 @@ class DefaultAiModelRuntimeServiceTest {
 
         service.ensureGenerationModelsConfigured();
 
-        verify(persistenceService).findEnabled("chat");
-        verify(persistenceService).findEnabled("reasoning");
+        verify(configurationSource).findEnabled("chat");
+        verify(configurationSource).findEnabled("reasoning");
     }
 
     @Test
     void missingRunnableModelMustFailWithBusinessException() {
-        when(persistenceService.findEnabled("chat")).thenReturn(List.of());
+        when(configurationSource.findEnabled("chat")).thenReturn(List.of());
 
         assertThrows(BusinessException.class, () -> service.requireRunnableModelByType("chat"));
     }
 
     @Test
     void openPrimaryCircuitMustRouteToNextEnabledModelBySortOrder() {
-        when(persistenceService.findEnabled("chat")).thenReturn(List.of(
+        when(configurationSource.findEnabled("chat")).thenReturn(List.of(
                 configuration("secret", "primary"),
                 configuration("backup", "fallback")
         ));
@@ -77,7 +78,7 @@ class DefaultAiModelRuntimeServiceTest {
 
     @Test
     void runnablePoolMustPreserveConfiguredOrderAndExcludeOpenCircuits() {
-        when(persistenceService.findEnabled("chat")).thenReturn(List.of(
+        when(configurationSource.findEnabled("chat")).thenReturn(List.of(
                 configuration("first-key", "first"),
                 configuration("second-key", "open"),
                 configuration("third-key", "third")

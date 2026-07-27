@@ -3,11 +3,11 @@ package com.rush.rushaicodemother.ai.tools;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 
 /**
- * Contract for tools whose maximum risk is {@link ToolRiskLevel#DESTRUCTIVE}.
+ * 最大风险为{@link ToolRiskLevel#DESTRUCTIVE}的工具合约。
  *
- * <p>The central invocation policy calls this hook before LangChain4j invokes the tool method.
- * Implementations must either confirm that the requested sub-operation is non-destructive or
- * raise the existing durable approval signal before any destructive side effect can occur.</p>
+ * <p>中央调用策略在LangChain4j调用工具方法之前调用此钩子。
+ * 实现必须确认所请求的子操作是非破坏性的，或者
+ * 在任何破坏性副作用发生之前提高现有的持久批准信号。</p>
  */
 public interface ApprovalGatedTool {
 

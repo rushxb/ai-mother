@@ -20,10 +20,10 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 /**
- * Public generation use-case facade.
+ * 公共生成用例外观。
  *
- * <p>The request thread only validates, resolves routing metadata and submits a task. Pipeline
- * execution and fallback are owned by the asynchronous task runtime.</p>
+ * <p>请求线程仅验证、解析路由元数据并提交任务。管道
+ * 执行和回退由异步任务运行时拥有。</p>
  */
 @Component
 @RequiredArgsConstructor

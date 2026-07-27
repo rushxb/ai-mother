@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.create;
 
 import java.util.List;
 
+/**
+ * 功能模块清单的不可变数据载体。
+ */
 public record FeatureModuleManifest(
         String moduleId,
         String name,

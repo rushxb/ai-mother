@@ -4,23 +4,39 @@ import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.service.artifact.ArtifactPathMover;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.EnumMap;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -193,6 +210,104 @@ class GenerationWorkspacePublicationServiceTest {
         verify(committer, never()).commit(any());
     }
 
+    @Test
+    void managedPublicationLockWaitMustRespectTaskDeadline() throws Exception {
+        Fixture fixture = fixture("task-lock-deadline", 5L);
+        fixture.lifecycleProperties().setPublishRetryDelayMillis(5_000L);
+        GenerationSession session = managedSession(fixture, Duration.ofMillis(250));
+        GenerationWorkspacePublicationCommitter committer =
+                mock(GenerationWorkspacePublicationCommitter.class);
+        Path lockPath = fixture.catalog().lockPath(APP_ID);
+        CountDownLatch lockRequested = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            lockRequested.countDown();
+            return lockPath;
+        }).when(fixture.catalog()).lockPath(APP_ID);
+
+        try (FileChannel blockerChannel = FileChannel.open(
+                lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock ignored = blockerChannel.lock();
+             ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<Throwable> outcome = executor.submit(() -> publicationFailure(
+                    fixture, session, committer));
+
+            assertTrue(lockRequested.await(1, TimeUnit.SECONDS));
+            Throwable failure = outcome.get(1, TimeUnit.SECONDS);
+
+            assertInstanceOf(GenerationDeadlineExceededException.class, failure);
+            verify(fixture.journal(), never()).prepare(any(), any());
+            verify(committer, never()).commit(any());
+        }
+    }
+
+    @Test
+    void managedPublicationLockWaitMustObserveCancellationPromptly() throws Exception {
+        Fixture fixture = fixture("task-lock-cancelled", 5L);
+        fixture.lifecycleProperties().setPublishRetryDelayMillis(5_000L);
+        GenerationSession session = managedSession(fixture, Duration.ofSeconds(10));
+        GenerationWorkspacePublicationCommitter committer =
+                mock(GenerationWorkspacePublicationCommitter.class);
+        Path lockPath = fixture.catalog().lockPath(APP_ID);
+        CountDownLatch lockRequested = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            lockRequested.countDown();
+            return lockPath;
+        }).when(fixture.catalog()).lockPath(APP_ID);
+
+        try (FileChannel blockerChannel = FileChannel.open(
+                lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock ignored = blockerChannel.lock();
+             ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<Throwable> outcome = executor.submit(() -> publicationFailure(
+                    fixture, session, committer));
+
+            assertTrue(lockRequested.await(1, TimeUnit.SECONDS));
+            Thread.sleep(50L);
+            session.cancel("测试取消发布锁等待");
+            Throwable failure = outcome.get(1, TimeUnit.SECONDS);
+
+            assertInstanceOf(GenerationExecutionCancelledException.class, failure);
+            verify(fixture.journal(), never()).prepare(any(), any());
+            verify(committer, never()).commit(any());
+        }
+    }
+
+    private Throwable publicationFailure(Fixture fixture,
+                                         GenerationSession session,
+                                         GenerationWorkspacePublicationCommitter committer) {
+        try {
+            fixture.service().publishWithMetadata(session, committer);
+            return null;
+        } catch (Throwable failure) {
+            return failure;
+        }
+    }
+
+    private GenerationSession managedSession(Fixture fixture, Duration taskTimeout) {
+        EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
+        for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
+            budgets.put(kind, 2);
+        }
+        Clock contextClock = Clock.systemUTC();
+        GenerationExecutionContext executionContext = new GenerationExecutionContext(
+                fixture.fence().taskId(),
+                APP_ID,
+                22L,
+                contextClock.instant(),
+                new GenerationExecutionLimits(
+                        taskTimeout,
+                        taskTimeout.compareTo(Duration.ofSeconds(1)) < 0
+                                ? taskTimeout
+                                : Duration.ofSeconds(1),
+                        Duration.ofMillis(10),
+                        budgets),
+                contextClock);
+        executionContext.bindExecutionFence(fixture.fence());
+        GenerationSession session = new GenerationSession(null, executionContext);
+        session.bindExecutionWorkspace(fixture.executionWorkspace());
+        return session;
+    }
+
     private Fixture fixture(String taskId, long epoch) throws Exception {
         Path fixtureRoot = tempDirectory.resolve(taskId);
         CodeStorageProperties storageProperties = new CodeStorageProperties();
@@ -241,7 +356,7 @@ class GenerationWorkspacePublicationServiceTest {
         );
         return new Fixture(
                 fence, executionWorkspace, source, catalog, pathMover,
-                runtimeLifecycleService, fenceGuard, journal, service);
+                lifecycleProperties, runtimeLifecycleService, fenceGuard, journal, service);
     }
 
     private void stubJournal(Fixture fixture,
@@ -293,6 +408,7 @@ class GenerationWorkspacePublicationServiceTest {
             Path source,
             GenerationWorkspacePublicationCatalog catalog,
             ArtifactPathMover pathMover,
+            ArtifactLifecycleProperties lifecycleProperties,
             GenerationTaskRuntimeLifecycleService runtimeLifecycleService,
             GenerationTaskFenceGuard fenceGuard,
             GenerationWorkspacePublicationJournalRepository journal,

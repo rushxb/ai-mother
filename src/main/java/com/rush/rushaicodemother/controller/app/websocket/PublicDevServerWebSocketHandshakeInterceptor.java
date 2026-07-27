@@ -20,7 +20,7 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
 
-/** Authorizes browser HMR handshakes and resolves a local or signed owner-node upstream. */
+/** 授权浏览器 HMR 握手并解析本地或签名的所有者节点上游。 */
 @Component
 public class PublicDevServerWebSocketHandshakeInterceptor implements HandshakeInterceptor {
 
@@ -88,7 +88,7 @@ public class PublicDevServerWebSocketHandshakeInterceptor implements HandshakeIn
             WebSocketHandler wsHandler,
             Exception exception
     ) {
-        // No browser request state is retained after the trusted upstream is selected.
+        // 选择可信上游后，不会保留浏览器请求状态。
     }
 
     private boolean reject(ServerHttpResponse response, HttpStatus status) {

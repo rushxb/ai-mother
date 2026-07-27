@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.orchestration.workspace;
 
 /**
- * Describes why an artifact-reported workspace could not be resolved to a canonical application directory.
+ * 描述为什么工件报告的工作空间无法解析为规范的应用程序目录。
  */
 public final class ReportedWorkspaceResolutionException extends RuntimeException {
 

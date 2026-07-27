@@ -15,24 +15,43 @@ public record GenerationOrchestrationRequest(
         CodeGenTypeEnum currentType,
         String generatingStage,
         boolean hasGeneratedCode,
-        Supplier<String> projectContextSupplier,
         Function<String, CodeGenTypeEnum> routingFunction,
         String memoryContext,
+        Supplier<String> deferredMemoryContextSupplier,
         String taskId
 ) {
 
-    /** Compatibility constructor for callers that still delegate identity creation to the task store. */
+    public String resolveMemoryContext() {
+        return deferredMemoryContextSupplier == null
+                ? memoryContext
+                : deferredMemoryContextSupplier.get();
+    }
+
     public GenerationOrchestrationRequest(
             App app,
             String userMessage,
             CodeGenTypeEnum currentType,
             String generatingStage,
             boolean hasGeneratedCode,
-            Supplier<String> projectContextSupplier,
+            Function<String, CodeGenTypeEnum> routingFunction,
+            String memoryContext,
+            String taskId
+    ) {
+        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
+                routingFunction, memoryContext, null, taskId);
+    }
+
+    /** 仍然将身份创建委托给任务存储的调用者的兼容性构造函数。 */
+    public GenerationOrchestrationRequest(
+            App app,
+            String userMessage,
+            CodeGenTypeEnum currentType,
+            String generatingStage,
+            boolean hasGeneratedCode,
             Function<String, CodeGenTypeEnum> routingFunction,
             String memoryContext
     ) {
         this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                projectContextSupplier, routingFunction, memoryContext, null);
+                routingFunction, memoryContext, null, null);
     }
 }

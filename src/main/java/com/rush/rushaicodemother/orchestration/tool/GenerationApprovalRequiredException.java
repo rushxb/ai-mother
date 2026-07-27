@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.tool;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** Control-flow signal raised by a tool before any approval-gated side effect is executed. */
+/** 在执行任何审批门控副作用之前，工具发出控制流信号。 */
 public final class GenerationApprovalRequiredException extends RuntimeException {
 
     private final String taskId;

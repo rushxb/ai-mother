@@ -5,7 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
-/** Content-addressed source workspace baseline captured after deterministic fixture setup. */
+/** 在确定性夹具设置后捕获的内容寻址源工作区基线。 */
 public record GenerationBenchmarkWorkspaceSnapshot(
         Path root,
         Map<String, String> fileDigests

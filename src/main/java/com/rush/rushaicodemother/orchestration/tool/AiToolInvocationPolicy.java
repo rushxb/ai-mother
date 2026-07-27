@@ -8,13 +8,17 @@ import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.ai.tools.ToolRiskLevel;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.service.tool.BeforeToolExecution;
+import dev.langchain4j.service.tool.ToolExecution;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Objects;
 
-/** Central, fail-closed capability boundary executed before every autonomous AI tool call. */
+/** 在每次自主人工智能工具调用之前执行中央、故障关闭的功能边界。 */
 @Component
 @RequiredArgsConstructor
 public class AiToolInvocationPolicy {
@@ -22,6 +26,8 @@ public class AiToolInvocationPolicy {
     private final ToolManager toolManager;
     private final GenerationToolExecutionContextService executionContextService;
     private final ToolExecutionFailurePolicy failurePolicy;
+    private final GenerationToolLoopGuard toolLoopGuard;
+    private final GenerationAgentProductivityGuard productivityGuard;
 
     public void authorize(BeforeToolExecution event,
                           CodeGenTypeEnum expectedCodeGenType,
@@ -56,7 +62,7 @@ public class AiToolInvocationPolicy {
         verifyApprovedInvocationIntegrity(context.taskId(), request);
 
         if (tool.getRiskLevel() != ToolRiskLevel.DESTRUCTIVE) {
-            executionContextService.activateFence(context.executionFence());
+            authorizeExecution(context, request);
             return;
         }
         if (!(tool instanceof ApprovalGatedTool)) {
@@ -77,14 +83,51 @@ public class AiToolInvocationPolicy {
                     event.invocationContext().userMessage());
             throw approvalRequired;
         }
-        // Tool implementations resolve their workspace through this thread-bound fence. The
-        // matching afterToolExecution callback clears it even when the executor uses a pool thread.
+        authorizeExecution(context, request);
+    }
+
+    private void authorizeExecution(GenerationToolExecutionContext context,
+                                    ToolExecutionRequest request) {
+        toolLoopGuard.beforeInvocation(context.taskId(), request);
+        // 工具实现通过当前线程绑定的精确 fence 解析工作区，完成回调必须清理该绑定。
         executionContextService.activateFence(context.executionFence());
     }
 
-    /** Clears the per-thread exact-fence binding after LangChain4j finishes a tool invocation. */
-    public void clearActiveInvocation() {
-        executionContextService.clearActiveFence();
+    /** 记录工具结果并清理 LangChain4j 工具线程上的精确 fence。 */
+    public void complete(ToolExecution execution) {
+        try {
+            if (execution == null || execution.request() == null) {
+                return;
+            }
+            executionContextService.getContextForInvocation(execution.invocationContext())
+                    .ifPresent(context -> {
+                        toolLoopGuard.completeInvocation(
+                                context.taskId(), execution.request(),
+                                execution.result(), execution.hasFailed());
+                        productivityGuard.recordToolCompletion(
+                                context.taskId(), execution.request().name());
+                    });
+        } finally {
+            executionContextService.clearActiveFence();
+        }
+    }
+
+    public void restoreLoopState(String taskId,
+                                 List<ChatMessage> messages,
+                                 int successfulWorkspaceMutations) {
+        toolLoopGuard.restore(taskId, messages);
+        productivityGuard.restore(taskId, messages, successfulWorkspaceMutations);
+    }
+
+    public ChatRequest governModelTurn(Long appId, ChatRequest request) {
+        return productivityGuard.governModelTurn(appId, request);
+    }
+
+    public ChatRequest governModelTurn(String taskId,
+                                       int successfulWorkspaceMutations,
+                                       ChatRequest request) {
+        return productivityGuard.governModelTurn(
+                taskId, successfulWorkspaceMutations, request);
     }
 
     private void verifyApprovedInvocationIntegrity(String taskId, ToolExecutionRequest request) {

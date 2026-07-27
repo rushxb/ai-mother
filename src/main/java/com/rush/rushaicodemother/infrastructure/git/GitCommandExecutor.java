@@ -62,7 +62,7 @@ public class GitCommandExecutor {
         if (additionalEnvironment != null) {
             environment.putAll(additionalEnvironment);
         }
-        // Security and reproducibility settings are applied last so callers cannot override them.
+        // 安全性和可重复性设置最后应用，因此调用者无法覆盖它们。
         environment.putAll(CONTROLLED_ENVIRONMENT);
         Path isolatedConfigRoot = workingDirectory.toAbsolutePath()
                 .normalize()

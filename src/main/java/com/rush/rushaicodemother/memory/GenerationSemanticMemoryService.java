@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Application service that embeds, recalls and asynchronously persists semantic memories. */
+/** 嵌入、调用和异步保存语义记忆的应用程序服务。 */
 @Slf4j
 @Service
 public class GenerationSemanticMemoryService {

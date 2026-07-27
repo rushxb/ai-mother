@@ -18,6 +18,9 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * MyBatis生成工作区发布日志持久化仓储。
+ */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisGenerationWorkspacePublicationJournalRepository

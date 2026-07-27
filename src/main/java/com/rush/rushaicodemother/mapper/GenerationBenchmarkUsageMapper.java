@@ -4,6 +4,9 @@ import com.rush.rushaicodemother.model.entity.GenerationTask;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+/**
+ * 生成基准测试用量数据访问映射器。
+ */
 public interface GenerationBenchmarkUsageMapper {
 
     @Select("""

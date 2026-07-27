@@ -10,6 +10,9 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
+/**
+ * 生成工作记忆配置属性。
+ */
 @Data
 @Component
 @Validated
@@ -18,6 +21,7 @@ public class GenerationWorkingMemoryProperties {
     @Min(10)
     @Max(100000)
     private int maxTasks = 2000;
+    /** 数据保留时长。 */
     private Duration retention = Duration.ofHours(2);
     @Min(5)
     @Max(500)

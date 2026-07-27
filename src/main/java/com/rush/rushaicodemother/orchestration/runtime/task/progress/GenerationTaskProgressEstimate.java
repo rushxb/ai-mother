@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.progress;
 
 import java.time.Instant;
 
-/** Conservative user-facing progress estimate; values are telemetry-derived, never execution guarantees. */
+/** 保守的面向用户的进度估计；值是遥测得出的，从不保证执行。 */
 public record GenerationTaskProgressEstimate(
         boolean available,
         long elapsedMs,

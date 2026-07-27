@@ -4,7 +4,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.bgesmallzhv15q.BgeSmallZhV15QuantizedEmbeddingModel;
 import org.springframework.stereotype.Component;
 
-/** Local bilingual embedding model; no external embedding API or secret is required. */
+/** 局部双语嵌入模型；不需要外部嵌入 API 或秘密。 */
 @Component
 public class BgeMemoryEmbeddingService implements MemoryEmbeddingService {
     private static final String MODEL_ID = "BAAI/bge-small-zh-v1.5";

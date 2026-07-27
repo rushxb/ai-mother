@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 
-/** Fail-closed durable fence check immediately before a workspace side effect. */
+/** 在工作空间产生副作用之前立即进行故障关闭耐用栅栏检查。 */
 @Service
 public class GenerationTaskFenceGuard {
 
@@ -44,7 +44,7 @@ public class GenerationTaskFenceGuard {
         assertCurrent(fence);
     }
 
-    /** Checks the supplied immutable fence, never re-reading a mutable task-level context. */
+    /** 检查提供的不可变栅栏，从不重新读取可变任务级上下文。 */
     public void assertCurrent(GenerationExecutionFence fence) {
         if (fence == null) {
             throw new GenerationExecutionPolicyException("generation task execution fence is missing");

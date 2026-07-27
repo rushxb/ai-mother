@@ -9,6 +9,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
@@ -27,6 +28,21 @@ class GenerationExecutionContextTest {
     @Test
     void concurrentRepairRoundBudgetConsumptionNeverExceedsConfiguredLimit() throws Exception {
         assertConcurrentBudgetLimit(GenerationBudgetKind.REPAIR_ROUND);
+    }
+
+    @Test
+    void multiUnitReservationMustBeAtomic() {
+        GenerationExecutionContext context = context(
+                3, Duration.ofMinutes(1), new MutableClock(Instant.EPOCH));
+
+        assertEquals(2, context.consume(GenerationBudgetKind.TOOL_WRITE, 2));
+        assertThrows(GenerationBudgetExceededException.class,
+                () -> context.consume(GenerationBudgetKind.TOOL_WRITE, 2));
+
+        assertEquals(2, context.used(GenerationBudgetKind.TOOL_WRITE));
+        assertEquals(1, context.remaining(GenerationBudgetKind.TOOL_WRITE));
+        assertThrows(IllegalArgumentException.class,
+                () -> context.consume(GenerationBudgetKind.TOOL_WRITE, 0));
     }
 
     @Test
@@ -64,9 +80,9 @@ class GenerationExecutionContextTest {
         GenerationExecutionContext completed = context(3, Duration.ofMinutes(1), new MutableClock(Instant.EPOCH));
         completed.complete("success");
         assertTrue(completed.isCompleted());
-        assertFalse(completed.hasRemainingBudget(GenerationBudgetKind.MODEL_ATTEMPT));
+        assertFalse(completed.hasRemainingBudget(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
         assertThrows(GenerationExecutionPolicyException.class,
-                () -> completed.consume(GenerationBudgetKind.MODEL_ATTEMPT));
+                () -> completed.consume(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
     }
 
     @Test
@@ -74,6 +90,7 @@ class GenerationExecutionContextTest {
         MutableClock clock = new MutableClock(Instant.parse("2026-02-02T00:00:00Z"));
         GenerationExecutionContext context = context(4, Duration.ofMinutes(2), clock);
         context.consume(GenerationBudgetKind.REPAIR_ROUND);
+        context.recordSuccessfulWorkspaceMutations(2);
 
         GenerationExecutionSnapshot snapshot = context.snapshot();
 
@@ -83,13 +100,15 @@ class GenerationExecutionContextTest {
         assertEquals(clock.instant().plus(Duration.ofMinutes(2)), snapshot.deadlineAt());
         assertEquals(1, snapshot.usages().get(GenerationBudgetKind.REPAIR_ROUND));
         assertEquals(4, snapshot.limits().get(GenerationBudgetKind.REPAIR_ROUND));
+        assertEquals(2, snapshot.successfulWorkspaceMutations());
     }
 
     @Test
     void restoredContextMustPreserveAbsoluteDeadlineAndConsumedBudgets() {
         MutableClock clock = new MutableClock(Instant.parse("2026-02-02T00:00:00Z"));
         GenerationExecutionContext original = context(4, Duration.ofMinutes(2), clock);
-        original.consume(GenerationBudgetKind.MODEL_ATTEMPT);
+        original.consume(GenerationBudgetKind.ROOT_MODEL_ATTEMPT);
+        original.recordSuccessfulWorkspaceMutations(1);
         GenerationExecutionSnapshot snapshot = original.snapshot();
 
         clock.advance(Duration.ofSeconds(30));
@@ -97,7 +116,8 @@ class GenerationExecutionContextTest {
                 snapshot, original.limits(), clock);
 
         assertEquals(snapshot.deadlineAt(), restored.deadlineAt());
-        assertEquals(1, restored.used(GenerationBudgetKind.MODEL_ATTEMPT));
+        assertEquals(1, restored.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
+        assertEquals(1, restored.successfulWorkspaceMutationCount());
         assertEquals(Duration.ofSeconds(90), restored.remainingDuration());
     }
 
@@ -118,6 +138,28 @@ class GenerationExecutionContextTest {
         assertFalse(duplicate.firstPublication());
         assertEquals(first.readyAt(), duplicate.readyAt());
         assertEquals(first.readyAt(), restored.firstPreviewReadyAt());
+    }
+
+    @Test
+    void optionalPreviewOperationPreservesCompletionTimeAndReturnsToTotalDeadlineAfterPublication() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-02-02T00:00:00Z"));
+        GenerationExecutionContext context = previewContext(
+                Duration.ofMinutes(10),
+                Duration.ofSeconds(60),
+                Duration.ofSeconds(45),
+                clock
+        );
+
+        assertEquals(Duration.ofSeconds(15),
+                context.optionalFirstPreviewOperationTimeout(Duration.ofMinutes(2)).orElseThrow());
+
+        clock.advance(Duration.ofSeconds(15));
+        assertTrue(context.optionalFirstPreviewOperationTimeout(Duration.ofMinutes(2)).isEmpty());
+        context.assertCanContinue();
+
+        context.markFirstPreviewReady();
+        assertEquals(Duration.ofMinutes(2),
+                context.optionalFirstPreviewOperationTimeout(Duration.ofMinutes(2)).orElseThrow());
     }
 
     private void assertConcurrentBudgetLimit(GenerationBudgetKind budgetKind) throws Exception {
@@ -167,6 +209,40 @@ class GenerationExecutionContextTest {
                 ),
                 clock
         );
+    }
+
+    private GenerationExecutionContext previewContext(Duration taskTimeout,
+                                                      Duration firstPreviewTimeout,
+                                                      Duration completionReserve,
+                                                      Clock clock) {
+        EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
+        for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
+            budgets.put(kind, 4);
+        }
+        GenerationExecutionLimits limits = new GenerationExecutionLimits(
+                taskTimeout,
+                Duration.ofMinutes(2),
+                Duration.ofMillis(500),
+                completionReserve,
+                budgets
+        );
+        Instant startedAt = clock.instant();
+        GenerationExecutionSnapshot snapshot = new GenerationExecutionSnapshot(
+                "preview-task",
+                11L,
+                22L,
+                startedAt,
+                startedAt.plus(taskTimeout),
+                "preview-test",
+                startedAt.plus(firstPreviewTimeout),
+                null,
+                false,
+                null,
+                null,
+                Map.of(),
+                limits.budgets()
+        );
+        return GenerationExecutionContext.restore(snapshot, limits, clock);
     }
 
     static final class MutableClock extends Clock {

@@ -16,11 +16,11 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * Removes legacy plaintext provider credentials before the application becomes ready.
+ * 在应用程序准备就绪之前删除旧的纯文本提供商凭据。
  *
- * <p>Each row is replaced with compare-and-set semantics. Concurrent nodes may race safely: a
- * losing node accepts only a row that is already protected and resolvable, otherwise startup
- * fails closed. Credentials retained by logically deleted rows are erased instead of migrated.</p>
+ * <p>E每一行被替换为比较和设置语义。并发节点可以安全地竞争：
+ * 丢失节点仅接受已受保护且可解析的行，否则启动
+ * 关闭失败。逻辑删除的行保留的凭证将被删除而不是迁移。</p>
  */
 @Slf4j
 @Component

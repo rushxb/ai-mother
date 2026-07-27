@@ -20,7 +20,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Set;
 
-/** Resolves and mutates patch files without following symbolic links. */
+/** 无需遵循符号链接即可解析和更改补丁文件。 */
 @Component
 @RequiredArgsConstructor
 public class PatchWorkspaceFileService {
@@ -73,7 +73,7 @@ public class PatchWorkspaceFileService {
     }
 
     /**
-     * Reads a UTF-8 file while enforcing both the caller limit and the global patch-workspace limit.
+     * 读取 UTF-8 文件，同时强制执行调用者限制和全局补丁工作空间限制。
      */
     public String readUtf8(PatchWorkspaceTarget target, long maxReadableBytes) throws IOException {
         if (maxReadableBytes <= 0) {

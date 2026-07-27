@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** Shared resource limits for bounded workspace scanning, reading, and snapshot copying. */
+/** 有界工作区扫描、读取和快照复制的共享资源限制。 */
 @Data
 @Component
 @Validated

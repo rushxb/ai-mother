@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanObservation;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanSink;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -11,7 +12,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-/** Exports existing generation critical-path observations as child OTel spans. */
+/** 将现有一代关键路径观察结果导出为子 OTel 跨度。 */
 @Component
 @ConditionalOnProperty(name = "management.tracing.enabled", havingValue = "true", matchIfMissing = true)
 public class MicrometerGenerationSpanSink implements GenerationSpanSink {
@@ -19,6 +20,7 @@ public class MicrometerGenerationSpanSink implements GenerationSpanSink {
     private final Tracer tracer;
     private final GenerationTraceParentRegistry parentRegistry;
 
+    @Autowired
     public MicrometerGenerationSpanSink(Tracer tracer,
                                         GenerationTraceParentRegistry parentRegistry) {
         this.tracer = tracer;

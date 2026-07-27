@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import java.util.Locale;
 
 /**
- * Canonical terminal outcomes shared by stream completion, telemetry and task events.
+ * 流完成、遥测和任务事件共享的规范终端结果。
  */
 public enum GenerationTerminalOutcome {
 

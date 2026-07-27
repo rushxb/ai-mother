@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import java.time.Instant;
 import java.util.Objects;
 
-/** Atomically switched pointer to one fully prepared published workspace version. */
+/** 以原子方式将指针切换到一个完全准备好的已发布工作区版本。 */
 public record GenerationWorkspacePublicationPointer(
         int schemaVersion,
         Long appId,

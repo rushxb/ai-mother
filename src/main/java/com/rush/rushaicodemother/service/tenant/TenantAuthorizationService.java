@@ -9,6 +9,9 @@ import com.rush.rushaicodemother.model.enums.TenantRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+/**
+ * 租户Authorization服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class TenantAuthorizationService {

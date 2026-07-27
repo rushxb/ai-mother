@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.monitor.span;
 import java.time.Instant;
 import java.util.Objects;
 
-/** Immutable completed span emitted by the generation runtime. */
+/** 生成运行时发出的不可变的完整跨度。 */
 public record GenerationSpanObservation(
         String spanId,
         String taskId,

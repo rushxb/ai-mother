@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReleaseAssessment;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReleaseGate;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReport;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReportValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +15,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Replays all trust checks at release time so evidence cannot drift or be altered in storage. */
+/** 发布时重放全部信任校验，拒绝漂移或被存储篡改的证据。 */
 @Component
 @RequiredArgsConstructor
 public class GenerationReleaseEvidenceVerifier {
@@ -22,43 +24,56 @@ public class GenerationReleaseEvidenceVerifier {
     private final GenerationBenchmarkEvidenceCodec codec;
     private final GenerationBenchmarkEvidenceSignatureService signatureService;
     private final GenerationBenchmarkDatasetFingerprintService datasetFingerprintService;
+    private final GenerationBenchmarkReportValidator reportValidator;
     private final GenerationBenchmarkReleaseGate releaseGate;
+    private final GenerationBenchmarkEvidenceProvenanceValidator provenanceValidator;
+    private final GenerationBenchmarkEvidenceCandidateIdentityResolver candidateIdentityResolver;
     private final GenerationBenchmarkEvidenceProperties properties;
     private final Clock clock = Clock.systemUTC();
 
-    public GenerationBenchmarkEvidenceRecord requirePassed(String evidenceId,
-                                                            GenerationBenchmarkEvidenceSubject subjectType,
-                                                            String subjectKey,
-                                                            String candidateFingerprint) {
+    public GenerationBenchmarkEvidenceRecord requirePassed(
+            String evidenceId,
+            GenerationBenchmarkEvidenceCandidate candidate) {
         String normalizedId = requireEvidenceId(evidenceId);
         GenerationBenchmarkEvidenceRecord evidence = repository.findByEvidenceId(normalizedId)
                 .orElseThrow(() -> new BusinessException(
-                        ErrorCode.NOT_FOUND_ERROR, "Benchmark release evidence does not exist"));
+                        ErrorCode.NOT_FOUND_ERROR, "Benchmark 发布证据不存在"));
+        GenerationBenchmarkEvidenceCandidateIdentity expected =
+                candidateIdentityResolver.resolve(candidate);
         GenerationBenchmarkEvidencePayload payload = evidence.payload();
         if (payload == null
-                || payload.subjectType() != subjectType
-                || !Objects.equals(payload.subjectKey(), subjectKey)
-                || !Objects.equals(payload.candidateFingerprint(), candidateFingerprint)) {
+                || !GenerationBenchmarkEvidenceProtocol.hasCurrentAttestation(
+                payload.signatureVersion(),
+                payload.subjectType(),
+                payload.candidatePhysicalRequestCount())
+                || payload.subjectType() != expected.subjectType()
+                || !Objects.equals(payload.subjectKey(), expected.subjectKey())
+                || !Objects.equals(payload.candidateFingerprint(), expected.candidateFingerprint())
+                || !Objects.equals(payload.modelFingerprint(), expected.modelFingerprint())
+                || !Objects.equals(
+                        payload.promptBundleFingerprint(), expected.promptBundleFingerprint())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "Benchmark evidence does not match the release candidate");
+                    "Benchmark 证据与发布候选不匹配");
         }
         Instant now = clock.instant();
         if (!payload.expiresAt().isAfter(now)
                 || !payload.datasetFingerprint().equals(datasetFingerprintService.currentFingerprint())
                 || !payload.graderFingerprint().equals(properties.getGraderFingerprint())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "Benchmark release evidence is stale");
+                    "Benchmark 发布证据已过期");
         }
         if (!codec.reportSha256(evidence.reportJson()).equals(payload.reportSha256())
                 || !signatureService.verify(payload, evidence.signature())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR,
-                    "Benchmark release evidence integrity verification failed");
+                    "Benchmark 发布证据完整性校验失败");
         }
-        GenerationBenchmarkReleaseAssessment assessment = releaseGate.assess(
-                codec.parseReport(evidence.reportJson()));
+        GenerationBenchmarkReport report = codec.parseReport(evidence.reportJson());
+        reportValidator.validate(report);
+        provenanceValidator.validate(payload, report);
+        GenerationBenchmarkReleaseAssessment assessment = releaseGate.assess(report);
         if (!assessment.passed()) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "Benchmark release gate did not pass: " + String.join(",", assessment.violations()));
+                    "Benchmark 发布门禁未通过：" + String.join(",", assessment.violations()));
         }
         return evidence;
     }
@@ -67,7 +82,7 @@ public class GenerationReleaseEvidenceVerifier {
         try {
             return UUID.fromString(evidenceId == null ? "" : evidenceId.trim()).toString();
         } catch (IllegalArgumentException invalid) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "evidenceId is invalid", invalid);
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "evidenceId 无效", invalid);
         }
     }
 }

@@ -4,7 +4,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
 
-/** Result of one fenced workspace publication attempt. */
+/** 一次围栏工作区发布尝试的结果。 */
 public record GenerationWorkspacePublicationResult(
         Status status,
         GenerationWorkspacePublicationPointer pointer,

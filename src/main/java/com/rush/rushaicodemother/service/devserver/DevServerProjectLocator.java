@@ -14,7 +14,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Objects;
 
-/** Resolves the safe frontend project directory used by the local Dev Server. */
+/** 解析本地开发服务器使用的安全前端项目目录。 */
 @Component
 public class DevServerProjectLocator {
 
@@ -35,15 +35,15 @@ public class DevServerProjectLocator {
         );
     }
 
-    /** Returns an existing Vue project directory containing a safe package manifest. */
+    /** 返回包含安全包清单的现有 Vue 项目目录。 */
     public Path locate(App app) {
         return locate(app, null);
     }
 
     /**
-     * Resolves either the user-visible published workspace or an explicitly fenced generation
-     * workspace. The latter is used only by task-scoped validation and never falls back to the
-     * canonical pointer when the execution scope is missing.
+     * 解决用户可见的已发布工作空间或显式隔离的生成问题
+     * 工作区。后者仅用于任务范围的验证，并且永远不会回退到
+     * 缺少执行范围时的规范指针。
      */
     public Path locate(App app, DevServerStartOptions startOptions) {
         CodeGenTypeEnum codeGenType = requireSupportedType(app);

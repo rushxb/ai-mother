@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.model.capacity;
 
-/** Safe, low-detail signal that allows request-level model failover without leaking prompt data. */
+/** 安全、低细节的信号，允许请求级模型故障转移，而不会泄漏提示数据。 */
 public final class AiModelCapacityException extends RuntimeException {
 
     private final String gate;

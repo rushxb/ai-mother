@@ -1,5 +1,8 @@
 package com.rush.rushaicodemother.orchestration.event;
 
+/**
+ * 生成事件类型的可选类型。
+ */
 public enum GenerationEventType {
 
     TASK_ROUTE("task_route"),

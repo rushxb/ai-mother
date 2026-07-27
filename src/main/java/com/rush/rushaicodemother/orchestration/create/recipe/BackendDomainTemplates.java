@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.*;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
 
-/** Renders Go domain/model declarations and SQLite schema changes. */
+/** 渲染 Go 域/模型声明和 SQLite 架构更改。 */
 @Component
 final class BackendDomainTemplates {
 

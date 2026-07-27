@@ -68,7 +68,7 @@ class DefaultAppDeletionServiceTest {
         ordered.verify(devServerManager).stopDevServer(11L);
         ordered.verify(artifactLifecycleService).prepareDeletion(app);
         ordered.verify(artifactTransaction).activate();
-        ordered.verify(memoryLifecycleService).deleteApplicationMemories(11L, 7L);
+        ordered.verify(memoryLifecycleService).scheduleApplicationMemoryDeletion(3L, 11L, 7L);
         ordered.verify(lifecycleDataMapper).deleteGenerationModelCalls(11L);
         ordered.verify(lifecycleDataMapper).deleteGenerationBuildLogs(11L);
         ordered.verify(lifecycleDataMapper).deleteGenerationTaskSpans(11L);
@@ -134,7 +134,8 @@ class DefaultAppDeletionServiceTest {
     @Test
     void shouldFailClosedAndKeepRelationalDataWhenSemanticMemoryDeletionFails() {
         BusinessException memoryFailure = new BusinessException(ErrorCode.SYSTEM_ERROR, "memory deletion failed");
-        doThrow(memoryFailure).when(memoryLifecycleService).deleteApplicationMemories(11L, 7L);
+        doThrow(memoryFailure).when(memoryLifecycleService)
+                .scheduleApplicationMemoryDeletion(3L, 11L, 7L);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -245,6 +246,7 @@ class DefaultAppDeletionServiceTest {
         return App.builder()
                 .id(11L)
                 .userId(7L)
+                .tenantId(3L)
                 .codeGenType("html")
                 .deployKey("Deploy11")
                 .build();

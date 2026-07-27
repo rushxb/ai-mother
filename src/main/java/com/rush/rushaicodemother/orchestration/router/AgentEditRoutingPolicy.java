@@ -6,6 +6,9 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * 智能体编辑路由决策策略。
+ */
 @Component
 @Order(40)
 public class AgentEditRoutingPolicy implements GenerationRoutingPolicy {

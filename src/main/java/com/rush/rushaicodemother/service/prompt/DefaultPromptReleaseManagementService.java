@@ -22,8 +22,6 @@ import com.rush.rushaicodemother.model.vo.PromptReleaseHistoryVO;
 import com.rush.rushaicodemother.model.vo.PromptReleaseMutationVO;
 import com.rush.rushaicodemother.model.vo.PromptVersionAdminVO;
 import com.rush.rushaicodemother.monitor.PromptReleaseMetricsCollector;
-import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubject;
-import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,6 +32,9 @@ import java.util.Map;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
+/**
+ * 提示词发布管理服务实现。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -50,8 +51,7 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
     private final PromptReleaseRepository repository;
     private final PromptReleaseRefreshService refreshService;
     private final PromptReleaseMetricsCollector metricsCollector;
-    private final PromptReleaseCandidateFingerprintService candidateFingerprintService;
-    private final GenerationReleaseEvidenceVerifier evidenceVerifier;
+    private final PromptReleaseTransactionCoordinator transactionCoordinator;
 
     @Override
     public PromptCatalogAdminVO getOverview() {
@@ -94,13 +94,6 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
                         command.canaryVersion(),
                         command.canaryPercentage()
                 )
-        );
-        String candidateFingerprint = candidateFingerprintService.fingerprint(promptKey, release);
-        evidenceVerifier.requirePassed(
-                command.evidenceId(),
-                GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
-                promptKey,
-                candidateFingerprint
         );
         PromptReleaseMutation mutation = new PromptReleaseMutation(
                 promptKey,
@@ -154,7 +147,7 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
     private PromptReleaseMutationVO mutate(PromptReleaseMutation mutation) {
         PromptReleaseRecord persisted;
         try {
-            persisted = repository.publish(mutation);
+            persisted = transactionCoordinator.mutate(mutation);
         } catch (PromptReleaseConflictException exception) {
             metricsCollector.recordMutation(mutation.action().name(), "conflict");
             throw new BusinessException(

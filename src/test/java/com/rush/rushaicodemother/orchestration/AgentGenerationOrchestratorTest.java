@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.AgentRuntimeState;
+import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
@@ -28,6 +29,7 @@ import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import org.junit.jupiter.api.Test;
 
@@ -49,6 +51,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,7 +64,7 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("runtime-task-heavy");
         when(taskStore.create(eq("runtime-task-heavy"), anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = support();
+        GenerationAgentSupport support = support(codeOutputRoot("shared"));
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
@@ -76,7 +79,6 @@ class AgentGenerationOrchestratorTest {
                 CodeGenTypeEnum.HTML,
                 "update",
                 false,
-                null,
                 routingFunction,
                 null,
                 "runtime-task-heavy"
@@ -124,20 +126,33 @@ class AgentGenerationOrchestratorTest {
         when(taskStore.load(1L, "runtime-task-resume")).thenReturn(Optional.of(restoredTask));
         when(taskStore.matchesRequest(restoredTask, "继续生成 Vue 应用")).thenReturn(true);
 
-        GenerationAgentSupport support = support();
+        GenerationAgentSupport support = support(codeOutputRoot("resume"));
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support, routingSupport));
+        TemplateAgentNode templateNode = testTemplateAgentNode("resume");
+        ContextAgentNode contextNode = new ContextAgentNode(support);
+        ArchitectAgentNode architectNode = new ArchitectAgentNode(support);
+        var codeNode = codeAgentNode();
+        var reviewNode = reviewAgentNode();
+        restoredTask.setDagFingerprint(fingerprint(List.of(
+                plannerNode,
+                templateNode,
+                contextNode,
+                architectNode,
+                codeNode,
+                reviewNode
+        )));
         GenerationOrchestrationMetricsCollector metricsCollector =
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
         AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
                 new GenerationDagRunner(taskStore, metricsCollector, mock(GenerationExecutionContextService.class)),
-                taskStore,
-                plannerNode,
-                testTemplateAgentNode("resume"),
-                new ContextAgentNode(support),
-                new ArchitectAgentNode(support),
-                codeAgentNode(),
-                reviewAgentNode(),
+                 taskStore,
+                 plannerNode,
+                 templateNode,
+                 contextNode,
+                 architectNode,
+                 codeNode,
+                 reviewNode,
                 new BuildFixAgentNode(),
                 routingSupport,
                 metricsCollector,
@@ -153,7 +168,6 @@ class AgentGenerationOrchestratorTest {
                 CodeGenTypeEnum.HTML,
                 "update",
                 false,
-                null,
                 prompt -> CodeGenTypeEnum.VUE_PROJECT,
                 null,
                 "runtime-task-resume"
@@ -171,13 +185,78 @@ class AgentGenerationOrchestratorTest {
     }
 
     @Test
+    void completedPreparationCheckpointMustBeReusableWithoutRepeatingDagSideEffects() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("runtime-task-completed-resume");
+        task.setAppId(1L);
+        task.setStatus("running");
+        when(taskStore.load(1L, "runtime-task-completed-resume"))
+                .thenReturn(Optional.empty(), Optional.of(task));
+        when(taskStore.create("runtime-task-completed-resume", 1L, "创建一个 Vue 应用"))
+                .thenReturn(task);
+        when(taskStore.matchesRequest(task, "创建一个 Vue 应用")).thenReturn(true);
+
+        GenerationAgentSupport support = support(codeOutputRoot("completed-resume"));
+        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
+        PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support, routingSupport));
+        TemplateAgentNode templateNode = testTemplateAgentNode("completed-resume");
+        ContextAgentNode contextNode = new ContextAgentNode(support);
+        ArchitectAgentNode architectNode = new ArchitectAgentNode(support);
+        var codeNode = codeAgentNode();
+        var reviewNode = reviewAgentNode();
+        GenerationOrchestrationMetricsCollector metricsCollector =
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
+        GenerationRollbackPointService rollbackPointService = spy(testRollbackPointService("completed-resume"));
+        AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
+                new GenerationDagRunner(taskStore, metricsCollector, mock(GenerationExecutionContextService.class)),
+                taskStore,
+                plannerNode,
+                templateNode,
+                contextNode,
+                architectNode,
+                codeNode,
+                reviewNode,
+                new BuildFixAgentNode(),
+                routingSupport,
+                metricsCollector,
+                rollbackPointService
+        );
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                app,
+                "创建一个 Vue 应用",
+                CodeGenTypeEnum.HTML,
+                "create",
+                false,
+                ignored -> CodeGenTypeEnum.VUE_PROJECT,
+                null,
+                "runtime-task-completed-resume"
+        );
+
+        GenerationOrchestrationResult first = orchestrator.prepare(request);
+        GenerationOrchestrationResult resumed = orchestrator.prepare(request);
+
+        assertEquals(AgentRuntimeState.COMPLETED, task.getRuntimeState());
+        assertEquals(first.enhancedMessage(), resumed.enhancedMessage());
+        assertEquals(first.targetType(), resumed.targetType());
+        assertEquals(first.timings(), resumed.timings());
+        verify(plannerNode, times(1)).execute(any());
+        verify(rollbackPointService, times(1)).prepareRollbackPoint(
+                any(GenerationOrchestrationRequest.class), any(CodeGenTypeEnum.class),
+                eq("runtime-task-completed-resume"));
+    }
+
+    @Test
     void shouldRouteToHeavyPathForExistingProjectVueUpgrade() {
         GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-upgrade");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = support();
+        GenerationAgentSupport support = support(codeOutputRoot("shared"));
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
@@ -193,7 +272,6 @@ class AgentGenerationOrchestratorTest {
                 CodeGenTypeEnum.MULTI_FILE,
                 "update",
                 true,
-                null,
                 routingFunction,
                 null
         );
@@ -211,14 +289,14 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-build");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = support();
+        GenerationAgentSupport support = support(codeOutputRoot("shared"));
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
 
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        writeExistingProjectFile("metrics", CodeGenTypeEnum.HTML, app.getId(), "index.html", "<html><body>login</body></html>");
+        writeExistingProjectFile("shared", CodeGenTypeEnum.HTML, app.getId(), "index.html", "<html><body>login</body></html>");
 
         GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
                 app,
@@ -226,7 +304,6 @@ class AgentGenerationOrchestratorTest {
                 CodeGenTypeEnum.HTML,
                 "update",
                 false,
-                null,
                 null,
                 null
         );
@@ -246,7 +323,7 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-metrics");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
-        GenerationAgentSupport support = support();
+        GenerationAgentSupport support = support(codeOutputRoot("metrics"));
         GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         GenerationOrchestrationMetricsCollector metricsCollector = new GenerationOrchestrationMetricsCollector(meterRegistry);
@@ -271,6 +348,8 @@ class AgentGenerationOrchestratorTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        writeExistingProjectFile("metrics", CodeGenTypeEnum.HTML, app.getId(),
+                "index.html", "<html><body>login</body></html>");
 
         GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
                 app,
@@ -278,8 +357,7 @@ class AgentGenerationOrchestratorTest {
                 CodeGenTypeEnum.HTML,
                 "update",
                 true,
-                null,
-                null,
+                prompt -> CodeGenTypeEnum.HTML,
                 null
         );
 
@@ -370,8 +448,28 @@ class AgentGenerationOrchestratorTest {
                                           Long appId,
                                           String relativePath,
                                           String content) {
-        Path root = Path.of("target", "test-workspaces", "template-orchestrator", caseName,
-                "code_output", type.getValue() + "_" + appId);
+        Path root = codeOutputRoot(caseName).resolve(type.getValue() + "_" + appId);
         FileUtil.writeUtf8String(content, root.resolve(relativePath).toFile());
+    }
+
+    private Path codeOutputRoot(String caseName) {
+        return Path.of("target", "test-workspaces", "template-orchestrator", caseName,
+                "code_output");
+    }
+
+    private String fingerprint(List<GenerationAgentNode> nodes) {
+        StringBuilder canonical = new StringBuilder();
+        for (int index = 0; index < nodes.size(); index++) {
+            GenerationAgentNode node = nodes.get(index);
+            canonical.append(index).append('\u0000')
+                    .append(node.key()).append('\u0000')
+                    .append(node.agentName()).append('\u0000')
+                    .append(node.stage()).append('\u0000')
+                    .append(node.replayPolicy().name()).append('\u0000');
+            node.dependencies().stream().sorted().forEach(dependency ->
+                    canonical.append(dependency).append('\u0001'));
+            canonical.append('\u0002');
+        }
+        return DigestUtil.sha256Hex(canonical.toString());
     }
 }

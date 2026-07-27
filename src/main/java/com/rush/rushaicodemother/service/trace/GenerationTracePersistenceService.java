@@ -20,6 +20,9 @@ public interface GenerationTracePersistenceService {
     boolean enrichRuntimeTaskTrace(long recordId, NewTask task,
                                    GenerationExecutionFence fence, LocalDateTime updateTime);
 
+    void transitionRunningTaskTrace(long recordId, NewTask task,
+                                    GenerationExecutionFence fence, LocalDateTime updateTime);
+
     void updateRunningTaskStage(long recordId, String stage, String stageMessage,
                                 GenerationExecutionFence fence, LocalDateTime updateTime);
 

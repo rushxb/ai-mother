@@ -8,6 +8,9 @@ import java.util.List;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.*;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
 
+/**
+ * Backend配方对象工厂。
+ */
 @Component
 final class BackendRecipeFactory {
 

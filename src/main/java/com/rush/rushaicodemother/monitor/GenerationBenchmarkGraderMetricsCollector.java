@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkQual
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -12,7 +13,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Low-cardinality metrics for deterministic workspace and managed runtime benchmark graders. */
+/** 用于确定性工作区和托管运行时基准评分器的低基数指标。 */
 @Component
 public class GenerationBenchmarkGraderMetricsCollector {
 
@@ -23,6 +24,7 @@ public class GenerationBenchmarkGraderMetricsCollector {
     private final ConcurrentMap<String, Counter> counters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> timers = new ConcurrentHashMap<>();
 
+    @Autowired
     public GenerationBenchmarkGraderMetricsCollector(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
     }

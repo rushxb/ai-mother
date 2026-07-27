@@ -5,11 +5,11 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Creates log-safe exception diagnostics while retaining exception types, cause structure and call stacks.
+ * 创建日志安全的异常诊断，同时保留异常类型、原因结构和调用堆栈。
  *
- * <p>Throwable messages frequently contain provider responses, credentials, request payloads or local paths.
- * Logging the original throwable therefore crosses a sensitive-data boundary. Callers should pass the
- * sanitized throwable returned by {@link #sanitize(Throwable)} to the logger instead.</p>
+ * <p>Throwable 消息经常包含提供者响应、凭证、请求负载或本地路径。
+ * 因此，记录原始可抛出数据跨越了敏感数据边界。呼叫者应通过
+ * 由 {@link #sanitize(Throwable)} 返回到记录器的清理后的 throwable。</p>
  */
 public final class LogExceptionSanitizer {
 

@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.monitor.span;
 import java.time.Instant;
 import java.util.List;
 
-/** Read port for querying durable generation spans across instances and restarts. */
+/** 用于查询跨实例和重新启动的持久生成的读取端口。 */
 public interface GenerationSpanQueryService {
 
     int DEFAULT_LIMIT = 200;

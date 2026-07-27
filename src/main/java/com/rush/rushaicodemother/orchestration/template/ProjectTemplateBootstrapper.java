@@ -9,7 +9,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** Publishes one complete template workspace through the shared atomic materialization boundary. */
+/** 通过共享原子物化边界发布一个完整的模板工作区。 */
 @Component
 public class ProjectTemplateBootstrapper {
 
@@ -17,33 +17,30 @@ public class ProjectTemplateBootstrapper {
     private static final ReentrantLock[] TARGET_LOCKS = createTargetLocks();
 
     private final ProjectTemplateMaterializer templateMaterializer;
-    private final TemplatePreWarmService templatePreWarmService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
 
     public ProjectTemplateBootstrapper(ProjectTemplateMaterializer templateMaterializer,
-                                       TemplatePreWarmService templatePreWarmService,
                                        WorkspaceFileSystemService workspaceFileSystemService) {
         this.templateMaterializer = Objects.requireNonNull(templateMaterializer, "templateMaterializer must not be null");
-        this.templatePreWarmService = Objects.requireNonNull(templatePreWarmService, "templatePreWarmService must not be null");
         this.workspaceFileSystemService = Objects.requireNonNull(
                 workspaceFileSystemService,
                 "workspaceFileSystemService must not be null"
         );
     }
 
-    public BootstrapOutcome bootstrap(String templateId, Path targetDirectory, boolean copyPreWarmedModules)
+    public BootstrapOutcome bootstrap(String templateId, Path targetDirectory)
             throws Exception {
         Path target = normalizeTarget(targetDirectory);
         ReentrantLock targetLock = targetLockFor(target);
         targetLock.lock();
         try {
-            return bootstrapUnderLock(templateId, target, copyPreWarmedModules);
+            return bootstrapUnderLock(templateId, target);
         } finally {
             targetLock.unlock();
         }
     }
 
-    private BootstrapOutcome bootstrapUnderLock(String templateId, Path target, boolean copyPreWarmedModules)
+    private BootstrapOutcome bootstrapUnderLock(String templateId, Path target)
             throws Exception {
         if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             workspaceFileSystemService.isDirectory(target);
@@ -52,12 +49,7 @@ public class ProjectTemplateBootstrapper {
         try {
             ProjectTemplateMaterializer.MaterializationResult result = templateMaterializer.materializeAtomically(
                     templateId,
-                    target,
-                    staging -> {
-                        if (copyPreWarmedModules) {
-                            templatePreWarmService.copyPreWarmedModules(templateId, staging);
-                        }
-                    }
+                    target
             );
             return BootstrapOutcome.created(result.targetDirectory(), result.fileCount());
         } catch (TemplateMaterializationException exception) {

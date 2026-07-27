@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.service.devserver.persistence;
 
-/** Result of the cross-node session reservation. */
+/** 跨节点会话预留的结果。 */
 public enum DevServerSessionClaimResult {
     ACQUIRED,
     ACTIVE_SESSION_EXISTS,

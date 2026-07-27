@@ -3,10 +3,10 @@ package com.rush.rushaicodemother.infrastructure.diagnostic;
 import java.util.regex.Pattern;
 
 /**
- * Sanitizes command and build diagnostics before they cross a user-, model-, trace-, or API-facing boundary.
+ * 在命令和构建诊断跨越面向用户、模型、跟踪或 API 的边界之前对其进行清理。
  *
- * <p>Raw diagnostics remain available to trusted in-process callers. Public callers should use this class
- * instead of copying redaction expressions into individual tools or services.</p>
+ * <p>Raw 诊断仍然可供可信的进程内调用者使用。公共调用者应该使用此类
+ * 而不是将编辑表达式复制到单独的工具或服务中。</p>
  */
 public final class PublicDiagnosticSanitizer {
 

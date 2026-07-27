@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 class GenerationRollbackPointServiceTest {
@@ -39,7 +40,6 @@ class GenerationRollbackPointServiceTest {
                 CodeGenTypeEnum.VUE_PROJECT,
                 "update",
                 true,
-                null,
                 null,
                 null
         );
@@ -71,7 +71,6 @@ class GenerationRollbackPointServiceTest {
                 "create",
                 false,
                 null,
-                null,
                 null
         );
 
@@ -94,7 +93,7 @@ class GenerationRollbackPointServiceTest {
         app.setId(18L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
         GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app, "修改页面", CodeGenTypeEnum.HTML, "update", true, null, null, null
+                app, "修改页面", CodeGenTypeEnum.HTML, "update", true, null, null
         );
 
         GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(codeOutputRoot, codeSnapshotRoot).prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "../" + "very-long-task-id".repeat(20));
@@ -104,6 +103,37 @@ class GenerationRollbackPointServiceTest {
         assertTrue(snapshotName.length() <= 128);
         assertTrue(snapshotName.matches("[A-Za-z0-9_-]+"));
         assertFalse(snapshotName.contains(".."));
+    }
+
+    @Test
+    void repeatedPreparationMustReuseTheTaskScopedSnapshot() throws Exception {
+        Path tempDir = cleanTestRoot("idempotent");
+        Path codeOutputRoot = tempDir.resolve("code_output");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        Path projectRoot = codeOutputRoot.resolve("html_19");
+        Files.createDirectories(projectRoot);
+        Files.writeString(projectRoot.resolve("index.html"), "ok");
+        App app = new App();
+        app.setId(19L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                app, "修改页面", CodeGenTypeEnum.HTML, "update", true, null, null
+        );
+        GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
+        GenerationRollbackPointService service = SnapshotServiceTestFixture.rollbackPointService(
+                codeOutputRoot, codeSnapshotRoot, fenceGuard);
+
+        GenerationArtifact first = service.prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "task-19");
+        GenerationArtifact resumed = service.prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "task-19");
+
+        assertEquals("created", first.payload().get("status"));
+        assertEquals(first.payload().get("snapshotName"), resumed.payload().get("snapshotName"));
+        assertEquals(first.payload().get("snapshotPath"), resumed.payload().get("snapshotPath"));
+        assertEquals(first.payload().get("fileCount"), resumed.payload().get("fileCount"));
+        try (var snapshots = Files.list(codeSnapshotRoot.resolve("19"))) {
+            assertEquals(1L, snapshots.count());
+        }
+        verify(fenceGuard, times(2)).assertCurrent("task-19");
     }
 
     private Path cleanTestRoot(String caseName) {

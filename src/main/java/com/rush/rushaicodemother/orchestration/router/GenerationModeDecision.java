@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.router;
 
 import cn.hutool.core.util.StrUtil;
 
+/**
+ * 生成模式决策的不可变数据载体。
+ */
 public record GenerationModeDecision(
         GenerationMode mode,
         double confidence,

@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 import java.time.Instant;
 import java.util.Objects;
 
-/** Stable metadata required to durably accept a generation task. */
+/** 持久接受生成任务需要稳定的元数据。 */
 public record GenerationTaskSubmissionRecord(
         String taskId,
         Long appId,

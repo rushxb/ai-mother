@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** Resource limits for local patch validation and file mutation. */
+/** 本地补丁验证和文件变更的资源限制。 */
 @Data
 @Component
 @Validated

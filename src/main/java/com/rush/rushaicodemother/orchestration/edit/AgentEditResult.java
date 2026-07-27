@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import java.util.List;
 
+/**
+ * 智能体编辑执行结果。
+ */
 public record AgentEditResult(
         String taskId,
         String route,

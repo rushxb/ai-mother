@@ -17,7 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
-/** Application seam for durable submission, activation, cancellation and terminal cleanup. */
+/** 用于持久提交、激活、取消和终端清理的应用程序接缝。 */
 @Service
 public class GenerationTaskRuntimeLifecycleService {
 

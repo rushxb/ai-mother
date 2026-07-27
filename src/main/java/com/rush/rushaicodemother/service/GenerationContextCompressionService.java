@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.service;
 
 /**
- * Controls prompt context budgets before sending requests to AI models.
+ * 在向 AI 模型发送请求之前控制提示上下文预算。
  */
 public interface GenerationContextCompressionService {
 

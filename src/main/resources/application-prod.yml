@@ -40,6 +40,9 @@ app:
     transport: ${GENERATION_EVENT_STREAM_TRANSPORT:redis}
   generation-task-queue:
     transport: ${GENERATION_TASK_QUEUE_TRANSPORT:redis}
+  generation-benchmark:
+    evidence:
+      signing-secret: ${GENERATION_BENCHMARK_EVIDENCE_SIGNING_SECRET}
   generated-code-sandbox:
     container:
       dependency-cache-enabled: ${GENERATED_CODE_SANDBOX_DEPENDENCY_CACHE_ENABLED:true}
@@ -54,6 +57,16 @@ app:
     runtime-releases:
       enabled: ${AI_PROMPT_RUNTIME_RELEASES_ENABLED:true}
       initial-load-required: ${AI_PROMPT_RUNTIME_RELEASES_INITIAL_LOAD_REQUIRED:true}
+  memory:
+    long-term:
+      enabled: ${MILVUS_MEMORY_ENABLED:true}
+      uri: ${MILVUS_URI}
+      token: ${MILVUS_TOKEN}
+      authentication-required: ${MILVUS_AUTHENTICATION_REQUIRED:true}
+      tls-required: ${MILVUS_TLS_REQUIRED:true}
+      verify-on-startup: ${MILVUS_VERIFY_ON_STARTUP:true}
+    outbox:
+      enabled: ${GENERATION_MEMORY_OUTBOX_ENABLED:true}
 
 springdoc:
   api-docs:

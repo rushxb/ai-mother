@@ -33,6 +33,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -54,6 +55,9 @@ class AgentEditGenerationPipelineTest {
 
         assertEquals(GenerationPipelineDisposition.COMPLETED, outcome.disposition());
         assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
+        assertEquals("agent_edit_failed", outcome.reason());
+        assertTrue(outcome.resultSummary().contains("任务状态：失败"));
+        assertTrue(outcome.resultSummary().contains("修复轮次：1"));
         GenerationStreamEvent error = request.execution().session().asFlux()
                 .filter(event -> GenerationStreamEvent.GENERATION_ERROR.equals(event.getType()))
                 .blockFirst(Duration.ofSeconds(1));
@@ -74,6 +78,8 @@ class AgentEditGenerationPipelineTest {
         GenerationPipelineOutcome outcome = pipeline.execute(request);
 
         assertEquals(GenerationTaskStatus.SUCCESS, outcome.terminalStatus());
+        assertTrue(outcome.resultSummary().contains("结果摘要：done"));
+        assertTrue(outcome.resultSummary().contains("src/App.vue"));
         verify(service).execute(eq("agent-task-success"), any(), any(), eq(request.workspace()));
     }
 

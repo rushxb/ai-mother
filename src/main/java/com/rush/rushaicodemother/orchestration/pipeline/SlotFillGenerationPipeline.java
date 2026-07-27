@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.create.CreatePostGenerationValidationService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
@@ -26,8 +27,12 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * 插槽填充生成处理流水线。
+ */
 @Slf4j
 @Order(20)
 @Component
@@ -36,6 +41,9 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
 
     private static final String CREATE_FAILURE_MESSAGE = "CREATE 模板生成失败，请稍后重试";
     private static final String CREATE_FAILURE_REASON = "create_generation_failed";
+    private static final String CREATE_VALIDATION_FAILURE_REASON = "create_validation_failed";
+    private static final String CREATE_DEADLINE_REASON = "create_generation_deadline_exceeded";
+    private static final String CREATE_CANCELLED_REASON = "user_requested";
 
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
@@ -67,15 +75,12 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
         String taskId = execution.taskId();
         Instant startedAt = Instant.now();
         boolean lifecycleStarted = false;
-        boolean performanceStarted = false;
         try {
             session.throwIfCancelled();
-            generationTaskLifecycleService.recordUserMessage(
-                    app, request.taskRequest().loginUser(), request.taskRequest().message());
-            generationTaskLifecycleService.startGeneration(
+            generationTaskLifecycleService.startOrTransitionGeneration(
                     taskId,
-                    app,
-                    request.taskRequest().loginUser(),
+                    app.getId(),
+                    request.taskRequest().loginUser().getId(),
                     request.codeGenType(),
                     request.codeGenType(),
                     request.taskRequest().message(),
@@ -101,7 +106,6 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                     startedAt,
                     request.modeDecision()
             );
-            performanceStarted = true;
             generationEventPublisher.publishSafely(
                     request.taskRequest(), GenerationEventType.TASK_ROUTE, "使用 CREATE 模板生成路径", Map.of(
                             "taskId", taskId,
@@ -115,33 +119,23 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                     Map.of("stage", AppConstant.GENERATING_STAGE_CREATE,
                             "taskId", taskId, "route", route())
             ));
-            GenerationTaskStatus status = runCreateGeneration(request, taskId, startedAt, session);
-            return GenerationPipelineOutcome.completed(route(), status);
+            return runCreateGeneration(request, taskId, startedAt, session);
         } catch (RuntimeException startFailure) {
             log.error("CREATE 模板路径执行失败，appId: {}, taskId: {}",
                     app.getId(), taskId, LogExceptionSanitizer.sanitize(startFailure));
-            if (lifecycleStarted) {
-                safeCompleteLifecycle(taskId, app.getId(), GenerationTaskStatus.FAILED,
-                        "create_generation_start_failed", startFailure);
-            }
-            if (performanceStarted) {
-                safeFinishPerformance(taskId, GenerationTaskStatus.FAILED.getValue(), startFailure);
-            }
-            session.emit(GenerationStreamEvent.generationError(
-                    CREATE_FAILURE_MESSAGE,
-                    Map.of("taskId", taskId, "route", route(), "reason", CREATE_FAILURE_REASON)
-            ));
-            return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.FAILED);
+            return finishInitializationFailure(
+                    request, taskId, session, lifecycleStarted, startFailure);
         }
     }
 
-    private GenerationTaskStatus runCreateGeneration(GenerationPipelineRequest request,
-                                                       String taskId,
-                                                       Instant startedAt,
-                                                       GenerationSession session) {
+    private GenerationPipelineOutcome runCreateGeneration(GenerationPipelineRequest request,
+                                                           String taskId,
+                                                           Instant startedAt,
+                                                           GenerationSession session) {
         App app = request.taskRequest().app();
         try {
             SlotFillResult result = slotFillGenerationService.tryGenerate(app, request.taskRequest(), session);
+            session.throwIfCancelled();
             if (result == null) {
                 String diagnosticReason = StrUtil.blankToDefault(
                         slotFillGenerationService.consumeLastFailureReason(),
@@ -149,11 +143,9 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 );
                 log.warn("CREATE 模板生成失败，请稍后重试appId: {}, reason: {}", app.getId(),
                         LogExceptionSanitizer.sanitizeValue(diagnosticReason, 1_000));
-                return failCreateGeneration(request, taskId, startedAt, session, diagnosticReason);
-            }
-            if (session.isCancelled()) {
-                session.emitStopped();
-                return finishCreateGeneration(request, taskId, GenerationTaskStatus.CANCELLED);
+                return handoffCreateGeneration(
+                        taskId, startedAt, "create_template_runtime",
+                        CREATE_FAILURE_REASON, diagnosticReason, Map.of());
             }
             log.info("CREATE recipe 路径完成，appId: {}, templateId: {}, filledScopes: {}",
                     app.getId(), result.templateId(), result.filledSlotCount());
@@ -189,90 +181,128 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                             result,
                             session
                     );
+            session.throwIfCancelled();
             if (!validationOutcome.success()) {
-                generationEventPublisher.publishSafely(
-                        request.taskRequest(), GenerationEventType.TASK_FAILED,
-                        "CREATE 生成后验证失败", Map.of(
-                                "taskId", taskId,
-                                "route", route(),
-                                "reason", validationOutcome.reason()
-                        ));
-                session.emit(GenerationStreamEvent.generationError(
-                        "CREATE 生成后验证失败：" + validationOutcome.reason(),
-                        Map.of("taskId", taskId, "route", route(), "reason", validationOutcome.reason())
-                ));
-                return finishCreateGeneration(request, taskId, GenerationTaskStatus.FAILED);
+                return handoffCreateGeneration(
+                        taskId, startedAt, "create_validation_handoff",
+                        CREATE_VALIDATION_FAILURE_REASON, validationOutcome.reason(), telemetry(result));
             }
-            return finishCreateGeneration(request, taskId, GenerationTaskStatus.SUCCESS);
+            return finishSuccessfulCreateGeneration(
+                    taskId,
+                    buildSuccessResultSummary(result)
+            );
         } catch (RuntimeException failure) {
+            GenerationTerminalOutcome terminalOutcome = GenerationTerminalOutcome.resolve(session, failure);
+            if (terminalOutcome != GenerationTerminalOutcome.FAILED) {
+                return finishTerminalCreateGeneration(
+                        request, taskId, session, terminalOutcome,
+                        terminalReason(terminalOutcome), "CREATE 模板生成", failure.getMessage());
+            }
             String diagnosticReason = StrUtil.blankToDefault(
                     failure.getMessage(), failure.getClass().getSimpleName());
             log.error("CREATE 模板路径执行失败，appId: {}, taskId: {}",
                     app.getId(), taskId, LogExceptionSanitizer.sanitize(failure));
-            return failCreateGeneration(request, taskId, startedAt, session, diagnosticReason);
+            return handoffCreateGeneration(
+                    taskId, startedAt, "create_template_runtime",
+                    CREATE_FAILURE_REASON, diagnosticReason, Map.of());
         }
     }
 
-    private GenerationTaskStatus failCreateGeneration(GenerationPipelineRequest request,
-                                                        String taskId,
-                                                        Instant startedAt,
-                                                        GenerationSession session,
-                                                        String diagnosticReason) {
+    private GenerationPipelineOutcome handoffCreateGeneration(String taskId,
+                                                               Instant startedAt,
+                                                               String spanStage,
+                                                               String fallbackReason,
+                                                               String diagnosticReason,
+                                                               Map<String, Object> createTelemetry) {
+        String safeDiagnostic = LogExceptionSanitizer.sanitizeValue(diagnosticReason, 1_000);
         generationPerformanceMonitorService.recordSpan(
                 taskId,
-                "create_template_runtime",
-                    GenerationSpanCategory.PIPELINE,
-                "failed",
+                spanStage,
+                GenerationSpanCategory.PIPELINE,
+                "fallback",
                 Duration.between(startedAt, Instant.now()),
-                diagnosticReason
+                safeDiagnostic
         );
+        Map<String, Object> fallbackTelemetry = new LinkedHashMap<>(createTelemetry);
+        fallbackTelemetry.put("fallback", true);
+        generationPerformanceMonitorService.recordCreateTelemetry(taskId, fallbackTelemetry);
+        return GenerationPipelineOutcome.fallback(route(), fallbackReason);
+    }
+
+    private GenerationPipelineOutcome finishSuccessfulCreateGeneration(String taskId,
+                                                                        String resultSummary) {
+        generationPerformanceMonitorService.finishTask(taskId, GenerationTaskStatus.SUCCESS.getValue());
+        return GenerationPipelineOutcome.completed(
+                route(), GenerationTaskStatus.SUCCESS, null, resultSummary);
+    }
+
+    private GenerationPipelineOutcome finishInitializationFailure(GenerationPipelineRequest request,
+                                                                   String taskId,
+                                                                   GenerationSession session,
+                                                                   boolean lifecycleStarted,
+                                                                   RuntimeException failure) {
+        GenerationTerminalOutcome outcome = GenerationTerminalOutcome.resolve(session, failure);
+        String stage = lifecycleStarted ? "CREATE 初始化" : "CREATE 生命周期初始化";
+        return finishTerminalCreateGeneration(
+                request, taskId, session, outcome, terminalReason(outcome), stage, failure.getMessage());
+    }
+
+    private GenerationPipelineOutcome finishTerminalCreateGeneration(GenerationPipelineRequest request,
+                                                                      String taskId,
+                                                                      GenerationSession session,
+                                                                      GenerationTerminalOutcome outcome,
+                                                                      String reason,
+                                                                      String stage,
+                                                                      String diagnosticReason) {
+        generationPerformanceMonitorService.finishTask(taskId, outcome.status());
+        if (outcome == GenerationTerminalOutcome.CANCELLED) {
+            session.emitStopped();
+        } else {
+            session.emit(GenerationStreamEvent.generationError(
+                    terminalMessage(outcome),
+                    Map.of("taskId", taskId, "route", route(), "reason", reason)
+            ));
+        }
         generationEventPublisher.publishSafely(
-                request.taskRequest(), GenerationEventType.TASK_FAILED, "CREATE 模板生成失败", Map.of(
-                        "taskId", taskId,
-                        "route", route(),
-                        "reason", CREATE_FAILURE_REASON
-                ));
-        session.emit(GenerationStreamEvent.generationError(
-                CREATE_FAILURE_MESSAGE,
-                Map.of("taskId", taskId, "route", route(), "reason", CREATE_FAILURE_REASON)
-        ));
-        return finishCreateGeneration(request, taskId, GenerationTaskStatus.FAILED);
+                request.taskRequest(), outcome.eventType(), outcome.eventMessage(),
+                Map.of("taskId", taskId, "route", route(), "reason", reason,
+                        "status", outcome.status())
+        );
+        return GenerationPipelineOutcome.completed(
+                route(), outcome.taskStatus(), reason,
+                buildFailureResultSummary(stage, diagnosticReason));
     }
 
-    private GenerationTaskStatus finishCreateGeneration(GenerationPipelineRequest request,
-                                                          String taskId,
-                                                          GenerationTaskStatus status) {
-        App app = request.taskRequest().app();
-        if (status != GenerationTaskStatus.SUCCESS) {
-            String reason = status == GenerationTaskStatus.CANCELLED
-                    ? "user_requested"
-                    : CREATE_FAILURE_REASON;
-            generationTaskLifecycleService.completeGeneration(taskId, app.getId(), status, reason);
-        }
-        generationPerformanceMonitorService.finishTask(taskId, status.getValue());
-        return status;
+    private String terminalReason(GenerationTerminalOutcome outcome) {
+        return switch (outcome) {
+            case CANCELLED -> CREATE_CANCELLED_REASON;
+            case DEADLINE_EXCEEDED -> CREATE_DEADLINE_REASON;
+            default -> CREATE_FAILURE_REASON;
+        };
     }
 
-    private void safeCompleteLifecycle(String taskId,
-                                       Long appId,
-                                       GenerationTaskStatus status,
-                                       String reason,
-                                       RuntimeException originalFailure) {
-        try {
-            generationTaskLifecycleService.completeGeneration(taskId, appId, status, reason);
-        } catch (RuntimeException cleanupFailure) {
-            originalFailure.addSuppressed(cleanupFailure);
-        }
+    private String terminalMessage(GenerationTerminalOutcome outcome) {
+        return outcome == GenerationTerminalOutcome.DEADLINE_EXCEEDED
+                ? "CREATE 生成已超过最大执行时间，请稍后重试"
+                : CREATE_FAILURE_MESSAGE;
     }
 
-    private void safeFinishPerformance(String taskId,
-                                       String status,
-                                       RuntimeException originalFailure) {
-        try {
-            generationPerformanceMonitorService.finishTask(taskId, status);
-        } catch (RuntimeException cleanupFailure) {
-            originalFailure.addSuppressed(cleanupFailure);
-        }
+    private String buildSuccessResultSummary(SlotFillResult result) {
+        return "任务状态：成功"
+                + "\n执行路径：CREATE"
+                + "\n结果摘要：" + StrUtil.blankToDefault(result.summary(), "CREATE 模板项目已生成")
+                + "\n模板 ID：" + StrUtil.blankToDefault(result.templateId(), "未知")
+                + "\n填充槽位数量：" + result.filledSlotCount()
+                + "\n补丁操作数量：" + result.patchOperationCount()
+                + "\n生成字符数：" + result.totalChars();
+    }
+
+    private String buildFailureResultSummary(String stage, String diagnosticReason) {
+        String safeDiagnostic = LogExceptionSanitizer.sanitizeValue(diagnosticReason, 1_000);
+        return "任务状态：失败"
+                + "\n执行路径：CREATE"
+                + "\n失败阶段：" + stage
+                + "\n失败原因：" + StrUtil.blankToDefault(safeDiagnostic, CREATE_FAILURE_MESSAGE);
     }
 
     @SuppressWarnings("unchecked")

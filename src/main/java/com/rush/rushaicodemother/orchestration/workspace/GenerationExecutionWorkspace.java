@@ -7,10 +7,10 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * One writable workspace owned by a durable generation execution epoch.
+ * 一个由持久代执行纪元拥有的可写工作区。
  *
- * <p>The workspace path is never the user-visible application path. It may only become visible
- * through the fenced publication service after generation and validation have completed.</p>
+ * <p>工作空间路径永远不是用户可见的应用程序路径。它可能只会变得可见
+ * 生成并验证完成后通过围栏发布服务。</p>
  */
 public record GenerationExecutionWorkspace(
         Long appId,

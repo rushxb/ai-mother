@@ -65,3 +65,6 @@ For multi-step tasks, state a brief plan:
 ```
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+
+注：代码注释或异常抛出等需要中文显示，不要用英文，需要中文友好

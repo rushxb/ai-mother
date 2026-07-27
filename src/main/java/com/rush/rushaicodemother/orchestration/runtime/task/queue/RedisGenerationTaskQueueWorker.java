@@ -12,14 +12,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Long-lived Redis consumer. Queue messages remain pending until the durable task terminalizes. */
+/** Redis 长驻消费者；任务本轮活动执行期间，队列消息保持待确认并持续续期。 */
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "app.generation-task-queue", name = "transport", havingValue = "redis")
@@ -33,6 +31,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
     private final Map<String, GenerationTaskQueueDelivery> activeDeliveries = new ConcurrentHashMap<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Thread consumerThread;
+    private volatile Thread heartbeatThread;
 
     public RedisGenerationTaskQueueWorker(DurableGenerationTaskQueue queue,
                                           GenerationTaskCommandExecutionService executionService,
@@ -54,6 +53,9 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         consumerThread = Thread.ofVirtual()
                 .name("generation-redis-queue-consumer")
                 .start(this::consumeLoop);
+        heartbeatThread = Thread.ofVirtual()
+                .name("generation-redis-queue-heartbeat")
+                .start(this::heartbeatLoop);
     }
 
     @Override
@@ -62,6 +64,10 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         Thread current = consumerThread;
         if (current != null) {
             current.interrupt();
+        }
+        Thread currentHeartbeat = heartbeatThread;
+        if (currentHeartbeat != null) {
+            currentHeartbeat.interrupt();
         }
     }
 
@@ -81,22 +87,34 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
     }
 
     private void consumeLoop() {
-        Instant lastHeartbeat = Instant.EPOCH;
         while (running.get()) {
             try {
-                Instant now = Instant.now();
-                if (Duration.between(lastHeartbeat, now)
-                        .compareTo(properties.getDeliveryHeartbeatInterval()) >= 0) {
-                    heartbeatActiveDeliveries();
-                    lastHeartbeat = now;
-                }
                 process(queue.reclaimExpired());
                 process(queue.readNew());
             } catch (RuntimeException failure) {
                 if (running.get()) {
-                    log.error("Generation Redis queue consumer iteration failed",
+                    log.error("生成任务 Redis 队列消费轮次失败",
                             LogExceptionSanitizer.sanitize(failure));
                     pauseAfterFailure();
+                }
+            }
+        }
+    }
+
+    private void heartbeatLoop() {
+        while (running.get()) {
+            try {
+                Thread.sleep(properties.getDeliveryHeartbeatInterval());
+                if (running.get()) {
+                    heartbeatActiveDeliveries();
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (RuntimeException failure) {
+                if (running.get()) {
+                    log.error("生成任务 Redis 队列投递续期失败",
+                            LogExceptionSanitizer.sanitize(failure));
                 }
             }
         }
@@ -162,7 +180,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         try {
             queue.acknowledge(delivery);
         } catch (RuntimeException failure) {
-            log.warn("Generation queue ACK failed; terminal task will be acknowledged on replay, taskId: {}",
+            log.warn("生成任务队列确认失败，终态任务将在重放时再次确认，taskId: {}",
                     delivery.taskId(), LogExceptionSanitizer.sanitize(failure));
         }
     }

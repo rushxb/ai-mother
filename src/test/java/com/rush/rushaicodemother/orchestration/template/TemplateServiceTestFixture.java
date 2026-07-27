@@ -16,7 +16,6 @@ public final class TemplateServiceTestFixture {
     public final GenerationWorkspaceService generationWorkspaceService;
     final TemplateMaterializationProperties materializationProperties;
     final ProjectTemplateMaterializer templateMaterializer;
-    final TemplatePreWarmService templatePreWarmService;
     final ProjectTemplateBootstrapper templateBootstrapper;
 
     public TemplateServiceTestFixture(Path outputRoot) {
@@ -41,10 +40,8 @@ public final class TemplateServiceTestFixture {
                 workspaceFileSystemService,
                 resourceResolver
         );
-        templatePreWarmService = new TemplatePreWarmService(templateCatalog, workspaceFileSystemService);
         templateBootstrapper = new ProjectTemplateBootstrapper(
                 templateMaterializer,
-                templatePreWarmService,
                 workspaceFileSystemService
         );
     }

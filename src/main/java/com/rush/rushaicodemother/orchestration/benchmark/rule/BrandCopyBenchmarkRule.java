@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Seeds and grades an exact homepage brand-copy edit. */
+/** 为精确的主页品牌文案编辑进行种子和分级。 */
 @Component
 public class BrandCopyBenchmarkRule implements GenerationBenchmarkValidationRule {
 

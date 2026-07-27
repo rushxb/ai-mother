@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.core.error;
 import cn.hutool.core.util.StrUtil;
 
 import java.util.Locale;
+import java.util.concurrent.CancellationException;
 
 /**
  * 生成链路错误分类器。
@@ -16,11 +17,13 @@ public final class GenerationErrorClassifier {
     public static final String CATEGORY_MODEL_AUTH = "model_auth";
     public static final String CATEGORY_MODEL_TIMEOUT = "model_timeout";
     public static final String CATEGORY_MODEL_UNAVAILABLE = "model_unavailable";
+    public static final String CATEGORY_MODEL_CANCELLED = "model_cancelled";
     public static final String CATEGORY_CODEGEN_EMPTY = "codegen_empty";
     public static final String CATEGORY_DEPENDENCY = "dependency";
     public static final String CATEGORY_BUILD = "build";
     public static final String CATEGORY_ROUTING = "routing";
     public static final String CATEGORY_PERMISSION = "permission";
+    public static final String CATEGORY_AGENT_LOOP = "agent_loop";
     public static final String CATEGORY_RUNTIME = "runtime";
 
     private static final String MODEL_QUOTA_MESSAGE =
@@ -29,17 +32,36 @@ public final class GenerationErrorClassifier {
     private static final String MODEL_AUTH_MESSAGE = "AI 模型服务认证失败，请联系管理员检查模型配置。";
     private static final String MODEL_TIMEOUT_MESSAGE = "上游模型超时，请稍后重试。";
     private static final String MODEL_UNAVAILABLE_MESSAGE = "AI 模型服务暂时不可用，请稍后重试。";
+    private static final String MODEL_CANCELLED_MESSAGE = "AI 模型请求已取消。";
     private static final String CODEGEN_EMPTY_MESSAGE = "未生成有效项目代码，请重试。";
     private static final String DEPENDENCY_MESSAGE = "项目依赖处理失败，请稍后重试。";
     private static final String BUILD_MESSAGE = "项目构建失败，请检查生成代码后重试。";
     private static final String ROUTING_MESSAGE = "项目路由验证失败，请检查路由配置后重试。";
     private static final String PERMISSION_MESSAGE = "项目文件访问失败，请检查项目权限后重试。";
+    private static final String AGENT_LOOP_MESSAGE = "AI 生成连续重复相同操作且未取得新进展，已提前停止。";
     private static final String GENERIC_MESSAGE = "代码生成失败，请稍后重试。";
 
     private GenerationErrorClassifier() {
     }
 
     public static GenerationError classify(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof CancellationException
+                    || current instanceof InterruptedException
+                    || current instanceof GenerationCancellationSignal) {
+                return new GenerationError(
+                        CATEGORY_MODEL_CANCELLED, MODEL_CANCELLED_MESSAGE, false);
+            }
+            if (current instanceof java.util.concurrent.TimeoutException) {
+                return new GenerationError(
+                        CATEGORY_MODEL_TIMEOUT, MODEL_TIMEOUT_MESSAGE, true);
+            }
+            if (current instanceof GenerationAgentLoopException) {
+                return new GenerationError(CATEGORY_AGENT_LOOP, AGENT_LOOP_MESSAGE, false);
+            }
+            current = current.getCause();
+        }
         return classify(throwable == null ? null : throwable.getMessage());
     }
 
@@ -48,6 +70,15 @@ public final class GenerationErrorClassifier {
             return new GenerationError(CATEGORY_UNKNOWN, GENERIC_MESSAGE, true);
         }
         String normalized = errorMessage.toLowerCase(Locale.ROOT);
+        if (containsAny(normalized,
+                "canceled",
+                "cancelled",
+                "request was canceled",
+                "请求已取消",
+                "模型请求取消")) {
+            return new GenerationError(
+                    CATEGORY_MODEL_CANCELLED, MODEL_CANCELLED_MESSAGE, false);
+        }
         if (containsAny(normalized,
                 "insufficient balance",
                 "insufficient quota",

@@ -53,6 +53,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -175,6 +176,15 @@ class GenerationTaskCommandExecutionServiceTest {
         assertEquals(taskId, executionCaptor.getValue().taskId());
         assertEquals(fence, executionCaptor.getValue().executionFence());
         assertSame(wrappedRunnable, runnableCaptor.getValue());
+        verify(performanceMonitorService).startTask(
+                taskId,
+                command.appId(),
+                command.userId(),
+                command.route(),
+                command.codeGenType().getValue(),
+                command.submittedAt(),
+                command.modeDecision()
+        );
 
         ArgumentCaptor<Map<String, String>> tagsCaptor = ArgumentCaptor.forClass(Map.class);
         verify(traceContextBridge).wrap(
@@ -401,6 +411,21 @@ class GenerationTaskCommandExecutionServiceTest {
         verify(executionWorkspaceService).register(fence, command.appId(), command.codeGenType());
         verify(workspaceSpan).close(eq("success"), any(String.class));
         verify(taskExecutor).execute(any(GenerationTaskExecution.class), any(Runnable.class));
+        org.mockito.InOrder performanceOrder = inOrder(performanceMonitorService);
+        performanceOrder.verify(performanceMonitorService).startTask(
+                taskId,
+                command.appId(),
+                command.userId(),
+                command.route(),
+                command.codeGenType().getValue(),
+                command.submittedAt(),
+                command.modeDecision()
+        );
+        performanceOrder.verify(performanceMonitorService).startSpan(
+                taskId,
+                "execution_workspace_materialization",
+                GenerationSpanCategory.WORKSPACE
+        );
     }
 
     private DurableGenerationTaskRecord taskRecord(GenerationTaskCommand command) {

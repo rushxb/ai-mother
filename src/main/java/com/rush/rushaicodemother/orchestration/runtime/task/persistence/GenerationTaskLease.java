@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import java.time.Instant;
 import java.util.Objects;
 
-/** Durable lease returned after an atomic generation-task ownership claim. */
+/** 在原子生成任务所有权声明后返回持久租约。 */
 public record GenerationTaskLease(
         GenerationExecutionFence fence,
         Instant leaseUntil

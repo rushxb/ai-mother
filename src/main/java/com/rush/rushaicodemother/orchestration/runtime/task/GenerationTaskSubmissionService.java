@@ -17,7 +17,7 @@ import java.time.Clock;
 import java.time.Instant;
 
 /**
- * Creates the task execution envelope and submits all generation routes through one worker seam.
+ * 创建任务执行信封并通过一个worker seam提交所有生成路线。
  */
 @Service
 public class GenerationTaskSubmissionService {

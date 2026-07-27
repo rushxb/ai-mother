@@ -8,7 +8,6 @@ import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
-import reactor.core.publisher.Flux;
 
 public interface AiCodeGeneratorService {
 
@@ -40,7 +39,8 @@ public interface AiCodeGeneratorService {
      */
     @SystemMessage(fromResource = "prompt/codegen-html-system-prompt.txt")
     @UserMessage("{{userMessage}}")
-    Flux<String> generateHtmlCodeStream(@V("userMessage") String userMessage);
+    TokenStream generateHtmlCodeStream(@V("userMessage") String userMessage,
+                                       InvocationParameters invocationParameters);
 
     /**
      * 生成多文件代码
@@ -50,7 +50,8 @@ public interface AiCodeGeneratorService {
      */
     @SystemMessage(fromResource = "prompt/codegen-multi-file-system-prompt.txt")
     @UserMessage("{{userMessage}}")
-    Flux<String> generateMultiFileCodeStream(@V("userMessage") String userMessage);
+    TokenStream generateMultiFileCodeStream(@V("userMessage") String userMessage,
+                                            InvocationParameters invocationParameters);
 
     /**
      * 生成 Vue 项目代码（流式）
@@ -62,7 +63,7 @@ public interface AiCodeGeneratorService {
     @UserMessage("{{userMessage}}")
     TokenStream generateVueProjectCodeStream(@MemoryId long appId, @V("userMessage") String userMessage);
 
-    /** Runtime-aware overload carrying the immutable execution fence out-of-band. */
+    /** 运行时感知重载在带外携带不可变执行栅栏。 */
     @SystemMessage(fromResource = "prompt/codegen-vue-project-system-prompt.txt")
     @UserMessage("{{userMessage}}")
     TokenStream generateVueProjectCodeStream(@MemoryId long appId,

@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.feedback;
 
-/** Bounded feedback aggregate used by routing and product-quality policies. */
+/** 路由和产品质量策略使用的有界反馈聚合。 */
 public record GenerationFeedbackSummary(
         int feedbackCount,
         int lowRatingCount,

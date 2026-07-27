@@ -4,12 +4,11 @@ import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/** Guarantees that lightweight-edit application state, trace state and charging remain consistent. */
+/** 确保轻量级编辑应用程序状态、跟踪状态和充电保持一致。 */
 @Service
 @RequiredArgsConstructor
 public class LightweightEditTaskLifecycleService {
@@ -38,13 +37,4 @@ public class LightweightEditTaskLifecycleService {
         );
     }
 
-    public void completeSuccess(String taskId, Long appId) {
-        generationTaskLifecycleService.completeGenerationAndCharge(
-                taskId, appId, GenerationTaskStatus.SUCCESS, null);
-    }
-
-    public void completeFailure(String taskId, Long appId, String reason) {
-        generationTaskLifecycleService.completeGeneration(
-                taskId, appId, GenerationTaskStatus.FAILED, reason);
-    }
 }

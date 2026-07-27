@@ -10,6 +10,9 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
+/**
+ * AI 模型熔断器配置属性。
+ */
 @Data
 @Component
 @Validated

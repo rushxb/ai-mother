@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.orchestration.benchmark.evidence;
 
+import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseSpec;
 import com.rush.rushaicodemother.config.GenerationBenchmarkEvidenceProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReleaseAssessment;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReleaseGate;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReport;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReportValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,6 +19,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -34,7 +37,10 @@ class GenerationReleaseEvidenceVerifierTest {
     private GenerationBenchmarkEvidenceCodec codec;
     private GenerationBenchmarkEvidenceSignatureService signatureService;
     private GenerationBenchmarkDatasetFingerprintService datasetFingerprintService;
+    private GenerationBenchmarkReportValidator reportValidator;
     private GenerationBenchmarkReleaseGate releaseGate;
+    private GenerationBenchmarkEvidenceProvenanceValidator provenanceValidator;
+    private GenerationBenchmarkEvidenceCandidateIdentityResolver candidateIdentityResolver;
     private GenerationBenchmarkEvidenceProperties properties;
     private GenerationReleaseEvidenceVerifier verifier;
 
@@ -44,7 +50,11 @@ class GenerationReleaseEvidenceVerifierTest {
         codec = mock(GenerationBenchmarkEvidenceCodec.class);
         signatureService = mock(GenerationBenchmarkEvidenceSignatureService.class);
         datasetFingerprintService = mock(GenerationBenchmarkDatasetFingerprintService.class);
+        reportValidator = mock(GenerationBenchmarkReportValidator.class);
         releaseGate = mock(GenerationBenchmarkReleaseGate.class);
+        provenanceValidator = mock(GenerationBenchmarkEvidenceProvenanceValidator.class);
+        candidateIdentityResolver = mock(GenerationBenchmarkEvidenceCandidateIdentityResolver.class);
+        when(candidateIdentityResolver.resolve(any())).thenReturn(identity(CANDIDATE));
         properties = new GenerationBenchmarkEvidenceProperties();
         properties.setGraderFingerprint(GRADER);
         verifier = new GenerationReleaseEvidenceVerifier(
@@ -52,7 +62,10 @@ class GenerationReleaseEvidenceVerifierTest {
                 codec,
                 signatureService,
                 datasetFingerprintService,
+                reportValidator,
                 releaseGate,
+                provenanceValidator,
+                candidateIdentityResolver,
                 properties
         );
     }
@@ -60,31 +73,68 @@ class GenerationReleaseEvidenceVerifierTest {
     @Test
     void validEvidenceMustBeReverifiedAtReleaseTime() {
         GenerationBenchmarkEvidenceRecord evidence = validEvidence(true);
-        stubIntegrityAndGate(evidence, true);
+        GenerationBenchmarkReport report = stubIntegrityAndGate(evidence, true);
 
         GenerationBenchmarkEvidenceRecord verified = verifier.requirePassed(
                 EVIDENCE_ID,
-                GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
-                "app-generation",
-                CANDIDATE
+                candidate()
         );
 
         assertSame(evidence, verified);
+        org.mockito.Mockito.verify(reportValidator).validate(report);
+        org.mockito.Mockito.verify(provenanceValidator).validate(evidence.payload(), report);
     }
 
     @Test
     void candidateMismatchMustRejectEvidence() {
         GenerationBenchmarkEvidenceRecord evidence = validEvidence(true);
         when(repository.findByEvidenceId(EVIDENCE_ID)).thenReturn(Optional.of(evidence));
+        when(candidateIdentityResolver.resolve(any())).thenReturn(identity("e".repeat(64)));
 
         BusinessException exception = assertThrows(BusinessException.class, () -> verifier.requirePassed(
                 EVIDENCE_ID,
-                GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
-                "app-generation",
-                "e".repeat(64)
+                candidate()
         ));
 
         assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+    }
+
+    @Test
+    void resultingModelFleetMismatchMustRejectEvidence() {
+        GenerationBenchmarkEvidenceRecord evidence = validEvidence(true);
+        when(repository.findByEvidenceId(EVIDENCE_ID)).thenReturn(Optional.of(evidence));
+        when(candidateIdentityResolver.resolve(any())).thenReturn(
+                new GenerationBenchmarkEvidenceCandidateIdentity(
+                        GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
+                        "app-generation",
+                        CANDIDATE,
+                        "9".repeat(64),
+                        "1".repeat(64)
+                ));
+
+        assertThrows(BusinessException.class, () -> verifier.requirePassed(
+                EVIDENCE_ID,
+                candidate()
+        ));
+    }
+
+    @Test
+    void resultingPromptBundleMismatchMustRejectEvidence() {
+        GenerationBenchmarkEvidenceRecord evidence = validEvidence(true);
+        when(repository.findByEvidenceId(EVIDENCE_ID)).thenReturn(Optional.of(evidence));
+        when(candidateIdentityResolver.resolve(any())).thenReturn(
+                new GenerationBenchmarkEvidenceCandidateIdentity(
+                        GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
+                        "app-generation",
+                        CANDIDATE,
+                        "f".repeat(64),
+                        "9".repeat(64)
+                ));
+
+        assertThrows(BusinessException.class, () -> verifier.requirePassed(
+                EVIDENCE_ID,
+                candidate()
+        ));
     }
 
     @Test
@@ -143,16 +193,44 @@ class GenerationReleaseEvidenceVerifierTest {
         assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
     }
 
+    @Test
+    void legacyEvidenceMustNotAuthorizeANewRelease() {
+        GenerationBenchmarkEvidencePayload current = payload(
+                Instant.now().plusSeconds(3600));
+        GenerationBenchmarkEvidencePayload legacy = new GenerationBenchmarkEvidencePayload(
+                GenerationBenchmarkEvidenceProtocol.LEGACY_SIGNATURE_VERSION,
+                current.subjectType(),
+                current.subjectKey(),
+                current.candidateFingerprint(),
+                0L,
+                current.datasetFingerprint(),
+                current.graderFingerprint(),
+                current.runtimeConfigFingerprint(),
+                current.gitCommit(),
+                current.modelFingerprint(),
+                current.promptBundleFingerprint(),
+                current.reportSha256(),
+                current.evaluatedAt(),
+                current.expiresAt()
+        );
+        GenerationBenchmarkEvidenceRecord evidence = evidence(legacy, true);
+        when(repository.findByEvidenceId(EVIDENCE_ID)).thenReturn(Optional.of(evidence));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> verify(evidence));
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+    }
+
     private GenerationBenchmarkEvidenceRecord verify(GenerationBenchmarkEvidenceRecord evidence) {
         return verifier.requirePassed(
                 evidence.evidenceId(),
-                GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
-                "app-generation",
-                CANDIDATE
+                candidate()
         );
     }
 
-    private void stubIntegrityAndGate(GenerationBenchmarkEvidenceRecord evidence, boolean passed) {
+    private GenerationBenchmarkReport stubIntegrityAndGate(GenerationBenchmarkEvidenceRecord evidence,
+                                                            boolean passed) {
         GenerationBenchmarkReport report = report();
         when(repository.findByEvidenceId(EVIDENCE_ID)).thenReturn(Optional.of(evidence));
         when(datasetFingerprintService.currentFingerprint()).thenReturn(DATASET);
@@ -164,6 +242,7 @@ class GenerationReleaseEvidenceVerifierTest {
                 passed ? List.of() : List.of("success_rate_below_minimum"),
                 report
         ));
+        return report;
     }
 
     private GenerationBenchmarkEvidenceRecord validEvidence(boolean passed) {
@@ -185,13 +264,15 @@ class GenerationReleaseEvidenceVerifierTest {
 
     private GenerationBenchmarkEvidencePayload payload(Instant expiresAt) {
         return new GenerationBenchmarkEvidencePayload(
+                GenerationBenchmarkEvidenceProtocol.CURRENT_SIGNATURE_VERSION,
                 GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
                 "app-generation",
                 CANDIDATE,
+                0L,
                 DATASET,
                 GRADER,
                 "e".repeat(64),
-                "1234567",
+                "1".repeat(40),
                 "f".repeat(64),
                 "1".repeat(64),
                 REPORT_HASH,
@@ -202,6 +283,7 @@ class GenerationReleaseEvidenceVerifierTest {
 
     private GenerationBenchmarkReport report() {
         return new GenerationBenchmarkReport(
+                GenerationBenchmarkReport.CURRENT_SCHEMA_VERSION,
                 1,
                 1,
                 1,
@@ -219,10 +301,34 @@ class GenerationReleaseEvidenceVerifierTest {
                 1,
                 10,
                 10,
-                "bundle",
+                10,
+                1,
+                1.0,
+                50,
+                50,
+                50,
+                "1".repeat(64),
+                "f".repeat(64),
                 Map.of(),
                 Map.of(),
                 List.of()
+        );
+    }
+
+    private GenerationBenchmarkEvidenceCandidate candidate() {
+        return new GenerationBenchmarkEvidenceCandidate.PromptRelease(
+                "app-generation",
+                new PromptReleaseSpec("v1", "", 0)
+        );
+    }
+
+    private GenerationBenchmarkEvidenceCandidateIdentity identity(String candidateFingerprint) {
+        return new GenerationBenchmarkEvidenceCandidateIdentity(
+                GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
+                "app-generation",
+                candidateFingerprint,
+                "f".repeat(64),
+                "1".repeat(64)
         );
     }
 }

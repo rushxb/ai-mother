@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.orchestration.eventstream;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.config.GenerationEventStreamProperties;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.monitor.GenerationEventStreamMetricsCollector;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -19,11 +21,13 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,15 +40,16 @@ class RedisGenerationEventStreamTest {
         when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
                 .thenReturn(1L);
         GenerationEventStreamProperties properties = properties();
-        RedisGenerationEventStream stream = new RedisGenerationEventStream(redisTemplate, properties);
         String secret = "redis-secret";
 
-        stream.publish("task-redis", GenerationStreamEvent.toolCall("raw", Map.of(
-                "toolName", "writeFile",
-                "filePath", "src/App.vue",
-                "arguments", "{\"password\":\"" + secret + "\"}",
-                "content", "password=" + secret
-        )));
+        try (RedisGenerationEventStream stream = stream(redisTemplate, properties)) {
+            stream.publish("task-redis", GenerationStreamEvent.toolCall("raw", Map.of(
+                    "toolName", "writeFile",
+                    "filePath", "src/App.vue",
+                    "arguments", "{\"password\":\"" + secret + "\"}",
+                    "content", "password=" + secret
+            )));
+        }
 
         ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
         verify(redisTemplate).execute(
@@ -61,6 +66,57 @@ class RedisGenerationEventStreamTest {
         assertFalse(String.valueOf(scriptArguments[1]).contains("arguments"));
         assertEquals(Integer.toString(properties.getMaxEventsPerTask()), scriptArguments[2]);
         assertEquals(Long.toString(properties.getRetention().toMillis()), scriptArguments[3]);
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void adjacentDeltasMustReduceRedisAppendsWithoutChangingTextOrder() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(1L, 2L, 3L);
+
+        try (RedisGenerationEventStream stream = stream(redisTemplate, properties())) {
+            stream.publish("task-redis", GenerationStreamEvent.aiDelta("A"));
+            stream.publish("task-redis", GenerationStreamEvent.aiDelta("B"));
+            stream.publish("task-redis", GenerationStreamEvent.aiDelta("C"));
+            stream.complete("task-redis");
+        }
+
+        ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
+        verify(redisTemplate, times(3)).execute(
+                any(RedisScript.class),
+                anyList(),
+                arguments.capture()
+        );
+        List<Object[]> appends = arguments.getAllValues();
+        assertEquals("A", payload(appends.get(0)).getText());
+        assertEquals("BC", payload(appends.get(1)).getText());
+        assertEquals("complete", appends.get(2)[0]);
+    }
+
+    @Test
+    @SuppressWarnings("rawtypes")
+    void failedRedisAppendMustBeMeasuredAndPropagated() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(null);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+        try (RedisGenerationEventStream stream = new RedisGenerationEventStream(
+                redisTemplate,
+                properties(),
+                new GenerationEventStreamMetricsCollector(registry))) {
+            assertThrows(IllegalStateException.class, () -> stream.publish(
+                    "task-redis",
+                    GenerationStreamEvent.toolCall("工具调用", Map.of())
+            ));
+        }
+
+        assertEquals(1, registry.find("generation_event_stream_redis_appends_total")
+                .tag("kind", "event")
+                .tag("outcome", "failed")
+                .counter()
+                .count(), 0.001);
     }
 
     @Test
@@ -84,11 +140,12 @@ class RedisGenerationEventStreamTest {
                 any(StreamReadOptions.class),
                 any(StreamOffset[].class)
         )).thenReturn(List.of(event, complete));
-        RedisGenerationEventStream stream = new RedisGenerationEventStream(redisTemplate, properties());
-
-        List<SequencedGenerationEvent> replayed = stream.stream("task-redis", 2L)
-                .collectList()
-                .block(Duration.ofSeconds(2));
+        List<SequencedGenerationEvent> replayed;
+        try (RedisGenerationEventStream stream = stream(redisTemplate, properties())) {
+            replayed = stream.stream("task-redis", 2L)
+                    .collectList()
+                    .block(Duration.ofSeconds(2));
+        }
 
         assertEquals(List.of(4L, 5L, 6L), replayed.stream()
                 .map(SequencedGenerationEvent::sequence)
@@ -104,5 +161,19 @@ class RedisGenerationEventStreamTest {
         GenerationEventStreamProperties properties = new GenerationEventStreamProperties();
         properties.setPollInterval(Duration.ofMillis(10));
         return properties;
+    }
+
+    private RedisGenerationEventStream stream(StringRedisTemplate redisTemplate,
+                                              GenerationEventStreamProperties properties) {
+        return new RedisGenerationEventStream(
+                redisTemplate,
+                properties,
+                new GenerationEventStreamMetricsCollector(new SimpleMeterRegistry())
+        );
+    }
+
+    private GenerationStreamEvent payload(Object[] arguments) {
+        assertEquals("event", arguments[0]);
+        return JSONUtil.toBean(String.valueOf(arguments[1]), GenerationStreamEvent.class);
     }
 }

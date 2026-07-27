@@ -29,11 +29,11 @@ public interface AppService {
     Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser);
 
     /**
-     * Submits a generation task and returns its stable task identity immediately.
+     * 提交生成任务并立即返回其稳定任务标识。
      */
     GenerationTaskResult submitGeneration(Long appId, String message, User loginUser);
 
-    /** Submits with an optional transport idempotency key. */
+    /** 使用可选的传输幂等性密钥提交。 */
     GenerationTaskResult submitGeneration(Long appId,
                                           String message,
                                           User loginUser,

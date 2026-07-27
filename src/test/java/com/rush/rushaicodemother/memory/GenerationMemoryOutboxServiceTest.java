@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -32,7 +33,14 @@ class GenerationMemoryOutboxServiceTest {
         assertEquals(1, service.processBatch());
 
         verify(semanticMemoryService).rememberNow(
-                any(), any(), any(), any(), any(), any()
+                eq(9L), eq(1L), eq(2L), eq("task-1"), eq(MemoryType.TASK_OUTCOME),
+                eq("用户需求：创建订单管理页面\n执行结果：构建通过"),
+                eq(java.util.Map.of(
+                        "source", "generation_task_outbox",
+                        "taskStatus", "success",
+                        "orchestrationMode", "graph",
+                        "targetType", "vue_project"
+                ))
         );
         assertEquals(List.of("task-1"), repository.indexedTaskIds);
         assertEquals(List.of(), repository.failedTaskIds);
@@ -44,7 +52,7 @@ class GenerationMemoryOutboxServiceTest {
         GenerationSemanticMemoryService semanticMemoryService = mock(GenerationSemanticMemoryService.class);
         doThrow(new IllegalStateException("milvus unavailable"))
                 .when(semanticMemoryService)
-                .rememberNow(any(), any(), any(), any(), any(), any());
+                .rememberNow(any(), any(), any(), any(), any(), any(), any());
         GenerationMemoryOutboxService service = new GenerationMemoryOutboxService(
                 repository,
                 semanticMemoryService,
@@ -60,7 +68,8 @@ class GenerationMemoryOutboxServiceTest {
 
     private GenerationMemoryOutboxItem item(String taskId) {
         return new GenerationMemoryOutboxItem(
-                taskId, 1L, 2L, GenerationTaskStatus.SUCCESS, "build passed", 1
+                taskId, 9L, 1L, 2L, GenerationTaskStatus.SUCCESS,
+                "创建订单管理页面", "构建通过", "graph", "vue_project", 1
         );
     }
 
@@ -74,18 +83,33 @@ class GenerationMemoryOutboxServiceTest {
         }
 
         @Override
-        public List<GenerationMemoryOutboxItem> claimBatch(Instant now, int batchSize, int maxAttempts) {
+        public List<GenerationMemoryOutboxItem> claimBatch(Instant now,
+                                                           Instant leaseUntil,
+                                                           String leaseOwner,
+                                                           int batchSize,
+                                                           int maxAttempts) {
             return items;
         }
 
         @Override
-        public void markIndexed(String taskId, Instant indexedAt) {
+        public boolean markIndexed(String taskId, String leaseOwner, Instant indexedAt) {
             indexedTaskIds.add(taskId);
+            return true;
         }
 
         @Override
-        public void markFailed(String taskId, String error, Instant failedAt) {
+        public boolean markFailed(String taskId,
+                                  String leaseOwner,
+                                  String error,
+                                  Instant failedAt,
+                                  Instant nextAttemptAt) {
             failedTaskIds.add(taskId);
+            return true;
+        }
+
+        @Override
+        public SemanticMemoryOutboxBacklog inspectBacklog(Instant now, int maxAttempts) {
+            return SemanticMemoryOutboxBacklog.empty();
         }
     }
 }

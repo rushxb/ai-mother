@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.queue;
 import java.util.Collection;
 import java.util.List;
 
-/** Durable queue port. MySQL remains the task source of truth; the queue provides worker delivery. */
+/** 耐用的队列端口。 MySQL 仍然是任务的真相来源；队列提供工作人员交付。 */
 public interface DurableGenerationTaskQueue {
 
     void enqueue(String taskId);

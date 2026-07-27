@@ -7,6 +7,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 运行时Diagnostic执行结果。
+ */
 public record RuntimeDiagnosticResult(
         String status,
         String url,

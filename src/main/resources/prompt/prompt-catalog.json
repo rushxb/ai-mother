@@ -24,16 +24,18 @@
     },
     {
       "key": "codegen-backend-project",
-      "defaultVersion": "v1",
+      "defaultVersion": "v2",
       "versions": [
-        { "version": "v1", "resource": "prompt/codegen-backend-project-system-prompt.txt", "sha256": "b6a12a5198f51d9ee0bc08f41313a40358705b0c93becdc40a72ad7f86e34fe6" }
+        { "version": "v1", "resource": "prompt/codegen-backend-project-system-prompt.txt", "sha256": "b6a12a5198f51d9ee0bc08f41313a40358705b0c93becdc40a72ad7f86e34fe6" },
+        { "version": "v2", "resource": "prompt/codegen-backend-project-system-prompt-v2.txt", "sha256": "bdf7fb4c1a8a79f15ae8cfce2e9612b0143eeded3aa350f503191a0e4eaa6295" }
       ]
     },
     {
       "key": "codegen-full-stack-project",
-      "defaultVersion": "v1",
+      "defaultVersion": "v2",
       "versions": [
-        { "version": "v1", "resource": "prompt/codegen-full-stack-project-system-prompt.txt", "sha256": "fca4498eae953bb099919d1a7a16e9f19dd89ac360d58adeb4f2a1fcce62f994" }
+        { "version": "v1", "resource": "prompt/codegen-full-stack-project-system-prompt.txt", "sha256": "fca4498eae953bb099919d1a7a16e9f19dd89ac360d58adeb4f2a1fcce62f994" },
+        { "version": "v2", "resource": "prompt/codegen-full-stack-project-system-prompt-v2.txt", "sha256": "209eaddbf259b39aca4ee0d1bdf4dcc734ad32a3e7e9c6f9a73368d1e1611f53" }
       ]
     },
     {
@@ -59,9 +61,10 @@
     },
     {
       "key": "codegen-vue-project",
-      "defaultVersion": "v1",
+      "defaultVersion": "v2",
       "versions": [
-        { "version": "v1", "resource": "prompt/codegen-vue-project-system-prompt.txt", "sha256": "b8aca637ab141e5809081f71b643a7f842c0a3a8fd183e5e06502ea364d46bdf" }
+        { "version": "v1", "resource": "prompt/codegen-vue-project-system-prompt.txt", "sha256": "b8aca637ab141e5809081f71b643a7f842c0a3a8fd183e5e06502ea364d46bdf" },
+        { "version": "v2", "resource": "prompt/codegen-vue-project-system-prompt-v2.txt", "sha256": "b1119296aeda22970b45ae33014539a511eda8018b2131aed14c2421922655b4" }
       ]
     },
     {

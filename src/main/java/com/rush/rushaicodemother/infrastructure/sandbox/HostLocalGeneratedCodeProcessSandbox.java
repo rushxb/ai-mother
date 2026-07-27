@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 
-/** Development-only backend that preserves the existing host process behavior. */
+/** 仅用于开发的后端，保留现有的主机进程行为。 */
 @Component
 @ConditionalOnProperty(
         name = "app.generated-code-sandbox.mode",

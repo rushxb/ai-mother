@@ -5,7 +5,7 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/** Fails application startup when production asks for a verified Milvus memory backend. */
+/** 当生产环境要求经过验证的 Milvus 内存后端时，应用程序启动失败。 */
 @Component
 @ConditionalOnProperty(prefix = "app.memory.long-term", name = "enabled", havingValue = "true")
 public class MilvusMemoryStartupVerifier implements SmartInitializingSingleton {

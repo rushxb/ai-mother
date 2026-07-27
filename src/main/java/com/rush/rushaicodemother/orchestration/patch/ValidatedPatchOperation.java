@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.patch;
 
-/** Patch operation whose action, path, target state, and content were validated. */
+/** 对其操作、路径、目标状态和内容进行验证的修补操作。 */
 public record ValidatedPatchOperation(
         String action,
         String relativePath,

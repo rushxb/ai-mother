@@ -6,6 +6,9 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * 手动快照的不可变数据载体。
+ */
 public record ManualSnapshot(
         String key,
         String provider,

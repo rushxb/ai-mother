@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.tool;
 
 import java.util.Arrays;
 
+/**
+ * Destructive工具Action的可选类型。
+ */
 public enum DestructiveToolAction {
     SNAPSHOT_ROLLBACK("rollbackSnapshot"),
     SNAPSHOT_DELETE("deleteSnapshot"),

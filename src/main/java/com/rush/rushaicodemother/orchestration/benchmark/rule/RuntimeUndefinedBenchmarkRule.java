@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Locale;
 
-/** Seeds a build-valid undefined dereference rendered by the root app. */
+/** 播种由根应用程序呈现的构建有效的未定义取消引用。 */
 @Component
 public class RuntimeUndefinedBenchmarkRule implements GenerationBenchmarkValidationRule {
 

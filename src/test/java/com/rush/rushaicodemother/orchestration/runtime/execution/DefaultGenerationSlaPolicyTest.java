@@ -26,6 +26,7 @@ class DefaultGenerationSlaPolicyTest {
 
         assertEquals("create-preview-first", envelope.profile());
         assertEquals(Duration.ofSeconds(60), envelope.firstPreviewTimeout());
+        assertEquals(Duration.ofSeconds(45), envelope.firstPreviewCompletionReserve());
         assertEquals(Duration.ofMinutes(10), envelope.totalTimeout());
         assertEquals(2, envelope.toLimits().limit(GenerationBudgetKind.BUILD_EXECUTION));
         assertTrue(properties.isConfigurationValid());

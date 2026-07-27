@@ -1,7 +1,9 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
+import com.rush.rushaicodemother.config.ChatMemoryProperties;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
@@ -9,8 +11,12 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.progress.ReasoningProgressTracker;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationModelTurnAdmissionException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationStreamingModelCallSupervisor;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelCallTimeoutException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ReturnBehavior;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
@@ -36,6 +42,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 
 import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,7 +54,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-/** Continues the existing model/tool conversation after a durable human decision. */
+/** 在做出持久的人工决策后继续现有的模型/工具对话。 */
 @Component
 public class AiToolContinuationEngine {
 
@@ -63,6 +70,8 @@ public class AiToolContinuationEngine {
     private final AiToolInvocationPolicy aiToolInvocationPolicy;
     private final DurableToolConversationCodec conversationCodec;
     private final GenerationStreamingModelCallSupervisor modelCallSupervisor;
+    private final CompletedToolCallContextCompactor completedToolCallContextCompactor;
+    private final GenerationStageAdmissionService generationStageAdmissionService;
 
     @Autowired
     public AiToolContinuationEngine(ChatMemoryStore chatMemoryStore,
@@ -74,7 +83,9 @@ public class AiToolContinuationEngine {
                                     GenerationPerformanceMonitorService performanceMonitorService,
                                     AiToolInvocationPolicy aiToolInvocationPolicy,
                                     DurableToolConversationCodec conversationCodec,
-                                    GenerationStreamingModelCallSupervisor modelCallSupervisor) {
+                                    GenerationStreamingModelCallSupervisor modelCallSupervisor,
+                                    CompletedToolCallContextCompactor completedToolCallContextCompactor,
+                                    GenerationStageAdmissionService generationStageAdmissionService) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolManager = toolManager;
         this.streamingModelFactory = streamingModelFactory;
@@ -85,6 +96,8 @@ public class AiToolContinuationEngine {
         this.aiToolInvocationPolicy = aiToolInvocationPolicy;
         this.conversationCodec = conversationCodec;
         this.modelCallSupervisor = modelCallSupervisor;
+        this.completedToolCallContextCompactor = completedToolCallContextCompactor;
+        this.generationStageAdmissionService = generationStageAdmissionService;
     }
 
     AiToolContinuationEngine(ChatMemoryStore chatMemoryStore,
@@ -94,12 +107,16 @@ public class AiToolContinuationEngine {
                               ToolApprovalService toolApprovalService,
                               GenerationToolExecutionContextService toolExecutionContextService,
                               AiToolInvocationPolicy aiToolInvocationPolicy,
-                              GenerationStreamingModelCallSupervisor modelCallSupervisor) {
+                              GenerationStreamingModelCallSupervisor modelCallSupervisor,
+                              GenerationStageAdmissionService generationStageAdmissionService) {
         this(chatMemoryStore, toolManager, streamingModelFactory, toolExecutionFailurePolicy,
                 toolApprovalService, toolExecutionContextService,
                 new GenerationPerformanceMonitorService(List.of()), aiToolInvocationPolicy,
-                new DurableToolConversationCodec(),
-                modelCallSupervisor);
+                 new DurableToolConversationCodec(),
+                 modelCallSupervisor,
+                 new CompletedToolCallContextCompactor(
+                         new ObjectMapper(), new ChatMemoryProperties()),
+                 generationStageAdmissionService);
     }
 
     public Flux<GenerationStreamEvent> continueAfterDecision(
@@ -128,11 +145,14 @@ public class AiToolContinuationEngine {
             return;
         }
         ContinuationMemory memory = restoreMemory(state, approval.invocationCheckpoint());
+        aiToolInvocationPolicy.restoreLoopState(
+                state.taskId(), memory.messages(),
+                executionContext.successfulWorkspaceMutationCount());
         ToolService toolService = new ToolService();
         toolService.tools(List.of((Object[]) toolManager.getToolsForCodeGen(state.codeGenType())));
         toolService.beforeToolExecution(event -> aiToolInvocationPolicy.authorize(
                 event, state.codeGenType(), state.performanceProfile()));
-        toolService.afterToolExecution(toolExecution -> aiToolInvocationPolicy.clearActiveInvocation());
+        toolService.afterToolExecution(aiToolInvocationPolicy::complete);
         toolService.maxToolCallingRoundTrips(state.performanceProfile() == null
                 ? 10
                 : state.performanceProfile().maxToolInvocations());
@@ -146,7 +166,8 @@ public class AiToolContinuationEngine {
             StreamingChatModel model = streamingModelFactory.createExecutionModel(
                     state.performanceProfile(),
                     executionContext.limits().modelCallTimeout(),
-                    () -> executionContext.consume(GenerationBudgetKind.MODEL_ATTEMPT));
+                    null,
+                    () -> executionContext.consume(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
             AtomicReference<GenerationCancellationHandle> activeCall = new AtomicReference<>();
             Consumer<GenerationCancellationHandle> registerCancellation = handle -> {
                 activeCall.set(handle);
@@ -278,18 +299,32 @@ public class AiToolContinuationEngine {
             return;
         }
         if (remainingToolRounds <= 0) {
-            sink.error(new IllegalStateException("tool continuation round budget exhausted"));
+            sink.error(new IllegalStateException("工具续轮预算已耗尽"));
             return;
         }
-        ChatRequest request = ChatRequest.builder()
+        GenerationStageAdmissionService.ModelTurnWindow modelTurnWindow;
+        try {
+            modelTurnWindow = generationStageAdmissionService.requireModelTurn(
+                    executionContext,
+                    state.codeGenType(),
+                    state.route()
+            );
+        } catch (GenerationModelTurnAdmissionException admission) {
+            completeForReservedWindow(state, admission, sink);
+            return;
+        }
+        ChatRequest request = completedToolCallContextCompactor.compact(ChatRequest.builder()
                 .messages(memory.messages())
                 .toolSpecifications(toolService.toolSpecifications())
-                .build();
+                .build());
+        request = aiToolInvocationPolicy.governModelTurn(
+                state.taskId(), executionContext.successfulWorkspaceMutationCount(), request);
         ReasoningProgressTracker reasoningProgress = new ReasoningProgressTracker(state.taskId());
         modelCallSupervisor.chat(
                 model,
                 request,
                 executionContext,
+                modelTurnWindow.timeout(),
                 cancelChecker,
                 cancellationHandleConsumer,
                 new StreamingChatResponseHandler() {
@@ -322,17 +357,11 @@ public class AiToolContinuationEngine {
                     AiMessage aiMessage = response.aiMessage();
                     memory.add(aiMessage);
                     if (!aiMessage.hasToolExecutionRequests()) {
-                        sink.next(GenerationStreamEvent.generationStage(
-                                "代码生成完成",
-                                Map.of(
-                                        "status", "transition",
-                                        "stage", "codegen_done",
-                                        "summary", "Approved tool invocation completed and generation continued",
-                                        "taskId", state.taskId()
-                                )));
-                        sink.complete();
+                        completeGeneration(state, sink);
                         return;
                     }
+                    boolean anyToolErrored = false;
+                    List<ReturnBehavior> returnBehaviors = new ArrayList<>();
                     for (int index = 0; index < aiMessage.toolExecutionRequests().size(); index++) {
                         ToolExecutionRequest toolRequest = aiMessage.toolExecutionRequests().get(index);
                         sink.next(toolCallEvent(toolRequest, index));
@@ -345,6 +374,12 @@ public class AiToolContinuationEngine {
                         );
                         memory.add(toResultMessage(toolRequest, result));
                         sink.next(toolResultEvent(toolRequest, result));
+                        anyToolErrored = anyToolErrored || result.isError();
+                        returnBehaviors.add(toolService.returnBehavior(toolRequest.name()));
+                    }
+                    if (ToolService.shouldReturnImmediately(anyToolErrored, returnBehaviors)) {
+                        completeGeneration(state, sink);
+                        return;
                     }
                     requestNextModelTurn(
                             model, memory, toolService, invocationContext, state,
@@ -358,12 +393,64 @@ public class AiToolContinuationEngine {
             @Override
             public void onError(Throwable error) {
                 if (terminated.compareAndSet(false, true) && !sink.isCancelled()) {
+                    if (error instanceof GenerationModelCallTimeoutException
+                            && modelTurnWindow.completionWindowLimited()
+                            && !executionContext.isDeadlineExceeded()) {
+                        reasoningProgress.completeIfStarted().ifPresent(sink::next);
+                        GenerationModelTurnAdmissionException admission =
+                                generationStageAdmissionService.completionWindowReached(
+                                        executionContext,
+                                        state.route(),
+                                        modelTurnWindow
+                                );
+                        completeForReservedWindow(state, admission, sink);
+                        return;
+                    }
                     reasoningProgress.failIfStarted().ifPresent(sink::next);
                     sink.error(error);
                 }
             }
 
                 });
+    }
+
+    private void completeGeneration(GenerationToolContinuationState state,
+                                    FluxSink<GenerationStreamEvent> sink) {
+        sink.next(GenerationStreamEvent.generationStage(
+                "代码生成完成",
+                Map.of(
+                        "status", "transition",
+                        "stage", "codegen_done",
+                        "summary", "工具审批结果已处理，代码生成阶段已完成",
+                        "taskId", state.taskId()
+                )));
+        sink.complete();
+    }
+
+    private void completeForReservedWindow(GenerationToolContinuationState state,
+                                           GenerationModelTurnAdmissionException admission,
+                                           FluxSink<GenerationStreamEvent> sink) {
+        sink.next(GenerationStreamEvent.agentEvent("", Map.of(
+                "agent", "DeadlinePolicy",
+                "stage", "model_turn_admission",
+                "status", "reserved_completion",
+                "reason", "completion_window_reserved",
+                "remainingMs", admission.remaining().toMillis(),
+                "requiredMs", admission.required().toMillis(),
+                "completionReserveMs", admission.completionReserve().toMillis(),
+                "taskId", state.taskId()
+        )));
+        sink.next(GenerationStreamEvent.generationStage(
+                "模型阶段已收口，正在执行工程校验",
+                Map.of(
+                        "status", "transition",
+                        "stage", "codegen_done",
+                        "reason", "completion_window_reserved",
+                        "summary", "已保留构建、验证与发布所需时间",
+                        "taskId", state.taskId()
+                )
+        ));
+        sink.complete();
     }
 
     private InvocationContext invocationContext(GenerationToolContinuationState state,

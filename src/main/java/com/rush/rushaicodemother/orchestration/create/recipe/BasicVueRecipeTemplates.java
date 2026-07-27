@@ -6,7 +6,7 @@ import java.util.List;
 
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.escape;
 
-/** Renders the desktop/basic Vue template payloads. */
+/** 渲染桌面/基本 Vue 模板有效负载。 */
 @Component
 final class BasicVueRecipeTemplates {
 

@@ -6,8 +6,8 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -21,22 +21,39 @@ import java.util.Set;
 import java.util.concurrent.CompletionException;
 
 /**
- * Deterministic DAG scheduler.
+ * 确定性 DAG 调度程序。
  *
- * <p>Heavy generation already owns a permit from the bounded task executor. This runner therefore
- * executes ready nodes in declaration order instead of creating a nested executor that would
- * bypass global resource governance. A node completion is persisted before the next node starts,
- * which also makes the diagnostic snapshot a safe checkpoint boundary.</p>
+ * <p>HHeavy 代已经拥有有界任务执行者的许可。因此这位跑步者
+ * 按声明顺序执行就绪节点，而不是创建嵌套执行器
+ * 绕过全球资源治理。检查点优化仅限于显式可重放
+ * 节点，而副作用节点保留持久的起始边界。</p>
  */
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class GenerationDagRunner {
 
     private final GenerationOrchestrationTaskStore taskStore;
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GenerationExecutionContextService executionContextService;
+    private final GenerationTaskSnapshotProperties snapshotProperties;
     private final AgentRuntimeStateMachine stateMachine = new AgentRuntimeStateMachine();
+
+    public GenerationDagRunner(GenerationOrchestrationTaskStore taskStore,
+                               GenerationOrchestrationMetricsCollector metricsCollector,
+                               GenerationExecutionContextService executionContextService) {
+        this(taskStore, metricsCollector, executionContextService, new GenerationTaskSnapshotProperties());
+    }
+
+    @Autowired
+    public GenerationDagRunner(GenerationOrchestrationTaskStore taskStore,
+                               GenerationOrchestrationMetricsCollector metricsCollector,
+                               GenerationExecutionContextService executionContextService,
+                               GenerationTaskSnapshotProperties snapshotProperties) {
+        this.taskStore = taskStore;
+        this.metricsCollector = metricsCollector;
+        this.executionContextService = executionContextService;
+        this.snapshotProperties = snapshotProperties;
+    }
 
     public List<GenerationStreamEvent> run(List<GenerationAgentNode> nodes, GenerationAgentContext context) {
         if (context == null || context.getTask() == null) {
@@ -48,9 +65,14 @@ public class GenerationDagRunner {
             bindGraph(nodeMap, context.getTask());
             Set<String> completed = restoredCompletedNodes(nodeMap, context.getTask());
             Set<String> scheduled = new LinkedHashSet<>(completed);
+            int deferredCompletionCheckpoints = 0;
             assertCanContinue(context);
-            if (completed.size() == nodeMap.size()
-                    && context.getTask().getRuntimeState() == AgentRuntimeState.COMPLETED) {
+            if (context.getTask().getRuntimeState() == AgentRuntimeState.COMPLETED) {
+                if (completed.size() != nodeMap.size()) {
+                    throw new GenerationDagRecoveryException(
+                            GenerationDagRecoveryException.Reason.GRAPH_MISMATCH,
+                            "成功终态检查点没有覆盖当前 DAG 的全部节点");
+                }
                 return events;
             }
             while (completed.size() < nodeMap.size()) {
@@ -70,7 +92,7 @@ public class GenerationDagRunner {
                     events.add(runningEvent);
                     context.getTask().getEvents().add(runningEvent);
                     context.getTask().getNodeStatuses().put(node.key(), "running");
-                    taskStore.save(context.getTask());
+                    persistNodeStartCheckpoint(context, node);
 
                     NodeExecution execution = executeNode(node, context);
                     completed.add(execution.node().key());
@@ -98,7 +120,14 @@ public class GenerationDagRunner {
                     context.getTask().getEvents().add(doneEvent);
                     context.getTask().getNodeStatuses().put(execution.node().key(), "done");
                     stateMachine.checkpointNode(context.getTask(), execution.node());
-                    taskStore.save(context.getTask());
+                    boolean deferred = persistNodeCompletionCheckpoint(
+                            context,
+                            execution.node(),
+                            deferredCompletionCheckpoints + 1
+                    );
+                    deferredCompletionCheckpoints = deferred
+                            ? deferredCompletionCheckpoints + 1
+                            : 0;
                 }
             }
             context.getTask().setStatus("completed");
@@ -114,6 +143,14 @@ public class GenerationDagRunner {
                     LogExceptionSanitizer.sanitize(checkpointFailure)
             );
             throw checkpointFailure;
+        } catch (GenerationDagRecoveryException recoveryFailure) {
+            log.warn(
+                    "生成 DAG 检查点恢复被拒绝，appId: {}，taskId: {}，原因: {}",
+                    context.getTask().getAppId(),
+                    context.getTask().getTaskId(),
+                    recoveryFailure.reason()
+            );
+            throw recoveryFailure;
         } catch (Exception exception) {
             Throwable failure = unwrapCompletionFailure(exception);
             GenerationErrorClassifier.GenerationError publicError = GenerationErrorClassifier.classify(failure);
@@ -218,7 +255,8 @@ public class GenerationDagRunner {
             if (node == null || node.key() == null || node.key().isBlank()
                     || node.agentName() == null || node.agentName().isBlank()
                     || node.stage() == null || node.stage().isBlank()
-                    || node.dependencies() == null) {
+                    || node.dependencies() == null
+                    || node.replayPolicy() == null) {
                 throw new GenerationDagRecoveryException(
                         GenerationDagRecoveryException.Reason.INVALID_GRAPH,
                         "generation DAG contains an invalid node declaration");
@@ -249,6 +287,7 @@ public class GenerationDagRunner {
     private void bindGraph(Map<String, GenerationAgentNode> nodeMap,
                            GenerationOrchestrationTask task) {
         String fingerprint = graphFingerprint(nodeMap);
+        String legacyFingerprint = legacyGraphFingerprint(nodeMap);
         String existingFingerprint = task.getDagFingerprint();
         if (existingFingerprint == null || existingFingerprint.isBlank()) {
             if (hasCheckpointProgress(task)) {
@@ -262,6 +301,13 @@ public class GenerationDagRunner {
             return;
         }
         if (!existingFingerprint.equals(fingerprint)) {
+            if (existingFingerprint.equals(legacyFingerprint)
+                    && canUpgradeLegacyFingerprint(task)) {
+                task.setDagFingerprint(fingerprint);
+                task.setSchemaVersion(GenerationOrchestrationTask.CURRENT_SCHEMA_VERSION);
+                taskStore.save(task);
+                return;
+            }
             throw new GenerationDagRecoveryException(
                     GenerationDagRecoveryException.Reason.GRAPH_MISMATCH,
                     "the current DAG does not match the persisted checkpoint fingerprint");
@@ -269,6 +315,15 @@ public class GenerationDagRunner {
     }
 
     private String graphFingerprint(Map<String, GenerationAgentNode> nodeMap) {
+        return graphFingerprint(nodeMap, true);
+    }
+
+    private String legacyGraphFingerprint(Map<String, GenerationAgentNode> nodeMap) {
+        return graphFingerprint(nodeMap, false);
+    }
+
+    private String graphFingerprint(Map<String, GenerationAgentNode> nodeMap,
+                                    boolean includeReplayPolicy) {
         StringBuilder canonical = new StringBuilder();
         int index = 0;
         for (GenerationAgentNode node : nodeMap.values()) {
@@ -276,11 +331,23 @@ public class GenerationDagRunner {
                     .append(node.key()).append('\u0000')
                     .append(node.agentName()).append('\u0000')
                     .append(node.stage()).append('\u0000');
+            if (includeReplayPolicy) {
+                canonical.append(node.replayPolicy().name()).append('\u0000');
+            }
             node.dependencies().stream().sorted().forEach(dependency ->
                     canonical.append(dependency).append('\u0001'));
             canonical.append('\u0002');
         }
         return DigestUtil.sha256Hex(canonical.toString());
+    }
+
+    private boolean canUpgradeLegacyFingerprint(GenerationOrchestrationTask task) {
+        if (task.getCurrentNode() != null && !task.getCurrentNode().isBlank()) {
+            return false;
+        }
+        Map<String, String> statuses = task.getNodeStatuses();
+        return statuses == null
+                || (!statuses.containsValue("running") && !statuses.containsValue("failed"));
     }
 
     private boolean hasCheckpointProgress(GenerationOrchestrationTask task) {
@@ -296,6 +363,61 @@ public class GenerationDagRunner {
         } catch (GenerationCheckpointPersistenceException checkpointFailure) {
             primaryFailure.addSuppressed(checkpointFailure);
         }
+    }
+
+    private void persistNodeStartCheckpoint(GenerationAgentContext context,
+                                            GenerationAgentNode node) {
+        Instant startedAt = Instant.now();
+        if (snapshotProperties.isReplaySafeStartCheckpointElisionEnabled()
+                && node.replayPolicy() == GenerationNodeReplayPolicy.REPLAY_SAFE) {
+            metricsCollector.recordNodeStartCheckpoint(
+                    context.getOrchestrationMode(), node.key(), "elided",
+                    Duration.between(startedAt, Instant.now()));
+            return;
+        }
+        try {
+            taskStore.save(context.getTask());
+            metricsCollector.recordNodeStartCheckpoint(
+                    context.getOrchestrationMode(), node.key(), "persisted",
+                    Duration.between(startedAt, Instant.now()));
+        } catch (RuntimeException | Error failure) {
+            metricsCollector.recordNodeStartCheckpoint(
+                    context.getOrchestrationMode(), node.key(), "failed",
+                    Duration.between(startedAt, Instant.now()));
+            throw failure;
+        }
+    }
+
+    private boolean persistNodeCompletionCheckpoint(GenerationAgentContext context,
+                                                    GenerationAgentNode node,
+                                                    int pendingCompletionCount) {
+        Instant startedAt = Instant.now();
+        if (canCoalesceCompletionCheckpoint(node, pendingCompletionCount)) {
+            metricsCollector.recordNodeCompletionCheckpoint(
+                    context.getOrchestrationMode(), node.key(), "coalesced",
+                    Duration.between(startedAt, Instant.now()));
+            return true;
+        }
+        try {
+            taskStore.save(context.getTask());
+            metricsCollector.recordNodeCompletionCheckpoint(
+                    context.getOrchestrationMode(), node.key(), "persisted",
+                    Duration.between(startedAt, Instant.now()));
+            return false;
+        } catch (RuntimeException | Error failure) {
+            metricsCollector.recordNodeCompletionCheckpoint(
+                    context.getOrchestrationMode(), node.key(), "failed",
+                    Duration.between(startedAt, Instant.now()));
+            throw failure;
+        }
+    }
+
+    private boolean canCoalesceCompletionCheckpoint(GenerationAgentNode node,
+                                                    int pendingCompletionCount) {
+        return snapshotProperties.isReplaySafeStartCheckpointElisionEnabled()
+                && snapshotProperties.isReplaySafeCompletionCheckpointCoalescingEnabled()
+                && node.replayPolicy() == GenerationNodeReplayPolicy.REPLAY_SAFE
+                && pendingCompletionCount < snapshotProperties.getReplaySafeCompletionCheckpointInterval();
     }
 
     private Throwable unwrapCompletionFailure(Exception exception) {

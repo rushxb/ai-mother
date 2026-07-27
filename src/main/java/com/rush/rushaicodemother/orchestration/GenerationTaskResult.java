@@ -4,6 +4,9 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import reactor.core.publisher.Flux;
 
+/**
+ * 生成任务执行结果。
+ */
 public record GenerationTaskResult(
         String taskId,
         String route,

@@ -3,26 +3,26 @@ package com.rush.rushaicodemother.ai.tools;
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.ai.tools.policy.DependencyPolicyService;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
-import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
-import com.rush.rushaicodemother.service.dependency.DependencyInstallMode;
-import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class PackageManagerToolTest {
@@ -66,82 +66,100 @@ class PackageManagerToolTest {
     }
 
     @Test
-    void installDependenciesShouldUseUnifiedProjectDependencyInstaller() throws Exception {
-        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(any(Path.class), eq("test-task-4"), eq(DependencyInstallMode.UPDATE_LOCKFILE)))
-                .thenReturn(DependencyInstallResult.success("依赖完整"));
-        PackageManagerTool tool = createTool(4L, installer);
+    void installDependenciesMustBeDeferredToTheBuildPipeline() throws Exception {
+        PackageToolFixture fixture = createFixture(4L);
 
-        String result = tool.managePackageJson(
+        String result = fixture.tool().managePackageJson(
                 "installDependencies", null, null, null, null, null, false, null, 4L
         );
 
-        assertTrue(result.contains("状态: SUCCESS"));
-        assertTrue(result.contains("依赖完整"));
-        verify(installer).ensureInstalled(
-                TEST_OUTPUT_ROOT.resolve("vue_project_4").toRealPath(),
-                "test-task-4",
-                DependencyInstallMode.UPDATE_LOCKFILE
+        assertTrue(result.contains("已移交构建校验流水线"));
+        assertTrue(result.contains("不重复执行 pnpm install"));
+        verifyNoInteractions(fixture.gateway());
+    }
+
+    @Test
+    void packageMutationMayRequestDeferredInstallWithoutStartingItInline() throws Exception {
+        PackageToolFixture fixture = createFixture(5L);
+
+        String result = fixture.tool().managePackageJson(
+                "addDependency", "marked", "^12.0.0", "dependencies",
+                null, null, true, "渲染 markdown", 5L
+        );
+
+        assertTrue(result.contains("已添加依赖"));
+        assertTrue(result.contains("已移交构建校验流水线"));
+        verify(fixture.gateway()).applyPatch(
+                eq(5L), any(Path.class), any(PatchOperation.class),
+                eq("tool-package-json"), eq("addDependency")
         );
     }
 
     @Test
-    void unexpectedInstallerFailureMustNotExposeInternalDetails() throws Exception {
-        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(any(Path.class), eq("test-task-5"), eq(DependencyInstallMode.UPDATE_LOCKFILE)))
-                .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
-        PackageManagerTool tool = createTool(5L, installer);
+    void fullStackProjectMustPatchFrontendPackageJsonFromTheWorkspaceRoot() throws Exception {
+        PackageToolFixture fixture = createFixture(
+                6L,
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                "frontend/package.json"
+        );
+        ArgumentCaptor<Path> projectRootCaptor = ArgumentCaptor.forClass(Path.class);
+        ArgumentCaptor<PatchOperation> operationCaptor = ArgumentCaptor.forClass(PatchOperation.class);
 
-        String result = tool.managePackageJson(
-                "installDependencies", null, null, null, null, null, false, null, 5L
+        String result = fixture.tool().managePackageJson(
+                "addDependency", "marked", "^12.0.0", "dependencies",
+                null, null, false, "渲染 markdown", 6L
         );
 
-        assertTrue(result.contains("管理 package.json 失败"));
-        assertFalse(result.contains("secret-value"));
-    }
-
-    @Test
-    void installResultMustSanitizeCommandDiagnosticsBeforeReturningThemToTheModel() throws Exception {
-        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(
-                any(Path.class), eq("test-task-6"), eq(DependencyInstallMode.UPDATE_LOCKFILE))).thenReturn(DependencyInstallResult.failed(
-                DependencyInstallResult.Status.FAILED,
-                "ERR_PNPM_FETCH_401 package @scope/demo\nregistry-token=secret-value",
-                "Authorization: Bearer installer-secret"
-        ));
-        PackageManagerTool tool = createTool(6L, installer);
-
-        String result = tool.managePackageJson(
-                "installDependencies", null, null, null, null, null, false, null, 6L
+        assertTrue(result.contains("已添加依赖"));
+        verify(fixture.gateway()).applyPatch(
+                eq(6L), projectRootCaptor.capture(), operationCaptor.capture(),
+                eq("tool-package-json"), eq("addDependency")
         );
-
-        assertFalse(result.contains("secret-value"));
-        assertFalse(result.contains("installer-secret"));
-        assertTrue(result.contains("ERR_PNPM_FETCH_401"));
-        assertTrue(result.contains("@scope/demo"));
+        assertEquals(fixture.projectRoot().toRealPath(), projectRootCaptor.getValue());
+        assertEquals("frontend/package.json", operationCaptor.getValue().relativePath());
+        assertTrue(operationCaptor.getValue().content().contains("\"marked\""));
     }
 
     private PackageManagerTool createTool(long appId) throws Exception {
-        ProjectDependencyInstaller installer = mock(ProjectDependencyInstaller.class);
-        when(installer.ensureInstalled(any(Path.class), eq("test-task-" + appId), eq(DependencyInstallMode.UPDATE_LOCKFILE)))
-                .thenReturn(DependencyInstallResult.success("依赖完整"));
-        return createTool(appId, installer);
+        return createFixture(appId).tool();
     }
 
-    private PackageManagerTool createTool(long appId, ProjectDependencyInstaller installer) throws Exception {
-        Path projectDir = TEST_OUTPUT_ROOT.resolve("vue_project_" + appId);
+    private PackageToolFixture createFixture(long appId) throws Exception {
+        return createFixture(appId, CodeGenTypeEnum.VUE_PROJECT, "package.json");
+    }
+
+    private PackageToolFixture createFixture(
+            long appId,
+            CodeGenTypeEnum codeGenType,
+            String packageJsonRelativePath
+    ) throws Exception {
+        Path projectDir = TEST_OUTPUT_ROOT.resolve(codeGenType.getValue() + "_" + appId);
         FileUtil.del(projectDir.toFile());
-        Files.createDirectories(projectDir);
+        Path packageJsonPath = projectDir.resolve(packageJsonRelativePath);
+        Files.createDirectories(packageJsonPath.getParent());
         FileUtil.writeString("{\n  \"scripts\": {},\n  \"dependencies\": {}\n}",
-                projectDir.resolve("package.json").toFile(), StandardCharsets.UTF_8);
+                packageJsonPath.toFile(), StandardCharsets.UTF_8);
         ToolExecutionGateway gateway = mock(ToolExecutionGateway.class);
         when(gateway.applyPatch(anyLong(), any(Path.class), any(PatchOperation.class), anyString(), anyString()))
-                .thenReturn(PatchApplyResult.applied(appId, "test-package-json", projectDir.toString(), 1, java.util.List.of("package.json")));
-        return new PackageManagerTool(
+                .thenReturn(PatchApplyResult.applied(
+                        appId,
+                        "test-package-json",
+                        projectDir.toString(),
+                        1,
+                        java.util.List.of(packageJsonRelativePath)
+                ));
+        PackageManagerTool tool = new PackageManagerTool(
                 new DependencyPolicyService(),
                 gateway,
-                installer,
-                ToolPathSupportTestFixture.workspaceForApp(appId)
+                ToolPathSupportTestFixture.workspaceForApp(appId, codeGenType)
         );
+        return new PackageToolFixture(tool, gateway, projectDir);
+    }
+
+    private record PackageToolFixture(
+            PackageManagerTool tool,
+            ToolExecutionGateway gateway,
+            Path projectRoot
+    ) {
     }
 }

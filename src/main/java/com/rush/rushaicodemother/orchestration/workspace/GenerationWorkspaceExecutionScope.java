@@ -12,10 +12,10 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Propagates an execution-owned workspace across synchronous generation boundaries.
+ * 跨同步生成边界传播执行拥有的工作空间。
  *
- * <p>The registry is keyed by the full fence, not only by task id. An old worker therefore keeps
- * resolving its own epoch even after a newer worker has claimed the same durable task.</p>
+ * <p> 注册表由完整的栅栏键控，而不仅仅是任务 ID。老工人因此保留
+ * 即使在新工人声明了相同的持久任务之后，仍能解决自己的纪元。</p>
  */
 @Component
 public class GenerationWorkspaceExecutionScope {

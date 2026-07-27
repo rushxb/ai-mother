@@ -29,7 +29,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Builds deterministic request lineage without persisting prompt contents. */
+/** 构建确定性请求沿袭，无需保留提示内容。 */
 @Component
 public class AiModelProvenanceFactory {
 

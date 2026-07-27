@@ -3,9 +3,12 @@ package com.rush.rushaicodemother.orchestration.agent;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceExecutionScope;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationCatalog;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import com.rush.rushaicodemother.service.devserver.DevServerProjectLocator;
@@ -21,9 +24,11 @@ class RuntimeWorkspaceConsumerBeanWiringTest {
     void wiresDevServerLocatorThroughCanonicalWorkspaceServices() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.register(
-                    CodeStorageProperties.class,
-                    WorkspaceFileSystemProperties.class,
-                    GenerationWorkspaceService.class,
+                     CodeStorageProperties.class,
+                     WorkspaceFileSystemProperties.class,
+                     GenerationWorkspaceExecutionScope.class,
+                     GenerationWorkspacePublicationCatalog.class,
+                     GenerationWorkspaceService.class,
                     WorkspaceFileSystemService.class,
                     DevServerProjectLocator.class
             );
@@ -46,6 +51,10 @@ class RuntimeWorkspaceConsumerBeanWiringTest {
                     () -> mock(GenerationContextCompressionService.class)
             );
             context.registerBean(GenerationWorkspaceService.class, () -> mock(GenerationWorkspaceService.class));
+            context.registerBean(
+                    GeneratedProjectContextService.class,
+                    () -> mock(GeneratedProjectContextService.class)
+            );
 
             context.refresh();
 

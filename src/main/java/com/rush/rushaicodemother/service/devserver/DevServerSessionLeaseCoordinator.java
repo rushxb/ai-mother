@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionC
 import java.nio.file.Path;
 import java.util.List;
 
-/** Cross-node ownership boundary used by the in-process lifecycle manager. */
+/** 进程内生命周期管理器使用的跨节点所有权边界。 */
 public interface DevServerSessionLeaseCoordinator {
 
     enum LeaseStatus {

@@ -11,12 +11,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -121,6 +127,45 @@ class RedisGenerationTaskQueueWorkerTest {
 
         verify(queue).acknowledge(delivery);
         verify(queue, never()).deadLetter(any(), any());
+    }
+
+    @Test
+    void heartbeatMustContinueWhileConsumerIsBlocked() throws Exception {
+        GenerationTaskQueueDelivery delivery = delivery(1);
+        GenerationTaskQueueProperties properties = new GenerationTaskQueueProperties();
+        properties.setDeliveryHeartbeatInterval(Duration.ofMillis(10));
+        CountDownLatch readStarted = new CountDownLatch(1);
+        CountDownLatch releaseRead = new CountDownLatch(1);
+        CountDownLatch heartbeatObserved = new CountDownLatch(1);
+        when(queue.reclaimExpired()).thenReturn(List.of(delivery), List.of());
+        when(executionService.schedule(eq("task-1"), any()))
+                .thenReturn(GenerationTaskDispatchResult.SCHEDULED);
+        when(queue.readNew()).thenAnswer(invocation -> {
+            readStarted.countDown();
+            try {
+                releaseRead.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return List.of();
+        });
+        doAnswer(invocation -> {
+            heartbeatObserved.countDown();
+            return null;
+        }).when(queue).heartbeat(any());
+        RedisGenerationTaskQueueWorker concurrentWorker = new RedisGenerationTaskQueueWorker(
+                queue, executionService, repository, runtimeLifecycleService, properties);
+
+        try {
+            concurrentWorker.start();
+            assertTrue(readStarted.await(1, TimeUnit.SECONDS));
+            assertTrue(heartbeatObserved.await(1, TimeUnit.SECONDS));
+        } finally {
+            releaseRead.countDown();
+            concurrentWorker.stop();
+        }
+
+        verify(queue, atLeastOnce()).heartbeat(List.of(delivery));
     }
 
     private GenerationTaskQueueDelivery delivery(long deliveryCount) {

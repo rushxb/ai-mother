@@ -114,7 +114,6 @@ class ReviewAgentNodeTest {
                 "update",
                 true,
                 null,
-                null,
                 null
         );
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();

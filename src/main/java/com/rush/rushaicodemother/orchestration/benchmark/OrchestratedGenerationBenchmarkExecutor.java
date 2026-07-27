@@ -6,8 +6,10 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.vo.GenerationPerformanceSpanVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceTaskVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
@@ -28,10 +30,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * 编排式生成基准测试执行器。
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -41,6 +47,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     private final GenerationTaskOrchestrator orchestrator;
     private final GenerationEventPublisher eventPublisher;
     private final GenerationPerformanceMonitorService performanceMonitorService;
+    private final GenerationSpanQueryService spanQueryService;
     private final GenerationBenchmarkUsageRepository usageRepository;
     private final GenerationBenchmarkValidationEngine validationEngine;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
@@ -54,6 +61,9 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
 
     @Value("${app.generation-benchmark.terminal-poll-interval:PT0.1S}")
     private Duration terminalPollInterval;
+
+    @Value("${app.generation-benchmark.first-preview-observation-timeout:PT2S}")
+    private Duration firstPreviewObservationTimeout;
 
     @Override
     public GenerationBenchmarkRunResult execute(GenerationBenchmarkTask task) {
@@ -80,6 +90,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         AtomicBoolean buildObserved = new AtomicBoolean(false);
         AtomicBoolean fallback = new AtomicBoolean(false);
         AtomicReference<String> failureReason = new AtomicReference<>("");
+        FirstPreviewObservation firstPreviewObservation = new FirstPreviewObservation();
 
         Disposable eventSubscription = null;
         Disposable streamSubscription = null;
@@ -103,13 +114,15 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             taskStarted = true;
             if (taskResult.contentFlux() != null) {
                 streamSubscription = taskResult.contentFlux().subscribe(
-                        event -> handleStreamEvent(event, buildObserved, buildPassed, failureReason),
+                        event -> handleStreamEvent(
+                                event, buildObserved, buildPassed, failureReason, firstPreviewObservation),
                         error -> {
                             log.warn("Benchmark generation stream failed, benchmarkTaskId: {}, error: {}",
                                     task.id(), LogExceptionSanitizer.sanitizeMessage(error));
                             failureReason.compareAndSet("", safeFailureReason(error));
+                            firstPreviewObservation.streamTerminated();
                         },
-                        () -> { }
+                        firstPreviewObservation::streamTerminated
                 );
             }
 
@@ -126,11 +139,21 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 failureReason.compareAndSet("", terminalFailureReason(terminalTask));
             }
 
-            GenerationPerformanceTaskVO telemetry = findTelemetry(taskId);
-            GenerationBenchmarkUsage usage = Objects.requireNonNullElse(
-                    usageRepository.findByTaskId(taskId), GenerationBenchmarkUsage.empty());
             boolean publicationSucceeded = terminalTask != null
                     && terminalTask.status() == GenerationTaskStatus.SUCCESS;
+            Long firstPreviewLatencyMs = firstPreviewObservation.current();
+            if (firstPreviewLatencyMs == null) {
+                firstPreviewLatencyMs = firstPreviewFromDurableTrace(taskId);
+            }
+            if (publicationSucceeded && failureReason.get().isBlank() && firstPreviewLatencyMs == null) {
+                firstPreviewLatencyMs = firstPreviewObservation.await(firstPreviewObservationTimeout());
+            }
+            GenerationPerformanceTaskVO telemetry = findTelemetry(taskId);
+            if (firstPreviewLatencyMs == null) {
+                firstPreviewLatencyMs = firstPreviewFromTelemetry(telemetry);
+            }
+            GenerationBenchmarkUsage usage = Objects.requireNonNullElse(
+                    usageRepository.findByTaskId(taskId), GenerationBenchmarkUsage.empty());
             boolean success = !timedOut && publicationSucceeded && failureReason.get().isBlank();
             boolean expectedBuildPassed = resolveBuildPassed(
                     task, success, buildObserved.get(), buildPassed.get());
@@ -152,6 +175,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     usage.totalTokens(),
                     usage.creditCost(),
                     longValue(telemetry == null ? null : telemetry.getFirstTokenLatencyMs()),
+                    firstPreviewLatencyMs,
                     qualityEvidence
             );
         } catch (Exception failure) {
@@ -181,7 +205,12 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     0,
                     fallback.get(),
                     0,
-                    safeFailureReason(failure)
+                    safeFailureReason(failure),
+                    0L,
+                    0L,
+                    0L,
+                    firstPreviewObservation.current(),
+                    GenerationBenchmarkQualityEvidence.empty()
             );
         } finally {
             if (eventSubscription != null) {
@@ -231,10 +260,12 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     private void handleStreamEvent(GenerationStreamEvent event,
                                    AtomicBoolean buildObserved,
                                    AtomicBoolean buildPassed,
-                                   AtomicReference<String> failureReason) {
+                                   AtomicReference<String> failureReason,
+                                   FirstPreviewObservation firstPreviewObservation) {
         if (event == null) {
             return;
         }
+        firstPreviewObservation.observe(event);
         Map<String, Object> data = event.getData();
         if (GenerationStreamEvent.BUILD_RESULT.equals(event.getType())) {
             buildObserved.set(true);
@@ -295,6 +326,10 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
 
     private Duration pollInterval() {
         return positiveDuration(terminalPollInterval, Duration.ofMillis(100));
+    }
+
+    private Duration firstPreviewObservationTimeout() {
+        return positiveDuration(firstPreviewObservationTimeout, Duration.ofSeconds(2));
     }
 
     private Duration positiveDuration(Duration configured, Duration fallback) {
@@ -358,6 +393,42 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 .filter(task -> taskId.equals(task.getTaskId()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private Long firstPreviewFromTelemetry(GenerationPerformanceTaskVO telemetry) {
+        if (telemetry == null || telemetry.getSpans() == null) {
+            return null;
+        }
+        return telemetry.getSpans().stream()
+                .filter(Objects::nonNull)
+                .filter(span -> "time_to_first_preview".equals(span.getStage()))
+                .map(GenerationPerformanceSpanVO::getDurationMs)
+                .filter(Objects::nonNull)
+                .filter(durationMs -> durationMs >= 0)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Long firstPreviewFromDurableTrace(String taskId) {
+        if (StrUtil.isBlank(taskId)) {
+            return null;
+        }
+        try {
+            return spanQueryService.findByTaskId(taskId, GenerationSpanQueryService.MAX_LIMIT).stream()
+                    .filter(Objects::nonNull)
+                    .filter(span -> "time_to_first_preview".equals(span.stage()))
+                    .mapToLong(GenerationSpanQueryService.StoredSpan::durationMs)
+                    .filter(durationMs -> durationMs >= 0)
+                    .min()
+                    .stream()
+                    .boxed()
+                    .findFirst()
+                    .orElse(null);
+        } catch (RuntimeException queryFailure) {
+            log.warn("读取首预览持久化轨迹失败，继续使用其余观测来源，taskId: {}, error: {}",
+                    taskId, LogExceptionSanitizer.sanitizeMessage(queryFailure));
+            return null;
+        }
     }
 
     private boolean resolveBuildPassed(GenerationBenchmarkTask task,
@@ -428,5 +499,39 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         return value == null
                 ? defaultValue
                 : StrUtil.blankToDefault(String.valueOf(value), defaultValue);
+    }
+
+    private static final class FirstPreviewObservation {
+
+        private final AtomicReference<Long> latencyMs = new AtomicReference<>();
+        private final CountDownLatch resolved = new CountDownLatch(1);
+
+        private void observe(GenerationStreamEvent event) {
+            if (!GenerationStreamEvent.FIRST_PREVIEW_READY.equals(event.getType())
+                    || event.getData() == null) {
+                return;
+            }
+            Object elapsed = event.getData().get("elapsedMs");
+            if (!(elapsed instanceof Number number)) {
+                return;
+            }
+            long observedLatencyMs = number.longValue();
+            if (observedLatencyMs >= 0 && latencyMs.compareAndSet(null, observedLatencyMs)) {
+                resolved.countDown();
+            }
+        }
+
+        private void streamTerminated() {
+            resolved.countDown();
+        }
+
+        private Long await(Duration timeout) throws InterruptedException {
+            resolved.await(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            return latencyMs.get();
+        }
+
+        private Long current() {
+            return latencyMs.get();
+        }
     }
 }

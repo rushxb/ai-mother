@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.model.vo;
 
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationStageDurationProfile;
 
-/** Administrator view of one historical generation operation duration profile. */
+/** 一份历史生成操作持续时间配置文件的管理员视图。 */
 public record GenerationStageDurationProfileVO(
         String stage,
         String category,

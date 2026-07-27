@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 
-/** JSON codec for durable task commands persisted across worker instances. */
+/** 用于在工作实例之间持久保存任务命令的 JSON 编解码器。 */
 public final class GenerationTaskCommandCodec {
 
     private static final JsonMapper MAPPER = JsonMapper.builder()

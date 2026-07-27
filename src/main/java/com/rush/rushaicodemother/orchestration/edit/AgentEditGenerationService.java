@@ -9,7 +9,6 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
@@ -57,7 +56,7 @@ public class AgentEditGenerationService {
     private final EditStatePersistenceService editStatePersistenceService;
     private final GenerationPerformanceMonitorService performanceMonitorService;
 
-    /** Legacy entry point retained for isolated callers outside the unified task runtime. */
+    /** 为统一任务运行时之外的隔离调用者保留旧入口点。 */
     @Deprecated(forRemoval = false)
     public AgentEditResult execute(GenerationTaskRequest request, GenerationModeDecision modeDecision) {
         App app = request.app();
@@ -67,7 +66,7 @@ public class AgentEditGenerationService {
                 generationWorkspaceService.resolve(app, codeGenType), false);
     }
 
-    /** Executes AGENT_EDIT using the task identity allocated by the submission runtime. */
+    /** 使用提交运行时分配的任务标识执行 AGENT_EDIT。 */
     public AgentEditResult execute(String taskId,
                                    GenerationTaskRequest request,
                                    GenerationModeDecision modeDecision) {
@@ -81,7 +80,7 @@ public class AgentEditGenerationService {
         );
     }
 
-    /** Executes AGENT_EDIT against the exact workspace selected by the durable worker epoch. */
+    /** 针对持久工作进程纪元选择的确切工作空间执行 AGENT_EDIT。 */
     public AgentEditResult execute(String taskId,
                                    GenerationTaskRequest request,
                                    GenerationModeDecision modeDecision,
@@ -376,8 +375,6 @@ public class AgentEditGenerationService {
                 "rollbackStatus", restoreResult == null ? "" : restoreResult.status()
         ));
         chatHistoryService.addChatMessage(app.getId(), reason, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-        lifecycleService.completeGeneration(
-                taskId, app.getId(), GenerationTaskStatus.FAILED, reason);
         performanceMonitorService.finishTask(taskId, "failed");
         return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, reason, List.of(), "failed", repairRounds);
     }

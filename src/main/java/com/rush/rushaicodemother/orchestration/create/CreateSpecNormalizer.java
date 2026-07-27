@@ -12,6 +12,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+/**
+ * 创建规格规范化器。
+ */
 @Component
 public class CreateSpecNormalizer {
 

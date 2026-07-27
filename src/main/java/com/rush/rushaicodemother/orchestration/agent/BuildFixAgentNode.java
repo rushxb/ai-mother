@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -17,7 +18,8 @@ import java.util.Map;
 public class BuildFixAgentNode extends BaseGenerationAgentNode {
 
     public BuildFixAgentNode() {
-        super("buildfix", "BuildFix", "buildfix", List.of("review"));
+        super("buildfix", "BuildFix", "buildfix", List.of("review"),
+                GenerationNodeReplayPolicy.REPLAY_SAFE);
     }
 
     @Override

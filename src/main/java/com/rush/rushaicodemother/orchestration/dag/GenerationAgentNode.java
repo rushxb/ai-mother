@@ -15,5 +15,9 @@ public interface GenerationAgentNode {
 
     List<String> dependencies();
 
+    default GenerationNodeReplayPolicy replayPolicy() {
+        return GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT;
+    }
+
     AgentNodeResult execute(GenerationAgentContext context);
 }

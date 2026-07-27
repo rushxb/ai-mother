@@ -28,6 +28,10 @@ public class GenerationRoutingSupport {
             "数据库", "sqlite", "sqllite", "sql lite", "登录注册接口", "crud接口", "crud 接口"
     );
 
+    private static final List<String> VUE_KEYWORDS = List.of(
+            "vue", "vue3", "vue 3", "vue项目", "vue 项目"
+    );
+
     private final GenerationAgentSupport generationAgentSupport;
 
     public GenerationRoutingSupport(GenerationAgentSupport generationAgentSupport) {
@@ -51,6 +55,9 @@ public class GenerationRoutingSupport {
         }
         if (containsAny(normalized, BACKEND_KEYWORDS)) {
             return CodeGenTypeEnum.BACKEND_PROJECT;
+        }
+        if (containsAny(normalized, VUE_KEYWORDS)) {
+            return CodeGenTypeEnum.VUE_PROJECT;
         }
         if (!complex && request.currentType() == CodeGenTypeEnum.HTML) {
             return CodeGenTypeEnum.HTML;
@@ -78,6 +85,9 @@ public class GenerationRoutingSupport {
     public boolean requiresBuildValidation(GenerationOrchestrationRequest request, CodeGenTypeEnum targetType) {
         if (request == null || targetType == null) {
             return false;
+        }
+        if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
+            return true;
         }
         String normalized = StrUtil.blankToDefault(request.userMessage(), "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, BUILD_KEYWORDS)) {

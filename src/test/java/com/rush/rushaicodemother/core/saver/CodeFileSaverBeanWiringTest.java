@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.core.saver;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceExecutionScope;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationCatalog;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -16,9 +18,11 @@ class CodeFileSaverBeanWiringTest {
     void wiresAllGeneratedCodeSaversThroughWorkspaceBoundaries() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.register(
-                    CodeStorageProperties.class,
-                    WorkspaceFileSystemProperties.class,
-                    GenerationWorkspaceService.class,
+                     CodeStorageProperties.class,
+                     WorkspaceFileSystemProperties.class,
+                     GenerationWorkspaceExecutionScope.class,
+                     GenerationWorkspacePublicationCatalog.class,
+                     GenerationWorkspaceService.class,
                     WorkspaceFileSystemService.class,
                     HtmlCodeFileSaverTemplate.class,
                     MultiFileCodeFileSaverTemplate.class,

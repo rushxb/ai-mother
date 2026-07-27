@@ -26,4 +26,15 @@ class GenerationPerformanceSelectorTest {
 
         assertEquals(GenerationThinkingMode.FAST, profile.thinkingMode());
     }
+
+    @Test
+    void simpleBackendAndFullStackCreationMustAvoidThinking() {
+        GenerationPerformanceProfile backend = selector.select(
+                true, false, CodeGenTypeEnum.BACKEND_PROJECT);
+        GenerationPerformanceProfile fullStack = selector.select(
+                true, false, CodeGenTypeEnum.FULL_STACK_PROJECT);
+
+        assertEquals(GenerationThinkingMode.FAST, backend.thinkingMode());
+        assertEquals(GenerationThinkingMode.FAST, fullStack.thinkingMode());
+    }
 }

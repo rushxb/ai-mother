@@ -17,10 +17,9 @@ class HeavyGenerationWorkspaceBoundaryArchitectureTest {
             "src", "main", "java", "com", "rush", "rushaicodemother", "orchestration", "heavy"
     );
 
-    private static final List<String> WORKSPACE_AWARE_SERVICES = List.of(
+    private static final List<String> WORKSPACE_RESOLVING_SERVICES = List.of(
             "HeavyGenerationExecutionService.java",
             "HeavyGenerationBuildValidationService.java",
-            "HeavyGenerationFailureRecoveryService.java",
             "HeavyGenerationFinalizationService.java"
     );
 
@@ -32,7 +31,7 @@ class HeavyGenerationWorkspaceBoundaryArchitectureTest {
 
     @Test
     void heavyGenerationMustResolveGeneratedProjectsThroughWorkspaceService() throws IOException {
-        for (String sourceFileName : WORKSPACE_AWARE_SERVICES) {
+        for (String sourceFileName : WORKSPACE_RESOLVING_SERVICES) {
             Path sourcePath = HEAVY_GENERATION_PACKAGE.resolve(sourceFileName);
             String source = Files.readString(sourcePath);
 

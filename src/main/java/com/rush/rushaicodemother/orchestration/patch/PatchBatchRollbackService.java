@@ -11,7 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Captures a bounded file snapshot and restores it when a patch batch fails. */
+/** 捕获有界文件快照并在补丁批次失败时恢复它。 */
 @Component
 @RequiredArgsConstructor
 public class PatchBatchRollbackService {

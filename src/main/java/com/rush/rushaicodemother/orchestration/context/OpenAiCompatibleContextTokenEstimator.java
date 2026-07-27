@@ -2,17 +2,19 @@ package com.rush.rushaicodemother.orchestration.context;
 
 import dev.langchain4j.model.TokenCountEstimator;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
-/** Uses the production OpenAI-compatible tokenizer with a configurable conservative margin. */
+/** 使用与 OpenAI 兼容的生产分词器，并具有可配置的保守裕度。 */
 @Component
 public class OpenAiCompatibleContextTokenEstimator implements AiContextTokenEstimator {
 
     private final TokenCountEstimator delegate;
     private final double safetyMargin;
 
+    @Autowired
     public OpenAiCompatibleContextTokenEstimator(AiContextPackBudgetProperties properties) {
         this(createEstimator(properties), properties.getTokenSafetyMargin());
     }

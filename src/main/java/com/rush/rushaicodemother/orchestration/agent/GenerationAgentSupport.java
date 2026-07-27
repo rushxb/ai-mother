@@ -4,6 +4,8 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService;
+import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndex;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticSearchHit;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
@@ -15,7 +17,6 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceServ
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,9 +33,7 @@ import java.util.stream.Collectors;
  */
 public class GenerationAgentSupport {
 
-    private static final int MAX_MODEL_CONTEXT_FILE_CHARS = 1400;
     private static final int MAX_SELECTED_CONTEXT_FILES = 6;
-    private static final int MAX_CONTEXT_TOTAL_CHARS = 10000;
     private static final Set<String> INDEXABLE_SOURCE_EXTENSIONS = Set.of(
             "vue", "js", "ts", "jsx", "tsx", "css", "scss", "less", "json", "svg", "md", "html", "java", "xml", "yml", "yaml", "go", "sql"
     );
@@ -44,13 +43,15 @@ public class GenerationAgentSupport {
     private final WorkspaceSemanticIndexService semanticIndexService;
     private final GenerationContextCompressionService contextCompressionService;
     private final GenerationWorkspaceService generationWorkspaceService;
+    private final GeneratedProjectContextService generatedProjectContextService;
 
     public GenerationAgentSupport(
             GenerationRecipeLibrary recipeLibrary,
             GenerationSkillLibrary skillLibrary,
             WorkspaceSemanticIndexService semanticIndexService,
             GenerationContextCompressionService contextCompressionService,
-            GenerationWorkspaceService generationWorkspaceService
+            GenerationWorkspaceService generationWorkspaceService,
+            GeneratedProjectContextService generatedProjectContextService
     ) {
         this.recipeLibrary = Objects.requireNonNull(recipeLibrary, "recipeLibrary must not be null");
         this.skillLibrary = Objects.requireNonNull(skillLibrary, "skillLibrary must not be null");
@@ -66,14 +67,19 @@ public class GenerationAgentSupport {
                 generationWorkspaceService,
                 "generationWorkspaceService must not be null"
         );
+        this.generatedProjectContextService = Objects.requireNonNull(
+                generatedProjectContextService,
+                "生成项目上下文服务不能为空"
+        );
     }
 
     public boolean isComplexRequest(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         return containsAny(normalized,
-                "vue", "组件", "路由", "router", "模块", "后台", "管理系统", "登录", "注册",
-                "api", "接口", "状态管理", "pinia", "图表", "表单", "多页面", "工作台", "dashboard",
-                "crud", "搜索", "分页", "database", "数据库", "sqlite", "后端", "backend", "全栈", "前后端");
+                "多模块", "多页面", "管理系统", "登录", "注册", "权限", "角色管理", "鉴权",
+                "状态管理", "图表", "复杂表单", "工作台", "dashboard", "支付", "结算",
+                "实时协作", "websocket", "多租户", "工作流", "审批", "消息队列", "高并发",
+                "分布式", "微服务");
     }
 
     public List<String> inferModules(String userMessage, String projectContext) {
@@ -151,17 +157,36 @@ public class GenerationAgentSupport {
     }
 
     public List<Map<String, Object>> collectIndexRecallPayloads(App app, String userMessage, int limit) {
+        return collectProjectIndexRecall(app, userMessage, limit).indexHits();
+    }
+
+    public ProjectIndexRecall collectProjectIndexRecall(App app, String userMessage, int limit) {
         File rootDir = resolveWorkspaceRoot(app);
         if (rootDir == null) {
-            return List.of();
+            return new ProjectIndexRecall(null, List.of());
         }
-        return collectIndexRecallPayloads(rootDir, buildSearchScope(app, userMessage), limit, List.of());
+        WorkspaceSemanticIndex index = semanticIndexService.loadOrBuild(rootDir.toPath());
+        List<Map<String, Object>> indexHits = collectIndexRecallPayloads(
+                index,
+                buildSearchScope(app, userMessage),
+                limit,
+                List.of()
+        );
+        return new ProjectIndexRecall(index, indexHits);
     }
 
     public ProjectContextPackage buildProjectContextPackage(App app,
                                                             CodeGenTypeEnum codeGenTypeEnum,
                                                             String userMessage,
                                                             File rootDir) {
+        return buildProjectContextPackage(app, codeGenTypeEnum, userMessage, rootDir, null);
+    }
+
+    public ProjectContextPackage buildProjectContextPackage(App app,
+                                                            CodeGenTypeEnum codeGenTypeEnum,
+                                                            String userMessage,
+                                                            File rootDir,
+                                                            WorkspaceSemanticIndex indexSnapshot) {
         String intent = inferIntent(userMessage);
         if (rootDir == null || !rootDir.exists() || !rootDir.isDirectory()) {
             return new ProjectContextPackage(intent, List.of(), 0, 0, List.of(), "empty", "");
@@ -170,11 +195,13 @@ public class GenerationAgentSupport {
         if (resolvedType == null) {
             resolvedType = CodeGenTypeEnum.HTML;
         }
-        List<String> selectedFiles = normalizeSelectedFiles(selectContextFiles(app, resolvedType, userMessage, rootDir));
-        int indexedFileCount = semanticIndexService.countIndexableFiles(rootDir.toPath());
-        int indexedSymbolCount = semanticIndexService.countIndexedSymbols(rootDir.toPath());
+        WorkspaceSemanticIndex index = resolveIndexSnapshot(rootDir, indexSnapshot);
+        List<String> selectedFiles = normalizeSelectedFiles(
+                selectContextFiles(app, resolvedType, userMessage, rootDir, index));
+        int indexedFileCount = semanticIndexService.indexedFileCount(index);
+        int indexedSymbolCount = semanticIndexService.indexedSymbolCount(index);
         List<Map<String, Object>> indexHits = collectIndexRecallPayloads(
-                rootDir,
+                index,
                 buildSearchScope(app, userMessage),
                 MAX_SELECTED_CONTEXT_FILES,
                 selectedFiles
@@ -195,51 +222,75 @@ public class GenerationAgentSupport {
         return new ProjectContextPackage(intent, selectedFiles, indexedFileCount, indexedSymbolCount, indexHits, contextMode, projectContext);
     }
 
+    private WorkspaceSemanticIndex resolveIndexSnapshot(File rootDir, WorkspaceSemanticIndex indexSnapshot) {
+        Path normalizedRoot = rootDir.toPath().toAbsolutePath().normalize();
+        if (indexSnapshot != null && StrUtil.isNotBlank(indexSnapshot.rootPath())) {
+            try {
+                if (normalizedRoot.equals(Path.of(indexSnapshot.rootPath()).toAbsolutePath().normalize())) {
+                    return indexSnapshot;
+                }
+            } catch (RuntimeException ignored) {
+                // 非法快照身份不能影响当前工作区重新建索引。
+            }
+        }
+        return semanticIndexService.loadOrBuild(normalizedRoot);
+    }
+
     public List<String> selectContextFiles(App app, CodeGenTypeEnum codeGenTypeEnum, File rootDir) {
         return selectContextFiles(app, codeGenTypeEnum, "", rootDir);
     }
 
     public List<String> selectContextFiles(App app, CodeGenTypeEnum codeGenTypeEnum, String userMessage, File rootDir) {
-        LinkedHashSet<String> candidates = new LinkedHashSet<>();
         if (rootDir == null || !rootDir.exists()) {
             return List.of();
         }
+        WorkspaceSemanticIndex index = semanticIndexService.loadOrBuild(rootDir.toPath());
+        return selectContextFiles(app, codeGenTypeEnum, userMessage, rootDir, index);
+    }
+
+    private List<String> selectContextFiles(App app,
+                                            CodeGenTypeEnum codeGenTypeEnum,
+                                            String userMessage,
+                                            File rootDir,
+                                            WorkspaceSemanticIndex index) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
         String normalizedMessage = buildSearchScope(app, userMessage);
-        candidates.addAll(semanticIndexService.suggestFiles(rootDir.toPath(), normalizedMessage, MAX_SELECTED_CONTEXT_FILES));
+        candidates.addAll(semanticIndexService.suggestFilesFromSnapshot(
+                index, normalizedMessage, MAX_SELECTED_CONTEXT_FILES));
         recipeLibrary.contextFileHints(matchRecipes(normalizedMessage, "")).forEach(candidates::add);
         skillLibrary.contextFileHints(matchSkills(normalizedMessage)).forEach(candidates::add);
         if (containsAny(normalizedMessage, "登录", "注册", "auth", "login", "signin", "signup", "用户", "账号", "权限", "角色", "token")) {
             candidates.addAll(List.of("src/views/Login.vue", "src/views/Register.vue", "src/pages/login", "src/pages/register",
                     "src/components/Auth", "src/api", "src/stores", "src/store"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("login", "register", "auth", "user", "token"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("login", "register", "auth", "user", "token"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "dashboard", "工作台", "首页", "概览", "overview")) {
             candidates.addAll(List.of("src/views/Dashboard.vue", "src/pages/home", "src/layouts", "src/components"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("dashboard", "home", "overview", "layout"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("dashboard", "home", "overview", "layout"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "列表", "table", "管理", "crud", "搜索", "分页")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("list", "table", "manage", "management", "crud"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("list", "table", "manage", "management", "crud"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "图表", "chart", "统计", "报表", "report", "分析")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("chart", "analytics", "stat", "report", "metric"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("chart", "analytics", "stat", "report", "metric"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "设置", "setting", "config", "profile", "偏好")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("setting", "config", "profile", "preference"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("setting", "config", "profile", "preference"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "路由", "router", "menu", "nav", "sidebar", "layout")) {
             candidates.addAll(List.of("src/router", "src/layouts", "src/components", "src/views"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("router", "route", "menu", "nav", "sidebar", "layout"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("router", "route", "menu", "nav", "sidebar", "layout"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "表单", "form", "input", "dialog", "modal", "editor")) {
             candidates.addAll(List.of("src/views", "src/pages", "src/components"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("form", "input", "dialog", "modal", "editor"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("form", "input", "dialog", "modal", "editor"), MAX_SELECTED_CONTEXT_FILES));
         }
         if (containsAny(normalizedMessage, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
             candidates.addAll(List.of("cmd/server", "internal", "sql", "go.mod"));
-            candidates.addAll(semanticIndexService.findMatchingFiles(rootDir.toPath(), List.of("database", "sqlite", "backend", "api", "service", "handler", "repository"), MAX_SELECTED_CONTEXT_FILES));
+            candidates.addAll(semanticIndexService.findMatchingFilesFromSnapshot(index, List.of("database", "sqlite", "backend", "api", "service", "handler", "repository"), MAX_SELECTED_CONTEXT_FILES));
         }
 
         if (codeGenTypeEnum == CodeGenTypeEnum.HTML) {
@@ -276,7 +327,7 @@ public class GenerationAgentSupport {
                     "index.html"
             ));
         }
-        return expandCandidates(rootDir, candidates);
+        return expandCandidates(rootDir, candidates, index);
     }
 
     public String buildContextMode(boolean hasGeneratedCode, List<String> selectedFiles) {
@@ -289,7 +340,9 @@ public class GenerationAgentSupport {
         return selectedFiles.size() > 4 ? "focused_update" : "minimal_patch";
     }
 
-    private List<String> expandCandidates(File rootDir, LinkedHashSet<String> candidates) {
+    private List<String> expandCandidates(File rootDir,
+                                          LinkedHashSet<String> candidates,
+                                          WorkspaceSemanticIndex index) {
         List<String> selected = new ArrayList<>();
         for (String candidate : candidates) {
             if (selected.size() >= MAX_SELECTED_CONTEXT_FILES) {
@@ -303,7 +356,7 @@ public class GenerationAgentSupport {
                 continue;
             }
             if (file.exists() && file.isDirectory()) {
-                selected.addAll(listFilesUnder(rootDir, candidate));
+                selected.addAll(listFilesUnder(index, candidate));
             }
         }
         return selected.stream()
@@ -313,12 +366,12 @@ public class GenerationAgentSupport {
                 .toList();
     }
 
-    private List<String> listFilesUnder(File rootDir, String relativeDirectory) {
+    private List<String> listFilesUnder(WorkspaceSemanticIndex index, String relativeDirectory) {
         if (StrUtil.isBlank(relativeDirectory)) {
             return List.of();
         }
         String query = relativeDirectory.replace("\\", "/");
-        return semanticIndexService.suggestFiles(rootDir.toPath(), query, MAX_SELECTED_CONTEXT_FILES).stream()
+        return semanticIndexService.suggestFilesFromSnapshot(index, query, MAX_SELECTED_CONTEXT_FILES).stream()
                 .filter(path -> path.startsWith(query.endsWith("/") ? query : query + "/"))
                 .limit(MAX_SELECTED_CONTEXT_FILES)
                 .toList();
@@ -351,12 +404,11 @@ public class GenerationAgentSupport {
         if (safeSelectedFiles.isEmpty()) {
             builder.append("未选中可复用文件，保留项目级摘要供模型参考。");
         } else {
-            builder.append(readSelectedFileContext(rootDir, safeSelectedFiles));
+            builder.append(generatedProjectContextService.buildSelectedFileSections(
+                    rootDir.toPath(), safeSelectedFiles, builder.length()));
         }
-        if (builder.length() <= MAX_CONTEXT_TOTAL_CHARS) {
-            return compressProjectContext(builder.toString().trim());
-        }
-        return compressProjectContext(builder.substring(0, MAX_CONTEXT_TOTAL_CHARS).trim());
+        return compressProjectContext(generatedProjectContextService.boundAssembledContext(
+                builder.toString().trim()));
     }
 
     private boolean shouldIndex(String relativePath) {
@@ -372,27 +424,29 @@ public class GenerationAgentSupport {
                 "tsconfig.json", "tsconfig.app.json", "go.mod", "go.sum", "README.md").contains(normalized);
     }
 
-    private List<Map<String, Object>> collectIndexRecallPayloads(File rootDir,
+    private List<Map<String, Object>> collectIndexRecallPayloads(WorkspaceSemanticIndex index,
                                                                  String query,
                                                                  int limit,
                                                                  List<String> selectedFiles) {
-        if (rootDir == null || StrUtil.isBlank(query)) {
+        if (index == null || StrUtil.isBlank(query)) {
             return List.of();
         }
         Set<String> selectedFileSet = selectedFiles == null ? Set.of() : selectedFiles.stream()
                 .filter(StrUtil::isNotBlank)
                 .map(path -> path.replace("\\", "/"))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        return semanticIndexService.search(rootDir.toPath(), query, Set.of(), limit).stream()
+        return semanticIndexService.searchSnapshot(index, query, Set.of(), limit).stream()
                 .filter(hit -> selectedFileSet.isEmpty() || selectedFileSet.contains(hit.relativePath()))
                 .map(this::toIndexHitPayload)
-                .collect(Collectors.collectingAndThen(Collectors.toList(), hits -> mergeSelectedFileHits(rootDir, selectedFiles, hits)))
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toList(),
+                        hits -> mergeSelectedFileHits(index, selectedFiles, hits)))
                 .stream()
                 .limit(limit)
                 .toList();
     }
 
-    private List<Map<String, Object>> mergeSelectedFileHits(File rootDir,
+    private List<Map<String, Object>> mergeSelectedFileHits(WorkspaceSemanticIndex index,
                                                             List<String> selectedFiles,
                                                             List<Map<String, Object>> hits) {
         if (selectedFiles == null || selectedFiles.isEmpty()) {
@@ -408,7 +462,7 @@ public class GenerationAgentSupport {
                 .filter(path -> !merged.containsKey(path))
                 .toList();
         if (!missingSelectedFiles.isEmpty()) {
-            semanticIndexService.describeFiles(rootDir.toPath(), missingSelectedFiles).stream()
+            semanticIndexService.describeFilesFromSnapshot(index, missingSelectedFiles).stream()
                     .map(this::toIndexHitPayload)
                     .forEach(hit -> merged.putIfAbsent(String.valueOf(hit.get("relativePath")), hit));
         }
@@ -449,26 +503,6 @@ public class GenerationAgentSupport {
         builder.append('\n');
     }
 
-    private String readSelectedFileContext(File rootDir, List<String> relativePaths) {
-        if (relativePaths == null || relativePaths.isEmpty()) {
-            return "";
-        }
-        List<String> sections = new ArrayList<>();
-        for (String relativePath : relativePaths) {
-            File file = new File(rootDir, relativePath);
-            if (!file.exists() || !file.isFile()) {
-                continue;
-            }
-            String extension = FileUtil.extName(file);
-            try {
-                String content = FileUtil.readString(file, StandardCharsets.UTF_8);
-                sections.add("当前文件: " + relativePath + "\n```" + extension + "\n" + truncate(content) + "\n```");
-            } catch (Exception ignored) {
-            }
-        }
-        return String.join("\n\n", sections);
-    }
-
     public List<String> normalizeSelectedFiles(List<String> selectedFiles) {
         if (selectedFiles == null || selectedFiles.isEmpty()) {
             return List.of();
@@ -481,16 +515,6 @@ public class GenerationAgentSupport {
                 .distinct()
                 .limit(MAX_SELECTED_CONTEXT_FILES)
                 .collect(Collectors.toList());
-    }
-
-    private String truncate(String content) {
-        if (content == null || content.length() <= MAX_MODEL_CONTEXT_FILE_CHARS) {
-            return StrUtil.blankToDefault(content, "");
-        }
-        return content.substring(0, MAX_MODEL_CONTEXT_FILE_CHARS)
-                + "\n<!-- 文件内容过长，以上为截断后的前 "
-                + MAX_MODEL_CONTEXT_FILE_CHARS
-                + " 个字符 -->";
     }
 
     private String compressProjectContext(String context) {
@@ -535,6 +559,15 @@ public class GenerationAgentSupport {
             String contextMode,
             String projectContext
     ) {
+    }
+
+    public record ProjectIndexRecall(
+            WorkspaceSemanticIndex indexSnapshot,
+            List<Map<String, Object>> indexHits
+    ) {
+        public ProjectIndexRecall {
+            indexHits = indexHits == null ? List.of() : List.copyOf(indexHits);
+        }
     }
 
     private boolean containsAny(String value, String... keywords) {

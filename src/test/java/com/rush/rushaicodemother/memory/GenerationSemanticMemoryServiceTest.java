@@ -25,20 +25,30 @@ class GenerationSemanticMemoryServiceTest {
             public int dimension() {
                 return 2;
             }
+
+            @Override
+            public String modelId() {
+                return "test-embedding";
+            }
+
+            @Override
+            public String modelVersion() {
+                return "v1";
+            }
         };
         TaskExecutor directExecutor = Runnable::run;
         GenerationSemanticMemoryService service = new GenerationSemanticMemoryService(
                 store, embeddingService, new MilvusMemoryProperties(), directExecutor
         );
 
-        service.rememberAsync(1L, 2L, "task-1", MemoryType.TASK_OUTCOME,
+        service.rememberAsync(9L, 1L, 2L, "task-1", MemoryType.TASK_OUTCOME,
                 "build passed", Map.of("route", "heavy"));
-        service.rememberAsync(1L, 2L, "task-1", MemoryType.TASK_OUTCOME,
+        service.rememberAsync(9L, 1L, 2L, "task-1", MemoryType.TASK_OUTCOME,
                 "build passed", Map.of("route", "heavy"));
 
         assertEquals(2, store.memories.size());
         assertEquals(store.memories.get(0).id(), store.memories.get(1).id());
-        assertEquals("v1", store.memories.get(0).metadata().get("schemaVersion"));
+        assertEquals("v2", store.memories.get(0).metadata().get("schemaVersion"));
         assertEquals("generation_task", store.memories.get(0).metadata().get("source"));
         assertEquals("untrusted_history", store.memories.get(0).metadata().get("trust"));
     }
@@ -57,9 +67,9 @@ class GenerationSemanticMemoryServiceTest {
         }
 
         @Override
-        public void deleteByApplication(Long appId, Long userId) {
-            memories.removeIf(memory -> memory.appId().equals(appId)
-                    && (userId == null || memory.userId().equals(userId)));
+        public void deleteByApplication(Long tenantId, Long appId) {
+            memories.removeIf(memory -> memory.tenantId().equals(tenantId)
+                    && memory.appId().equals(appId));
         }
     }
 }

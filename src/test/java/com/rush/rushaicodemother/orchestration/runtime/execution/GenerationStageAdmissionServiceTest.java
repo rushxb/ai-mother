@@ -22,6 +22,63 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GenerationStageAdmissionServiceTest {
 
     @Test
+    void modelTurnMustNotConsumeBudgetWhenCompletionWindowCannotFit() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        GenerationStageAdmissionService service = service(meterRegistry);
+        GenerationExecutionContextTest.MutableClock clock =
+                new GenerationExecutionContextTest.MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        GenerationExecutionContext context = context(
+                "model-turn-deadline",
+                Duration.ofSeconds(101),
+                clock
+        );
+
+        GenerationModelTurnAdmissionException exception = assertThrows(
+                GenerationModelTurnAdmissionException.class,
+                () -> service.requireModelTurn(
+                        context,
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "heavy"
+                )
+        );
+
+        assertEquals(Duration.ofSeconds(72), exception.completionReserve());
+        assertEquals(Duration.ofSeconds(102), exception.required());
+        assertEquals(0, context.used(GenerationBudgetKind.MODEL_TURN));
+        assertEquals(1.0, meterRegistry.get("generation_stage_admission_total")
+                .tag("orchestration_mode", "heavy")
+                .tag("stage", "model_turn")
+                .tag("outcome", "reserved_completion")
+                .counter()
+                .count());
+    }
+
+    @Test
+    void modelTurnTimeoutMustStopBeforeProtectedBuildWindow() {
+        GenerationStageAdmissionService service = service(new SimpleMeterRegistry());
+        GenerationExecutionContextTest.MutableClock clock =
+                new GenerationExecutionContextTest.MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        GenerationExecutionContext context = context(
+                "model-turn-window",
+                Duration.ofMinutes(3),
+                Duration.ofMinutes(3),
+                clock
+        );
+
+        GenerationStageAdmissionService.ModelTurnWindow window = service.requireModelTurn(
+                context,
+                CodeGenTypeEnum.VUE_PROJECT,
+                "heavy"
+        );
+
+        assertEquals(Duration.ofSeconds(108), window.timeout());
+        assertEquals(Duration.ofSeconds(72), window.completionReserve());
+        assertEquals(Duration.ofSeconds(102), window.minimumRequired());
+        assertTrue(window.completionWindowLimited());
+        assertEquals(1, context.used(GenerationBudgetKind.MODEL_TURN));
+    }
+
+    @Test
     void repairIsSkippedBeforeBudgetConsumptionWhenFullCycleCannotFit() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         GenerationStageAdmissionService service = service(meterRegistry);
@@ -91,6 +148,16 @@ class GenerationStageAdmissionServiceTest {
     private GenerationExecutionContext context(String taskId,
                                                Duration timeout,
                                                GenerationExecutionContextTest.MutableClock clock) {
+        Duration modelTimeout = timeout.compareTo(Duration.ofSeconds(30)) < 0
+                ? timeout
+                : Duration.ofSeconds(30);
+        return context(taskId, timeout, modelTimeout, clock);
+    }
+
+    private GenerationExecutionContext context(String taskId,
+                                               Duration timeout,
+                                               Duration modelTimeout,
+                                               GenerationExecutionContextTest.MutableClock clock) {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             budgets.put(kind, 3);
@@ -102,7 +169,7 @@ class GenerationStageAdmissionServiceTest {
                 clock.instant(),
                 new GenerationExecutionLimits(
                         timeout,
-                        timeout.compareTo(Duration.ofSeconds(30)) < 0 ? timeout : Duration.ofSeconds(30),
+                        modelTimeout,
                         Duration.ofMillis(500),
                         budgets
                 ),

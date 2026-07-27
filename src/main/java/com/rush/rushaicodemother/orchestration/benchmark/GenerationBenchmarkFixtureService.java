@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Creates real relational and workspace fixtures for end-to-end generation benchmarks. */
+/** 为端到端生成基准创建真实的关系和工作区固定装置。 */
 @Slf4j
 @Service
 public class GenerationBenchmarkFixtureService {

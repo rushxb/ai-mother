@@ -8,6 +8,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * MyBatis生成反馈持久化仓储。
+ */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisGenerationFeedbackRepository implements GenerationFeedbackRepository {

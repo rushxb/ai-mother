@@ -11,7 +11,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Historical profiling, cache and conservative ETA fallback controls. */
+/** 历史分析、缓存和保守的 ETA 回退控制。 */
 @Data
 @Component
 @Validated

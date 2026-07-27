@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.monitor;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -11,7 +12,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Low-cardinality operational metrics for generated-code isolation. */
+/** 用于生成代码隔离的低基数操作指标。 */
 @Component
 public class GeneratedCodeSandboxMetricsCollector {
 
@@ -25,6 +26,7 @@ public class GeneratedCodeSandboxMetricsCollector {
     private final ConcurrentMap<String, Counter> cleanupCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> readinessCounters = new ConcurrentHashMap<>();
 
+    @Autowired
     public GeneratedCodeSandboxMetricsCollector(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
     }

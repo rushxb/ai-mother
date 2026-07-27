@@ -16,8 +16,9 @@ import com.rush.rushaicodemother.config.AiPromptCatalogProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.monitor.PromptReleaseMetricsCollector;
-import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubject;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceCandidate;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier;
+import com.rush.rushaicodemother.service.release.AiReleaseCoordinationLock;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -47,8 +48,8 @@ class DefaultPromptReleaseManagementServiceTest {
     private PromptReleaseRuntime runtime;
     private PromptReleaseRepository repository;
     private PromptReleaseRefreshService refreshService;
-    private PromptReleaseCandidateFingerprintService candidateFingerprintService;
     private GenerationReleaseEvidenceVerifier evidenceVerifier;
+    private AiReleaseCoordinationLock coordinationLock;
     private DefaultPromptReleaseManagementService service;
 
     @BeforeEach
@@ -57,14 +58,19 @@ class DefaultPromptReleaseManagementServiceTest {
         runtime = mock(PromptReleaseRuntime.class);
         repository = mock(PromptReleaseRepository.class);
         refreshService = mock(PromptReleaseRefreshService.class);
-        candidateFingerprintService = mock(PromptReleaseCandidateFingerprintService.class);
         evidenceVerifier = mock(GenerationReleaseEvidenceVerifier.class);
+        coordinationLock = mock(AiReleaseCoordinationLock.class);
         when(runtime.capabilities()).thenReturn(new PromptReleaseCapabilities(Map.of(
                 "test-prompt", Map.of("v1", hash('1'), "v2", hash('2'))
         )));
-        when(candidateFingerprintService.fingerprint(any(), any())).thenReturn(hash('c'));
         AiPromptCatalogProperties properties = new AiPromptCatalogProperties();
         properties.getRuntimeReleases().setEnabled(true);
+        PromptReleaseTransactionCoordinator transactionCoordinator =
+                new PromptReleaseTransactionCoordinator(
+                        coordinationLock,
+                        repository,
+                        evidenceVerifier
+                );
         service = new DefaultPromptReleaseManagementService(
                 properties,
                 promptCatalog,
@@ -72,8 +78,7 @@ class DefaultPromptReleaseManagementServiceTest {
                 repository,
                 refreshService,
                 PromptReleaseMetricsCollector.noOp(),
-                candidateFingerprintService,
-                evidenceVerifier
+                transactionCoordinator
         );
     }
 
@@ -91,12 +96,18 @@ class DefaultPromptReleaseManagementServiceTest {
         assertEquals(4L, result.durableRevision());
         assertTrue(result.appliedLocally());
         ArgumentCaptor<PromptReleaseMutation> captor = ArgumentCaptor.forClass(PromptReleaseMutation.class);
-        InOrder releaseOrder = inOrder(evidenceVerifier, repository);
+        InOrder releaseOrder = inOrder(
+                coordinationLock,
+                evidenceVerifier,
+                repository
+        );
+        releaseOrder.verify(coordinationLock).acquire();
         releaseOrder.verify(evidenceVerifier).requirePassed(
                 EVIDENCE_ID,
-                GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
-                "test-prompt",
-                hash('c')
+                new GenerationBenchmarkEvidenceCandidate.PromptRelease(
+                        "test-prompt",
+                        new PromptReleaseSpec("v1", "v2", 15)
+                )
         );
         releaseOrder.verify(repository).publish(captor.capture());
         assertEquals("canary release", captor.getValue().changeNote());
@@ -121,7 +132,7 @@ class DefaultPromptReleaseManagementServiceTest {
 
     @Test
     void rejectedEvidenceMustFailBeforeReleasePersistence() {
-        when(evidenceVerifier.requirePassed(any(), any(), any(), any()))
+        when(evidenceVerifier.requirePassed(any(), any()))
                 .thenThrow(new BusinessException(ErrorCode.OPERATION_ERROR, "benchmark rejected"));
 
         BusinessException exception = assertThrows(BusinessException.class, () -> service.publish(
@@ -158,6 +169,7 @@ class DefaultPromptReleaseManagementServiceTest {
         ), 9L);
 
         assertEquals(5L, result.durableRevision());
+        verify(coordinationLock).acquire();
         ArgumentCaptor<PromptReleaseMutation> captor = ArgumentCaptor.forClass(PromptReleaseMutation.class);
         verify(repository).publish(captor.capture());
         assertEquals(PromptReleaseAction.ROLLBACK, captor.getValue().action());

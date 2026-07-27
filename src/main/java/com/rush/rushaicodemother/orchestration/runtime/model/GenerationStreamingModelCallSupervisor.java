@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.model;
 
+import com.rush.rushaicodemother.core.handler.GenerationCancellationAwareStreamingHandler;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
@@ -19,47 +20,112 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
- * Supervises one logical streaming-model turn with absolute and inactivity deadlines.
+ * 以首信号、流空闲和整回合墙钟三层时限监督一次流式模型回合。
  *
- * <p>The returned cancellation handle is registered before the provider is invoked. Cancellation
- * therefore terminates the logical call even when a provider has not exposed a
- * {@link StreamingHandle} yet. If a late handle arrives after termination, it is cancelled
- * immediately.</p>
+ * <p>调用供应商前先注册逻辑取消句柄，因此即使供应商尚未暴露 {@link StreamingHandle}，
+ * 任务取消和超时也能终止本次逻辑调用；迟到句柄会被立即取消。</p>
  */
 @Slf4j
 @Component
 public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
 
     private final ScheduledExecutorService scheduler;
+    private final ExecutorService timeoutTerminalExecutor;
+    private final GenerationModelTimeoutPolicy timeoutPolicy;
+    private final GenerationModelInvocationCancellationBridge cancellationBridge;
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
 
     public GenerationStreamingModelCallSupervisor() {
-        this(createScheduler());
+        this(createScheduler(), createTimeoutTerminalExecutor(),
+                GenerationModelTimeoutPolicy.defaults(),
+                new GenerationModelInvocationCancellationBridge());
+    }
+
+    public GenerationStreamingModelCallSupervisor(GenerationModelTimeoutPolicy timeoutPolicy) {
+        this(createScheduler(), createTimeoutTerminalExecutor(), timeoutPolicy,
+                new GenerationModelInvocationCancellationBridge());
+    }
+
+    @Autowired
+    public GenerationStreamingModelCallSupervisor(
+            GenerationModelTimeoutPolicy timeoutPolicy,
+            GenerationModelInvocationCancellationBridge cancellationBridge) {
+        this(createScheduler(), createTimeoutTerminalExecutor(), timeoutPolicy, cancellationBridge);
     }
 
     GenerationStreamingModelCallSupervisor(ScheduledExecutorService scheduler) {
+        this(scheduler, createTimeoutTerminalExecutor(), GenerationModelTimeoutPolicy.defaults(),
+                new GenerationModelInvocationCancellationBridge());
+    }
+
+    GenerationStreamingModelCallSupervisor(ScheduledExecutorService scheduler,
+                                            ExecutorService timeoutTerminalExecutor) {
+        this(scheduler, timeoutTerminalExecutor, GenerationModelTimeoutPolicy.defaults(),
+                new GenerationModelInvocationCancellationBridge());
+    }
+
+    GenerationStreamingModelCallSupervisor(ScheduledExecutorService scheduler,
+                                            ExecutorService timeoutTerminalExecutor,
+                                            GenerationModelTimeoutPolicy timeoutPolicy) {
+        this(scheduler, timeoutTerminalExecutor, timeoutPolicy,
+                new GenerationModelInvocationCancellationBridge());
+    }
+
+    GenerationStreamingModelCallSupervisor(
+            ScheduledExecutorService scheduler,
+            ExecutorService timeoutTerminalExecutor,
+            GenerationModelTimeoutPolicy timeoutPolicy,
+            GenerationModelInvocationCancellationBridge cancellationBridge) {
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+        this.timeoutTerminalExecutor = Objects.requireNonNull(
+                timeoutTerminalExecutor, "timeoutTerminalExecutor");
+        this.timeoutPolicy = Objects.requireNonNull(timeoutPolicy, "模型超时策略不能为空");
+        this.cancellationBridge = Objects.requireNonNull(
+                cancellationBridge, "模型取消桥不能为空");
     }
 
     public void chat(StreamingChatModel model,
                      ChatRequest request,
                      GenerationExecutionContext executionContext,
+                     BooleanSupplier cancelChecker,
+                     Consumer<GenerationCancellationHandle> cancellationHandleConsumer,
+                     StreamingChatResponseHandler downstream) {
+        Objects.requireNonNull(executionContext, "executionContext");
+        chat(
+                model,
+                request,
+                executionContext,
+                executionContext.limits().modelCallTimeout(),
+                cancelChecker,
+                cancellationHandleConsumer,
+                downstream
+        );
+    }
+
+    /** 使用调用方已经按阶段完成窗口收紧的模型超时。 */
+    public void chat(StreamingChatModel model,
+                     ChatRequest request,
+                     GenerationExecutionContext executionContext,
+                     Duration requestedTimeout,
                      BooleanSupplier cancelChecker,
                      Consumer<GenerationCancellationHandle> cancellationHandleConsumer,
                      StreamingChatResponseHandler downstream) {
@@ -70,15 +136,15 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
         if (shuttingDown.get()) {
             throw new IllegalStateException("model call supervisor is shutting down");
         }
-        Duration timeout = executionContext.clampTimeout(
-                executionContext.limits().modelCallTimeout());
+        Duration timeout = executionContext.clampTimeout(requestedTimeout);
         SupervisedCall call = new SupervisedCall(
                 model,
                 request,
                 executionContext,
                 cancelChecker == null ? () -> false : cancelChecker,
                 downstream,
-                timeout
+                timeout,
+                timeoutPolicy.firstSignalTimeout(timeout)
         );
         Consumer<GenerationCancellationHandle> safeConsumer = cancellationHandleConsumer == null
                 ? ignored -> { }
@@ -92,6 +158,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
     public void close() {
         if (shuttingDown.compareAndSet(false, true)) {
             scheduler.shutdownNow();
+            timeoutTerminalExecutor.shutdownNow();
         }
     }
 
@@ -106,6 +173,13 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
         return executor;
     }
 
+    private static ExecutorService createTimeoutTerminalExecutor() {
+        ThreadFactory threadFactory = Thread.ofVirtual()
+                .name("generation-model-timeout-terminal-", 0)
+                .factory();
+        return Executors.newThreadPerTaskExecutor(threadFactory);
+    }
+
     private final class SupervisedCall implements GenerationCancellationHandle {
 
         private final StreamingChatModel model;
@@ -114,7 +188,12 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
         private final BooleanSupplier cancelChecker;
         private final StreamingChatResponseHandler downstream;
         private final Duration timeout;
+        private final Duration firstSignalTimeout;
         private final AtomicBoolean terminal = new AtomicBoolean();
+        private final AtomicReference<GenerationCancellationHandle> activeCancellationHandle =
+                new AtomicReference<>();
+        private final GenerationModelCancellationScope transportCancellationScope =
+                new GenerationModelCancellationScope();
         private final AtomicReference<StreamingHandle> activeHandle = new AtomicReference<>();
         private final AtomicReference<ScheduledFuture<?>> wallClockTimer = new AtomicReference<>();
         private final AtomicReference<ScheduledFuture<?>> inactivityTimer = new AtomicReference<>();
@@ -124,13 +203,15 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                                GenerationExecutionContext executionContext,
                                BooleanSupplier cancelChecker,
                                StreamingChatResponseHandler downstream,
-                               Duration timeout) {
+                               Duration timeout,
+                               Duration firstSignalTimeout) {
             this.model = model;
             this.request = request;
             this.executionContext = executionContext;
             this.cancelChecker = cancelChecker;
             this.downstream = downstream;
             this.timeout = timeout;
+            this.firstSignalTimeout = firstSignalTimeout;
         }
 
         private void start() {
@@ -139,8 +220,9 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                 return;
             }
             armWallClockTimer();
-            armInactivityTimer();
-            try {
+            armProgressTimer(firstSignalTimeout, "first-signal");
+            try (GenerationModelInvocationCancellationBridge.ScopeBinding ignored =
+                         cancellationBridge.activate(transportCancellationScope)) {
                 model.chat(request, forwardingHandler());
             } catch (RuntimeException synchronousFailure) {
                 fail(synchronousFailure, true);
@@ -155,7 +237,12 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
         }
 
         private StreamingChatResponseHandler forwardingHandler() {
-            return new StreamingChatResponseHandler() {
+            return new GenerationCancellationAwareStreamingHandler() {
+                @Override
+                public void registerCancellationHandle(GenerationCancellationHandle cancellationHandle) {
+                    registerUpstreamCancellation(cancellationHandle);
+                }
+
                 @Override
                 public void onPartialResponse(String partialResponse) {
                     forward(null, () -> downstream.onPartialResponse(partialResponse));
@@ -228,7 +315,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                 timeout("wall-clock");
                 return;
             }
-            armInactivityTimer();
+            armProgressTimer(timeout, "inactivity");
             try {
                 callback.run();
             } catch (RuntimeException callbackFailure) {
@@ -241,6 +328,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                 return;
             }
             cancelTimers();
+            clearActiveHandles();
             try {
                 callback.run();
             } catch (RuntimeException callbackFailure) {
@@ -250,12 +338,37 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
         }
 
         private void fail(Throwable failure, boolean cancelProvider) {
-            if (!terminal.compareAndSet(false, true)) {
+            if (!claimTerminal()) {
                 return;
             }
+            notifyFailure(failure, cancelProvider);
+        }
+
+        private void failFromWatchdog(Throwable failure) {
+            if (!claimTerminal()) {
+                return;
+            }
+            try {
+                timeoutTerminalExecutor.execute(() -> notifyFailure(failure, true));
+            } catch (RejectedExecutionException shutdownRace) {
+                failure.addSuppressed(shutdownRace);
+                notifyFailure(failure, true);
+            }
+        }
+
+        private boolean claimTerminal() {
+            if (!terminal.compareAndSet(false, true)) {
+                return false;
+            }
             cancelTimers();
+            return true;
+        }
+
+        private void notifyFailure(Throwable failure, boolean cancelProvider) {
             if (cancelProvider) {
-                cancelActiveHandle();
+                cancelActiveHandles();
+            } else {
+                clearActiveHandles();
             }
             try {
                 downstream.onError(failure);
@@ -267,10 +380,18 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
         }
 
         private void timeout(String kind) {
+            fail(timeoutFailure(kind), true);
+        }
+
+        private void timeoutFromWatchdog(String kind) {
+            failFromWatchdog(timeoutFailure(kind));
+        }
+
+        private Throwable timeoutFailure(String kind) {
             Throwable failure = executionContext.isDeadlineExceeded()
                     ? new GenerationDeadlineExceededException(executionContext.taskId())
-                    : new TimeoutException("model call " + kind + " timeout");
-            fail(failure, true);
+                    : new GenerationModelCallTimeoutException(kind);
+            return failure;
         }
 
         private void registerHandle(StreamingHandle handle) {
@@ -289,18 +410,36 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             }
         }
 
+        private void registerUpstreamCancellation(GenerationCancellationHandle cancellationHandle) {
+            if (cancellationHandle == null) {
+                throw new IllegalArgumentException("上游取消句柄不能为空");
+            }
+            if (terminal.get()) {
+                cancelCancellationHandle(cancellationHandle);
+                return;
+            }
+            GenerationCancellationHandle previous =
+                    activeCancellationHandle.getAndSet(cancellationHandle);
+            if (terminal.get()
+                    && activeCancellationHandle.compareAndSet(cancellationHandle, null)) {
+                cancelCancellationHandle(cancellationHandle);
+            } else if (previous != null && previous != cancellationHandle) {
+                cancelCancellationHandle(previous);
+            }
+        }
+
         private void armWallClockTimer() {
             ScheduledFuture<?> future = scheduler.schedule(
-                    () -> timeout("wall-clock"), timeout.toNanos(), TimeUnit.NANOSECONDS);
+                    () -> timeoutFromWatchdog("wall-clock"), timeout.toNanos(), TimeUnit.NANOSECONDS);
             replaceTimer(wallClockTimer, future);
         }
 
-        private void armInactivityTimer() {
+        private void armProgressTimer(Duration delay, String timeoutKind) {
             if (terminal.get()) {
                 return;
             }
             ScheduledFuture<?> future = scheduler.schedule(
-                    () -> timeout("inactivity"), timeout.toNanos(), TimeUnit.NANOSECONDS);
+                    () -> timeoutFromWatchdog(timeoutKind), delay.toNanos(), TimeUnit.NANOSECONDS);
             replaceTimer(inactivityTimer, future);
         }
 
@@ -331,8 +470,28 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             return executionContext.isCancelled() || cancelChecker.getAsBoolean();
         }
 
-        private void cancelActiveHandle() {
+        private void cancelActiveHandles() {
+            cancelCancellationHandle(activeCancellationHandle.getAndSet(null));
             cancelHandle(activeHandle.getAndSet(null));
+            transportCancellationScope.cancel();
+        }
+
+        private void clearActiveHandles() {
+            activeCancellationHandle.set(null);
+            activeHandle.set(null);
+            transportCancellationScope.complete();
+        }
+
+        private void cancelCancellationHandle(GenerationCancellationHandle cancellationHandle) {
+            if (cancellationHandle == null) {
+                return;
+            }
+            try {
+                cancellationHandle.cancel();
+            } catch (RuntimeException cancellationFailure) {
+                log.warn("取消上游 AI 流失败，taskId: {}",
+                        executionContext.taskId(), LogExceptionSanitizer.sanitize(cancellationFailure));
+            }
         }
 
         private void cancelHandle(StreamingHandle handle) {
@@ -342,7 +501,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             try {
                 handle.cancel();
             } catch (RuntimeException cancellationFailure) {
-                log.warn("Failed to cancel supervised AI stream, taskId: {}",
+                log.warn("取消受监督的 AI 流失败，taskId: {}",
                         executionContext.taskId(), LogExceptionSanitizer.sanitize(cancellationFailure));
             }
         }

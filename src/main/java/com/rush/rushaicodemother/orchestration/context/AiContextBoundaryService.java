@@ -8,8 +8,8 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * Marks repository content as untrusted model input, redacts secrets and records provenance.
- * Repository text is data, never an authority that can override product or user instructions.
+ * 将存储库内容标记为不受信任的模型输入，编辑机密并记录来源。
+ * 存储库文本是数据，绝不是可以覆盖产品或用户指令的权限。
  */
 @Component
 public class AiContextBoundaryService {

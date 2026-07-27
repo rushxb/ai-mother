@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 
-/** Persists the files produced by the native multi-file generation mode. */
+/** 持久化原生多文件生成模式产出的文件。 */
 @Component
 public final class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<MultiFileCodeResult> {
 

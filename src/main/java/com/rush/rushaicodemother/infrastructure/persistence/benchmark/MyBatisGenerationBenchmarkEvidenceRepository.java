@@ -19,7 +19,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
-/** Insert-only MyBatis adapter for immutable release evidence. */
+/** 不可变发布证据的只增 MyBatis 持久化适配器。 */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisGenerationBenchmarkEvidenceRepository
@@ -33,7 +33,7 @@ public class MyBatisGenerationBenchmarkEvidenceRepository
     @Override
     public void insert(GenerationBenchmarkEvidenceRecord evidence) {
         if (evidence == null || evidence.payload() == null) {
-            throw new IllegalArgumentException("benchmark evidence cannot be null");
+            throw new IllegalArgumentException("Benchmark 证据不能为空");
         }
         GenerationBenchmarkEvidencePayload payload = evidence.payload();
         GenerationBenchmarkEvidenceEntity entity = GenerationBenchmarkEvidenceEntity.builder()
@@ -41,6 +41,8 @@ public class MyBatisGenerationBenchmarkEvidenceRepository
                 .subjectType(payload.subjectType().name())
                 .subjectKey(payload.subjectKey())
                 .candidateFingerprint(payload.candidateFingerprint())
+                .signatureVersion(payload.signatureVersion())
+                .candidatePhysicalRequestCount(payload.candidatePhysicalRequestCount())
                 .datasetFingerprint(payload.datasetFingerprint())
                 .graderFingerprint(payload.graderFingerprint())
                 .runtimeConfigFingerprint(payload.runtimeConfigFingerprint())
@@ -58,10 +60,10 @@ public class MyBatisGenerationBenchmarkEvidenceRepository
                 .build();
         try {
             if (mapper.insertEvidence(entity) != 1) {
-                throw new IllegalStateException("benchmark evidence could not be inserted");
+                throw new IllegalStateException("Benchmark 证据无法入库");
             }
         } catch (DuplicateKeyException duplicate) {
-            throw new IllegalStateException("benchmark evidence id already exists", duplicate);
+            throw new IllegalStateException("Benchmark 证据标识已存在", duplicate);
         }
     }
 
@@ -75,20 +77,24 @@ public class MyBatisGenerationBenchmarkEvidenceRepository
 
     private GenerationBenchmarkEvidenceRecord toRecord(GenerationBenchmarkEvidenceEntity entity) {
         if (entity.getEvidenceId() == null || entity.getSubjectType() == null
+                || entity.getSignatureVersion() == null
+                || entity.getCandidatePhysicalRequestCount() == null
                 || entity.getEvaluatedAt() == null || entity.getExpiresAt() == null
                 || entity.getCreateTime() == null || entity.getPassed() == null) {
-            throw new IllegalStateException("benchmark evidence row is incomplete");
+            throw new IllegalStateException("Benchmark 证据数据行不完整");
         }
         GenerationBenchmarkEvidenceSubject subject;
         try {
             subject = GenerationBenchmarkEvidenceSubject.valueOf(entity.getSubjectType());
         } catch (IllegalArgumentException invalid) {
-            throw new IllegalStateException("benchmark evidence subject is invalid", invalid);
+            throw new IllegalStateException("Benchmark 证据候选类型无效", invalid);
         }
         GenerationBenchmarkEvidencePayload payload = new GenerationBenchmarkEvidencePayload(
+                entity.getSignatureVersion(),
                 subject,
                 entity.getSubjectKey(),
                 entity.getCandidateFingerprint(),
+                entity.getCandidatePhysicalRequestCount(),
                 entity.getDatasetFingerprint(),
                 entity.getGraderFingerprint(),
                 entity.getRuntimeConfigFingerprint(),
@@ -114,7 +120,7 @@ public class MyBatisGenerationBenchmarkEvidenceRepository
         try {
             return objectMapper.writeValueAsString(violations == null ? List.of() : violations);
         } catch (JsonProcessingException failure) {
-            throw new IllegalStateException("benchmark evidence violations could not be serialized", failure);
+            throw new IllegalStateException("Benchmark 证据违规项无法序列化", failure);
         }
     }
 
@@ -124,7 +130,7 @@ public class MyBatisGenerationBenchmarkEvidenceRepository
                     ? List.of()
                     : List.copyOf(objectMapper.readValue(value, STRING_LIST));
         } catch (JsonProcessingException failure) {
-            throw new IllegalStateException("benchmark evidence violations are corrupted", failure);
+            throw new IllegalStateException("Benchmark 证据违规项数据已损坏", failure);
         }
     }
 

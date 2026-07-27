@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.model.enums;
 
 import java.util.Arrays;
 
+/**
+ * 租户类型的可选类型。
+ */
 public enum TenantType {
     PERSONAL("personal"),
     ORGANIZATION("organization");

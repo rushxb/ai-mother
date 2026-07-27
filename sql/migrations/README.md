@@ -60,3 +60,26 @@ B20260716_5__production_schema_baseline.sql
 `V20260718_7__generation_task_submission_idempotency.sql` adds hashed `Idempotency-Key`
 storage, request fingerprints, and the tenant/user/app-scoped uniqueness contract used by
 generation admission. Raw idempotency keys must never be stored or logged.
+
+`V20260721_1__semantic_memory_production_contract.sql` adds leased/retryable claiming for
+generation-task memory indexing and creates `semantic_memory_deletion_outbox`. Application
+deletion must enqueue the Milvus delete operation in the same relational transaction that removes
+the application rows. The worker then performs the tenant/app-scoped delete idempotently; operators
+must not manually mark an outbox row complete without independently verifying the Milvus delete.
+
+`V20260721_2__semantic_memory_v2_reindex_contract.sql` adds the non-negative
+`memoryIndexContractVersion` marker and its claim index. Existing rows receive version `0`, so a
+task previously indexed into the v1 collection is safely reclaimed for the v2 schema/embedding
+contract even when `memoryIndexedAt` is already populated. The claim transition atomically switches
+the row to the current contract, clears the legacy success timestamp and starts a fresh retry budget;
+do not replace this mechanism with a bulk `UPDATE ... SET memoryIndexedAt = NULL` on production
+tables. Any incompatible row schema, collection, embedding model or embedding version change must
+increment `SemanticMemoryContract.INDEX_VERSION` in the same release.
+
+`V20260721_3__ai_release_coordination_lock.sql` 新增全局 AI 发布事务协调行。
+Prompt 发布、模型启停或删除、模型密钥迁移在读取或改变发布身份前必须先锁定该行，
+并将证据重放与状态变更放在同一数据库事务内。禁止改成进程内锁，也禁止在无事务或只读事务中调用。
+
+`V20260723_1__generation_benchmark_candidate_invocation_attestation.sql` 新增 Benchmark
+证据签名协议版本和候选模型物理请求计数。历史证据标记为 `v1/0` 以保留审计可读性；
+新发布只接受 `v2`。模型启用候选必须记录至少一次评测窗口内的真实物理请求，Prompt 候选必须为 `0`。

@@ -5,7 +5,7 @@ import dev.langchain4j.model.output.structured.Description;
 import java.util.List;
 
 /**
- * Unified CREATE spec. AI fills product intent and template variables only; local renderers write code.
+ * 统一的CREATE规范。 AI仅填充产品意图和模板变量；本地渲染器编写代码。
  */
 @Description("CREATE 模式统一模板变量规格，只描述产品、模块、实体、前后端、数据库、内容和约束，不包含代码")
 public record CreateSpec(

@@ -43,12 +43,12 @@ public class GenerationPerformanceMonitorService {
     private final List<GenerationSpanSink> spanSinks;
     private final Clock clock;
 
-    /** Compatibility constructor for isolated tests and non-Spring callers. */
+    /** 用于隔离测试和非 Spring 调用者的兼容性构造函数。 */
     public GenerationPerformanceMonitorService() {
         this(List.of(), Clock.systemUTC());
     }
 
-    /** Spring constructor: all registered sinks receive every completed span. */
+    /** Spring 构造函数：所有注册的接收器都会接收每个已完成的跨度。 */
     @Autowired
     public GenerationPerformanceMonitorService(List<GenerationSpanSink> spanSinks) {
         this(spanSinks, Clock.systemUTC());
@@ -77,10 +77,23 @@ public class GenerationPerformanceMonitorService {
         if (StrUtil.isBlank(taskId)) {
             return;
         }
-        TaskRecord record = new TaskRecord(taskId, appId, userId, normalize(route), normalize(targetType),
-                startAt == null ? clock.instant() : startAt, decision);
-        TaskRecord previous = taskRecords.put(taskId, record);
-        if (previous == null) {
+        String normalizedRoute = normalize(route);
+        String normalizedTargetType = normalize(targetType);
+        Instant normalizedStartAt = startAt == null ? clock.instant() : startAt;
+        AtomicBoolean created = new AtomicBoolean();
+        taskRecords.compute(taskId, (ignored, existing) -> {
+            if (existing == null) {
+                created.set(true);
+                return new TaskRecord(
+                        taskId, appId, userId, normalizedRoute, normalizedTargetType,
+                        normalizedStartAt, decision);
+            }
+            if (!existing.completed()) {
+                existing.transition(appId, userId, normalizedRoute, normalizedTargetType, decision);
+            }
+            return existing;
+        });
+        if (created.get()) {
             taskOrder.addFirst(taskId);
             trimOldTasks();
         }
@@ -163,7 +176,7 @@ public class GenerationPerformanceMonitorService {
         if (record == null) {
             return;
         }
-        record.finish(normalize(status));
+        record.finish(normalize(status), clock.instant());
     }
 
     public void recordCreateTelemetry(String taskId, Map<String, Object> telemetry) {
@@ -323,15 +336,15 @@ public class GenerationPerformanceMonitorService {
         private final String taskId;
         private final Long appId;
         private final Long userId;
-        private final String route;
-        private final String targetType;
+        private volatile String route;
+        private volatile String targetType;
         private final Instant startAt;
-        private final String mode;
-        private final String routerReason;
-        private final String routingDecisionCode;
-        private final String fallbackPolicy;
-        private final String fallbackReason;
-        private final String validationLevel;
+        private volatile String mode;
+        private volatile String routerReason;
+        private volatile String routingDecisionCode;
+        private volatile String fallbackPolicy;
+        private volatile String fallbackReason;
+        private volatile String validationLevel;
         private final List<SpanRecord> spans = new ArrayList<>();
         private volatile CreateTelemetryRecord createTelemetry = CreateTelemetryRecord.empty();
         private volatile RuntimeTelemetryRecord runtimeTelemetry = RuntimeTelemetryRecord.empty();
@@ -351,14 +364,40 @@ public class GenerationPerformanceMonitorService {
             this.route = route;
             this.targetType = targetType;
             this.startAt = startAt;
+            applyDecision(decision);
+        }
+
+        private synchronized void transition(Long appId,
+                                             Long userId,
+                                             String route,
+                                             String targetType,
+                                             GenerationModeDecision decision) {
+            if (!java.util.Objects.equals(this.appId, appId)
+                    || !java.util.Objects.equals(this.userId, userId)) {
+                return;
+            }
+            this.route = route;
+            this.targetType = targetType;
+            applyDecision(decision);
+        }
+
+        private void applyDecision(GenerationModeDecision decision) {
             this.mode = decision == null ? "unknown" : normalize(decision.mode().name());
-            this.routerReason = decision == null ? "" : StrUtil.subPre(decision.reason(), 300);
+            this.routerReason = decision == null
+                    ? ""
+                    : LogExceptionSanitizer.sanitizeValue(decision.reason(), 300);
             this.routingDecisionCode = decision == null
                     ? "unknown"
                     : normalize(decision.decisionCode().name());
-            this.fallbackPolicy = decision == null ? "unknown" : normalize(decision.fallbackPolicy().name());
-            this.fallbackReason = decision == null ? "" : StrUtil.subPre(decision.fallbackReason(), 300);
-            this.validationLevel = decision == null ? "unknown" : normalize(decision.expectedValidationLevel().name());
+            this.fallbackPolicy = decision == null
+                    ? "unknown"
+                    : normalize(decision.fallbackPolicy().name());
+            this.fallbackReason = decision == null
+                    ? ""
+                    : LogExceptionSanitizer.sanitizeValue(decision.fallbackReason(), 300);
+            this.validationLevel = decision == null
+                    ? "unknown"
+                    : normalize(decision.expectedValidationLevel().name());
         }
 
         private synchronized void addSpan(SpanRecord spanRecord) {
@@ -377,9 +416,9 @@ public class GenerationPerformanceMonitorService {
             this.runtimeTelemetry = runtimeTelemetry.merge(RuntimeTelemetryRecord.from(telemetry));
         }
 
-        private void finish(String status) {
+        private void finish(String status, Instant endAt) {
             this.status = status;
-            this.endAt = Instant.now();
+            this.endAt = endAt;
         }
 
         private boolean completed() {

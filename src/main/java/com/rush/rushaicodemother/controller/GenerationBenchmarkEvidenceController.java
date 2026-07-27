@@ -20,6 +20,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 生成基准测试证据后端接口控制器。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
@@ -34,9 +37,11 @@ public class GenerationBenchmarkEvidenceController {
             @Valid @RequestBody GenerationBenchmarkEvidenceSubmitRequest request) {
         GenerationBenchmarkEvidenceRecord evidence = managementService.ingest(
                 new GenerationBenchmarkEvidenceSubmission(
+                        request.getSignatureVersion(),
                         request.getSubjectType(),
                         request.getSubjectKey(),
                         request.getCandidateFingerprint(),
+                        request.getCandidatePhysicalRequestCount(),
                         request.getDatasetFingerprint(),
                         request.getGraderFingerprint(),
                         request.getRuntimeConfigFingerprint(),
@@ -66,6 +71,8 @@ public class GenerationBenchmarkEvidenceController {
                 payload.subjectType().name(),
                 payload.subjectKey(),
                 payload.candidateFingerprint(),
+                payload.signatureVersion(),
+                payload.candidatePhysicalRequestCount(),
                 payload.datasetFingerprint(),
                 payload.graderFingerprint(),
                 payload.runtimeConfigFingerprint(),

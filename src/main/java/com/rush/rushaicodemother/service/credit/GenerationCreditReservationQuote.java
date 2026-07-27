@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.service.credit;
 
-/** Auditable pre-execution quote; final settlement still uses measured model tokens. */
+/** 可审计的执行前报价；最终结算仍然使用计量模型代币。 */
 public record GenerationCreditReservationQuote(
         long estimatedTokens,
         long reservedCredit,

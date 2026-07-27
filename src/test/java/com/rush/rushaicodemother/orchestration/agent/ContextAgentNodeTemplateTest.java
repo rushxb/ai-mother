@@ -44,7 +44,6 @@ class ContextAgentNodeTemplateTest {
                     CodeGenTypeEnum.HTML,
                     "create",
                     false,
-                    null,
                     prompt -> CodeGenTypeEnum.VUE_PROJECT,
                     null
             );

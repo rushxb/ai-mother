@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.workspace;
 import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -10,7 +11,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 
-/** Reconciles crash windows between pointer activation and relational metadata commit. */
+/** 协调指针激活和关系元数据提交之间的崩溃窗口。 */
 @Slf4j
 @Service
 public class GenerationWorkspacePublicationReconciler {
@@ -21,6 +22,7 @@ public class GenerationWorkspacePublicationReconciler {
     private final ArtifactLifecycleProperties properties;
     private final Clock clock;
 
+    @Autowired
     public GenerationWorkspacePublicationReconciler(
             GenerationWorkspacePublicationJournalRepository journalRepository,
             GenerationWorkspacePublicationService publicationService,

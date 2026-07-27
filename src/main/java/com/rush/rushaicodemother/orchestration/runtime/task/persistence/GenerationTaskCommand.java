@@ -17,7 +17,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import java.time.Instant;
 import java.util.Objects;
 
-/** Immutable command required to reconstruct generation work on any worker instance. */
+/** 在任何工作实例上重建生成工作所需的不可变命令。 */
 public record GenerationTaskCommand(
         int schemaVersion,
         String taskId,
@@ -82,7 +82,7 @@ public record GenerationTaskCommand(
         fallbackReason = normalize(fallbackReason, "");
     }
 
-    /** Compatibility constructor for commands created before route-specific SLA envelopes. */
+    /** 在特定于路由的 SLA 信封之前创建的命令的兼容性构造函数。 */
     public GenerationTaskCommand(int schemaVersion,
                                  String taskId,
                                  Long appId,
@@ -106,7 +106,7 @@ public record GenerationTaskCommand(
                 submittedAt, deadlineAt);
     }
 
-    /** Compatibility constructor for schema versions 1-3 that predate tenant identity. */
+    /** 早于租户身份的架构版本 1-3 的兼容性构造函数。 */
     public GenerationTaskCommand(int schemaVersion,
                                  String taskId,
                                  Long appId,
@@ -150,7 +150,7 @@ public record GenerationTaskCommand(
                 GenerationTraceContext.empty(), submittedAt, deadlineAt);
     }
 
-    /** Compatibility constructor for schema versions 1-3 that predate tenant identity. */
+    /** 早于租户身份的架构版本 1-3 的兼容性构造函数。 */
     public GenerationTaskCommand(int schemaVersion,
                                  String taskId,
                                  Long appId,

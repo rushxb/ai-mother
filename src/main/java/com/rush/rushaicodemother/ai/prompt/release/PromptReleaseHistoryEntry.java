@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.ai.prompt.release;
 
 import java.time.Instant;
 
-/** Immutable audit record for a published prompt release revision. */
+/** 已发布的即时发布修订版的不可变审核记录。 */
 public record PromptReleaseHistoryEntry(
         String promptKey,
         PromptReleaseSpec release,

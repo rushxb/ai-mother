@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** Central construction seam for sessions and their event transport. */
+/** 用于会议及其活动运输的中央施工缝。 */
 @Component
 @RequiredArgsConstructor
 public class GenerationSessionFactory {

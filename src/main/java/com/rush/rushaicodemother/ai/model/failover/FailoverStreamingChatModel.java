@@ -1,6 +1,10 @@
 package com.rush.rushaicodemother.ai.model.failover;
 
+import com.rush.rushaicodemother.core.handler.GenerationCancellationAwareStreamingHandler;
+import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelCancellationScope;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatRequestOptions;
@@ -22,30 +26,110 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntConsumer;
 
 /**
- * Streaming failover that retries another model only before any user-visible output is emitted.
+ * 流式故障转移，仅在发出任何用户可见的输出之前重试另一个模型。
  */
 public final class FailoverStreamingChatModel implements StreamingChatModel {
 
     private final List<AiModelCandidate<StreamingChatModel>> candidates;
     private final AiModelMetricsCollector metrics;
-    private final Runnable beforeProviderAttempt;
+    private final IntConsumer beforeProviderAttempt;
+    private final boolean stickyProvider;
+    private final FirstTokenHedgePolicy firstTokenHedgePolicy;
+    private final GenerationModelInvocationCancellationBridge cancellationBridge;
+    private final AtomicInteger preferredCandidateIndex = new AtomicInteger();
 
     public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
                                       AiModelMetricsCollector metrics) {
-        this(candidates, metrics, () -> { });
+        this(candidates, metrics, ignored -> { }, false, FirstTokenHedgePolicy.disabled(), null);
+    }
+
+    public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
+                                      AiModelMetricsCollector metrics,
+                                      GenerationModelInvocationCancellationBridge cancellationBridge) {
+        this(candidates, metrics, ignored -> { }, false,
+                FirstTokenHedgePolicy.disabled(), cancellationBridge);
     }
 
     public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
                                       AiModelMetricsCollector metrics,
                                       Runnable beforeProviderAttempt) {
+        this(candidates, metrics, beforeProviderAttempt, FirstTokenHedgePolicy.disabled(), null);
+    }
+
+    public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
+                                      AiModelMetricsCollector metrics,
+                                      Runnable beforeProviderAttempt,
+                                      FirstTokenHedgePolicy firstTokenHedgePolicy) {
+        this(candidates, metrics, beforeProviderAttempt, firstTokenHedgePolicy, null);
+    }
+
+    public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
+                                      AiModelMetricsCollector metrics,
+                                      Runnable beforeProviderAttempt,
+                                      FirstTokenHedgePolicy firstTokenHedgePolicy,
+                                      GenerationModelInvocationCancellationBridge cancellationBridge) {
+        this(candidates, metrics, ignored -> {
+            if (beforeProviderAttempt != null) {
+                beforeProviderAttempt.run();
+            }
+        }, false, firstTokenHedgePolicy, cancellationBridge);
+    }
+
+    /** 将一次逻辑模型回合与其后续 provider 故障转移分别纳入预算。 */
+    public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
+                                      AiModelMetricsCollector metrics,
+                                      Runnable beforeModelTurn,
+                                      Runnable beforeProviderFailoverAttempt) {
+        this(candidates, metrics, beforeModelTurn, beforeProviderFailoverAttempt,
+                FirstTokenHedgePolicy.disabled(), null);
+    }
+
+    public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
+                                      AiModelMetricsCollector metrics,
+                                      Runnable beforeModelTurn,
+                                      Runnable beforeProviderFailoverAttempt,
+                                      FirstTokenHedgePolicy firstTokenHedgePolicy) {
+        this(candidates, metrics, beforeModelTurn, beforeProviderFailoverAttempt,
+                firstTokenHedgePolicy, null);
+    }
+
+    public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
+                                      AiModelMetricsCollector metrics,
+                                      Runnable beforeModelTurn,
+                                      Runnable beforeProviderFailoverAttempt,
+                                      FirstTokenHedgePolicy firstTokenHedgePolicy,
+                                      GenerationModelInvocationCancellationBridge cancellationBridge) {
+        this(candidates, metrics, attemptIndex -> {
+            Runnable admission = attemptIndex == 0
+                    ? beforeModelTurn
+                    : beforeProviderFailoverAttempt;
+            if (admission != null) {
+                admission.run();
+            }
+        }, true, firstTokenHedgePolicy, cancellationBridge);
+    }
+
+    private FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
+                                       AiModelMetricsCollector metrics,
+                                       IntConsumer beforeProviderAttempt,
+                                       boolean stickyProvider,
+                                       FirstTokenHedgePolicy firstTokenHedgePolicy,
+                                       GenerationModelInvocationCancellationBridge cancellationBridge) {
         if (candidates == null || candidates.isEmpty()) {
             throw new IllegalArgumentException("at least one streaming model candidate is required");
         }
         this.candidates = List.copyOf(candidates);
         this.metrics = metrics;
-        this.beforeProviderAttempt = beforeProviderAttempt == null ? () -> { } : beforeProviderAttempt;
+        this.beforeProviderAttempt = beforeProviderAttempt == null ? ignored -> { } : beforeProviderAttempt;
+        this.stickyProvider = stickyProvider;
+        this.firstTokenHedgePolicy = firstTokenHedgePolicy == null
+                ? FirstTokenHedgePolicy.disabled()
+                : firstTokenHedgePolicy;
+        this.cancellationBridge = cancellationBridge;
     }
 
     @Override
@@ -86,42 +170,115 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
         if (handler == null) {
             throw new IllegalArgumentException("streaming response handler is required");
         }
-        AttemptState state = new AttemptState(handler);
+        GenerationModelInvocationCancellationBridge.ScopeBinding scopeBinding =
+                cancellationBridge == null ? null : cancellationBridge.bind(request);
+        try {
+            executeBound(request, options, handler,
+                    scopeBinding == null ? null : scopeBinding.scope());
+        } finally {
+            if (scopeBinding != null) {
+                scopeBinding.close();
+            }
+        }
+    }
+
+    private void executeBound(ChatRequest request,
+                              ChatRequestOptions options,
+                              StreamingChatResponseHandler handler,
+                              GenerationModelCancellationScope cancellationScope) {
+        List<Integer> candidateOrder = candidateOrder();
+        if (firstTokenHedgePolicy.canHedge(candidates, candidateOrder)) {
+            HedgedStreamingExecution execution = new HedgedStreamingExecution(
+                    candidates,
+                    candidateOrder,
+                    metrics,
+                    beforeProviderAttempt,
+                    this::promote,
+                    firstTokenHedgePolicy,
+                    request,
+                    options,
+                    handler,
+                    cancellationBridge,
+                    cancellationScope
+            );
+            if (cancellationScope != null) {
+                cancellationScope.register(execution);
+            }
+            execution.start();
+            return;
+        }
+        AttemptState state = new AttemptState(handler, candidateOrder, cancellationScope);
         executeAttempt(0, request, options, state);
     }
 
-    private void executeAttempt(int index,
+    private void executeAttempt(int attemptIndex,
                                 ChatRequest request,
                                 ChatRequestOptions options,
                                 AttemptState state) {
-        AiModelCandidate<StreamingChatModel> candidate = candidates.get(index);
+        int candidateIndex = state.candidateOrder.get(attemptIndex);
+        AiModelCandidate<StreamingChatModel> candidate = candidates.get(candidateIndex);
         AttemptGuard attempt = new AttemptGuard();
         StreamingChatResponseHandler forwarding = forwardingHandler(
-                index, request, options, state, candidate, attempt);
+                attemptIndex, candidateIndex, request, options, state, candidate, attempt);
         try {
-            beforeProviderAttempt.run();
-            if (options == null) {
-                candidate.model().chat(request, forwarding);
-            } else {
-                candidate.model().chat(request, options, forwarding);
+            if (state.cancellationScope != null) {
+                state.cancellationScope.register(attempt);
             }
+            GenerationCancellationAwareStreamingHandler.registerIfSupported(state.downstream, attempt);
+            if (attempt.isCancelled()) {
+                return;
+            }
+            beforeProviderAttempt.accept(attemptIndex);
+            invokeCandidate(candidate, request, options, forwarding, state.cancellationScope);
         } catch (RuntimeException failure) {
             AttemptFailure attemptFailure = attempt.finishFailure();
             if (attemptFailure != null) {
-                handleFailure(index, request, options, state, candidate,
+                handleFailure(attemptIndex, request, options, state, candidate,
                         attemptFailure.outputObserved(), failure);
             }
         }
     }
 
+    private void invokeCandidate(AiModelCandidate<StreamingChatModel> candidate,
+                                 ChatRequest request,
+                                 ChatRequestOptions options,
+                                 StreamingChatResponseHandler forwarding,
+                                 GenerationModelCancellationScope cancellationScope) {
+        if (cancellationBridge == null) {
+            invokeCandidate(candidate, request, options, forwarding);
+            return;
+        }
+        try (GenerationModelInvocationCancellationBridge.ScopeBinding ignored =
+                     cancellationBridge.activate(cancellationScope)) {
+            invokeCandidate(candidate, request, options, forwarding);
+        }
+    }
+
+    private void invokeCandidate(AiModelCandidate<StreamingChatModel> candidate,
+                                 ChatRequest request,
+                                 ChatRequestOptions options,
+                                 StreamingChatResponseHandler forwarding) {
+        if (options == null) {
+            candidate.model().chat(request, forwarding);
+        } else {
+            candidate.model().chat(request, options, forwarding);
+        }
+    }
+
     private StreamingChatResponseHandler forwardingHandler(
-            int index,
+            int attemptIndex,
+            int candidateIndex,
             ChatRequest request,
             ChatRequestOptions options,
             AttemptState state,
             AiModelCandidate<StreamingChatModel> candidate,
             AttemptGuard attempt) {
-        return new StreamingChatResponseHandler() {
+        return new GenerationCancellationAwareStreamingHandler() {
+            @Override
+            public void registerCancellationHandle(GenerationCancellationHandle cancellationHandle) {
+                attempt.registerCancellationHandle(cancellationHandle);
+            }
+
             @Override
             public void onPartialResponse(String partialResponse) {
                 attempt.forward(() -> state.downstream.onPartialResponse(partialResponse));
@@ -169,6 +326,7 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
             public void onCompleteResponse(ChatResponse completeResponse) {
                 if (attempt.finish()
                         && state.terminal.compareAndSet(false, true)) {
+                    promote(candidateIndex);
                     state.downstream.onCompleteResponse(completeResponse);
                 }
             }
@@ -177,14 +335,14 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
             public void onError(Throwable error) {
                 AttemptFailure attemptFailure = attempt.finishFailure();
                 if (attemptFailure != null) {
-                    handleFailure(index, request, options, state, candidate,
+                    handleFailure(attemptIndex, request, options, state, candidate,
                             attemptFailure.outputObserved(), error);
                 }
             }
         };
     }
 
-    private void handleFailure(int index,
+    private void handleFailure(int attemptIndex,
                                ChatRequest request,
                                ChatRequestOptions options,
                                AttemptState state,
@@ -198,11 +356,12 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
         AiModelFailoverPolicy.Decision decision = AiModelFailoverPolicy.classify(failure);
         boolean canFailOver = !outputObserved
                 && decision.recoverable()
-                && index + 1 < candidates.size();
+                && attemptIndex + 1 < state.candidateOrder.size();
         if (canFailOver) {
-            AiModelCandidate<StreamingChatModel> next = candidates.get(index + 1);
+            AiModelCandidate<StreamingChatModel> next = candidates.get(
+                    state.candidateOrder.get(attemptIndex + 1));
             recordFailover(candidate, next, decision.category());
-            executeAttempt(index + 1, request, options, state);
+            executeAttempt(attemptIndex + 1, request, options, state);
             return;
         }
         if (state.terminal.compareAndSet(false, true)) {
@@ -229,22 +388,45 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
         }
     }
 
-    private static final class AttemptState {
-        private final StreamingChatResponseHandler downstream;
-        private final AtomicBoolean terminal = new AtomicBoolean(false);
-        private final List<Throwable> failures = new CopyOnWriteArrayList<>();
+    private List<Integer> candidateOrder() {
+        int start = stickyProvider ? preferredCandidateIndex.get() : 0;
+        List<Integer> order = new java.util.ArrayList<>(candidates.size());
+        for (int offset = 0; offset < candidates.size(); offset++) {
+            order.add((start + offset) % candidates.size());
+        }
+        return List.copyOf(order);
+    }
 
-        private AttemptState(StreamingChatResponseHandler downstream) {
-            this.downstream = downstream;
+    private void promote(int candidateIndex) {
+        if (stickyProvider) {
+            preferredCandidateIndex.set(candidateIndex);
         }
     }
 
-    private static final class AttemptGuard {
+    private static final class AttemptState {
+        private final StreamingChatResponseHandler downstream;
+        private final List<Integer> candidateOrder;
+        private final GenerationModelCancellationScope cancellationScope;
+        private final AtomicBoolean terminal = new AtomicBoolean(false);
+        private final List<Throwable> failures = new CopyOnWriteArrayList<>();
+
+        private AttemptState(StreamingChatResponseHandler downstream,
+                             List<Integer> candidateOrder,
+                             GenerationModelCancellationScope cancellationScope) {
+            this.downstream = downstream;
+            this.candidateOrder = candidateOrder;
+            this.cancellationScope = cancellationScope;
+        }
+    }
+
+    private static final class AttemptGuard implements GenerationCancellationHandle {
         private boolean finished;
+        private boolean cancelled;
         private boolean outputObserved;
+        private GenerationCancellationHandle cancellationHandle;
 
         private synchronized void forward(Runnable callback) {
-            if (finished) {
+            if (finished || cancelled) {
                 return;
             }
             outputObserved = true;
@@ -252,19 +434,66 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
         }
 
         private synchronized boolean finish() {
-            if (finished) {
+            if (finished || cancelled) {
                 return false;
             }
             finished = true;
+            cancellationHandle = null;
             return true;
         }
 
+        private synchronized boolean isCancelled() {
+            return cancelled;
+        }
+
         private synchronized AttemptFailure finishFailure() {
-            if (finished) {
+            if (finished || cancelled) {
                 return null;
             }
             finished = true;
+            cancellationHandle = null;
             return new AttemptFailure(outputObserved);
+        }
+
+        private void registerCancellationHandle(GenerationCancellationHandle handle) {
+            GenerationCancellationHandle previous;
+            boolean cancelImmediately;
+            synchronized (this) {
+                if (handle == null) {
+                    throw new IllegalArgumentException("供应商取消句柄不能为空");
+                }
+                if (finished || cancelled) {
+                    previous = handle;
+                    cancelImmediately = true;
+                } else {
+                    previous = cancellationHandle;
+                    cancellationHandle = handle;
+                    cancelImmediately = false;
+                }
+            }
+            if (cancelImmediately || previous != handle) {
+                cancelRegistered(previous);
+            }
+        }
+
+        @Override
+        public void cancel() {
+            GenerationCancellationHandle active;
+            synchronized (this) {
+                if (cancelled) {
+                    return;
+                }
+                cancelled = true;
+                active = cancellationHandle;
+                cancellationHandle = null;
+            }
+            cancelRegistered(active);
+        }
+
+        private void cancelRegistered(GenerationCancellationHandle handle) {
+            if (handle != null) {
+                handle.cancel();
+            }
         }
     }
 

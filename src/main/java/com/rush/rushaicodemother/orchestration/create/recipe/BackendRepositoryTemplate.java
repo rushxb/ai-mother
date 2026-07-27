@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
 
-/** Renders the Go repository layer and its allow-listed sort expression. */
+/** 渲染 Go 存储库层及其列入允许列表的排序表达式。 */
 @Component
 final class BackendRepositoryTemplate {
 

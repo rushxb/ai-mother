@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.dag;
 
 import java.util.Optional;
 
-/** Durable storage port for orchestration checkpoint payloads. */
+/** 用于编排检查点有效负载的耐用存储端口。 */
 public interface GenerationOrchestrationCheckpointRepository {
 
     void save(GenerationOrchestrationTask task, String payloadJson, int payloadBytes);

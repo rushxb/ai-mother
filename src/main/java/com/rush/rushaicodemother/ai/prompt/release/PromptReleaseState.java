@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.ai.prompt.release;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Atomic database release bundle loaded by every application node. */
+/** 每个应用程序节点加载的原子数据库发布包。 */
 public record PromptReleaseState(
         long revision,
         Map<String, PromptReleaseRecord> releases

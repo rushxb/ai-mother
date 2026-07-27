@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.orchestration.routing;
 
 /**
- * Standard route names used by generation pipelines.
+ * 生成管道使用的标准路线名称。
  */
 public final class GenerationRoute {
 

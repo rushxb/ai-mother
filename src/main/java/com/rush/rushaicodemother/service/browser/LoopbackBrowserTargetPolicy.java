@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.service.browser;
 import java.net.URI;
 import java.util.Locale;
 
-/** Shared SSRF boundary for browser automation that may inspect generated applications. */
+/** 用于可以检查生成的应用程序的浏览器自动化的共享 SSRF 边界。 */
 public final class LoopbackBrowserTargetPolicy {
 
     private LoopbackBrowserTargetPolicy() {

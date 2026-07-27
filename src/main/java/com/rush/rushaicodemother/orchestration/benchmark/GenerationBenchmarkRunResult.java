@@ -1,5 +1,8 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+/**
+ * 生成基准测试Run执行结果。
+ */
 public record GenerationBenchmarkRunResult(
         String taskId,
         String mode,
@@ -14,6 +17,7 @@ public record GenerationBenchmarkRunResult(
         long totalTokens,
         long creditCost,
         long firstTokenLatencyMs,
+        Long firstPreviewLatencyMs,
         GenerationBenchmarkQualityEvidence qualityEvidence
 ) {
     public GenerationBenchmarkRunResult(String taskId,
@@ -31,7 +35,7 @@ public record GenerationBenchmarkRunResult(
                                         long firstTokenLatencyMs) {
         this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount,
                 fallback, repairRounds, failureReason, totalTokens, creditCost,
-                firstTokenLatencyMs, GenerationBenchmarkQualityEvidence.empty());
+                firstTokenLatencyMs, null, GenerationBenchmarkQualityEvidence.empty());
     }
 
     public GenerationBenchmarkRunResult(String taskId,
@@ -46,7 +50,7 @@ public record GenerationBenchmarkRunResult(
                                         String failureReason) {
         this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount,
                 fallback, repairRounds, failureReason, 0L, 0L, 0L,
-                GenerationBenchmarkQualityEvidence.empty());
+                null, GenerationBenchmarkQualityEvidence.empty());
     }
 
     public GenerationBenchmarkRunResult {
@@ -60,8 +64,15 @@ public record GenerationBenchmarkRunResult(
         totalTokens = Math.max(0, totalTokens);
         creditCost = Math.max(0, creditCost);
         firstTokenLatencyMs = Math.max(0, firstTokenLatencyMs);
+        if (firstPreviewLatencyMs != null && firstPreviewLatencyMs < 0) {
+            throw new IllegalArgumentException("首预览延迟不能小于 0");
+        }
         qualityEvidence = qualityEvidence == null
                 ? GenerationBenchmarkQualityEvidence.empty()
                 : qualityEvidence;
+    }
+
+    public boolean firstPreviewObserved() {
+        return firstPreviewLatencyMs != null;
     }
 }

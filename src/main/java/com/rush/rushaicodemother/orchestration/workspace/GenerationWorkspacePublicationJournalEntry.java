@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import java.time.Instant;
 import java.util.Objects;
 
-/** One durable publication intent and its current saga state. */
+/** 一种持久的出版意图及其当前的传奇状态。 */
 public record GenerationWorkspacePublicationJournalEntry(
         String taskId,
         Long appId,

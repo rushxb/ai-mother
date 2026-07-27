@@ -19,17 +19,22 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** OCI container backend with capability-scoped mounts and no ambient host credentials. */
+/** OCI 容器后端具有功能范围的挂载，并且没有环境主机凭据。 */
 @Component
 @ConditionalOnProperty(name = "app.generated-code-sandbox.mode", havingValue = "container")
 public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProcessSandbox {
 
     private static final String CONTAINER_NAME_PREFIX = "ai-code-sandbox-";
     private static final String PREVIEW_GATEWAY_SCRIPT = "/opt/ai-code-mother/preview-gateway.js";
+    private static final String GO_BUILD_TMP_DIR = "/tmp/go-build";
     private static final String PNPM_STORE_DIR_OPTION = "--store-dir";
     private static final String PNPM_PACKAGE_IMPORT_METHOD_OPTION = "--package-import-method";
+    private static final Set<String> GO_COMPILATION_COMMANDS = Set.of(
+            "build", "install", "run", "test"
+    );
     private static final Set<String> FIXED_ENVIRONMENT_KEYS = Set.of(
-            "HOME", "XDG_CACHE_HOME", "NPM_CONFIG_CACHE", "COREPACK_HOME"
+            "HOME", "XDG_CACHE_HOME", "NPM_CONFIG_CACHE", "COREPACK_HOME",
+            "GOCACHE", "GOMODCACHE", "GOTMPDIR"
     );
 
     private final GeneratedCodeSandboxProperties.Container properties;
@@ -68,6 +73,8 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         String gatewayName = devServerPort == null ? null : containerName + "-gateway";
         boolean dependencyCacheEnabled = shouldMountDependencyCache(request, devServerPort != null);
+        boolean goCompilationCommand = isGoCompilationCommand(request.command())
+                && request.networkPolicy() == SandboxNetworkPolicy.NONE;
         List<String> command = new ArrayList<>();
         command.add(properties.getRuntime());
         command.addAll(List.of(
@@ -84,6 +91,12 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 "--workdir", properties.getWorkspaceMount(),
                 "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=" + properties.getTmpfsSize()
         ));
+        if (goCompilationCommand) {
+            command.addAll(List.of(
+                    "--tmpfs",
+                    GO_BUILD_TMP_DIR + ":rw,nosuid,nodev,exec,size=" + properties.getGoBuildTmpfsSize()
+            ));
+        }
         if (dependencyCacheEnabled) {
             command.addAll(List.of(
                     "--mount",
@@ -100,10 +113,16 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         if (devServerPort != null) {
             command.addAll(List.of("--label", "ai-code-mother.sandbox-role=dev-server"));
         }
-        containerEnvironment(request, normalizedWorkingDirectory).forEach((key, value) -> {
-            command.add("--env");
-            command.add(key + "=" + value);
-        });
+        containerEnvironment(
+                request,
+                normalizedWorkingDirectory,
+                goCompilationCommand,
+                devServerPort
+        )
+                .forEach((key, value) -> {
+                    command.add("--env");
+                    command.add(key + "=" + value);
+                });
         command.add(properties.getImage());
         command.addAll(containerCommand(
                 request.command(),
@@ -310,19 +329,50 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 : "none";
     }
 
-    private Map<String, String> containerEnvironment(ManagedProcessRequest request, Path workingDirectory) {
+    private Map<String, String> containerEnvironment(
+            ManagedProcessRequest request,
+            Path workingDirectory,
+            boolean goCompilationCommand,
+            Integer devServerPort
+    ) {
         Map<String, String> environment = new LinkedHashMap<>();
         environment.put("HOME", "/tmp/home");
         environment.put("XDG_CACHE_HOME", "/tmp/cache");
         environment.put("NPM_CONFIG_CACHE", "/tmp/npm-cache");
         environment.put("COREPACK_HOME", "/tmp/corepack");
+        if (goCompilationCommand) {
+            environment.put("GOCACHE", GO_BUILD_TMP_DIR + "/cache");
+            environment.put("GOTMPDIR", GO_BUILD_TMP_DIR);
+        }
         request.environment().entrySet().stream()
                 .filter(entry -> validEnvironmentName(entry.getKey()))
                 .filter(entry -> !FIXED_ENVIRONMENT_KEYS.contains(entry.getKey().toUpperCase(Locale.ROOT)))
                 .sorted(Comparator.comparing(Map.Entry::getKey))
                 .forEach(entry -> environment.put(
-                        entry.getKey(), mapWorkspacePath(entry.getValue(), workingDirectory)));
+                        entry.getKey(),
+                        mapContainerEnvironmentValue(
+                                entry.getKey(),
+                                entry.getValue(),
+                                workingDirectory,
+                                devServerPort
+                        )));
         return Map.copyOf(environment);
+    }
+
+    private String mapContainerEnvironmentValue(
+            String name,
+            String value,
+            Path workingDirectory,
+            Integer devServerPort
+    ) {
+        if (devServerPort != null && "SERVER_ADDR".equalsIgnoreCase(name)) {
+            String expected = "127.0.0.1:" + devServerPort;
+            if (!expected.equals(value)) {
+                throw new IllegalArgumentException("容器后端监听地址必须与受控回环端口一致");
+            }
+            return "0.0.0.0:" + devServerPort;
+        }
+        return mapWorkspacePath(value, workingDirectory);
     }
 
     private List<String> containerCommand(
@@ -368,6 +418,15 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 && "install".equalsIgnoreCase(command.get(1));
     }
 
+    private boolean isGoCompilationCommand(List<String> command) {
+        return command != null
+                && command.size() >= 2
+                && command.getFirst() != null
+                && command.get(1) != null
+                && "go".equalsIgnoreCase(normalizeExecutable(command.getFirst()))
+                && GO_COMPILATION_COMMANDS.contains(command.get(1).toLowerCase(Locale.ROOT));
+    }
+
     private void rejectReservedPnpmCacheOptions(List<String> command) {
         for (int index = 2; index < command.size(); index++) {
             String argument = command.get(index);
@@ -401,6 +460,9 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         if (normalized.equals("git.exe")) {
             return "git";
         }
+        if (normalized.equals("go.exe")) {
+            return "go";
+        }
         return fileName;
     }
 
@@ -418,7 +480,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                         : properties.getWorkspaceMount() + "/" + suffix;
             }
         } catch (RuntimeException ignored) {
-            // Non-path values remain unchanged.
+            // 非路径值保持不变。
         }
         return value;
     }

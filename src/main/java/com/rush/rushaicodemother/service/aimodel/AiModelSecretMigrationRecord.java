@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.service.aimodel;
 
-/** Minimal persistence projection used while removing legacy plaintext provider credentials. */
+/** 在删除旧的纯文本提供者凭据时使用最小持久性投影。 */
 public record AiModelSecretMigrationRecord(
         long modelId,
         String secretRef,

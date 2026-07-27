@@ -7,7 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Expires stale approvals and resumes their waiting conversations with an explicit timeout result. */
+/** 使过时的批准过期，并以明确的超时结果恢复等待对话。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor

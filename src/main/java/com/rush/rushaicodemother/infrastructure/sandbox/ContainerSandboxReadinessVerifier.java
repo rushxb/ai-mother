@@ -2,15 +2,18 @@ package com.rush.rushaicodemother.infrastructure.sandbox;
 
 import com.rush.rushaicodemother.config.GeneratedCodeSandboxProperties;
 import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/** Fails startup when container mode is configured but its runtime or immutable image is absent. */
+/** 配置容器模式但其运行时或不可变映像不存在时启动失败。 */
 @Component
 @ConditionalOnProperty(name = "app.generated-code-sandbox.mode", havingValue = "container")
 public class ContainerSandboxReadinessVerifier implements SmartInitializingSingleton {
@@ -19,6 +22,7 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
     private final GeneratedCodeSandboxMetricsCollector sandboxMetrics;
     private final ProcessStarter processStarter;
 
+    @Autowired
     public ContainerSandboxReadinessVerifier(
             GeneratedCodeSandboxProperties properties,
             GeneratedCodeSandboxMetricsCollector sandboxMetrics
@@ -51,40 +55,33 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
         }
         verifyAvailable(
                 "image",
-                "image",
-                "inspect",
-                properties.getImage(),
-                "generated-code container sandbox runtime or configured image is unavailable"
+                "生成代码容器运行时或指定镜像不可用",
+                List.of("image", "inspect", properties.getImage())
         );
+        verifyImageTool("node_toolchain", "node", "--version");
+        verifyImageTool("pnpm_toolchain", "pnpm", "--version");
+        verifyImageTool("go_toolchain", "go", "version");
         if (properties.isDependencyCacheEnabled()) {
             verifyAvailable(
                     "pnpm_store_volume",
-                    "volume",
-                    "inspect",
-                    properties.getPnpmStoreVolume(),
-                    "generated-code pnpm store volume is unavailable"
+                    "生成代码 pnpm 缓存卷不可用",
+                    List.of("volume", "inspect", properties.getPnpmStoreVolume())
             );
         }
         verifyAvailable(
                 "dependency_network",
-                "network",
-                "inspect",
-                properties.getDependencyNetwork(),
-                "generated-code dependency egress network is unavailable"
+                "生成代码依赖出口网络不可用",
+                List.of("network", "inspect", properties.getDependencyNetwork())
         );
         verifyAvailable(
                 "dev_server_network",
-                "network",
-                "inspect",
-                properties.getDevServerNetwork(),
-                "generated-code Dev Server internal network is unavailable"
+                "生成代码 Dev Server 内部网络不可用",
+                List.of("network", "inspect", properties.getDevServerNetwork())
         );
         verifyAvailable(
                 "preview_gateway_network",
-                "network",
-                "inspect",
-                properties.getPreviewGatewayNetwork(),
-                "generated-code preview gateway network is unavailable"
+                "生成代码预览网关网络不可用",
+                List.of("network", "inspect", properties.getPreviewGatewayNetwork())
         );
         verifyNetworkInternalPolicy(
                 properties.getDevServerNetwork(),
@@ -100,15 +97,15 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
 
     private void verifyAvailable(
             String metricResource,
-            String resourceType,
-            String operation,
-            String resource,
-            String unavailableMessage
+            String unavailableMessage,
+            List<String> arguments
     ) {
         Process process = null;
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(
-                    properties.getRuntime(), resourceType, operation, resource)
+            List<String> command = new ArrayList<>(arguments.size() + 1);
+            command.add(properties.getRuntime());
+            command.addAll(arguments);
+            ProcessBuilder processBuilder = new ProcessBuilder(command)
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .redirectError(ProcessBuilder.Redirect.DISCARD);
             process = processStarter.start(processBuilder);
@@ -137,6 +134,27 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
             sandboxMetrics.recordReadiness(metricResource, "failure");
             throw exception;
         }
+    }
+
+    private void verifyImageTool(String metricResource, String executable, String argument) {
+        List<String> command = new ArrayList<>();
+        command.add("run");
+        command.add("--rm");
+        command.add("--network");
+        command.add("none");
+        command.add("--read-only");
+        if (properties.getUser() != null && !properties.getUser().isBlank()) {
+            command.add("--user");
+            command.add(properties.getUser().trim());
+        }
+        command.add(properties.getImage());
+        command.add(executable);
+        command.add(argument);
+        verifyAvailable(
+                metricResource,
+                "生成代码容器镜像缺少必需工具链: " + executable,
+                command
+        );
     }
 
     private void verifyNetworkInternalPolicy(

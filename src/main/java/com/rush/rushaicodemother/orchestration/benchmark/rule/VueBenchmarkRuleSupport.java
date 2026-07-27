@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.orchestration.benchmark.rule;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
+/**
+ * Vue 基准测试规则支持组件。
+ */
 final class VueBenchmarkRuleSupport {
 
     private VueBenchmarkRuleSupport() {

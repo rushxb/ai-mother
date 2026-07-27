@@ -16,6 +16,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 模板智能体节点。
+ */
 @Component
 public class TemplateAgentNode extends BaseGenerationAgentNode {
 

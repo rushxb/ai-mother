@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationT
 import java.time.Instant;
 import java.util.Map;
 
-/** Immutable task status view exposed through the application and HTTP query seams. */
+/** 通过应用程序和 HTTP 查询接缝公开的不可变任务状态视图。 */
 public record GenerationTaskSnapshot(
         String taskId,
         Long appId,

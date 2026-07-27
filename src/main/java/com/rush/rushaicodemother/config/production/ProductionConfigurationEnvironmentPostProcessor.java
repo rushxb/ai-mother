@@ -46,6 +46,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
             "app.ai-model-secrets.active-key-id",
             "app.ai-model-secrets.active-key",
             "app.ai-model-secrets.fingerprint-key",
+            "app.generation-benchmark.evidence.signing-secret",
             "app.memory.long-term.uri",
             "app.memory.long-term.token",
             "management.otlp.tracing.endpoint",
@@ -161,11 +162,60 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         validateContainerSandboxSupplyChainAndNetworks(environment, unsafeProperties);
         validateDevServerNodeIdentity(environment, unsafeProperties);
         validateDevServerInternalRouting(environment, unsafeProperties);
+        validateProcessRole(environment, unsafeProperties);
         validateCredentialPolicy(environment, unsafeProperties);
+        validateSecret(
+                environment,
+                unsafeProperties,
+                "app.generation-benchmark.evidence.signing-secret",
+                32
+        );
         validateMilvusMemory(environment, unsafeProperties);
         validateAiModelSecretKeys(environment, unsafeProperties);
         validatePublicEndpointPolicy(environment, unsafeProperties);
         return unsafeProperties;
+    }
+
+    private void validateProcessRole(ConfigurableEnvironment environment,
+                                     List<String> unsafeProperties) {
+        String workerEnabled = readProperty(
+                environment, "app.generation-benchmark.worker.enabled");
+        if (isInvalidBoolean(workerEnabled)) {
+            unsafeProperties.add(
+                    "app.generation-benchmark.worker.enabled（必须为 true 或 false）");
+            return;
+        }
+        boolean worker = Boolean.parseBoolean(normalize(workerEnabled));
+        if (worker) {
+            requireValue(environment, unsafeProperties,
+                    "app.generation-event-stream.transport", "local");
+            requireValue(environment, unsafeProperties,
+                    "app.generation-task-queue.transport", "local");
+            requireValue(environment, unsafeProperties,
+                    "app.background-jobs.enabled", "false");
+            requireValue(environment, unsafeProperties,
+                    "app.generation-benchmark.browser-grading.enabled", "true");
+            requireValue(environment, unsafeProperties,
+                    "app.generation-benchmark.backend-grading.enabled", "true");
+            return;
+        }
+        requireValue(environment, unsafeProperties,
+                "app.generation-event-stream.transport", "redis");
+        requireValue(environment, unsafeProperties,
+                "app.generation-task-queue.transport", "redis");
+        requireValue(environment, unsafeProperties,
+                "app.background-jobs.enabled", "true");
+    }
+
+    private void requireValue(ConfigurableEnvironment environment,
+                              List<String> unsafeProperties,
+                              String propertyName,
+                              String expectedValue) {
+        ExpectedPropertyValue expected = new ExpectedPropertyValue(
+                propertyName, expectedValue);
+        if (!expected.matches(readProperty(environment, propertyName))) {
+            unsafeProperties.add(expected.description());
+        }
     }
 
     private void validateCredentialPolicy(
@@ -195,12 +245,13 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
             URI uri = new URI(endpoint.trim());
             if (!"https".equalsIgnoreCase(uri.getScheme())
                     || !hasTextValue(uri.getHost())
+                    || isLoopbackHost(uri.getHost())
                     || uri.getUserInfo() != null
                     || uri.getQuery() != null
                     || uri.getFragment() != null
                     || uri.getPath() != null && !uri.getPath().isBlank() && !"/".equals(uri.getPath())) {
                 unsafeProperties.add(
-                        "app.memory.long-term.uri (production Milvus must use a credential-free HTTPS endpoint)");
+                        "app.memory.long-term.uri (production Milvus must use a non-loopback, credential-free HTTPS endpoint)");
             }
         } catch (URISyntaxException invalidEndpoint) {
             unsafeProperties.add("app.memory.long-term.uri (must be a valid HTTPS endpoint)");
@@ -270,15 +321,25 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
             List<String> unsafeProperties,
             String propertyName
     ) {
+        validateSecret(environment, unsafeProperties, propertyName, MINIMUM_PRODUCTION_SECRET_LENGTH);
+    }
+
+    private void validateSecret(
+            ConfigurableEnvironment environment,
+            List<String> unsafeProperties,
+            String propertyName,
+            int minimumLength
+    ) {
         if (!hasTextProperty(environment, propertyName)) {
             return;
         }
         String value = readProperty(environment, propertyName);
         String normalized = normalize(value);
-        if (value.trim().length() < MINIMUM_PRODUCTION_SECRET_LENGTH
+        if (value.trim().length() < minimumLength
                 || PROHIBITED_PRODUCTION_SECRETS.contains(normalized)) {
             unsafeProperties.add(
-                    propertyName + "（必须由 Secret 注入，至少 16 个字符且不得使用常见默认值）"
+                    propertyName + "（必须由 Secret 注入，至少 " + minimumLength
+                            + " 个字符且不得使用常见默认值）"
             );
         }
     }

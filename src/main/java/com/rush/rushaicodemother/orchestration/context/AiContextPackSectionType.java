@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.context;
 
-/** Typed sections inside the bounded context package passed to generation agents. */
+/** 传递给生成代理的有界上下文包内的类型化部分。 */
 public enum AiContextPackSectionType {
     APP_SCOPE,
     SEMANTIC_MEMORY,

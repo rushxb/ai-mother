@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.orchestration.create;
 
 import com.rush.rushaicodemother.ai.AiCreateSpecServiceFactory;
 import com.rush.rushaicodemother.orchestration.create.recipe.CreateRecipeRenderer;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -20,6 +22,8 @@ class CreateSpecServiceSpringContextTest {
                     CreateRecipeRendererService.class,
                     CreateSpecNormalizer.class,
                     CreateSpecService.class,
+                    GenerationExecutionContextService.class,
+                    GenerationRuntimeProperties.class,
                     LandingSlotFallbackRenderer.class,
                     TemplateVariableEngine.class
             );

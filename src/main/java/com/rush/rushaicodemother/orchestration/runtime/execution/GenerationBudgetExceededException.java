@@ -1,7 +1,7 @@
 package com.rush.rushaicodemother.orchestration.runtime.execution;
 
 /**
- * Raised when a finite task budget is exhausted.
+ * 当有限的任务预算耗尽时引发。
  */
 public final class GenerationBudgetExceededException extends GenerationExecutionPolicyException {
 

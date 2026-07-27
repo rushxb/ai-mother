@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import java.util.List;
 
 /**
- * Immutable output of deterministic CREATE recipe rendering.
+ * 确定性 CREATE 配方渲染的不可变输出。
  */
 public record RecipeRenderResult(
         List<String> filledSlots,

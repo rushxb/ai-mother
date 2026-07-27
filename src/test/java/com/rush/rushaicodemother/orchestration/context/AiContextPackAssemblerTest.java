@@ -31,6 +31,7 @@ class AiContextPackAssemblerTest {
                 .build();
         SemanticMemory memory = new SemanticMemory(
                 "memory-1",
+                20L,
                 10L,
                 7L,
                 "task-1",

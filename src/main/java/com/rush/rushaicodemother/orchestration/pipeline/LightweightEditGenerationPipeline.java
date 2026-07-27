@@ -20,13 +20,19 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * 轻量编辑生成处理流水线。
+ */
 @Slf4j
 @Order(10)
 @Component
 @RequiredArgsConstructor
 public class LightweightEditGenerationPipeline implements GenerationPipeline {
+
+    private static final String LIGHTWEIGHT_EDIT_FAILURE_REASON = "lightweight_edit_failed";
 
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final LightweightEditService lightweightEditService;
@@ -98,7 +104,11 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
             log.info("轻量编辑路径完成，appId: {}, taskId: {}, route: {}, status: {}",
                     app.getId(), execution.taskId(), editResult.route(), status);
             return GenerationPipelineOutcome.completed(
-                    route(), "success".equals(status) ? GenerationTaskStatus.SUCCESS : GenerationTaskStatus.FAILED);
+                    route(),
+                    "success".equals(status) ? GenerationTaskStatus.SUCCESS : GenerationTaskStatus.FAILED,
+                    "success".equals(status) ? null : LIGHTWEIGHT_EDIT_FAILURE_REASON,
+                    buildResultSummary("success".equals(status) ? "成功" : "失败", editResult)
+            );
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;
         } catch (RuntimeException failure) {
@@ -109,8 +119,30 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                     Map.of("route", route(), "taskId", execution.taskId(), "status", "failed")
             ));
             generationPerformanceMonitorService.finishTask(execution.taskId(), "failed");
-            return GenerationPipelineOutcome.completed(route(), GenerationTaskStatus.FAILED);
+            return GenerationPipelineOutcome.completed(
+                    route(),
+                    GenerationTaskStatus.FAILED,
+                    LIGHTWEIGHT_EDIT_FAILURE_REASON,
+                    "任务状态：失败\n执行路径：LIGHT_EDIT\n失败原因：轻量编辑执行失败，请稍后重试"
+            );
         }
+    }
+
+    private String buildResultSummary(String status, LightweightEditResult result) {
+        List<String> operations = result.appliedOperations() == null
+                ? List.of()
+                : result.appliedOperations();
+        String changedFiles = String.join(", ", operations.stream().limit(30).toList());
+        return "任务状态：" + status
+                + "\n执行路径：LIGHT_EDIT"
+                + "\n结果摘要：" + safeText(result.summary(), "未提供")
+                + "\n修改文件数量：" + operations.size()
+                + "\n修改文件：" + safeText(changedFiles, "无")
+                + "\n验证结果：" + safeText(result.validationResult(), "未知");
+    }
+
+    private String safeText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 
     private void assertTaskIdentity(String expectedTaskId, String actualTaskId) {

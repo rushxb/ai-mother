@@ -5,7 +5,7 @@ import jakarta.validation.ConstraintValidatorContext;
 
 import java.math.BigDecimal;
 
-/** Validates {@link NonZero} for any standard {@link Number} implementation. */
+/** 验证任何标准 {@link Number} 实现的 {@link NonZero}。 */
 public final class NonZeroValidator implements ConstraintValidator<NonZero, Number> {
 
     @Override

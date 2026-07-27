@@ -33,10 +33,10 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Versioned orchestration checkpoint store.
+ * 版本化的编排检查点存储。
  *
- * <p>Production can persist checkpoints through {@link GenerationOrchestrationCheckpointRepository}.
- * The local file implementation remains as a bounded fallback for tests and single-node diagnostics.</p>
+ * <p>Production可以通过{@link GenerationOrchestrationCheckpointRepository}持久化检查点。
+ * 本地文件实现仍然作为测试和单节点诊断的有限回退。</p>
  */
 @Slf4j
 @Component

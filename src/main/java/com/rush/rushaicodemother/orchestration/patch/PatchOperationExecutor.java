@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Applies a validated patch batch and restores all prior file states on failure. */
+/** 应用经过验证的补丁批次并在失败时恢复所有先前的文件状态。 */
 @Component
 @RequiredArgsConstructor
 public class PatchOperationExecutor {

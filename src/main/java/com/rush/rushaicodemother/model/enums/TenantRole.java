@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.model.enums;
 
 import java.util.Arrays;
 
+/**
+ * 租户角色的可选类型。
+ */
 public enum TenantRole {
     VIEWER("viewer", 10),
     DEVELOPER("developer", 20),

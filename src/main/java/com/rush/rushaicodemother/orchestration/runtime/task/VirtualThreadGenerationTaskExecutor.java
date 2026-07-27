@@ -18,12 +18,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Bounded in-process task executor backed by one virtual thread per admitted task.
+ * 每个承认的任务由一个虚拟线程支持的有界进程内任务执行器。
  *
- * <p>The admission semaphore bounds running plus queued work, while the concurrency semaphore
- * bounds expensive model/build execution. This preserves virtual-thread isolation without pooling
- * virtual threads. The {@link GenerationTaskExecutor} seam can later be replaced by a durable
- * queue without changing submission or pipeline code.</p>
+ * <p> 准入信号量边界运行加上排队工作，而并发信号量
+ * 限制昂贵的模型/构建执行。这可以保留虚拟线程隔离而无需池化
+ * 虚拟线程。 {@link GenerationTaskExecutor} 接缝稍后可以更换为耐用的接缝
+ * 队列无需更改提交或管道代码。</p>
  */
 @Component
 public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecutor {
@@ -113,8 +113,8 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
                 running = true;
                 control.markRunning();
             }
-            // Expired and cancelled work still enters the pipeline once so the normal lifecycle
-            // boundary can persist a truthful terminal state without consuming execution capacity.
+            // 过期和取消的工作仍会进入管道一次，因此正常的生命周期
+            // 边界可以在不消耗执行能力的情况下持久保留真实的最终状态。
             runNamed(taskId, task);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();

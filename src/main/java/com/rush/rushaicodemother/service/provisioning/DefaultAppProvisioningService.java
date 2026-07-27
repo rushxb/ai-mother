@@ -1,11 +1,11 @@
 package com.rush.rushaicodemother.service.provisioning;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
-import com.rush.rushaicodemother.ai.AppNameGeneratorServiceFactory;
 import com.rush.rushaicodemother.ai.intent.BackendIntentDetector;
+import com.rush.rushaicodemother.ai.intent.DeterministicCodeGenTypeRouter;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -27,6 +27,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 默认应用创建与复制供给实现。 */
@@ -34,14 +35,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class DefaultAppProvisioningService implements AppProvisioningService {
 
-    private static final int FALLBACK_APP_NAME_LENGTH = 12;
-    private static final int MAX_APP_NAME_LENGTH = 16;
+    private static final Duration AMBIGUOUS_ROUTING_TIMEOUT = Duration.ofSeconds(5);
 
     private final AppMapper appMapper;
     private final AiModelRuntimeService aiModelRuntimeService;
     private final BackendIntentDetector backendIntentDetector;
+    private final DeterministicCodeGenTypeRouter deterministicCodeGenTypeRouter;
     private final AiCodeGenTypeRoutingServiceFactory routingServiceFactory;
-    private final AppNameGeneratorServiceFactory appNameGeneratorServiceFactory;
+    private final AppNameEnrichmentService appNameEnrichmentService;
     private final ChatHistoryService chatHistoryService;
     private final AppArtifactLifecycleService artifactLifecycleService;
     private final AppOperationLockManager operationLockManager;
@@ -52,8 +53,9 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
     public DefaultAppProvisioningService(AppMapper appMapper,
                                          AiModelRuntimeService aiModelRuntimeService,
                                          BackendIntentDetector backendIntentDetector,
+                                         DeterministicCodeGenTypeRouter deterministicCodeGenTypeRouter,
                                          AiCodeGenTypeRoutingServiceFactory routingServiceFactory,
-                                         AppNameGeneratorServiceFactory appNameGeneratorServiceFactory,
+                                         AppNameEnrichmentService appNameEnrichmentService,
                                          ChatHistoryService chatHistoryService,
                                          AppArtifactLifecycleService artifactLifecycleService,
                                          AppOperationLockManager operationLockManager,
@@ -63,8 +65,9 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                 appMapper,
                 aiModelRuntimeService,
                 backendIntentDetector,
+                deterministicCodeGenTypeRouter,
                 routingServiceFactory,
-                appNameGeneratorServiceFactory,
+                appNameEnrichmentService,
                 chatHistoryService,
                 artifactLifecycleService,
                 operationLockManager,
@@ -76,8 +79,9 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
     DefaultAppProvisioningService(AppMapper appMapper,
                                   AiModelRuntimeService aiModelRuntimeService,
                                   BackendIntentDetector backendIntentDetector,
+                                  DeterministicCodeGenTypeRouter deterministicCodeGenTypeRouter,
                                   AiCodeGenTypeRoutingServiceFactory routingServiceFactory,
-                                  AppNameGeneratorServiceFactory appNameGeneratorServiceFactory,
+                                  AppNameEnrichmentService appNameEnrichmentService,
                                   ChatHistoryService chatHistoryService,
                                   AppArtifactLifecycleService artifactLifecycleService,
                                   AppOperationLockManager operationLockManager,
@@ -86,8 +90,9 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         this.appMapper = appMapper;
         this.aiModelRuntimeService = aiModelRuntimeService;
         this.backendIntentDetector = backendIntentDetector;
+        this.deterministicCodeGenTypeRouter = deterministicCodeGenTypeRouter;
         this.routingServiceFactory = routingServiceFactory;
-        this.appNameGeneratorServiceFactory = appNameGeneratorServiceFactory;
+        this.appNameEnrichmentService = appNameEnrichmentService;
         this.chatHistoryService = chatHistoryService;
         this.artifactLifecycleService = artifactLifecycleService;
         this.operationLockManager = operationLockManager;
@@ -105,8 +110,9 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         aiModelRuntimeService.ensureGenerationModelsConfigured();
         CodeGenTypeEnum selectedCodeGenType = selectCodeGenType(initPrompt);
         Long tenantId = tenantProvisioningService.requirePersonalTenantId(actor);
+        String initialName = AppNamePolicy.initialName(initPrompt);
         App app = App.builder()
-                .appName(generateAppName(initPrompt))
+                .appName(initialName)
                 .initPrompt(initPrompt)
                 .codeGenType(selectedCodeGenType.getValue())
                 .priority(AppConstant.DEFAULT_APP_PRIORITY)
@@ -120,6 +126,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         });
         ThrowUtils.throwIf(appId == null || appId <= 0,
                 ErrorCode.SYSTEM_ERROR, "创建应用事务未返回有效 ID");
+        appNameEnrichmentService.schedule(appId, actor.getId(), initPrompt, initialName);
         log.info("应用创建成功，appId: {}, userId: {}, codeGenType: {}",
                 appId, actor.getId(), selectedCodeGenType.getValue());
         return appId;
@@ -175,16 +182,46 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         BackendIntentDetector.BackendIntentResult intentResult =
                 backendIntentDetector.detectIntent(initPrompt);
         ThrowUtils.throwIf(intentResult == null, ErrorCode.SYSTEM_ERROR, "后端意图检测未返回结果");
-        AiCodeGenTypeRoutingService routingService =
-                routingServiceFactory.createAiCodeGenTypeRoutingService();
-        ThrowUtils.throwIf(routingService == null, ErrorCode.SYSTEM_ERROR, "应用类型路由服务不可用");
-        CodeGenTypeEnum routedType = routingService.routeCodeGenType(initPrompt);
-        ThrowUtils.throwIf(routedType == null, ErrorCode.SYSTEM_ERROR, "应用类型路由未返回结果");
-        CodeGenTypeEnum selectedType = backendIntentDetector.constrainCodeGenType(intentResult, routedType);
-        ThrowUtils.throwIf(selectedType == null, ErrorCode.SYSTEM_ERROR, "无法确定应用代码生成类型");
-        log.info("应用类型路由完成，selectedType: {}, routedType: {}, intentLevel: {}",
-                selectedType, routedType, intentResult.level());
-        return selectedType;
+        CodeGenTypeEnum localType = deterministicCodeGenTypeRouter
+                .route(initPrompt, intentResult)
+                .orElse(null);
+        if (localType != null) {
+            log.info("应用类型由本地规则确定，selectedType: {}, intentLevel: {}",
+                    localType, intentResult.level());
+            return localType;
+        }
+        return routeAmbiguousCodeGenType(initPrompt, intentResult);
+    }
+
+    private CodeGenTypeEnum routeAmbiguousCodeGenType(
+            String initPrompt,
+            BackendIntentDetector.BackendIntentResult intentResult) {
+        try {
+            AiCodeGenTypeRoutingService routingService =
+                    routingServiceFactory.createAiCodeGenTypeRoutingService(AMBIGUOUS_ROUTING_TIMEOUT);
+            if (routingService == null) {
+                log.warn("应用类型 AI 路由服务不可用，使用前端默认类型");
+                return CodeGenTypeEnum.VUE_PROJECT;
+            }
+            CodeGenTypeEnum routedType = routingService.routeCodeGenType(initPrompt);
+            if (routedType == null) {
+                log.warn("应用类型 AI 路由未返回结果，使用前端默认类型");
+                return CodeGenTypeEnum.VUE_PROJECT;
+            }
+            CodeGenTypeEnum selectedType = backendIntentDetector
+                    .constrainCodeGenType(intentResult, routedType);
+            if (selectedType == null) {
+                log.warn("应用类型 AI 路由约束未返回结果，使用前端默认类型");
+                return CodeGenTypeEnum.VUE_PROJECT;
+            }
+            log.info("应用类型由 AI 路由确定，selectedType: {}, routedType: {}, intentLevel: {}",
+                    selectedType, routedType, intentResult.level());
+            return selectedType;
+        } catch (RuntimeException routingFailure) {
+            log.warn("应用类型 AI 路由失败，使用前端默认类型",
+                    LogExceptionSanitizer.sanitize(routingFailure));
+            return CodeGenTypeEnum.VUE_PROJECT;
+        }
     }
 
     private void insertApp(App app, String failureMessage) {
@@ -196,49 +233,6 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         Long appId = app.getId();
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.SYSTEM_ERROR, failureMessage);
         return appId;
-    }
-
-    private String generateAppName(String initPrompt) {
-        try {
-            String generatedName = appNameGeneratorServiceFactory
-                    .createAppNameGeneratorService()
-                    .generateAppName(initPrompt);
-            String normalizedName = normalizeAppName(generatedName);
-            if (StrUtil.isNotBlank(normalizedName)) {
-                return normalizedName;
-            }
-        } catch (Exception exception) {
-            log.warn("AI 生成应用标题失败，使用本地兜底标题", LogExceptionSanitizer.sanitize(exception));
-        }
-        return fallbackAppName(initPrompt);
-    }
-
-    private String normalizeAppName(String appName) {
-        if (StrUtil.isBlank(appName)) {
-            return null;
-        }
-        String normalized = StrUtil.trim(appName)
-                .replace("\r", " ")
-                .replace("\n", " ")
-                .replaceAll("^(标题|应用名|应用名称)\\s*[:：]\\s*", "")
-                .replaceAll("\\s+", " ")
-                .replaceAll("^[\"'“”‘’《》【】\\s]+", "")
-                .replaceAll("[\"'“”‘’《》【】\\s]+$", "");
-        if (StrUtil.isBlank(normalized)) {
-            return null;
-        }
-        return truncateByCodePoints(normalized, MAX_APP_NAME_LENGTH);
-    }
-
-    private String fallbackAppName(String initPrompt) {
-        String normalizedPrompt = StrUtil.trim(initPrompt)
-                .replace("\r", " ")
-                .replace("\n", " ")
-                .replaceAll("\\s+", " ");
-        if (StrUtil.isBlank(normalizedPrompt)) {
-            return "未命名应用";
-        }
-        return truncateByCodePoints(normalizedPrompt, FALLBACK_APP_NAME_LENGTH);
     }
 
     private void compensateCopiedArtifact(App targetApp,
@@ -265,15 +259,6 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
                 ErrorCode.SYSTEM_ERROR, "源应用数据异常");
         ThrowUtils.throwIf(CodeGenTypeEnum.getEnumByValue(sourceApp.getCodeGenType()) == null,
                 ErrorCode.SYSTEM_ERROR, "源应用代码生成类型异常");
-    }
-
-    private String truncateByCodePoints(String value, int maximumCodePoints) {
-        int codePointCount = value.codePointCount(0, value.length());
-        if (codePointCount <= maximumCodePoints) {
-            return value;
-        }
-        int endIndex = value.offsetByCodePoints(0, maximumCodePoints);
-        return value.substring(0, endIndex);
     }
 
     private void validateActor(User actor) {

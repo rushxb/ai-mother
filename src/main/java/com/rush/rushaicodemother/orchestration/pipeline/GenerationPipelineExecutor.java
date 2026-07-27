@@ -4,6 +4,8 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryRequest;
+import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
@@ -23,6 +25,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntim
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceReleaseService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -31,19 +34,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Executes a submitted generation request and owns route fallback and task-runtime finalization.
+ * 执行提交的生成请求并拥有路由回退和任务运行时最终确定。
  *
- * <p>Pipelines describe whether they completed synchronously, transferred completion ownership to
- * background work, or require a route fallback. This module keeps those lifecycle rules out of
- * HTTP controllers and individual route adapters.</p>
+ * <p>Pipelines 描述它们是否同步完成，将完成所有权转移给
+ * 后台工作，或者需要路由回退。该模块将这些生命周期规则排除在外
+ * HTTP控制器和单独的路由适配器。</p>
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class GenerationPipelineExecutor {
 
     private static final int MAX_ROUTE_ATTEMPTS = 2;
     private static final String PIPELINE_FAILURE_REASON = "generation_pipeline_failed";
+    private static final String PIPELINE_DEADLINE_REASON = "generation_deadline_exceeded";
+    private static final String PIPELINE_CANCELLED_REASON = "generation_cancelled";
+    private static final int MAX_FALLBACK_REASON_LENGTH = 300;
 
     private final List<GenerationPipeline> generationPipelines;
     private final GenerationEventPublisher generationEventPublisher;
@@ -53,8 +59,9 @@ public class GenerationPipelineExecutor {
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationWorkspaceReleaseService workspaceReleaseService;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
+    private final GenerationOutcomeMemoryService generationOutcomeMemoryService;
 
-    /** Compatibility constructor for focused tests created before publication became mandatory. */
+    /** 在发布之前创建的重点测试的兼容性构造函数成为强制性的。 */
     public GenerationPipelineExecutor(
             List<GenerationPipeline> generationPipelines,
             GenerationEventPublisher generationEventPublisher,
@@ -70,6 +77,7 @@ public class GenerationPipelineExecutor {
                 generationExecutionContextService,
                 generationTaskRuntimeLifecycleService,
                 generationPerformanceMonitorService,
+                null,
                 null,
                 null
         );
@@ -112,7 +120,7 @@ public class GenerationPipelineExecutor {
                 }
                 switch (outcome.disposition()) {
                     case COMPLETED -> {
-                        completeManagedTask(currentRequest, outcome.terminalStatus());
+                        completeManagedTask(currentRequest, outcome);
                         return;
                     }
                     case RUNNING -> {
@@ -151,14 +159,17 @@ public class GenerationPipelineExecutor {
         String failedRoute = failedPipeline == null ? decision.route() : failedPipeline.route();
         if (decision.fallbackPolicy() != FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT
                 || request.workspace() == null
-                || !request.workspace().exists()) {
+                || (!request.workspace().exists() && !GenerationRoute.CREATE.equals(failedRoute))) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "当前生成管线不允许回退: " + failedRoute);
         }
         String reason = normalizeFallbackReason(pipelineReason, failedRoute);
+        String transitionMessage = GenerationRoute.CREATE.equals(failedRoute)
+                ? "CREATE 快速路径未完成，正在切换专家模式..."
+                : "快速生成路径未完成，正在切换专家模式...";
         generationEventPublisher.publishSafely(
                 request.taskRequest(),
                 GenerationEventType.TASK_ROUTE,
-                "生成管线路由已回退到重型专家模式",
+                transitionMessage,
                 Map.of(
                         "taskId", request.requireExecution().taskId(),
                         "mode", GenerationMode.HEAVY_EXPERT.name(),
@@ -167,6 +178,16 @@ public class GenerationPipelineExecutor {
                         "fallbackReason", reason
                 )
         );
+        request.requireExecution().session().emit(GenerationStreamEvent.generationStage(
+                transitionMessage,
+                Map.of(
+                        "stage", "route_fallback",
+                        "taskId", request.requireExecution().taskId(),
+                        "fromRoute", failedRoute,
+                        "route", GenerationRoute.HEAVY_GENERATION,
+                        "reason", reason
+                )
+        ));
         return request.withModeDecision(decision.withFallback(GenerationMode.HEAVY_EXPERT, reason));
     }
 
@@ -174,12 +195,18 @@ public class GenerationPipelineExecutor {
         if (pipelineReason == null || pipelineReason.isBlank()) {
             return "pipeline_failed_or_unavailable:" + failedRoute;
         }
-        return pipelineReason.trim();
+        String sanitized = LogExceptionSanitizer.sanitizeValue(
+                pipelineReason, MAX_FALLBACK_REASON_LENGTH);
+        return sanitized.isBlank()
+                ? "pipeline_failed_or_unavailable:" + failedRoute
+                : sanitized;
     }
 
-    private void completeManagedTask(GenerationPipelineRequest request, GenerationTaskStatus status) {
+    private void completeManagedTask(GenerationPipelineRequest request,
+                                     GenerationPipelineOutcome outcome) {
         GenerationTaskExecution execution = request.requireExecution();
         GenerationSession session = execution.session();
+        GenerationTaskStatus status = outcome.terminalStatus();
         if (status == GenerationTaskStatus.SUCCESS) {
             session.throwIfCancelled();
             if (workspaceReleaseService != null) {
@@ -190,10 +217,28 @@ public class GenerationPipelineExecutor {
                                 : session.executionWorkspace().codeGenType()
                 );
             }
-            if (generationTaskLifecycleService != null) {
+        }
+        if (generationTaskLifecycleService != null) {
+            if (status == GenerationTaskStatus.SUCCESS) {
                 generationTaskLifecycleService.completeGenerationAndCharge(
-                        execution.taskId(), request.taskRequest().app().getId(), status, null);
+                        execution.taskId(),
+                        request.taskRequest().app().getId(),
+                        status,
+                        null,
+                        outcome.resultSummary()
+                );
+            } else {
+                generationTaskLifecycleService.completeGeneration(
+                        execution.taskId(),
+                        request.taskRequest().app().getId(),
+                        status,
+                        outcome.reason(),
+                        outcome.resultSummary()
+                );
             }
+            rememberOutcome(request, status, outcome.resultSummary());
+        }
+        if (status == GenerationTaskStatus.SUCCESS) {
             generationEventPublisher.publishSafely(
                     request.taskRequest(), GenerationEventType.TASK_DONE, "生成任务已发布", Map.of(
                             "taskId", execution.taskId(),
@@ -204,32 +249,35 @@ public class GenerationPipelineExecutor {
         if (session.tryBeginCompletion()) {
             session.complete();
         }
-        finalizeRuntime(request, execution, session, status, null);
+        finalizeRuntime(request, execution, session, status, outcome.reason());
     }
 
     private void failManagedTask(GenerationPipelineRequest request, Throwable failure) {
         GenerationTaskExecution execution = request.requireExecution();
         GenerationSession session = execution.session();
         GenerationTerminalOutcome outcome = GenerationTerminalOutcome.resolve(session, failure);
+        String terminalReason = terminalReason(outcome);
+        String resultSummary = buildFailureResultSummary(request, outcome);
         log.error("Generation pipeline worker failed, taskId: {}, route: {}, status: {}",
                 execution.taskId(), request.modeDecision().route(), outcome.status(),
                 LogExceptionSanitizer.sanitize(failure));
-        if (session.tryBeginCompletion()) {
-            if (outcome == GenerationTerminalOutcome.CANCELLED) {
-                session.emitStopped();
-            } else {
-                session.emit(GenerationStreamEvent.generationError(
-                        safeFailureMessage(outcome),
-                        Map.of(
-                                "taskId", execution.taskId(),
-                                "route", request.modeDecision().route(),
-                                "reason", PIPELINE_FAILURE_REASON,
-                                "status", outcome.status()
-                        )
-                ));
-            }
-            session.complete();
+        if (!session.tryBeginCompletion()) {
+            return;
         }
+        if (outcome == GenerationTerminalOutcome.CANCELLED) {
+            session.emitStopped();
+        } else {
+            session.emit(GenerationStreamEvent.generationError(
+                    safeFailureMessage(outcome),
+                    Map.of(
+                            "taskId", execution.taskId(),
+                            "route", request.modeDecision().route(),
+                            "reason", terminalReason,
+                            "status", outcome.status()
+                    )
+            ));
+        }
+        session.complete();
         generationEventPublisher.publishSafely(
                 request.taskRequest(),
                 outcome.eventType(),
@@ -238,21 +286,67 @@ public class GenerationPipelineExecutor {
                         "taskId", execution.taskId(),
                         "route", request.modeDecision().route(),
                         "status", outcome.status(),
-                        "reason", PIPELINE_FAILURE_REASON
+                        "reason", terminalReason
                 )
         );
         if (generationTaskLifecycleService != null) {
             try {
                 generationTaskLifecycleService.completeGeneration(
                         execution.taskId(), request.taskRequest().app().getId(),
-                        outcome.taskStatus(), PIPELINE_FAILURE_REASON);
+                        outcome.taskStatus(), terminalReason, resultSummary);
+                rememberOutcome(request, outcome.taskStatus(), resultSummary);
             } catch (RuntimeException lifecycleFailure) {
                 failure.addSuppressed(lifecycleFailure);
                 log.error("Failed to finalize application generation state, taskId: {}",
                         execution.taskId(), LogExceptionSanitizer.sanitize(lifecycleFailure));
             }
         }
-        finalizeRuntime(request, execution, session, outcome.taskStatus(), PIPELINE_FAILURE_REASON);
+        generationPerformanceMonitorService.finishTask(execution.taskId(), outcome.status());
+        finalizeRuntime(request, execution, session, outcome.taskStatus(), terminalReason);
+    }
+
+    private void rememberOutcome(GenerationPipelineRequest request,
+                                 GenerationTaskStatus status,
+                                 String resultSummary) {
+        if (generationOutcomeMemoryService == null
+                || request.taskRequest() == null
+                || request.taskRequest().app() == null
+                || request.taskRequest().app().getTenantId() == null
+                || request.taskRequest().loginUser() == null
+                || request.taskRequest().loginUser().getId() == null) {
+            return;
+        }
+        generationOutcomeMemoryService.remember(new GenerationOutcomeMemoryRequest(
+                request.requireExecution().taskId(),
+                request.taskRequest().app().getTenantId(),
+                request.taskRequest().app().getId(),
+                request.taskRequest().loginUser().getId(),
+                status,
+                request.taskRequest().message(),
+                resultSummary,
+                request.modeDecision().route(),
+                request.codeGenType() == null ? "unknown" : request.codeGenType().getValue()
+        ));
+    }
+
+    private String buildFailureResultSummary(GenerationPipelineRequest request,
+                                             GenerationTerminalOutcome outcome) {
+        String status = switch (outcome) {
+            case CANCELLED -> "已取消";
+            case DEADLINE_EXCEEDED -> "已超时";
+            default -> "失败";
+        };
+        return "任务状态：" + status
+                + "\n执行路径：" + request.modeDecision().route()
+                + "\n失败原因：" + safeFailureMessage(outcome);
+    }
+
+    private String terminalReason(GenerationTerminalOutcome outcome) {
+        return switch (outcome) {
+            case CANCELLED -> PIPELINE_CANCELLED_REASON;
+            case DEADLINE_EXCEEDED -> PIPELINE_DEADLINE_REASON;
+            default -> PIPELINE_FAILURE_REASON;
+        };
     }
 
     private void finalizeRuntime(GenerationPipelineRequest request,
@@ -273,9 +367,9 @@ public class GenerationPipelineExecutor {
             log.error("Failed to retain generation session for replay, taskId: {}",
                     execution.taskId(), LogExceptionSanitizer.sanitize(retentionFailure));
         } finally {
-            // A worker can finish after lease recovery has already installed a newer
-            // execution epoch for the same task.  Never let the old worker remove the
-            // newer epoch's context by task id alone.
+            // 工人可以在租约恢复已经安装更新的设备后完成
+            // 同一任务的执行纪元。  切勿让老工人拆除
+            // 新纪元的上下文仅通过任务 ID 来确定。
             generationExecutionContextService.finishIfOwned(
                     execution.taskId(), execution.executionFence(), status.getValue());
         }

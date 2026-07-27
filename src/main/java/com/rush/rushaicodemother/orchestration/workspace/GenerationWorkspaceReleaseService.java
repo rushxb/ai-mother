@@ -1,18 +1,23 @@
 package com.rush.rushaicodemother.orchestration.workspace;
 
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-/** Coordinates filesystem publication with the application-visible code-generation type. */
+/** 在原子工作区发布成功后，统一提交用户可见版本及首预览里程碑。 */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GenerationWorkspaceReleaseService {
 
     private final GenerationWorkspacePublicationService publicationService;
     private final GenerationWorkspacePublicationMetadataService publicationMetadataService;
+    private final GenerationPreviewMilestoneService previewMilestoneService;
 
     public GenerationWorkspacePublicationResult release(
             GenerationSession session,
@@ -23,14 +28,30 @@ public class GenerationWorkspaceReleaseService {
                 || session.executionContext().executionFence() == null
                 || targetType == null) {
             throw new GenerationExecutionPolicyException(
-                    "managed generation release context is incomplete");
+                    "托管生成发布上下文不完整");
         }
         GenerationExecutionWorkspace workspace = session.executionWorkspace();
         if (workspace.codeGenType() != targetType) {
             throw new GenerationExecutionPolicyException(
-                    "generation release type does not match the execution workspace");
+                    "生成发布类型与执行工作区不一致");
         }
         session.throwIfCancelled();
-        return publicationService.publishWithMetadata(session, publicationMetadataService);
+        GenerationWorkspacePublicationResult result =
+                publicationService.publishWithMetadata(session, publicationMetadataService);
+        publishFirstPreviewSafely(session, targetType);
+        return result;
+    }
+
+    private void publishFirstPreviewSafely(GenerationSession session, CodeGenTypeEnum targetType) {
+        try {
+            if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
+                previewMilestoneService.publishBuildReady(session, targetType);
+                return;
+            }
+            previewMilestoneService.publishRuntimeReady(session, targetType);
+        } catch (RuntimeException exception) {
+            log.warn("工作区已经发布，但首预览里程碑通知失败，taskId: {}, targetType: {}",
+                    session.taskId(), targetType.getValue(), LogExceptionSanitizer.sanitize(exception));
+        }
     }
 }

@@ -20,14 +20,15 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
-import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.devserver.DevServerError;
@@ -60,12 +61,10 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import org.mockito.InOrder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class HeavyGenerationRepairBudgetTest {
@@ -91,7 +90,8 @@ class HeavyGenerationRepairBudgetTest {
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 mock(StreamHandlerExecutor.class),
                 mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
-                stageAdmissionService()
+                stageAdmissionService(),
+                new GenerationRuntimeProperties()
         ));
         GenerationPreparation preparation = preparation(taskId);
         GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
@@ -286,7 +286,7 @@ class HeavyGenerationRepairBudgetTest {
     }
 
     @Test
-    void runtimeReadyMustBePublishedOnlyAfterDevServerValidationPasses() throws Exception {
+    void successfulDevServerValidationMustAllowBuildValidationToComplete() throws Exception {
         long appId = 870_007L;
         String taskId = "runtime-ready-order";
         Path projectPath = projectPath(appId);
@@ -294,7 +294,6 @@ class HeavyGenerationRepairBudgetTest {
         HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
         VueProjectBuilder builder = mock(VueProjectBuilder.class);
         DevServerValidationService validationService = mock(DevServerValidationService.class);
-        GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
         GenerationPreparation preparation = preparation(taskId);
         GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
         User user = User.builder().id(7L).build();
@@ -307,13 +306,10 @@ class HeavyGenerationRepairBudgetTest {
             createRepairableProject(projectPath);
             HeavyGenerationBuildValidationService buildService = buildService(
                     generationService, failureRecoveryService, builder,
-                    validationService, milestoneService, appId);
+                    validationService, appId);
 
             assertTrue(buildService.runWithAutoRepair(appId, user, preparation, session));
-
-            InOrder order = inOrder(validationService, milestoneService);
-            order.verify(validationService).validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT);
-            order.verify(milestoneService).publishRuntimeReady(session, CodeGenTypeEnum.VUE_PROJECT);
+            verify(validationService).validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT);
         } finally {
             FileUtil.del(projectPath.toFile());
         }
@@ -328,7 +324,6 @@ class HeavyGenerationRepairBudgetTest {
         HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
         VueProjectBuilder builder = mock(VueProjectBuilder.class);
         DevServerValidationService validationService = mock(DevServerValidationService.class);
-        GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
         GenerationPreparation preparation = preparation(taskId);
         GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
         User user = User.builder().id(7L).build();
@@ -346,7 +341,7 @@ class HeavyGenerationRepairBudgetTest {
             createRepairableProject(projectPath);
             HeavyGenerationBuildValidationService buildService = buildService(
                     generationService, failureRecoveryService, builder,
-                    validationService, milestoneService, appId);
+                    validationService, appId);
 
             assertTrue(buildService.runWithAutoRepair(appId, user, preparation, session));
 
@@ -363,7 +358,6 @@ class HeavyGenerationRepairBudgetTest {
             assertTrue(repairDiagnostic.contains("failureKind=RUNTIME_ERROR"));
             assertTrue(repairDiagnostic.contains("missing-lib"));
             assertTrue(repairDiagnostic.contains("检查 package.json"));
-            verify(milestoneService).publishRuntimeReady(session, CodeGenTypeEnum.VUE_PROJECT);
         } finally {
             FileUtil.del(projectPath.toFile());
         }
@@ -378,7 +372,6 @@ class HeavyGenerationRepairBudgetTest {
         HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
         VueProjectBuilder builder = mock(VueProjectBuilder.class);
         DevServerValidationService validationService = mock(DevServerValidationService.class);
-        GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
         GenerationPreparation preparation = preparation(taskId);
         GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
         when(builder.buildProjectWithResult(projectPath.toString(), taskId)).thenReturn(
@@ -393,7 +386,7 @@ class HeavyGenerationRepairBudgetTest {
             createRepairableProject(projectPath);
             HeavyGenerationBuildValidationService buildService = buildService(
                     generationService, failureRecoveryService, builder,
-                    validationService, milestoneService, appId);
+                    validationService, appId);
 
             assertFalse(buildService.runWithAutoRepair(
                     appId, User.builder().id(7L).build(), preparation, session));
@@ -403,8 +396,6 @@ class HeavyGenerationRepairBudgetTest {
                     eq(appId), same(preparation), same(session), summaryCaptor.capture());
             assertTrue(summaryCaptor.getValue().contains("Dev Server 启动失败"));
             assertFalse(summaryCaptor.getValue().contains("build passed"));
-            verify(milestoneService, never()).publishRuntimeReady(
-                    any(GenerationSession.class), any(CodeGenTypeEnum.class));
         } finally {
             FileUtil.del(projectPath.toFile());
         }
@@ -425,7 +416,6 @@ class HeavyGenerationRepairBudgetTest {
                 failureRecoveryService,
                 builder,
                 devServerValidationService,
-                mock(GenerationPreviewMilestoneService.class),
                 appId
         );
     }
@@ -435,11 +425,21 @@ class HeavyGenerationRepairBudgetTest {
             HeavyGenerationFailureRecoveryService failureRecoveryService,
             VueProjectBuilder builder,
             DevServerValidationService devServerValidationService,
-            GenerationPreviewMilestoneService milestoneService,
             long appId
     ) {
         doReturn("repair prompt").when(generationService).buildAutoRepairPrompt(
                 eq(appId), any(GenerationPreparation.class), any(Exception.class), anyInt());
+        GenerationProjectBuildValidationService projectBuildValidationService =
+                mock(GenerationProjectBuildValidationService.class);
+        when(projectBuildValidationService.validate(
+                any(GenerationWorkspace.class), any(CodeGenTypeEnum.class), anyString()))
+                .thenAnswer(invocation -> {
+                    GenerationWorkspace workspace = invocation.getArgument(0);
+                    String taskId = invocation.getArgument(2);
+                    VueBuildResult result = builder.buildProjectWithResult(
+                            workspace.frontendRootPath().toString(), taskId);
+                    return result == null ? null : ProjectBuildValidationResult.fromVue(result);
+                });
         return new HeavyGenerationBuildValidationService(
                 devServerValidationService,
                 mock(GenerationTaskLifecycleService.class),
@@ -449,8 +449,7 @@ class HeavyGenerationRepairBudgetTest {
                 failureRecoveryService,
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
-                builder,
-                milestoneService,
+                projectBuildValidationService,
                 stageAdmissionService()
         );
     }

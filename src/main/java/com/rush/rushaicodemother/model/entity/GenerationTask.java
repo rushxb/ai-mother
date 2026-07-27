@@ -13,6 +13,9 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/**
+ * 生成任务的持久化实体。
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -23,18 +26,23 @@ public class GenerationTask implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
+    /** 主键编号。 */
     @Id(keyType = KeyType.Auto)
     private Long id;
 
+    /** 生成任务编号。 */
     @Column("taskId")
     private String taskId;
 
+    /** 应用编号。 */
     @Column("appId")
     private Long appId;
 
+    /** 用户编号。 */
     @Column("userId")
     private Long userId;
 
+    /** 租户编号。 */
     @Column("tenantId")
     private Long tenantId;
 
@@ -50,8 +58,10 @@ public class GenerationTask implements Serializable {
     @Column("targetCodeGenType")
     private String targetCodeGenType;
 
+    /** 当前状态。 */
     private String status;
 
+    /** 当前阶段。 */
     private String stage;
 
     @Column("stageMessage")
@@ -66,12 +76,14 @@ public class GenerationTask implements Serializable {
     @Column("requiresBuildValidation")
     private Integer requiresBuildValidation;
 
+    /** 质量门禁结果。 */
     @Column("qualityGate")
     private String qualityGate;
 
     @Column("orchestrationMode")
     private String orchestrationMode;
 
+    /** 生成路由。 */
     private String route;
 
     @Column("runtimeSchemaVersion")
@@ -101,28 +113,36 @@ public class GenerationTask implements Serializable {
     @Column("cancellationReason")
     private String cancellationReason;
 
+    /** 租约持有者。 */
     @Column("leaseOwner")
     private String leaseOwner;
 
+    /** 租约截止时间。 */
     @Column("leaseUntil")
     private LocalDateTime leaseUntil;
 
+    /** 最后心跳时间。 */
     @Column("heartbeatAt")
     private LocalDateTime heartbeatAt;
 
+    /** 执行轮次。 */
     @Column("executionEpoch")
     private Long executionEpoch;
 
     private Integer attempt;
 
+    /** 版本号。 */
     private Long version;
 
+    /** 开始时间。 */
     @Column("startTime")
     private LocalDateTime startTime;
 
+    /** 结束时间。 */
     @Column("endTime")
     private LocalDateTime endTime;
 
+    /** 耗时毫秒数。 */
     @Column("durationMs")
     private Long durationMs;
 
@@ -134,6 +154,9 @@ public class GenerationTask implements Serializable {
 
     @Column("memoryIndexedAt")
     private LocalDateTime memoryIndexedAt;
+
+    @Column("memoryIndexContractVersion")
+    private Integer memoryIndexContractVersion;
 
     @Column("memoryIndexAttempts")
     private Integer memoryIndexAttempts;
@@ -150,6 +173,7 @@ public class GenerationTask implements Serializable {
     @Column("memoryIndexLeaseUntil")
     private LocalDateTime memoryIndexLeaseUntil;
 
+    /** 总令牌数。 */
     @Column("totalTokens")
     private Long totalTokens;
 
@@ -186,12 +210,15 @@ public class GenerationTask implements Serializable {
     @Column("publicationCommittedAt")
     private LocalDateTime publicationCommittedAt;
 
+    /** 创建时间。 */
     @Column("createTime")
     private LocalDateTime createTime;
 
+    /** 更新时间。 */
     @Column("updateTime")
     private LocalDateTime updateTime;
 
+    /** 逻辑删除标记。 */
     @Column(value = "isDelete", isLogicDelete = true)
     private Integer isDelete;
 }

@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
-/** Hashed submission identity; raw {@code Idempotency-Key} values are never persisted. */
+/** 哈希提交身份；原始 {@code Idempotency-Key} 值永远不会保留。 */
 public record GenerationTaskIdempotency(
         String keyHash,
         String requestFingerprint

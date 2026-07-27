@@ -13,7 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Bootstraps canonical backend generation workspaces from the packaged Go template. */
+/** 从打包的 Go 模板引导规范后端生成工作区。 */
 @Slf4j
 @Component
 public class BackendProjectTemplateBootstrapService {
@@ -42,8 +42,7 @@ public class BackendProjectTemplateBootstrapService {
             GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
             ProjectTemplateBootstrapper.BootstrapOutcome outcome = templateBootstrapper.bootstrap(
                     templateId,
-                    workspace.backendRootPath(),
-                    false
+                    workspace.backendRootPath()
             );
             BootstrapResult result = new BootstrapResult(
                     outcome.bootstrapped(),

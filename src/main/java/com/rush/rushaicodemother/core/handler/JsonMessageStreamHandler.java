@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.core.handler;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.ai.model.message.*;
@@ -17,8 +18,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -33,6 +36,7 @@ public class JsonMessageStreamHandler {
 
     private static final int MAX_PUBLIC_TOOL_TEXT_LENGTH = 1_200;
     private static final int MAX_PUBLIC_FILE_PREVIEW_LENGTH = 8_000;
+    private static final int MAX_PUBLIC_BATCH_FILE_PATHS = 20;
     private static final int MAX_TOOL_ARGUMENT_BUFFER_LENGTH = 256_000;
 
     private final ToolManager toolManager;
@@ -92,7 +96,7 @@ public class JsonMessageStreamHandler {
                 return event;
             }
             case GenerationStreamEvent.AI_THINKING_DELTA -> {
-                // Legacy defense-in-depth: private reasoning must never reach clients or history.
+                // 传统的深度防御：私人推理绝不能触及客户或历史。
                 return null;
             }
             case GenerationStreamEvent.TOOL_CALL -> {
@@ -219,7 +223,7 @@ public class JsonMessageStreamHandler {
         if (StrUtil.isNotBlank(resultSummary)) {
             data.put("resultSummary", resultSummary);
         }
-        appendFileOperationData(data, arguments);
+        appendFileOperationData(data, toolName, arguments);
         return data;
     }
 
@@ -266,8 +270,14 @@ public class JsonMessageStreamHandler {
         return value == null ? null : String.valueOf(value);
     }
 
-    private void appendFileOperationData(Map<String, Object> data, String arguments) {
+    private void appendFileOperationData(Map<String, Object> data,
+                                         String toolName,
+                                         String arguments) {
         if (StrUtil.isBlank(arguments)) {
+            return;
+        }
+        if ("writeFiles".equals(toolName)) {
+            appendBatchFileOperationData(data, arguments);
             return;
         }
         boolean parsed = false;
@@ -298,6 +308,37 @@ public class JsonMessageStreamHandler {
         }
         if (!parsed) {
             appendPartialFileOperationData(data, arguments);
+        }
+    }
+
+    private void appendBatchFileOperationData(Map<String, Object> data, String arguments) {
+        try {
+            JSONArray files = JSONUtil.parseObj(arguments).getJSONArray("files");
+            if (files == null) {
+                return;
+            }
+            List<String> filePaths = new ArrayList<>(
+                    Math.min(files.size(), MAX_PUBLIC_BATCH_FILE_PATHS));
+            for (int index = 0;
+                 index < files.size() && filePaths.size() < MAX_PUBLIC_BATCH_FILE_PATHS;
+                 index++) {
+                JSONObject file = files.getJSONObject(index);
+                String relativeFilePath = file == null ? null : file.getStr("relativeFilePath");
+                if (StrUtil.isNotBlank(relativeFilePath)) {
+                    filePaths.add(PublicDiagnosticSanitizer.sanitizeSingleLine(
+                            relativeFilePath, 512));
+                }
+            }
+            data.put("fileCount", files.size());
+            if (!filePaths.isEmpty()) {
+                data.put("filePaths", List.copyOf(filePaths));
+            }
+            if (files.size() > filePaths.size()) {
+                data.put("filePathsTruncated", true);
+            }
+        } catch (Exception exception) {
+            log.debug("解析批量文件工具参数失败: {}",
+                    LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 

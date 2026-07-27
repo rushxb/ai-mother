@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 
-/** Escalates historically unreliable applications and contains ambiguous work during saturation. */
+/** 升级历史上不可靠的应用程序，并在饱和期间包含不明确的工作。 */
 @Component
 @Order(35)
 @RequiredArgsConstructor

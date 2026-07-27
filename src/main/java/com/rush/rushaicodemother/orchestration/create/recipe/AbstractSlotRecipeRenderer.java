@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Shared deterministic dispatch for recipes where one slot produces one patch operation.
+ * 配方的共享确定性调度，其中一个槽产生一个补丁操作。
  */
 abstract class AbstractSlotRecipeRenderer<R> implements CreateRecipeRenderer {
 

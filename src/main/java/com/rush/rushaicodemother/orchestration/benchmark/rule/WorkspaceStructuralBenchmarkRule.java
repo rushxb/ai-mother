@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Verifies that a benchmark produced the minimum runnable project structure for its target type. */
+/** 验证基准测试是否为其目标类型生成了最小的可运行项目结构。 */
 @Component
 public class WorkspaceStructuralBenchmarkRule implements GenerationBenchmarkValidationRule {
 

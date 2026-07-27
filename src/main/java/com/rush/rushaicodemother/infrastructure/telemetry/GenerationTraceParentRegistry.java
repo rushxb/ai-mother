@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Bounded-by-active-tasks bridge for child observations emitted from model callback threads. */
+/** 有界活动任务桥接从模型回调线程发出的子观察。 */
 @Component
 public class GenerationTraceParentRegistry {
 

@@ -23,7 +23,7 @@ public final class GeneratedProjectWorkspaceInspector {
             ".ds_store", ".ai-code-install.stamp", ".ai-code-critical.stamp", ".ai-code-presentation.stamp"
     );
 
-    private static final Set<String> KEY_PROJECT_FILES = Set.of(
+    private static final Set<String> VUE_KEY_PROJECT_FILES = Set.of(
             "package.json",
             "index.html",
             "vite.config.js",
@@ -32,6 +32,22 @@ public final class GeneratedProjectWorkspaceInspector {
             "src/main.js",
             "src/main.ts",
             "src/app.vue"
+    );
+
+    private static final Set<String> BACKEND_KEY_PROJECT_FILES = Set.of(
+            "go.mod",
+            "go.sum",
+            "cmd/server/main.go"
+    );
+
+    private static final Set<String> FULL_STACK_KEY_PROJECT_FILES = Set.of(
+            "frontend/package.json",
+            "frontend/src/main.js",
+            "frontend/src/main.ts",
+            "frontend/src/app.vue",
+            "backend/go.mod",
+            "backend/go.sum",
+            "backend/cmd/server/main.go"
     );
 
     private GeneratedProjectWorkspaceInspector() {
@@ -45,6 +61,18 @@ public final class GeneratedProjectWorkspaceInspector {
     }
 
     public static WorkspaceState inspectVueProject(Path projectPath) {
+        return inspectProject(projectPath, VUE_KEY_PROJECT_FILES);
+    }
+
+    public static WorkspaceState inspectBackendProject(Path projectPath) {
+        return inspectProject(projectPath, BACKEND_KEY_PROJECT_FILES);
+    }
+
+    public static WorkspaceState inspectFullStackProject(Path projectPath) {
+        return inspectProject(projectPath, FULL_STACK_KEY_PROJECT_FILES);
+    }
+
+    private static WorkspaceState inspectProject(Path projectPath, Set<String> keyProjectFiles) {
         if (projectPath == null) {
             throw new IllegalArgumentException("projectPath 不能为空");
         }
@@ -77,7 +105,7 @@ public final class GeneratedProjectWorkspaceInspector {
                     }
                     meaningfulFileCount[0]++;
                     String normalizedPath = relativePath.toLowerCase(Locale.ROOT);
-                    if (KEY_PROJECT_FILES.contains(normalizedPath)) {
+                    if (keyProjectFiles.contains(normalizedPath)) {
                         detectedKeyFiles.add(relativePath);
                     }
                     return FileVisitResult.CONTINUE;

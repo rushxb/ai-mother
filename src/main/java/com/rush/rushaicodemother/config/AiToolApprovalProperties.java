@@ -10,16 +10,23 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
+/**
+ * AI 工具审批配置属性。
+ */
 @Data
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.ai-tool-approval")
 public class AiToolApprovalProperties {
+    /** 审批记录有效期。 */
     private Duration ttl = Duration.ofMinutes(10);
+    /** 过期审批扫描周期。 */
     private Duration expirationScanInterval = Duration.ofMinutes(1);
+    /** 单次过期扫描处理上限。 */
     @Min(1)
     @Max(1000)
     private int expirationBatchSize = 100;
+    /** 最大执行尝试次数。 */
     @Min(1)
     @Max(10)
     private int maxExecutionAttempts = 3;

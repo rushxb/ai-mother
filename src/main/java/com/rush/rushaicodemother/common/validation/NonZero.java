@@ -10,10 +10,10 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Validates that a numeric value is not zero.
+ * 验证数值不为零。
  *
- * <p>{@code null} is intentionally considered valid so callers can compose this constraint with
- * {@code @NotNull} when the value is mandatory, following Bean Validation conventions.</p>
+ * <p>{@code null} 被故意认为是有效的，因此调用者可以用以下方式组成此约束
+ * {@code @NotNull} 当该值是强制的时，遵循 Bean 验证约定。</p>
  */
 @Documented
 @Constraint(validatedBy = NonZeroValidator.class)

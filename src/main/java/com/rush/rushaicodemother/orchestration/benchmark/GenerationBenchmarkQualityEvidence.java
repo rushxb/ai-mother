@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 
 import java.util.List;
 
-/** Composable quality evidence attached to one benchmark run. */
+/** 附在一次基准测试运行中的可组合质量证据。 */
 public record GenerationBenchmarkQualityEvidence(
         List<GenerationBenchmarkRuleResult> ruleResults
 ) {

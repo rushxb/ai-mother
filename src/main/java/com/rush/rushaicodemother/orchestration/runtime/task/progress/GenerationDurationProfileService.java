@@ -17,7 +17,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-/** Builds bounded, cached duration percentiles without loading unbounded telemetry into memory. */
+/** 构建有界的、缓存的持续时间百分位，而不将无界遥测数据加载到内存中。 */
 @Service
 public class GenerationDurationProfileService {
 

@@ -108,7 +108,6 @@ class CodeAgentNodeTest {
                 "update",
                 hasGeneratedCode,
                 null,
-                null,
                 null
         );
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();

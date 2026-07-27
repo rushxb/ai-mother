@@ -21,10 +21,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Owns the short-lived Git index, pathspec, and hook-isolation resources used by one commit transaction.
+ * 拥有一次提交事务使用的短期 Git 索引、路径规范和挂钩隔离资源。
  *
- * <p>All resources are direct children of a validated Git metadata directory. The pathspec is passed
- * through a NUL-delimited file so a large generation does not exceed the Windows command-line limit.</p>
+ * <p>所有资源都是经过验证的 Git 元数据目录的直接子级。路径规范已传递
+ * 通过NUL分隔的文件这样大的生成不会超出Windows命令行限制。</p>
  */
 @Slf4j
 @Component
@@ -101,7 +101,7 @@ public class GitTransactionResourceManager {
         deleteIfSafe(resources.gitDirectory(), resources.temporaryHooksDirectory(), ResourceType.HOOKS_DIRECTORY);
     }
 
-    /** Reads the NUL-delimited staged-file output produced by {@code git diff --name-only -z}. */
+    /** 读取 {@code git diff --name-only -z} 生成的 NUL 分隔的暂存文件输出。 */
     public List<String> readStagedFiles(GitTransactionResources resources,
                                         int maxOutputBytes) throws GitTransactionResourceException {
         Objects.requireNonNull(resources, "resources must not be null");

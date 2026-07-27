@@ -6,6 +6,9 @@ import org.springframework.stereotype.Component;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.frontendOptions;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
 
+/**
+ * 基础配方对象工厂。
+ */
 @Component
 final class BasicRecipeFactory {
 

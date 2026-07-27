@@ -5,6 +5,9 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
+/**
+ * 生成工具执行上下文的不可变数据载体。
+ */
 public record GenerationToolExecutionContext(
         Long appId,
         String taskId,

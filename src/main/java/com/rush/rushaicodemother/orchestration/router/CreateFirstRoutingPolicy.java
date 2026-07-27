@@ -5,6 +5,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 
+/**
+ * 创建First路由决策策略。
+ */
 @Component
 @Order(20)
 public class CreateFirstRoutingPolicy implements GenerationRoutingPolicy {
@@ -18,7 +21,7 @@ public class CreateFirstRoutingPolicy implements GenerationRoutingPolicy {
                 GenerationMode.CREATE,
                 0.95,
                 "Workspace does not exist; use CREATE template-first mode for faster first preview",
-                FallbackPolicy.NONE,
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
                 ExpectedValidationLevel.BUILD,
                 GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST
         ));

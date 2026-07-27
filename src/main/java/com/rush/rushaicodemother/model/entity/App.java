@@ -32,7 +32,7 @@ public class App implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * id
+     * 编号
      */
     @Id(keyType = KeyType.Generator, value = KeyGenerators.snowFlakeId)
     private Long id;
@@ -103,7 +103,7 @@ public class App implements Serializable {
     private LocalDateTime generationLeaseUntil;
 
     /**
-     * Fencing epoch of the worker that currently owns the generation state.
+     * 当前拥有生成状态的工人的击剑纪元。
      */
     @Column("generationExecutionEpoch")
     private Long generationExecutionEpoch;

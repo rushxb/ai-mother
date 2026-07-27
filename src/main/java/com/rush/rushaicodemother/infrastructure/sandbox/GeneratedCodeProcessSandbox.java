@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import java.nio.file.Path;
 import java.util.List;
 
-/** Strategy port that turns a generated-code command into an isolated host launch plan. */
+/** 将生成代码命令转换为独立主机启动计划的策略端口。 */
 public interface GeneratedCodeProcessSandbox {
 
     SandboxProcessPlan prepare(ManagedProcessRequest request, Path normalizedWorkingDirectory);
@@ -24,7 +24,7 @@ public interface GeneratedCodeProcessSandbox {
     default void cleanup(SandboxProcessPlan plan) {
     }
 
-    /** Cleans durable resources after the process that created the original plan has disappeared. */
+    /** 在创建原始计划的进程消失后清理持久资源。 */
     default void cleanupResources(String backend, List<String> resourceIds) {
         if (resourceIds != null && !resourceIds.isEmpty()) {
             throw new UnsupportedOperationException(

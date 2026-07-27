@@ -1,13 +1,17 @@
 package com.rush.rushaicodemother.ai.tools;
 
+import dev.langchain4j.agent.tool.Tool;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.ClassUtils;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -38,6 +42,7 @@ public class ToolManager {
                     || tool.getRiskLevel() == null) {
                 throw new IllegalStateException("AI tool registration metadata is incomplete");
             }
+            validateExposedToolName(tool);
             if (tool.getRiskLevel() == ToolRiskLevel.DESTRUCTIVE
                     && !(tool instanceof ApprovalGatedTool)) {
                 throw new IllegalStateException(
@@ -50,6 +55,24 @@ public class ToolManager {
             log.info("注册工具: {} -> {}", tool.getToolName(), tool.getDisplayName());
         }
         log.info("工具管理器初始化完成，共注册 {} 个工具", toolMap.size());
+    }
+
+    private void validateExposedToolName(BaseTool tool) {
+        Class<?> toolClass = ClassUtils.getUserClass(tool);
+        List<Method> exposedMethods = Arrays.stream(toolClass.getMethods())
+                .filter(method -> method.isAnnotationPresent(Tool.class))
+                .toList();
+        if (exposedMethods.size() != 1) {
+            throw new IllegalStateException(
+                    "AI 工具必须且只能暴露一个 @Tool 方法: " + toolClass.getSimpleName());
+        }
+        Method method = exposedMethods.getFirst();
+        Tool annotation = method.getAnnotation(Tool.class);
+        String exposedName = annotation.name().isBlank() ? method.getName() : annotation.name();
+        if (!tool.getToolName().equals(exposedName)) {
+            throw new IllegalStateException(
+                    "AI 工具注册名与模型可见名称不一致: " + toolClass.getSimpleName());
+        }
     }
 
 
@@ -82,7 +105,7 @@ public class ToolManager {
                 .toArray(BaseTool[]::new);
     }
 
-    /** Shared exposure decision used both while building AI services and at invocation time. */
+    /** 在构建人工智能服务和调用时都使用共享暴露决策。 */
     public boolean isToolAllowedForCodeGen(String toolName, CodeGenTypeEnum codeGenType) {
         BaseTool tool = toolMap.get(toolName);
         if (tool == null || tool.getRiskLevel() == ToolRiskLevel.EXTERNAL_SIDE_EFFECT) {

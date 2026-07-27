@@ -37,7 +37,8 @@ public record ManagedProcessRequest(
         String logContext,
         BooleanSupplier cancellationRequested,
         ManagedProcessLifecycle lifecycle,
-        SandboxNetworkPolicy networkPolicy
+        SandboxNetworkPolicy networkPolicy,
+        Integer exposedPort
 ) {
 
     public ManagedProcessRequest {

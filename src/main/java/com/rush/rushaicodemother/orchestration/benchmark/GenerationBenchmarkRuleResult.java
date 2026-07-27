@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 
 import java.util.List;
 
-/** One deterministic grader result. Violation values are stable machine-readable codes. */
+/** 一份确定性分级结果。违规值是稳定的机器可读代码。 */
 public record GenerationBenchmarkRuleResult(
         String ruleId,
         GenerationBenchmarkQualityDimension dimension,

@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
@@ -28,17 +30,20 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Publishes one task/epoch workspace through an atomic version pointer.
+ * 通过原子版本指针发布一个任务/纪元工作区。
  *
- * <p>The completed directory is first moved to a unique, versioned location. Only after the lease
- * is renewed and the exact durable fence is revalidated does a small pointer file become visible.
- * This avoids non-atomic directory replacement on Windows and keeps the previous version available
- * for rollback and diagnostics.</p>
+ * <p> 完成的目录首先被移动到一个唯一的、版本化的位置。仅在租约结束后
+ * 更新后，如果小指针文件变得可见，则重新验证确切的耐用栅栏。
+ * 这避免了 Windows 上的非原子目录替换并保持以前的版本可用
+ * 用于回滚和诊断。</p>
  */
 @Service
 public class GenerationWorkspacePublicationService {
+
+    private static final long MAX_MANAGED_LOCK_POLL_NANOS = Duration.ofMillis(100).toNanos();
 
     private final GenerationWorkspacePublicationCatalog publicationCatalog;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
@@ -79,7 +84,7 @@ public class GenerationWorkspacePublicationService {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
-    /** Publishes and commits application metadata while filesystem rollback is still possible. */
+    /** 发布并提交应用程序元数据，同时仍可以进行文件系统回滚。 */
     public GenerationWorkspacePublicationResult publishWithMetadata(
             GenerationSession session,
             GenerationWorkspacePublicationCommitter metadataCommit) {
@@ -89,10 +94,12 @@ public class GenerationWorkspacePublicationService {
             throw new GenerationExecutionPolicyException(
                     "managed generation session has no publishable execution workspace");
         }
+        GenerationExecutionContext executionContext = session.executionContext();
         return publishWithMetadata(
-                session.executionContext().executionFence(),
+                executionContext.executionFence(),
                 session.executionWorkspace(),
-                metadataCommit);
+                metadataCommit,
+                executionContext);
     }
 
     public GenerationWorkspacePublicationResult publishWithMetadata(
@@ -100,11 +107,26 @@ public class GenerationWorkspacePublicationService {
             GenerationExecutionWorkspace executionWorkspace,
             GenerationWorkspacePublicationCommitter metadataCommit
     ) {
+        return publishWithMetadata(fence, executionWorkspace, metadataCommit, null);
+    }
+
+    private GenerationWorkspacePublicationResult publishWithMetadata(
+            GenerationExecutionFence fence,
+            GenerationExecutionWorkspace executionWorkspace,
+            GenerationWorkspacePublicationCommitter metadataCommit,
+            GenerationExecutionContext executionContext
+    ) {
         requireIdentity(fence, executionWorkspace);
         Objects.requireNonNull(metadataCommit, "metadataCommit");
+        if (executionContext != null) {
+            executionContext.assertCanContinue();
+        }
         GenerationWorkspacePublicationPointer candidate = GenerationWorkspacePublicationPointer.from(
                 executionWorkspace.appId(), executionWorkspace.codeGenType(), fence, clock.instant());
-        try (PublicationLock ignored = acquireLock(executionWorkspace.appId())) {
+        try (PublicationLock ignored = acquireLock(executionWorkspace.appId(), executionContext)) {
+            if (executionContext != null) {
+                executionContext.assertCanContinue();
+            }
             return publishLocked(fence, executionWorkspace, candidate, metadataCommit);
         } catch (BusinessException | GenerationExecutionPolicyException exception) {
             throw exception;
@@ -114,7 +136,7 @@ public class GenerationWorkspacePublicationService {
         }
     }
 
-    /** Reconciles only publications whose pointer was already made user-visible before a crash. */
+    /** 仅协调其指针在崩溃之前已成为用户可见的发布。 */
     public ReconciliationOutcome reconcile(
             GenerationWorkspacePublicationJournalEntry entry,
             GenerationWorkspacePublicationCommitter metadataCommit
@@ -319,8 +341,8 @@ public class GenerationWorkspacePublicationService {
                 }
             }
         }
-        // If pointer restoration failed, keep the exact published directory in place.  The active
-        // pointer must never be left referring to a directory that compensation moved away.
+        // 如果指针恢复失败，请保留确切的已发布目录。  活跃的
+        // 指针绝不能指向补偿移走的目录。
         if (restoreWorkspace && pointerRestored && destination != null
                 && Files.isDirectory(destination, LinkOption.NOFOLLOW_LINKS)
                 && !Files.exists(source, LinkOption.NOFOLLOW_LINKS)) {
@@ -333,6 +355,24 @@ public class GenerationWorkspacePublicationService {
     }
 
     private PublicationLock acquireLock(Long appId) throws IOException {
+        return acquireLock(appId, null);
+    }
+
+    private PublicationLock acquireLock(Long appId,
+                                        GenerationExecutionContext executionContext) throws IOException {
+        Duration timeout = properties.getPublicationLockTimeout();
+        boolean boundedByTaskDeadline = false;
+        if (executionContext != null) {
+            executionContext.assertCanContinue();
+            Duration remaining = executionContext.remainingDuration();
+            if (remaining.isZero()) {
+                throw new GenerationDeadlineExceededException(executionContext.taskId());
+            }
+            if (remaining.compareTo(timeout) < 0) {
+                timeout = remaining;
+                boundedByTaskDeadline = true;
+            }
+        }
         Path lockPath = publicationCatalog.lockPath(appId);
         if (Files.exists(lockPath, LinkOption.NOFOLLOW_LINKS) && Files.isSymbolicLink(lockPath)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR,
@@ -351,23 +391,49 @@ public class GenerationWorkspacePublicationService {
                 throw new BusinessException(ErrorCode.NO_AUTH_ERROR,
                         "publication lock is unsafe");
             }
-            Duration timeout = properties.getPublicationLockTimeout();
-            long deadline = System.nanoTime() + timeout.toNanos();
+            long timeoutNanos = toNanosSaturated(timeout);
+            long retryDelayNanos = toNanosSaturated(
+                    Duration.ofMillis(Math.max(10L, properties.getPublishRetryDelayMillis())));
+            if (executionContext != null) {
+                retryDelayNanos = Math.min(retryDelayNanos, MAX_MANAGED_LOCK_POLL_NANOS);
+            }
+            long startedNanos = System.nanoTime();
             while (true) {
+                if (executionContext != null) {
+                    executionContext.assertCanContinue();
+                }
                 try {
                     FileLock lock = channel.tryLock();
                     if (lock != null) {
+                        if (executionContext != null) {
+                            executionContext.assertCanContinue();
+                        }
                         return new PublicationLock(channel, lock);
                     }
                 } catch (OverlappingFileLockException ignored) {
-                    // Another worker in this JVM owns the same app publication lock.
+                    // 该 JVM 中的另一个工作线程拥有相同的应用程序发布锁。
                 }
-                if (System.nanoTime() >= deadline) {
+                long elapsedNanos = System.nanoTime() - startedNanos;
+                if (elapsedNanos >= timeoutNanos) {
+                    if (executionContext != null) {
+                        executionContext.assertCanContinue();
+                        if (boundedByTaskDeadline) {
+                            throw new GenerationDeadlineExceededException(executionContext.taskId());
+                        }
+                    }
                     throw new BusinessException(ErrorCode.OPERATION_ERROR,
                             "Timed out waiting for the application publication lock");
                 }
+                long sleepNanos = Math.min(retryDelayNanos, timeoutNanos - elapsedNanos);
+                if (executionContext != null) {
+                    long taskRemainingNanos = toNanosSaturated(executionContext.remainingDuration());
+                    if (taskRemainingNanos <= 0L) {
+                        throw new GenerationDeadlineExceededException(executionContext.taskId());
+                    }
+                    sleepNanos = Math.min(sleepNanos, taskRemainingNanos);
+                }
                 try {
-                    Thread.sleep(Math.max(10L, properties.getPublishRetryDelayMillis()));
+                    TimeUnit.NANOSECONDS.sleep(Math.max(1L, sleepNanos));
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     InterruptedIOException failure = new InterruptedIOException(
@@ -383,6 +449,14 @@ public class GenerationWorkspacePublicationService {
                 failure.addSuppressed(closeFailure);
             }
             throw failure;
+        }
+    }
+
+    private long toNanosSaturated(Duration duration) {
+        try {
+            return duration.toNanos();
+        } catch (ArithmeticException ignored) {
+            return Long.MAX_VALUE;
         }
     }
 

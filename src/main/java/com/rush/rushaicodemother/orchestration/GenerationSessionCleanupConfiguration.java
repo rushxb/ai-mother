@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
@@ -12,6 +13,11 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
 @RequiredArgsConstructor
+@ConditionalOnProperty(
+        prefix = "app.background-jobs",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = true)
 public class GenerationSessionCleanupConfiguration implements SchedulingConfigurer {
 
     private final GenerationSessionRegistry generationSessionRegistry;

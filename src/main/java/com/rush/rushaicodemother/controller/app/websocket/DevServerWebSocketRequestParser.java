@@ -4,7 +4,7 @@ import com.rush.rushaicodemother.service.devserver.DevServerPreviewPaths;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
 
-/** Strictly parses public and signed-internal Preview WebSocket request paths. */
+/** 严格解析公共和签名内部预览 WebSocket 请求路径。 */
 @Component
 public class DevServerWebSocketRequestParser {
 

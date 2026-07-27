@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.monitor.span;
 
-/** Stable categories used to aggregate generation critical-path latency. */
+/** 用于聚合生成关键路径延迟的稳定类别。 */
 public enum GenerationSpanCategory {
     QUEUE,
     WORKSPACE,

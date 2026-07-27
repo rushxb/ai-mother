@@ -17,11 +17,11 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Resolves and prepares the canonical filesystem layout for generated applications.
+ * 为生成的应用程序解析并准备规范的文件系统布局。
  *
- * <p>All generation modules must use this service instead of rebuilding output paths with string
- * concatenation. Resolved workspaces are normalized, constrained to the configured output root and
- * rejected when the application directory is a symbolic link or a non-directory entry.</p>
+ * <p>所有生成模块必须使用此服务而不是用字符串重建输出路径
+ * 连接。解析的工作空间被规范化，限制为配置的输出根和
+ * 当应用程序目录是符号链接或非目录项时拒绝。</p>
  */
 @Service
 public class GenerationWorkspaceService {
@@ -40,7 +40,7 @@ public class GenerationWorkspaceService {
     private final GenerationWorkspaceExecutionScope executionScope;
     private final GenerationWorkspacePublicationCatalog publicationCatalog;
 
-    /** Compatibility constructor for non-Spring callers and focused unit tests. */
+    /** 非 Spring 调用者和重点单元测试的兼容性构造函数。 */
     public GenerationWorkspaceService(CodeStorageProperties storageProperties) {
         this(storageProperties, new GenerationWorkspaceExecutionScope(),
                 new GenerationWorkspacePublicationCatalog(storageProperties));
@@ -77,7 +77,7 @@ public class GenerationWorkspaceService {
         return resolve(app.getId(), codeGenType);
     }
 
-    /** Resolves a workspace without forcing orchestration code to construct a persistence entity. */
+    /** 解析工作区，而不强制编排代码构造持久性实体。 */
     public GenerationWorkspace resolve(Long appId, CodeGenTypeEnum codeGenType) {
         validateIdentity(appId, codeGenType);
         GenerationExecutionWorkspace executionWorkspace = executionScope.current(appId, codeGenType).orElse(null);
@@ -87,7 +87,7 @@ public class GenerationWorkspaceService {
         return resolveCanonical(appId, codeGenType);
     }
 
-    /** Resolves the user-visible canonical application workspace, bypassing execution scoping. */
+    /** 解析用户可见的规范应用程序工作空间，绕过执行范围。 */
     public GenerationWorkspace resolveCanonical(Long appId, CodeGenTypeEnum codeGenType) {
         validateIdentity(appId, codeGenType);
         try {
@@ -100,7 +100,7 @@ public class GenerationWorkspaceService {
         }
     }
 
-    /** Resolves the exact publication owned by one durable task, rejecting a stale/current mismatch. */
+    /** 解决一项持久任务所拥有的确切发布，拒绝陈旧/当前的不匹配。 */
     public GenerationWorkspace resolvePublished(Long appId,
                                                 CodeGenTypeEnum codeGenType,
                                                 String expectedTaskId) {
@@ -137,7 +137,7 @@ public class GenerationWorkspaceService {
         }
     }
 
-    /** Resolves one exact task/epoch workspace for asynchronous callbacks that cannot use ThreadLocal scope. */
+    /** 为无法使用 ThreadLocal 范围的异步回调解析一个确切的任务/纪元工作区。 */
     public GenerationWorkspace resolveExecution(GenerationExecutionFence fence,
                                                 Long appId,
                                                 CodeGenTypeEnum codeGenType) {
@@ -151,8 +151,8 @@ public class GenerationWorkspaceService {
     }
 
     /**
-     * Resolves an artifact-reported application workspace only when it exactly matches one canonical
-     * workspace layout for the supplied application.
+     * 仅当与一个规范完全匹配时才解析工件报告的应用程序工作区
+     * 所提供应用程序的工作区布局。
      */
     public GenerationWorkspace resolveReportedWorkspace(Long appId, Path reportedPath) {
         if (appId == null || appId <= 0 || reportedPath == null) {
@@ -192,10 +192,10 @@ public class GenerationWorkspaceService {
     }
 
     /**
-     * Creates the canonical application directory when absent and returns the validated workspace.
+     * 在不存在时创建规范应用程序目录并返回经过验证的工作区。
      *
-     * <p>Creation is limited to one direct child below the configured output root. Concurrent creators
-     * are supported by re-validating an entry that appeared between the existence check and create call.</p>
+     * <p>Creation 仅限于配置的输出根以下的一个直接子级。并发创作者
+     * 通过重新验证存在检查和创建调用之间出现的条目来支持。</p>
      */
     public GenerationWorkspace prepare(Long appId, CodeGenTypeEnum codeGenType) {
         validateIdentity(appId, codeGenType);
@@ -216,7 +216,7 @@ public class GenerationWorkspaceService {
                 try {
                     Files.createDirectory(workspaceRoot);
                 } catch (FileAlreadyExistsException ignored) {
-                    // Another request created the same workspace; validation below decides whether it is safe.
+                    // 另一个请求创建了相同的工作区；下面的验证决定它是否安全。
                 }
             }
             validateDirectory(workspaceRoot, "生成工作区路径不是安全目录");
@@ -229,8 +229,8 @@ public class GenerationWorkspaceService {
     }
 
     /**
-     * Describes a workspace path already created by the execution-workspace materializer.
-     * Callers cannot use this method to escape the configured output root or execution subtree.
+     * 描述执行工作空间物化器已经创建的工作空间路径。
+     * 调用者不能使用此方法转义配置的输出根或执行子树。
      */
     public GenerationWorkspace resolveExecutionWorkspace(Long appId,
                                                           CodeGenTypeEnum codeGenType,
@@ -239,9 +239,9 @@ public class GenerationWorkspaceService {
     }
 
     /**
-     * Describes an execution directory while preserving whether it was seeded from an existing
-     * user project. The directory is created eagerly, so physical existence alone is not enough
-     * to decide whether the CREATE pipeline should handle the task.
+     * 描述一个执行目录，同时保留它是否是从现有的目录中播种的
+     * 用户项目。目录是急切创建的，因此仅物理存在是不够的
+     * 决定 CREATE 管道是否应该处理该任务。
      */
     public GenerationWorkspace resolveExecutionWorkspace(Long appId,
                                                           CodeGenTypeEnum codeGenType,

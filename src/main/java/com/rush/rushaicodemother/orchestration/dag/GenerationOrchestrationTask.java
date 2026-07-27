@@ -33,7 +33,7 @@ public class GenerationOrchestrationTask {
 
     private String orchestrationMode;
 
-    /** Hash of the ordered node declarations and their dependency edges. */
+    /** 有序节点声明及其依赖边的哈希值。 */
     private String dagFingerprint;
 
     private String status;

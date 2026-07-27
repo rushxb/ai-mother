@@ -21,6 +21,9 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
+/**
+ * 生成反馈服务实现。
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor

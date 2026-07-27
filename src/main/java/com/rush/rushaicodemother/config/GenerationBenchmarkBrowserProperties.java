@@ -8,7 +8,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Browser-backed benchmark grader controls for dedicated release-validation workers. */
+/** 浏览器支持的基准分级器控件，适用于专门的发布验证工作人员。 */
 @Data
 @Component
 @Validated

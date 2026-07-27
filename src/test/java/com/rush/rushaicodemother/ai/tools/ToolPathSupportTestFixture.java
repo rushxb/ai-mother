@@ -60,6 +60,10 @@ final class ToolPathSupportTestFixture {
         return workspaceForApp(appId, new AiToolWorkspaceProperties());
     }
 
+    static ToolWorkspaceFileService workspaceForApp(long appId, CodeGenTypeEnum codeGenType) {
+        return workspaceFrom(forApp(appId, codeGenType), new AiToolWorkspaceProperties());
+    }
+
     static ToolWorkspaceFileService workspaceForApp(
             long appId,
             AiToolWorkspaceProperties workspaceProperties

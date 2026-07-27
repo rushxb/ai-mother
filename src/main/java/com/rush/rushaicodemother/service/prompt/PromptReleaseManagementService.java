@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.model.vo.PromptReleaseMutationVO;
 
 import java.util.List;
 
-/** Administrator use cases for audited stable/canary prompt releases. */
+/** 经审核的稳定/金丝雀提示版本的管理员用例。 */
 public interface PromptReleaseManagementService {
 
     PromptCatalogAdminVO getOverview();

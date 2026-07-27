@@ -7,7 +7,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Runs heartbeat and recovery from one process-wide maintenance tick. */
+/** 从一个进程范围的维护滴答声中运行检测信号和恢复。 */
 @Service
 public class GenerationTaskMaintenanceService {
 

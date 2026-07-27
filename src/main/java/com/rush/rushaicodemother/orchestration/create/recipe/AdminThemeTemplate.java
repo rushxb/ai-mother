@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.densityTokens;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.escape;
 
-/** Renders admin theme tokens from normalized frontend options. */
+/** 从规范化的前端选项呈现管理主题令牌。 */
 @Component
 final class AdminThemeTemplate {
 
@@ -13,7 +13,7 @@ final class AdminThemeTemplate {
         DensityTokens density = densityTokens(recipe.frontend().density());
         String styleComment = String.join(", ", recipe.frontend().styleKeywords());
         return """
-                /* styleKeywords: %s */
+                /* 样式关键词: %s */
                 :root {
                   --color-primary: %s;
                   --color-success: #10b981;

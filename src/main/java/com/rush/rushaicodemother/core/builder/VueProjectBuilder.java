@@ -4,7 +4,6 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -14,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.Objects;
 
 /**
  * Vue 项目构建编排入口。
@@ -66,12 +66,25 @@ public class VueProjectBuilder {
 
     /** 构建 Vue 项目并返回结构化结果。 */
     public VueBuildResult buildProjectWithResult(String projectPath) {
-        return executeAndRemember(projectPath, null);
+        return buildProjectWithResult(projectPath, null);
     }
 
     /** 在生成任务上下文中构建 Vue 项目并返回结构化结果。 */
     public VueBuildResult buildProjectWithResult(String projectPath, String taskId) {
-        return executeAndRemember(projectPath, taskId);
+        return buildProjectWithResult(
+                projectPath,
+                taskId,
+                BuildExecutionBudgetReservation.forTask(executionContextService, taskId)
+        );
+    }
+
+    /** 在一轮组合质量门禁共享的预算预留下构建 Vue 项目。 */
+    public VueBuildResult buildProjectWithResult(
+            String projectPath,
+            String taskId,
+            BuildExecutionBudgetReservation budgetReservation
+    ) {
+        return executeCoordinatedBuild(projectPath, taskId, budgetReservation);
     }
 
     /**
@@ -89,33 +102,33 @@ public class VueProjectBuilder {
         try {
             JSONObject packageJson = readPackageJson(packageJsonFile);
             VueProjectSnapshot snapshot = snapshotService.capture(projectRoot, packageJson);
-            return resultRegistry.find(projectRoot, snapshot);
+            VueBuildResult recentResult = resultRegistry.find(projectRoot, snapshot);
+            return recentResult != null && canReuseValidatedResult(projectRoot, snapshot)
+                    ? recentResult
+                    : null;
         } catch (Exception exception) {
             log.debug("读取最近 Vue 构建结果失败: {}, {}", projectPath, LogExceptionSanitizer.sanitizeMessage(exception));
             return null;
         }
     }
 
-    private VueBuildResult executeAndRemember(String projectPath, String taskId) {
-        BuildExecution execution = executeBuild(projectPath, taskId);
-        if (execution.projectRoot() != null && execution.snapshot() != null) {
-            resultRegistry.remember(execution.projectRoot(), execution.snapshot(), execution.result());
-        }
-        return execution.result();
-    }
-
-    private BuildExecution executeBuild(String projectPath, String taskId) {
+    private VueBuildResult executeCoordinatedBuild(
+            String projectPath,
+            String taskId,
+            BuildExecutionBudgetReservation budgetReservation
+    ) {
+        Objects.requireNonNull(budgetReservation, "构建预算预留不能为空");
         Path projectRoot = resolveProjectRoot(projectPath);
         if (projectRoot == null) {
             log.error("Vue 项目目录不存在或无效: {}", projectPath);
-            return BuildExecution.invalid(projectPath, "项目目录不存在或无效");
+            return VueBuildResult.invalid(projectPath, "项目目录不存在或无效");
         }
 
         String normalizedProjectPath = projectRoot.toString();
         Path packageJsonFile = projectRoot.resolve("package.json");
         if (!isSafeRegularFile(packageJsonFile)) {
             log.error("Vue 项目目录中没有安全的 package.json 文件: {}", normalizedProjectPath);
-            return BuildExecution.invalid(normalizedProjectPath, "项目目录中没有 package.json 文件");
+            return VueBuildResult.invalid(normalizedProjectPath, "项目目录中没有 package.json 文件");
         }
 
         log.info("开始构建 Vue 项目: {}", normalizedProjectPath);
@@ -124,7 +137,7 @@ public class VueProjectBuilder {
             packageJson = readPackageJson(packageJsonFile);
         } catch (Exception exception) {
             log.error("package.json 解析失败: {}", LogExceptionSanitizer.sanitizeMessage(exception), LogExceptionSanitizer.sanitize(exception));
-            return BuildExecution.invalid(normalizedProjectPath, "package.json 解析失败");
+            return VueBuildResult.invalid(normalizedProjectPath, "package.json 解析失败");
         }
 
         VueProjectSnapshot currentSnapshot;
@@ -132,8 +145,79 @@ public class VueProjectBuilder {
             currentSnapshot = snapshotService.capture(projectRoot, packageJson);
         } catch (Exception exception) {
             log.error("Vue 项目指纹计算失败: {}", LogExceptionSanitizer.sanitizeMessage(exception), LogExceptionSanitizer.sanitize(exception));
-            return BuildExecution.invalid(normalizedProjectPath, "项目指纹计算失败");
+            return VueBuildResult.invalid(normalizedProjectPath, "项目指纹计算失败");
         }
+
+        VueBuildResult result = resultRegistry.execute(
+                taskId,
+                projectRoot,
+                currentSnapshot,
+                () -> canReuseValidatedResult(projectRoot, currentSnapshot),
+                () -> executeStableBuild(
+                        projectRoot,
+                        normalizedProjectPath,
+                        taskId,
+                        budgetReservation,
+                        packageJson,
+                        currentSnapshot
+                )
+        );
+        if ("task-reuse".equals(result.stage())) {
+            log.info("复用本任务内已通过的 Vue 构建结果: taskId={}, projectRoot={}", taskId, projectRoot);
+        }
+        return result;
+    }
+
+    private VueBuildResult executeStableBuild(
+            Path projectRoot,
+            String projectPath,
+            String taskId,
+            BuildExecutionBudgetReservation budgetReservation,
+            JSONObject packageJson,
+            VueProjectSnapshot expectedSnapshot
+    ) {
+        VueBuildResult result = executeBuild(
+                projectRoot,
+                projectPath,
+                taskId,
+                budgetReservation,
+                packageJson,
+                expectedSnapshot
+        );
+        if (!result.success()) {
+            return result;
+        }
+
+        VueProjectSnapshot completedSnapshot;
+        try {
+            completedSnapshot = captureCurrentSnapshot(projectRoot);
+        } catch (Exception exception) {
+            log.warn("Vue 构建完成后无法校验源码快照: projectRoot={}, error={}",
+                    projectRoot, LogExceptionSanitizer.sanitizeMessage(exception));
+            return VueBuildResult.sourceChangedDuringBuild(projectPath);
+        }
+        if (!expectedSnapshot.equals(completedSnapshot)) {
+            log.warn("Vue 项目在构建验证期间发生变化，不记录成功结果: taskId={}, projectRoot={}",
+                    taskId, projectRoot);
+            return VueBuildResult.sourceChangedDuringBuild(projectPath);
+        }
+
+        if (!"reuse".equals(result.stage())) {
+            persistBuildState(projectRoot, expectedSnapshot);
+        }
+        log.info("Vue 项目构建验证成功: taskId={}, projectRoot={}, stage={}",
+                taskId, projectRoot, result.stage());
+        return result;
+    }
+
+    private VueBuildResult executeBuild(
+            Path projectRoot,
+            String normalizedProjectPath,
+            String taskId,
+            BuildExecutionBudgetReservation budgetReservation,
+            JSONObject packageJson,
+            VueProjectSnapshot currentSnapshot
+    ) {
 
         VueBuildState persistedState = stateStore.read(projectRoot);
         VueProjectScripts scripts = scriptResolver.resolve(packageJson);
@@ -161,10 +245,10 @@ public class VueProjectBuilder {
 
         if (dependencyCached && criticalUnchanged && presentationUnchanged && distExists) {
             log.info("依赖和源码均未变化，复用现有 dist: {}", normalizedProjectPath);
-            return BuildExecution.completed(projectRoot, currentSnapshot, VueBuildResult.reused(normalizedProjectPath));
+            return VueBuildResult.reused(normalizedProjectPath);
         }
 
-        executionContextService.consumeIfPresent(taskId, GenerationBudgetKind.BUILD_EXECUTION);
+        budgetReservation.reserve();
         VueBuildCommandResult installResult = commandService.installDependencies(
                 projectRoot,
                 dependencyCached,
@@ -173,11 +257,7 @@ public class VueProjectBuilder {
         );
         if (!installResult.success()) {
             log.error("pnpm install 执行失败: {}", normalizedProjectPath);
-            return BuildExecution.completed(
-                    projectRoot,
-                    currentSnapshot,
-                    VueBuildResult.installFailed(normalizedProjectPath, installResult)
-            );
+            return VueBuildResult.installFailed(normalizedProjectPath, installResult);
         }
 
         boolean usePresentationLightBuild = dependencyCached
@@ -192,7 +272,6 @@ public class VueProjectBuilder {
                     normalizedProjectPath,
                     taskId,
                     scripts,
-                    currentSnapshot,
                     installResult,
                     useDependencyRefreshBuild
             );
@@ -203,89 +282,86 @@ public class VueProjectBuilder {
                 normalizedProjectPath,
                 taskId,
                 scripts,
-                currentSnapshot,
                 installResult
         );
     }
 
-    private BuildExecution executeLightBuild(
+    private VueBuildResult executeLightBuild(
             Path projectRoot,
             String projectPath,
             String taskId,
             VueProjectScripts scripts,
-            VueProjectSnapshot snapshot,
             VueBuildCommandResult installResult,
             boolean dependencyRefresh
     ) {
         VueBuildCommandResult validateResult = commandService.executeLightValidation(projectRoot, scripts, taskId);
         if (!validateResult.success()) {
             log.error("Vue 轻量校验执行失败: {}", projectPath);
-            return BuildExecution.completed(
-                    projectRoot,
-                    snapshot,
-                    VueBuildResult.lightValidateFailed(projectPath, installResult, validateResult)
-            );
+            return VueBuildResult.lightValidateFailed(projectPath, installResult, validateResult);
         }
 
         VueBuildCommandResult buildResult = commandService.executeLightBuild(projectRoot, scripts, taskId);
         if (!buildResult.success()) {
             log.error("Vue 轻量构建执行失败: {}", projectPath);
-            return BuildExecution.completed(
-                    projectRoot,
-                    snapshot,
-                    VueBuildResult.lightBuildFailed(projectPath, installResult, buildResult)
-            );
+            return VueBuildResult.lightBuildFailed(projectPath, installResult, buildResult);
         }
         if (!isSafeDirectory(projectRoot.resolve("dist"))) {
             log.error("Vue 轻量构建完成但 dist 目录未生成: {}", projectPath);
-            return BuildExecution.completed(
-                    projectRoot,
-                    snapshot,
-                    VueBuildResult.distMissing(projectPath, installResult, buildResult)
-            );
+            return VueBuildResult.distMissing(projectPath, installResult, buildResult);
         }
 
-        persistBuildState(projectRoot, snapshot);
         VueBuildResult result = dependencyRefresh
                 ? VueBuildResult.dependencyRefreshSuccess(projectPath, installResult, buildResult)
                 : VueBuildResult.lightSuccess(projectPath, installResult, buildResult);
-        log.info("Vue 项目轻量构建成功: {}", projectPath);
-        return BuildExecution.completed(projectRoot, snapshot, result);
+        return result;
     }
 
-    private BuildExecution executeFullBuild(
+    private VueBuildResult executeFullBuild(
             Path projectRoot,
             String projectPath,
             String taskId,
             VueProjectScripts scripts,
-            VueProjectSnapshot snapshot,
             VueBuildCommandResult installResult
     ) {
         VueBuildCommandResult buildResult = commandService.executeFullBuild(projectRoot, scripts, taskId);
         if (!buildResult.success()) {
             log.error("Vue 全量构建执行失败: {}", projectPath);
-            return BuildExecution.completed(
-                    projectRoot,
-                    snapshot,
-                    VueBuildResult.buildFailed(projectPath, installResult, buildResult)
-            );
+            return VueBuildResult.buildFailed(projectPath, installResult, buildResult);
         }
         if (!isSafeDirectory(projectRoot.resolve("dist"))) {
             log.error("Vue 构建完成但 dist 目录未生成: {}", projectPath);
-            return BuildExecution.completed(
-                    projectRoot,
-                    snapshot,
-                    VueBuildResult.distMissing(projectPath, installResult, buildResult)
-            );
+            return VueBuildResult.distMissing(projectPath, installResult, buildResult);
         }
 
-        persistBuildState(projectRoot, snapshot);
-        log.info("Vue 项目全量构建成功: {}", projectPath);
-        return BuildExecution.completed(
-                projectRoot,
-                snapshot,
-                VueBuildResult.success(projectPath, installResult, buildResult)
-        );
+        return VueBuildResult.success(projectPath, installResult, buildResult);
+    }
+
+    private boolean canReuseValidatedResult(Path projectRoot, VueProjectSnapshot expectedSnapshot) {
+        try {
+            if (!isSafeDirectory(projectRoot.resolve("node_modules"))
+                    || !isSafeDirectory(projectRoot.resolve("dist"))) {
+                return false;
+            }
+            VueBuildState state = stateStore.read(projectRoot);
+            if (!expectedSnapshot.dependencyFingerprint().equals(state.dependencyFingerprint())
+                    || !expectedSnapshot.criticalFingerprint().equals(state.criticalFingerprint())
+                    || !expectedSnapshot.presentationFingerprint().equals(state.presentationFingerprint())) {
+                return false;
+            }
+            return expectedSnapshot.equals(captureCurrentSnapshot(projectRoot));
+        } catch (Exception exception) {
+            log.debug("Vue 构建结果复用校验失败，将执行真实构建: projectRoot={}, error={}",
+                    projectRoot, LogExceptionSanitizer.sanitizeMessage(exception));
+            return false;
+        }
+    }
+
+    private VueProjectSnapshot captureCurrentSnapshot(Path projectRoot) throws Exception {
+        Path packageJsonFile = projectRoot.resolve("package.json");
+        if (!isSafeRegularFile(packageJsonFile)) {
+            throw new IllegalStateException("Vue 项目缺少安全的 package.json 文件");
+        }
+        return snapshotService.capture(projectRoot, readPackageJson(packageJsonFile));
     }
 
     private JSONObject readPackageJson(Path packageJsonFile) throws Exception {
@@ -324,18 +400,4 @@ public class VueProjectBuilder {
         return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path);
     }
 
-    private record BuildExecution(Path projectRoot, VueProjectSnapshot snapshot, VueBuildResult result) {
-
-        private static BuildExecution invalid(String projectPath, String summary) {
-            return new BuildExecution(null, null, VueBuildResult.invalid(projectPath, summary));
-        }
-
-        private static BuildExecution completed(
-                Path projectRoot,
-                VueProjectSnapshot snapshot,
-                VueBuildResult result
-        ) {
-            return new BuildExecution(projectRoot, snapshot, result);
-        }
-    }
 }

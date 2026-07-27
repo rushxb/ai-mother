@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
-/** Dispatches one already-persisted generation command to the configured worker transport. */
+/** 将一个已保留的生成命令分派到已配置的工作传输。 */
 public interface GenerationTaskDispatcher {
     void dispatch(String taskId);
 }

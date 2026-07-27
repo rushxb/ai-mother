@@ -6,6 +6,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 符号Index服务实现。
+ */
 @Service
 public class SymbolIndexService {
 

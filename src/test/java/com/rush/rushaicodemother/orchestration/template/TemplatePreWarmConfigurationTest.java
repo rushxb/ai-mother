@@ -22,7 +22,6 @@ class TemplatePreWarmConfigurationTest {
                     TemplatePreWarmConfiguration.class,
                     TemplateNodeModulesPreWarmRunner.class
             )
-            .withBean(TemplatePreWarmService.class, () -> mock(TemplatePreWarmService.class))
             .withBean(ProjectDependencyInstaller.class, () -> mock(ProjectDependencyInstaller.class))
             .withBean(ProjectTemplateMaterializer.class, () -> mock(ProjectTemplateMaterializer.class))
             .withBean(WorkspaceFileSystemService.class, () -> mock(WorkspaceFileSystemService.class));

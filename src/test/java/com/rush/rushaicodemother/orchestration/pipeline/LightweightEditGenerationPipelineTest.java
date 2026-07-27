@@ -3,9 +3,11 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.edit.LightweightEditResult;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -22,15 +24,57 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class LightweightEditGenerationPipelineTest {
+
+    @Test
+    void successfulEditMustReturnSearchableTerminalSummary() {
+        LightweightEditService service = mock(LightweightEditService.class);
+        LightweightEditGenerationPipeline pipeline = new LightweightEditGenerationPipeline(
+                mock(GenerationPerformanceMonitorService.class), service);
+        GenerationPipelineRequest request = request("light-task-success");
+        when(service.execute(eq("light-task-success"), any(), eq(request.workspace())))
+                .thenReturn(new LightweightEditResult(
+                        "light-task-success", "lightweight_edit", "标题已更新",
+                        List.of("src/App.vue"), "applied"));
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationTaskStatus.SUCCESS, outcome.terminalStatus());
+        assertNull(outcome.reason());
+        assertTrue(outcome.resultSummary().contains("结果摘要：标题已更新"));
+        assertTrue(outcome.resultSummary().contains("src/App.vue"));
+    }
+
+    @Test
+    void failedEditMustReturnFailureReasonAndLessonSummary() {
+        LightweightEditService service = mock(LightweightEditService.class);
+        LightweightEditGenerationPipeline pipeline = new LightweightEditGenerationPipeline(
+                mock(GenerationPerformanceMonitorService.class), service);
+        GenerationPipelineRequest request = request("light-task-failed");
+        when(service.execute(eq("light-task-failed"), any(), eq(request.workspace())))
+                .thenReturn(new LightweightEditResult(
+                        "light-task-failed", "lightweight_edit", "补丁验证失败",
+                        List.of(), "failed"));
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
+        assertEquals("lightweight_edit_failed", outcome.reason());
+        assertTrue(outcome.resultSummary().contains("任务状态：失败"));
+        assertTrue(outcome.resultSummary().contains("补丁验证失败"));
+    }
 
     @Test
     void executionPolicyFailureMustReachTheUnifiedTerminalBoundary() {

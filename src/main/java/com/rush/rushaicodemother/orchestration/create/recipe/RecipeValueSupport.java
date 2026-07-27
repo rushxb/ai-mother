@@ -5,7 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-/** Pure normalization and naming helpers shared by deterministic recipe modules. */
+/** 由确定性配方模块共享的纯标准化和命名助手。 */
 final class RecipeValueSupport {
 
     private static final Pattern IDENTIFIER_CLEANUP = Pattern.compile("[^A-Za-z0-9_]");

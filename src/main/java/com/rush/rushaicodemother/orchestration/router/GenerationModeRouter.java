@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-/** Public routing facade that delegates production signals to ordered policies. */
+/** 将生产信号委托给有序策略的公共路由外观。 */
 @Component
 public class GenerationModeRouter {
 

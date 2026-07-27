@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationRoutingSupportTest {
@@ -35,6 +36,19 @@ class GenerationRoutingSupportTest {
         );
 
         assertEquals(CodeGenTypeEnum.VUE_PROJECT, routingSupport.routeTargetType(request));
+        assertFalse(routingSupport.shouldUseHeavyPath(request));
+    }
+
+    @Test
+    void backendProjectsMustAlwaysRequireTheGoBuildGate() {
+        GenerationOrchestrationRequest request = request(
+                CodeGenTypeEnum.HTML,
+                "创建一个简单的 Go 后端 API",
+                false
+        );
+
+        assertEquals(CodeGenTypeEnum.BACKEND_PROJECT, routingSupport.routeTargetType(request));
+        assertTrue(routingSupport.requiresBuildValidation(request, CodeGenTypeEnum.BACKEND_PROJECT));
     }
 
     private GenerationOrchestrationRequest request(CodeGenTypeEnum currentType,
@@ -49,7 +63,6 @@ class GenerationRoutingSupportTest {
                 currentType,
                 "update",
                 hasGeneratedCode,
-                null,
                 prompt -> CodeGenTypeEnum.VUE_PROJECT,
                 null
         );

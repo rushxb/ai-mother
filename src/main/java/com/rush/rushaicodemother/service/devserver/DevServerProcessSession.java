@@ -6,7 +6,7 @@ import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** A running Dev Server process and the sandbox resources owned by its lifecycle. */
+/** 正在运行的开发服务器进程及其生命周期拥有的沙箱资源。 */
 final class DevServerProcessSession {
 
     private final Path projectDirectory;

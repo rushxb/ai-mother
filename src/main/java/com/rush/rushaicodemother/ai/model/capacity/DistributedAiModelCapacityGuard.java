@@ -13,6 +13,7 @@ import org.redisson.api.RRateLimiter;
 import org.redisson.api.RateLimiterConfig;
 import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -27,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
 
-/** Redis-backed per-model concurrency, RPM and conservative TPM admission control. */
+/** Redis 支持每模型并发、RPM 和保守的 TPM 准入控制。 */
 @Slf4j
 @Component
 public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, AutoCloseable {
@@ -42,6 +43,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
     private final boolean shutdownScheduler;
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
 
+    @Autowired
     public DistributedAiModelCapacityGuard(RedissonClient redissonClient,
                                            AiModelCapacityProperties properties,
                                            AiModelMetricsCollector metrics) {

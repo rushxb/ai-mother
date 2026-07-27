@@ -11,7 +11,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Cluster-wide model admission limits applied before every provider request. */
+/** 在每个提供商请求之前应用集群范围的模型准入限制。 */
 @Data
 @Component
 @Validated
@@ -20,7 +20,7 @@ public class AiModelCapacityProperties {
 
     private boolean enabled;
 
-    /** Redis key prefix; model identity is hashed before being appended. */
+    /** Redis 键前缀；模型身份在附加之前经过哈希处理。 */
     @NotBlank
     private String keyPrefix = "ai:model:capacity:";
 
@@ -36,35 +36,35 @@ public class AiModelCapacityProperties {
     @Max(100_000_000)
     private long tokensPerMinute = 500_000;
 
-    /** Bounds output-token reservation so one request cannot monopolize the whole TPM window. */
+    /** 限制输出令牌保留，以便一个请求不能独占整个 TPM 窗口。 */
     @Min(1)
     @Max(1_000_000)
     private int maxReservedOutputTokens = 16_384;
 
-    /** Total wait allowed at each admission gate before failover is attempted. */
+    /** 在尝试故障转移之前，每个准入门允许总等待时间。 */
     private Duration acquireTimeout = Duration.ofMillis(250);
 
-    /** Short Redis permit lease; active calls renew it until their bounded hold deadline. */
+    /** 短期Redis许可证租赁；主动调用会更新它，直到其有界保留截止日期。 */
     private Duration permitLease = Duration.ofSeconds(60);
 
-    /** Shared-scheduler heartbeat interval; must leave enough retry headroom before expiry. */
+    /** 共享调度程序心跳间隔；到期前必须留有足够的重试空间。 */
     private Duration heartbeatInterval = Duration.ofSeconds(20);
 
-    /** Absolute safety ceiling when a caller cannot provide a narrower upstream timeout. */
+    /** 当调用者无法提供更窄的上游超时时，绝对安全上限。 */
     private Duration maximumHold = Duration.ofMinutes(16);
 
-    /** Grace added to the concrete provider timeout before heartbeat renewal is stopped. */
+    /** 停止续租前，在模型提供方的实际超时时间上增加的宽限期。 */
     private Duration maximumHoldGrace = Duration.ofSeconds(30);
 
-    /** Bounded application-wide scheduler pool; never creates one thread per request. */
+    /** 有界的应用程序范围的调度程序池；从不为每个请求创建一个线程。 */
     @Min(1)
     @Max(16)
     private int schedulerThreads = 2;
 
-    /** Idle Redis admission keys are deleted automatically. */
+    /** 空闲的 Redis 准入密钥会自动删除。 */
     private Duration idleTtl = Duration.ofHours(2);
 
-    /** Availability escape hatch; production should remain fail-closed. */
+    /** 可用逃生舱口；生产应保持故障关闭。 */
     private boolean failOpen;
 
     @AssertTrue(message = "AI model capacity duration configuration is invalid")

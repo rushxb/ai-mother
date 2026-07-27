@@ -11,7 +11,7 @@ import java.io.Serializable;
 public class UserQueryRequest extends PageRequest implements Serializable {
 
     /**
-     * id
+     * 编号
      */
     private Long id;
 

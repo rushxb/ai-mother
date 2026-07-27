@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Coordinates the lightweight-edit workflow while delegating specialized responsibilities. */
+/** 协调轻量级编辑工作流程，同时委派专门职责。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -46,7 +46,7 @@ public class LightweightEditService {
     private final EditStatePersistenceService editStatePersistenceService;
 
     /**
-     * Executes a lightweight edit, or returns {@code null} when the request must use the heavy route.
+     * 执行轻量级编辑，或者当请求必须使用重度路由时返回 {@code null}。
      */
     @Deprecated(forRemoval = false)
     public LightweightEditResult execute(GenerationTaskRequest request) {
@@ -60,7 +60,7 @@ public class LightweightEditService {
                 generationWorkspaceService.resolve(app, codeGenType), false);
     }
 
-    /** Executes lightweight edit using the task identity allocated by the submission runtime. */
+    /** 使用提交运行时分配的任务标识执行轻量级编辑。 */
     public LightweightEditResult execute(String taskId, GenerationTaskRequest request) {
         if (request == null || request.app() == null) {
             return null;
@@ -70,7 +70,7 @@ public class LightweightEditService {
         return execute(taskId, request, generationWorkspaceService.resolve(app, codeGenType));
     }
 
-    /** Executes lightweight editing against the exact workspace selected by the durable worker. */
+    /** 针对持久工作人员选择的确切工作空间执行轻量级编辑。 */
     public LightweightEditResult execute(String taskId,
                                          GenerationTaskRequest request,
                                          GenerationWorkspace workspace) {
@@ -104,12 +104,10 @@ public class LightweightEditService {
             return null;
         }
 
-        boolean taskStarted = false;
         try {
             publishRouteEvent(request, taskId, routeResult);
             taskLifecycleService.start(
                     taskId, app, loginUser, codeGenType, userMessage, routeResult.requiresBuild());
-            taskStarted = true;
 
             LightweightEditContext editContext = contextAssembler.assemble(workspace, userMessage);
             if (!editContext.hasCandidates()) {
@@ -118,7 +116,7 @@ public class LightweightEditService {
                                 "taskId", taskId,
                                 "reason", "no_candidates_found"
                         ));
-                return failStartedTask(taskId, app.getId(), "文件定位未找到候选文件");
+                return buildFailedResult(taskId, "文件定位未找到候选文件");
             }
             publishLocatorEvent(request, taskId, editContext.candidates());
             if (!editContext.contextAvailable()) {
@@ -127,18 +125,18 @@ public class LightweightEditService {
                                 "taskId", taskId,
                                 "reason", "edit_context_empty"
                         ));
-                return failStartedTask(taskId, app.getId(), "上下文构建为空");
+                return buildFailedResult(taskId, "上下文构建为空");
             }
 
             EditResult editResult = generateInitialEdit(
                     app, taskId, userMessage, editContext.projectContext(), managedModelCalls);
             if (editResult == null || editResult.operations() == null || editResult.operations().isEmpty()) {
-                return failStartedTask(taskId, app.getId(), "AI 编辑返回空操作");
+                return buildFailedResult(taskId, "AI 编辑返回空操作");
             }
 
             List<PatchOperation> patchOperations = operationConverter.convert(editResult.operations());
             if (patchOperations.isEmpty()) {
-                return failStartedTask(taskId, app.getId(), "无有效补丁操作");
+                return buildFailedResult(taskId, "无有效补丁操作");
             }
 
             Path projectRoot = workspace.canonicalRootPath();
@@ -239,9 +237,6 @@ public class LightweightEditService {
                             "category", StrUtil.blankToDefault(publicError.category(), "unknown"),
                             "error", StrUtil.blankToDefault(publicError.message(), "轻量编辑执行失败")
                     ));
-            if (taskStarted) {
-                safeCompleteFailure(taskId, app.getId(), publicError.message());
-            }
             return buildFailedResult(taskId, "轻量编辑执行失败，请稍后重试");
         }
     }
@@ -290,7 +285,6 @@ public class LightweightEditService {
                         "validationLevel", validationPlan == null ? "unknown" : validationPlan.level().name(),
                         "rollbackStatus", restoreResult.status()
                 ));
-        safeCompleteFailure(taskId, app.getId(), validationMessage);
         return buildFailedResult(taskId, failedMessage);
     }
 
@@ -316,7 +310,6 @@ public class LightweightEditService {
                         "reason", applyResult == null ? "patch_result_missing" : applyResult.reason(),
                         "rejectedOperations", applyResult == null ? List.of() : applyResult.rejectedOperations()
                 ));
-        safeCompleteFailure(taskId, app.getId(), failedMessage);
         return buildFailedResult(taskId, failedMessage);
     }
 
@@ -349,7 +342,6 @@ public class LightweightEditService {
                                 : validationPlan.level().name()
                 )
         );
-        safeCompleteFailure(taskId, app.getId(), validationMessage);
         return buildFailedResult(taskId, failedMessage);
     }
 
@@ -406,20 +398,6 @@ public class LightweightEditService {
                         "reason", applyResult == null ? "patch_result_missing" : applyResult.reason(),
                         "rejectedOperations", applyResult == null ? List.of() : applyResult.rejectedOperations()
                 ));
-    }
-
-    private LightweightEditResult failStartedTask(String taskId, Long appId, String reason) {
-        safeCompleteFailure(taskId, appId, reason);
-        return buildFailedResult(taskId, reason);
-    }
-
-    private void safeCompleteFailure(String taskId, Long appId, String reason) {
-        try {
-            taskLifecycleService.completeFailure(taskId, appId, reason);
-        } catch (Exception lifecycleFailure) {
-            log.error("Failed to finalize lightweight edit task, taskId: {}, appId: {}",
-                    taskId, appId, lifecycleFailure);
-        }
     }
 
     private String buildSummaryMessage(EditResult editResult,

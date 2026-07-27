@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** Converts AI edit operations into the restricted patch-operation contract. */
+/** 将AI编辑操作转换为受限的补丁操作合同。 */
 @Slf4j
 @Component
 public class LightweightEditOperationConverter {

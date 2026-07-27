@@ -17,6 +17,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
+/**
+ * 插槽填充生成服务实现。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor

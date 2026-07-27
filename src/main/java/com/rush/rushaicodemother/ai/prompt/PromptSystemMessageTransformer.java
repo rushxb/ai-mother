@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.ai.prompt;
 import dev.langchain4j.invocation.InvocationContext;
 import org.springframework.stereotype.Component;
 
-/** Replaces annotation prompts with the selected immutable catalog version per invocation. */
+/** 将注释提示替换为每次调用所选的不可变目录版本。 */
 @Component
 public class PromptSystemMessageTransformer {
 

@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.routing;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 
 /**
- * Heavy generation input assembled after the top-level mode router selected HEAVY_EXPERT.
+ * 顶级模式路由器选择HEAVY_EXPERT后重载生成输入组装。
  */
 public record HeavyGenerationIntentDecision(
         String route,

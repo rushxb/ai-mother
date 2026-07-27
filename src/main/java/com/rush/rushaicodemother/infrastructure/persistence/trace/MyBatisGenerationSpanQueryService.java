@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.infrastructure.persistence.trace;
 import com.rush.rushaicodemother.mapper.GenerationTaskSpanMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTaskSpan;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.ZoneId;
@@ -10,7 +11,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-/** MyBatis-backed query adapter for durable generation critical-path spans. */
+/** MyBatis 支持的查询适配器，用于持久生成关键路径跨度。 */
 @Service
 public class MyBatisGenerationSpanQueryService implements GenerationSpanQueryService {
 
@@ -19,6 +20,7 @@ public class MyBatisGenerationSpanQueryService implements GenerationSpanQuerySer
     private final GenerationTaskSpanMapper mapper;
     private final ZoneId databaseZone;
 
+    @Autowired
     public MyBatisGenerationSpanQueryService(GenerationTaskSpanMapper mapper) {
         this(mapper, ZoneId.systemDefault());
     }

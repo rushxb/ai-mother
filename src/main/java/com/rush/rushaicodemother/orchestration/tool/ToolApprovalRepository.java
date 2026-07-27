@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.List;
 
-/** Durable source of truth for one-time destructive tool approvals. */
+/** 一次性破坏性工具批准的持久事实来源。 */
 public interface ToolApprovalRepository {
 
     ToolApprovalRecord createPending(ToolApprovalRecord approval);

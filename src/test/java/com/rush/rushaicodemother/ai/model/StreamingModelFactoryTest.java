@@ -1,13 +1,21 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
+import com.rush.rushaicodemother.ai.model.transport.CancellableAiStreamingRequestExecutor;
+import com.rush.rushaicodemother.ai.model.failover.AiModelCandidate;
 import com.rush.rushaicodemother.ai.model.failover.FailoverChatModel;
 import com.rush.rushaicodemother.ai.model.failover.FailoverStreamingChatModel;
-import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
+import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgePolicy;
+import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgeScheduler;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
+import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutPolicy;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutScheduler;
 import com.rush.rushaicodemother.service.aimodel.AiModelProtectedSecret;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
@@ -21,8 +29,10 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -44,7 +54,21 @@ class StreamingModelFactoryTest {
         factory.createModel(GenerationPerformanceProfile.speedFirst());
 
         verify(runtimeService, times(4)).listRunnableModelsByType("chat");
+        verify(runtimeService).listRunnableModelsByType("routing");
         assertEquals(1, routingModel.listeners().size());
+    }
+
+    @Test
+    void routingTasksMustPreferDedicatedRoutingPool() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        when(runtimeService.listRunnableModelsByType("routing"))
+                .thenReturn(List.of(model("routing")));
+        StreamingModelFactory factory = factory(runtimeService);
+
+        factory.createRoutingChatModel();
+
+        verify(runtimeService).listRunnableModelsByType("routing");
+        verify(runtimeService, never()).listRunnableModelsByType("chat");
     }
 
     @Test
@@ -116,6 +140,45 @@ class StreamingModelFactoryTest {
     }
 
     @Test
+    void taskScopedCreateSpecModelMustUseAttemptAwareFailoverPool() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        when(runtimeService.listRunnableModelsByType("chat")).thenReturn(List.of(model("chat")));
+        StreamingModelFactory factory = factory(runtimeService);
+
+        ChatModel result = factory.createExecutionCreateSpecChatModel(
+                Duration.ofSeconds(20), () -> { }, () -> { });
+
+        assertInstanceOf(FailoverChatModel.class, result);
+    }
+
+    @Test
+    void firstTokenHedgePolicyMustRespectEnablementCandidateAndTimeoutBoundaries() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        AiModelRuntimeProperties properties = new AiModelRuntimeProperties();
+        StreamingModelFactory factory = factory(runtimeService, monitorListener(), properties);
+        List<AiModelCandidate<StreamingChatModel>> candidates = List.of(
+                new AiModelCandidate<>("provider-a", "model-a", mock(StreamingChatModel.class)),
+                new AiModelCandidate<>("provider-b", "model-b", mock(StreamingChatModel.class))
+        );
+
+        assertFalse(factory.resolveFirstTokenHedgePolicy(
+                candidates, Duration.ofSeconds(4)).enabled());
+
+        properties.setFirstTokenHedgeEnabled(true);
+        properties.setFirstTokenHedgeDelay(Duration.ofSeconds(2));
+        assertFalse(factory.resolveFirstTokenHedgePolicy(
+                candidates, Duration.ofSeconds(4)).enabled());
+        assertFalse(factory.resolveFirstTokenHedgePolicy(
+                candidates.subList(0, 1), Duration.ofSeconds(4)).enabled());
+
+        properties.setFirstTokenHedgeDelay(Duration.ofMillis(1999));
+        FirstTokenHedgePolicy enabled = factory.resolveFirstTokenHedgePolicy(
+                candidates, Duration.ofSeconds(4));
+        assertTrue(enabled.enabled());
+        assertEquals(Duration.ofMillis(1999), enabled.delay());
+    }
+
+    @Test
     void providerClientBuilderMustResolveSecretOnlyAtFactoryBoundary() {
         AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
         AiModelRuntimeConfiguration runtimeModel = model("chat");
@@ -150,7 +213,21 @@ class StreamingModelFactoryTest {
                 new OpenAiThinkingPolicy(),
                 mock(AiModelMetricsCollector.class),
                 mock(AiModelCapacityGuard.class),
-                secretService
+                secretService,
+                mock(FirstTokenHedgeScheduler.class),
+                streamingCallRuntime()
+        );
+    }
+
+    private AiStreamingCallRuntime streamingCallRuntime() {
+        GenerationModelInvocationCancellationBridge bridge =
+                new GenerationModelInvocationCancellationBridge();
+        return new AiStreamingCallRuntime(
+                bridge,
+                new CancellableAiStreamingRequestExecutor(bridge),
+                mock(GenerationModelTimeoutScheduler.class),
+                mock(AiModelTimeoutMonitor.class),
+                GenerationModelTimeoutPolicy.defaults()
         );
     }
 

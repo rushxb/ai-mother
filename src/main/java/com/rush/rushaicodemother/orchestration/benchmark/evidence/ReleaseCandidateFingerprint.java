@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-/** Shared SHA-256 primitive for deterministic release candidate identities. */
+/** 用于确定性发布候选者身份的共享 SHA-256 原语。 */
 public final class ReleaseCandidateFingerprint {
 
     private ReleaseCandidateFingerprint() {

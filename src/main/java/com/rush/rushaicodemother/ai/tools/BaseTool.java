@@ -51,8 +51,13 @@ public abstract class BaseTool {
      */
     public abstract String getDisplayName();
 
-    /** Maximum risk of any operation exposed by this tool. */
+    /** 此工具暴露的任何操作的最大风险。 */
     public abstract ToolRiskLevel getRiskLevel();
+
+    /** 当前工具是否具备修改生成工作区内容的能力。 */
+    public boolean canMutateWorkspace() {
+        return false;
+    }
 
     /**
      * 生成工具请求时的返回值（显示给用户）

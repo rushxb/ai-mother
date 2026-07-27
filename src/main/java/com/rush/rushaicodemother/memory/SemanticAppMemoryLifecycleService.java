@@ -3,11 +3,12 @@ package com.rush.rushaicodemother.memory;
 import com.rush.rushaicodemother.config.GenerationMemoryOutboxProperties;
 import com.rush.rushaicodemother.config.MilvusMemoryProperties;
 import com.rush.rushaicodemother.service.lifecycle.AppMemoryLifecycleService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 
-/** Transactional bridge from application deletion to the derived semantic-memory index. */
+/** 从应用程序删除到派生语义记忆索引的事务桥梁。 */
 @Service
 public class SemanticAppMemoryLifecycleService implements AppMemoryLifecycleService {
 
@@ -17,6 +18,7 @@ public class SemanticAppMemoryLifecycleService implements AppMemoryLifecycleServ
     private final GenerationMemoryOutboxProperties outboxProperties;
     private final Clock clock;
 
+    @Autowired
     public SemanticAppMemoryLifecycleService(
             SemanticMemoryDeletionOutboxRepository deletionOutboxRepository,
             LongTermMemoryStore memoryStore,

@@ -15,6 +15,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 智能体编辑上下文指标采集器。
+ */
 @Service
 @RequiredArgsConstructor
 public class AgentEditContextCollector {

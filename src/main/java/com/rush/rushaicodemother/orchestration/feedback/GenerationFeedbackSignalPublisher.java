@@ -1,10 +1,10 @@
 package com.rush.rushaicodemother.orchestration.feedback;
 
 /**
- * Publishes user feedback as an AI-improvement signal.
+ * 发布用户反馈作为人工智能改进信号。
  *
- * <p>Implementations must be best-effort: a downstream memory or analytics outage must not make
- * the already-persisted feedback submission fail.</p>
+ * <p> 实施必须尽力而为：下游内存或分析中断不得导致
+ * 已有的反馈提交失败。</p>
  */
 public interface GenerationFeedbackSignalPublisher {
 

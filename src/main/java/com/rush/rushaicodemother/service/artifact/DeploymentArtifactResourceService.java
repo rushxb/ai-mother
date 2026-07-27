@@ -9,11 +9,11 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * Resolves public deployment resources inside the isolated deployment-artifact root.
+ * 解析隔离部署工件根内的公共部署资源。
  *
- * <p>The HTTP layer supplies only a deployment key and a relative resource path. Filesystem root
- * selection, deployment-key validation, traversal protection, and symbolic-link containment stay
- * behind this module.</p>
+ * <p>HTTP层仅提供部署密钥和相对资源路径。文件系统根
+ * 选择、部署密钥验证、遍历保护和符号链接遏制保留
+ * 在此模块后面。</p>
  */
 @Service
 public class DeploymentArtifactResourceService {
@@ -39,7 +39,7 @@ public class DeploymentArtifactResourceService {
         );
     }
 
-    /** Resolves an existing regular file from one committed deployment directory. */
+    /** 从一个已提交的部署目录解析现有常规文件。 */
     public Path resolve(String deployKey, String relativePath) throws IOException {
         deploymentKeyPolicy.requireValid(deployKey);
         return securePathResolver.resolveRegularFile(deployRoot, deployKey, relativePath);

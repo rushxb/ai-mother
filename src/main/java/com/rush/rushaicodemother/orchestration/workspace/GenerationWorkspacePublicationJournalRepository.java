@@ -4,7 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
-/** Relational source of truth for the filesystem/metadata publication saga. */
+/** 文件系统/元数据发布传奇的相关事实来源。 */
 public interface GenerationWorkspacePublicationJournalRepository {
 
     GenerationWorkspacePublicationJournalEntry prepare(

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskLeaseO
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Range;
+import org.springframework.data.redis.connection.RedisStreamCommands;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.PendingMessage;
@@ -13,7 +14,9 @@ import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.connection.stream.StreamOffset;
 import org.springframework.data.redis.connection.stream.StreamReadOptions;
 import org.springframework.data.redis.connection.stream.StreamRecords;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -26,7 +29,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Redis Streams consumer-group adapter with visibility renewal, reclaim and DLQ support. */
+/** 支持续期、回收和死信的 Redis Streams 消费组适配器。 */
 @Component
 @ConditionalOnProperty(prefix = "app.generation-task-queue", name = "transport", havingValue = "redis")
 public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
@@ -128,8 +131,20 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
         if (ids.length == 0) {
             return;
         }
-        redisTemplate.<String, String>opsForStream().claim(
-                properties.getStreamKey(), properties.getGroup(), consumerName, Duration.ZERO, ids);
+        byte[] streamKey = Objects.requireNonNull(
+                StringRedisSerializer.UTF_8.serialize(properties.getStreamKey()),
+                "Redis Stream 键序列化结果不能为空"
+        );
+        RedisStreamCommands.XClaimOptions options = RedisStreamCommands.XClaimOptions
+                .minIdle(Duration.ZERO)
+                .ids(ids);
+        redisTemplate.execute((RedisCallback<List<RecordId>>) connection ->
+                connection.streamCommands().xClaimJustId(
+                        streamKey,
+                        properties.getGroup(),
+                        consumerName,
+                        options
+                ));
     }
 
     @Override
@@ -208,13 +223,28 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
                 redisTemplate.<String, String>opsForStream().createGroup(
                         properties.getStreamKey(), ReadOffset.latest(), properties.getGroup());
             } catch (DataAccessException existingGroup) {
-                String message = existingGroup.getMessage();
-                if (message == null || !message.contains("BUSYGROUP")) {
+                if (!isExistingConsumerGroup(existingGroup)) {
                     throw existingGroup;
                 }
             }
             groupReady.set(true);
         }
+    }
+
+    private boolean isExistingConsumerGroup(Throwable failure) {
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 16; depth++) {
+            String message = current.getMessage();
+            if (message != null && message.contains("BUSYGROUP")) {
+                return true;
+            }
+            Throwable cause = current.getCause();
+            if (cause == current) {
+                break;
+            }
+            current = cause;
+        }
+        return false;
     }
 
     private void requireTaskId(String taskId) {

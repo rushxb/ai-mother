@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.workspace;
 
 import java.util.Arrays;
 
-/** Durable saga state for coordinating filesystem publication with relational metadata. */
+/** 用于协调文件系统发布与关系元数据的持久传奇状态。 */
 public enum GenerationWorkspacePublicationJournalStatus {
     PREPARED("prepared"),
     FILESYSTEM_ACTIVATED("filesystem_activated"),

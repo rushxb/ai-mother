@@ -10,7 +10,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Capacity and shutdown controls for the local generation task executor adapter. */
+/** 本地生成任务执行器适配器的容量和关闭控制。 */
 @Data
 @Component
 @Validated
@@ -27,7 +27,7 @@ public class GenerationTaskExecutorProperties {
 
     private Duration shutdownTimeout = Duration.ofSeconds(30);
 
-    /** Maximum interval before a queued task re-checks cancellation and its absolute deadline. */
+    /** 排队任务重新检查取消之前的最大间隔及其绝对期限。 */
     private Duration queuePolicyCheckInterval = Duration.ofMillis(250);
 
     @AssertTrue(message = "generation task executor shutdown timeout must be positive")

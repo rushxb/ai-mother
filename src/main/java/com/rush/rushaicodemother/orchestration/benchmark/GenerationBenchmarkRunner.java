@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.ai.prompt.PromptCatalog;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkModelFingerprintProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -8,36 +9,72 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
+/**
+ * 生成基准测试运行器。
+ */
 @Component
 public class GenerationBenchmarkRunner {
 
+    private static final GenerationBenchmarkModelFingerprintProvider UNMANAGED_MODEL_FINGERPRINT_PROVIDER = () -> "";
+
     private final GenerationBenchmarkCatalog catalog;
     private final PromptCatalog promptCatalog;
+    private final GenerationBenchmarkModelFingerprintProvider modelFingerprintProvider;
+    private final Map<String, GenerationBenchmarkTask> tasksById;
 
     public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog) {
-        this(catalog, PromptCatalog.unmanaged());
+        this(catalog, PromptCatalog.unmanaged(), UNMANAGED_MODEL_FINGERPRINT_PROVIDER);
+    }
+
+    public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog, PromptCatalog promptCatalog) {
+        this(catalog, promptCatalog, UNMANAGED_MODEL_FINGERPRINT_PROVIDER);
     }
 
     @Autowired
-    public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog, PromptCatalog promptCatalog) {
+    public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog,
+                                     PromptCatalog promptCatalog,
+                                     GenerationBenchmarkModelFingerprintProvider modelFingerprintProvider) {
         this.catalog = catalog;
         this.promptCatalog = promptCatalog == null ? PromptCatalog.unmanaged() : promptCatalog;
+        this.modelFingerprintProvider = modelFingerprintProvider == null
+                ? UNMANAGED_MODEL_FINGERPRINT_PROVIDER
+                : modelFingerprintProvider;
+        this.tasksById = catalog.tasks().stream().collect(Collectors.toUnmodifiableMap(
+                GenerationBenchmarkTask::id,
+                task -> task
+        ));
     }
 
     public GenerationBenchmarkReport run(GenerationBenchmarkExecutor executor) {
-        if (executor == null) {
-            return summarize(List.of());
-        }
-        List<GenerationBenchmarkRunResult> results = catalog.tasks().stream()
+        ExecutionIdentity before = currentExecutionIdentity();
+        List<GenerationBenchmarkRunResult> results = executor == null
+                ? List.of()
+                : catalog.tasks().stream()
                 .map(executor::execute)
                 .filter(result -> result != null)
                 .toList();
-        return summarize(results);
+        ExecutionIdentity after = currentExecutionIdentity();
+        if (!before.equals(after)) {
+            throw new IllegalStateException(
+                    "Benchmark 执行期间 Prompt 或模型配置发生变化，已拒绝生成报告");
+        }
+        return summarize(results, before.promptBundleId(), before.modelFingerprint());
     }
 
     public GenerationBenchmarkReport summarize(List<GenerationBenchmarkRunResult> results) {
+        return summarize(
+                results,
+                promptCatalog.bundleId(),
+                modelFingerprintProvider.currentFingerprint()
+        );
+    }
+
+    GenerationBenchmarkReport summarize(List<GenerationBenchmarkRunResult> results,
+                                        String promptBundleId,
+                                        String modelFingerprint) {
         List<GenerationBenchmarkRunResult> safeResults = results == null ? List.of() : results;
         Map<String, GenerationBenchmarkReport.ModeStats> modeStats = safeResults.stream()
                 .collect(Collectors.groupingBy(
@@ -46,6 +83,7 @@ public class GenerationBenchmarkRunner {
                         Collectors.collectingAndThen(Collectors.toList(), this::summarizeMode)
                 ));
         return new GenerationBenchmarkReport(
+                GenerationBenchmarkReport.CURRENT_SCHEMA_VERSION,
                 safeResults.size(),
                 countSuccess(safeResults),
                 countBuildPassed(safeResults),
@@ -63,7 +101,14 @@ public class GenerationBenchmarkRunner {
                 safeResults.stream().mapToLong(GenerationBenchmarkRunResult::creditCost).sum(),
                 averageFirstTokenLatency(safeResults),
                 percentileFirstTokenLatency(safeResults, 0.90),
-                promptCatalog.bundleId(),
+                percentileFirstTokenLatency(safeResults, 0.99),
+                countFirstPreviewObserved(safeResults),
+                rate(countFirstPreviewObserved(safeResults), safeResults.size()),
+                averageFirstPreviewLatency(safeResults),
+                percentileFirstPreviewLatency(safeResults, 0.90),
+                percentileFirstPreviewLatency(safeResults, 0.99),
+                promptBundleId,
+                modelFingerprint,
                 summarizeQuality(safeResults),
                 modeStats,
                 safeResults
@@ -81,7 +126,12 @@ public class GenerationBenchmarkRunner {
                 percentileDuration(results, 0.50),
                 percentileDuration(results, 0.90),
                 percentileDuration(results, 0.99),
-                (int) results.stream().filter(GenerationBenchmarkRunResult::fallback).count()
+                (int) results.stream().filter(GenerationBenchmarkRunResult::fallback).count(),
+                countFirstPreviewObserved(results),
+                rate(countFirstPreviewObserved(results), results.size()),
+                averageFirstPreviewLatency(results),
+                percentileFirstPreviewLatency(results, 0.90),
+                percentileFirstPreviewLatency(results, 0.99)
         );
     }
 
@@ -137,24 +187,75 @@ public class GenerationBenchmarkRunner {
         return values.get(Math.max(0, Math.min(index, values.size() - 1)));
     }
 
+    private int countFirstPreviewObserved(List<GenerationBenchmarkRunResult> results) {
+        return (int) results.stream()
+                .filter(GenerationBenchmarkRunResult::firstPreviewObserved)
+                .count();
+    }
+
+    private long averageFirstPreviewLatency(List<GenerationBenchmarkRunResult> results) {
+        return Math.round(results.stream()
+                .map(GenerationBenchmarkRunResult::firstPreviewLatencyMs)
+                .filter(Objects::nonNull)
+                .mapToLong(Long::longValue)
+                .average()
+                .orElse(0));
+    }
+
+    private long percentileFirstPreviewLatency(List<GenerationBenchmarkRunResult> results,
+                                               double percentile) {
+        List<Long> values = results.stream()
+                .map(GenerationBenchmarkRunResult::firstPreviewLatencyMs)
+                .filter(Objects::nonNull)
+                .sorted()
+                .toList();
+        if (values.isEmpty()) {
+            return 0;
+        }
+        int index = (int) Math.ceil(percentile * values.size()) - 1;
+        return values.get(Math.max(0, Math.min(index, values.size() - 1)));
+    }
+
     private Map<String, GenerationBenchmarkReport.QualityStats> summarizeQuality(
             List<GenerationBenchmarkRunResult> results
     ) {
         Map<String, GenerationBenchmarkReport.QualityStats> qualityStats = new LinkedHashMap<>();
         for (GenerationBenchmarkQualityDimension dimension : GenerationBenchmarkQualityDimension.values()) {
+            List<GenerationBenchmarkRunResult> eligibleResults = results.stream()
+                    .filter(result -> requiresDimension(result.taskId(), dimension))
+                    .toList();
             int evaluated = (int) results.stream()
+                    .filter(result -> requiresDimension(result.taskId(), dimension))
                     .filter(result -> result.qualityEvidence().evaluated(dimension))
                     .count();
             int passed = (int) results.stream()
+                    .filter(result -> requiresDimension(result.taskId(), dimension))
                     .filter(result -> result.qualityEvidence().passed(dimension))
                     .count();
             qualityStats.put(dimension.name().toLowerCase(), new GenerationBenchmarkReport.QualityStats(
                     evaluated,
                     passed,
-                    rate(evaluated, results.size()),
+                    rate(evaluated, eligibleResults.size()),
                     rate(passed, evaluated)
             ));
         }
         return Map.copyOf(qualityStats);
+    }
+
+    private boolean requiresDimension(String taskId, GenerationBenchmarkQualityDimension dimension) {
+        GenerationBenchmarkTask task = tasksById.get(taskId);
+        return task == null
+                || task.requiredQualityDimensions().isEmpty()
+                || task.requiredQualityDimensions().contains(dimension);
+    }
+
+    private ExecutionIdentity currentExecutionIdentity() {
+        return new ExecutionIdentity(
+                promptCatalog.bundleId(),
+                modelFingerprintProvider.currentFingerprint()
+        );
+    }
+
+    private record ExecutionIdentity(String promptBundleId, String modelFingerprint) {
     }
 }

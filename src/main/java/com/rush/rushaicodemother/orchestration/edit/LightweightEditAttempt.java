@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 
 import java.util.List;
 
-/** Result of applying an edit, including one optional validation-rejection retry. */
+/** 应用编辑的结果，包括一次可选的验证拒绝重试。 */
 public record LightweightEditAttempt(
         EditResult editResult,
         List<PatchOperation> patchOperations,

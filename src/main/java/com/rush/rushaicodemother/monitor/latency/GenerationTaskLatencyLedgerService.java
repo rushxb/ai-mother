@@ -19,7 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-/** Builds a non-double-counted wall-clock ledger from durable task state and completed spans. */
+/** 根据持久任务状态和已完成的跨度构建非重复计数的挂钟分类帐。 */
 @Service
 public class GenerationTaskLatencyLedgerService {
 

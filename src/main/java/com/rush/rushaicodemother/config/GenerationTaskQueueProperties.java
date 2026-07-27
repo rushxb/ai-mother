@@ -11,7 +11,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Redis Streams delivery, visibility and dead-letter controls for durable generation work. */
+/** Redis Streams 提供持久生成工作的交付、可见性和死信控制。 */
 @Data
 @Component
 @Validated

@@ -1,8 +1,6 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
 import com.rush.rushaicodemother.constant.AppConstant;
-import com.rush.rushaicodemother.core.builder.VueBuildResult;
-import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -15,7 +13,6 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
-import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -27,9 +24,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.Path;
 import java.util.Map;
 
+/**
+ * 重型生成构建校验服务实现。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -43,8 +42,7 @@ public class HeavyGenerationBuildValidationService {
     private final HeavyGenerationFailureRecoveryService heavyGenerationFailureRecoveryService;
     private final HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService;
     private final GenerationWorkspaceService generationWorkspaceService;
-    private final VueProjectBuilder vueProjectBuilder;
-    private final GenerationPreviewMilestoneService generationPreviewMilestoneService;
+    private final GenerationProjectBuildValidationService projectBuildValidationService;
     private final GenerationStageAdmissionService generationStageAdmissionService;
 
     public boolean runWithAutoRepair(Long appId,
@@ -52,11 +50,10 @@ public class HeavyGenerationBuildValidationService {
                                      GenerationPreparation preparation,
                                      GenerationSession session) {
         GenerationWorkspace workspace = resolveExecutionWorkspace(appId, preparation.targetType(), session);
-        Path projectPath = workspace.frontendRootPath();
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
         GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
-                GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
+                inspectWorkspace(workspace, preparation.targetType());
         if (!workspaceState.canAutoRepair()) {
             heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
             return false;
@@ -66,7 +63,7 @@ public class HeavyGenerationBuildValidationService {
                 preparation,
                 orchestrationMode(preparation)
         );
-        VueBuildResult buildResult = executeBuild(appId, preparation, projectPath);
+        ProjectBuildValidationResult buildResult = executeBuild(appId, preparation, workspace);
         if (session.isCancelled()) {
             return false;
         }
@@ -90,7 +87,6 @@ public class HeavyGenerationBuildValidationService {
                 return false;
             }
             if (runtimeResult == null || runtimeResult.isPassed()) {
-                generationPreviewMilestoneService.publishRuntimeReady(session, preparation.targetType());
                 return true;
             }
             validationFailure = ValidationFailure.runtime(runtimeResult);
@@ -110,7 +106,7 @@ public class HeavyGenerationBuildValidationService {
                         appId, preparation, session, validationFailure.publicSummary());
                 return false;
             }
-            workspaceState = GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath);
+            workspaceState = inspectWorkspace(workspace, preparation.targetType());
             if (!workspaceState.canAutoRepair()) {
                 heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
                 return false;
@@ -155,7 +151,7 @@ public class HeavyGenerationBuildValidationService {
                     preparation,
                     orchestrationMode(preparation)
             );
-            buildResult = executeBuild(appId, preparation, projectPath);
+            buildResult = executeBuild(appId, preparation, workspace);
             if (session.isCancelled()) {
                 return false;
             }
@@ -172,7 +168,6 @@ public class HeavyGenerationBuildValidationService {
                     return false;
                 }
                 if (runtimeResult == null || runtimeResult.isPassed()) {
-                    generationPreviewMilestoneService.publishRuntimeReady(session, preparation.targetType());
                     generationOrchestrationMetricsCollector.recordAutoRepair(
                             orchestrationMode(preparation), repairStage, "success");
                     return true;
@@ -189,25 +184,43 @@ public class HeavyGenerationBuildValidationService {
         return false;
     }
 
-    private VueBuildResult executeBuild(Long appId,
-                                        GenerationPreparation preparation,
-                                        Path projectPath) {
-        VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(
-                projectPath.toString(),
+    private ProjectBuildValidationResult executeBuild(
+            Long appId,
+            GenerationPreparation preparation,
+            GenerationWorkspace workspace
+    ) {
+        ProjectBuildValidationResult buildResult = projectBuildValidationService.validate(
+                workspace,
+                preparation.targetType(),
                 preparation.taskId()
         );
         if (buildResult != null) {
             return buildResult;
         }
         IllegalStateException contractViolation =
-                new IllegalStateException("VueProjectBuilder returned a null build result");
-        log.error("Vue 项目构建器违反非空结果契约，appId: {}, taskId: {}",
+                new IllegalStateException("项目构建门禁返回了空结果");
+        log.error("项目构建门禁违反非空结果契约，appId: {}, taskId: {}",
                 appId, preparation.taskId(), contractViolation);
         throw new BusinessException(
                 ErrorCode.SYSTEM_ERROR,
                 "项目构建服务异常，请稍后重试",
                 contractViolation
         );
+    }
+
+    private GeneratedProjectWorkspaceInspector.WorkspaceState inspectWorkspace(
+            GenerationWorkspace workspace,
+            CodeGenTypeEnum targetType
+    ) {
+        return switch (targetType) {
+            case VUE_PROJECT -> GeneratedProjectWorkspaceInspector.inspectVueProject(
+                    workspace.frontendRootPath());
+            case BACKEND_PROJECT -> GeneratedProjectWorkspaceInspector.inspectBackendProject(
+                    workspace.backendRootPath());
+            case FULL_STACK_PROJECT -> GeneratedProjectWorkspaceInspector.inspectFullStackProject(
+                    workspace.canonicalRootPath());
+            default -> throw new IllegalArgumentException("当前项目类型不支持构建门禁: " + targetType.getValue());
+        };
     }
 
     private GenerationWorkspace resolveExecutionWorkspace(Long appId,
@@ -285,17 +298,23 @@ public class HeavyGenerationBuildValidationService {
             String repairDiagnostic
     ) {
 
-        private static ValidationFailure build(VueBuildResult result) {
-            String summary = result.toPublicFailureSummary();
+        private static ValidationFailure build(ProjectBuildValidationResult result) {
+            String summary = result.failureSummary();
             String diagnostic = """
                     validationStage=build
                     status=FAILED
                     failureKind=BUILD_FAILURE
+                    component=%s
                     buildStage=%s
                     publicSummary=%s
                     buildDiagnostics:
                     %s
-                    """.formatted(result.stage(), summary, result.toPublicDiagnosticReport()).trim();
+                    """.formatted(
+                    result.component(),
+                    result.stage(),
+                    summary,
+                    result.report()
+            ).trim();
             return new ValidationFailure("build", "FAILED", "BUILD_FAILURE", summary, diagnostic);
         }
 
@@ -334,17 +353,18 @@ public class HeavyGenerationBuildValidationService {
 
     private void emitBuildResult(GenerationSession session,
                                  GenerationPreparation preparation,
-                                 VueBuildResult buildResult,
+                                 ProjectBuildValidationResult buildResult,
                                  Map<String, Object> extraData) {
         Map<String, Object> data = new java.util.LinkedHashMap<>();
-        String publicReport = buildResult.toPublicDiagnosticReport();
+        String publicReport = buildResult.report();
         if (extraData != null) {
             data.putAll(extraData);
         }
         data.put("success", buildResult.success());
+        data.put("component", buildResult.component());
         data.put("stage", buildResult.stage());
-        data.put("projectPath", buildResult.publicProjectPath());
-        data.put("summary", buildResult.publicSummary());
+        data.put("projectPath", buildResult.projectPath());
+        data.put("summary", buildResult.summary());
         data.put("report", publicReport);
         data.put("taskId", preparation.taskId());
         data.put("qualityGate", preparation.qualityGateLevel());

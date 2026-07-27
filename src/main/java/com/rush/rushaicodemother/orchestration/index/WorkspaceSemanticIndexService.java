@@ -106,28 +106,55 @@ public class WorkspaceSemanticIndexService {
     }
 
     public int countIndexableFiles(Path rootDir) {
-        return loadOrBuild(rootDir).indexedFileCount();
+        return indexedFileCount(loadOrBuild(rootDir));
+    }
+
+    public int indexedFileCount(WorkspaceSemanticIndex index) {
+        return index == null ? 0 : index.indexedFileCount();
     }
 
     public int countIndexedSymbols(Path rootDir) {
-        return loadOrBuild(rootDir).entries().stream()
+        return indexedSymbolCount(loadOrBuild(rootDir));
+    }
+
+    public int indexedSymbolCount(WorkspaceSemanticIndex index) {
+        if (index == null || index.entries() == null) {
+            return 0;
+        }
+        return index.entries().stream()
                 .map(WorkspaceSemanticIndexEntry::symbols)
                 .mapToInt(symbols -> symbols == null ? 0 : symbols.size())
                 .sum();
     }
 
     public List<String> suggestFiles(Path rootDir, String query, int limit) {
-        return search(rootDir, query, Set.of(), limit).stream()
+        if (rootDir == null) {
+            return List.of();
+        }
+        return suggestFilesFromSnapshot(loadOrBuild(rootDir), query, limit);
+    }
+
+    public List<String> suggestFilesFromSnapshot(WorkspaceSemanticIndex index, String query, int limit) {
+        return searchSnapshot(index, query, Set.of(), limit).stream()
                 .map(WorkspaceSemanticSearchHit::relativePath)
                 .toList();
     }
 
     public List<String> findMatchingFiles(Path rootDir, List<String> keywords, int limit) {
+        if (rootDir == null) {
+            return List.of();
+        }
+        return findMatchingFilesFromSnapshot(loadOrBuild(rootDir), keywords, limit);
+    }
+
+    public List<String> findMatchingFilesFromSnapshot(WorkspaceSemanticIndex index,
+                                                      List<String> keywords,
+                                                      int limit) {
         if (CollUtil.isEmpty(keywords)) {
             return List.of();
         }
         String query = String.join(" ", keywords);
-        return suggestFiles(rootDir, query, limit);
+        return suggestFilesFromSnapshot(index, query, limit);
     }
 
     public List<String> findFilesBySymbol(Path rootDir, String symbol, int limit) {
@@ -177,10 +204,17 @@ public class WorkspaceSemanticIndexService {
     }
 
     public List<WorkspaceSemanticSearchHit> describeFiles(Path rootDir, List<String> relativePaths) {
-        if (rootDir == null || CollUtil.isEmpty(relativePaths)) {
+        if (rootDir == null) {
             return List.of();
         }
-        WorkspaceSemanticIndex index = loadOrBuild(rootDir);
+        return describeFilesFromSnapshot(loadOrBuild(rootDir), relativePaths);
+    }
+
+    public List<WorkspaceSemanticSearchHit> describeFilesFromSnapshot(WorkspaceSemanticIndex index,
+                                                                      List<String> relativePaths) {
+        if (index == null || CollUtil.isEmpty(relativePaths)) {
+            return List.of();
+        }
         Set<String> normalizedPaths = relativePaths.stream()
                 .filter(StrUtil::isNotBlank)
                 .map(path -> path.replace("\\", "/"))
@@ -299,7 +333,16 @@ public class WorkspaceSemanticIndexService {
         if (rootDir == null || StrUtil.isBlank(query) || limit <= 0) {
             return List.of();
         }
-        WorkspaceSemanticIndex index = loadOrBuild(rootDir);
+        return searchSnapshot(loadOrBuild(rootDir), query, extensionFilter, limit);
+    }
+
+    public List<WorkspaceSemanticSearchHit> searchSnapshot(WorkspaceSemanticIndex index,
+                                                           String query,
+                                                           Set<String> extensionFilter,
+                                                           int limit) {
+        if (index == null || StrUtil.isBlank(query) || limit <= 0) {
+            return List.of();
+        }
         String normalizedQuery = normalize(query);
         List<String> queryTerms = extractTerms(normalizedQuery);
         Set<String> normalizedExtensions = normalizeExtensions(extensionFilter);

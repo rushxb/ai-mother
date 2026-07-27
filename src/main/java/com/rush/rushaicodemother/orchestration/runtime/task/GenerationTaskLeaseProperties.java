@@ -10,14 +10,14 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** Worker lease, heartbeat and orphan recovery controls. */
+/** 工作线程租赁、心跳和孤儿恢复控制。 */
 @Data
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.generation-task-lease")
 public class GenerationTaskLeaseProperties {
 
-    /** Optional stable prefix; a process-unique suffix is always appended. */
+    /** 可选的 stable 前缀；始终附加进程唯一的后缀。 */
     private String ownerId;
 
     private Duration leaseDuration = Duration.ofSeconds(30);

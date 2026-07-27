@@ -4,19 +4,21 @@ import com.rush.rushaicodemother.mapper.GenerationTaskSpanMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTaskSpan;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanObservation;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanSink;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Objects;
 
-/** MyBatis adapter that durably stores completed generation spans. */
+/** MyBatis 适配器可持久存储完整的生成跨度。 */
 @Repository
 public class MyBatisGenerationSpanSink implements GenerationSpanSink {
 
     private final GenerationTaskSpanMapper mapper;
     private final ZoneId databaseZone;
 
+    @Autowired
     public MyBatisGenerationSpanSink(GenerationTaskSpanMapper mapper) {
         this(mapper, ZoneId.systemDefault());
     }

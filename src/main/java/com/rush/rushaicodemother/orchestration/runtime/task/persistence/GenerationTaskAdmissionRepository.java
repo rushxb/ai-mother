@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
 import java.util.Optional;
 
-/** Serializes admission decisions for one user and returns the current durable outstanding load. */
+/** 序列化一个用户的准入决策并返回当前持久的未完成负载。 */
 public interface GenerationTaskAdmissionRepository {
 
     int lockUserAndCountNonTerminalTasks(Long userId);

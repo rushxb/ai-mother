@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Restores an opt-in rollback snapshot after a failed generation attempt.
+ * 在尝试生成失败后恢复选择加入的回滚快照。
  */
 @Slf4j
 @Component

@@ -3,11 +3,14 @@ package com.rush.rushaicodemother.service.aimodel;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceCandidate;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidencePayload;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceProtocol;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceRecord;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubject;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier;
 import com.rush.rushaicodemother.service.release.AiReleaseAuditService;
+import com.rush.rushaicodemother.service.release.AiReleaseCoordinationLock;
 import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,9 +38,9 @@ class DefaultAiModelManagementServiceTest {
 
     private AiModelPersistenceService persistenceService;
     private ApplicationEventPublisher eventPublisher;
-    private AiModelCandidateFingerprintService candidateFingerprintService;
     private GenerationReleaseEvidenceVerifier evidenceVerifier;
     private AiReleaseAuditService releaseAuditService;
+    private AiReleaseCoordinationLock coordinationLock;
     private AiModelSecretService secretService;
     private DefaultAiModelManagementService service;
 
@@ -45,9 +48,9 @@ class DefaultAiModelManagementServiceTest {
     void setUp() {
         persistenceService = mock(AiModelPersistenceService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
-        candidateFingerprintService = mock(AiModelCandidateFingerprintService.class);
         evidenceVerifier = mock(GenerationReleaseEvidenceVerifier.class);
         releaseAuditService = mock(AiReleaseAuditService.class);
+        coordinationLock = mock(AiReleaseCoordinationLock.class);
         secretService = AiModelSecretTestFixtures.service();
         service = new DefaultAiModelManagementService(
                 persistenceService,
@@ -56,9 +59,9 @@ class DefaultAiModelManagementServiceTest {
                 new AiModelViewAssembler(),
                 mock(AiModelConnectionTester.class),
                 eventPublisher,
-                candidateFingerprintService,
                 evidenceVerifier,
-                releaseAuditService
+                releaseAuditService,
+                coordinationLock
         );
     }
 
@@ -174,12 +177,9 @@ class DefaultAiModelManagementServiceTest {
     void enablingModelMustVerifyExactCandidateBeforePersistenceAndAudit() {
         GenerationBenchmarkEvidenceRecord evidence = evidence(CANDIDATE_FINGERPRINT);
         when(persistenceService.lockActiveById(7L)).thenReturn(existing());
-        when(candidateFingerprintService.fingerprint(any())).thenReturn(CANDIDATE_FINGERPRINT);
         when(evidenceVerifier.requirePassed(
                 EVIDENCE_ID,
-                GenerationBenchmarkEvidenceSubject.AI_MODEL_ENABLE,
-                "7",
-                CANDIDATE_FINGERPRINT
+                new GenerationBenchmarkEvidenceCandidate.AiModelEnable(7L)
         )).thenReturn(evidence);
 
         var result = service.toggleModelEnabled(7L, EVIDENCE_ID, 9L);
@@ -188,29 +188,26 @@ class DefaultAiModelManagementServiceTest {
         ArgumentCaptor<AiModelConfiguration> configurationCaptor =
                 ArgumentCaptor.forClass(AiModelConfiguration.class);
         InOrder releaseOrder = inOrder(
+                coordinationLock,
                 persistenceService,
-                candidateFingerprintService,
                 evidenceVerifier,
                 releaseAuditService
         );
+        releaseOrder.verify(coordinationLock).acquire();
         releaseOrder.verify(persistenceService).lockActiveById(7L);
-        releaseOrder.verify(candidateFingerprintService).fingerprint(configurationCaptor.capture());
-        assertEquals(1, configurationCaptor.getValue().getIsEnabled());
         releaseOrder.verify(evidenceVerifier).requirePassed(
                 EVIDENCE_ID,
-                GenerationBenchmarkEvidenceSubject.AI_MODEL_ENABLE,
-                "7",
-                CANDIDATE_FINGERPRINT
+                new GenerationBenchmarkEvidenceCandidate.AiModelEnable(7L)
         );
-        releaseOrder.verify(persistenceService).update(any());
+        releaseOrder.verify(persistenceService).update(configurationCaptor.capture());
+        assertEquals(1, configurationCaptor.getValue().getIsEnabled());
         releaseOrder.verify(releaseAuditService).recordModelEnable(evidence, 9L, 7L);
     }
 
     @Test
     void rejectedEvidenceMustPreventEnableMutationAndAudit() {
         when(persistenceService.lockActiveById(7L)).thenReturn(existing());
-        when(candidateFingerprintService.fingerprint(any())).thenReturn(CANDIDATE_FINGERPRINT);
-        when(evidenceVerifier.requirePassed(any(), any(), any(), any()))
+        when(evidenceVerifier.requirePassed(any(), any()))
                 .thenThrow(new BusinessException(ErrorCode.OPERATION_ERROR, "evidence rejected"));
 
         assertThrows(BusinessException.class,
@@ -228,9 +225,22 @@ class DefaultAiModelManagementServiceTest {
         var result = service.toggleModelEnabled(7L, null, 9L);
 
         assertEquals(0, result.getIsEnabled());
+        verify(coordinationLock).acquire();
         verify(persistenceService).update(any());
-        verifyNoInteractions(candidateFingerprintService, evidenceVerifier, releaseAuditService);
+        verifyNoInteractions(evidenceVerifier, releaseAuditService);
         verify(eventPublisher).publishEvent(any(AiModelConfigChangedEvent.class));
+    }
+
+    @Test
+    void deletionMustAcquireGlobalLockBeforeTheModelRowLock() {
+        when(persistenceService.lockActiveById(7L)).thenReturn(existing());
+
+        service.deleteModel(7L);
+
+        InOrder order = inOrder(coordinationLock, persistenceService);
+        order.verify(coordinationLock).acquire();
+        order.verify(persistenceService).lockActiveById(7L);
+        order.verify(persistenceService).logicallyDelete(7L);
     }
 
     private AiModelManagementService.CreateCommand createCommand() {
@@ -267,9 +277,11 @@ class DefaultAiModelManagementServiceTest {
         return new GenerationBenchmarkEvidenceRecord(
                 EVIDENCE_ID,
                 new GenerationBenchmarkEvidencePayload(
+                        GenerationBenchmarkEvidenceProtocol.CURRENT_SIGNATURE_VERSION,
                         GenerationBenchmarkEvidenceSubject.AI_MODEL_ENABLE,
                         "7",
                         candidateFingerprint,
+                        1L,
                         "dataset",
                         "grader",
                         "runtime",

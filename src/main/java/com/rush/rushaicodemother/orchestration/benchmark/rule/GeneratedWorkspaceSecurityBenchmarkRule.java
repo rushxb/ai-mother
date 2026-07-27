@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Deterministic source and manifest security checks for every generated benchmark workspace. */
+/** 对每个生成的基准工作区进行确定性源和清单安全检查。 */
 @Component
 public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchmarkValidationRule {
 

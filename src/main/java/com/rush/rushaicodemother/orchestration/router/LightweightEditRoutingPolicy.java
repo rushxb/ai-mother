@@ -6,6 +6,9 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * 轻量编辑路由决策策略。
+ */
 @Component
 @Order(50)
 public class LightweightEditRoutingPolicy implements GenerationRoutingPolicy {

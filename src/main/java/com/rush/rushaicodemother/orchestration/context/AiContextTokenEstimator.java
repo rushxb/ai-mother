@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.context;
 
-/** Tokenizer-backed model-input accounting used by every context producer. */
+/** 每个上下文生成器都使用由分词器支持的模型输入会计。 */
 public interface AiContextTokenEstimator {
 
     int estimate(String text);

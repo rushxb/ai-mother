@@ -5,6 +5,9 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import org.springframework.stereotype.Component;
 
+/**
+ * 生成基准测试请求对象工厂。
+ */
 @Component
 public class GenerationBenchmarkRequestFactory {
 

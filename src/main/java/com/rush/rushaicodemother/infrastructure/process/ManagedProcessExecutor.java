@@ -133,7 +133,13 @@ public class ManagedProcessExecutor {
         List<CompletableFuture<Void>> outputCompletions = List.of();
 
         try {
-            processPlan = processSandbox.prepare(request, workingDirectory);
+            processPlan = request.exposedPort() == null
+                    ? processSandbox.prepare(request, workingDirectory)
+                    : processSandbox.prepareDevServer(
+                            request,
+                            workingDirectory,
+                            request.exposedPort()
+                    );
             log.info("执行外部进程: category={}, sandbox={}, command={}, context={}",
                     normalizeLogValue(request.logCategory(), "external-process"),
                     processPlan.backend(),
@@ -146,7 +152,6 @@ public class ManagedProcessExecutor {
             processPlan.hostEnvironmentVariablesToRemove().forEach(processBuilder.environment()::remove);
 
             process = processStarter.start(processBuilder);
-            request.lifecycle().onStarted(process);
             stdoutCollector = createCollector(request, "stdout");
             List<CompletableFuture<Void>> mutableCompletions = new ArrayList<>(2);
             mutableCompletions.add(stdoutCollector.start(
@@ -163,6 +168,8 @@ public class ManagedProcessExecutor {
                 ));
             }
             outputCompletions = List.copyOf(mutableCompletions);
+            processSandbox.activate(processPlan);
+            request.lifecycle().onStarted(process);
 
             WaitOutcome waitOutcome = waitForProcess(
                     process,
@@ -472,6 +479,10 @@ public class ManagedProcessExecutor {
         }
         if (request.maxOutputLength() <= 0) {
             throw new IllegalArgumentException("外部进程最大输出长度必须大于 0");
+        }
+        if (request.exposedPort() != null
+                && (request.exposedPort() < 1 || request.exposedPort() > 65535)) {
+            throw new IllegalArgumentException("外部进程暴露端口必须在 1 到 65535 之间");
         }
     }
 

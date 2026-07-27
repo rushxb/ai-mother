@@ -6,6 +6,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.ThreadPoolExecutor;
 
+/**
+ * 记忆执行组件装配配置。
+ */
 @Configuration(proxyBeanMethods = false)
 public class MemoryExecutionConfiguration {
     public static final String MEMORY_TASK_EXECUTOR = "memoryTaskExecutor";

@@ -4,6 +4,9 @@ import com.rush.rushaicodemother.ai.model.CreateSpec;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import org.springframework.stereotype.Component;
 
+/**
+ * 管理端创建配方渲染器。
+ */
 @Component
 final class AdminCreateRecipeRenderer extends AbstractSlotRecipeRenderer<AdminRecipe> {
 

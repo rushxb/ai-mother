@@ -1,13 +1,14 @@
 package com.rush.rushaicodemother.orchestration.workspace;
 
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.Objects;
 
-/** Atomically commits application-visible metadata and the durable publication saga. */
+/** 以原子方式提交应用程序可见的元数据和持久的发布传奇。 */
 @Service
 public class GenerationWorkspacePublicationMetadataService
         implements GenerationWorkspacePublicationCommitter {
@@ -16,6 +17,7 @@ public class GenerationWorkspacePublicationMetadataService
     private final GenerationWorkspacePublicationJournalRepository journalRepository;
     private final Clock clock;
 
+    @Autowired
     public GenerationWorkspacePublicationMetadataService(
             GenerationAppStateService generationAppStateService,
             GenerationWorkspacePublicationJournalRepository journalRepository) {

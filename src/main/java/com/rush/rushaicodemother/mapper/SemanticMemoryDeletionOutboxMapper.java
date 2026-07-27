@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.mapper;
 
 import com.rush.rushaicodemother.model.entity.SemanticMemoryDeletionOutboxEntity;
+import com.rush.rushaicodemother.mapper.projection.SemanticMemoryOutboxBacklogRow;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -9,6 +10,9 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 语义记忆删除事务发件箱数据访问映射器。
+ */
 public interface SemanticMemoryDeletionOutboxMapper {
 
     @Insert("""
@@ -100,4 +104,19 @@ public interface SemanticMemoryDeletionOutboxMapper {
                    @Param("error") String error,
                    @Param("failedAt") LocalDateTime failedAt,
                    @Param("nextAttemptAt") LocalDateTime nextAttemptAt);
+
+    @Select("""
+            SELECT COUNT(*) AS pending,
+                   COALESCE(SUM(CASE WHEN nextAttemptAt > #{now}
+                                     THEN 1 ELSE 0 END), 0) AS retrying,
+                   COALESCE(SUM(CASE WHEN leaseOwner IS NOT NULL
+                                          AND leaseUntil >= #{now}
+                                     THEN 1 ELSE 0 END), 0) AS leased,
+                   0 AS deadLetter,
+                   MIN(createTime) AS oldestPendingAt
+            FROM semantic_memory_deletion_outbox
+            WHERE operationType = 'DELETE_APPLICATION'
+              AND completedAt IS NULL
+            """)
+    SemanticMemoryOutboxBacklogRow inspectBacklog(@Param("now") LocalDateTime now);
 }

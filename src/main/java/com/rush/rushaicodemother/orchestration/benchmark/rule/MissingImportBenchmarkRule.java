@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** Introduces a real TypeScript missing-import build failure and verifies that it was resolved. */
+/** 引入真正的 TypeScript 缺失导入构建失败并验证它是否已解决。 */
 @Component
 public class MissingImportBenchmarkRule implements GenerationBenchmarkValidationRule {
 

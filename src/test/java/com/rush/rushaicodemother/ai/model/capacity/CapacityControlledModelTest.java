@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.ai.model.capacity;
 
+import com.rush.rushaicodemother.core.handler.GenerationCancellationAwareStreamingHandler;
+import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
@@ -18,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CapacityControlledModelTest {
@@ -156,6 +159,53 @@ class CapacityControlledModelTest {
 
         assertEquals(1, providerCancellations.get());
         assertEquals(1, guard.released.get());
+    }
+
+    @Test
+    void logicalCancellationBeforeFirstProviderHandleMustReleaseCapacity() {
+        CountingGuard guard = new CountingGuard();
+        AtomicReference<StreamingChatResponseHandler> providerHandler = new AtomicReference<>();
+        StreamingChatModel delegate = new StreamingChatModel() {
+            @Override
+            public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+                providerHandler.set(handler);
+            }
+        };
+        CapacityControlledStreamingChatModel model = new CapacityControlledStreamingChatModel(
+                "openai", "gpt-stream", 4096, delegate, guard);
+        CancellationCapturingHandler downstream = new CancellationCapturingHandler();
+
+        model.chat(request(), downstream);
+
+        assertNotNull(providerHandler.get());
+        assertNotNull(downstream.cancellation.get());
+        assertEquals(0, guard.released.get());
+        downstream.cancellation.get().cancel();
+        assertEquals(1, guard.released.get());
+    }
+
+    @Test
+    void cancellationDuringCapacityAcquisitionMustSkipTheProviderRequest() {
+        CancellationCapturingHandler downstream = new CancellationCapturingHandler();
+        AtomicInteger released = new AtomicInteger();
+        AtomicInteger providerRequests = new AtomicInteger();
+        AiModelCapacityGuard guard = (provider, modelId, maxTokens, request) -> {
+            downstream.cancellation.get().cancel();
+            return released::incrementAndGet;
+        };
+        StreamingChatModel delegate = new StreamingChatModel() {
+            @Override
+            public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+                providerRequests.incrementAndGet();
+            }
+        };
+        CapacityControlledStreamingChatModel model = new CapacityControlledStreamingChatModel(
+                "openai", "gpt-stream", 4096, delegate, guard);
+
+        model.chat(request(), downstream);
+
+        assertEquals(1, released.get());
+        assertEquals(0, providerRequests.get());
     }
 
     @Test
@@ -311,6 +361,24 @@ class CapacityControlledModelTest {
     }
 
     private static final class NoopStreamingHandler implements StreamingChatResponseHandler {
+        @Override
+        public void onCompleteResponse(ChatResponse completeResponse) {
+        }
+
+        @Override
+        public void onError(Throwable error) {
+        }
+    }
+
+    private static final class CancellationCapturingHandler
+            implements GenerationCancellationAwareStreamingHandler {
+        private final AtomicReference<GenerationCancellationHandle> cancellation = new AtomicReference<>();
+
+        @Override
+        public void registerCancellationHandle(GenerationCancellationHandle cancellationHandle) {
+            cancellation.set(cancellationHandle);
+        }
+
         @Override
         public void onCompleteResponse(ChatResponse completeResponse) {
         }

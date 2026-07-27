@@ -1,0 +1,609 @@
+{
+  "schemaVersion": 2,
+  "datasetId": "generation_app_quality",
+  "version": "2.1.0",
+  "tasks": [
+    {
+      "id": "create_vue_admin_crud",
+      "mode": "CREATE",
+      "codeGenType": "vue_project",
+      "prompt": "生成商品管理后台 CRUD，包含列表、表单、关键词搜索、分页和删除确认",
+      "expectedValidation": "build",
+      "scenario": "admin_crud",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "crud", "search", "pagination"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_vue_mobile_shop",
+      "mode": "CREATE",
+      "codeGenType": "vue_project",
+      "prompt": "生成移动端电商商品列表和购物车，包含分类筛选、数量调整和金额汇总",
+      "expectedValidation": "build",
+      "scenario": "mobile_commerce",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "mobile", "commerce", "state"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_go_sqlite_crud",
+      "mode": "CREATE",
+      "codeGenType": "backend_project",
+      "prompt": "生成 Go SQLite 用户 CRUD API，包含参数校验、分页、统一错误响应和测试",
+      "expectedValidation": "build",
+      "scenario": "backend_crud",
+      "difficulty": "MEDIUM",
+      "capabilities": ["go", "sqlite", "crud", "validation"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME"]
+    },
+    {
+      "id": "create_fullstack_crud",
+      "mode": "CREATE",
+      "codeGenType": "full_stack_project",
+      "prompt": "生成 Vue + Go SQLite 商品 CRUD 全栈应用，前后端字段、校验和错误处理保持一致",
+      "expectedValidation": "build",
+      "scenario": "fullstack_crud",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "go", "sqlite", "api_contract"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_landing_page",
+      "mode": "CREATE",
+      "codeGenType": "vue_project",
+      "prompt": "生成 SaaS 产品落地页，包含产品价值、功能、客户案例、定价和联系入口",
+      "expectedValidation": "fast",
+      "scenario": "landing_page",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "landing", "responsive", "content"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_vue_booking_calendar",
+      "mode": "CREATE",
+      "codeGenType": "vue_project",
+      "prompt": "生成会议室预约应用，包含日历、时段冲突提示、预约表单和我的预约",
+      "expectedValidation": "build",
+      "scenario": "booking",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "calendar", "form", "validation"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_vue_inventory_dashboard",
+      "mode": "CREATE",
+      "codeGenType": "vue_project",
+      "prompt": "生成库存运营看板，包含 SKU 列表、低库存预警、入出库记录和组合筛选",
+      "expectedValidation": "build",
+      "scenario": "inventory",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "dashboard", "inventory", "filter"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_go_order_api",
+      "mode": "CREATE",
+      "codeGenType": "backend_project",
+      "prompt": "生成 Go SQLite 订单 API，支持创建订单、状态流转、按状态分页查询和幂等键",
+      "expectedValidation": "build",
+      "scenario": "order_workflow",
+      "difficulty": "MEDIUM",
+      "capabilities": ["go", "sqlite", "workflow", "idempotency"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME"]
+    },
+    {
+      "id": "create_go_audit_api",
+      "mode": "CREATE",
+      "codeGenType": "backend_project",
+      "prompt": "生成 Go 审计日志 API，记录操作者、动作、资源和时间，支持条件查询与导出",
+      "expectedValidation": "build",
+      "scenario": "audit_log",
+      "difficulty": "HARD",
+      "capabilities": ["go", "sqlite", "audit", "export"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME"]
+    },
+    {
+      "id": "create_fullstack_ticketing",
+      "mode": "CREATE",
+      "codeGenType": "full_stack_project",
+      "prompt": "生成 Vue + Go 工单系统，包含工单创建、负责人分配、状态流转、评论和筛选",
+      "expectedValidation": "build",
+      "scenario": "ticketing",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "go", "workflow", "comments"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_fullstack_content_management",
+      "mode": "CREATE",
+      "codeGenType": "full_stack_project",
+      "prompt": "生成 Vue + Go 内容管理应用，包含草稿、发布、分类、关键词搜索和预览",
+      "expectedValidation": "build",
+      "scenario": "content_management",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "go", "content", "search"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "create_vue_accessibility_portfolio",
+      "mode": "CREATE",
+      "codeGenType": "vue_project",
+      "prompt": "生成响应式作品集，包含项目筛选、详情、联系表单，并保证键盘操作和语义化结构",
+      "expectedValidation": "fast",
+      "scenario": "portfolio",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "portfolio", "accessibility", "responsive"],
+      "requiredQualityDimensions": ["STRUCTURAL", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "edit_copy",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "把首页标题改为「星河工作室」",
+      "expectedValidation": "fast",
+      "scenario": "copy_edit",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "copy", "localized_edit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "edit_style",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "将首页主按钮背景色改为 #2563eb，并将操作按钮间距设为 12px",
+      "expectedValidation": "fast",
+      "scenario": "style_edit",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "css", "localized_edit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "edit_nav_label",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "把导航中的「旧首页」改为「工作台」，路由地址保持不变",
+      "expectedValidation": "fast",
+      "scenario": "navigation",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "navigation", "localized_edit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/navigation.ts",
+          "content": "export const benchmarkNavigation = [{ label: '旧首页', path: '/' }, { label: '订单', path: '/orders' }]\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "nav_label",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/navigation.ts"],
+          "allOf": ["工作台", "path: '/'"],
+          "noneOf": ["旧首页"]
+        }
+      ]
+    },
+    {
+      "id": "edit_empty_state",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "把订单空状态文案改为「尚无订单」，并把操作提示改为「创建第一笔订单」",
+      "expectedValidation": "fast",
+      "scenario": "empty_state",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "copy", "empty_state"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/orderEmptyState.ts",
+          "content": "export const orderEmptyState = { title: '暂无记录', action: '立即新增' }\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "empty_state_copy",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/orderEmptyState.ts"],
+          "allOf": ["尚无订单", "创建第一笔订单"],
+          "noneOf": ["暂无记录", "立即新增"]
+        }
+      ]
+    },
+    {
+      "id": "edit_currency_format",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "将金额格式统一为人民币全角符号，并固定显示两位小数",
+      "expectedValidation": "fast",
+      "scenario": "formatting",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "typescript", "formatting"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/currency.ts",
+          "content": "export const formatBenchmarkAmount = (amount: number) => `¥${amount}`\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "currency_format",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/currency.ts"],
+          "allOf": ["￥", "toFixed(2)"],
+          "noneOf": ["`¥${amount}`"]
+        }
+      ]
+    },
+    {
+      "id": "edit_mobile_cta",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "把移动端主行动按钮文案改为「免费试用」，最小高度改为 44px",
+      "expectedValidation": "fast",
+      "scenario": "mobile_accessibility",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "mobile", "accessibility"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/mobileCta.ts",
+          "content": "export const mobileCta = { label: '立即咨询', minHeight: '36px' }\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "mobile_cta",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/mobileCta.ts"],
+          "allOf": ["免费试用", "44px"],
+          "noneOf": ["立即咨询", "36px"]
+        }
+      ]
+    },
+    {
+      "id": "edit_backend_validation",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "backend_project",
+      "prompt": "给基准名称校验补充去除首尾空白后的非空检查，错误信息为「名称不能为空」",
+      "expectedValidation": "build",
+      "scenario": "validation",
+      "difficulty": "MEDIUM",
+      "capabilities": ["go", "validation", "localized_edit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME"],
+      "fixtureFiles": [
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/name_validation.go",
+          "content": "package benchmark\n\nfunc ValidateBenchmarkName(name string) error {\n\treturn nil\n}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "trimmed_name_validation",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/name_validation.go"],
+          "allOf": ["strings.TrimSpace", "名称不能为空"]
+        }
+      ]
+    },
+    {
+      "id": "edit_fullstack_api_timeout",
+      "mode": "LIGHT_EDIT",
+      "codeGenType": "full_stack_project",
+      "prompt": "将前端基准 API 请求超时从 30 秒改为 8 秒，其他请求配置保持不变",
+      "expectedValidation": "build",
+      "scenario": "api_configuration",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "typescript", "api_config"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/apiConfig.ts",
+          "content": "export const benchmarkApiConfig = { timeoutMs: 30000, retryCount: 2 }\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "api_timeout",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/apiConfig.ts"],
+          "allOf": ["timeoutMs: 8000", "retryCount: 2"],
+          "noneOf": ["timeoutMs: 30000"]
+        }
+      ]
+    },
+    {
+      "id": "edit_search_pagination",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "给首页商品表格新增关键词搜索和上一页、下一页分页",
+      "expectedValidation": "build",
+      "scenario": "table_interaction",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "search", "pagination", "state"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "edit_fullstack_field_sync",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "full_stack_project",
+      "prompt": "给基准商品新增 category 字段，并同步前端类型和后端 JSON 模型",
+      "expectedValidation": "build",
+      "scenario": "api_contract",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "go", "schema_sync", "api_contract"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/product.ts",
+          "content": "export interface BenchmarkProduct { id: number; name: string }\n"
+        },
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/product.go",
+          "content": "package benchmark\n\ntype Product struct {\n\tID int64 `json:\"id\"`\n\tName string `json:\"name\"`\n}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "frontend_category",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/product.ts"],
+          "allOf": ["category"]
+        },
+        {
+          "id": "backend_category",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/product.go"],
+          "allOf": ["Category", "json:\"category\""]
+        }
+      ]
+    },
+    {
+      "id": "edit_build_error",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "修复构建报错中的缺失 import",
+      "expectedValidation": "build",
+      "scenario": "build_repair",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "typescript", "diagnostics", "repair"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "edit_runtime_error",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "修复预览运行时 undefined 报错",
+      "expectedValidation": "build",
+      "scenario": "runtime_repair",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "runtime", "diagnostics", "repair"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "edit_delete_module",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "删除无用统计模块并清理路由引用",
+      "expectedValidation": "build",
+      "scenario": "module_removal",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "routing", "deletion", "dependency_cleanup"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"]
+    },
+    {
+      "id": "edit_backend_soft_delete",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "backend_project",
+      "prompt": "将基准商品删除改为软删除：写入 deleted_at，并确保列表只查询未删除数据",
+      "expectedValidation": "build",
+      "scenario": "data_lifecycle",
+      "difficulty": "HARD",
+      "capabilities": ["go", "sqlite", "soft_delete", "query"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME"],
+      "fixtureFiles": [
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/product_repository.go",
+          "content": "package benchmark\n\nconst benchmarkDeleteSQL = `DELETE FROM products WHERE id = ?`\nconst benchmarkListSQL = `SELECT id, name FROM products ORDER BY id DESC`\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "soft_delete",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/product_repository.go"],
+          "allOf": ["UPDATE products", "deleted_at", "WHERE deleted_at IS NULL"],
+          "noneOf": ["DELETE FROM products"]
+        }
+      ]
+    },
+    {
+      "id": "edit_backend_pagination_validation",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "backend_project",
+      "prompt": "完善基准分页参数：page 小于 1 时按 1 处理，pageSize 限制在 1 到 100",
+      "expectedValidation": "build",
+      "scenario": "pagination",
+      "difficulty": "MEDIUM",
+      "capabilities": ["go", "pagination", "validation", "api"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME"],
+      "fixtureFiles": [
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/pagination.go",
+          "content": "package benchmark\n\nfunc NormalizeBenchmarkPage(page, pageSize int) (int, int) {\n\treturn page, pageSize\n}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "pagination_bounds",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/pagination.go"],
+          "allOf": ["page < 1", "pageSize < 1", "pageSize > 100", "pageSize = 100"]
+        }
+      ]
+    },
+    {
+      "id": "edit_fullstack_order_status",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "full_stack_project",
+      "prompt": "给订单状态新增 CANCELLED，并同步前端联合类型、后端常量和中文展示「已取消」",
+      "expectedValidation": "build",
+      "scenario": "order_workflow",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "go", "workflow", "schema_sync"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/orderStatus.ts",
+          "content": "export type BenchmarkOrderStatus = 'PENDING' | 'PAID'\nexport const benchmarkStatusText = { PENDING: '待支付', PAID: '已支付' }\n"
+        },
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/order_status.go",
+          "content": "package benchmark\n\ntype OrderStatus string\n\nconst (\n\tOrderPending OrderStatus = \"PENDING\"\n\tOrderPaid OrderStatus = \"PAID\"\n)\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "frontend_cancelled_status",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/orderStatus.ts"],
+          "allOf": ["CANCELLED", "已取消"]
+        },
+        {
+          "id": "backend_cancelled_status",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/order_status.go"],
+          "allOf": ["CANCELLED"]
+        }
+      ]
+    },
+    {
+      "id": "edit_vue_role_permissions",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "给基准角色模型增加 permissions，并为管理员配置 product:read 和 product:write 权限",
+      "expectedValidation": "build",
+      "scenario": "permissions",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "typescript", "rbac", "modeling"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/roles.ts",
+          "content": "export interface BenchmarkRole { id: number; name: string }\nexport const benchmarkRoles: BenchmarkRole[] = [{ id: 1, name: '管理员' }]\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "role_permissions",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/roles.ts"],
+          "allOf": ["permissions", "product:read", "product:write"]
+        }
+      ]
+    },
+    {
+      "id": "edit_vue_form_validation",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "vue_project",
+      "prompt": "完善基准商品表单校验：邮箱格式必须有效，库存不能小于 0，并返回对应中文错误信息",
+      "expectedValidation": "build",
+      "scenario": "form_validation",
+      "difficulty": "MEDIUM",
+      "capabilities": ["vue", "typescript", "form", "validation"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/productForm.ts",
+          "content": "export interface BenchmarkProductForm { name: string; email: string; stock: number }\nexport function validateBenchmarkProduct(form: BenchmarkProductForm): string[] {\n  return form.name ? [] : ['名称不能为空']\n}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "product_form_validation",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/productForm.ts"],
+          "allOf": ["email", "邮箱格式", "stock < 0", "库存不能小于 0"]
+        }
+      ]
+    },
+    {
+      "id": "edit_fullstack_error_contract",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "full_stack_project",
+      "prompt": "统一基准错误协议为 code 和 message：后端按该结构返回，前端优先展示 message",
+      "expectedValidation": "build",
+      "scenario": "error_contract",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "go", "error_handling", "api_contract"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/apiError.ts",
+          "content": "export interface BenchmarkApiError { error: string }\nexport const benchmarkErrorText = (error: BenchmarkApiError) => error.error\n"
+        },
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/error_response.go",
+          "content": "package benchmark\n\ntype ErrorResponse struct {\n\tError string `json:\"error\"`\n}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "frontend_error_contract",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/apiError.ts"],
+          "allOf": ["code", "message", ".message"],
+          "noneOf": ["error.error"]
+        },
+        {
+          "id": "backend_error_contract",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/error_response.go"],
+          "allOf": ["json:\"code\"", "json:\"message\""]
+        }
+      ]
+    },
+    {
+      "id": "edit_backend_transaction",
+      "mode": "AGENT_EDIT",
+      "codeGenType": "backend_project",
+      "prompt": "让基准订单创建在数据库事务中写入订单和库存；失败必须回滚，成功提交",
+      "expectedValidation": "build",
+      "scenario": "transaction",
+      "difficulty": "HARD",
+      "capabilities": ["go", "sqlite", "transaction", "consistency"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME"],
+      "fixtureFiles": [
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/order_transaction.go",
+          "content": "package benchmark\n\nimport \"context\"\n\ntype BenchmarkStore interface {\n\tInsertOrder(context.Context) error\n\tDecreaseStock(context.Context) error\n}\n\nfunc CreateBenchmarkOrder(ctx context.Context, store BenchmarkStore) error {\n\tif err := store.InsertOrder(ctx); err != nil { return err }\n\treturn store.DecreaseStock(ctx)\n}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "order_transaction",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/order_transaction.go"],
+          "allOf": ["BeginTx", "Rollback", "Commit"]
+        }
+      ]
+    }
+  ]
+}

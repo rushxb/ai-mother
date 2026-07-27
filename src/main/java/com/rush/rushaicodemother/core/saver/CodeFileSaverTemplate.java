@@ -16,13 +16,12 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * Base template for persisting one supported generated-code result.
+ * 持久化受支持代码生成结果的基础模板。
  *
- * <p>The template owns input validation and delegates workspace resolution and bounded, atomic UTF-8
- * writes to their dedicated infrastructure boundaries. Implementations only describe the files that
- * belong to one code-generation type.</p>
+ * <p>模板负责输入校验，并将工作区解析及有界的 UTF-8 原子写入交给专用基础设施。
+ * 具体实现只需声明对应代码生成类型包含哪些文件。</p>
  *
- * @param <T> supported generated-code result type
+ * @param <T> 支持的生成代码结果类型
  */
 public abstract class CodeFileSaverTemplate<T> {
 
@@ -46,25 +45,25 @@ public abstract class CodeFileSaverTemplate<T> {
         );
     }
 
-    /** Returns the generation type handled by this saver. */
+    /** 返回当前保存器负责的代码生成类型。 */
     public final CodeGenTypeEnum codeGenType() {
         return getCodeType();
     }
 
     /**
-     * Persists a generated result into its canonical application workspace.
+     * 将生成结果持久化到应用的标准工作区。
      *
-     * @param result generated-code result
-     * @param appId application identifier
-     * @return canonical workspace directory
+     * @param result 生成代码结果
+     * @param appId 应用程序标识符
+     * @return 规范工作空间目录
      */
     public final File saveCode(Object result, Long appId) {
         return saveCode(result, appId, null);
     }
 
     /**
-     * Persists into an explicitly selected execution workspace. Asynchronous model callbacks use
-     * this overload because their thread cannot be trusted to retain orchestration ThreadLocal state.
+     * 将生成结果持久化到显式指定的执行工作区。异步模型回调使用此重载，
+     * 因为回调线程不保证保留编排阶段的 ThreadLocal 状态。
      */
     public final File saveCode(Object result, Long appId, GenerationWorkspace explicitWorkspace) {
         if (appId == null || appId <= 0) {
@@ -103,8 +102,8 @@ public abstract class CodeFileSaverTemplate<T> {
     }
 
     /**
-     * Synchronizes one generated file through the bounded workspace file-system service.
-     * Blank optional content removes an earlier version so regeneration cannot retain stale assets.
+     * 通过受资源限制的工作区文件系统服务同步单个生成文件。
+     * 内容为空时删除旧版本，避免重新生成后残留过期资源。
      */
     protected final void synchronizeFile(Path workspaceRoot, String relativePath, String content) {
         try {
@@ -122,16 +121,16 @@ public abstract class CodeFileSaverTemplate<T> {
         }
     }
 
-    /** Validates the generated result before any file-system mutation occurs. */
+    /** 在执行任何文件系统变更前校验生成结果。 */
     protected void validateInput(T result) {
         if (result == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "代码结果对象不能为空");
         }
     }
 
-    /** Persists the files owned by one generated-code result. */
+    /** 持久化一个代码生成结果包含的全部文件。 */
     protected abstract void saveFiles(T result, Path workspaceRoot);
 
-    /** Returns the code-generation type handled by this implementation. */
+    /** 返回当前实现负责的代码生成类型。 */
     protected abstract CodeGenTypeEnum getCodeType();
 }

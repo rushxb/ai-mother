@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import java.nio.file.Path;
 
-/** A regular file that has passed the edit-workspace path policy. */
+/** 已通过编辑工作空间路径策略的常规文件。 */
 public record EditWorkspaceFile(String relativePath, Path absolutePath) {
 
     public String fileName() {

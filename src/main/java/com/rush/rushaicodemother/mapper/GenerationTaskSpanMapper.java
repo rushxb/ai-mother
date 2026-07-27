@@ -7,7 +7,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
-/** Explicit SQL mapper for durable generation critical-path spans. */
+/** 用于持久生成关键路径跨度的显式 SQL 映射器。 */
 public interface GenerationTaskSpanMapper {
 
     @Insert("""

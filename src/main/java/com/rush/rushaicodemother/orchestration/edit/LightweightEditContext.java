@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import java.util.List;
 
-/** Immutable context assembled for one lightweight-edit model call. */
+/** 为一次轻量级编辑模型调用组装的不可变上下文。 */
 public record LightweightEditContext(
         List<EditFileCandidate> candidates,
         String projectContext,

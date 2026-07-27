@@ -6,7 +6,7 @@ import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.util.UUID;
 
-/** Creates a process-unique lease owner identity without hard-coding deployment topology. */
+/** 创建流程唯一的租赁所有者身份，无需硬编码部署拓扑。 */
 @Component
 public class GenerationTaskLeaseOwnerProvider {
 

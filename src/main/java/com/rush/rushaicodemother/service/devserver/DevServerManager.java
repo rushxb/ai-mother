@@ -106,7 +106,7 @@ public class DevServerManager {
     }
 
     /**
-     * Starts a Dev Server under task-scoped timeout and cancellation controls.
+     * 在任务范围的超时和取消控制下启动开发服务器。
      */
     public DevServerStartResult startDevServer(
             App app,
@@ -132,13 +132,20 @@ public class DevServerManager {
 
         throwIfExternallyCancelled(startOptions);
 
-        // Keep the interactive/legacy path on the original locator contract. Besides preserving
-        // compatibility for callers that do not have a generation fence, this also prevents a
-        // null options object from silently changing the workspace resolution semantics.
+        // 保留原始定位器合约上的交互/遗留路径。除了保存
+        // 对于没有代围栏的调用者的兼容性，这也可以防止
+        // 空选项对象会默默地更改工作区解析语义。
         Path projectDirectory = startOptions == null
                 ? projectLocator.locate(app)
                 : projectLocator.locate(app, startOptions);
-        ManagedDevServerSession reusableSession = findReusableSession(appId, projectDirectory);
+        Map<String, String> requestedEnvironment = startOptions == null
+                ? Map.of()
+                : startOptions.environmentOverrides();
+        ManagedDevServerSession reusableSession = findReusableSession(
+                appId,
+                projectDirectory,
+                requestedEnvironment
+        );
         if (reusableSession != null) {
             DevServerSessionLeaseCoordinator.LeaseStatus leaseStatus = leaseCoordinator.renew(appId);
             if (leaseStatus != DevServerSessionLeaseCoordinator.LeaseStatus.RENEWED
@@ -158,7 +165,8 @@ public class DevServerManager {
                 appId,
                 userId,
                 projectDirectory,
-                app.getDevServerPort()
+                app.getDevServerPort(),
+                requestedEnvironment
         );
         ManagedDevServerSession session = registration.session();
         if (!registration.created()) {
@@ -344,7 +352,11 @@ public class DevServerManager {
         outputHub.clear();
     }
 
-    private ManagedDevServerSession findReusableSession(Long appId, Path requestedProjectDirectory) {
+    private ManagedDevServerSession findReusableSession(
+            Long appId,
+            Path requestedProjectDirectory,
+            Map<String, String> requestedEnvironment
+    ) {
         registryLock.lock();
         try {
             ManagedDevServerSession existing = sessions.get(appId);
@@ -356,6 +368,12 @@ public class DevServerManager {
                     throw new BusinessException(
                             ErrorCode.OPERATION_ERROR,
                             "A Dev Server for a different workspace is already running"
+                    );
+                }
+                if (!existing.environmentOverrides().equals(requestedEnvironment)) {
+                    throw new BusinessException(
+                            ErrorCode.OPERATION_ERROR,
+                            "已有 Dev Server 使用了不同的运行环境"
                     );
                 }
                 return existing;
@@ -379,7 +397,8 @@ public class DevServerManager {
             Long appId,
             Long userId,
             Path projectDirectory,
-            Integer preferredPort
+            Integer preferredPort,
+            Map<String, String> environmentOverrides
     ) {
         registryLock.lock();
         try {
@@ -393,6 +412,12 @@ public class DevServerManager {
                         throw new BusinessException(
                                 ErrorCode.OPERATION_ERROR,
                                 "A Dev Server for a different workspace is already running"
+                        );
+                    }
+                    if (!existing.environmentOverrides().equals(environmentOverrides)) {
+                        throw new BusinessException(
+                                ErrorCode.OPERATION_ERROR,
+                                "已有 Dev Server 使用了不同的运行环境"
                         );
                     }
                     return new SessionRegistration(existing, false);
@@ -436,7 +461,8 @@ public class DevServerManager {
                         appId,
                         userId,
                         projectDirectory,
-                        port
+                        port,
+                        environmentOverrides
                 );
                 sessions.put(appId, session);
                 outputHub.prepare(appId);
@@ -516,6 +542,17 @@ public class DevServerManager {
                     appId,
                     outputHub.sink(appId),
                     cancellationRequested
+            );
+        }
+        if (!startOptions.environmentOverrides().isEmpty()) {
+            return processRunner.start(
+                    session.projectDirectory(),
+                    session.port(),
+                    appId,
+                    outputHub.sink(appId),
+                    startOptions.startupTimeout(),
+                    cancellationRequested,
+                    startOptions.environmentOverrides()
             );
         }
         return processRunner.start(
@@ -712,6 +749,7 @@ public class DevServerManager {
         private final Long userId;
         private final Path projectDirectory;
         private final int port;
+        private final Map<String, String> environmentOverrides;
         private final CompletableFuture<Void> startupCompletion = new CompletableFuture<>();
         private SessionState state = SessionState.STARTING;
         private DevServerProcessSession processSession;
@@ -720,12 +758,16 @@ public class DevServerManager {
                 Long appId,
                 Long userId,
                 Path projectDirectory,
-                int port
+                int port,
+                Map<String, String> environmentOverrides
         ) {
             this.appId = appId;
             this.userId = userId;
             this.projectDirectory = projectDirectory;
             this.port = port;
+            this.environmentOverrides = environmentOverrides == null
+                    ? Map.of()
+                    : Map.copyOf(environmentOverrides);
         }
 
         private Long appId() {
@@ -742,6 +784,10 @@ public class DevServerManager {
 
         private int port() {
             return port;
+        }
+
+        private Map<String, String> environmentOverrides() {
+            return environmentOverrides;
         }
 
         private synchronized boolean attach(DevServerProcessSession newProcessSession) {

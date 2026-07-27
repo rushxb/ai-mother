@@ -23,10 +23,10 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Deep workspace module for bounded, symbolic-link-safe file access performed by AI tools.
+ * 深度工作区模块，用于由 AI 工具执行的有界、符号链接安全的文件访问。
  *
- * <p>Mutations still flow through {@code ToolExecutionGateway}; this module owns only path resolution,
- * precondition checks, bounded reads, and bounded directory traversal.</p>
+ * <p>突变仍然流经{@code ToolExecutionGateway}；该模块仅拥有路径解析，
+ * 前置条件检查、有界读取和有界目录遍历。</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -59,12 +59,12 @@ public class ToolWorkspaceFileService {
         }
     }
 
-    /** Returns the task identity that bounds external processes started by an AI tool. */
+    /** 返回限制 AI 工具启动的外部进程的任务标识。 */
     public String requireTaskId(Long appId) {
         return toolPathSupport.resolveTaskId(appId);
     }
 
-    /** Resolves an existing directory inside the bound project workspace. */
+    /** 解析绑定项目工作区中的现有目录。 */
     public ToolWorkspaceDirectory resolveDirectory(Long appId, String relativePath) {
         Path projectRoot = resolveProjectRoot(appId);
         if (relativePath == null || relativePath.isBlank()) {
@@ -81,7 +81,7 @@ public class ToolWorkspaceFileService {
         }
     }
 
-    /** Resolves a file target; the target may be absent when a write intends to create it. */
+    /** 解析文件目标；当写入打算创建目标时，目标可能不存在。 */
     public ToolWorkspaceFile resolveFile(Long appId, String relativePath) {
         Path projectRoot = resolveProjectRoot(appId);
         try {
@@ -92,7 +92,7 @@ public class ToolWorkspaceFileService {
         }
     }
 
-    /** Resolves a child file without allowing the child path to escape its selected project directory. */
+    /** 解析子文件，而不允许子路径转义其选定的项目目录。 */
     public ToolWorkspaceFile resolveFile(ToolWorkspaceDirectory directory, String relativePath) {
         ToolWorkspaceDirectory requiredDirectory = requireDirectory(directory);
         String normalizedChildPath = toolPathSupport.normalizeRelativePath(relativePath);

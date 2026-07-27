@@ -39,6 +39,14 @@ public class GenerationOrchestrationMetricsCollector {
     private final ConcurrentMap<String, Timer> userWaitTimers = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> firstPreviewTimers = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> slaOutcomeCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> streamSnapshotWriteCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Timer> streamSnapshotWriteTimers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> toolLoopGuardCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> agentProductivityCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> checkpointCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Timer> checkpointTimers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> completionCheckpointCounters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Timer> completionCheckpointTimers = new ConcurrentHashMap<>();
 
     public void recordRun(String orchestrationMode, String status) {
         String mode = normalize(orchestrationMode);
@@ -360,6 +368,101 @@ public class GenerationOrchestrationMetricsCollector {
                         .register(meterRegistry)
         );
         counter.increment();
+    }
+
+    public void recordStreamSnapshotWrite(String outcome, Duration duration) {
+        String normalizedOutcome = normalize(outcome);
+        streamSnapshotWriteCounters.computeIfAbsent(normalizedOutcome, unused ->
+                Counter.builder("generation_stream_snapshot_writes_total")
+                        .description("生成流式断线快照写入次数")
+                        .tag("outcome", normalizedOutcome)
+                        .register(meterRegistry)
+        ).increment();
+        streamSnapshotWriteTimers.computeIfAbsent(normalizedOutcome, unused ->
+                Timer.builder("generation_stream_snapshot_write_duration_seconds")
+                        .description("生成流式断线快照写入耗时")
+                        .tag("outcome", normalizedOutcome)
+                        .register(meterRegistry)
+        ).record(nonNegative(duration));
+    }
+
+    public void recordToolLoopGuard(String reason, String toolName) {
+        String normalizedReason = normalize(reason);
+        String normalizedToolName = normalize(toolName);
+        String key = String.join(":", normalizedReason, normalizedToolName);
+        Counter counter = toolLoopGuardCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_ai_tool_loop_guard_total")
+                        .description("AI 工具重复调用或无进展循环拦截次数")
+                        .tag("reason", normalizedReason)
+                        .tag("tool", normalizedToolName)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    public void recordAgentProductivityIntervention(String action, String reason) {
+        String normalizedAction = normalize(action);
+        String normalizedReason = normalize(reason);
+        String key = String.join(":", normalizedAction, normalizedReason);
+        agentProductivityCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_ai_agent_productivity_interventions_total")
+                        .description("AI Agent 低生产率模型回合的收敛干预次数")
+                        .tag("action", normalizedAction)
+                        .tag("reason", normalizedReason)
+                        .register(meterRegistry)
+        ).increment();
+    }
+
+    public void recordNodeStartCheckpoint(String orchestrationMode,
+                                          String dagNode,
+                                          String outcome,
+                                          Duration duration) {
+        String mode = normalize(orchestrationMode);
+        String node = normalize(dagNode);
+        String normalizedOutcome = normalize(outcome);
+        String key = String.join(":", mode, node, normalizedOutcome);
+        checkpointCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_orchestration_node_start_checkpoints_total")
+                        .description("生成编排节点开始检查点的持久化、省略或失败次数")
+                        .tag("orchestration_mode", mode)
+                        .tag("dag_node", node)
+                        .tag("outcome", normalizedOutcome)
+                        .register(meterRegistry)
+        ).increment();
+        checkpointTimers.computeIfAbsent(key, unused ->
+                Timer.builder("generation_orchestration_node_start_checkpoint_duration_seconds")
+                        .description("生成编排节点开始检查点处理耗时")
+                        .tag("orchestration_mode", mode)
+                        .tag("dag_node", node)
+                        .tag("outcome", normalizedOutcome)
+                        .register(meterRegistry)
+        ).record(nonNegative(duration));
+    }
+
+    public void recordNodeCompletionCheckpoint(String orchestrationMode,
+                                               String dagNode,
+                                               String outcome,
+                                               Duration duration) {
+        String mode = normalize(orchestrationMode);
+        String node = normalize(dagNode);
+        String normalizedOutcome = normalize(outcome);
+        String key = String.join(":", mode, node, normalizedOutcome);
+        completionCheckpointCounters.computeIfAbsent(key, unused ->
+                Counter.builder("generation_orchestration_node_completion_checkpoints_total")
+                        .description("生成编排节点完成检查点的持久化、合并或失败次数")
+                        .tag("orchestration_mode", mode)
+                        .tag("dag_node", node)
+                        .tag("outcome", normalizedOutcome)
+                        .register(meterRegistry)
+        ).increment();
+        completionCheckpointTimers.computeIfAbsent(key, unused ->
+                Timer.builder("generation_orchestration_node_completion_checkpoint_duration_seconds")
+                        .description("生成编排节点完成检查点处理耗时")
+                        .tag("orchestration_mode", mode)
+                        .tag("dag_node", node)
+                        .tag("outcome", normalizedOutcome)
+                        .register(meterRegistry)
+        ).record(nonNegative(duration));
     }
 
     private void recordSummary(String name,

@@ -13,12 +13,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.time.Duration;
 
+/**
+ * AI 提示词目录配置属性。
+ */
 @Data
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.ai-prompt-catalog")
 public class AiPromptCatalogProperties {
 
+    /** 是否启用。 */
     private boolean enabled = true;
     private String manifest = "classpath:prompt/prompt-catalog.json";
     private String rolloutSalt = "ai-code-mother-prompt-rollout-v1";
@@ -49,9 +53,12 @@ public class AiPromptCatalogProperties {
 
     @Data
     public static class Release {
+        /** 稳定版本。 */
         private String stableVersion = "";
+        /** 灰度版本。 */
         private String canaryVersion = "";
 
+        /** 灰度发布比例。 */
         @Min(0)
         @Max(100)
         private int canaryPercentage;
@@ -64,6 +71,7 @@ public class AiPromptCatalogProperties {
 
     @Data
     public static class RuntimeReleases {
+        /** 是否启用。 */
         private boolean enabled;
         private boolean initialLoadRequired;
         private Duration refreshInterval = Duration.ofSeconds(5);

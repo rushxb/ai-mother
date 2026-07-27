@@ -18,6 +18,7 @@ import java.util.Map;
 
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,6 +27,19 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class GenerationAgentSupportTest {
 
     private final GenerationAgentSupport support = support();
+
+    @Test
+    void technologyStackLabelsAloneMustNotForceTheQualityModel() {
+        assertFalse(support.isComplexRequest("生成一个简单的 Vue 单页应用"));
+        assertFalse(support.isComplexRequest("创建一个简单的 Go 后端 API，使用 SQLite 保存一张表"));
+        assertFalse(support.isComplexRequest("生成一个简单全栈项目，前后端各一个页面"));
+    }
+
+    @Test
+    void genuinelyComplexBusinessCapabilitiesMustRemainComplex() {
+        assertTrue(support.isComplexRequest("实现带角色权限、审批工作流和多租户隔离的管理系统"));
+        assertTrue(support.isComplexRequest("实现支付结算和 WebSocket 实时协作"));
+    }
 
     @Test
     void shouldSelectIntentRelevantFilesWithinFileBudget() throws Exception {
@@ -113,7 +127,7 @@ class GenerationAgentSupportTest {
                     tempDir.toFile()
             );
 
-            assertTrue(contextPackage.projectContext().contains("文件内容过长"));
+            assertTrue(contextPackage.projectContext().contains("文件内容已按读取预算截断"));
             assertTrue(contextPackage.projectContext().length() < 1800);
         } finally {
             cleanup(tempDir);

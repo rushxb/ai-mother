@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.prompt.release;
 
-/** Signals that an administrator attempted to publish from a stale release revision. */
+/** 表示管理员尝试从过时的版本修订版进行发布。 */
 public class PromptReleaseConflictException extends RuntimeException {
 
     private final long expectedRevision;

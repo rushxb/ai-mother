@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.tools;
 
-/** Maximum side-effect class of an AI tool exposed to autonomous generation. */
+/** 暴露于自主生成的人工智能工具的最大副作用类别。 */
 public enum ToolRiskLevel {
     READ_ONLY,
     WRITE,

@@ -10,7 +10,7 @@ import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.exception.TimeoutException;
 import dev.langchain4j.exception.UnresolvedModelServerException;
 
-/** Restricts cross-model failover to explicit transient upstream failures. */
+/** 将跨模型故障转移限制为显式瞬时上游故障。 */
 final class AiModelFailoverPolicy {
 
     private static final int MAX_CAUSE_DEPTH = 16;
@@ -51,7 +51,8 @@ final class AiModelFailoverPolicy {
         if (failure instanceof RateLimitException) {
             return new Decision(true, GenerationErrorClassifier.CATEGORY_MODEL_RATE_LIMIT);
         }
-        if (failure instanceof TimeoutException) {
+        if (failure instanceof TimeoutException
+                || failure instanceof java.util.concurrent.TimeoutException) {
             return new Decision(true, GenerationErrorClassifier.CATEGORY_MODEL_TIMEOUT);
         }
         if (failure instanceof InternalServerException

@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.service.artifact;
 
 import java.io.IOException;
 
-/** Classified failure raised by the bounded artifact copy boundary. */
+/** 由有界工件副本边界引发的分类故障。 */
 public class ArtifactCopyException extends IOException {
 
     public enum Reason {

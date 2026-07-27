@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
-/** Strategy extension point for deterministic benchmark fixture setup and grading. */
+/** 确定性基准夹具设置和分级的策略扩展点。 */
 public interface GenerationBenchmarkValidationRule {
 
     String id();

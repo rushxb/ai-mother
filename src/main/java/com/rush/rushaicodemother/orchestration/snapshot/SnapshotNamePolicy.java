@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -51,14 +52,32 @@ public class SnapshotNamePolicy {
         return validateRequired(normalizedPrefix + "_" + timestamp + "_" + randomSuffix);
     }
 
-    /** Builds a bounded automatic name for orchestration artifacts without exposing arbitrary task-id path data. */
+    /** 为编排工件构建有界的自动名称，而不暴露任意任务 ID 路径数据。 */
     public String createTaskScopedName(String prefix, String taskId) {
+        String normalizedTaskId = normalizeTaskSegment(taskId, MAX_TASK_SEGMENT_LENGTH);
+        return createAutomaticName(validateRequired(prefix) + "_" + normalizedTaskId);
+    }
+
+    /** 为可恢复副作用生成稳定且抗碰撞的任务级快照名称。 */
+    public String createStableTaskScopedName(String prefix, String taskId) {
+        String normalizedPrefix = validateRequired(prefix);
+        String sourceTaskId = StrUtil.blankToDefault(taskId, "unknown");
+        String digest = DigestUtil.sha256Hex(sourceTaskId).substring(0, 12);
+        int availableTaskLength = MAX_NAME_LENGTH - normalizedPrefix.length() - digest.length() - 2;
+        if (availableTaskLength <= 0) {
+            throw new ValidationException("快照名称前缀过长，无法附加任务标识");
+        }
+        String normalizedTaskId = normalizeTaskSegment(
+                sourceTaskId, Math.min(MAX_TASK_SEGMENT_LENGTH, availableTaskLength));
+        return validateRequired(normalizedPrefix + "_" + normalizedTaskId + "_" + digest);
+    }
+
+    private String normalizeTaskSegment(String taskId, int maxLength) {
         String normalizedTaskId = StrUtil.blankToDefault(taskId, "unknown")
                 .replaceAll("[^A-Za-z0-9_-]", "_");
-        if (normalizedTaskId.length() > MAX_TASK_SEGMENT_LENGTH) {
-            normalizedTaskId = normalizedTaskId.substring(0, MAX_TASK_SEGMENT_LENGTH);
-        }
-        return createAutomaticName(validateRequired(prefix) + "_" + normalizedTaskId);
+        return normalizedTaskId.length() <= maxLength
+                ? normalizedTaskId
+                : normalizedTaskId.substring(0, maxLength);
     }
 
     public static final class ValidationException extends IllegalArgumentException {

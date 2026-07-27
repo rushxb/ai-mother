@@ -1,14 +1,16 @@
 package com.rush.rushaicodemother.service.devserver;
 
 import org.springframework.boot.autoconfigure.web.ServerProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-/** Builds the single public path namespace used by HTTP assets and Vite HMR. */
+/** 构建HTTP资产和Vite HMR使用的单一公共路径命名空间。 */
 @Component
 public class DevServerPreviewPathFactory {
 
     private final String contextPath;
 
+    @Autowired
     public DevServerPreviewPathFactory(ServerProperties serverProperties) {
         this(serverProperties == null ? null : serverProperties.getServlet().getContextPath());
     }

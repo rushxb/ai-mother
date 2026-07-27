@@ -23,11 +23,11 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Coordinates local generation leases and keeps their durable fencing epoch attached.
+ * 协调当地发电租赁并保持其耐用的围栏时代。
  *
- * <p>A database heartbeat failure is tolerated only until the last confirmed local lease deadline.
- * After that instant the local execution context is cancelled even when the database is still
- * unavailable, preventing an isolated worker from continuing indefinitely.</p>
+ * <p>A 数据库心跳故障仅在最后确认的本地租约截止日期之前被容忍。
+ * 在那一刻之后，即使数据库仍然存在，本地执行上下文也会被取消
+ * 不可用，阻止孤立的工作人员无限期地继续。</p>
  */
 @Slf4j
 @Service
@@ -195,8 +195,8 @@ public class GenerationTaskLeaseCoordinator {
     }
 
     /**
-     * Renews a lease immediately before and during a short publication critical section.
-     * Publication must fail closed if cancellation, deadline, or fencing state changed.
+     * 在简短的发布关键部分之前和期间更新租约。
+     * 如果取消、截止日期或隔离状态发生变化，出版物必须无法关闭。
      */
     public void renewForCriticalSection(GenerationExecutionFence fence) {
         GenerationTaskLease lease = requireTrackedLease(fence);

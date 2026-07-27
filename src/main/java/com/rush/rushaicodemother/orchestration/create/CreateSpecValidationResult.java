@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.create;
 
 import java.util.List;
 
+/**
+ * 创建规格校验执行结果。
+ */
 public record CreateSpecValidationResult(
         boolean valid,
         List<String> warnings,

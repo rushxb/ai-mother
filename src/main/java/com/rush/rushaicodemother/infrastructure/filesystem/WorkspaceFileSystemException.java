@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.infrastructure.filesystem;
 
 import java.io.IOException;
 
-/** Safe, classified failure raised by the bounded workspace file-system module. */
+/** 由有界工作区文件系统模块引发的安全、分类的故障。 */
 public class WorkspaceFileSystemException extends IOException {
 
     private final Reason reason;

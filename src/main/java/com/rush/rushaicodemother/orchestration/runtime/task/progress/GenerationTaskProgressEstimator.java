@@ -13,7 +13,7 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
 
-/** Estimates task completion from durable route history with bounded configuration fallbacks. */
+/** 根据具有有限配置回退的持久路由历史记录来估计任务完成情况。 */
 @Slf4j
 @Service
 public class GenerationTaskProgressEstimator {

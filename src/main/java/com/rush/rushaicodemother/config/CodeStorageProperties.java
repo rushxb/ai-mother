@@ -12,12 +12,12 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * Generated-code, deployment-artifact and generation-snapshot storage roots.
+ * 生成代码、部署工件和生成快照存储根。
  *
- * <p>This configuration is the dependency-injection boundary for filesystem roots. The legacy
- * {@link AppConstant} values are retained only as backward-compatible defaults for existing JVM
- * {@code -Dcode.*} startup parameters; business modules must consume this configuration instead
- * of reading static path constants directly.</p>
+ * <p>此配置是文件系统根的依赖注入边界。遗产
+ * {@link AppConstant} 值仅保留为现有 JVM 的向后兼容默认值
+ * {@code -Dcode.*}启动参数；业务模块必须使用此配置
+ * 直接读取静态路径常量。</p>
  */
 @Data
 @Component
@@ -25,36 +25,36 @@ import java.util.Objects;
 @ConfigurationProperties(prefix = "code")
 public class CodeStorageProperties {
 
-    /** Root directory containing generated application workspaces. */
+    /** 包含生成的应用程序工作区的根目录。 */
     @NotNull
     private Path outputRootDir = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR);
 
-    /** Root directory containing immutable deployment views addressed by deployment key. */
+    /** 包含由部署密钥寻址的不可变部署视图的根目录。 */
     @NotNull
     private Path deployRootDir = Path.of(AppConstant.CODE_DEPLOY_ROOT_DIR);
 
-    /** Root directory containing application-scoped generation snapshots. */
+    /** 包含应用程序范围的生成快照的根目录。 */
     @NotNull
     private Path snapshotRootDir = Path.of(AppConstant.CODE_SNAPSHOT_ROOT_DIR);
 
-    /** Returns the normalized absolute generated-workspace root. */
+    /** 返回标准化的绝对生成工作空间根。 */
     public Path outputRoot() {
         return normalizeRequired(outputRootDir, "code.output-root-dir");
     }
 
-    /** Returns the normalized absolute deployment-artifact root. */
+    /** 返回规范化的绝对部署工件根。 */
     public Path deployRoot() {
         return normalizeRequired(deployRootDir, "code.deploy-root-dir");
     }
 
-    /** Returns the normalized absolute generation-snapshot root. */
+    /** 返回标准化的绝对生成快照根。 */
     public Path snapshotRoot() {
         return normalizeRequired(snapshotRootDir, "code.snapshot-root-dir");
     }
 
     /**
-     * Generated sources, deployment artifacts and snapshots must be pairwise isolated. Overlapping
-     * roots would allow cleanup, deployment or rollback operations to cross storage responsibilities.
+     * 生成的源、部署工件和快照必须成对隔离。重叠
+     * 根将允许清理、部署或回滚操作跨存储职责。
      */
     @AssertTrue(message = "Code output, deployment, and snapshot roots must be isolated")
     public boolean isStorageLayoutIsolated() {

@@ -11,7 +11,7 @@ import java.util.Set;
 
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
 
-/** Converts normalized CREATE specifications into renderer-safe fields and feature options. */
+/** 将规范化的 CREATE 规范转换为渲染器安全字段和功能选项。 */
 final class RecipeSpecSupport {
 
     private RecipeSpecSupport() {

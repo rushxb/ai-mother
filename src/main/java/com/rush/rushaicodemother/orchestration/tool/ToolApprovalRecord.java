@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.orchestration.tool;
 
 import java.time.Instant;
 
+/**
+ * 工具审批不可变记录。
+ */
 public record ToolApprovalRecord(
         String approvalId,
         String taskId,

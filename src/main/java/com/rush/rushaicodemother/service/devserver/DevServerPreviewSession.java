@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionState;
 
-/** Cluster-visible Preview lifecycle view derived from local runtime and durable ownership. */
+/** 源自本地运行时和持久所有权的集群可见预览生命周期视图。 */
 public record DevServerPreviewSession(
         Long appId,
         String nodeId,

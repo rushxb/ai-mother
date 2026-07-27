@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 import cn.hutool.core.util.StrUtil;
 import org.springframework.stereotype.Component;
 
-/** Pure content transformations for structured Go and SQL patch operations. */
+/** 用于结构化 Go 和 SQL 补丁操作的纯内容转换。 */
 @Component
 public class PatchStructuredContentService {
 

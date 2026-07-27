@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${GENERATED_CODE_SANDBOX_E2E_IMAGE:-ai-code-mother/sandbox-node:1}"
+GO_BASE_IMAGE="${GENERATED_CODE_SANDBOX_GO_BASE_IMAGE:-}"
 DEPENDENCY_NETWORK="${GENERATED_CODE_SANDBOX_E2E_DEPENDENCY_NETWORK:-ai-code-sandbox-egress}"
 DEV_SERVER_NETWORK="${GENERATED_CODE_SANDBOX_E2E_DEV_SERVER_NETWORK:-ai-code-sandbox-internal}"
 PREVIEW_GATEWAY_NETWORK="${GENERATED_CODE_SANDBOX_E2E_PREVIEW_GATEWAY_NETWORK:-ai-code-sandbox-preview-gateway}"
@@ -35,7 +36,16 @@ ensure_volume() {
 
 cd "$PROJECT_ROOT"
 docker version >/dev/null
-docker build --pull --tag "$IMAGE" docker/generated-code-sandbox
+if [[ ! "$GO_BASE_IMAGE" =~ @sha256:[0-9a-fA-F]{64}$ ]]; then
+  echo "必须通过 GENERATED_CODE_SANDBOX_GO_BASE_IMAGE 提供带 sha256 摘要的 Go 基础镜像" >&2
+  exit 1
+fi
+docker build \
+  --pull \
+  --build-arg "GO_BASE_IMAGE=$GO_BASE_IMAGE" \
+  --file docker/generated-code-sandbox/Dockerfile \
+  --tag "$IMAGE" \
+  .
 ensure_network "$DEPENDENCY_NETWORK" false
 ensure_network "$DEV_SERVER_NETWORK" true
 ensure_network "$PREVIEW_GATEWAY_NETWORK" false

@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * DAG 节点执行结果。
+ * 智能体节点执行结果。
  */
 public record AgentNodeResult(
         String summary,

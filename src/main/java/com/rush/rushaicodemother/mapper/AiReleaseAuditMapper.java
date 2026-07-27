@@ -4,6 +4,9 @@ import com.rush.rushaicodemother.model.entity.AiReleaseAuditEntity;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
 
+/**
+ * AI 发布审计数据访问映射器。
+ */
 public interface AiReleaseAuditMapper {
 
     @Insert("""

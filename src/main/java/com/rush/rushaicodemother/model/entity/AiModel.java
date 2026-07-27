@@ -26,7 +26,7 @@ public class AiModel implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * id
+     * 编号
      */
     @Id(keyType = KeyType.Auto)
     private Long id;

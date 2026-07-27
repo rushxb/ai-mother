@@ -17,7 +17,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import java.util.Comparator;
 
 /**
- * Converts framework validation exceptions into stable, client-safe response messages.
+ * 将框架验证异常转换为稳定的、客户端安全的响应消息。
  */
 @Component
 public class ValidationExceptionMessageResolver {

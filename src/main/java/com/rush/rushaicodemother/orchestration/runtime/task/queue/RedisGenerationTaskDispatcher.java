@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 
-/** Dispatches task identities to Redis while leaving MySQL queued state recoverable on outages. */
+/** 将任务标识分派到 Redis，同时使 MySQL 排队状态在中断时可恢复。 */
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "app.generation-task-queue", name = "transport", havingValue = "redis")

@@ -41,7 +41,9 @@ class GenerationTaskCommandCodecTest {
 
         assertEquals(GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST, restored.routingDecisionCode());
         assertEquals("create-test", restored.slaEnvelope().profile());
-        assertEquals(2, restored.slaEnvelope().toLimits().limit(GenerationBudgetKind.MODEL_ATTEMPT));
+        assertEquals(Duration.ofSeconds(45),
+                restored.slaEnvelope().firstPreviewCompletionReserve());
+        assertEquals(2, restored.slaEnvelope().toLimits().limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
         assertEquals(100L, restored.tenantId());
         assertEquals(traceContext, restored.traceContext());
     }
@@ -64,13 +66,39 @@ class GenerationTaskCommandCodecTest {
         assertEquals(GenerationTraceContext.empty(), restored.traceContext());
     }
 
+    @Test
+    void legacyModelAttemptBudgetMustMapToSeparatedRuntimeBudgets() {
+        String json = """
+                {"schemaVersion":3,"taskId":"legacy-budget-task","appId":1,"userId":2,
+                "userPrompt":"legacy","codeGenType":"VUE_PROJECT","mode":"AGENT_EDIT",
+                "routingConfidence":0.7,"routingReason":"legacy","fallbackPolicy":"NONE",
+                "expectedValidationLevel":"BUILD","fallbackReason":"",
+                "slaEnvelope":{"profile":"legacy-budget","firstPreviewTimeout":"PT1M",
+                "totalTimeout":"PT10M","modelCallTimeout":"PT2M",
+                "minimumOperationTimeout":"PT0.5S","budgets":{"MODEL_ATTEMPT":2,
+                "TOOL_WRITE":10,"BUILD_EXECUTION":1,"REPAIR_ROUND":1},"reason":"legacy"},
+                "submittedAt":"2026-07-17T00:00:00Z","deadlineAt":"2026-07-17T00:10:00Z"}
+                """;
+
+        GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(json);
+
+        assertEquals(2, restored.slaEnvelope().toLimits()
+                .limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
+        assertEquals(16, restored.slaEnvelope().toLimits()
+                .limit(GenerationBudgetKind.MODEL_TURN));
+        assertEquals(4, restored.slaEnvelope().toLimits()
+                .limit(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
+        assertEquals(Duration.ofMillis(500),
+                restored.slaEnvelope().firstPreviewCompletionReserve());
+    }
+
     private GenerationSlaEnvelope envelope() {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             budgets.put(kind, 2);
         }
         return new GenerationSlaEnvelope(
-                "create-test", Duration.ofMinutes(1), Duration.ofMinutes(10),
+                "create-test", Duration.ofMinutes(1), Duration.ofSeconds(45), Duration.ofMinutes(10),
                 Duration.ofMinutes(2), Duration.ofMillis(500), Map.copyOf(budgets), "test");
     }
 }

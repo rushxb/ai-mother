@@ -5,14 +5,21 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AiCreateSpecService;
 import com.rush.rushaicodemother.ai.AiCreateSpecServiceFactory;
 import com.rush.rushaicodemother.ai.model.CreateSpec;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * Generates and normalizes compact CREATE specs.
+ * 生成并标准化紧凑的 CREATE 规范。
  */
 @Slf4j
 @Service
@@ -21,56 +28,172 @@ public class CreateSpecService {
     private final AiCreateSpecServiceFactory serviceFactory;
     private final CreateSpecDefaults defaults = new CreateSpecDefaults();
     private final CreateSpecNormalizer normalizer;
+    private final GenerationExecutionContextService executionContextService;
 
     public CreateSpecService(AiCreateSpecServiceFactory serviceFactory) {
-        this(serviceFactory, new CreateSpecNormalizer());
+        this(serviceFactory, new CreateSpecNormalizer(), null);
+    }
+
+    public CreateSpecService(AiCreateSpecServiceFactory serviceFactory,
+                             CreateSpecNormalizer normalizer) {
+        this(serviceFactory, normalizer, null);
     }
 
     @Autowired
     public CreateSpecService(AiCreateSpecServiceFactory serviceFactory,
-                             CreateSpecNormalizer normalizer) {
+                             CreateSpecNormalizer normalizer,
+                             GenerationExecutionContextService executionContextService) {
         this.serviceFactory = serviceFactory;
         this.normalizer = normalizer;
+        this.executionContextService = executionContextService;
     }
 
     public SpecResult generate(String userMessage, CreateGenerationPlan plan) {
-        if (plan == null || plan.slotGroups().isEmpty()) {
-            return generate(userMessage, plan, null);
+        return generateInternal(userMessage, plan, aggregateGroupOrNull(plan), null);
+    }
+
+    public SpecResult generateManaged(String taskId,
+                                      String userMessage,
+                                      CreateGenerationPlan plan) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("受管 CREATE 规格调用必须提供任务标识");
         }
-        SlotGroup group = aggregateGroup(plan);
-        return generate(userMessage, plan, group);
+        return generateInternal(userMessage, plan, aggregateGroupOrNull(plan), taskId);
+    }
+
+    private SlotGroup aggregateGroupOrNull(CreateGenerationPlan plan) {
+        if (plan == null || plan.slotGroups().isEmpty()) {
+            return null;
+        }
+        return aggregateGroup(plan);
     }
 
     public SpecResult generate(String userMessage, CreateGenerationPlan plan, SlotGroup group) {
+        return generateInternal(userMessage, plan, group, null);
+    }
+
+    private SpecResult generateInternal(String userMessage,
+                                        CreateGenerationPlan plan,
+                                        SlotGroup group,
+                                        String taskId) {
         if (plan == null || group == null) {
-            return SpecResult.available(normalizer.normalize(
+            CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(
                     defaults.fromRequest(userMessage, plan, group, "create_spec_invalid_context"),
                     userMessage,
                     plan,
                     group
-            ).spec(), "local_spec_invalid_context", CreateSpecValidationResult.ok(List.of("create_spec_invalid_context")));
+            );
+            return SpecResult.available(
+                    normalized.spec(),
+                    "local_spec_invalid_context",
+                    normalized.validation(),
+                    false
+            );
+        }
+        GenerationExecutionContext executionContext = resolveExecutionContext(taskId);
+        Optional<Duration> modelTimeout = executionContext == null
+                ? Optional.empty()
+                : executionContext.optionalFirstPreviewOperationTimeout(
+                executionContext.limits().modelCallTimeout());
+        if (executionContext != null && modelTimeout.isEmpty()) {
+            log.info("CREATE 规格模型已跳过，原因：首预览完成预留窗口已生效，taskId={}", taskId);
+            return localSpec(
+                    userMessage,
+                    plan,
+                    group,
+                    "local_spec_first_preview_budget_exhausted",
+                    false
+            );
         }
         try {
-            AiCreateSpecService service = serviceFactory.createService();
+            AiCreateSpecService service = executionContext == null
+                    ? serviceFactory.createService()
+                    : createService(executionContext, modelTimeout.orElseThrow());
             CreateSpec spec = service.generateSpec(
                     StrUtil.blankToDefault(userMessage, ""),
                     plan.codeGenType() == null ? "" : plan.codeGenType().getValue(),
                     group.templateId(),
                     plannedModules(plan, group)
             );
+            if (executionContext != null) {
+                executionContext.assertCanContinue();
+            }
             CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(spec, userMessage, plan, group);
-            return SpecResult.available(normalized.spec(), "ai_spec", normalized.validation());
+            return SpecResult.available(normalized.spec(), "ai_spec", normalized.validation(), true);
+        } catch (GenerationExecutionPolicyException policyFailure) {
+            throw policyFailure;
         } catch (Exception e) {
+            if (executionContext != null) {
+                executionContext.assertCanContinue();
+            }
             String reason = "create_spec_exception";
             log.warn("CREATE 规格生成失败，已回退到本地规格", LogExceptionSanitizer.sanitize(e));
-            CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(
-                    defaults.fromRequest(userMessage, plan, group, reason),
+            return localSpec(
                     userMessage,
                     plan,
-                    group
+                    group,
+                    "local_spec_fallback:" + reason,
+                    true
             );
-            return SpecResult.available(normalized.spec(), "local_spec_fallback:" + reason, normalized.validation());
         }
+    }
+
+    SpecResult generateLocal(String userMessage, CreateGenerationPlan plan, String reason) {
+        SlotGroup group = aggregateGroupOrNull(plan);
+        return localSpec(
+                userMessage,
+                plan,
+                group,
+                StrUtil.blankToDefault(reason, "local_spec_explicit_fallback"),
+                false
+        );
+    }
+
+    private SpecResult localSpec(String userMessage,
+                                 CreateGenerationPlan plan,
+                                 SlotGroup group,
+                                 String reason,
+                                 boolean modelAttempted) {
+        CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(
+                defaults.fromRequest(userMessage, plan, group, reason),
+                userMessage,
+                plan,
+                group
+        );
+        return SpecResult.available(
+                normalized.spec(),
+                reason,
+                normalized.validation(),
+                modelAttempted
+        );
+    }
+
+    private GenerationExecutionContext resolveExecutionContext(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            return null;
+        }
+        if (executionContextService == null) {
+            throw new GenerationExecutionPolicyException("CREATE 规格调用缺少任务执行上下文服务");
+        }
+        return executionContextService.getByTaskId(taskId)
+                .orElseThrow(() -> new GenerationExecutionPolicyException(
+                        "CREATE 规格调用没有活动的任务执行上下文，taskId=" + taskId));
+    }
+
+    private AiCreateSpecService createService(
+            GenerationExecutionContext context,
+            Duration timeout
+    ) {
+        context.assertCanContinue();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new GenerationExecutionCancelledException("worker_interrupted");
+        }
+        context.consume(GenerationBudgetKind.ROOT_MODEL_ATTEMPT);
+        return serviceFactory.createExecutionService(
+                timeout,
+                () -> context.consume(GenerationBudgetKind.MODEL_TURN),
+                () -> context.consume(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT)
+        );
     }
 
     private String plannedModules(CreateGenerationPlan plan, SlotGroup group) {
@@ -104,14 +227,54 @@ public class CreateSpecService {
             boolean available,
             CreateSpec spec,
             String reason,
-            CreateSpecValidationResult validation
+            CreateSpecValidationResult validation,
+            boolean modelAttempted
     ) {
-        public SpecResult(boolean available, CreateSpec spec, String reason) {
-            this(available, spec, reason, CreateSpecValidationResult.ok(List.of()));
+        public SpecResult {
+            reason = StrUtil.blankToDefault(
+                    reason,
+                    modelAttempted ? "ai_spec" : "local_spec_unspecified"
+            );
+            validation = validation == null
+                    ? CreateSpecValidationResult.ok(List.of())
+                    : validation;
         }
 
-        private static SpecResult available(CreateSpec spec, String reason, CreateSpecValidationResult validation) {
-            return new SpecResult(true, spec, StrUtil.blankToDefault(reason, "ai_spec"), validation);
+        public SpecResult(boolean available, CreateSpec spec, String reason) {
+            this(available, spec, reason, CreateSpecValidationResult.ok(List.of()),
+                    inferModelAttempted(reason));
+        }
+
+        public SpecResult(
+                boolean available,
+                CreateSpec spec,
+                String reason,
+                CreateSpecValidationResult validation
+        ) {
+            this(available, spec, reason, validation, inferModelAttempted(reason));
+        }
+
+        private static SpecResult available(
+                CreateSpec spec,
+                String reason,
+                CreateSpecValidationResult validation,
+                boolean modelAttempted
+        ) {
+            return new SpecResult(
+                    true,
+                    spec,
+                    StrUtil.blankToDefault(reason, "ai_spec"),
+                    validation,
+                    modelAttempted
+            );
+        }
+
+        public boolean modelSucceeded() {
+            return modelAttempted && "ai_spec".equals(reason);
+        }
+
+        private static boolean inferModelAttempted(String reason) {
+            return StrUtil.isBlank(reason) || !reason.startsWith("local_spec");
         }
     }
 }

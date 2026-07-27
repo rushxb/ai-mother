@@ -6,16 +6,17 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Thread-safe control plane for one generation task.
+ * 用于一代任务的线程安全控制平面。
  *
- * <p>The context is passed explicitly to asynchronous boundaries instead of relying on a
- * ThreadLocal, because generation work moves between request threads, Reactor callbacks and
- * virtual threads.</p>
+ * <p>上下文被显式传递到异步边界，而不是依赖于
+ * ThreadLocal，因为生成工作在请求线程、Reactor 回调和
+ * 虚拟线程.</p>
  */
 public final class GenerationExecutionContext {
 
@@ -29,6 +30,7 @@ public final class GenerationExecutionContext {
     private final GenerationExecutionLimits limits;
     private final Clock clock;
     private final EnumMap<GenerationBudgetKind, AtomicInteger> usages;
+    private final AtomicInteger successfulWorkspaceMutations;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicReference<String> cancellationReason = new AtomicReference<>();
     private final AtomicReference<String> terminalStatus = new AtomicReference<>();
@@ -45,7 +47,7 @@ public final class GenerationExecutionContext {
     ) {
         this(taskId, appId, userId, startedAt, defaultDeadline(startedAt, limits),
                 "legacy-default", defaultDeadline(startedAt, limits), null,
-                limits, Map.of(), clock);
+                limits, Map.of(), 0, clock);
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("taskId 不能为空");
         }
@@ -58,10 +60,11 @@ public final class GenerationExecutionContext {
                                        Instant deadlineAt,
                                        String slaProfile,
                                        Instant firstPreviewDeadlineAt,
-                                       Instant restoredFirstPreviewReadyAt,
-                                       GenerationExecutionLimits limits,
-                                       Map<GenerationBudgetKind, Integer> restoredUsages,
-                                       Clock clock) {
+                                        Instant restoredFirstPreviewReadyAt,
+                                        GenerationExecutionLimits limits,
+                                        Map<GenerationBudgetKind, Integer> restoredUsages,
+                                        int restoredSuccessfulWorkspaceMutations,
+                                        Clock clock) {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("taskId 涓嶈兘涓虹┖");
         }
@@ -83,6 +86,10 @@ public final class GenerationExecutionContext {
         if (restoredFirstPreviewReadyAt != null) {
             firstPreviewReadyAt.set(restoredFirstPreviewReadyAt);
         }
+        if (restoredSuccessfulWorkspaceMutations < 0) {
+            throw new IllegalArgumentException("恢复的成功工作区变更数不能小于 0");
+        }
+        this.successfulWorkspaceMutations = new AtomicInteger(restoredSuccessfulWorkspaceMutations);
         this.usages = new EnumMap<>(GenerationBudgetKind.class);
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             int restored = restoredUsages == null ? 0 : restoredUsages.getOrDefault(kind, 0);
@@ -104,7 +111,7 @@ public final class GenerationExecutionContext {
                 snapshot.taskId(), snapshot.appId(), snapshot.userId(),
                 snapshot.startedAt(), snapshot.deadlineAt(), snapshot.slaProfile(),
                 snapshot.firstPreviewDeadlineAt(), snapshot.firstPreviewReadyAt(),
-                limits, snapshot.usages(), clock);
+                limits, snapshot.usages(), snapshot.successfulWorkspaceMutations(), clock);
     }
 
     private static Instant defaultDeadline(Instant startedAt, GenerationExecutionLimits limits) {
@@ -149,10 +156,10 @@ public final class GenerationExecutionContext {
     }
 
     /**
-     * Binds the latest durable worker epoch to this local context.
+     * 将最新的持久工人时代与当地环境联系起来。
      *
-     * <p>Approval continuation legitimately advances the epoch while retaining the same context.
-     * Rebinding an older or conflicting fence is rejected.</p>
+     * <p>Approval 继续合法地推进纪元，同时保留相同的上下文。
+     * 重新绑定旧的或冲突的围栏被拒绝。</p>
      */
     public void bindExecutionFence(GenerationExecutionFence fence) {
         Objects.requireNonNull(fence, "fence");
@@ -232,11 +239,11 @@ public final class GenerationExecutionContext {
     }
 
     /**
-     * Returns whether an active task still has enough wall-clock time to start a bounded stage.
+     * 返回活动任务是否仍有足够的挂钟时间来启动有界阶段。
      *
-     * <p>This is intentionally separate from {@link #clampTimeout(Duration)}. Clamping protects an
-     * operation that has already been admitted, while this method prevents starting a multi-step
-     * stage that cannot leave enough time for required follow-up work and terminalization.</p>
+     * <p> 故意与 {@link #clampTimeout(Duration)} 分开。夹紧保护
+     * 已经被允许的操作，而此方法可以防止启动多步
+     * 无法为所需后续工作和终结留出足够时间的阶段。</p>
      */
     public boolean hasRemainingTime(Duration minimumRequired) {
         if (minimumRequired == null || minimumRequired.isZero() || minimumRequired.isNegative()) {
@@ -249,7 +256,7 @@ public final class GenerationExecutionContext {
     }
 
     /**
-     * Restricts an operation timeout to the remaining task deadline.
+     * 将操作超时限制为剩余任务期限。
      */
     public Duration clampTimeout(Duration requestedTimeout) {
         assertCanContinue();
@@ -264,20 +271,59 @@ public final class GenerationExecutionContext {
     }
 
     /**
-     * Atomically reserves one unit before the operation starts.
+     * 为首预览前的可选操作计算软截止时间，并保护后续确定性完成窗口。
+     *
+     * <p>质量增强操作没有足够时间时返回空值，不把首预览软截止误报为整个任务失败。
+     * 首预览已经发布后，操作重新受任务总 deadline 约束。</p>
+     */
+    public Optional<Duration> optionalFirstPreviewOperationTimeout(Duration requestedTimeout) {
+        assertCanContinue();
+        if (requestedTimeout == null || requestedTimeout.isZero() || requestedTimeout.isNegative()) {
+            throw new IllegalArgumentException("操作超时必须大于 0");
+        }
+        if (firstPreviewReadyAt.get() != null) {
+            return Optional.of(clampTimeout(requestedTimeout));
+        }
+        Instant previewOperationDeadline = firstPreviewDeadlineAt
+                .minus(limits.firstPreviewCompletionReserve());
+        Instant effectiveDeadline = previewOperationDeadline.isBefore(deadlineAt)
+                ? previewOperationDeadline
+                : deadlineAt;
+        Duration remaining = Duration.between(clock.instant(), effectiveDeadline);
+        if (remaining.compareTo(limits.minimumOperationTimeout()) < 0) {
+            return Optional.empty();
+        }
+        return Optional.of(requestedTimeout.compareTo(remaining) <= 0
+                ? requestedTimeout
+                : remaining);
+    }
+
+    /**
+     * 在操作开始之前自动保留一个单位。
      */
     public int consume(GenerationBudgetKind kind) {
+        return consume(kind, 1);
+    }
+
+    /**
+     * 在操作开始前原子预留多个预算单位，失败时不会产生部分扣减。
+     */
+    public int consume(GenerationBudgetKind kind, int units) {
         Objects.requireNonNull(kind, "kind");
+        if (units <= 0) {
+            throw new IllegalArgumentException("预算预留数量必须大于 0");
+        }
         assertCanContinue();
         AtomicInteger usage = usages.get(kind);
         int limit = limits.limit(kind);
         while (true) {
             int current = usage.get();
-            if (current >= limit) {
+            if (units > limit - current) {
                 throw new GenerationBudgetExceededException(kind, limit);
             }
-            if (usage.compareAndSet(current, current + 1)) {
-                return current + 1;
+            int updated = current + units;
+            if (usage.compareAndSet(current, updated)) {
+                return updated;
             }
         }
     }
@@ -304,6 +350,18 @@ public final class GenerationExecutionContext {
 
     public int remaining(GenerationBudgetKind kind) {
         return Math.max(0, limit(kind) - used(kind));
+    }
+
+    /** 在补丁确定落盘后记录成功工作区变更，返回累计成功操作数。 */
+    public int recordSuccessfulWorkspaceMutations(int operationCount) {
+        if (operationCount <= 0) {
+            throw new IllegalArgumentException("成功工作区变更数必须大于 0");
+        }
+        return successfulWorkspaceMutations.addAndGet(operationCount);
+    }
+
+    public int successfulWorkspaceMutationCount() {
+        return successfulWorkspaceMutations.get();
     }
 
     public void cancel(String reason) {
@@ -334,6 +392,7 @@ public final class GenerationExecutionContext {
                 isCancelled(),
                 cancellationReason(),
                 terminalStatus.get(),
+                successfulWorkspaceMutationCount(),
                 Map.copyOf(usageSnapshot),
                 Map.copyOf(limitSnapshot)
         );

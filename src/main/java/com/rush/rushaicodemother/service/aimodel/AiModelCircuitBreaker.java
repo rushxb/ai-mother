@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.rush.rushaicodemother.config.AiModelCircuitBreakerProperties;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.model.event.AiModelCircuitOpenedEvent;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Locale;
 
-/** Per-model circuit breaker used by the runtime model router. */
+/** 运行时模型路由器使用的每模型断路器。 */
 @Component
 public class AiModelCircuitBreaker {
     private final AiModelCircuitBreakerProperties properties;
@@ -20,6 +21,7 @@ public class AiModelCircuitBreaker {
     private final Clock clock;
     private final Cache<String, CircuitState> states;
 
+    @Autowired
     public AiModelCircuitBreaker(AiModelCircuitBreakerProperties properties,
                                  ApplicationEventPublisher eventPublisher) {
         this(properties, eventPublisher, Clock.systemUTC());
@@ -58,6 +60,9 @@ public class AiModelCircuitBreaker {
     public void recordFailure(String provider, String modelId, Throwable failure) {
         String key = identity(provider, modelId);
         GenerationErrorClassifier.GenerationError error = GenerationErrorClassifier.classify(failure);
+        if (GenerationErrorClassifier.CATEGORY_MODEL_CANCELLED.equals(error.category())) {
+            return;
+        }
         CircuitState state = states.get(key, ignored -> new CircuitState());
         boolean opened = state.recordFailure(
                 clock.instant(),

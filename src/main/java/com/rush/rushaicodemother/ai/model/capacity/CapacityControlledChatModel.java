@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** Applies capacity admission around one concrete synchronous provider/model candidate. */
+/** 针对一个具体的同步提供者/候选模型应用容量准入。 */
 public final class CapacityControlledChatModel implements ChatModel {
 
     private final String provider;

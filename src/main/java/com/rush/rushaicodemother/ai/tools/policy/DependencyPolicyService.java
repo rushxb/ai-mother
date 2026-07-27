@@ -9,6 +9,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+/**
+ * 依赖策略服务实现。
+ */
 @Component
 public class DependencyPolicyService {
 

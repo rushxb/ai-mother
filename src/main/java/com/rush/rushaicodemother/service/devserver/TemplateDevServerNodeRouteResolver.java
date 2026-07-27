@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.util.Objects;
 
-/** Configuration-backed node resolver; deployments can replace this port with service discovery. */
+/** 配置支持的节点解析器；部署可以用服务发现替换此端口。 */
 @Component
 public class TemplateDevServerNodeRouteResolver implements DevServerNodeRouteResolver {
 

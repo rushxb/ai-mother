@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
-/** Current durable runtime load used by admission and routing policies. */
+/** 准入和路由策略使用的当前持久运行时负载。 */
 public record GenerationTaskLoadSnapshot(
         int queuedTaskCount,
         int runningTaskCount,

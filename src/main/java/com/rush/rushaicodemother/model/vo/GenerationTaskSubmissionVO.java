@@ -4,7 +4,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapsh
 
 import java.time.Instant;
 
-/** Acknowledgement returned after a generation task is accepted. */
+/** 接受生成任务后返回确认。 */
 public record GenerationTaskSubmissionVO(
         String taskId,
         Long appId,

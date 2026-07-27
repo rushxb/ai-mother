@@ -53,8 +53,8 @@ public class GenerationEventPublisher {
     }
 
     /**
-     * Publishes a best-effort observability event without allowing event delivery failures to
-     * interrupt the generation workflow or prevent task lifecycle cleanup.
+     * 发布尽力而为的可观察性事件，不允许事件传递失败
+     * 中断生成工作流程或阻止任务生命周期清理。
      */
     public void publishSafely(GenerationTaskRequest request,
                               GenerationEventType type,

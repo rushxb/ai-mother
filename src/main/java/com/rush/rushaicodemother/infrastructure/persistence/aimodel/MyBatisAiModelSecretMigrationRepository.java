@@ -5,17 +5,20 @@ import com.rush.rushaicodemother.model.entity.AiModel;
 import com.rush.rushaicodemother.service.aimodel.AiModelProtectedSecret;
 import com.rush.rushaicodemother.service.aimodel.AiModelSecretMigrationRecord;
 import com.rush.rushaicodemother.service.aimodel.AiModelSecretMigrationRepository;
+import com.rush.rushaicodemother.service.release.AiReleaseCoordinationLock;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/** MyBatis adapter for optimistic, multi-node-safe AI model secret migration. */
+/** MyBatis 适配器，用于乐观、多节点安全的 AI 模型秘密迁移。 */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisAiModelSecretMigrationRepository implements AiModelSecretMigrationRepository {
 
     private final AiModelMapper mapper;
+    private final AiReleaseCoordinationLock coordinationLock;
 
     @Override
     public List<AiModelSecretMigrationRecord> findBatchAfter(long afterId, int batchSize) {
@@ -30,9 +33,11 @@ public class MyBatisAiModelSecretMigrationRepository implements AiModelSecretMig
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int replaceIfCurrent(long modelId,
                                 String expectedLegacySecretSha256,
                                 AiModelProtectedSecret protectedSecret) {
+        coordinationLock.acquire();
         return mapper.replaceStoredSecretIfCurrent(
                 modelId,
                 expectedLegacySecretSha256,
@@ -43,7 +48,9 @@ public class MyBatisAiModelSecretMigrationRepository implements AiModelSecretMig
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int clearDeleted(long modelId) {
+        coordinationLock.acquire();
         return mapper.clearDeletedStoredSecret(modelId);
     }
 

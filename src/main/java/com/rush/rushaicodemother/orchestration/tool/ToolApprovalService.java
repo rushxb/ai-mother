@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -17,7 +18,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** Durable, target-bound and one-time approvals for destructive AI tool actions. */
+/** 对破坏性 AI 工具操作进行持久、有目标限制的一次性批准。 */
 @Service
 public class ToolApprovalService {
 
@@ -27,6 +28,7 @@ public class ToolApprovalService {
     private final GenerationSessionRegistry sessionRegistry;
     private final Clock clock;
 
+    @Autowired
     public ToolApprovalService(ToolApprovalRepository approvalRepository,
                                DurableGenerationTaskRepository taskRepository,
                                AiToolApprovalProperties properties,

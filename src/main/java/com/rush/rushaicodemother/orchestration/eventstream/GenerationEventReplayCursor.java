@@ -4,7 +4,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Applies a client cursor and turns every missing sequence range into an explicit recovery event. */
+/** 应用客户端游标并将每个丢失的序列范围转变为显式恢复事件。 */
 final class GenerationEventReplayCursor {
 
     private GenerationEventReplayCursor() {

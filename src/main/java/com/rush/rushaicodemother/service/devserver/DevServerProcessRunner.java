@@ -16,7 +16,9 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -170,6 +172,26 @@ public class DevServerProcessRunner {
             Duration startupTimeout,
             BooleanSupplier cancellationRequested
     ) {
+        return start(
+                projectDirectory,
+                port,
+                appId,
+                outputConsumer,
+                startupTimeout,
+                cancellationRequested,
+                Map.of()
+        );
+    }
+
+    DevServerProcessSession start(
+            Path projectDirectory,
+            int port,
+            Long appId,
+            Consumer<String> outputConsumer,
+            Duration startupTimeout,
+            BooleanSupplier cancellationRequested,
+            Map<String, String> environmentOverrides
+    ) {
         requirePositiveTimeout(startupTimeout);
         BooleanSupplier effectiveCancellation = cancellationRequested == null ? () -> false : cancellationRequested;
         List<String> command = launcherResolver.resolve(projectDirectory, port, appId);
@@ -185,7 +207,7 @@ public class DevServerProcessRunner {
             ManagedProcessRequest request = ManagedProcessRequest.builder()
                     .workingDirectory(normalizedProjectDirectory)
                     .command(command)
-                    .environment(NodeProcessEnvironment.overrides(false))
+                    .environment(processEnvironment(environmentOverrides))
                     .environmentVariablesToRemove(NodeProcessEnvironment.variablesToRemove())
                     .build();
             processPlan = processSandbox.prepareDevServer(request, normalizedProjectDirectory, port);
@@ -321,6 +343,16 @@ public class DevServerProcessRunner {
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Dev Server startup timeout must be greater than zero");
         }
+    }
+
+    private Map<String, String> processEnvironment(Map<String, String> environmentOverrides) {
+        Map<String, String> environment = new LinkedHashMap<>(
+                NodeProcessEnvironment.overrides(false)
+        );
+        if (environmentOverrides != null) {
+            environment.putAll(environmentOverrides);
+        }
+        return Map.copyOf(environment);
     }
 
     private void cleanupFailedStart(

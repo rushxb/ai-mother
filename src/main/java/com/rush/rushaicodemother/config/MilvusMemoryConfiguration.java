@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.memory.FailoverLongTermMemoryStore;
 import com.rush.rushaicodemother.memory.InMemoryLongTermMemoryStore;
 import com.rush.rushaicodemother.memory.LongTermMemoryStore;
 import com.rush.rushaicodemother.memory.MilvusLongTermMemoryStore;
+import com.rush.rushaicodemother.monitor.SemanticMemoryMetricsCollector;
 import io.milvus.v2.client.ConnectConfig;
 import io.milvus.v2.client.MilvusClientV2;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -11,6 +12,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
+/**
+ * Milvus 记忆组件装配配置。
+ */
 @Configuration(proxyBeanMethods = false)
 public class MilvusMemoryConfiguration {
 
@@ -36,9 +40,10 @@ public class MilvusMemoryConfiguration {
             havingValue = "true")
     LongTermMemoryStore longTermMemoryStore(
             MilvusLongTermMemoryStore milvusStore,
-            InMemoryLongTermMemoryStore fallback
+            InMemoryLongTermMemoryStore fallback,
+            SemanticMemoryMetricsCollector metrics
     ) {
-        return new FailoverLongTermMemoryStore(milvusStore, fallback);
+        return new FailoverLongTermMemoryStore(milvusStore, fallback, metrics);
     }
 
     @Bean

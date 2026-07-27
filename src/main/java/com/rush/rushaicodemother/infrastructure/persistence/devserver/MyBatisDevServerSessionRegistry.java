@@ -53,7 +53,7 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
                 return DevServerSessionClaimResult.ACQUIRED;
             }
         } catch (DuplicateKeyException duplicateClaim) {
-            // Another node won the app-level unique key; only a terminal row may be reused below.
+            // 另一个节点获得了应用级唯一密钥；下面仅可以重复使用终端行。
         }
         int claimed = mapper.claimTerminal(
                 registration.appId(),

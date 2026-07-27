@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+/**
+ * StructuredSyntax校验服务实现。
+ */
 @Service
 public class StructuredSyntaxValidationService {
 

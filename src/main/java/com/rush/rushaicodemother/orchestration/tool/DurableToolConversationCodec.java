@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** Serializes and verifies the bounded conversation needed for durable tool continuation. */
+/** 序列化并验证持久工具延续所需的有界对话。 */
 @Component
 public class DurableToolConversationCodec {
 

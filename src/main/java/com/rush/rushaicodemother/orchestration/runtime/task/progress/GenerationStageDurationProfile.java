@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.progress;
 
-/** Historical nearest-rank duration percentiles for one observable generation operation. */
+/** 一次可观察发电操作的历史最接近排名持续时间百分位数。 */
 public record GenerationStageDurationProfile(
         String stage,
         String category,

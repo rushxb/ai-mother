@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseConflictExceptio
 import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseMutation;
 import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseSpec;
 import com.rush.rushaicodemother.infrastructure.persistence.prompt.MyBatisPromptReleaseRepository;
+import com.rush.rushaicodemother.infrastructure.persistence.release.MyBatisAiReleaseCoordinationLock;
+import com.rush.rushaicodemother.mapper.AiReleaseCoordinationMapper;
 import com.rush.rushaicodemother.mapper.AiPromptReleaseMapper;
 import org.apache.ibatis.datasource.pooled.PooledDataSource;
 import org.apache.ibatis.mapping.Environment;
@@ -36,11 +38,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("integration")
 class PromptReleaseMySqlIntegrationTest {
 
+    private static final String EVIDENCE_ID = "550e8400-e29b-41d4-a716-446655440000";
     private static final String DATABASE = "ai_mother_prompt_release_it";
     private static final String ADMIN_URL = requiredProperty("integration.mysql.admin-url");
     private static final String USERNAME = requiredProperty("integration.mysql.username");
@@ -50,6 +54,7 @@ class PromptReleaseMySqlIntegrationTest {
     private static PooledDataSource dataSource;
     private static TransactionTemplate transactions;
     private static MyBatisPromptReleaseRepository repository;
+    private static MyBatisAiReleaseCoordinationLock coordinationLock;
 
     @BeforeAll
     static void migrateAndConfigureRepository() throws Exception {
@@ -71,10 +76,13 @@ class PromptReleaseMySqlIntegrationTest {
         );
         Configuration configuration = new Configuration(environment);
         configuration.addMapper(AiPromptReleaseMapper.class);
+        configuration.addMapper(AiReleaseCoordinationMapper.class);
         SqlSessionFactory sessionFactory = new SqlSessionFactoryBuilder().build(configuration);
         SqlSessionTemplate sessionTemplate = new SqlSessionTemplate(sessionFactory);
         repository = new MyBatisPromptReleaseRepository(
                 sessionTemplate.getMapper(AiPromptReleaseMapper.class));
+        coordinationLock = new MyBatisAiReleaseCoordinationLock(
+                sessionTemplate.getMapper(AiReleaseCoordinationMapper.class));
         transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
     }
 
@@ -130,6 +138,42 @@ class PromptReleaseMySqlIntegrationTest {
         assertEquals(1L, history.getFirst().sourceRevision());
     }
 
+    @Test
+    void globalCoordinationLockMustSerializeTransactionsAcrossConnections() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch firstAcquired = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        CountDownLatch secondAcquired = new CountDownLatch(1);
+        try {
+            Future<Boolean> first = executor.submit(() -> transaction(() -> {
+                coordinationLock.acquire();
+                firstAcquired.countDown();
+                await(releaseFirst);
+                return true;
+            }));
+            assertTrue(firstAcquired.await(5, TimeUnit.SECONDS));
+
+            Future<Boolean> second = executor.submit(() -> transaction(() -> {
+                secondStarted.countDown();
+                coordinationLock.acquire();
+                secondAcquired.countDown();
+                return true;
+            }));
+            assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
+            assertFalse(secondAcquired.await(300, TimeUnit.MILLISECONDS));
+
+            releaseFirst.countDown();
+            assertTrue(first.get(5, TimeUnit.SECONDS));
+            assertTrue(secondAcquired.await(5, TimeUnit.SECONDS));
+            assertTrue(second.get(5, TimeUnit.SECONDS));
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
     private List<Long> racePublish() throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
@@ -181,12 +225,24 @@ class PromptReleaseMySqlIntegrationTest {
                 9L,
                 note,
                 action,
-                sourceRevision
+                sourceRevision,
+                action == PromptReleaseAction.PUBLISH ? EVIDENCE_ID : ""
         );
     }
 
     private <T> T transaction(Supplier<T> action) {
         return Objects.requireNonNull(transactions.execute(status -> action.get()));
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("等待并发测试信号超时");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("等待并发测试信号时被中断", interrupted);
+        }
     }
 
     private static void recreateDatabase() throws Exception {

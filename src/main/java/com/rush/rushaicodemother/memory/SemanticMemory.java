@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.memory;
 import java.time.Instant;
 import java.util.Map;
 
+/**
+ * 语义记忆的不可变数据载体。
+ */
 public record SemanticMemory(
         String id,
         Long tenantId,

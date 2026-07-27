@@ -12,6 +12,9 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
+/**
+ * 生成路由遥测配置属性。
+ */
 @Data
 @Component
 @Validated

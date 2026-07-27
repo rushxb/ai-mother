@@ -6,7 +6,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-/** MyBatis SQL adapter for durable DAG checkpoints. */
+/** 用于持久 DAG 检查点的 MyBatis SQL 适配器。 */
 public interface GenerationOrchestrationCheckpointMapper {
 
     @Insert("""

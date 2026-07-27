@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.tool;
 
 import java.util.List;
 
-/** Exact, integrity-protected chat transcript required to resume an interrupted tool round. */
+/** 恢复中断的工具回合需要精确的、受完整性保护的聊天记录。 */
 public record DurableToolConversation(
         int schemaVersion,
         List<String> messagesJson,

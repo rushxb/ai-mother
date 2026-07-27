@@ -96,6 +96,37 @@ public interface GenerationTraceMapper {
 
     @Update("""
             UPDATE generation_task
+            SET originalCodeGenType = #{originalCodeGenType},
+                targetCodeGenType = #{targetCodeGenType},
+                enhancedPrompt = #{enhancedPrompt},
+                requiresBuildValidation = #{requiresBuildValidation},
+                qualityGate = #{qualityGate},
+                orchestrationMode = #{orchestrationMode},
+                route = #{orchestrationMode},
+                updateTime = #{updateTime}
+            WHERE id = #{recordId}
+              AND status = 'running'
+              AND (
+                    (#{leaseOwner} IS NULL AND executionEpoch = 0)
+                    OR (leaseOwner = #{leaseOwner}
+                        AND executionEpoch = #{executionEpoch}
+                        AND leaseUntil >= #{updateTime})
+              )
+              AND isDelete = 0
+            """)
+    int transitionRunningTaskTrace(@Param("recordId") Long recordId,
+                                   @Param("originalCodeGenType") String originalCodeGenType,
+                                   @Param("targetCodeGenType") String targetCodeGenType,
+                                   @Param("enhancedPrompt") String enhancedPrompt,
+                                   @Param("requiresBuildValidation") int requiresBuildValidation,
+                                   @Param("qualityGate") String qualityGate,
+                                   @Param("orchestrationMode") String orchestrationMode,
+                                   @Param("leaseOwner") String leaseOwner,
+                                   @Param("executionEpoch") long executionEpoch,
+                                   @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("""
+            UPDATE generation_task
             SET stage = #{stage},
                 stageMessage = #{stageMessage},
                 updateTime = #{updateTime}
@@ -120,8 +151,12 @@ public interface GenerationTraceMapper {
             UPDATE generation_task
             SET memorySummary = #{memorySummary},
                 memoryIndexedAt = NULL,
+                memoryIndexContractVersion = 0,
                 memoryIndexAttempts = 0,
                 memoryIndexError = NULL,
+                memoryIndexNextAttemptAt = NULL,
+                memoryIndexLeaseOwner = NULL,
+                memoryIndexLeaseUntil = NULL,
                 updateTime = #{updateTime}
             WHERE id = #{recordId}
               AND status = 'running'

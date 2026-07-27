@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
@@ -22,6 +23,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
@@ -35,6 +37,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -117,8 +120,8 @@ class HeavyGenerationCoordinatorInitializationTest {
                 executionContextService,
                 taskIdGenerator
         );
-        when(sessionRegistry.lock(APP_ID)).thenReturn(new Object());
-        when(taskIdGenerator.nextId()).thenReturn(TASK_ID);
+        org.mockito.Mockito.lenient().when(sessionRegistry.lock(APP_ID)).thenReturn(new Object());
+        org.mockito.Mockito.lenient().when(taskIdGenerator.nextId()).thenReturn(TASK_ID);
 
         App app = new App();
         app.setId(APP_ID);
@@ -198,6 +201,35 @@ class HeavyGenerationCoordinatorInitializationTest {
                 TASK_ID, GenerationTerminalOutcome.DEADLINE_EXCEEDED.status());
         verifyNoInteractions(lifecycleService);
         verify(sessionRegistry, never()).put(any(), any());
+    }
+
+    @Test
+    void managedPreparationFailureMustLeaveTerminalizationToPipelineExecutor() {
+        IllegalStateException preparationFailure = new IllegalStateException("preparation failed");
+        when(executionContext.taskId()).thenReturn(TASK_ID);
+        when(executionContext.executionFence()).thenReturn(FENCE);
+        GenerationSession managedSession = new GenerationSession(null, executionContext);
+        managedSession.bindTaskRequest(taskRequest);
+        GenerationTaskExecution execution = new GenerationTaskExecution(
+                TASK_ID, managedSession, executionContext, FENCE, Instant.now());
+        GenerationPipelineRequest managedRequest = pipelineRequest.withExecution(execution);
+        when(preparationService.prepare(TASK_ID, taskRequest.app(), taskRequest.message()))
+                .thenThrow(preparationFailure);
+
+        RuntimeException thrown = assertThrows(
+                RuntimeException.class, () -> coordinator.startManaged(managedRequest));
+
+        assertSame(preparationFailure, thrown);
+        verify(performanceMonitorService).recordSpan(
+                eq(TASK_ID), eq("heavy_prepare"), eq("failed"), any(Duration.class),
+                eq(IllegalStateException.class.getSimpleName())
+        );
+        verify(toolExecutionContextService).clearContext(APP_ID, TASK_ID, FENCE);
+        verify(performanceMonitorService, never()).finishTask(any(), any());
+        verify(eventPublisher, never()).publishSafely(any(), any(), any(), anyMap());
+        verify(executionContextService, never()).finish(any(), any());
+        verify(executionContextService, never()).finishIfOwned(any(), any(), any());
+        verifyNoInteractions(lifecycleService);
     }
 
     @Test

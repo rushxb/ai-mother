@@ -1,7 +1,9 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
+import com.rush.rushaicodemother.core.error.GenerationAgentLoopException;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
@@ -81,5 +83,41 @@ class ToolExecutionFailurePolicyTest {
         assertEquals(
                 "Tool execution failed. Inspect the inputs and choose a safe alternative.",
                 result.text());
+    }
+
+    @Test
+    void agentLoopFailureMustNotBeConvertedIntoAnotherModelTurn() {
+        ToolExecutionFailurePolicy policy = new ToolExecutionFailurePolicy(
+                mock(ToolApprovalService.class), mock(ToolInvocationCheckpointFactory.class));
+        GenerationAgentLoopException loopFailure =
+                new GenerationAgentLoopException("no_progress", "readFile");
+
+        GenerationAgentLoopException propagated = assertThrows(
+                GenerationAgentLoopException.class,
+                () -> policy.handle(
+                        new IllegalStateException("wrapped", loopFailure),
+                        mock(ToolErrorContext.class),
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        GenerationPerformanceProfile.balanced()));
+
+        assertSame(loopFailure, propagated);
+    }
+
+    @Test
+    void executionPolicyFailureMustNotBeConvertedIntoAnotherModelTurn() {
+        ToolExecutionFailurePolicy policy = new ToolExecutionFailurePolicy(
+                mock(ToolApprovalService.class), mock(ToolInvocationCheckpointFactory.class));
+        GenerationExecutionPolicyException policyFailure =
+                new GenerationExecutionPolicyException("工具写入预算已耗尽");
+
+        GenerationExecutionPolicyException propagated = assertThrows(
+                GenerationExecutionPolicyException.class,
+                () -> policy.handle(
+                        new IllegalStateException("wrapped", policyFailure),
+                        mock(ToolErrorContext.class),
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        GenerationPerformanceProfile.balanced()));
+
+        assertSame(policyFailure, propagated);
     }
 }

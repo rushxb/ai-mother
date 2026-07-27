@@ -16,6 +16,10 @@ class GenerationProjectContextBoundaryArchitectureTest {
             "src", "main", "java", "com", "rush", "rushaicodemother",
             "orchestration", "context", "GeneratedProjectContextService.java"
     );
+    private static final Path SUPPORT_SOURCE = Path.of(
+            "src", "main", "java", "com", "rush", "rushaicodemother",
+            "orchestration", "agent", "GenerationAgentSupport.java"
+    );
     private static final Path PREPARATION_SOURCE = Path.of(
             "src", "main", "java", "com", "rush", "rushaicodemother",
             "orchestration", "heavy", "HeavyGenerationPreparationService.java"
@@ -32,9 +36,8 @@ class GenerationProjectContextBoundaryArchitectureTest {
     void projectContextModuleMustUseExistingWorkspaceBoundaries() throws Exception {
         String source = Files.readString(CONTEXT_SOURCE);
 
-        assertTrue(source.contains("GenerationWorkspaceService"));
         assertTrue(source.contains("WorkspaceFileSystemService"));
-        assertTrue(source.contains("scanProject("));
+        assertTrue(source.contains("resolveExistingFile("));
         assertTrue(source.contains("readUtf8("));
         for (String forbidden : FORBIDDEN_FILE_SYSTEM_IMPLEMENTATION) {
             assertFalse(source.contains(forbidden),
@@ -43,13 +46,15 @@ class GenerationProjectContextBoundaryArchitectureTest {
     }
 
     @Test
-    void heavyPreparationMustDelegateProjectContextAssembly() throws Exception {
-        String source = Files.readString(PREPARATION_SOURCE);
+    void contextAgentSupportMustDelegateBoundedFileReads() throws Exception {
+        String support = Files.readString(SUPPORT_SOURCE);
+        String preparation = Files.readString(PREPARATION_SOURCE);
 
-        assertTrue(source.contains("GeneratedProjectContextService"));
-        assertTrue(source.contains("generatedProjectContextService.build("));
-        assertFalse(source.contains("GenerationWorkspaceService"));
-        assertFalse(source.contains("WorkspaceFileSystemService"));
-        assertFalse(source.contains("java.nio.file"));
+        assertTrue(support.contains("GeneratedProjectContextService"));
+        assertTrue(support.contains("generatedProjectContextService.buildSelectedFileSections("));
+        assertFalse(support.contains("FileUtil.readString("));
+        assertFalse(support.contains("Files.readString("));
+        assertFalse(preparation.contains("GeneratedProjectContextService"));
+        assertFalse(preparation.contains("projectContextSupplier"));
     }
 }

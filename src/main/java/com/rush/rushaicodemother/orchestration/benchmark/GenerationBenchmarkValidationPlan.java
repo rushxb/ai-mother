@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import java.nio.file.Path;
 import java.util.List;
 
-/** In-memory plan joining one fixture baseline to its deterministic grader rules. */
+/** 内存中计划将一个夹具基线与其确定性分级器规则相结合。 */
 public record GenerationBenchmarkValidationPlan(
         GenerationBenchmarkTask task,
         GenerationWorkspace workspace,

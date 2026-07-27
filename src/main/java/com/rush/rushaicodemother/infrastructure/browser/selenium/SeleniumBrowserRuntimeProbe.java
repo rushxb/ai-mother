@@ -30,7 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Selenium implementation with loopback-only target validation and bounded evidence capture. */
+/** Selenium 实现具有仅环回目标验证和有限证据捕获。 */
 @Slf4j
 @Component
 public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {

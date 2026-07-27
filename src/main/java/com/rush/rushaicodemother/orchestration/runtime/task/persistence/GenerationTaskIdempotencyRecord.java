@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
-/** Minimal persisted submission identity needed to resolve an idempotent retry. */
+/** 解决幂等重试所需的最小持久提交身份。 */
 public record GenerationTaskIdempotencyRecord(
         String taskId,
         String route,

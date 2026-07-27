@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Builds structured context packs from short-term traces and long-term semantic memory. */
+/** 从短期痕迹和长期语义记忆构建结构化上下文包。 */
 @Component
 public class AiContextPackAssembler {
 

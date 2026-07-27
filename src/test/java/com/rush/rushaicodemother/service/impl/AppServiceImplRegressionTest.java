@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
-import com.rush.rushaicodemother.memory.GenerationSemanticMemoryService;
+import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
@@ -127,7 +127,7 @@ class AppServiceImplRegressionTest {
         HeavyGenerationSessionCompletionService completionService =
                 new HeavyGenerationSessionCompletionService(
                         lifecycleService, runtimeLifecycleService,
-                        mock(GenerationSemanticMemoryService.class));
+                        mock(GenerationOutcomeMemoryService.class));
         GenerationPreparation preparation = newPreparation(
                 lifecycleArtifacts(),
                 List.of(GenerationStreamEvent.agentEvent("route", Map.of("orchestrationMode", "light"))),
@@ -274,6 +274,12 @@ class AppServiceImplRegressionTest {
 
         @Override
         public void startTask(GenerationTaskStartCommand command) {
+        }
+
+        @Override
+        public com.rush.rushaicodemother.service.trace.GenerationTaskTraceStartResult startOrTransitionTask(
+                GenerationTaskStartCommand command) {
+            return com.rush.rushaicodemother.service.trace.GenerationTaskTraceStartResult.STARTED;
         }
 
         @Override

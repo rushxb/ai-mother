@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 
 import java.io.IOException;
 
-/** Checked failure raised when a patch target violates workspace or resource constraints. */
+/** 已检查当补丁目标违反工作空间或资源限制时引发的故障。 */
 public class PatchWorkspaceException extends IOException {
 
     private final String reason;

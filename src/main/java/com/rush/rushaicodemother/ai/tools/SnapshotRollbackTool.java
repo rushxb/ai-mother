@@ -232,7 +232,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         } catch (GenerationApprovalRequiredException approvalRequired) {
             throw approvalRequired;
         } catch (ToolInputException | SnapshotNamePolicy.ValidationException invalidInput) {
-            // The tool method renders the normal input error; no destructive side effect is possible here.
+            // 工具方法渲染正常输入错误；这里不可能产生破坏性的副作用。
         } catch (Exception authorizationFailure) {
             throw new IllegalStateException("destructive snapshot authorization failed", authorizationFailure);
         }
@@ -301,6 +301,11 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
     @Override
     public ToolRiskLevel getRiskLevel() {
         return ToolRiskLevel.DESTRUCTIVE;
+    }
+
+    @Override
+    public boolean canMutateWorkspace() {
+        return true;
     }
 
     @Override

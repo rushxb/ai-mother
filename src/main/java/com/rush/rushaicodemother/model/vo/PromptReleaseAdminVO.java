@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.model.vo;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * 提示词发布管理端接口视图对象。
+ */
 public record PromptReleaseAdminVO(
         String promptKey,
         String stableVersion,

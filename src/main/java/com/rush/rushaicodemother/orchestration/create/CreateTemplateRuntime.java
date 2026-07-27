@@ -4,6 +4,10 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.MonitorContext;
+import com.rush.rushaicodemother.monitor.MonitorContextHolder;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
@@ -12,32 +16,47 @@ import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationCont
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class CreateTemplateRuntime {
 
     private static final String BACKEND_TEMPLATE = "go-sqlite-backend-basic";
+    private static final Duration SPEC_WAIT_POLL_INTERVAL = Duration.ofMillis(100);
 
     private final BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService;
     private final CreatePatchMergeService createPatchMergeService;
     private final CreatePreWriteValidationService createPreWriteValidationService;
     private final CreateSpecService createSpecService;
+    private final CreateSpecTaskExecutor createSpecTaskExecutor;
     private final CreateRecipeRendererService createRecipeRendererService;
     private final FullStackPortAllocator fullStackPortAllocator;
     private final GenerationPatchApplyService generationPatchApplyService;
+    private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationTaskFenceGuard generationTaskFenceGuard;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final LandingSlotFallbackRenderer landingSlotFallbackRenderer;
@@ -51,16 +70,78 @@ public class CreateTemplateRuntime {
                                   FullStackPortAllocator fullStackPortAllocator,
                                   GenerationPatchApplyService generationPatchApplyService,
                                   GenerationTaskFenceGuard generationTaskFenceGuard,
-                                  GenerationWorkspaceService generationWorkspaceService,
+                                 GenerationWorkspaceService generationWorkspaceService,
                                  LandingSlotFallbackRenderer landingSlotFallbackRenderer,
                                  VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService) {
+        this(
+                backendProjectTemplateBootstrapService,
+                createPatchMergeService,
+                createPreWriteValidationService,
+                createSpecService,
+                createRecipeRendererService,
+                fullStackPortAllocator,
+                generationPatchApplyService,
+                generationTaskFenceGuard,
+                 generationWorkspaceService,
+                 landingSlotFallbackRenderer,
+                 vueProjectTemplateBootstrapService,
+                 new GenerationPerformanceMonitorService(),
+                 new CreateSpecTaskExecutor()
+         );
+     }
+
+    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
+                                 CreatePatchMergeService createPatchMergeService,
+                                 CreatePreWriteValidationService createPreWriteValidationService,
+                                 CreateSpecService createSpecService,
+                                 CreateRecipeRendererService createRecipeRendererService,
+                                 FullStackPortAllocator fullStackPortAllocator,
+                                 GenerationPatchApplyService generationPatchApplyService,
+                                 GenerationTaskFenceGuard generationTaskFenceGuard,
+                                 GenerationWorkspaceService generationWorkspaceService,
+                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
+                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService,
+                                 GenerationPerformanceMonitorService generationPerformanceMonitorService) {
+        this(
+                backendProjectTemplateBootstrapService,
+                createPatchMergeService,
+                createPreWriteValidationService,
+                createSpecService,
+                createRecipeRendererService,
+                fullStackPortAllocator,
+                generationPatchApplyService,
+                generationTaskFenceGuard,
+                generationWorkspaceService,
+                landingSlotFallbackRenderer,
+                vueProjectTemplateBootstrapService,
+                generationPerformanceMonitorService,
+                new CreateSpecTaskExecutor()
+        );
+    }
+
+    @Autowired
+    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
+                                 CreatePatchMergeService createPatchMergeService,
+                                 CreatePreWriteValidationService createPreWriteValidationService,
+                                 CreateSpecService createSpecService,
+                                 CreateRecipeRendererService createRecipeRendererService,
+                                 FullStackPortAllocator fullStackPortAllocator,
+                                 GenerationPatchApplyService generationPatchApplyService,
+                                 GenerationTaskFenceGuard generationTaskFenceGuard,
+                                 GenerationWorkspaceService generationWorkspaceService,
+                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
+                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService,
+                                 GenerationPerformanceMonitorService generationPerformanceMonitorService,
+                                 CreateSpecTaskExecutor createSpecTaskExecutor) {
         this.backendProjectTemplateBootstrapService = backendProjectTemplateBootstrapService;
         this.createPatchMergeService = createPatchMergeService;
         this.createPreWriteValidationService = createPreWriteValidationService;
         this.createSpecService = createSpecService;
+        this.createSpecTaskExecutor = createSpecTaskExecutor;
         this.createRecipeRendererService = createRecipeRendererService;
         this.fullStackPortAllocator = fullStackPortAllocator;
         this.generationPatchApplyService = generationPatchApplyService;
+        this.generationPerformanceMonitorService = generationPerformanceMonitorService;
         this.generationTaskFenceGuard = generationTaskFenceGuard;
         this.generationWorkspaceService = generationWorkspaceService;
         this.landingSlotFallbackRenderer = landingSlotFallbackRenderer;
@@ -78,15 +159,35 @@ public class CreateTemplateRuntime {
         if (session != null && session.taskId() != null) {
             generationTaskFenceGuard.assertCurrent(session.taskId());
         }
-        BootstrapContext bootstrapContext = bootstrap(app, request, plan);
+        CreateSpecTask createSpecTask = submitCreateSpec(request, plan, session);
+        BootstrapContext bootstrapContext;
+        GenerationPerformanceMonitorService.SpanTimer bootstrapSpan = startSpan(
+                session, "create_bootstrap", GenerationSpanCategory.WORKSPACE);
+        try {
+            bootstrapContext = bootstrap(app, request, plan);
+            bootstrapSpan.close(
+                    bootstrapContext.success() ? "success" : "failed",
+                    String.valueOf(bootstrapContext.payload())
+            );
+        } catch (RuntimeException | Error failure) {
+            createSpecTask.cancel();
+            bootstrapSpan.failed(failure.getClass().getSimpleName());
+            throw failure;
+        }
         if (!bootstrapContext.success()) {
+            createSpecTask.cancel();
             return null;
         }
-        emitStage(session, "CREATE 模板骨架已就绪，开始生成模板变量规格并本地渲染 recipe...", Map.of(
+        CreateSpecService.SpecResult createSpecResult = resolveCreateSpec(
+                createSpecTask, request, plan, session);
+        emitStage(session, "CREATE 模板骨架已就绪，开始使用模板变量规格本地渲染 recipe...", Map.of(
                 "stage", "create_spec_recipe",
                 "baseTemplate", plan.baseTemplateId(),
                 "originalSlotGroups", plan.slotGroups().size(),
                 "executionSlotGroups", coalesceSlotGroups(plan.slotGroups()).size(),
+                "specAvailable", createSpecResult.available(),
+                "specSource", createSpecResult.reason(),
+                "modelAttempted", createSpecResult.modelAttempted(),
                 "bootstrap", bootstrapContext.payload()
         ));
 
@@ -97,12 +198,17 @@ public class CreateTemplateRuntime {
         int aiCalls = 0;
         List<String> degradeReasons = new ArrayList<>();
         List<SlotGroup> executionGroups = coalesceSlotGroups(plan.slotGroups());
-        CreateSpecService.SpecResult createSpecResult = generateCreateSpec(request, plan, session);
-        if (createSpecResult.available()) {
+        if (createSpecResult.modelAttempted()) {
             aiCalls = 1;
         }
-        int groupIndex = 0;
-        for (SlotGroup group : executionGroups) {
+        if (!createSpecResult.modelSucceeded()) {
+            degradeReasons.add(createSpecResult.reason());
+        }
+        GenerationPerformanceMonitorService.SpanTimer recipeSpan = startSpan(
+                session, "create_recipe_render", GenerationSpanCategory.PIPELINE);
+        try {
+            int groupIndex = 0;
+            for (SlotGroup group : executionGroups) {
             groupIndex++;
             emitStage(session, "正在渲染模板变量作用域 " + groupIndex + "/" + executionGroups.size()
                     + "：" + group.templateId() + "（" + group.slotIds().size() + " 个变量 slot）", Map.of(
@@ -119,11 +225,16 @@ public class CreateTemplateRuntime {
                 operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), recipeResult.patchOperations()));
                 filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), recipeResult.filledSlots()));
                 totalChars += recipeResult.totalChars();
-                emitStage(session, "AI CREATE 规格已生成，正在使用本地 recipe 写入代码：" + group.templateId(), Map.of(
+                String specMessage = createSpecResult.modelSucceeded()
+                        ? "AI CREATE 规格已生成，正在使用本地 recipe 写入代码："
+                        : "已使用本地 CREATE 规格，正在通过 recipe 写入代码：";
+                emitStage(session, specMessage + group.templateId(), Map.of(
                         "stage", "create_spec_recipe_applied",
                         "groupId", group.groupId(),
                         "templateId", group.templateId(),
                         "slotIds", group.slotIds(),
+                        "specSource", createSpecResult.reason(),
+                        "modelAttempted", createSpecResult.modelAttempted(),
                         "variables", recipeResult.manifest() == null ? Map.of() : recipeResult.manifest().variables(),
                         "patchOperationCount", recipeResult.patchOperations().size()
                 ));
@@ -156,6 +267,14 @@ public class CreateTemplateRuntime {
                     "slotIds", group.slotIds(),
                     "reason", reason
             ));
+            }
+            recipeSpan.close(
+                    degradeReasons.isEmpty() ? "success" : "degraded",
+                    degradeReasons.isEmpty() ? "" : String.join(";", degradeReasons)
+            );
+        } catch (RuntimeException | Error failure) {
+            recipeSpan.failed(failure.getClass().getSimpleName());
+            throw failure;
         }
         if (operations.isEmpty()) {
             return skeletonOnlyResult(plan, bootstrapContext, filledSlots, totalChars, skippedSlots, aiCalls,
@@ -169,8 +288,19 @@ public class CreateTemplateRuntime {
                 "mergedPatchCount", patchPlan.mergedOperationCount(),
                 "filledSlots", filledSlots.size()
         ));
-        CreatePreWriteValidationService.ValidationResult validationResult =
-                createPreWriteValidationService.validate(patchPlan.operations());
+        CreatePreWriteValidationService.ValidationResult validationResult;
+        GenerationPerformanceMonitorService.SpanTimer preWriteValidationSpan = startSpan(
+                session, "create_pre_write_validation", GenerationSpanCategory.VALIDATION);
+        try {
+            validationResult = createPreWriteValidationService.validate(patchPlan.operations());
+            preWriteValidationSpan.close(
+                    validationResult.valid() ? "success" : "failed",
+                    validationResult.valid() ? "" : String.valueOf(validationResult.errors())
+            );
+        } catch (RuntimeException | Error failure) {
+            preWriteValidationSpan.failed(failure.getClass().getSimpleName());
+            throw failure;
+        }
         if (!validationResult.valid()) {
             return failureResult(plan, filledSlots, totalChars, skippedSlots, aiCalls, patchPlan,
                     validationResult.durationMs(), executionGroups.size(), "pre_write_validation_failed:" + validationResult.errors());
@@ -184,13 +314,25 @@ public class CreateTemplateRuntime {
                 "stage", "patch_apply",
                 "patchCount", patchPlan.mergedOperationCount()
         ));
-        PatchApplyResult applyResult = generationPatchApplyService.applyWithoutChangePlan(
-                app.getId(),
-                taskId,
-                bootstrapContext.projectRoot(),
-                patchPlan.operations(),
-                "create_template_runtime"
-        );
+        PatchApplyResult applyResult;
+        GenerationPerformanceMonitorService.SpanTimer patchApplySpan = startSpan(
+                session, "create_patch_apply", GenerationSpanCategory.TOOL);
+        try {
+            applyResult = generationPatchApplyService.applyWithoutChangePlan(
+                    app.getId(),
+                    taskId,
+                    bootstrapContext.projectRoot(),
+                    patchPlan.operations(),
+                    "create_template_runtime"
+            );
+            patchApplySpan.close(
+                    "applied".equals(applyResult.status()) ? "success" : "failed",
+                    "applied".equals(applyResult.status()) ? "" : applyResult.reason()
+            );
+        } catch (RuntimeException | Error failure) {
+            patchApplySpan.failed(failure.getClass().getSimpleName());
+            throw failure;
+        }
         if (!"applied".equals(applyResult.status())) {
             return failureResult(plan, filledSlots, totalChars, skippedSlots, aiCalls, patchPlan,
                     validationResult.durationMs(), executionGroups.size(), "patch_apply_" + applyResult.status() + ":" + applyResult.reason());
@@ -216,18 +358,40 @@ public class CreateTemplateRuntime {
         );
     }
 
-    private CreateSpecService.SpecResult generateCreateSpec(GenerationTaskRequest request,
-                                                            CreateGenerationPlan plan,
-                                                            GenerationSession session) {
+    private CreateSpecTask submitCreateSpec(GenerationTaskRequest request,
+                                            CreateGenerationPlan plan,
+                                            GenerationSession session) {
         if (createSpecService == null) {
-            return new CreateSpecService.SpecResult(false, null, "create_spec_service_unavailable");
+            return CreateSpecTask.submitted(CompletableFuture.completedFuture(
+                    new CreateSpecService.SpecResult(false, null, "create_spec_service_unavailable")));
         }
         emitStage(session, "正在生成本次 CREATE 统一规格", Map.of(
                 "stage", "create_spec_started",
                 "baseTemplate", plan.baseTemplateId(),
                 "slotGroupCount", plan.slotGroups().size()
         ));
-        CreateSpecService.SpecResult specResult = createSpecService.generate(request.message(), plan);
+        try {
+            Future<CreateSpecService.SpecResult> future = createSpecTaskExecutor.submit(
+                    monitorContextSnapshot(request, session),
+                    () -> generateCreateSpecModel(request, plan, session == null ? null : session.taskId())
+            );
+            return CreateSpecTask.submitted(future);
+        } catch (RejectedExecutionException saturated) {
+            emitStage(session, "CREATE 规格并行容量已满，将在模板准备完成后继续生成", Map.of(
+                    "stage", "create_spec_execution_deferred",
+                    "reason", "executor_saturated"
+            ));
+            return CreateSpecTask.deferredExecution();
+        }
+    }
+
+    private CreateSpecService.SpecResult resolveCreateSpec(CreateSpecTask createSpecTask,
+                                                           GenerationTaskRequest request,
+                                                           CreateGenerationPlan plan,
+                                                           GenerationSession session) {
+        CreateSpecService.SpecResult specResult = createSpecTask.deferred()
+                ? generateCreateSpecModel(request, plan, session == null ? null : session.taskId())
+                : awaitCreateSpec(createSpecTask.future(), request, plan, session);
         if (!specResult.available()) {
             emitStage(session, "CREATE 规格不可用，后续保留模板骨架", Map.of(
                     "stage", "create_spec_degraded",
@@ -235,6 +399,181 @@ public class CreateTemplateRuntime {
             ));
         }
         return specResult;
+    }
+
+    private CreateSpecService.SpecResult generateCreateSpecModel(GenerationTaskRequest request,
+                                                                 CreateGenerationPlan plan,
+                                                                 String taskId) {
+        CreateSpecService.SpecResult specResult;
+        Instant specStartedAt = Instant.now();
+        MonitorContext previousMonitorContext = bindMonitorContext(request, taskId);
+        GenerationPerformanceMonitorService.SpanTimer specSpan = startSpan(
+                taskId, "create_spec_model", GenerationSpanCategory.MODEL);
+        try {
+            specResult = taskId == null || taskId.isBlank()
+                    ? createSpecService.generate(request.message(), plan)
+                    : createSpecService.generateManaged(taskId, request.message(), plan);
+            String outcome = specResult.modelSucceeded()
+                    ? "success"
+                    : specResult.modelAttempted() ? "degraded" : "skipped";
+            specSpan.close(outcome, specResult.reason());
+            if (specResult.modelSucceeded()) {
+                recordFirstModelSignal(taskId, specStartedAt, "create_spec");
+            }
+        } catch (RuntimeException | Error failure) {
+            specSpan.failed(failure.getClass().getSimpleName());
+            throw failure;
+        } finally {
+            restoreMonitorContext(previousMonitorContext);
+        }
+        return specResult;
+    }
+
+    private CreateSpecService.SpecResult awaitCreateSpec(
+            Future<CreateSpecService.SpecResult> future,
+            GenerationTaskRequest request,
+            CreateGenerationPlan plan,
+            GenerationSession session
+    ) {
+        try {
+            GenerationExecutionContext executionContext = session == null ? null : session.executionContext();
+            if (executionContext == null) {
+                return future.get();
+            }
+            while (true) {
+                session.throwIfCancelled();
+                if (future.isDone()) {
+                    return future.get();
+                }
+                Optional<Duration> previewWindow =
+                        executionContext.optionalFirstPreviewOperationTimeout(SPEC_WAIT_POLL_INTERVAL);
+                if (previewWindow.isEmpty()) {
+                    future.cancel(true);
+                    emitStage(session, "CREATE 规格未在首预览质量窗口内完成，已切换本地规格继续生成", Map.of(
+                            "stage", "create_spec_preview_deadline_degraded",
+                            "reason", "first_preview_completion_reserve",
+                            "taskId", executionContext.taskId()
+                    ));
+                    return createSpecService.generateLocal(
+                            request.message(),
+                            plan,
+                            "local_spec_first_preview_wait_cutoff"
+                    );
+                }
+                long waitNanos = Math.max(1L, Math.min(
+                        previewWindow.orElseThrow().toNanos(), SPEC_WAIT_POLL_INTERVAL.toNanos()));
+                try {
+                    CreateSpecService.SpecResult result = future.get(waitNanos, TimeUnit.NANOSECONDS);
+                    session.throwIfCancelled();
+                    return result;
+                } catch (TimeoutException ignored) {
+                    // 轮询任务控制面，确保用户取消不必等待模型调用自行返回。
+                }
+            }
+        } catch (InterruptedException interrupted) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            if (session != null) {
+                session.throwIfCancelled();
+            }
+            throw new IllegalStateException("等待 CREATE 规格生成时被中断", interrupted);
+        } catch (CancellationException cancelled) {
+            if (session != null) {
+                session.throwIfCancelled();
+            }
+            throw new IllegalStateException("CREATE 规格生成已取消", cancelled);
+        } catch (ExecutionException failed) {
+            Throwable cause = failed.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("CREATE 规格生成失败", cause);
+        } catch (RuntimeException | Error failure) {
+            future.cancel(true);
+            throw failure;
+        }
+    }
+
+    private GenerationPerformanceMonitorService.SpanTimer startSpan(
+            GenerationSession session,
+            String stage,
+            GenerationSpanCategory category
+    ) {
+        String taskId = session == null ? null : session.taskId();
+        return startSpan(taskId, stage, category);
+    }
+
+    private GenerationPerformanceMonitorService.SpanTimer startSpan(
+            String taskId,
+            String stage,
+            GenerationSpanCategory category
+    ) {
+        return generationPerformanceMonitorService.startSpan(taskId, stage, category);
+    }
+
+    private void recordFirstModelSignal(String taskId,
+                                        Instant startedAt,
+                                        String detail) {
+        Duration latency = Duration.between(startedAt, Instant.now());
+        long latencyMs = Math.max(1L, latency.toMillis());
+        generationPerformanceMonitorService.recordSpan(
+                taskId,
+                "model_time_to_first_signal",
+                GenerationSpanCategory.MODEL,
+                "success",
+                latency,
+                detail
+        );
+        generationPerformanceMonitorService.recordRuntimeTelemetry(
+                taskId, Map.of("firstTokenLatencyMs", latencyMs));
+    }
+
+    private MonitorContext monitorContextSnapshot(GenerationTaskRequest request,
+                                                  GenerationSession session) {
+        String taskId = session == null ? null : session.taskId();
+        if (!hasMonitorIdentity(request, taskId)) {
+            return MonitorContextHolder.getContext();
+        }
+        return MonitorContext.builder()
+                .userId(request.loginUser().getId().toString())
+                .appId(request.app().getId().toString())
+                .taskId(taskId)
+                .build();
+    }
+
+    private MonitorContext bindMonitorContext(GenerationTaskRequest request,
+                                              String taskId) {
+        MonitorContext previousContext = MonitorContextHolder.getContext();
+        if (!hasMonitorIdentity(request, taskId)) {
+            return previousContext;
+        }
+        MonitorContextHolder.setContext(MonitorContext.builder()
+                .userId(request.loginUser().getId().toString())
+                .appId(request.app().getId().toString())
+                .taskId(taskId)
+                .build());
+        return previousContext;
+    }
+
+    private boolean hasMonitorIdentity(GenerationTaskRequest request, String taskId) {
+        return request != null
+                && request.app() != null
+                && request.app().getId() != null
+                && request.loginUser() != null
+                && request.loginUser().getId() != null
+                && taskId != null
+                && !taskId.isBlank();
+    }
+
+    private void restoreMonitorContext(MonitorContext previousContext) {
+        if (previousContext == null) {
+            MonitorContextHolder.clearContext();
+        } else {
+            MonitorContextHolder.setContext(previousContext);
+        }
     }
 
     private RecipeRenderResult tryRenderRecipe(GenerationTaskRequest request,
@@ -470,6 +809,23 @@ public class CreateTemplateRuntime {
                 return "";
             }
             return BACKEND_TEMPLATE.equals(group.templateId()) ? "backend/" : "frontend/";
+        }
+    }
+
+    private record CreateSpecTask(Future<CreateSpecService.SpecResult> future, boolean deferred) {
+
+        private static CreateSpecTask submitted(Future<CreateSpecService.SpecResult> future) {
+            return new CreateSpecTask(future, false);
+        }
+
+        private static CreateSpecTask deferredExecution() {
+            return new CreateSpecTask(null, true);
+        }
+
+        private void cancel() {
+            if (future != null) {
+                future.cancel(true);
+            }
         }
     }
 

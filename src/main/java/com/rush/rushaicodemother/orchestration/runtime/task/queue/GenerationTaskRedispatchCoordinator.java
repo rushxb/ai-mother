@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 
-/** MySQL-backed transactional polling publisher for queue writes lost during Redis outages. */
+/** MySQL 支持的事务轮询发布者，以查找 Redis 中断期间丢失的队列写入。 */
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "app.generation-task-queue", name = "transport", havingValue = "redis")

@@ -22,6 +22,9 @@ class GenerationTaskSnapshotPropertiesTest {
         assertTrue(properties.getMaxSnapshotBytes() > 0);
         assertTrue(properties.getMaxSnapshotsPerApp() > 0);
         assertTrue(properties.getRetention().isPositive());
+        assertFalse(properties.isReplaySafeStartCheckpointElisionEnabled());
+        assertFalse(properties.isReplaySafeCompletionCheckpointCoalescingEnabled());
+        assertTrue(properties.getReplaySafeCompletionCheckpointInterval() >= 2);
     }
 
     @Test
@@ -32,7 +35,19 @@ class GenerationTaskSnapshotPropertiesTest {
         properties.setMaxSnapshotsPerApp(0);
         properties.setRetention(Duration.ZERO);
         properties.setLockStripes(0);
+        properties.setReplaySafeCompletionCheckpointInterval(1);
 
         assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
+    void completionCheckpointCoalescingMustRequireStartCheckpointElision() {
+        GenerationTaskSnapshotProperties properties = new GenerationTaskSnapshotProperties();
+        properties.setReplaySafeCompletionCheckpointCoalescingEnabled(true);
+
+        assertFalse(validator.validate(properties).isEmpty());
+
+        properties.setReplaySafeStartCheckpointElisionEnabled(true);
+        assertTrue(validator.validate(properties).isEmpty());
     }
 }

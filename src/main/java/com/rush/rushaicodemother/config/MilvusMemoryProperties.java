@@ -14,6 +14,9 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.regex.Pattern;
 
+/**
+ * Milvus 记忆配置属性。
+ */
 @Data
 @Component
 @Validated
@@ -21,6 +24,7 @@ import java.util.regex.Pattern;
 public class MilvusMemoryProperties {
     private static final Pattern RESOURCE_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,254}");
 
+    /** 是否启用。 */
     private boolean enabled = false;
     private String uri = "";
     private String token = "";
@@ -30,11 +34,15 @@ public class MilvusMemoryProperties {
     private String databaseName = "default";
     @NotBlank
     private String collectionName = "generation_memory_v2";
+    /** 连接超时时间。 */
     private Duration connectTimeout = Duration.ofSeconds(3);
+    /** 请求超时时间。 */
     private Duration requestTimeout = Duration.ofSeconds(5);
     private Duration readinessTimeout = Duration.ofSeconds(60);
     private Duration readinessRefreshInterval = Duration.ofSeconds(30);
+    /** 是否在启动时执行校验。 */
     private boolean verifyOnStartup = false;
+    /** 本地回退最大条目数。 */
     @Min(10)
     @Max(100000)
     private int fallbackMaxEntries = 5000;
@@ -50,8 +58,8 @@ public class MilvusMemoryProperties {
                 || !positive(readinessTimeout) || !positive(readinessRefreshInterval)
                 || !positive(fallbackRetention)
                 || minimumScore < -1.0 || minimumScore > 1.0
-                || !RESOURCE_NAME.matcher(databaseName).matches()
-                || !RESOURCE_NAME.matcher(collectionName).matches()) {
+                || databaseName == null || !RESOURCE_NAME.matcher(databaseName).matches()
+                || collectionName == null || !RESOURCE_NAME.matcher(collectionName).matches()) {
             return false;
         }
         if (!enabled) {

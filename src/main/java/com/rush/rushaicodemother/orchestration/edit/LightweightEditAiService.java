@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/** Owns model calls and repair prompts used by lightweight editing. */
+/** 拥有轻量级编辑使用的模型调用和修复提示。 */
 @Service
 @RequiredArgsConstructor
 public class LightweightEditAiService {
@@ -50,7 +50,7 @@ public class LightweightEditAiService {
                                                String projectContext,
                                                PatchApplyResult applyResult,
                                                String diagnostic) {
-        return modelInvoker.invokeManaged(
+        return modelInvoker.invokeManagedRepair(
                 taskId, "patch_retry", buildPatchRetryMessage(userMessage, applyResult, diagnostic), projectContext);
     }
 
@@ -84,7 +84,7 @@ public class LightweightEditAiService {
             String userMessage,
             String projectContext,
             BackgroundValidationService.ValidationResult validationResult) {
-        return modelInvoker.invokeManaged(
+        return modelInvoker.invokeManagedRepair(
                 taskId, "validation_retry",
                 buildValidationRetryMessage(userMessage, validationResult), projectContext);
     }

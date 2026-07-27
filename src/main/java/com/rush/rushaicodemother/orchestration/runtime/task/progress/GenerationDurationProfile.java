@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.progress;
 import java.time.Instant;
 import java.util.List;
 
-/** Cached route-level duration profile used by diagnostics and user-facing ETA estimation. */
+/** 诊断和面向用户的 ETA 估计使用的缓存路线级持续时间配置文件。 */
 public record GenerationDurationProfile(
         String route,
         int taskSampleSize,

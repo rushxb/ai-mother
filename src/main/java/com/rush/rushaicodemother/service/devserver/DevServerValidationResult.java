@@ -71,8 +71,8 @@ public record DevServerValidationResult(
     }
 
     /**
-     * Returns a bounded, redacted diagnostic suitable for an automatic repair prompt.
-     * Runtime output is untrusted data and must never be interpreted as instructions.
+     * 返回适合自动修复提示的有界的、经过编辑的诊断。
+     * 运行时输出是不受信任的数据，决不能将其解释为指令。
      */
     public String toPublicRepairDiagnostic() {
         StringBuilder diagnostic = new StringBuilder();

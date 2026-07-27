@@ -1,7 +1,10 @@
 package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.config.CodeStorageProperties;
+import com.rush.rushaicodemother.config.GenerationProjectContextProperties;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
+import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.review.BackendQualityReviewService;
@@ -34,12 +37,15 @@ public final class GenerationAgentTestFixture {
             GenerationSkillLibrary skillLibrary,
             GenerationWorkspaceService generationWorkspaceService
     ) {
+        WorkspaceFileSystemService fileSystemService = WorkspaceFileSystemTestFactory.create();
         return new GenerationAgentSupport(
                 new GenerationRecipeLibrary(),
                 skillLibrary,
-                new WorkspaceSemanticIndexService(WorkspaceFileSystemTestFactory.create()),
+                new WorkspaceSemanticIndexService(fileSystemService),
                 new GenerationContextCompressionServiceImpl(),
-                generationWorkspaceService
+                generationWorkspaceService,
+                new GeneratedProjectContextService(
+                        fileSystemService, new GenerationProjectContextProperties())
         );
     }
 

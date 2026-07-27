@@ -16,7 +16,7 @@ import java.util.function.Supplier;
 @Component
 public class GenerationToolExecutionContextService {
 
-    /** Internal-only InvocationParameters key; never rendered into a prompt or tool argument. */
+    /** 仅供内部使用的 InspirationParameters 键；从未呈现为提示或工具参数。 */
     public static final String EXECUTION_FENCE_PARAMETER = "generation.execution.fence";
 
     private final ConcurrentMap<Long, GenerationToolExecutionContext> contexts = new ConcurrentHashMap<>();
@@ -35,22 +35,22 @@ public class GenerationToolExecutionContextService {
             if (fenced != null && Objects.equals(appId, fenced.appId())) {
                 return Optional.of(fenced);
             }
-            // An exact-fence lookup must fail closed. Falling back to the mutable app-level slot
-            // would let a late callback write into a newer execution epoch.
+            // 精确围栏查找必须失败关闭。回落到可变的应用程序级插槽
+            // 会让延迟回调写入较新的执行纪元。
             return Optional.empty();
         }
         return Optional.ofNullable(contexts.get(appId));
     }
 
-    /** Looks up a context by the immutable fence captured by a model invocation. */
+    /** 通过模型调用捕获的不可变栅栏查找上下文。 */
     public Optional<GenerationToolExecutionContext> getContext(GenerationExecutionFence fence) {
         return fence == null ? Optional.empty() : Optional.ofNullable(fencedContexts.get(fence));
     }
 
     /**
-     * Resolves the exact context associated with a LangChain4j invocation. If the invocation carries
-     * a fence, falling back to the app-wide context is deliberately forbidden: that would let a late
-     * callback use a newer epoch's workspace.
+     * 解析与 LangChain4j 调用相关的确切上下文。如果调用携带
+     * 故意禁止栅栏，回退到应用程序范围的上下文：这会让迟到的人
+     * 回调使用较新纪元的工作区。
      */
     public Optional<GenerationToolExecutionContext> getContextForInvocation(InvocationContext invocationContext) {
         if (invocationContext == null) {
@@ -85,12 +85,12 @@ public class GenerationToolExecutionContextService {
     }
 
     /**
-     * Binds tool policy together with the immutable execution identity selected by the worker.
+     * 将工具策略与工作人员选择的不可变执行身份绑定在一起。
      *
-     * <p>Post-generation validation can replace the change plan after the model stream has
-     * crossed an asynchronous boundary.  The old overload intentionally remains available for
-     * legacy callers, but managed executions must use this overload so a policy refresh cannot
-     * silently drop the fenced workspace.</p>
+     * <p>生成后验证可以在模型流完成后替换变更计划
+     * 跨越了异步边界。  旧的重载有意保留为
+     * 遗留调用者，但托管执行必须使用此重载，因此策略刷新无法
+     * 默默地放下围栏工作区。</p>
      */
     public void bindChangePlan(Long appId,
                                String taskId,
@@ -122,12 +122,12 @@ public class GenerationToolExecutionContextService {
                 allowUnplannedWrite, reason, workspace));
     }
 
-    /** Binds the exact isolated workspace after orchestration has selected its target type. */
+    /** 在编排选择其目标类型后，绑定确切的隔离工作区。 */
     public void bindWorkspace(Long appId, String taskId, GenerationWorkspace workspace) {
         bindWorkspace(appId, taskId, workspace, activeFence.get());
     }
 
-    /** Binds a workspace to the exact durable epoch rather than to an app-wide mutable slot. */
+    /** 将工作区绑定到确切的持久纪元，而不是绑定到应用程序范围的可变槽。 */
     public void bindWorkspace(Long appId,
                               String taskId,
                               GenerationWorkspace workspace,
@@ -150,7 +150,7 @@ public class GenerationToolExecutionContextService {
         });
     }
 
-    /** Associates the current app/task context with the durable execution epoch. */
+    /** 将当前应用程序/任务上下文与持久执行纪元相关联。 */
     public void bindExecutionFence(Long appId,
                                    String taskId,
                                    GenerationExecutionFence fence) {
@@ -160,11 +160,11 @@ public class GenerationToolExecutionContextService {
     }
 
     /**
-     * Pins an already prepared tool policy to a durable epoch without manufacturing a policy.
+     * 将已经准备好的工具政策固定到一个持久的时代，而不需要制定政策。
      *
-     * <p>CREATE and non-tool edit routes legitimately reach worker admission before any tool
-     * context exists.  Dispatch may pin a context prepared by an earlier phase, but it must not
-     * fail those routes or create a permissive placeholder merely to attach a fence.</p>
+     * <p>CREATE 和非工具编辑路径在任何工具之前合法到达工作人员许可
+     * 上下文存在。  调度可以固定早期阶段准备的上下文，但它不能
+     * 使这些路线失败或创建一个允许的占位符只是为了附加围栏。</p>
      */
     public boolean bindExecutionFenceIfPresent(Long appId,
                                                String taskId,
@@ -202,7 +202,7 @@ public class GenerationToolExecutionContextService {
         }
     }
 
-    /** Clears only the context owned by one task; a newer task for the same app is preserved. */
+    /** 仅清除一项任务所拥有的上下文；同一应用程序的新任务将被保留。 */
     public void clearContext(Long appId, String taskId) {
         if (appId == null || taskId == null) {
             return;
@@ -221,12 +221,12 @@ public class GenerationToolExecutionContextService {
     }
 
     /**
-     * Clears a task context only when the supplied durable fence is still the current owner.
+     * 仅当提供的持久围栏仍然是当前所有者时才清除任务上下文。
      *
-     * <p>This is intentionally stricter than {@link #clearContext(Long, String)}. Dispatch
-     * cleanup can run after a retry or approval continuation has already installed a newer
-     * execution epoch; an old worker must not remove that newer worker's app-level fallback
-     * context.</p>
+     * <p> 故意比 {@link #clearContext(Long, String)} 更严格。派遣
+     * 重试或批准继续已安装更新版本后可以运行清理
+     * 执行纪元；旧工作人员不得删除新工作人员的应用程序级回退
+     * 上下文.</p>
      */
     public void clearContext(Long appId, String taskId, GenerationExecutionFence fence) {
         if (appId == null || taskId == null || fence == null || !taskId.equals(fence.taskId())) {
@@ -261,7 +261,7 @@ public class GenerationToolExecutionContextService {
         }
     }
 
-    /** Activates an exact fence for code called by a tool executor on the current thread. */
+    /** 为当前线程上的工具执行器调用的代码激活精确的栅栏。 */
     public void activateFence(GenerationExecutionFence fence) {
         if (fence == null) {
             activeFence.remove();

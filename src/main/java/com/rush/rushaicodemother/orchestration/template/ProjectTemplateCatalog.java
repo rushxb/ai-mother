@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Set;
 
-/** Canonical allowlist of project templates packaged with the application. */
+/** 与应用程序一起打包的项目模板的规范白名单。 */
 @Component
 public class ProjectTemplateCatalog {
 

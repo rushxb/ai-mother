@@ -20,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * 用户额度服务实现。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor

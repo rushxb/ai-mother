@@ -17,10 +17,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
- * Writes controller-layer failures as Server-Sent Events protocol frames.
+ * 将控制器层故障写入服务器发送事件协议帧。
  *
- * <p>This component owns transport detection and response writing only. The global exception
- * handler remains responsible for selecting the public error code and message.</p>
+ * <p>该组件仅拥有传输检测和响应写入。全局异常
+ * 处理程序仍然负责选择公共错误代码和消息。</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -34,9 +34,9 @@ public class SseExceptionResponseWriter {
     private final ObjectMapper objectMapper;
 
     /**
-     * Writes an error and terminal event when the current request uses SSE.
+     * 当前请求使用 SSE 时写入错误和终止事件。
      *
-     * @return {@code true} when the response was handled as SSE and no JSON body should be written
+     * @return {@code true} 当响应作为 SSE 处理且不应写入 JSON 主体时
      */
     public boolean writeIfApplicable(HttpServletRequest request,
                                      HttpServletResponse response,
@@ -62,7 +62,7 @@ public class SseExceptionResponseWriter {
             writer.flush();
             return true;
         } catch (IOException | IllegalStateException exception) {
-            // A disconnected client cannot receive a fallback JSON body after SSE output starts.
+            // SSE 输出开始后，断开连接的客户端无法接收后备 JSON 正文。
             log.warn("Failed to write SSE exception response for {}: {}",
                     request.getRequestURI(), LogExceptionSanitizer.sanitizeMessage(exception));
             return true;

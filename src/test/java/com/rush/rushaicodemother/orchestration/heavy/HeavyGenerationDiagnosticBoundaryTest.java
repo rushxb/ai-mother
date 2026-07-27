@@ -4,7 +4,6 @@ import com.rush.rushaicodemother.config.CodeStorageProperties;
 
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
-import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.builder.VueBuildCommandResult;
 import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
@@ -58,7 +57,8 @@ class HeavyGenerationDiagnosticBoundaryTest {
                 StandardCharsets.UTF_8);
         try {
             DevServerValidationService devServerValidationService = mock(DevServerValidationService.class);
-            VueProjectBuilder vueProjectBuilder = mock(VueProjectBuilder.class);
+            GenerationProjectBuildValidationService projectBuildValidationService =
+                    mock(GenerationProjectBuildValidationService.class);
             VueBuildCommandResult commandResult = new VueBuildCommandResult(
                     "pnpm run build",
                     true,
@@ -67,16 +67,16 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     "C:\\Users\\rush\\workspace\\src\\App.vue:3:1 build completed\nprovider-api-key=secret-value",
                     null
             );
-            when(vueProjectBuilder.buildProjectWithResult(anyString(), eq(taskId))).thenReturn(
-                    new VueBuildResult(
+            VueBuildResult vueBuildResult = new VueBuildResult(
                             true,
                             "done",
                             projectPath.toString(),
                             "构建成功，registry-token=summary-secret",
                             null,
                             commandResult
-                    )
-            );
+                    );
+            when(projectBuildValidationService.validate(any(), any(), eq(taskId)))
+                    .thenReturn(ProjectBuildValidationResult.fromVue(vueBuildResult));
             when(devServerValidationService.validate(anyString(), anyLong(), anyLong(), any(CodeGenTypeEnum.class)))
                     .thenReturn(DevServerValidationResult.passed(taskId, appId, 5));
             HeavyGenerationBuildValidationService service = new HeavyGenerationBuildValidationService(
@@ -88,8 +88,7 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     mock(HeavyGenerationFailureRecoveryService.class),
                     mock(HeavyGenerationSessionCompletionService.class),
                     new GenerationWorkspaceService(new CodeStorageProperties()),
-                    vueProjectBuilder,
-                    mock(com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService.class),
+                    projectBuildValidationService,
                     mock(GenerationStageAdmissionService.class)
             );
             GenerationPreparation preparation = preparation(taskId, new HashMap<>());

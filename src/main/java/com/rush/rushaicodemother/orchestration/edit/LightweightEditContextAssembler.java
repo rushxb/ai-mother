@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Locates edit files and assembles bounded project context for lightweight edits. */
+/** 定位编辑文件并组装有界项目上下文以进行轻量级编辑。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor

@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.orchestration.codegraph;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 工作区代码图的不可变数据载体。
+ */
 public record WorkspaceCodeGraph(
         String rootPath,
         List<CodeGraphFileNode> files,

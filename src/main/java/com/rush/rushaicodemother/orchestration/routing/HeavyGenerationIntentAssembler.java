@@ -1,11 +1,7 @@
 package com.rush.rushaicodemother.orchestration.routing;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
-import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.rush.rushaicodemother.constant.AppConstant;
-import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.App;
@@ -15,19 +11,15 @@ import com.rush.rushaicodemother.orchestration.edit.GenerationEditRouteService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Locale;
 
 /**
- * Assembles the legacy heavy-generation intent after GenerationModeRouter has selected HEAVY_EXPERT.
+ * 在 GenerationModeRouter 选中 HEAVY_EXPERT 后组装重型生成意图。
  */
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class HeavyGenerationIntentAssembler {
 
     private static final List<String> BUILD_KEYWORDS = List.of(
@@ -35,12 +27,27 @@ public class HeavyGenerationIntentAssembler {
             "工程化", "vue工程", "路由", "依赖", "配置", "api", "接口"
     );
 
-    private final AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
+    private final HeavyGenerationTargetTypeRouter targetTypeRouter;
     private final AppDatabaseResourceService appDatabaseResourceService;
     private final GenerationEditRouteService generationEditRouteService;
     private final GenerationWorkspaceService generationWorkspaceService;
 
+    public HeavyGenerationIntentAssembler(
+            HeavyGenerationTargetTypeRouter targetTypeRouter,
+            AppDatabaseResourceService appDatabaseResourceService,
+            GenerationEditRouteService generationEditRouteService,
+            GenerationWorkspaceService generationWorkspaceService) {
+        this.targetTypeRouter = targetTypeRouter;
+        this.appDatabaseResourceService = appDatabaseResourceService;
+        this.generationEditRouteService = generationEditRouteService;
+        this.generationWorkspaceService = generationWorkspaceService;
+    }
+
     public HeavyGenerationIntentDecision assemble(App app, String userMessage) {
+        return assemble(null, app, userMessage);
+    }
+
+    public HeavyGenerationIntentDecision assemble(String taskId, App app, String userMessage) {
         ThrowUtils.throwIf(app == null || app.getId() == null, ErrorCode.PARAMS_ERROR, "应用参数错误");
         CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(currentType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
@@ -67,7 +74,8 @@ public class HeavyGenerationIntentAssembler {
             );
         }
 
-        CodeGenTypeEnum routedType = routeTargetType(app, generationMessage, currentType);
+        CodeGenTypeEnum routedType = targetTypeRouter.resolve(
+                taskId, app.getId(), userMessage, currentType, hasGeneratedCode);
         CodeGenTypeEnum targetType = CodeGenTypeEnum.max(currentType, routedType);
         boolean requiresBuild = requiresBuildValidation(generationMessage, currentType, targetType, hasGeneratedCode);
         return new HeavyGenerationIntentDecision(
@@ -83,23 +91,13 @@ public class HeavyGenerationIntentAssembler {
         );
     }
 
-    private CodeGenTypeEnum routeTargetType(App app, String routingPrompt, CodeGenTypeEnum currentType) {
-        try {
-            AiCodeGenTypeRoutingService routingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
-            CodeGenTypeEnum routedType = routingService.routeCodeGenType(routingPrompt);
-            return routedType == null ? currentType : routedType;
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            log.warn("重型生成意图装配失败，沿用当前模式，appId: {}", app.getId(), LogExceptionSanitizer.sanitize(e));
-            return currentType;
-        }
-    }
-
     private boolean requiresBuildValidation(String message,
                                             CodeGenTypeEnum currentType,
                                             CodeGenTypeEnum targetType,
                                             boolean hasGeneratedCode) {
+        if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
+            return true;
+        }
         if (targetType != CodeGenTypeEnum.VUE_PROJECT && targetType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return false;
         }

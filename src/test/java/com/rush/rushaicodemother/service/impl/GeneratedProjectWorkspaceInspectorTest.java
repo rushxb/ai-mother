@@ -77,6 +77,32 @@ class GeneratedProjectWorkspaceInspectorTest {
         assertTrue(state.canAutoRepair());
     }
 
+    @Test
+    void shouldRecognizeBackendAndFullStackKeyFiles() throws Exception {
+        Path backend = testDir("backend-key-files");
+        Files.createDirectories(backend.resolve("cmd/server"));
+        Files.writeString(backend.resolve("go.mod"), "module example");
+        Files.writeString(backend.resolve("go.sum"), "");
+        Files.writeString(backend.resolve("cmd/server/main.go"), "package main");
+
+        GeneratedProjectWorkspaceInspector.WorkspaceState backendState =
+                GeneratedProjectWorkspaceInspector.inspectBackendProject(backend);
+        assertTrue(backendState.hasKeyProjectFiles());
+        assertTrue(backendState.canAutoRepair());
+
+        Path fullStack = testDir("full-stack-key-files");
+        Files.createDirectories(fullStack.resolve("frontend"));
+        Files.createDirectories(fullStack.resolve("backend/cmd/server"));
+        Files.writeString(fullStack.resolve("frontend/package.json"), "{}");
+        Files.writeString(fullStack.resolve("backend/go.mod"), "module example");
+        Files.writeString(fullStack.resolve("backend/cmd/server/main.go"), "package main");
+
+        GeneratedProjectWorkspaceInspector.WorkspaceState fullStackState =
+                GeneratedProjectWorkspaceInspector.inspectFullStackProject(fullStack);
+        assertTrue(fullStackState.hasKeyProjectFiles());
+        assertTrue(fullStackState.canAutoRepair());
+    }
+
     private Path testDir(String name) throws Exception {
         Path root = Path.of("target/test-workspaces/generated-project-inspector", name)
                 .toAbsolutePath()

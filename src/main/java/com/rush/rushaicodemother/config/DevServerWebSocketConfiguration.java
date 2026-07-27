@@ -9,7 +9,7 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
-/** Registers same-origin browser and signed node-to-node Vite HMR endpoints. */
+/** 注册同源浏览器和签名的节点到节点 Vite HMR 端点。 */
 @Configuration(proxyBeanMethods = false)
 @EnableWebSocket
 public class DevServerWebSocketConfiguration implements WebSocketConfigurer {

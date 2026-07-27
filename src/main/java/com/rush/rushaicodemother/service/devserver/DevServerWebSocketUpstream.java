@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.service.devserver;
 import java.net.URI;
 import java.util.Map;
 
-/** Trusted WebSocket upstream produced only after user or internal-node authorization. */
+/** 受信任的 WebSocket 上游仅在用户或内部节点授权后产生。 */
 public record DevServerWebSocketUpstream(
         URI targetUri,
         Map<String, String> headers

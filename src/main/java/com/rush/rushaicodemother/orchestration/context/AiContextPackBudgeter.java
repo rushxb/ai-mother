@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.context;
 
-/** Applies the model-input budget without coupling context producers to a tokenizer implementation. */
+/** 应用模型输入预算，而不将上下文生成器耦合到分词器实现。 */
 public interface AiContextPackBudgeter {
 
     AiContextPack apply(AiContextPack contextPack);

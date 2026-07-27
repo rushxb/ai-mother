@@ -5,6 +5,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 生成性能汇总接口视图对象。
+ */
 @Data
 @Builder
 public class GenerationPerformanceSummaryVO {

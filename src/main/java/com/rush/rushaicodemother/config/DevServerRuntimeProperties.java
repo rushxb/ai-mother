@@ -32,7 +32,10 @@ public class DevServerRuntimeProperties {
     /** 启动就绪后，用于收集首次编译延迟错误的验证窗口。 */
     private Duration validationErrorCollectionWindow = Duration.ofSeconds(5);
 
-    /** Polling interval for cancellation and deadline checks during validation. */
+    /** 检测到阻断级错误后，继续收集同批诊断的短暂收口窗口。 */
+    private Duration validationCriticalErrorDrainWindow = Duration.ofMillis(300);
+
+    /** 验证期间取消和截止日期检查的轮询间隔。 */
     private Duration validationPollInterval = Duration.ofMillis(100);
 
     /** 进程结束后等待输出消费线程收口的时长。 */
@@ -66,19 +69,19 @@ public class DevServerRuntimeProperties {
     @Max(10_000)
     private int maxRecentOutputLines = 200;
 
-    /** Stable deployment node identity. Production must configure this explicitly. */
+    /** 稳定的部署节点身份。生产环境必须明确配置它。 */
     private String nodeId;
 
-    /** Ownership lease for a durable Dev Server session. */
+    /** 持久开发服务器会话的所有权租赁。 */
     private Duration leaseDuration = Duration.ofSeconds(30);
 
-    /** Interval used by the owning process to renew its session lease. */
+    /** 拥有进程更新其会话租约所使用的时间间隔。 */
     private Duration heartbeatInterval = Duration.ofSeconds(10);
 
-    /** Interval used to scan for expired Dev Server sessions. */
+    /** 用于扫描过期开发服务器会话的时间间隔。 */
     private Duration recoveryScanInterval = Duration.ofSeconds(15);
 
-    /** Maximum expired sessions recovered in one scan. */
+    /** 一次扫描中恢复的最大过期会话数。 */
     @Min(1)
     @Max(500)
     private int recoveryBatchSize = 50;
@@ -100,6 +103,7 @@ public class DevServerRuntimeProperties {
                 startupTimeout,
                 readinessPollInterval,
                 validationErrorCollectionWindow,
+                validationCriticalErrorDrainWindow,
                 validationPollInterval,
                 outputDrainTimeout,
                 stopTimeout,
@@ -121,6 +125,13 @@ public class DevServerRuntimeProperties {
         return startupTimeout != null
                 && readinessPollInterval != null
                 && readinessPollInterval.compareTo(startupTimeout) < 0;
+    }
+
+    @AssertTrue(message = "Dev Server 阻断错误收口窗口不能超过完整错误收集窗口")
+    public boolean isValidationCriticalErrorDrainWindowSafe() {
+        return validationErrorCollectionWindow != null
+                && validationCriticalErrorDrainWindow != null
+                && validationCriticalErrorDrainWindow.compareTo(validationErrorCollectionWindow) <= 0;
     }
 
     @AssertTrue(message = "Dev Server 端口范围配置无效")

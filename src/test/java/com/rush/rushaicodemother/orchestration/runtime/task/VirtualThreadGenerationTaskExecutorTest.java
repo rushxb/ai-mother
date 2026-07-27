@@ -95,6 +95,7 @@ class VirtualThreadGenerationTaskExecutorTest {
         runtimeProperties.setTaskTimeout(Duration.ofMillis(100));
         runtimeProperties.setModelCallTimeout(Duration.ofMillis(50));
         runtimeProperties.setMinimumOperationTimeout(Duration.ofMillis(1));
+        runtimeProperties.setFirstPreviewCompletionReserve(Duration.ofMillis(1));
         GenerationExecutionContext context =
                 new GenerationExecutionContextService(runtimeProperties).start("task-expiring", 1L, 2L);
         GenerationExecutionFence fence =
@@ -120,6 +121,7 @@ class VirtualThreadGenerationTaskExecutorTest {
         runtimeProperties.setTaskTimeout(Duration.ofMillis(150));
         runtimeProperties.setModelCallTimeout(Duration.ofMillis(100));
         runtimeProperties.setMinimumOperationTimeout(Duration.ofMillis(1));
+        runtimeProperties.setFirstPreviewCompletionReserve(Duration.ofMillis(1));
         GenerationExecutionContext context =
                 new GenerationExecutionContextService(runtimeProperties)
                         .start("task-hard-deadline", 1L, 2L);

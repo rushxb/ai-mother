@@ -16,10 +16,10 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 
 /**
- * Owns atomic application generation-state transitions.
+ * 拥有原子应用程序生成状态转换。
  *
- * <p>Every mutable state is scoped to a task ID. Stage and snapshot updates from an older task
- * therefore cannot overwrite a newer task, while a bounded lease allows recovery after process loss.</p>
+ * <p> 每个可变状态的范围仅限于一个任务 ID。较旧任务的阶段和快照更新
+ * 因此不能覆盖较新的任务，而有界租约允许在进程丢失后恢复。</p>
  */
 @Service
 public class GenerationAppStateService {

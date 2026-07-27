@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.ai.prompt.release;
 
 import java.time.Instant;
 
-/** Current durable release pointer for one prompt key. */
+/** 当前持久释放指针为一个提示键。 */
 public record PromptReleaseRecord(
         String promptKey,
         PromptReleaseSpec release,

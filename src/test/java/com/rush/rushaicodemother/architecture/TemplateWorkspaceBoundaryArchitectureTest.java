@@ -63,13 +63,15 @@ class TemplateWorkspaceBoundaryArchitectureTest {
             assertFalse(source.contains("workspace.backendRootPath())"));
         }
         String runner = Files.readString(TEMPLATE_PACKAGE.resolve("TemplateNodeModulesPreWarmRunner.java"));
-        String preWarmService = Files.readString(TEMPLATE_PACKAGE.resolve("TemplatePreWarmService.java"));
+        String bootstrapper = Files.readString(TEMPLATE_PACKAGE.resolve("ProjectTemplateBootstrapper.java"));
 
         assertTrue(runner.contains("ProjectTemplateMaterializer"));
+        assertTrue(runner.contains("DependencyInstallMode.REFRESH_FROM_LOCKFILE"));
         assertFalse(runner.contains("PathMatchingResourcePatternResolver"));
         assertFalse(runner.contains("copyTemplateToTemp"));
-        assertFalse(preWarmService.contains("FileUtil"));
-        assertFalse(preWarmService.contains("ConcurrentHashMap<String, ReentrantLock>"));
+        assertFalse(runner.contains("registerPreWarmedModules"));
+        assertFalse(bootstrapper.contains("copyPreWarmedModules"));
+        assertFalse(bootstrapper.contains("node_modules"));
     }
 
     private static Path sourcePath(String... childSegments) {

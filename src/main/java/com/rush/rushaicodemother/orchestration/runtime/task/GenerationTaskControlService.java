@@ -13,7 +13,7 @@ import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/** Idempotent command seam for task-scoped and legacy app-scoped cancellation. */
+/** 用于任务范围和遗留应用程序范围取消的幂等命令缝。 */
 @Service
 @RequiredArgsConstructor
 public class GenerationTaskControlService {

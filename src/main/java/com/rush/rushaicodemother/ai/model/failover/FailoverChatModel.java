@@ -15,33 +15,63 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.function.LongSupplier;
 
-/** Synchronous request-level failover across a bounded, healthy model pool. */
+/** 跨有限的、健康的模型池进行同步请求级故障转移。 */
 public final class FailoverChatModel implements ChatModel {
 
     private final List<AiModelCandidate<ChatModel>> candidates;
     private final AiModelMetricsCollector metrics;
     private final Duration totalTimeout;
     private final LongSupplier nanoTime;
+    private final IntConsumer beforeProviderAttempt;
+    private final boolean stickyProvider;
+    private final AtomicInteger preferredCandidateIndex = new AtomicInteger();
 
     public FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
                              AiModelMetricsCollector metrics) {
-        this(candidates, metrics, null, System::nanoTime);
+        this(candidates, metrics, null, System::nanoTime, ignored -> { }, false);
     }
 
-    /** Creates a failover pool with one wall-clock budget shared by every candidate. */
+    /** 创建一个故障转移池，其中每个候选者共享一个挂钟预算。 */
     public FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
                              AiModelMetricsCollector metrics,
                              Duration totalTimeout) {
-        this(candidates, metrics, totalTimeout, System::nanoTime);
+        this(candidates, metrics, totalTimeout, System::nanoTime, ignored -> { }, false);
+    }
+
+    /** 将同步模型回合和 provider 故障转移使用独立预算约束。 */
+    public FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
+                             AiModelMetricsCollector metrics,
+                             Duration totalTimeout,
+                             Runnable beforeModelTurn,
+                             Runnable beforeProviderFailoverAttempt) {
+        this(candidates, metrics, totalTimeout, System::nanoTime, attemptIndex -> {
+            Runnable admission = attemptIndex == 0
+                    ? beforeModelTurn
+                    : beforeProviderFailoverAttempt;
+            if (admission != null) {
+                admission.run();
+            }
+        }, true);
     }
 
     FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
                       AiModelMetricsCollector metrics,
                       Duration totalTimeout,
                       LongSupplier nanoTime) {
+        this(candidates, metrics, totalTimeout, nanoTime, ignored -> { }, false);
+    }
+
+    private FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
+                              AiModelMetricsCollector metrics,
+                              Duration totalTimeout,
+                              LongSupplier nanoTime,
+                              IntConsumer beforeProviderAttempt,
+                              boolean stickyProvider) {
         if (candidates == null || candidates.isEmpty()) {
             throw new IllegalArgumentException("at least one chat model candidate is required");
         }
@@ -52,6 +82,8 @@ public final class FailoverChatModel implements ChatModel {
         this.metrics = metrics;
         this.totalTimeout = totalTimeout;
         this.nanoTime = java.util.Objects.requireNonNull(nanoTime, "nanoTime");
+        this.beforeProviderAttempt = beforeProviderAttempt == null ? ignored -> { } : beforeProviderAttempt;
+        this.stickyProvider = stickyProvider;
     }
 
     @Override
@@ -87,26 +119,48 @@ public final class FailoverChatModel implements ChatModel {
     private ChatResponse execute(Function<ChatModel, ChatResponse> invocation) {
         List<RuntimeException> failures = new ArrayList<>();
         long deadlineNanos = deadlineNanos();
-        for (int index = 0; index < candidates.size(); index++) {
-            if (index > 0 && deadlineReached(deadlineNanos)) {
+        List<Integer> candidateOrder = candidateOrder();
+        for (int attemptIndex = 0; attemptIndex < candidateOrder.size(); attemptIndex++) {
+            if (attemptIndex > 0 && deadlineReached(deadlineNanos)) {
                 throw timeout(failures);
             }
-            AiModelCandidate<ChatModel> candidate = candidates.get(index);
+            int candidateIndex = candidateOrder.get(attemptIndex);
+            AiModelCandidate<ChatModel> candidate = candidates.get(candidateIndex);
             try {
-                return invocation.apply(candidate.model());
+                beforeProviderAttempt.accept(attemptIndex);
+                ChatResponse response = invocation.apply(candidate.model());
+                promote(candidateIndex);
+                return response;
             } catch (RuntimeException failure) {
                 failures.add(failure);
                 AiModelFailoverPolicy.Decision decision = AiModelFailoverPolicy.classify(failure);
-                if (!decision.recoverable() || index + 1 >= candidates.size()) {
+                if (!decision.recoverable() || attemptIndex + 1 >= candidateOrder.size()) {
                     throw withSuppressed(failure, failures);
                 }
                 if (deadlineReached(deadlineNanos)) {
                     throw timeout(failures);
                 }
-                recordFailover(candidate, candidates.get(index + 1), decision.category());
+                recordFailover(candidate,
+                        candidates.get(candidateOrder.get(attemptIndex + 1)),
+                        decision.category());
             }
         }
         throw new IllegalStateException("chat model failover pool completed without a result");
+    }
+
+    private List<Integer> candidateOrder() {
+        int start = stickyProvider ? preferredCandidateIndex.get() : 0;
+        List<Integer> order = new ArrayList<>(candidates.size());
+        for (int offset = 0; offset < candidates.size(); offset++) {
+            order.add((start + offset) % candidates.size());
+        }
+        return order;
+    }
+
+    private void promote(int candidateIndex) {
+        if (stickyProvider) {
+            preferredCandidateIndex.set(candidateIndex);
+        }
     }
 
     private RuntimeException withSuppressed(RuntimeException terminal,

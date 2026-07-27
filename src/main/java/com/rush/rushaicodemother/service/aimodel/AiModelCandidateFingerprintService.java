@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.service.aimodel;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.ReleaseCandidateFingerprint;
 import org.springframework.stereotype.Component;
 
-/** Stable, non-reversible identity for the exact model configuration proposed for enablement. */
+/** 为实现而提出的精确模型配置的稳定、不可逆的身份。 */
 @Component
 public class AiModelCandidateFingerprintService {
 

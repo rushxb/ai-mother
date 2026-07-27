@@ -24,9 +24,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,6 +37,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -228,6 +231,138 @@ class ManagedProcessExecutorTest {
     }
 
     @Test
+    void shouldActivateExposedPortBeforeLifecycleCallback() {
+        List<String> events = new CopyOnWriteArrayList<>();
+        GeneratedCodeProcessSandbox sandbox = new GeneratedCodeProcessSandbox() {
+            @Override
+            public SandboxProcessPlan prepare(ManagedProcessRequest request, Path directory) {
+                throw new AssertionError("暴露端口请求不应走普通沙箱准备路径");
+            }
+
+            @Override
+            public SandboxProcessPlan prepareDevServer(
+                    ManagedProcessRequest request,
+                    Path directory,
+                    int hostPort
+            ) {
+                assertEquals(5180, hostPort);
+                events.add("prepare");
+                return new SandboxProcessPlan(
+                        "test-sandbox",
+                        directory,
+                        request.command(),
+                        request.environment(),
+                        request.environmentVariablesToRemove(),
+                        "container-5180"
+                );
+            }
+
+            @Override
+            public void activate(SandboxProcessPlan plan) {
+                events.add("activate");
+            }
+
+            @Override
+            public void cleanup(SandboxProcessPlan plan) {
+                events.add("cleanup");
+            }
+        };
+        ManagedProcessExecutor executor = new ManagedProcessExecutor(
+                processTerminator,
+                builder -> {
+                    events.add("start");
+                    return FakeProcess.completed(
+                            0,
+                            InputStream.nullInputStream(),
+                            InputStream.nullInputStream()
+                    );
+                },
+                sandbox
+        );
+
+        ManagedProcessResult result = executor.execute(requestBuilder()
+                .exposedPort(5180)
+                .lifecycle(new ManagedProcessLifecycle() {
+                    @Override
+                    public void onStarted(Process process) {
+                        events.add("lifecycle-started");
+                    }
+
+                    @Override
+                    public void onFinished(Process process) {
+                        events.add("lifecycle-finished");
+                    }
+                })
+                .build());
+
+        assertTrue(result.exitedSuccessfully());
+        assertEquals(
+                List.of("prepare", "start", "activate", "lifecycle-started", "lifecycle-finished", "cleanup"),
+                events
+        );
+    }
+
+    @Test
+    void shouldTerminateAndCleanProcessWhenSandboxActivationFails() {
+        FakeProcess process = FakeProcess.running();
+        when(processTerminator.terminate(process)).thenAnswer(invocation -> {
+            process.destroyForcibly();
+            return true;
+        });
+        AtomicBoolean cleaned = new AtomicBoolean(false);
+        GeneratedCodeProcessSandbox sandbox = new GeneratedCodeProcessSandbox() {
+            @Override
+            public SandboxProcessPlan prepare(ManagedProcessRequest request, Path directory) {
+                return new SandboxProcessPlan(
+                        "test-sandbox",
+                        directory,
+                        request.command(),
+                        request.environment(),
+                        request.environmentVariablesToRemove(),
+                        "container-activation-failure"
+                );
+            }
+
+            @Override
+            public void activate(SandboxProcessPlan plan) {
+                throw new IllegalStateException("沙箱激活失败");
+            }
+
+            @Override
+            public void cleanup(SandboxProcessPlan plan) {
+                cleaned.set(true);
+            }
+        };
+        ManagedProcessExecutor executor = new ManagedProcessExecutor(
+                processTerminator,
+                builder -> process,
+                sandbox
+        );
+
+        ManagedProcessResult result = executor.execute(requestBuilder().build());
+
+        assertEquals(ManagedProcessResult.Status.START_FAILED, result.status());
+        assertFalse(process.isAlive());
+        assertTrue(cleaned.get());
+        verify(processTerminator).terminate(process);
+    }
+
+    @Test
+    void shouldRejectInvalidExposedPortBeforeStartingProcess() {
+        AtomicBoolean processStarted = new AtomicBoolean(false);
+        ManagedProcessExecutor executor = executor(builder -> {
+            processStarted.set(true);
+            return FakeProcess.completed(0, InputStream.nullInputStream(), InputStream.nullInputStream());
+        });
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> executor.execute(requestBuilder().exposedPort(65_536).build())
+        );
+        assertFalse(processStarted.get());
+    }
+
+    @Test
     void shouldNotReplaceSuccessfulResultWhenSandboxCleanupFails() {
         GeneratedCodeProcessSandbox sandbox = new GeneratedCodeProcessSandbox() {
             @Override
@@ -332,6 +467,35 @@ class ManagedProcessExecutorTest {
 
         assertFalse(capturedBuilder.get().environment().containsKey("NODE_OPTIONS"));
         assertEquals("safe-value", capturedBuilder.get().environment().get("SAFE_VARIABLE"));
+    }
+
+    @Test
+    void hostLocalMustKeepDeterministicGoEnvironmentAndRemoveHostGoConfiguration() {
+        AtomicReference<ProcessBuilder> capturedBuilder = new AtomicReference<>();
+        ManagedProcessExecutor executor = executor(builder -> {
+            capturedBuilder.set(builder);
+            return FakeProcess.completed(
+                    0,
+                    InputStream.nullInputStream(),
+                    InputStream.nullInputStream()
+            );
+        });
+        Map<String, String> environment = new LinkedHashMap<>(GoProcessEnvironment.overrides());
+        environment.put("GOROOT", "C:\\untrusted-go-root");
+        environment.put("GOPATH", "C:\\untrusted-go-path");
+        environment.put("GOPRIVATE", "private.example.com");
+
+        executor.execute(requestBuilder()
+                .environment(environment)
+                .environmentVariablesToRemove(GoProcessEnvironment.variablesToRemove())
+                .build());
+
+        Map<String, String> effectiveEnvironment = capturedBuilder.get().environment();
+        GoProcessEnvironment.overrides().forEach(
+                (name, value) -> assertEquals(value, effectiveEnvironment.get(name), name));
+        assertFalse(effectiveEnvironment.containsKey("GOROOT"));
+        assertFalse(effectiveEnvironment.containsKey("GOPATH"));
+        assertFalse(effectiveEnvironment.containsKey("GOPRIVATE"));
     }
 
     @Test

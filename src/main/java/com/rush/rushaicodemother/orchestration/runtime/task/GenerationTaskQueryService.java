@@ -30,7 +30,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
-/** Read-only task query service with local realtime data, durable fallback and telemetry-derived ETA. */
+/** 具有本地实时数据、持久回退和遥测派生的 ETA 的只读任务查询服务。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -58,7 +58,7 @@ public class GenerationTaskQueryService {
         return durableSnapshot(task);
     }
 
-    /** Finds the task a refreshed or second client should resume for an application. */
+    /** 查找刷新后的客户端或第二个客户端应为应用程序恢复的任务。 */
     public Optional<GenerationTaskSnapshot> findLatestNonTerminalForApp(Long appId, User actor) {
         requireActor(actor);
         if (appId == null || appId <= 0) {
@@ -96,7 +96,7 @@ public class GenerationTaskQueryService {
         throw eventStreamUnavailable();
     }
 
-    /** Durable task API stream with replay cursor, explicit gaps and a sequenced completion marker. */
+    /** 具有重放光标、显式间隙和有序完成标记的持久任务 API 流。 */
     public Flux<SequencedGenerationEvent> sequencedEvents(String taskId,
                                                           long afterSequence,
                                                           User actor) {

@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Public task status view with stage, ETA and task-wide budget usage. */
+/** 公共任务状态视图，包括阶段、预计到达时间和任务范围的预算使用情况。 */
 public record GenerationTaskStatusVO(
         String taskId,
         Long appId,

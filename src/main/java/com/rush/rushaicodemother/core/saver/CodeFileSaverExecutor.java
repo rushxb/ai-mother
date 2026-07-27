@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Routes generated-code results to the single saver registered for their generation type. */
+/** 将生成的代码结果路由到为其生成类型注册的单个保存器。 */
 @Service
 public class CodeFileSaverExecutor {
 
@@ -34,12 +34,12 @@ public class CodeFileSaverExecutor {
         this.saversByType = Map.copyOf(registeredSavers);
     }
 
-    /** Executes the saver registered for the requested generation type. */
+    /** 执行为请求的生成类型注册的保存器。 */
     public File executeSaver(Object codeResult, CodeGenTypeEnum codeGenType, Long appId) {
         return executeSaver(codeResult, codeGenType, appId, null);
     }
 
-    /** Executes a saver against an explicitly selected task/epoch workspace. */
+    /** 针对明确选择的任务/纪元工作区执行保护程序。 */
     public File executeSaver(Object codeResult,
                              CodeGenTypeEnum codeGenType,
                              Long appId,

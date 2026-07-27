@@ -84,6 +84,36 @@ public record VueBuildResult(
                 installResult, buildResult);
     }
 
+    static VueBuildResult taskReused(String projectPath) {
+        VueBuildCommandResult installResult = VueBuildCommandResult.skipped(
+                "pnpm install --prefer-offline",
+                "已复用本任务内通过的依赖校验"
+        );
+        VueBuildCommandResult buildResult = VueBuildCommandResult.skipped(
+                "复用任务构建结果",
+                "当前源码和 dist 与本任务内通过的构建快照一致"
+        );
+        return new VueBuildResult(
+                true,
+                "task-reuse",
+                projectPath,
+                "当前源码和 dist 未变化，已复用本任务内通过的构建结果",
+                installResult,
+                buildResult
+        );
+    }
+
+    static VueBuildResult sourceChangedDuringBuild(String projectPath) {
+        return new VueBuildResult(
+                false,
+                "snapshot",
+                projectPath,
+                "Vue 项目在构建验证期间发生变化或无法确认快照，需要重新验证",
+                null,
+                null
+        );
+    }
+
     public String publicProjectPath() {
         return VueBuildDiagnosticFormatter.publicProjectPath(this);
     }
@@ -110,11 +140,12 @@ public record VueBuildResult(
 
     public String validationTier() {
         return switch (stage) {
-            case "reuse" -> "复用";
+            case "reuse", "task-reuse" -> "复用";
             case "light-done", "build-light", "validate-light", "dependency-refresh" -> "轻量";
             case "done", "build" -> "全量";
             case "install" -> "安装";
             case "dist" -> "产物检查";
+            case "snapshot" -> "快照校验";
             default -> "准备";
         };
     }
@@ -122,7 +153,7 @@ public record VueBuildResult(
     public String repairPriority() {
         return switch (stage) {
             case "install", "validate-light", "build-light", "build" -> "高";
-            case "dist", "prepare" -> "中";
+            case "dist", "prepare", "snapshot" -> "中";
             default -> "低";
         };
     }
@@ -130,6 +161,7 @@ public record VueBuildResult(
     public String executionPath() {
         return switch (stage) {
             case "reuse" -> "复用现有 dist，跳过安装和构建";
+            case "task-reuse" -> "复用本任务内已通过且产物一致的构建结果";
             case "light-done" -> "跳过安装，执行轻量校验和轻量构建";
             case "dependency-refresh" -> "依赖刷新后执行轻量校验和轻量构建";
             case "validate-light" -> "轻量校验失败";
@@ -138,6 +170,7 @@ public record VueBuildResult(
             case "build" -> "全量构建失败";
             case "install" -> "依赖安装失败";
             case "dist" -> "构建完成后校验 dist";
+            case "snapshot" -> "构建完成后校验源码快照稳定性";
             case "prepare" -> "准备阶段";
             default -> stage;
         };

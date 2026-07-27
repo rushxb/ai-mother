@@ -4,8 +4,11 @@ import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.ProjectBuildCoordinationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -19,6 +22,7 @@ class VueProjectBuilderSpringContextTest {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(ProjectCommandProperties.class, ProjectCommandProperties::new);
             context.registerBean(WorkspaceFileSystemProperties.class, WorkspaceFileSystemProperties::new);
+            context.registerBean(MeterRegistry.class, SimpleMeterRegistry::new);
             context.registerBean(ProjectDependencyInstaller.class, () -> mock(ProjectDependencyInstaller.class));
             context.registerBean(
                     GenerationPerformanceMonitorService.class,
@@ -33,6 +37,7 @@ class VueProjectBuilderSpringContextTest {
                     VueBuildStateStore.class,
                     VueProjectSnapshotService.class,
                     VueProjectScriptResolver.class,
+                    ProjectBuildCoordinationMetricsCollector.class,
                     VueBuildResultRegistry.class,
                     VueBuildCommandService.class,
                     VueProjectBuilder.class
@@ -45,6 +50,7 @@ class VueProjectBuilderSpringContextTest {
             assertNotNull(context.getBean(VueBuildStateStore.class));
             assertNotNull(context.getBean(VueProjectSnapshotService.class));
             assertNotNull(context.getBean(VueProjectScriptResolver.class));
+            assertNotNull(context.getBean(ProjectBuildCoordinationMetricsCollector.class));
             assertNotNull(context.getBean(VueBuildResultRegistry.class));
         }
     }

@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -18,7 +19,8 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
     private final GenerationAgentSupport support;
 
     public ArchitectAgentNode(GenerationAgentSupport support) {
-        super("architect", "Architect", "architecture", List.of("planner", "context"));
+        super("architect", "Architect", "architecture", List.of("planner", "context"),
+                GenerationNodeReplayPolicy.REPLAY_SAFE);
         this.support = support;
     }
 

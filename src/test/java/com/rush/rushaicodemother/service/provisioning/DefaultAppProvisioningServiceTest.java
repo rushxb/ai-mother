@@ -2,9 +2,8 @@ package com.rush.rushaicodemother.service.provisioning;
 
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.rush.rushaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
-import com.rush.rushaicodemother.ai.AppNameGeneratorService;
-import com.rush.rushaicodemother.ai.AppNameGeneratorServiceFactory;
 import com.rush.rushaicodemother.ai.intent.BackendIntentDetector;
+import com.rush.rushaicodemother.ai.intent.DeterministicCodeGenTypeRouter;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -24,6 +23,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -45,12 +46,12 @@ class DefaultAppProvisioningServiceTest {
     private AppMapper appMapper;
     private AiModelRuntimeService aiModelService;
     private BackendIntentDetector backendIntentDetector;
+    private DeterministicCodeGenTypeRouter deterministicCodeGenTypeRouter;
     private AiCodeGenTypeRoutingServiceFactory routingServiceFactory;
-    private AppNameGeneratorServiceFactory appNameGeneratorServiceFactory;
+    private AppNameEnrichmentService appNameEnrichmentService;
     private ChatHistoryService chatHistoryService;
     private AppArtifactLifecycleService artifactLifecycleService;
     private AiCodeGenTypeRoutingService routingService;
-    private AppNameGeneratorService appNameGeneratorService;
     private TransactionOperations transactionOperations;
     private TenantProvisioningService tenantProvisioningService;
     private DefaultAppProvisioningService provisioningService;
@@ -60,23 +61,20 @@ class DefaultAppProvisioningServiceTest {
         appMapper = mock(AppMapper.class);
         aiModelService = mock(AiModelRuntimeService.class);
         backendIntentDetector = mock(BackendIntentDetector.class);
+        deterministicCodeGenTypeRouter = new DeterministicCodeGenTypeRouter();
         routingServiceFactory = mock(AiCodeGenTypeRoutingServiceFactory.class);
-        appNameGeneratorServiceFactory = mock(AppNameGeneratorServiceFactory.class);
+        appNameEnrichmentService = mock(AppNameEnrichmentService.class);
         chatHistoryService = mock(ChatHistoryService.class);
         artifactLifecycleService = mock(AppArtifactLifecycleService.class);
         routingService = mock(AiCodeGenTypeRoutingService.class);
-        appNameGeneratorService = mock(AppNameGeneratorService.class);
         transactionOperations = immediateTransactions();
         tenantProvisioningService = mock(TenantProvisioningService.class);
 
-        when(routingServiceFactory.createAiCodeGenTypeRoutingService()).thenReturn(routingService);
-        when(appNameGeneratorServiceFactory.createAppNameGeneratorService()).thenReturn(appNameGeneratorService);
+        when(routingServiceFactory.createAiCodeGenTypeRoutingService(any(Duration.class)))
+                .thenReturn(routingService);
         when(backendIntentDetector.detectIntent(any(String.class)))
                 .thenReturn(BackendIntentDetector.BackendIntentResult.none());
         when(routingService.routeCodeGenType(any(String.class))).thenReturn(CodeGenTypeEnum.VUE_PROJECT);
-        when(backendIntentDetector.constrainCodeGenType(any(), any()))
-                .thenReturn(CodeGenTypeEnum.VUE_PROJECT);
-        when(appNameGeneratorService.generateAppName(any(String.class))).thenReturn("应用名称：‘任务看板’");
         when(appMapper.selectCopySourceState(11L)).thenReturn(sourceApp());
         when(tenantProvisioningService.requirePersonalTenantId(any(User.class))).thenReturn(700L);
 
@@ -84,7 +82,7 @@ class DefaultAppProvisioningServiceTest {
     }
 
     @Test
-    void shouldCreateApplicationWithNormalizedNameAndRoutedType() {
+    void shouldCreateApplicationImmediatelyAndScheduleNameEnrichment() {
         assignInsertedId(101L);
         AppAddRequest request = new AppAddRequest();
         request.setInitPrompt("  创建一个任务管理看板  ");
@@ -95,7 +93,7 @@ class DefaultAppProvisioningServiceTest {
         ArgumentCaptor<App> appCaptor = ArgumentCaptor.forClass(App.class);
         verify(appMapper).insert(appCaptor.capture());
         App insertedApp = appCaptor.getValue();
-        assertEquals("任务看板", insertedApp.getAppName());
+        assertEquals("创建一个任务管理看板", insertedApp.getAppName());
         assertEquals("创建一个任务管理看板", insertedApp.getInitPrompt());
         assertEquals(CodeGenTypeEnum.VUE_PROJECT.getValue(), insertedApp.getCodeGenType());
         assertEquals(AppConstant.DEFAULT_APP_PRIORITY, insertedApp.getPriority());
@@ -103,13 +101,14 @@ class DefaultAppProvisioningServiceTest {
         assertEquals(700L, insertedApp.getTenantId());
         assertNull(insertedApp.getDevServerPort());
         verify(aiModelService).ensureGenerationModelsConfigured();
+        verifyNoInteractions(routingServiceFactory, routingService);
+        verify(appNameEnrichmentService).schedule(
+                101L, 9L, "创建一个任务管理看板", "创建一个任务管理看板");
     }
 
     @Test
-    void shouldUseLocalFallbackNameWhenAiNameGenerationFails() {
+    void shouldTruncateInitialNameWithoutWaitingForAi() {
         assignInsertedId(102L);
-        when(appNameGeneratorService.generateAppName(any(String.class)))
-                .thenThrow(new IllegalStateException("model unavailable"));
         AppAddRequest request = new AppAddRequest();
         request.setInitPrompt("  一个用于团队排期和任务跟踪的管理工具  ");
 
@@ -120,6 +119,8 @@ class DefaultAppProvisioningServiceTest {
         String fallbackName = appCaptor.getValue().getAppName();
         assertTrue(fallbackName.startsWith("一个用于团队排期"));
         assertTrue(fallbackName.length() <= 12);
+        verify(appNameEnrichmentService).schedule(
+                102L, 9L, "一个用于团队排期和任务跟踪的管理工具", fallbackName);
     }
 
     @Test
@@ -127,9 +128,6 @@ class DefaultAppProvisioningServiceTest {
         assignInsertedId(103L);
         when(backendIntentDetector.detectIntent(any(String.class)))
                 .thenReturn(BackendIntentDetector.BackendIntentResult.explicitBackend());
-        when(routingService.routeCodeGenType(any(String.class))).thenReturn(CodeGenTypeEnum.BACKEND_PROJECT);
-        when(backendIntentDetector.constrainCodeGenType(any(), any()))
-                .thenReturn(CodeGenTypeEnum.BACKEND_PROJECT);
         AppAddRequest request = new AppAddRequest();
         request.setInitPrompt("创建 Go 后端接口");
 
@@ -137,6 +135,44 @@ class DefaultAppProvisioningServiceTest {
 
         verify(appMapper).insert(argThat(app ->
                 CodeGenTypeEnum.BACKEND_PROJECT.getValue().equals(app.getCodeGenType())));
+        verifyNoInteractions(routingServiceFactory, routingService);
+    }
+
+    @Test
+    void shouldUseBoundedAiRoutingOnlyForAmbiguousIntent() {
+        assignInsertedId(105L);
+        when(backendIntentDetector.detectIntent(any(String.class)))
+                .thenReturn(BackendIntentDetector.BackendIntentResult.ambiguous());
+        when(routingService.routeCodeGenType(any(String.class)))
+                .thenReturn(CodeGenTypeEnum.FULL_STACK_PROJECT);
+        when(backendIntentDetector.constrainCodeGenType(any(), any()))
+                .thenReturn(CodeGenTypeEnum.FULL_STACK_PROJECT);
+        AppAddRequest request = new AppAddRequest();
+        request.setInitPrompt("创建 Vue 页面并连接 API");
+
+        provisioningService.create(request, user(9L));
+
+        verify(routingServiceFactory)
+                .createAiCodeGenTypeRoutingService(Duration.ofSeconds(5));
+        verify(appMapper).insert(argThat(app ->
+                CodeGenTypeEnum.FULL_STACK_PROJECT.getValue().equals(app.getCodeGenType())));
+    }
+
+    @Test
+    void shouldFallbackToFrontendWhenAmbiguousAiRoutingFails() {
+        assignInsertedId(106L);
+        when(backendIntentDetector.detectIntent(any(String.class)))
+                .thenReturn(BackendIntentDetector.BackendIntentResult.ambiguous());
+        when(routingService.routeCodeGenType(any(String.class)))
+                .thenThrow(new IllegalStateException("routing unavailable"));
+        AppAddRequest request = new AppAddRequest();
+        request.setInitPrompt("创建 Vue 页面并连接 API");
+
+        Long appId = provisioningService.create(request, user(9L));
+
+        assertEquals(106L, appId);
+        verify(appMapper).insert(argThat(app ->
+                CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())));
     }
 
     @Test
@@ -155,6 +191,7 @@ class DefaultAppProvisioningServiceTest {
 
         assertSame(commitFailure, exception);
         verify(appMapper).insert(any(App.class));
+        verifyNoInteractions(appNameEnrichmentService);
     }
 
     @Test
@@ -275,8 +312,9 @@ class DefaultAppProvisioningServiceTest {
                 appMapper,
                 aiModelService,
                 backendIntentDetector,
+                deterministicCodeGenTypeRouter,
                 routingServiceFactory,
-                appNameGeneratorServiceFactory,
+                appNameEnrichmentService,
                 chatHistoryService,
                 artifactLifecycleService,
                 new AppOperationLockManager(),

@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Locates source files directly implicated by common build and runtime diagnostics. */
+/** 定位与常见构建和运行时诊断直接相关的源文件。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor

@@ -147,6 +147,33 @@ class DevServerProcessRunnerTest {
     }
 
     @Test
+    void controlledEnvironmentOverridesMustReachDevServerProcess() {
+        FakeProcess process = FakeProcess.running();
+        AtomicReference<ProcessBuilder> capturedBuilder = new AtomicReference<>();
+        when(readinessProbe.isReady(5180)).thenReturn(true, true);
+        DevServerProcessRunner runner = runner(builder -> {
+            capturedBuilder.set(builder);
+            return process;
+        });
+
+        runner.start(
+                projectDirectory,
+                5180,
+                11L,
+                line -> { },
+                Duration.ofSeconds(1),
+                () -> false,
+                Map.of("VITE_API_BASE_URL", "http://127.0.0.1:19001/api")
+        );
+
+        assertEquals(
+                "http://127.0.0.1:19001/api",
+                capturedBuilder.get().environment().get("VITE_API_BASE_URL")
+        );
+        assertEquals("1", capturedBuilder.get().environment().get("NO_UPDATE_NOTIFIER"));
+    }
+
+    @Test
     void shouldTerminateProcessWhenCancellationIsRequested() {
         FakeProcess process = FakeProcess.running();
         DevServerProcessRunner runner = runner(builder -> process);

@@ -8,6 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 智能体编辑理解结果服务实现。
+ */
 @Service
 public class AgentEditUnderstandingService {
 

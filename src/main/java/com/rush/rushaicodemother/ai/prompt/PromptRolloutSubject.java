@@ -5,7 +5,7 @@ import dev.langchain4j.invocation.InvocationContext;
 
 import java.util.List;
 
-/** Privacy-safe deterministic subject used for stable prompt canary bucketing. */
+/** 用于稳定提示金丝雀分桶的隐私安全确定性主题。 */
 public record PromptRolloutSubject(
         String interfaceName,
         String methodName,
@@ -45,7 +45,7 @@ public record PromptRolloutSubject(
                 return "message:" + userMessage.singleText();
             }
         } catch (RuntimeException ignored) {
-            // Fall back to invocation arguments when no rendered user message exists.
+            // 当不存在呈现的用户消息时，回退到调用参数。
         }
         List<Object> arguments = context.methodArguments();
         return arguments == null ? "" : "arguments:" + arguments;

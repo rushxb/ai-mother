@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.ai.prompt.release;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Non-sensitive inventory of immutable versions that the running artifact can activate. */
+/** 运行工件可以激活的不可变版本的非敏感清单。 */
 public record PromptReleaseCapabilities(
         Map<String, Map<String, String>> contentHashesByPromptAndVersion
 ) {

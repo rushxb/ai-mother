@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.service.aimodel;
 
 import java.util.List;
 
-/** Optimistic persistence seam for one-time migration of legacy AI provider credentials. */
+/** 用于一次性迁移遗留 AI 提供商凭证的乐观持久性接缝。 */
 public interface AiModelSecretMigrationRepository {
 
     List<AiModelSecretMigrationRecord> findBatchAfter(long afterId, int batchSize);

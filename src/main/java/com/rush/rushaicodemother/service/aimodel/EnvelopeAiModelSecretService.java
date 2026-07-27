@@ -26,7 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** AES-256-GCM envelope encryption with per-secret data keys and key-id based rotation. */
+/** AES-256-GCM 信封加密，具有每个秘密数据密钥和基于密钥 ID 的轮换。 */
 @Service
 public class EnvelopeAiModelSecretService implements AiModelSecretService {
 

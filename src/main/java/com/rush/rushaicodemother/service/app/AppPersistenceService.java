@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  */
 public interface AppPersistenceService {
 
-    /** Creates an application whose routing and type have already been decided by the caller. */
+    /** 创建一个应用程序，其路由和类型已由调用者决定。 */
     long createPrepared(NewApp app);
 
     /** 查询未删除的应用。 */

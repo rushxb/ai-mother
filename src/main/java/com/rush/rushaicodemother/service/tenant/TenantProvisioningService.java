@@ -6,6 +6,9 @@ import com.rush.rushaicodemother.model.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+/**
+ * 租户供给服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class TenantProvisioningService {

@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.service.devserver;
 
 import java.net.URI;
 
-/** Trusted upstream selected from the local runtime or durable owner-node registry. */
+/** 从本地运行时或持久所有者节点注册表中选择的可信上游。 */
 public record DevServerPreviewRoute(
         Long appId,
         String nodeId,

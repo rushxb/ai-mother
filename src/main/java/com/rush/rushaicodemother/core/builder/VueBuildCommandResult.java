@@ -4,7 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
 
 /**
- * Vue 构建过程中单条命令的不可变执行结果。
+ * Vue 构建命令执行结果。
  */
 public record VueBuildCommandResult(
         String command,

@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
@@ -17,11 +18,14 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspaceService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceReleaseService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -35,9 +39,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class HeavyGenerationCoordinatorTerminalCleanupTest {
@@ -70,6 +76,12 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
     private GenerationExecutionContextService executionContextService;
     @Mock
     private GenerationTaskIdGenerator taskIdGenerator;
+    @Mock
+    private GenerationExecutionWorkspaceService executionWorkspaceService;
+    @Mock
+    private GenerationWorkspaceReleaseService workspaceReleaseService;
+    @Mock
+    private GenerationPerformanceMonitorService.SpanTimer finalizationSpan;
 
     private HeavyGenerationCoordinator coordinator;
 
@@ -91,8 +103,37 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
                         com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService.class),
                 traceService,
                 executionContextService,
-                taskIdGenerator
+                taskIdGenerator,
+                executionWorkspaceService,
+                workspaceReleaseService
         );
+    }
+
+    @Test
+    void successfulHeavyFinalizationMustReleaseWorkspaceAfterResultSummaries() {
+        TerminalFixture fixture = fixture();
+        when(performanceMonitorService.startSpan(
+                fixture.preparation().taskId(),
+                "finalization",
+                GenerationSpanCategory.FINALIZATION
+        )).thenReturn(finalizationSpan);
+
+        ReflectionTestUtils.invokeMethod(
+                coordinator,
+                "runFinalizationSteps",
+                11L,
+                fixture.preparation(),
+                fixture.session()
+        );
+
+        InOrder order = inOrder(finalizationService, workspaceReleaseService);
+        order.verify(finalizationService).emitDiffSummaryIfAvailable(
+                11L, fixture.preparation(), fixture.session());
+        order.verify(finalizationService).emitCommitResultIfAvailable(
+                11L, fixture.preparation(), fixture.session());
+        order.verify(workspaceReleaseService).release(
+                fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+        verify(finalizationSpan).success();
     }
 
     @Test

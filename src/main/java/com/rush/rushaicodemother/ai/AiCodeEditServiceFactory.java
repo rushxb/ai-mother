@@ -32,11 +32,25 @@ public class AiCodeEditServiceFactory {
         return createAiCodeEditService(null);
     }
 
-    /** Creates an edit service whose complete model/failover request is bounded by the caller. */
+    /** 创建一个编辑服务，其完整模型/故障转移请求受调用者限制。 */
     public AiCodeEditService createAiCodeEditService(Duration timeout) {
         ChatModel chatModel = timeout == null
                 ? streamingModelFactory.createRoutingChatModel()
                 : streamingModelFactory.createRoutingChatModel(timeout, 0);
+        return createService(chatModel);
+    }
+
+    /** 创建受任务预算约束的同步编辑服务。 */
+    public AiCodeEditService createExecutionAiCodeEditService(
+            Duration timeout,
+            Runnable beforeModelTurn,
+            Runnable beforeProviderFailoverAttempt) {
+        ChatModel chatModel = streamingModelFactory.createExecutionRoutingChatModel(
+                timeout, beforeModelTurn, beforeProviderFailoverAttempt);
+        return createService(chatModel);
+    }
+
+    private AiCodeEditService createService(ChatModel chatModel) {
         return AiServices.builder(AiCodeEditService.class)
                 .chatModel(chatModel)
                 .systemMessageTransformer(promptSystemMessageTransformer::transform)

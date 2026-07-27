@@ -22,7 +22,8 @@ class RuntimeWorkspaceConsumerArchitectureTest {
         )));
 
         assertTrue(source.contains("GenerationWorkspaceService"));
-        assertTrue(source.contains("generationWorkspaceService.resolve("));
+        assertTrue(source.contains("generationWorkspaceService.resolveCanonical("));
+        assertTrue(source.contains("generationWorkspaceService.resolveExecution("));
         assertTrue(source.contains("WorkspaceFileSystemService"));
         assertTrue(source.contains("resolveExistingRegularFile("));
         assertTrue(source.contains("workspace.frontendRootPath()"));

@@ -8,7 +8,8 @@ import com.rush.rushaicodemother.orchestration.GenerationOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
-import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService;
+import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor;
+import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor.MemoryContextHandle;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentAssembler;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentDecision;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
@@ -17,56 +18,39 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class HeavyGenerationPreparationService {
 
     private final HeavyGenerationIntentAssembler heavyGenerationIntentAssembler;
     private final GenerationMemoryContextService generationMemoryContextService;
     private final GenerationOrchestrator generationOrchestrator;
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
-    private final GeneratedProjectContextService generatedProjectContextService;
     private final GenerationWorkspaceService generationWorkspaceService;
-
-    /** Compatibility constructor for legacy callers that do not run inside a durable execution scope. */
-    public HeavyGenerationPreparationService(
-            HeavyGenerationIntentAssembler heavyGenerationIntentAssembler,
-            GenerationMemoryContextService generationMemoryContextService,
-            GenerationOrchestrator generationOrchestrator,
-            GenerationToolExecutionContextService generationToolExecutionContextService,
-            GeneratedProjectContextService generatedProjectContextService
-    ) {
-        this(
-                heavyGenerationIntentAssembler,
-                generationMemoryContextService,
-                generationOrchestrator,
-                generationToolExecutionContextService,
-                generatedProjectContextService,
-                null
-        );
-    }
+    private final GenerationMemoryContextOverlapExecutor memoryContextOverlapExecutor;
 
     public GenerationPreparation prepare(App app, String userMessage) {
         return prepare(null, app, userMessage);
     }
 
     /**
-     * Prepares a generation task using an identity already reserved by the execution runtime.
+     * 使用执行运行时已保留的标识准备生成任务。
      */
     public GenerationPreparation prepare(String taskId, App app, String userMessage) {
-        GenerationIntent intent = recognizeGenerationIntent(app, userMessage);
-        GenerationContextAssembly contextAssembly = assembleGenerationContext(intent);
-        GenerationRoutingPlan routingPlan = routeGeneration(intent, contextAssembly);
+        GenerationIntent intent = recognizeGenerationIntent(taskId, app, userMessage);
+        GenerationRoutingPlan routingPlan = routeGeneration(intent);
         return buildGenerationPreparation(taskId, intent, routingPlan);
     }
 
-    private GenerationIntent recognizeGenerationIntent(App app, String userMessage) {
-        HeavyGenerationIntentDecision decision = heavyGenerationIntentAssembler.assemble(app, userMessage);
+    private GenerationIntent recognizeGenerationIntent(String taskId, App app, String userMessage) {
+        HeavyGenerationIntentDecision decision = taskId == null || taskId.isBlank()
+                ? heavyGenerationIntentAssembler.assemble(app, userMessage)
+                : heavyGenerationIntentAssembler.assemble(taskId, app, userMessage);
         return new GenerationIntent(
                 app,
                 decision.currentType(),
@@ -78,15 +62,9 @@ public class HeavyGenerationPreparationService {
         );
     }
 
-    private GenerationContextAssembly assembleGenerationContext(GenerationIntent intent) {
-        return new GenerationContextAssembly(createProjectContextSupplier(intent.app()));
-    }
-
-    private GenerationRoutingPlan routeGeneration(GenerationIntent intent, GenerationContextAssembly contextAssembly) {
+    private GenerationRoutingPlan routeGeneration(GenerationIntent intent) {
         return new GenerationRoutingPlan(
-                routingPrompt -> CodeGenTypeEnum.max(intent.currentType(), intent.targetType()),
-                contextAssembly
-        );
+                routingPrompt -> CodeGenTypeEnum.max(intent.currentType(), intent.targetType()));
     }
 
     private GenerationPreparation buildGenerationPreparation(String taskId,
@@ -95,24 +73,25 @@ public class HeavyGenerationPreparationService {
         CodeGenTypeEnum targetType = intent.targetType() == null
                 ? routingPlan.routingFunction().apply(intent.generationMessage())
                 : intent.targetType();
-        String memoryContext = generationMemoryContextService.buildGenerationMemoryContext(
-                intent.app(),
-                intent.generationMessage(),
-                targetType
-        );
-        GenerationOrchestrationResult orchestrationResult = generationOrchestrator.prepare(
-                new GenerationOrchestrationRequest(
-                        intent.app(),
-                        intent.generationMessage(),
-                        intent.currentType(),
-                        intent.generatingStage(),
-                        intent.hasGeneratedCode(),
-                        routingPlan.contextAssembly().projectContextSupplier(),
-                        routingPlan.routingFunction(),
-                        memoryContext,
-                        taskId
-                )
-        );
+        GenerationOrchestrationResult orchestrationResult;
+        try (MemoryContextHandle memoryContext = memoryContextOverlapExecutor.start(
+                taskId,
+                () -> generationMemoryContextService.buildGenerationMemoryContext(
+                        intent.app(), intent.generationMessage(), targetType))) {
+            orchestrationResult = generationOrchestrator.prepare(
+                    new GenerationOrchestrationRequest(
+                            intent.app(),
+                            intent.generationMessage(),
+                            intent.currentType(),
+                            intent.generatingStage(),
+                            intent.hasGeneratedCode(),
+                            routingPlan.routingFunction(),
+                            null,
+                            memoryContext::resolve,
+                            taskId
+                    )
+            );
+        }
         GenerationPreparation preparation = new GenerationPreparation(
                 orchestrationResult.originalType(),
                 orchestrationResult.targetType(),
@@ -156,7 +135,7 @@ public class HeavyGenerationPreparationService {
                     generationWorkspaceService.resolve(app.getId(), preparation.targetType())
             );
         } catch (RuntimeException ignored) {
-            // Legacy, unmanaged preparation callers have no execution scope.
+            // 传统的非托管准备调用者没有执行范围。
         }
     }
 
@@ -164,7 +143,7 @@ public class HeavyGenerationPreparationService {
         bindToolExecutionContext(app, preparation);
     }
 
-    /** Restores tool policy state and pins it to the exact resumed execution workspace. */
+    /** 恢复工具策略状态并将其固定到确切的恢复执行工作区。 */
     public void restoreToolExecutionContext(App app,
                                             GenerationPreparation preparation,
                                             GenerationExecutionFence executionFence,
@@ -180,10 +159,6 @@ public class HeavyGenerationPreparationService {
         }
     }
 
-    private Supplier<String> createProjectContextSupplier(App app) {
-        return () -> generatedProjectContextService.build(app);
-    }
-
     private record GenerationIntent(App app,
                                     CodeGenTypeEnum currentType,
                                     CodeGenTypeEnum targetType,
@@ -193,10 +168,6 @@ public class HeavyGenerationPreparationService {
                                     boolean requiresBuild) {
     }
 
-    private record GenerationContextAssembly(Supplier<String> projectContextSupplier) {
-    }
-
-    private record GenerationRoutingPlan(Function<String, CodeGenTypeEnum> routingFunction,
-                                         GenerationContextAssembly contextAssembly) {
+    private record GenerationRoutingPlan(Function<String, CodeGenTypeEnum> routingFunction) {
     }
 }

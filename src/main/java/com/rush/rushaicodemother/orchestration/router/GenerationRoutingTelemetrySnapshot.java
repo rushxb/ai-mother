@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.router;
 
 import java.time.Instant;
 
-/** Bounded production telemetry available to routing policies. */
+/** 可用于路由策略的有界生产遥测。 */
 public record GenerationRoutingTelemetrySnapshot(
         int recentTaskCount,
         int failedTaskCount,

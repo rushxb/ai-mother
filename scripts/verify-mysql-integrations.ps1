@@ -38,7 +38,7 @@ try {
 
     & .\mvnw.cmd `
         -Pintegration-test `
-        "-Dtest=FlywaySchemaMigrationIntegrationTest,ToolApprovalMySqlIntegrationTest,DevServerSessionRegistryMySqlIntegrationTest" `
+        "-Dtest=FlywaySchemaMigrationIntegrationTest,PromptReleaseMySqlIntegrationTest,ToolApprovalMySqlIntegrationTest,DevServerSessionRegistryMySqlIntegrationTest" `
         "-Dintegration.mysql.admin-url=$adminUrl" `
         "-Dintegration.mysql.username=root" `
         "-Dintegration.mysql.password=$RootPassword" `

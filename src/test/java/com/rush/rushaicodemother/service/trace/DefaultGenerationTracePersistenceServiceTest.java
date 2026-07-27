@@ -71,6 +71,21 @@ class DefaultGenerationTracePersistenceServiceTest {
     }
 
     @Test
+    void transitionRunningTaskTraceMustForwardRoutePayloadAndExecutionFence() {
+        when(mapper.transitionRunningTaskTrace(
+                10L, "html", "vue_project", "增强提示词",
+                1, "strict", "agent", "worker-a", 7L, NOW
+        )).thenReturn(1);
+
+        service.transitionRunningTaskTrace(10L, newTask(), FENCE, NOW);
+
+        verify(mapper).transitionRunningTaskTrace(
+                10L, "html", "vue_project", "增强提示词",
+                1, "strict", "agent", "worker-a", 7L, NOW
+        );
+    }
+
+    @Test
     void duplicateTaskAndModelCallMustReturnFalseForBusinessIdempotencyRecovery() {
         when(mapper.insertTask(any())).thenThrow(new DuplicateKeyException("uk_taskId"));
         when(mapper.insertModelCall(any())).thenThrow(new DuplicateKeyException("uk_callId"));

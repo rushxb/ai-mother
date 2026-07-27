@@ -13,6 +13,8 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceExecutionScope;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationCatalog;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -28,9 +30,11 @@ class SnapshotWorkspaceConsumerBeanWiringTest {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.register(
                     CodeStorageProperties.class,
-                    WorkspaceFileSystemProperties.class,
-                    WorkspaceFileSystemService.class,
-                    GenerationWorkspaceService.class,
+                     WorkspaceFileSystemProperties.class,
+                     WorkspaceFileSystemService.class,
+                     GenerationWorkspaceExecutionScope.class,
+                     GenerationWorkspacePublicationCatalog.class,
+                     GenerationWorkspaceService.class,
                     SnapshotNamePolicy.class,
                     GenerationSnapshotWorkspaceService.class,
                     GenerationRollbackPointService.class,

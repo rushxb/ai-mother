@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
+import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndex;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -33,6 +34,9 @@ public class GenerationAgentContext {
 
     @Setter
     private QualityGateResult qualityGateResult;
+
+    @Setter
+    private WorkspaceSemanticIndex workspaceIndexSnapshot;
 
     public GenerationAgentContext(GenerationOrchestrationRequest request,
                                   GenerationOrchestrationTask task,

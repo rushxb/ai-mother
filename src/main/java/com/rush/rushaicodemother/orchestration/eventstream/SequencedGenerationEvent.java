@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.eventstream;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 
-/** Ordered event-log entry used by resumable task-scoped generation streams. */
+/** 可恢复任务范围生成流使用的有序事件日志条目。 */
 public record SequencedGenerationEvent(
         long sequence,
         Kind kind,

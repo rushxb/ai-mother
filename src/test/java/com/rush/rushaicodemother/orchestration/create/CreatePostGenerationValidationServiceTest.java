@@ -84,6 +84,35 @@ class CreatePostGenerationValidationServiceTest {
         verify(contextService, never()).clearContext(11L, fence.taskId());
     }
 
+    @Test
+    void backendCreateMustExecutePostGenerationBuildValidation() {
+        GenerationToolExecutionContextService contextService =
+                mock(GenerationToolExecutionContextService.class);
+        HeavyGenerationBuildValidationService buildValidationService =
+                mock(HeavyGenerationBuildValidationService.class);
+        CreatePostGenerationValidationService service = new CreatePostGenerationValidationService(
+                contextService, buildValidationService);
+        GenerationSession session = new GenerationSession(null);
+        User user = new User();
+        when(buildValidationService.runWithAutoRepair(eq(12L), eq(user), any(), eq(session)))
+                .thenReturn(true);
+
+        CreatePostGenerationValidationService.ValidationOutcome outcome = service.validate(
+                12L,
+                user,
+                CodeGenTypeEnum.BACKEND_PROJECT,
+                "创建课程管理后端",
+                "task-backend-create",
+                null,
+                session
+        );
+
+        assertTrue(outcome.success());
+        assertTrue(outcome.executed());
+        verify(buildValidationService).runWithAutoRepair(eq(12L), eq(user), any(), eq(session));
+        verify(contextService).clearContext(12L, "task-backend-create");
+    }
+
     private GenerationExecutionWorkspace executionWorkspace(GenerationExecutionFence fence) {
         Path epochRoot = tempDir.resolve("epoch-7").toAbsolutePath().normalize();
         Path typeRoot = epochRoot.resolve(CodeGenTypeEnum.VUE_PROJECT.getValue());

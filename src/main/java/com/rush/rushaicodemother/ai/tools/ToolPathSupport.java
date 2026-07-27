@@ -15,10 +15,10 @@ import java.nio.file.Paths;
 import java.util.Objects;
 
 /**
- * Resolves and validates file-system paths used by AI tools.
+ * 解析并验证 AI 工具使用的文件系统路径。
  *
- * <p>The project type must come from the bound tool execution context. Falling back to a default project type
- * can silently direct a tool to another workspace, so missing context is treated as an explicit input error.</p>
+ * <p>项目类型必须来自绑定的工具执行上下文。回退到默认项目类型
+ * 可以默默地将工具定向到另一个工作区，因此缺少上下文将被视为显式输入错误。</p>
  */
 @Component
 public class ToolPathSupport {

@@ -20,8 +20,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Captures a bounded edit-session snapshot through the hardened patch workspace boundary.
- * The snapshot spans all repair rounds so a failed runtime repair can restore the original state.
+ * 通过强化补丁工作区边界捕获有界编辑会话快照。
+ * 快照跨越所有修复轮次，因此失败的运行时修复可以恢复原始状态。
  */
 @Slf4j
 @Service

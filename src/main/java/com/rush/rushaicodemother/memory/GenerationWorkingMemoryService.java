@@ -12,7 +12,7 @@ import java.util.Deque;
 import java.util.Map;
 import java.util.Optional;
 
-/** Bounded per-task short-term memory for the active agent graph. */
+/** 活动代理图的每任务短期记忆有界。 */
 @Service
 public class GenerationWorkingMemoryService {
     private final Cache<String, MutableWorkingMemory> memories;

@@ -1,5 +1,6 @@
 param(
     [string]$Image = "ai-code-mother/sandbox-node:1",
+    [string]$GoBaseImage = $env:GENERATED_CODE_SANDBOX_GO_BASE_IMAGE,
     [string]$DependencyNetwork = "ai-code-sandbox-egress",
     [string]$DevServerNetwork = "ai-code-sandbox-internal",
     [string]$PreviewGatewayNetwork = "ai-code-sandbox-preview-gateway",
@@ -35,7 +36,15 @@ function Ensure-Volume([string]$Name) {
 Push-Location $ProjectRoot
 try {
     docker version | Out-Null
-    docker build --pull --tag $Image docker/generated-code-sandbox
+    if ([string]::IsNullOrWhiteSpace($GoBaseImage) -or $GoBaseImage -notmatch '@sha256:[0-9a-fA-F]{64}$') {
+        throw "必须通过 -GoBaseImage 或 GENERATED_CODE_SANDBOX_GO_BASE_IMAGE 提供带 sha256 摘要的 Go 基础镜像"
+    }
+    docker build `
+        --pull `
+        --build-arg "GO_BASE_IMAGE=$GoBaseImage" `
+        --file docker/generated-code-sandbox/Dockerfile `
+        --tag $Image `
+        .
     Ensure-Network $DependencyNetwork $false
     Ensure-Network $DevServerNetwork $true
     Ensure-Network $PreviewGatewayNetwork $false

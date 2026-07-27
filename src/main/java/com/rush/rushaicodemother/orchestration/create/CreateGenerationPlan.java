@@ -5,6 +5,9 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 创建生成计划的不可变数据载体。
+ */
 public record CreateGenerationPlan(
         CodeGenTypeEnum codeGenType,
         CreateTemplateManifest baseTemplate,

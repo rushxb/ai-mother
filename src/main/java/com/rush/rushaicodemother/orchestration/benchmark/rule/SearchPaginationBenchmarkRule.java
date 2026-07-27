@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Seeds a static product table and checks for real search and pagination implementation signals. */
+/** 播种静态产品表并检查真实的搜索和分页实施信号。 */
 @Component
 public class SearchPaginationBenchmarkRule implements GenerationBenchmarkValidationRule {
 

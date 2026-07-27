@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.mapper.GenerationBenchmarkEvidenceMapper;
 import com.rush.rushaicodemother.model.entity.GenerationBenchmarkEvidenceEntity;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidencePayload;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceProtocol;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceRecord;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubject;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,9 @@ class MyBatisGenerationBenchmarkEvidenceRepositoryTest {
         GenerationBenchmarkEvidenceEntity entity = captor.getValue();
         assertEquals(evidence.evidenceId(), entity.getEvidenceId());
         assertEquals(evidence.payload().candidateFingerprint(), entity.getCandidateFingerprint());
+        assertEquals(evidence.payload().signatureVersion(), entity.getSignatureVersion());
+        assertEquals(evidence.payload().candidatePhysicalRequestCount(),
+                entity.getCandidatePhysicalRequestCount());
         assertEquals(evidence.payload().reportSha256(), entity.getReportSha256());
         assertEquals(evidence.signature(), entity.getSignature());
         assertEquals(1, entity.getPassed());
@@ -49,9 +53,11 @@ class MyBatisGenerationBenchmarkEvidenceRepositoryTest {
     private GenerationBenchmarkEvidenceRecord evidence() {
         Instant evaluatedAt = Instant.parse("2026-07-18T00:00:00Z");
         GenerationBenchmarkEvidencePayload payload = new GenerationBenchmarkEvidencePayload(
+                GenerationBenchmarkEvidenceProtocol.CURRENT_SIGNATURE_VERSION,
                 GenerationBenchmarkEvidenceSubject.AI_MODEL_ENABLE,
                 "7",
                 "a".repeat(64),
+                3L,
                 "b".repeat(64),
                 "generation-benchmark-graders-v1",
                 "c".repeat(64),

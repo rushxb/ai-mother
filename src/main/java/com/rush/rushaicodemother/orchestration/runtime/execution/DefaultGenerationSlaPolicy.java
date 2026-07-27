@@ -10,7 +10,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Selects normal or saturation-contained budgets without coupling workers to telemetry storage. */
+/** 选择正常或饱和预算，无需将工作人员耦合到遥测存储。 */
 @Component
 @RequiredArgsConstructor
 public class DefaultGenerationSlaPolicy implements GenerationSlaPolicy {
@@ -28,6 +28,7 @@ public class DefaultGenerationSlaPolicy implements GenerationSlaPolicy {
         return new GenerationSlaEnvelope(
                 profile.getName(),
                 profile.getFirstPreviewTimeout(),
+                profile.getFirstPreviewCompletionReserve(),
                 profile.getTotalTimeout(),
                 profile.getModelCallTimeout(),
                 profile.getMinimumOperationTimeout(),
@@ -38,7 +39,10 @@ public class DefaultGenerationSlaPolicy implements GenerationSlaPolicy {
 
     private Map<GenerationBudgetKind, Integer> budgets(GenerationSlaProperties.Profile profile) {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
-        budgets.put(GenerationBudgetKind.MODEL_ATTEMPT, profile.getMaxModelAttempts());
+        budgets.put(GenerationBudgetKind.ROOT_MODEL_ATTEMPT, profile.getMaxRootModelAttempts());
+        budgets.put(GenerationBudgetKind.MODEL_TURN, profile.getMaxModelTurns());
+        budgets.put(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT,
+                profile.getMaxProviderFailoverAttempts());
         budgets.put(GenerationBudgetKind.TOOL_WRITE, profile.getMaxToolWrites());
         budgets.put(GenerationBudgetKind.BUILD_EXECUTION, profile.getMaxBuildExecutions());
         budgets.put(GenerationBudgetKind.REPAIR_ROUND, profile.getMaxRepairRounds());

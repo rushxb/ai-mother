@@ -8,10 +8,10 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Immutable execution envelope shared by every generation pipeline.
+ * 每个生成管道共享的不可变执行信封。
  *
- * <p>The envelope makes task identity, cancellation, deadline and stream ownership explicit at
- * asynchronous boundaries. Pipelines must use this task identity instead of allocating their own.</p>
+ * <p>信封使任务标识、取消、截止日期和流所有权明确在
+ * 异步边界。管道必须使用此任务标识而不是分配自己的任务标识。</p>
  */
 public record GenerationTaskExecution(
         String taskId,

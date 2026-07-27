@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationPerformanceMonitorServiceTest {
 
@@ -56,6 +59,50 @@ class GenerationPerformanceMonitorServiceTest {
         assertEquals(4, task.getToolCallCount());
         assertEquals(55L, task.getToolDurationMs());
         assertEquals(1, task.getRepairRounds());
+    }
+
+    @Test
+    void routeTransitionMustPreserveOriginalStartSpansAndCreateTelemetry() {
+        GenerationPerformanceMonitorService service = service(List.of());
+        GenerationModeDecision createDecision = new GenerationModeDecision(
+                GenerationMode.CREATE,
+                0.95,
+                "create first",
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
+                ExpectedValidationLevel.BUILD,
+                ""
+        );
+        Instant createStartedAt = NOW.minusSeconds(30);
+        service.startTask(
+                "task-fallback", 1L, 2L, "create", "vue_project",
+                createStartedAt, createDecision);
+        service.recordSpan(
+                "task-fallback", "create_template_runtime", GenerationSpanCategory.PIPELINE,
+                "fallback", Duration.ofSeconds(5), "create_generation_failed");
+        service.recordCreateTelemetry("task-fallback", Map.of(
+                "baseTemplate", "vue-base",
+                "patchCount", 3,
+                "fallback", true
+        ));
+
+        GenerationModeDecision heavyDecision = createDecision.withFallback(
+                GenerationMode.HEAVY_EXPERT, "create_generation_failed");
+        service.startTask(
+                "task-fallback", 1L, 2L, "heavy_generation", "vue_project",
+                NOW, heavyDecision);
+        service.recordRuntimeTelemetry("task-fallback", Map.of("modelName", "expert-model"));
+
+        var tasks = service.getSummary(10).getRecentTasks();
+        assertEquals(1, tasks.size());
+        var task = tasks.getFirst();
+        assertEquals("heavy_generation", task.getRoute());
+        assertEquals("heavy_expert", task.getMode());
+        assertEquals(LocalDateTime.ofInstant(createStartedAt, ZoneId.systemDefault()), task.getStartTime());
+        assertEquals("vue-base", task.getBaseTemplate());
+        assertTrue(task.getCreateFallback());
+        assertEquals("expert-model", task.getModelName());
+        assertEquals(1, task.getSpans().size());
+        assertEquals("create_template_runtime", task.getSpans().getFirst().getStage());
     }
 
     @Test

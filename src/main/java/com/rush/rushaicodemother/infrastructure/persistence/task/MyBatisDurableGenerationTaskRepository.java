@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** MyBatis adapter for the durable generation-task runtime port. */
+/** 用于持久生成任务运行时端口的 MyBatis 适配器。 */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisDurableGenerationTaskRepository implements DurableGenerationTaskRepository {

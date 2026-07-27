@@ -4,7 +4,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 
 import java.util.Objects;
 
-/** Terminal status and durable reason selected for a non-resumable expired task. */
+/** 为不可恢复的过期任务选择的终端状态和持久原因。 */
 public record GenerationTaskRecoveryDecision(GenerationTaskStatus status, String reason) {
 
     public GenerationTaskRecoveryDecision {

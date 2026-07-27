@@ -13,6 +13,9 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/**
+ * 用户额度交易的持久化实体。
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -23,12 +26,15 @@ public class UserCreditTransaction implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
+    /** 主键编号。 */
     @Id(keyType = KeyType.Auto)
     private Long id;
 
+    /** 用户编号。 */
     @Column("userId")
     private Long userId;
 
+    /** 额度变更量。 */
     @Column("changeAmount")
     private Long changeAmount;
 
@@ -40,6 +46,7 @@ public class UserCreditTransaction implements Serializable {
     @Column("bizId")
     private String bizId;
 
+    /** 备注。 */
     private String remark;
 
     @Column("adminUserId")
@@ -48,9 +55,11 @@ public class UserCreditTransaction implements Serializable {
     @Column("tokenCount")
     private Long tokenCount;
 
+    /** 创建时间。 */
     @Column(value = "createTime", onInsertValue = "now()")
     private LocalDateTime createTime;
 
+    /** 逻辑删除标记。 */
     @Column(value = "isDelete", isLogicDelete = true)
     private Integer isDelete;
 }

@@ -11,7 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Builds a bounded, path-safe source context package for an edit request. */
+/** 为编辑请求构建有界的、路径安全的源上下文包。 */
 @Service
 @RequiredArgsConstructor
 public class EditContextPackageBuilder {

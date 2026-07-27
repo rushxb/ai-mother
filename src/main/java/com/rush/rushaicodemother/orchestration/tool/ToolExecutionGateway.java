@@ -13,7 +13,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Single gateway for AI tool side effects.
+ * AI 工具副作用的单一网关。
  */
 @Service
 @RequiredArgsConstructor
@@ -32,15 +32,20 @@ public class ToolExecutionGateway {
         if (context == null) {
             return PatchApplyResult.skipped(appId, fallbackTaskId, projectRoot.toString(), "change_plan_missing");
         }
+        PatchApplyResult result;
         if (context.allowsBootstrapWrite()) {
-            reserveToolWrite(context.taskId());
-            return generationPatchApplyService.applyWithoutChangePlan(
+            reserveToolWrites(context.taskId(), operationCount(operations));
+            result = generationPatchApplyService.applyWithoutChangePlan(
                     appId, context.taskId(), projectRoot, operations, context.reason()
             );
+        } else {
+            ChangePlan changePlan = context.changePlan();
+            reserveToolWrites(context.taskId(), operationCount(operations));
+            result = generationPatchApplyService.apply(
+                    appId, context.taskId(), projectRoot, changePlan, operations);
         }
-        ChangePlan changePlan = context.changePlan();
-        reserveToolWrite(context.taskId());
-        return generationPatchApplyService.apply(appId, context.taskId(), projectRoot, changePlan, operations);
+        recordSuccessfulWorkspaceMutations(context.taskId(), result);
+        return result;
     }
 
     public PatchApplyResult applyPatch(Long appId,
@@ -50,8 +55,23 @@ public class ToolExecutionGateway {
                                        String reason) {
         return applyPatch(appId, projectRoot, List.of(operation), fallbackTaskId, reason);
     }
-    private void reserveToolWrite(String taskId) {
-        executionContextService.consumeIfPresent(taskId, GenerationBudgetKind.TOOL_WRITE);
+
+    private int operationCount(List<PatchOperation> operations) {
+        return operations == null ? 0 : operations.size();
+    }
+
+    private void reserveToolWrites(String taskId, int operationCount) {
+        if (operationCount > 0) {
+            executionContextService.consumeIfPresent(
+                    taskId, GenerationBudgetKind.TOOL_WRITE, operationCount);
+        }
+    }
+
+    private void recordSuccessfulWorkspaceMutations(String taskId, PatchApplyResult result) {
+        if (result != null && "applied".equals(result.status()) && result.appliedOperationCount() > 0) {
+            executionContextService.recordSuccessfulWorkspaceMutationsIfPresent(
+                    taskId, result.appliedOperationCount());
+        }
     }
 
 }

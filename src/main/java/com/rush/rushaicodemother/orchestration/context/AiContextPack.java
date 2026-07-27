@@ -9,11 +9,11 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Structured, provenance-aware context package for AI generation.
+ * 用于人工智能生成的结构化、来源感知上下文包。
  *
- * <p>The pack keeps long-term memory, short-term traces and usage rules as typed sections before
- * rendering. That gives future route/model policies a stable object to inspect instead of parsing
- * an opaque prompt string.</p>
+ * <p> 该包保留长期记忆、短期痕迹和使用规则，如之前键入的部分
+ * 渲染。这为未来的路由/模型策略提供了一个稳定的对象来检查而不是解析
+ * 一个不透明的提示字符串.</p>
  */
 public record AiContextPack(
         Long appId,

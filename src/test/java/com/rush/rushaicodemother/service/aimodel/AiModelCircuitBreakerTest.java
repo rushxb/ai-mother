@@ -9,11 +9,13 @@ import org.mockito.ArgumentCaptor;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.concurrent.CancellationException;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class AiModelCircuitBreakerTest {
 
@@ -55,5 +57,23 @@ class AiModelCircuitBreakerTest {
 
         assertFalse(circuitBreaker.isAvailable("provider-a", "shared-model"));
         assertTrue(circuitBreaker.isAvailable("provider-b", "shared-model"));
+    }
+
+    @Test
+    void cancelledLoserMustNotPenalizeProviderCircuit() {
+        AiModelCircuitBreakerProperties properties = new AiModelCircuitBreakerProperties();
+        properties.setFailureThreshold(1);
+        ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+        AiModelCircuitBreaker circuitBreaker = new AiModelCircuitBreaker(
+                properties,
+                publisher,
+                Clock.fixed(Instant.parse("2026-07-16T08:00:00Z"), ZoneOffset.UTC)
+        );
+
+        circuitBreaker.recordFailure(
+                "provider-a", "healthy-model", new CancellationException("hedge loser cancelled"));
+
+        assertTrue(circuitBreaker.isAvailable("provider-a", "healthy-model"));
+        verifyNoInteractions(publisher);
     }
 }

@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import org.springframework.stereotype.Component;
 
@@ -24,7 +25,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     private final GenerationContextCompressionService contextCompressionService;
 
     public CodeAgentNode(GenerationContextCompressionService contextCompressionService) {
-        super("code", "Code", "codegen", List.of("architect"));
+        super("code", "Code", "codegen", List.of("architect"), GenerationNodeReplayPolicy.REPLAY_SAFE);
         this.contextCompressionService = Objects.requireNonNull(
                 contextCompressionService,
                 "contextCompressionService must not be null"

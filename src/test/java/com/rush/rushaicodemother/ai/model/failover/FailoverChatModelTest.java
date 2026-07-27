@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -18,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -135,6 +137,82 @@ class FailoverChatModelTest {
 
         assertEquals(List.of(first), List.of(timeout.getSuppressed()));
         verifyNoInteractions(fallback);
+    }
+
+    @Test
+    void modelTurnAndProviderFailoverMustUseSeparateAdmissions() {
+        ChatModel primary = mock(ChatModel.class);
+        ChatModel fallback = mock(ChatModel.class);
+        ChatResponse expected = mock(ChatResponse.class);
+        AtomicInteger modelTurns = new AtomicInteger();
+        AtomicInteger providerFailovers = new AtomicInteger();
+        when(primary.chat(request)).thenThrow(new RuntimeException("503 primary unavailable"));
+        when(fallback.chat(request)).thenReturn(expected);
+        FailoverChatModel model = new FailoverChatModel(List.of(
+                new AiModelCandidate<>("provider-a", "primary", primary),
+                new AiModelCandidate<>("provider-b", "fallback", fallback)
+        ), metrics, Duration.ofSeconds(5),
+                modelTurns::incrementAndGet, providerFailovers::incrementAndGet);
+
+        ChatResponse actual = model.chat(request);
+
+        assertSame(expected, actual);
+        assertEquals(1, modelTurns.get());
+        assertEquals(1, providerFailovers.get());
+    }
+
+    @Test
+    void taskScopedPoolMustReuseTheSuccessfulFallbackOnTheNextModelTurn() {
+        ChatModel primary = mock(ChatModel.class);
+        ChatModel fallback = mock(ChatModel.class);
+        ChatResponse first = mock(ChatResponse.class);
+        ChatResponse second = mock(ChatResponse.class);
+        AtomicInteger modelTurns = new AtomicInteger();
+        AtomicInteger providerFailovers = new AtomicInteger();
+        when(primary.chat(request)).thenThrow(new RuntimeException("503 primary unavailable"));
+        when(fallback.chat(request)).thenReturn(first, second);
+        FailoverChatModel model = new FailoverChatModel(List.of(
+                new AiModelCandidate<>("provider-a", "primary", primary),
+                new AiModelCandidate<>("provider-b", "fallback", fallback)
+        ), metrics, Duration.ofSeconds(5),
+                modelTurns::incrementAndGet, providerFailovers::incrementAndGet);
+
+        assertSame(first, model.chat(request));
+        assertSame(second, model.chat(request));
+
+        verify(primary, times(1)).chat(request);
+        verify(fallback, times(2)).chat(request);
+        assertEquals(2, modelTurns.get());
+        assertEquals(1, providerFailovers.get());
+    }
+
+    @Test
+    void failedStickyFallbackMustWrapToARecoveredPrimary() {
+        ChatModel primary = mock(ChatModel.class);
+        ChatModel fallback = mock(ChatModel.class);
+        ChatResponse fallbackResponse = mock(ChatResponse.class);
+        ChatResponse primaryResponse = mock(ChatResponse.class);
+        AtomicInteger modelTurns = new AtomicInteger();
+        AtomicInteger providerFailovers = new AtomicInteger();
+        when(primary.chat(request))
+                .thenThrow(new RuntimeException("503 primary unavailable"))
+                .thenReturn(primaryResponse);
+        when(fallback.chat(request))
+                .thenReturn(fallbackResponse)
+                .thenThrow(new RuntimeException("503 fallback unavailable"));
+        FailoverChatModel model = new FailoverChatModel(List.of(
+                new AiModelCandidate<>("provider-a", "primary", primary),
+                new AiModelCandidate<>("provider-b", "fallback", fallback)
+        ), metrics, Duration.ofSeconds(5),
+                modelTurns::incrementAndGet, providerFailovers::incrementAndGet);
+
+        assertSame(fallbackResponse, model.chat(request));
+        assertSame(primaryResponse, model.chat(request));
+
+        verify(primary, times(2)).chat(request);
+        verify(fallback, times(2)).chat(request);
+        assertEquals(2, modelTurns.get());
+        assertEquals(2, providerFailovers.get());
     }
 
     private FailoverChatModel model(ChatModel primary, ChatModel fallback) {

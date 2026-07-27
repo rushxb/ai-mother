@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
-/** User-level noisy-neighbour guard until an organization tenant identity is introduced. */
+/** 用户级吵闹邻居守卫，直到引入组织租户身份。 */
 @Data
 @Component
 @Validated

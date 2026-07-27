@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 
-/** Atomically reserves the task budget and persists its reconstructable durable command. */
+/** 以原子方式保留任务预算并保留其可重建的持久命令。 */
 @Service
 @RequiredArgsConstructor
 public class GenerationTaskAdmissionService {

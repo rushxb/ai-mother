@@ -50,6 +50,7 @@ class GeneratedCodeSandboxPropertiesTest {
         GeneratedCodeSandboxProperties properties = new GeneratedCodeSandboxProperties();
         properties.getContainer().setMemory("unlimited");
         properties.getContainer().setTmpfsSize("0");
+        properties.getContainer().setGoBuildTmpfsSize("unlimited");
         properties.getContainer().setUser("root");
         properties.getContainer().setCleanupTimeout(Duration.ZERO);
 

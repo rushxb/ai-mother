@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Objects;
 
-/** Applies ordered routing policies and owns the deterministic fallback decision. */
+/** 应用有序路由策略并拥有确定性回退决策。 */
 @Component
 public class GenerationRoutingDecisionEngine {
 

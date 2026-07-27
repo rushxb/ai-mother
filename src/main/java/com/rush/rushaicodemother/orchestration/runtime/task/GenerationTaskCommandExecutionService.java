@@ -33,6 +33,7 @@ import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -41,9 +42,9 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Reconstructs a persisted command and admits it to the bounded local execution runtime. */
+/** 重建持久命令并将其接纳到有界本地执行运行时。 */
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class GenerationTaskCommandExecutionService {
 
     private final DurableGenerationTaskRepository repository;
@@ -64,7 +65,7 @@ public class GenerationTaskCommandExecutionService {
     private final GenerationTraceContextBridge traceContextBridge;
     private final GenerationPerformanceMonitorService performanceMonitorService;
 
-    /** Compatibility constructor for legacy tests and unmanaged callers. */
+    /** 遗留测试和非托管调用者的兼容性构造函数。 */
     public GenerationTaskCommandExecutionService(
             DurableGenerationTaskRepository repository,
             AppPersistenceService appPersistenceService,
@@ -192,13 +193,22 @@ public class GenerationTaskCommandExecutionService {
                 return GenerationTaskDispatchResult.ALREADY_ACTIVE;
             }
 
-            // Restore and fence the deadline/cancellation context before any potentially expensive
-            // filesystem materialization.  Large project copies must not run outside the task SLA.
+            // 在任何潜在的昂贵费用之前恢复并隔离截止日期/取消上下文
+            // 文件系统物化。  大型项目副本不得在任务 SLA 之外运行。
             executionContext = restoreExecutionContext(command);
             synchronized (executionContext) {
                 executionContext.bindExecutionFence(executionFence);
             }
             executionContext.assertCanContinue();
+            performanceMonitorService.startTask(
+                    taskId,
+                    command.appId(),
+                    command.userId(),
+                    command.route(),
+                    command.codeGenType().getValue(),
+                    command.submittedAt(),
+                    command.modeDecision()
+            );
 
             if (executionWorkspaceService != null) {
                 GenerationPerformanceMonitorService.SpanTimer workspaceSpan =
@@ -222,8 +232,8 @@ public class GenerationTaskCommandExecutionService {
                 }
             }
             if (executionWorkspaceService != null && toolExecutionContextService != null) {
-                // Preparation may have bound a task-level context before the worker epoch existed.
-                // Pin it now so every model/tool callback can resolve the exact fence.
+                // 在工作时代存在之前，准备工作可能已经绑定了任务级上下文。
+                // 现在将其固定，以便每个模型/工具回调都可以解析确切的围栏。
                 toolContextBound = toolExecutionContextService.bindExecutionFenceIfPresent(
                         app.getId(), taskId, executionFence);
                 if (toolContextBound && executionWorkspace != null) {

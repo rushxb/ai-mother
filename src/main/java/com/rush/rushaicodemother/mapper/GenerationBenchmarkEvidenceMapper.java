@@ -6,17 +6,22 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+/**
+ * 生成基准测试证据数据访问映射器。
+ */
 public interface GenerationBenchmarkEvidenceMapper {
 
     @Insert("""
             INSERT INTO generation_benchmark_evidence (
                 evidenceId, subjectType, subjectKey, candidateFingerprint,
+                signatureVersion, candidatePhysicalRequestCount,
                 datasetFingerprint, graderFingerprint, runtimeConfigFingerprint,
                 gitCommit, modelFingerprint, promptBundleFingerprint,
                 reportSha256, reportJson, passed, violationsJson, signature,
                 evaluatedAt, expiresAt, createTime, isDelete
             ) VALUES (
                 #{evidenceId}, #{subjectType}, #{subjectKey}, #{candidateFingerprint},
+                #{signatureVersion}, #{candidatePhysicalRequestCount},
                 #{datasetFingerprint}, #{graderFingerprint}, #{runtimeConfigFingerprint},
                 #{gitCommit}, #{modelFingerprint}, #{promptBundleFingerprint},
                 #{reportSha256}, #{reportJson}, #{passed}, #{violationsJson}, #{signature},
@@ -28,6 +33,7 @@ public interface GenerationBenchmarkEvidenceMapper {
 
     @Select("""
             SELECT id, evidenceId, subjectType, subjectKey, candidateFingerprint,
+                   signatureVersion, candidatePhysicalRequestCount,
                    datasetFingerprint, graderFingerprint, runtimeConfigFingerprint,
                    gitCommit, modelFingerprint, promptBundleFingerprint,
                    reportSha256, reportJson, passed, violationsJson, signature,

@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-/** Bootstraps canonical Vue generation workspaces from packaged project templates. */
+/** 从打包的项目模板引导规范的 Vue 生成工作区。 */
 @Slf4j
 @Component
 public class VueProjectTemplateBootstrapService {
@@ -46,8 +46,7 @@ public class VueProjectTemplateBootstrapService {
             GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
             ProjectTemplateBootstrapper.BootstrapOutcome outcome = templateBootstrapper.bootstrap(
                     templateId,
-                    workspace.frontendRootPath(),
-                    true
+                    workspace.frontendRootPath()
             );
             BootstrapResult result = new BootstrapResult(
                     outcome.bootstrapped(),

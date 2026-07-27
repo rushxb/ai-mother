@@ -25,6 +25,7 @@ import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -32,9 +33,9 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
-/** Re-admits a decided approval and resumes the exact persisted model tool invocation. */
+/** 重新接受决定性批准并恢复确切的持久模型工具调用。 */
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class GenerationToolContinuationScheduler {
 
     private final ToolInvocationCheckpointFactory checkpointFactory;
@@ -54,8 +55,8 @@ public class GenerationToolContinuationScheduler {
     private final GenerationWorkspaceExecutionScope workspaceExecutionScope;
 
     /**
-     * Compatibility constructor for focused tests and legacy callers created before execution
-     * workspaces were introduced. Spring uses the Lombok-generated constructor above.
+     * 执行前创建的针对重点测试和遗留调用者的兼容性构造函数
+     * 引入了工作空间。 Spring 使用上面的 Lombok 生成的构造函数。
      */
     public GenerationToolContinuationScheduler(
             ToolInvocationCheckpointFactory checkpointFactory,

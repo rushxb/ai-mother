@@ -10,6 +10,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * 智能体编辑Repair服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class AgentEditRepairService {
@@ -57,7 +60,10 @@ public class AgentEditRepairService {
         );
         EditResult editResult = taskId == null
                 ? aiCodeEditServiceFactory.createAiCodeEditService().editCode(repairMessage, projectContext)
-                : editModelInvoker.invokeManaged(taskId, "agent_repair", repairMessage, projectContext);
+                : editModelInvoker.invokeManagedRepair(taskId, "agent_repair", repairMessage, projectContext);
+        if (editResult == null) {
+            return new RepairAttempt(null, List.of());
+        }
         List<PatchOperation> operations = planningService.convertToPatchOperations(editResult);
         return new RepairAttempt(editResult, operations);
     }

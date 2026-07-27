@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Rejects patch batches that exceed bounded in-memory and file payload budgets. */
+/** 拒绝超出内存和文件有效负载预算范围的补丁批次。 */
 @Component
 @RequiredArgsConstructor
 public class PatchOperationResourcePolicy {

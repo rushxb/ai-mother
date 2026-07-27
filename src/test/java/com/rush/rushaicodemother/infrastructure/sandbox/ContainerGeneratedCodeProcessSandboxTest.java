@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.infrastructure.sandbox;
 
 import com.rush.rushaicodemother.config.GeneratedCodeSandboxProperties;
+import com.rush.rushaicodemother.infrastructure.process.GoProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -131,6 +133,117 @@ class ContainerGeneratedCodeProcessSandboxTest {
                 IllegalArgumentException.class,
                 () -> sandbox.prepare(request, workspace.toAbsolutePath().normalize())
         );
+    }
+
+    @Test
+    void shouldGrantExecutableTmpfsOnlyToOfflineGoTests() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+        Map<String, String> goEnvironment = new LinkedHashMap<>(GoProcessEnvironment.overrides());
+        goEnvironment.put("GOCACHE", "C:\\host-cache");
+        goEnvironment.put("GOTMPDIR", "C:\\host-tmp");
+        ManagedProcessRequest goTestRequest = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("C:\\tools\\go.exe", "test", "-mod=readonly", "./..."))
+                .environment(goEnvironment)
+                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .build();
+
+        SandboxProcessPlan plan = sandbox.prepare(
+                goTestRequest,
+                workspace.toAbsolutePath().normalize()
+        );
+
+        List<String> command = plan.hostCommand();
+        assertOption(command, "--network", "none");
+        assertTrue(optionValues(command, "--tmpfs").contains(
+                "/tmp:rw,nosuid,nodev,noexec,size=256m"));
+        assertTrue(optionValues(command, "--tmpfs").contains(
+                "/tmp/go-build:rw,nosuid,nodev,exec,size=512m"));
+        assertTrue(command.contains("GOCACHE=/tmp/go-build/cache"));
+        assertTrue(command.contains("GOTMPDIR=/tmp/go-build"));
+        assertTrue(command.contains("GOPROXY=off"));
+        assertTrue(command.contains("GOSUMDB=off"));
+        assertFalse(command.contains("GOCACHE=C:\\host-cache"));
+        assertFalse(command.contains("GOTMPDIR=C:\\host-tmp"));
+        int imageIndex = command.indexOf("ai-code-mother/sandbox-node:1");
+        assertEquals(
+                List.of("go", "test", "-mod=readonly", "./..."),
+                command.subList(imageIndex + 1, command.size())
+        );
+    }
+
+    @Test
+    void shouldGrantExecutableTmpfsToOfflineGoRunWithExposedPort() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("go", "run", "-mod=readonly", "./cmd/server"))
+                .environment(Map.of("SERVER_ADDR", "127.0.0.1:5181"))
+                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .build();
+
+        SandboxProcessPlan plan = sandbox.prepareDevServer(
+                request,
+                workspace.toAbsolutePath().normalize(),
+                5181
+        );
+
+        List<String> command = plan.hostCommand();
+        assertOption(command, "--network", "ai-code-sandbox-internal");
+        assertTrue(optionValues(command, "--tmpfs").contains(
+                "/tmp/go-build:rw,nosuid,nodev,exec,size=512m"));
+        assertTrue(command.contains("GOCACHE=/tmp/go-build/cache"));
+        assertTrue(command.contains("GOTMPDIR=/tmp/go-build"));
+        assertTrue(command.contains("SERVER_ADDR=0.0.0.0:5181"));
+        int imageIndex = command.indexOf("ai-code-mother/sandbox-node:1");
+        assertEquals(
+                List.of("go", "run", "-mod=readonly", "./cmd/server"),
+                command.subList(imageIndex + 1, command.size())
+        );
+    }
+
+    @Test
+    void shouldRejectContainerBackendAddressThatDoesNotMatchExposedPort() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("go", "run", "./cmd/server"))
+                .environment(Map.of("SERVER_ADDR", "0.0.0.0:9000"))
+                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> sandbox.prepareDevServer(
+                        request,
+                        workspace.toAbsolutePath().normalize(),
+                        5181
+                )
+        );
+    }
+
+    @Test
+    void shouldNotGrantExecutableTmpfsToNetworkEnabledGoTests() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("go", "test", "./..."))
+                .networkPolicy(SandboxNetworkPolicy.DEPENDENCY_EGRESS)
+                .build();
+
+        SandboxProcessPlan plan = sandbox.prepare(
+                request,
+                workspace.toAbsolutePath().normalize()
+        );
+
+        List<String> command = plan.hostCommand();
+        assertOption(command, "--network", "bridge");
+        assertEquals(
+                List.of("/tmp:rw,nosuid,nodev,noexec,size=256m"),
+                optionValues(command, "--tmpfs")
+        );
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("GOCACHE=")));
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("GOTMPDIR=")));
     }
 
     @Test

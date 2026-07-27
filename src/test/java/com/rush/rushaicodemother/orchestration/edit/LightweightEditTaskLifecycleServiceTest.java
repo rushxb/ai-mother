@@ -38,25 +38,6 @@ class LightweightEditTaskLifecycleServiceTest {
     }
 
     @Test
-    void completeSuccessMustAtomicallyFinishStateTraceAndCharge() {
-        lifecycleService.completeSuccess("edit_task", 11L);
-
-        verify(taskLifecycleService).completeGenerationAndCharge(
-                "edit_task", 11L, GenerationTaskStatus.SUCCESS, null);
-    }
-
-    @Test
-    void completeFailureMustDelegateToAtomicLifecycleBoundary() {
-        IllegalStateException failure = new IllegalStateException("database_unavailable");
-        doThrow(failure).when(taskLifecycleService).completeGeneration(
-                "edit_task", 11L, GenerationTaskStatus.FAILED, "validation_failed");
-
-        assertThatThrownBy(() -> lifecycleService.completeFailure(
-                "edit_task", 11L, "validation_failed"))
-                .isSameAs(failure);
-    }
-
-    @Test
     void failedAtomicStartMustNotRunLegacyCompensationWrites() {
         App app = app(11L);
         User user = user(22L);

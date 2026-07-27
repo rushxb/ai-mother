@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.router;
 
 import java.util.Optional;
 
-/** Strategy interface for production routing signals. */
+/** 生产路由信号的策略接口。 */
 public interface GenerationRoutingPolicy {
 
     Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal);

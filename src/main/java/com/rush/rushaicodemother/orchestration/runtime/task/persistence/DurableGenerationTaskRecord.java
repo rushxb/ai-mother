@@ -4,7 +4,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 
 import java.time.Instant;
 
-/** Durable task state without process-local sessions, streams or workspaces. */
+/** 持久任务状态，无需进程本地会话、流或工作区。 */
 public record DurableGenerationTaskRecord(
         String taskId,
         Long appId,

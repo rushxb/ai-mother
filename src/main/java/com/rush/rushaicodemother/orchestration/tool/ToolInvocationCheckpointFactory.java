@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Instant;
 
-/** Captures an immutable continuation checkpoint at the tool-invocation boundary. */
+/** 在工具调用边界捕获不可变的延续检查点。 */
 @Component
 public class ToolInvocationCheckpointFactory {
 

@@ -17,10 +17,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Performs bounded, lightweight validation of backend files after an edit patch is applied.
+ * 应用编辑补丁后对后端文件执行有界的、轻量级的验证。
  *
- * <p>All file resolution and reads go through {@link PatchWorkspaceFileService}; this service never
- * resolves or reads an untrusted patch path directly.</p>
+ * <p>所有文件解析和读取都经过{@link PatchWorkspaceFileService}；这项服务从来没有
+ * 直接解析或读取不受信任的补丁路径。</p>
  */
 @Slf4j
 @Service

@@ -11,6 +11,9 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+/**
+ * 落地页插槽回退渲染器。
+ */
 @Component
 public class LandingSlotFallbackRenderer {
 

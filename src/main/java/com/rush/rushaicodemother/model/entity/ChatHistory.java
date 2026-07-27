@@ -31,7 +31,7 @@ public class ChatHistory implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * id
+     * 编号
      */
     @Id(keyType = KeyType.Generator, value = KeyGenerators.snowFlakeId)
     private Long id;
@@ -42,7 +42,7 @@ public class ChatHistory implements Serializable {
     private String message;
 
     /**
-     * user/ai
+     * 用户/人工智能
      */
     @Column("messageType")
     private String messageType;

@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.orchestration.create;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 创建生成遥测的不可变数据载体。
+ */
 public record CreateGenerationTelemetry(
         String baseTemplate,
         List<String> modules,

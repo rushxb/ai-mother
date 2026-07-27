@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
+import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.service.aimodel.AiModelCircuitBreaker;
 import com.rush.rushaicodemother.service.trace.GenerationModelCallCommand;
 import com.rush.rushaicodemother.service.trace.GenerationModelCallProvenance;
@@ -20,10 +21,11 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Unified metrics, circuit-breaker and provenance listener for every model invocation. */
+/** 每个模型调用的统一指标、断路器和来源侦听器。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -35,13 +37,16 @@ public class AiModelMonitorListener implements ChatModelListener {
     private static final String MODEL_PROVIDER_KEY = "configured_model_provider";
     private static final String CONFIGURED_MODEL_KEY = "configured_model_id";
     private static final String PROVENANCE_KEY = "model_request_provenance";
+    private static final String PROVIDER_ATTEMPT_SPAN_KEY = "provider_attempt_span";
 
     private final AiModelMetricsCollector aiModelMetricsCollector;
     private final GenerationTraceService generationTraceService;
     private final AiModelCircuitBreaker aiModelCircuitBreaker;
     private final AiModelProvenanceFactory provenanceFactory;
+    private final GenerationPerformanceMonitorService performanceMonitorService;
+    private final List<AiModelInvocationObserver> invocationObservers;
 
-    /** Binds the real provider identity hidden behind an OpenAI-compatible transport. */
+    /** 绑定隐藏在 OpenAI 兼容传输背后的真实提供商身份。 */
     public ChatModelListener forModel(String provider, String model) {
         return new BoundChatModelListener(normalize(provider), normalize(model));
     }
@@ -59,6 +64,9 @@ public class AiModelMonitorListener implements ChatModelListener {
         attributes.put(MONITOR_CONTEXT_KEY, monitorContext);
 
         ModelIdentity identity = identity(attributes, requestContext.chatRequest().modelName());
+        notifyInvocationObservers(identity);
+        attributes.put(PROVIDER_ATTEMPT_SPAN_KEY, performanceMonitorService.startSpan(
+                monitorContext.getTaskId(), "model_provider_attempt", GenerationSpanCategory.MODEL));
         try {
             attributes.put(PROVENANCE_KEY, provenanceFactory.create(
                     requestContext.chatRequest(), identity.provider(), identity.model()));
@@ -78,6 +86,7 @@ public class AiModelMonitorListener implements ChatModelListener {
         String responseModel = responseContext.chatResponse() == null
                 ? null : responseContext.chatResponse().modelName();
         ModelIdentity identity = identity(attributes, responseModel);
+        closeProviderAttemptSpan(attributes, "success", identity, null);
 
         aiModelMetricsCollector.recordRequest(
                 identity.provider(), context.getUserId(), context.getAppId(), context.getTaskId(),
@@ -102,6 +111,7 @@ public class AiModelMonitorListener implements ChatModelListener {
         Throwable failure = errorContext.error();
         String errorMessage = failure == null ? null : failure.getMessage();
         String errorCategory = GenerationErrorClassifier.classify(failure).category();
+        closeProviderAttemptSpan(attributes, "failed", identity, errorCategory);
 
         aiModelMetricsCollector.recordRequest(
                 identity.provider(), context.getUserId(), context.getAppId(), context.getTaskId(),
@@ -223,6 +233,20 @@ public class AiModelMonitorListener implements ChatModelListener {
         return responseTime;
     }
 
+    private void closeProviderAttemptSpan(Map<Object, Object> attributes,
+                                          String status,
+                                          ModelIdentity identity,
+                                          String errorCategory) {
+        Object timer = attributes.get(PROVIDER_ATTEMPT_SPAN_KEY);
+        if (!(timer instanceof GenerationPerformanceMonitorService.SpanTimer spanTimer)) {
+            return;
+        }
+        String detail = "provider=" + identity.provider()
+                + ",model=" + identity.model()
+                + (errorCategory == null ? "" : ",errorCategory=" + errorCategory);
+        spanTimer.close(status, detail);
+    }
+
     private void recordTokenMetrics(TokenUsage tokenUsage,
                                     ModelIdentity identity,
                                     MonitorContext context) {
@@ -291,6 +315,18 @@ public class AiModelMonitorListener implements ChatModelListener {
                 .appId("none")
                 .taskId("none")
                 .build();
+    }
+
+    private void notifyInvocationObservers(ModelIdentity identity) {
+        for (AiModelInvocationObserver observer : invocationObservers) {
+            try {
+                observer.onRequest(identity.provider(), identity.model());
+            } catch (RuntimeException failure) {
+                log.warn("AI 模型物理请求观察器执行失败，provider={}, model={}",
+                        identity.provider(), identity.model(),
+                        LogExceptionSanitizer.sanitize(failure));
+            }
+        }
     }
 
     private Long parsePositiveLong(String value) {

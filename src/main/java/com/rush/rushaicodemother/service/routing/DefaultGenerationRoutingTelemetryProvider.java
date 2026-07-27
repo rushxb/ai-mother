@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLoadSnapshot;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -21,7 +22,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-/** Cached adapter that combines task outcomes, user feedback and durable runtime load. */
+/** 缓存适配器，结合了任务结果、用户反馈和持久的运行时负载。 */
 @Slf4j
 @Service
 public class DefaultGenerationRoutingTelemetryProvider implements GenerationRoutingTelemetryProvider {
@@ -34,6 +35,7 @@ public class DefaultGenerationRoutingTelemetryProvider implements GenerationRout
     private final Clock clock;
     private final Cache<CacheKey, GenerationRoutingTelemetrySnapshot> cache;
 
+    @Autowired
     public DefaultGenerationRoutingTelemetryProvider(
             GenerationTracePersistenceService tracePersistenceService,
             GenerationFeedbackRepository feedbackRepository,

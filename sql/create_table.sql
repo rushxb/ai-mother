@@ -308,8 +308,12 @@ create table chat_history
         errorMessage            text                               null comment '错误信息',
         memorySummary           mediumtext                         null comment 'AI 可读的生成记忆摘要',
         memoryIndexedAt         datetime(6)                        null comment '语义记忆成功写入 Milvus 的时间',
+        memoryIndexContractVersion int      default 0              not null comment '已写入的语义记忆完整契约版本；0 表示待索引',
         memoryIndexAttempts     int         default 0              not null comment '语义记忆索引尝试次数',
         memoryIndexError        varchar(1000)                      null comment '语义记忆最近索引错误',
+        memoryIndexNextAttemptAt datetime(6)                       null comment '下一次语义记忆索引时间',
+        memoryIndexLeaseOwner   varchar(128)                       null comment '语义记忆 outbox 租约持有者',
+        memoryIndexLeaseUntil   datetime(6)                        null comment '语义记忆 outbox 租约到期时间',
         totalTokens             bigint   default 0                 not null comment '任务累计 token 数',
         creditCost              bigint   default 0                 not null comment '任务消耗积分',
         creditCharged           tinyint  default 0                 not null comment '是否已结算积分',
@@ -328,13 +332,52 @@ create table chat_history
         INDEX idx_app_runtime_status (appId, status, submittedAt),
         INDEX idx_user_runtime_status (userId, status, isDelete, submittedAt),
         INDEX idx_memory_outbox (memoryIndexedAt, memoryIndexAttempts, status, isDelete, endTime),
+        INDEX idx_memory_outbox_claim
+            (memoryIndexedAt, memoryIndexNextAttemptAt, memoryIndexLeaseUntil,
+             memoryIndexAttempts, status, isDelete, endTime),
+        INDEX idx_memory_outbox_contract_claim
+            (memoryIndexContractVersion, memoryIndexedAt, memoryIndexNextAttemptAt,
+             memoryIndexLeaseUntil, memoryIndexAttempts, status, isDelete, endTime),
         INDEX idx_generation_task_tenant_runtime (tenantId, status, isDelete, submittedAt, id),
         CONSTRAINT chk_generation_task_idempotency_pair CHECK (
             (idempotencyKeyHash IS NULL AND requestFingerprint IS NULL)
                 OR (idempotencyKeyHash IS NOT NULL AND requestFingerprint IS NOT NULL)
         ),
+        CONSTRAINT chk_generation_task_memory_contract_version CHECK (memoryIndexContractVersion >= 0),
         CONSTRAINT fk_generation_task_tenant FOREIGN KEY (tenantId) REFERENCES tenant (id)
     ) comment 'AI 生成任务' collate = utf8mb4_unicode_ci;
+
+create table if not exists semantic_memory_deletion_outbox
+(
+    id                bigint auto_increment primary key,
+    operationId       char(64)                            not null,
+    operationType     varchar(32)                         not null,
+    tenantId          bigint                              not null,
+    appId             bigint                              not null,
+    requestedByUserId bigint                              not null,
+    attempts          int         default 0               not null,
+    nextAttemptAt     datetime(6)                         not null,
+    leaseOwner        varchar(128)                        null,
+    leaseUntil        datetime(6)                         null,
+    lastError         varchar(1000)                       null,
+    completedAt       datetime(6)                         null,
+    createTime        datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    updateTime        datetime(6) default CURRENT_TIMESTAMP(6) not null
+        on update CURRENT_TIMESTAMP(6),
+    unique key uk_semantic_memory_deletion_operation (operationId),
+    unique key uk_semantic_memory_deletion_scope (operationType, tenantId, appId),
+    index idx_semantic_memory_deletion_claim
+        (completedAt, nextAttemptAt, leaseUntil, id),
+    constraint chk_semantic_memory_deletion_type
+        check (operationType = 'DELETE_APPLICATION'),
+    constraint chk_semantic_memory_deletion_identity
+        check (tenantId > 0 and appId > 0 and requestedByUserId > 0),
+    constraint chk_semantic_memory_deletion_attempts check (attempts >= 0),
+    constraint chk_semantic_memory_deletion_lease check (
+        (leaseOwner is null and leaseUntil is null)
+        or (leaseOwner is not null and leaseUntil is not null)
+    )
+) comment '派生 Milvus 语义记忆删除 outbox' collate = utf8mb4_unicode_ci;
 
 -- AI 破坏性工具一次性审批：MySQL 为事实源，支持重启恢复、原子决策和单次消费
 -- Durable DAG checkpoints for cross-instance orchestration recovery.
@@ -585,6 +628,20 @@ alter table ai_model add column if not exists isDelete tinyint default 0 not nul
 -- sql/migrations/V20260714_2__ai_model_soft_delete_identity.sql
 -- sql/migrations/V20260720_2__ai_model_secret_envelope.sql
 
+-- AI 发布事务协调锁：必须通过数据库事务行锁保证多实例顺序。
+create table if not exists ai_release_coordination_lock
+(
+    lockName   varchar(64)                         not null primary key,
+    createTime datetime(6) default CURRENT_TIMESTAMP(6) not null,
+    updateTime datetime(6) default CURRENT_TIMESTAMP(6) not null
+        on update CURRENT_TIMESTAMP(6),
+    constraint chk_ai_release_coordination_lock_name
+        check (char_length(trim(lockName)) between 1 and 64)
+) comment 'AI 发布事务协调锁' collate = utf8mb4_unicode_ci;
+
+insert ignore into ai_release_coordination_lock (lockName)
+values ('global');
+
 create table if not exists ai_prompt_release_bundle
 (
     id         tinyint                              not null primary key,
@@ -677,6 +734,8 @@ create table if not exists generation_benchmark_evidence
     subjectType              varchar(32)                        not null,
     subjectKey               varchar(128)                       not null,
     candidateFingerprint     char(64)                           not null,
+    signatureVersion         smallint                           not null,
+    candidatePhysicalRequestCount bigint                        not null,
     datasetFingerprint       char(64)                           not null,
     graderFingerprint        varchar(128)                       not null,
     runtimeConfigFingerprint char(64)                           not null,
@@ -698,6 +757,14 @@ create table if not exists generation_benchmark_evidence
     index idx_generation_benchmark_evidence_expiry (expiresAt, isDelete),
     constraint chk_generation_benchmark_evidence_subject
         check (subjectType in ('PROMPT_RELEASE', 'AI_MODEL_ENABLE')),
+    constraint chk_generation_benchmark_evidence_attestation
+        check (
+            (signatureVersion = 1 and candidatePhysicalRequestCount = 0)
+            or (signatureVersion = 2 and (
+                (subjectType = 'AI_MODEL_ENABLE' and candidatePhysicalRequestCount > 0)
+                or (subjectType = 'PROMPT_RELEASE' and candidatePhysicalRequestCount = 0)
+            ))
+        ),
     constraint chk_generation_benchmark_evidence_passed check (passed in (0, 1)),
     constraint chk_generation_benchmark_evidence_window check (expiresAt > evaluatedAt)
 ) comment 'signed immutable AI release benchmark evidence' collate = utf8mb4_unicode_ci;

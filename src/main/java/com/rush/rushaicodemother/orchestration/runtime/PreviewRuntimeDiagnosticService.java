@@ -8,6 +8,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * Preview运行时Diagnostic服务实现。
+ */
 @Component
 public class PreviewRuntimeDiagnosticService {
 

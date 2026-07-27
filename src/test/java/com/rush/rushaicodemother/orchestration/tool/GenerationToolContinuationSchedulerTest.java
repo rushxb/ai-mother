@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionFactory;
@@ -19,6 +20,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecut
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecutor;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContext;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
@@ -40,6 +42,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -158,6 +161,35 @@ class GenerationToolContinuationSchedulerTest {
 
         verify(runtimeLifecycle).restoreWaitingAfterDispatchFailure(
                 FENCE, "approval_dispatch_retry");
+    }
+
+    @Test
+    void expiredApprovalContinuationMustTerminalizeWithoutStartingWorker() {
+        Fixture fixture = fixture();
+        when(checkpointFactory.restore(fixture.decision().invocationCheckpoint()))
+                .thenReturn(fixture.state());
+        when(executionContexts.getByTaskId("task-1"))
+                .thenReturn(Optional.of(fixture.context()));
+        when(sessions.getByTaskId("task-1")).thenReturn(fixture.session());
+        when(fixture.session().executionContext()).thenReturn(fixture.context());
+        when(runtimeLifecycle.requeueAfterApproval("task-1")).thenReturn(Optional.empty());
+        when(durableTasks.findByTaskId("task-1")).thenReturn(Optional.of(
+                waitingApprovalTask(Instant.EPOCH)));
+
+        scheduler.schedule(fixture.decision());
+
+        verify(heavyCoordinator).timeoutWaitingToolApproval(fixture.state(), fixture.session());
+        verify(taskExecutor, never()).execute(any(GenerationTaskExecution.class), any(Runnable.class));
+        verify(runtimeLifecycle, never()).activate(any());
+    }
+
+    private DurableGenerationTaskRecord waitingApprovalTask(Instant deadlineAt) {
+        return new DurableGenerationTaskRecord(
+                "task-1", 11L, 7L, 3L, "heavy_generation",
+                GenerationTaskStatus.WAITING_APPROVAL, "approval", "waiting",
+                NOW.minusSeconds(60), deadlineAt, false, null,
+                null, null, null, 1, 4L, null, null
+        );
     }
 
     private Fixture fixture() {

@@ -16,7 +16,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-/** Coordinates bounded validation, transactional mutation, and patch metrics. */
+/** 协调有界验证、事务性变更和补丁指标。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor

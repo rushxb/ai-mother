@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Allocates bounded frontend/backend ports for a canonical full-stack generation workspace. */
+/** 为规范的全栈生成工作区分配有界的前端/后端端口。 */
 @Component
 @RequiredArgsConstructor
 public class FullStackPortAllocator {
@@ -38,9 +38,9 @@ public class FullStackPortAllocator {
     }
 
     /**
-     * Allocates ports for a workspace that has already crossed the canonical workspace boundary.
-     * This overload prevents orchestration callers from converting a trusted workspace back into
-     * an independently reconstructed path.
+     * 为已经跨越规范工作区边界的工作区分配端口。
+     * 这种重载会阻止编排调用者将受信任的工作空间转换回
+     * 独立重建的路径。
      */
     public FullStackGenerationContext allocate(GenerationWorkspace workspace) {
         validateFullStackWorkspace(workspace);

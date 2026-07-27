@@ -43,6 +43,14 @@ public interface AppMapper extends BaseMapper<App> {
                          @Param("appName") String appName,
                          @Param("editTime") LocalDateTime editTime);
 
+    /** 仅当名称仍是创建时的初始值，才写入异步生成的标题。 */
+    @Update("update app set appName = #{generatedName} "
+            + "where id = #{appId} and isDelete = 0 "
+            + "and binary appName = binary #{initialName} and editTime = createTime")
+    int updateGeneratedNameIfUnchanged(@Param("appId") Long appId,
+                                       @Param("initialName") String initialName,
+                                       @Param("generatedName") String generatedName);
+
     /**
      * 更新管理员允许修改的字段；动态字段集合由 Mapper XML 固定定义，调用方不能扩展更新范围。
      */

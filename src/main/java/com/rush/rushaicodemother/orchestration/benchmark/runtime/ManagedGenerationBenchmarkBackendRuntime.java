@@ -1,0 +1,350 @@
+package com.rush.rushaicodemother.orchestration.benchmark.runtime;
+
+import com.rush.rushaicodemother.config.GenerationBenchmarkBackendProperties;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.process.GoProcessEnvironment;
+import com.rush.rushaicodemother.infrastructure.process.GoToolchain;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessLifecycle;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessOutputLogPolicy;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
+import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
+import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+/** 使用统一进程边界在一次性工作区副本中运行生成的 Go 后端。 */
+@Slf4j
+@Component
+public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBenchmarkBackendRuntime {
+
+    private static final String DISPLAY_COMMAND = "go run -mod=readonly ./cmd/server";
+
+    private final GenerationBenchmarkBackendProperties properties;
+    private final GenerationBenchmarkBackendPortAllocator portAllocator;
+    private final GenerationBenchmarkBackendHttpProbe httpProbe;
+    private final ManagedProcessExecutor processExecutor;
+    private final ProjectProcessTerminator processTerminator;
+    private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final GoToolchain goToolchain;
+
+    public ManagedGenerationBenchmarkBackendRuntime(
+            GenerationBenchmarkBackendProperties properties,
+            GenerationBenchmarkBackendPortAllocator portAllocator,
+            GenerationBenchmarkBackendHttpProbe httpProbe,
+            ManagedProcessExecutor processExecutor,
+            ProjectProcessTerminator processTerminator,
+            WorkspaceFileSystemService workspaceFileSystemService,
+            GoToolchain goToolchain
+    ) {
+        this.properties = properties;
+        this.portAllocator = portAllocator;
+        this.httpProbe = httpProbe;
+        this.processExecutor = processExecutor;
+        this.processTerminator = processTerminator;
+        this.workspaceFileSystemService = workspaceFileSystemService;
+        this.goToolchain = goToolchain;
+    }
+
+    @Override
+    public BackendRuntimeHandle start(Path backendProjectDirectory) {
+        Path stagedProject = null;
+        GenerationBenchmarkBackendPortAllocator.PortLease portLease = null;
+        RuntimeCleanup cleanup = null;
+        try {
+            stagedProject = stageProject(backendProjectDirectory);
+            portLease = portAllocator.reserve();
+            AtomicBoolean cancellationRequested = new AtomicBoolean(false);
+            AtomicReference<Process> processReference = new AtomicReference<>();
+            CompletableFuture<Process> processStarted = new CompletableFuture<>();
+            CompletableFuture<ManagedProcessResult> processCompletion = new CompletableFuture<>();
+            cleanup = new RuntimeCleanup(
+                    stagedProject,
+                    portLease,
+                    cancellationRequested,
+                    processReference,
+                    processCompletion
+            );
+
+            ManagedProcessRequest request = buildRequest(
+                    stagedProject,
+                    portLease.port(),
+                    cancellationRequested,
+                    processReference,
+                    processStarted
+            );
+            portLease.releaseBindingForProcessStart();
+            startProcess(request, processCompletion);
+            Process process = awaitProcessStart(processStarted, processCompletion);
+            if (process == null) {
+                BackendRuntimeObservation observation = launchFailure(processCompletion);
+                cleanup.close();
+                return BackendRuntimeHandle.failed(observation);
+            }
+            BackendRuntimeObservation observation = httpProbe.awaitHealthy(process, portLease.port());
+            if (!observation.passedValidation()) {
+                cleanup.close();
+                return BackendRuntimeHandle.failed(observation);
+            }
+            RuntimeCleanup ownedCleanup = cleanup;
+            cleanup = null;
+            return new BackendRuntimeHandle(
+                    portLease.port(),
+                    observation,
+                    process::isAlive,
+                    ownedCleanup::close
+            );
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            closePartial(cleanup, stagedProject, portLease);
+            throw new IllegalStateException("等待后端运行时启动被中断", exception);
+        } catch (RuntimeException exception) {
+            closePartial(cleanup, stagedProject, portLease);
+            if (Thread.currentThread().isInterrupted()) {
+                throw exception;
+            }
+            log.warn("后端运行时准备失败: error={}", LogExceptionSanitizer.sanitizeMessage(exception));
+            return BackendRuntimeHandle.failed(
+                    BackendRuntimeObservation.failed("backend_runtime_setup_failed")
+            );
+        } catch (IOException exception) {
+            closePartial(cleanup, stagedProject, portLease);
+            log.warn("后端运行时准备失败: error={}", LogExceptionSanitizer.sanitizeMessage(exception));
+            return BackendRuntimeHandle.failed(
+                    BackendRuntimeObservation.failed("backend_runtime_setup_failed")
+            );
+        }
+    }
+
+    private Path stageProject(Path source) throws IOException {
+        if (source == null) {
+            throw new IllegalArgumentException("后端项目目录不能为空");
+        }
+        Path normalizedSource = source.toAbsolutePath().normalize();
+        workspaceFileSystemService.resolveExistingRegularFile(normalizedSource, "go.mod");
+        workspaceFileSystemService.resolveExistingRegularFile(
+                normalizedSource,
+                "cmd/server/main.go"
+        );
+        Path runtimeRoot = workspaceFileSystemService.ensureDirectory(
+                properties.getWorkspaceRoot().toAbsolutePath().normalize()
+        );
+        Path target = runtimeRoot.resolve("backend-" + UUID.randomUUID()).normalize();
+        return workspaceFileSystemService.copyDirectory(normalizedSource, target).targetDirectory();
+    }
+
+    private ManagedProcessRequest buildRequest(
+            Path stagedProject,
+            int port,
+            AtomicBoolean cancellationRequested,
+            AtomicReference<Process> processReference,
+            CompletableFuture<Process> processStarted
+    ) {
+        Map<String, String> environment = new LinkedHashMap<>(GoProcessEnvironment.overrides());
+        environment.put("SERVER_ADDR", "127.0.0.1:" + port);
+        environment.put(
+                "DATABASE_DSN",
+                "file:benchmark-" + UUID.randomUUID() + "?mode=memory&cache=shared"
+        );
+        environment.put("LOG_LEVEL", "warn");
+        return ManagedProcessRequest.builder()
+                .workingDirectory(stagedProject)
+                .command(List.of(
+                        goToolchain.goExecutable(),
+                        "run",
+                        "-mod=readonly",
+                        "./cmd/server"
+                ))
+                .displayCommand(DISPLAY_COMMAND)
+                .environment(Map.copyOf(environment))
+                .environmentVariablesToRemove(GoProcessEnvironment.variablesToRemove())
+                .timeout(properties.getProcessTimeout())
+                .heartbeatInterval(properties.getHeartbeatInterval())
+                .outputDrainTimeout(properties.getOutputDrainTimeout())
+                .maxOutputLength(properties.getMaxOutputLength())
+                .redirectErrorStream(true)
+                .outputLogPolicy(ManagedProcessOutputLogPolicy.SUMMARY)
+                .logCategory("benchmark-backend-runtime")
+                .logContext("port=" + port)
+                .cancellationRequested(cancellationRequested::get)
+                .lifecycle(new ManagedProcessLifecycle() {
+                    @Override
+                    public void onStarted(Process process) {
+                        processReference.set(process);
+                        processStarted.complete(process);
+                        if (cancellationRequested.get()) {
+                            processTerminator.terminate(process);
+                        }
+                    }
+                })
+                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .exposedPort(port)
+                .build();
+    }
+
+    private void startProcess(
+            ManagedProcessRequest request,
+            CompletableFuture<ManagedProcessResult> completion
+    ) {
+        Thread.ofVirtual()
+                .name("benchmark-backend-runtime-" + request.exposedPort())
+                .start(() -> {
+                    try {
+                        completion.complete(processExecutor.execute(request));
+                    } catch (Throwable failure) {
+                        completion.completeExceptionally(failure);
+                    }
+                });
+    }
+
+    private Process awaitProcessStart(
+            CompletableFuture<Process> processStarted,
+            CompletableFuture<ManagedProcessResult> processCompletion
+    ) throws InterruptedException {
+        try {
+            CompletableFuture.anyOf(processStarted, processCompletion)
+                    .get(properties.getStartupTimeout().toNanos(), TimeUnit.NANOSECONDS);
+            return processStarted.getNow(null);
+        } catch (TimeoutException exception) {
+            return null;
+        } catch (ExecutionException exception) {
+            return null;
+        }
+    }
+
+    private BackendRuntimeObservation launchFailure(
+            CompletableFuture<ManagedProcessResult> processCompletion
+    ) {
+        if (!processCompletion.isDone()) {
+            return BackendRuntimeObservation.failed("backend_startup_timeout");
+        }
+        try {
+            ManagedProcessResult result = processCompletion.getNow(null);
+            if (result != null && result.status() == ManagedProcessResult.Status.START_FAILED) {
+                return BackendRuntimeObservation.failed("backend_process_start_failed");
+            }
+            return BackendRuntimeObservation.failed("backend_process_exited");
+        } catch (RuntimeException exception) {
+            return BackendRuntimeObservation.failed("backend_process_start_failed");
+        }
+    }
+
+    private void closePartial(
+            RuntimeCleanup cleanup,
+            Path stagedProject,
+            GenerationBenchmarkBackendPortAllocator.PortLease portLease
+    ) {
+        if (cleanup != null) {
+            cleanup.close();
+            return;
+        }
+        if (portLease != null) {
+            portLease.close();
+        }
+        deleteStagedProject(stagedProject);
+    }
+
+    private void deleteStagedProject(Path stagedProject) {
+        if (stagedProject == null) {
+            return;
+        }
+        try {
+            workspaceFileSystemService.deleteDirectory(stagedProject);
+        } catch (IOException | RuntimeException exception) {
+            log.warn("清理后端运行时副本失败: error={}",
+                    LogExceptionSanitizer.sanitizeMessage(exception));
+        }
+    }
+
+    private final class RuntimeCleanup {
+
+        private final Path stagedProject;
+        private final GenerationBenchmarkBackendPortAllocator.PortLease portLease;
+        private final AtomicBoolean cancellationRequested;
+        private final AtomicReference<Process> processReference;
+        private final CompletableFuture<ManagedProcessResult> processCompletion;
+        private final AtomicBoolean cleanupStarted = new AtomicBoolean(false);
+        private final AtomicBoolean projectDeleted = new AtomicBoolean(false);
+
+        private RuntimeCleanup(
+                Path stagedProject,
+                GenerationBenchmarkBackendPortAllocator.PortLease portLease,
+                AtomicBoolean cancellationRequested,
+                AtomicReference<Process> processReference,
+                CompletableFuture<ManagedProcessResult> processCompletion
+        ) {
+            this.stagedProject = stagedProject;
+            this.portLease = portLease;
+            this.cancellationRequested = cancellationRequested;
+            this.processReference = processReference;
+            this.processCompletion = processCompletion;
+        }
+
+        private void close() {
+            if (!cleanupStarted.compareAndSet(false, true)) {
+                return;
+            }
+            cancellationRequested.set(true);
+            Process process = processReference.get();
+            if (process != null) {
+                try {
+                    processTerminator.terminate(process);
+                } catch (RuntimeException exception) {
+                    log.warn("终止后端运行时进程失败: error={}",
+                            LogExceptionSanitizer.sanitizeMessage(exception));
+                }
+            }
+            boolean completed = awaitCompletion();
+            portLease.close();
+            if (completed) {
+                deleteProjectOnce();
+            } else {
+                processCompletion.whenComplete((ignored, failure) -> deleteProjectOnce());
+            }
+        }
+
+        private boolean awaitCompletion() {
+            boolean interrupted = false;
+            try {
+                processCompletion.get(
+                        properties.getShutdownTimeout().toNanos(),
+                        TimeUnit.NANOSECONDS
+                );
+                return true;
+            } catch (InterruptedException exception) {
+                interrupted = true;
+                return false;
+            } catch (ExecutionException exception) {
+                return true;
+            } catch (TimeoutException exception) {
+                log.warn("等待后端运行时进程清理超时");
+                return false;
+            } finally {
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        private void deleteProjectOnce() {
+            if (projectDeleted.compareAndSet(false, true)) {
+                deleteStagedProject(stagedProject);
+            }
+        }
+    }
+}

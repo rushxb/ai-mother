@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import com.rush.rushaicodemother.orchestration.review.BackendQualityReviewService;
 import com.rush.rushaicodemother.orchestration.review.VueSecurityReviewService;
 import org.springframework.stereotype.Component;
@@ -26,7 +27,7 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
 
     public ReviewAgentNode(VueSecurityReviewService vueSecurityReviewService,
                            BackendQualityReviewService backendQualityReviewService) {
-        super("review", "Review", "quality", List.of("code"));
+        super("review", "Review", "quality", List.of("code"), GenerationNodeReplayPolicy.REPLAY_SAFE);
         this.vueSecurityReviewService = Objects.requireNonNull(
                 vueSecurityReviewService,
                 "vueSecurityReviewService must not be null"

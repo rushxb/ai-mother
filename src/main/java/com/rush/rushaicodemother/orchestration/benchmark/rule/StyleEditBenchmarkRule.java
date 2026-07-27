@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.regex.Pattern;
 
-/** Seeds a visible button style fixture and verifies the exact requested design tokens. */
+/** 播种可见的按钮样式固定装置并验证确切要求的设计标记。 */
 @Component
 public class StyleEditBenchmarkRule implements GenerationBenchmarkValidationRule {
 

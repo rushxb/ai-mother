@@ -26,7 +26,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** Safely expands packaged project templates under explicit file-system resource limits. */
+/** 在明确的文件系统资源限制下安全地扩展打包的项目模板。 */
 @Component
 public class ProjectTemplateMaterializer {
 
@@ -61,9 +61,14 @@ public class ProjectTemplateMaterializer {
     }
 
     /**
-     * Materializes a template in a sibling staging directory and publishes it without replacement.
-     * The final target is never visible in a partially copied state.
+     * 在同级暂存目录中具体化模板并发布它而不进行替换。
+     * 最终目标在部分复制状态下永远不可见。
      */
+    public MaterializationResult materializeAtomically(String templateId,
+                                                       Path targetDirectory) throws Exception {
+        return materializeAtomically(templateId, targetDirectory, null);
+    }
+
     public MaterializationResult materializeAtomically(String templateId,
                                                        Path targetDirectory,
                                                        StagingCustomizer customizer) throws Exception {
@@ -121,7 +126,7 @@ public class ProjectTemplateMaterializer {
         }
     }
 
-    /** Materializes into an existing empty directory owned by the caller, such as a pre-warm directory. */
+    /** 实现为调用者拥有的现有空目录，例如预热目录。 */
     public MaterializationResult materializeIntoExistingDirectory(String templateId, Path targetDirectory)
             throws IOException {
         validateTemplateId(templateId);

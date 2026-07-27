@@ -6,7 +6,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 
 import java.util.List;
 
-/** Final synchronous validation state for a runtime-error repair edit. */
+/** 运行时错误修复编辑的最终同步验证状态。 */
 public record LightweightRuntimeValidationOutcome(
         boolean success,
         EditResult editResult,

@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.orchestration.template;
 
 import java.io.IOException;
 
-/** Typed failure raised while validating or materializing a packaged project template. */
+/** 验证或具体化打包项目模板时引发类型失败。 */
 public class TemplateMaterializationException extends IOException {
 
     private final Reason reason;

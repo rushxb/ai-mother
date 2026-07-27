@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.ai.prompt;
 
-/** One selected immutable prompt version. */
+/** 一种选定的不可变提示版本。 */
 public record PromptSelection(
         String promptKey,
         String version,

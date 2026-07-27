@@ -19,7 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Orders edit-file candidate sources and enforces a single path-safe result policy.
+ * 订购编辑文件候选源并强制执行单一路径安全结果策略。
  */
 @Slf4j
 @Service

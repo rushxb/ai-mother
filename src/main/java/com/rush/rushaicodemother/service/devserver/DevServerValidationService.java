@@ -18,13 +18,13 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Validates generated applications through a managed Dev Server session.
+ * 通过托管开发服务器会话验证生成的应用程序。
  *
- * <p>A successful start means that the loopback port is stable. The service then collects delayed
- * compilation errors for a bounded window and stops only sessions owned by the current caller.</p>
+ * <p>A 启动成功表示环回端口稳定。然后该服务收集延迟
+ * 有界窗口的编译错误，仅停止当前调用者拥有的会话。</p>
  *
- * <p>Generation Runtime policy is adapted here into generic timeout and cancellation controls, so
- * the Dev Server lifecycle module remains reusable outside generation tasks.</p>
+ * <p>Generation Runtime 策略在此适应通用超时和取消控制，因此
+ * Dev Server生命周期模块在生成任务之外仍然可重用。</p>
  */
 @Slf4j
 @Service
@@ -36,7 +36,7 @@ public class DevServerValidationService {
     private final GenerationExecutionContextService generationExecutionContextService;
 
     /**
-     * Runs task-aware Dev Server validation.
+     * 运行任务感知的开发服务器验证。
      */
     public DevServerValidationResult validate(
             String taskId,
@@ -47,7 +47,7 @@ public class DevServerValidationService {
         return validate(taskId, appId, userId, codeGenType, null);
     }
 
-    /** Runs validation against the exact isolated workspace owned by the supplied fence. */
+    /** 针对所提供的栅栏拥有的确切隔离工作区运行验证。 */
     public DevServerValidationResult validate(
             String taskId,
             Long appId,
@@ -104,7 +104,7 @@ public class DevServerValidationService {
             );
             log.info("Dev Server is ready, taskId={}, port={}; collecting delayed errors",
                     taskId, startResult.port());
-            if (!awaitErrorCollectionWindow(taskId, collectionWindow)) {
+            if (!awaitErrorCollectionWindow(taskId, collectionWindow, collector)) {
                 return DevServerValidationResult.interrupted(taskId, appId, elapsedSince(startNanos));
             }
 
@@ -143,13 +143,28 @@ public class DevServerValidationService {
         return DevServerValidationResult.startupFailed(taskId, appId, elapsed, exception.getMessage());
     }
 
-    private boolean awaitErrorCollectionWindow(String taskId, Duration duration) {
-        long deadlineNanos = System.nanoTime() + duration.toNanos();
+    private boolean awaitErrorCollectionWindow(String taskId,
+                                               Duration duration,
+                                               DevServerErrorCollector collector) {
+        long collectionWindowNanos = duration.toNanos();
+        long criticalDrainWindowNanos = runtimeProperties
+                .getValidationCriticalErrorDrainWindow()
+                .toNanos();
         long pollNanos = runtimeProperties.getValidationPollInterval().toNanos();
+        long startedNanos = System.nanoTime();
+        long criticalStopAfterNanos = Long.MAX_VALUE;
         try {
             while (true) {
                 generationExecutionContextService.assertCanContinue(taskId);
-                long remainingNanos = deadlineNanos - System.nanoTime();
+                long elapsedNanos = System.nanoTime() - startedNanos;
+                if (criticalStopAfterNanos == Long.MAX_VALUE && collector.hasCriticalError()) {
+                    criticalStopAfterNanos = Math.min(
+                            collectionWindowNanos,
+                            elapsedNanos + criticalDrainWindowNanos
+                    );
+                }
+                long stopAfterNanos = Math.min(collectionWindowNanos, criticalStopAfterNanos);
+                long remainingNanos = stopAfterNanos - elapsedNanos;
                 if (remainingNanos <= 0) {
                     generationExecutionContextService.assertCanContinue(taskId);
                     return true;

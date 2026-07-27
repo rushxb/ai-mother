@@ -10,6 +10,9 @@ import org.springframework.stereotype.Component;
 @Component("milvusMemory")
 @ConditionalOnProperty(prefix = "app.memory.long-term", name = "enabled",
         havingValue = "true")
+/**
+ * Milvus 记忆健康指示器。
+ */
 public class MilvusMemoryHealthIndicator implements HealthIndicator {
     private final MilvusClientV2 client;
     private final MilvusMemoryCollectionManager collectionManager;
@@ -31,11 +34,13 @@ public class MilvusMemoryHealthIndicator implements HealthIndicator {
                         .withDetails(collectionManager.readinessDetails())
                         .build();
             }
+            collectionManager.invalidate();
             return Health.down()
                     .withDetail("backend", "milvus")
                     .withDetail("reasons", response == null ? java.util.List.of("empty_response") : response.getReasons())
                     .build();
         } catch (RuntimeException failure) {
+            collectionManager.invalidate();
             return Health.down(failure).withDetail("backend", "milvus").build();
         }
     }

@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/** Development adapter that executes durable commands in the submitting process. */
+/** 在提交过程中执行持久命令的开发适配器。 */
 @Component
 @ConditionalOnProperty(prefix = "app.generation-task-queue", name = "transport",
         havingValue = "local", matchIfMissing = true)

@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
-/** MySQL-backed durable checkpoint repository for cross-instance DAG recovery. */
+/** MySQL 支持的持久检查点存储库，用于跨实例 DAG 恢复。 */
 @Repository
 @RequiredArgsConstructor
 public class MyBatisGenerationOrchestrationCheckpointRepository

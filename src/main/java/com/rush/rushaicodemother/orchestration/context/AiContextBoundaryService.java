@@ -25,6 +25,12 @@ public class AiContextBoundaryService {
             "(?is)\\[\\s*/?\\s*(?:AI_CONTEXT_PACK|SECTION)\\b[^\\]]{0,512}\\]"
     );
 
+    /**
+ * 清理并保护仓储上下文，避免敏感内容越过边界。
+ *
+ * @param rawContext 原始上下文
+ * @return 仓储上下文
+ */
     public ProtectedContext protectRepositoryContext(String rawContext) {
         return protect(
                 rawContext,
@@ -39,6 +45,12 @@ public class AiContextBoundaryService {
         );
     }
 
+    /**
+ * 清理并保护{@code Historical}记忆，避免敏感内容越过边界。
+ *
+ * @param rawMemory 原始记忆
+ * @return {@code Historical}记忆
+ */
     public ProtectedContext protectHistoricalMemory(String rawMemory) {
         return protect(
                 rawMemory,
@@ -53,6 +65,13 @@ public class AiContextBoundaryService {
         );
     }
 
+    /**
+ * 清理并保护{@code Historical}证据，避免敏感内容越过边界。
+ *
+ * @param rawEvidence 原始证据
+ * @param sourceType 来源类型
+ * @return {@code Historical}证据
+ */
     public ProtectedContext protectHistoricalEvidence(String rawEvidence, String sourceType) {
         return protect(
                 rawEvidence,
@@ -67,6 +86,7 @@ public class AiContextBoundaryService {
         );
     }
 
+    /** 清理并保护 AI 上下文{@code Boundary}，避免敏感内容越过边界。 */
     private ProtectedContext protect(String rawContext,
                                        String beginMarker,
                                        String endMarker,
@@ -98,6 +118,7 @@ public class AiContextBoundaryService {
         return new ProtectedContext(wrapped, digest, redacted, truncated, source.length(), sanitized.length());
     }
 
+    /** 返回{@code neutralize}{@code Control}{@code Markers}。 */
     private String neutralizeControlMarkers(String value) {
         String neutralized = value;
         for (String marker : new String[]{

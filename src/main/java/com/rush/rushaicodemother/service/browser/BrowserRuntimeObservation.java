@@ -26,6 +26,7 @@ public record BrowserRuntimeObservation(
         ScreenshotStats screenshot
 ) {
 
+    /** 创建浏览器运行时观测实例并完成必要的依赖和初始状态设置。 */
     public BrowserRuntimeObservation {
         if (requestedUri == null || finalUri == null) {
             throw new IllegalArgumentException("browser observation URIs are required");
@@ -53,6 +54,11 @@ public record BrowserRuntimeObservation(
         return consoleMessages.stream().anyMatch(ConsoleMessage::fatal);
     }
 
+    /**
+ * 返回{@code looks}{@code Like}错误页面。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean looksLikeErrorPage() {
         String normalizedTitle = title.toLowerCase(Locale.ROOT);
         String normalizedHeading = firstHeading.toLowerCase(Locale.ROOT);
@@ -95,6 +101,11 @@ public record BrowserRuntimeObservation(
             message = bounded(message, 1_000);
         }
 
+        /**
+ * 返回{@code fatal}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
         public boolean fatal() {
             String normalized = message.toLowerCase(Locale.ROOT);
             if (normalized.contains("favicon.ico")) {

@@ -29,6 +29,12 @@ public class GenerationModelInvocationCancellationBridge {
         return requestIssuedListener;
     }
 
+    /**
+ * 绑定生成模型调用{@code Cancellation}{@code Bridge}。
+ *
+ * @param request 请求参数
+ * @return 生成模型调用{@code Cancellation}{@code Bridge}
+ */
     public ScopeBinding bind(ChatRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("模型请求不能为空");
@@ -40,6 +46,12 @@ public class GenerationModelInvocationCancellationBridge {
         return activate(scope);
     }
 
+    /**
+ * 返回{@code activate}。
+ *
+ * @param scope 作用域
+ * @return 生成模型调用{@code Cancellation}{@code Bridge}
+ */
     public ScopeBinding activate(GenerationModelCancellationScope scope) {
         GenerationModelCancellationScope previous = activeScope.get();
         if (scope == null) {
@@ -49,6 +61,11 @@ public class GenerationModelInvocationCancellationBridge {
         return new ScopeBinding(this, scope, previous, true);
     }
 
+    /**
+ * 注册传输{@code Cancellation}。
+ *
+ * @param handle 句柄
+ */
     public void registerTransportCancellation(GenerationCancellationHandle handle) {
         GenerationModelCancellationScope scope = activeScope.get();
         if (scope != null) {
@@ -56,6 +73,7 @@ public class GenerationModelInvocationCancellationBridge {
         }
     }
 
+    /** 响应请求{@code Issued}事件。 */
     private void onRequestIssued(AiServiceRequestIssuedEvent event) {
         if (event == null || event.request() == null) {
             return;
@@ -101,6 +119,7 @@ public class GenerationModelInvocationCancellationBridge {
             return scope;
         }
 
+        /** 关闭作用域{@code Binding}并释放资源。 */
         @Override
         public void close() {
             if (!closed && activated) {

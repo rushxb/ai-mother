@@ -101,6 +101,7 @@ public class GenerationSnapshotWorkspaceService {
         return expected;
     }
 
+    /** 校验{@code ate}{@code Existing}目录是否有效。 */
     private void validateExistingDirectory(Path directory, String message) {
         try {
             workspaceFileSystemService.isDirectory(directory);

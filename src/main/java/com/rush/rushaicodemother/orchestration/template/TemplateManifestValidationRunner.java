@@ -24,6 +24,11 @@ public class TemplateManifestValidationRunner implements ApplicationRunner {
 
     private final TemplateManifestService templateManifestService;
 
+    /**
+ * 运行模板清单校验处理流程。
+ *
+ * @param args 命令行参数
+ */
     @Override
     public void run(ApplicationArguments args) {
         for (String templateId : discoverTemplateIds()) {
@@ -40,6 +45,7 @@ public class TemplateManifestValidationRunner implements ApplicationRunner {
         }
     }
 
+    /** 返回{@code discover}模板{@code Ids}。 */
     private List<String> discoverTemplateIds() {
         try {
             Resource[] manifests = new PathMatchingResourcePatternResolver()
@@ -55,6 +61,7 @@ public class TemplateManifestValidationRunner implements ApplicationRunner {
         }
     }
 
+    /** 返回模板编号{@code From}资源。 */
     private String templateIdFromResource(Resource resource) {
         try {
             String url = resource.getURL().toString().replace("\\", "/");

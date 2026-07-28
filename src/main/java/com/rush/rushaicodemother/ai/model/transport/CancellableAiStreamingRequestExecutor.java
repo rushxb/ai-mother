@@ -37,6 +37,11 @@ public final class CancellableAiStreamingRequestExecutor
         this.executor = Objects.requireNonNull(executor, "模型传输执行器不能为空");
     }
 
+    /**
+ * 执行{@code Cancellable}AI{@code Streaming}请求处理流程。
+ *
+ * @param task 任务
+ */
     @Override
     public void execute(Runnable task) {
         Objects.requireNonNull(task, "模型传输任务不能为空");

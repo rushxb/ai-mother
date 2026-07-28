@@ -32,18 +32,36 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
 
     private final AiModelMapper mapper;
 
+    /**
+ * 查找匹配的活动按编号。
+ *
+ * @param modelId 模型编号
+ * @return 活动按编号
+ */
     @Override
     public AiModelConfiguration findActiveById(long modelId) {
         requirePositiveId(modelId);
         return toConfiguration(mapper.selectActiveById(modelId));
     }
 
+    /**
+ * 返回锁活动按编号。
+ *
+ * @param modelId 模型编号
+ * @return 默认 AI 模型持久化
+ */
     @Override
     public AiModelConfiguration lockActiveById(long modelId) {
         requirePositiveId(modelId);
         return toConfiguration(mapper.selectActiveByIdForUpdate(modelId));
     }
 
+    /**
+ * 查找匹配的启用。
+ *
+ * @param modelType 模型类型
+ * @return 启用集合
+ */
     @Override
     public List<AiModelConfiguration> findEnabled(String modelType) {
         return mapper.selectEnabled(trimToNull(modelType)).stream()
@@ -51,6 +69,12 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
                 .toList();
     }
 
+    /**
+ * 返回{@code page}活动。
+ *
+ * @param criteria {@code criteria} 对应的调用参数
+ * @return 默认 AI 模型持久化
+ */
     @Override
     public Page<AiModelConfiguration> pageActive(QueryCriteria criteria) {
         if (criteria == null || criteria.pageNumber() <= 0 || criteria.pageSize() <= 0) {
@@ -82,6 +106,12 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
         return mapper.selectActiveIdentityId(provider, modelId) != null;
     }
 
+    /**
+ * 返回{@code insert}。
+ *
+ * @param configuration 配置
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public long insert(AiModelConfiguration configuration) {
         AiModel entity = toEntity(configuration);
@@ -96,6 +126,11 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
         return entity.getId();
     }
 
+    /**
+ * 更新默认 AI 模型持久化。
+ *
+ * @param configuration 配置
+ */
     @Override
     public void update(AiModelConfiguration configuration) {
         if (configuration == null || configuration.getId() == null || configuration.getId() <= 0) {
@@ -109,12 +144,18 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
     }
 
 
+    /**
+ * 处理{@code logically}删除。
+ *
+ * @param modelId 模型编号
+ */
     @Override
     public void logicallyDelete(long modelId) {
         requirePositiveId(modelId);
         requireOneAffectedRow(mapper.logicallyDeleteActiveModel(modelId), "删除 AI 模型配置");
     }
 
+    /** 将当前对象转换为配置。 */
     private AiModelConfiguration toConfiguration(AiModel entity) {
         if (entity == null) {
             return null;
@@ -143,6 +184,7 @@ public class DefaultAiModelPersistenceService implements AiModelPersistenceServi
                 .build();
     }
 
+    /** 将当前对象转换为{@code Entity}。 */
     private AiModel toEntity(AiModelConfiguration configuration) {
         if (configuration == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型持久化配置不能为空");

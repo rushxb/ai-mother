@@ -15,6 +15,11 @@ public record GenerationPerformanceProfile(
         String reasoning
 ) {
 
+    /**
+ * 返回{@code thinking}模式。
+ *
+ * @return 生成性能配置档
+ */
     public GenerationThinkingMode thinkingMode() {
         if (modelTier == ModelTier.QUALITY && thinkingEnabled) {
             return GenerationThinkingMode.DEEP;

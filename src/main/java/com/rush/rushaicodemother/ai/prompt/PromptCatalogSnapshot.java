@@ -16,6 +16,11 @@ public record PromptCatalogSnapshot(
         return new PromptCatalogSnapshot("", Map.of());
     }
 
+    /**
+ * 返回{@code managed}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean managed() {
         return !bundleId.isBlank() && !releases.isEmpty();
     }

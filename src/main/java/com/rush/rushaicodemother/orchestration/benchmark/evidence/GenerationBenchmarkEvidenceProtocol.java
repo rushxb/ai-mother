@@ -14,6 +14,14 @@ public final class GenerationBenchmarkEvidenceProtocol {
                 || signatureVersion == CURRENT_SIGNATURE_VERSION;
     }
 
+    /**
+ * 判断是否存在有效{@code Attestation}。
+ *
+ * @param signatureVersion 签名版本
+ * @param subjectType {@code subjectType} 对应的调用参数
+ * @param candidatePhysicalRequestCount 候选物理请求数量
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public static boolean hasValidAttestation(int signatureVersion,
                                               GenerationBenchmarkEvidenceSubject subjectType,
                                               long candidatePhysicalRequestCount) {

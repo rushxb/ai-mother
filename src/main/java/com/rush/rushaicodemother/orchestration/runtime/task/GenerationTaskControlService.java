@@ -26,6 +26,13 @@ public class GenerationTaskControlService {
     private final GenerationExecutionContextService executionContextService;
     private final TenantAuthorizationService tenantAuthorizationService;
 
+    /**
+ * 取消生成任务{@code Control}。
+ *
+ * @param taskId 任务编号
+ * @param actor 操作发起人
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public GenerationTaskSnapshot cancel(String taskId, User actor) {
         requireActor(actor);
         DurableGenerationTaskRecord task = durableRepository.findByTaskId(taskId)
@@ -40,6 +47,13 @@ public class GenerationTaskControlService {
         return generationTaskQueryService.get(taskId, actor);
     }
 
+    /**
+ * 取消活动{@code For}应用。
+ *
+ * @param appId 应用编号
+ * @param actor 操作发起人
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public GenerationTaskSnapshot cancelActiveForApp(Long appId, User actor) {
         if (appId == null || appId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 不合法");
@@ -53,6 +67,7 @@ public class GenerationTaskControlService {
         return generationTaskQueryService.get(task.taskId(), actor);
     }
 
+    /** 取消{@code Local}{@code And}持久。 */
     private void cancelLocalAndDurable(String taskId) {
         runtimeLifecycleService.requestCancellation(taskId, USER_REQUESTED);
         GenerationSession session = generationTaskQueryService.localSession(taskId);

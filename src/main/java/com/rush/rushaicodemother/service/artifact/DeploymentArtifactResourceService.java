@@ -22,6 +22,13 @@ public class DeploymentArtifactResourceService {
     private final SecurePathResolver securePathResolver;
     private final DeploymentKeyPolicy deploymentKeyPolicy;
 
+    /**
+ * 创建部署制品资源服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param storageProperties 存储属性
+ * @param deploymentKeyPolicy 部署键策略
+ * @param securePathResolver 安全路径解析器
+ */
     public DeploymentArtifactResourceService(
             CodeStorageProperties storageProperties,
             DeploymentKeyPolicy deploymentKeyPolicy,

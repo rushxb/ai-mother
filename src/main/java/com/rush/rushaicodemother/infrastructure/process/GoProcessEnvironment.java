@@ -22,6 +22,11 @@ public final class GoProcessEnvironment {
     private GoProcessEnvironment() {
     }
 
+    /**
+ * 返回{@code overrides}。
+ *
+ * @return {@code Go}进程{@code Environment}集合
+ */
     public static Map<String, String> overrides() {
         return Map.of(
                 "GOENV", "off",

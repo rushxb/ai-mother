@@ -37,6 +37,13 @@ public class DefaultGenerationFeedbackService implements GenerationFeedbackServi
     private final GenerationFeedbackRepository feedbackRepository;
     private final GenerationFeedbackSignalPublisher feedbackSignalPublisher;
 
+    /**
+ * 校验并提交当前请求。
+ *
+ * @param command 命令
+ * @param actor 操作发起人
+ * @return 方法执行结果
+ */
     @Override
     public GenerationFeedbackVO submit(GenerationFeedbackCommand command, User actor) {
         validateCommand(command);
@@ -72,6 +79,7 @@ public class DefaultGenerationFeedbackService implements GenerationFeedbackServi
         return GenerationFeedbackVO.from(saved);
     }
 
+    /** 发布反馈{@code Signal}。 */
     private void publishFeedbackSignal(DurableGenerationTaskRecord task, GenerationFeedback saved) {
         try {
             feedbackSignalPublisher.publish(new GenerationFeedbackSignal(
@@ -90,6 +98,7 @@ public class DefaultGenerationFeedbackService implements GenerationFeedbackServi
         }
     }
 
+    /** 校验{@code ate}命令是否有效。 */
     private void validateCommand(GenerationFeedbackCommand command) {
         if (command == null || !TASK_ID_PATTERN.matcher(StrUtil.blankToDefault(command.taskId(), "")).matches()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务 ID 不合法");

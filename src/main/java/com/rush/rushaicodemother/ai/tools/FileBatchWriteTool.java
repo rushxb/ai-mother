@@ -40,6 +40,13 @@ public class FileBatchWriteTool extends BaseTool {
         this.properties = properties;
     }
 
+    /**
+ * 写入文件。
+ *
+ * @param files 文件
+ * @param appId 应用编号
+ * @return 处理后的文件文本
+ */
     @Tool("原子批量写入多个项目文件。需要写入两个或更多文件时优先使用；任一文件不合法时不会写入任何文件。")
     public String writeFiles(
             @P("待写入文件列表，顺序即补丁执行顺序") List<FileWrite> files,
@@ -69,7 +76,9 @@ public class FileBatchWriteTool extends BaseTool {
         }
     }
 
+    /** 返回计划批次。 */
     private PlannedBatch planBatch(List<FileWrite> files, Long appId) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (files == null || files.isEmpty()) {
             throw new ToolInputException("文件列表不能为空");
         }
@@ -82,6 +91,7 @@ public class FileBatchWriteTool extends BaseTool {
         Path projectRoot = null;
         Set<String> normalizedPaths = new HashSet<>();
         List<PatchOperation> operations = new ArrayList<>(files.size());
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int index = 0; index < files.size(); index++) {
             FileWrite requested = files.get(index);
             if (requested == null) {
@@ -137,6 +147,12 @@ public class FileBatchWriteTool extends BaseTool {
         return "批量写入文件";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         Object files = arguments == null ? null : arguments.get("files");

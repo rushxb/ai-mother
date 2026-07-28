@@ -22,6 +22,7 @@ final class PromptDigest {
                 .stripTrailing();
     }
 
+    /** 计算内容的 SHA-256 摘要。 */
     static String sha256(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

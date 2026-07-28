@@ -70,7 +70,7 @@ public interface GenerationTaskRuntimeMapper {
     int countNonTerminalTasksByUserId(@Param("userId") Long userId);
 
     @Select("""
-            SELECT taskId, route, requestFingerprint
+            SELECT taskId, appId, route, status, submittedAt, deadlineAt, requestFingerprint
             FROM generation_task
             WHERE tenantId = #{tenantId}
               AND userId = #{userId}

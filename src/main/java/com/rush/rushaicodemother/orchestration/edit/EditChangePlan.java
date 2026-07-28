@@ -18,6 +18,11 @@ public record EditChangePlan(
         String rollback
 ) {
 
+    /**
+ * 将当前对象转换为制品计划。
+ *
+ * @return 制品计划
+ */
     public ChangePlan toArtifactPlan() {
         return new ChangePlan(
                 "v1",

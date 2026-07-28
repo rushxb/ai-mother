@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.infrastructure.git.GitCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
@@ -51,6 +52,10 @@ class SnapshotWorkspaceConsumerBeanWiringTest {
                     () -> new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry())
             );
             context.registerBean(GitCommandExecutor.class, () -> mock(GitCommandExecutor.class));
+            context.registerBean(
+                    GenerationExecutionContextService.class,
+                    () -> mock(GenerationExecutionContextService.class)
+            );
             context.registerBean(ToolWorkspaceFileService.class, () -> mock(ToolWorkspaceFileService.class));
             context.registerBean(
                     GenerationToolExecutionContextService.class,

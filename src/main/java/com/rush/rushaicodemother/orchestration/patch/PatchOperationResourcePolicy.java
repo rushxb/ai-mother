@@ -15,6 +15,12 @@ public class PatchOperationResourcePolicy {
 
     private final PatchExecutionProperties properties;
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param operations 操作
+ * @return {@code ate}集合
+ */
     public List<String> validate(List<PatchOperation> operations) {
         if (operations == null || operations.isEmpty()) {
             return List.of();

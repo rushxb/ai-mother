@@ -42,6 +42,7 @@ public record GoBuildResult(
         );
     }
 
+    /** 根据输入数据创建当前对象。 */
     static GoBuildResult fromCommand(String projectPath, ProjectCommandResult result) {
         if (result == null) {
             return new GoBuildResult(false, "toolchain", projectPath, "Go 构建测试服务未返回结果", null);

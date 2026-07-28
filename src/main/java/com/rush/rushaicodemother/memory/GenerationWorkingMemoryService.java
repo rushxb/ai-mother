@@ -26,6 +26,14 @@ public class GenerationWorkingMemoryService {
                 .build();
     }
 
+    /**
+ * 初始化生成{@code Working}记忆。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param route 代理路由
+ */
     public void initialize(String taskId, Long appId, Long userId, String route) {
         if (!validTaskId(taskId)) {
             return;
@@ -39,6 +47,12 @@ public class GenerationWorkingMemoryService {
         });
     }
 
+    /**
+ * 记录事件相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param event 待处理的领域事件
+ */
     public void recordEvent(String taskId, GenerationStreamEvent event) {
         MutableWorkingMemory memory = memories.getIfPresent(taskId);
         if (memory != null && event != null) {
@@ -46,6 +60,12 @@ public class GenerationWorkingMemoryService {
         }
     }
 
+    /**
+ * 记录上下文摘要相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param contextDigest 上下文摘要
+ */
     public void recordContextDigest(String taskId, String contextDigest) {
         MutableWorkingMemory memory = memories.getIfPresent(taskId);
         if (memory != null) {
@@ -53,6 +73,11 @@ public class GenerationWorkingMemoryService {
         }
     }
 
+    /**
+ * 完成生成{@code Working}记忆并持久化终态。
+ *
+ * @param taskId 任务编号
+ */
     public void complete(String taskId) {
         MutableWorkingMemory memory = memories.getIfPresent(taskId);
         if (memory != null) {
@@ -60,6 +85,12 @@ public class GenerationWorkingMemoryService {
         }
     }
 
+    /**
+ * 返回快照。
+ *
+ * @param taskId 任务编号
+ * @return 可选的生成{@code Working}记忆；不存在时返回空值
+ */
     public Optional<GenerationWorkingMemorySnapshot> snapshot(String taskId) {
         MutableWorkingMemory memory = memories.getIfPresent(taskId);
         return memory == null ? Optional.empty() : Optional.of(memory.snapshot());
@@ -88,6 +119,7 @@ public class GenerationWorkingMemoryService {
             this.route = route;
         }
 
+        /** 记录{@code Mutable}{@code Working}记忆相关指标或状态。 */
         private synchronized void record(GenerationStreamEvent event, int limit) {
             recentEvents.addLast(event);
             while (recentEvents.size() > limit) {

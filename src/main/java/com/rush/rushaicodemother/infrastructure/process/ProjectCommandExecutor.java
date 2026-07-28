@@ -23,6 +23,14 @@ public class ProjectCommandExecutor {
     private final GenerationExecutionContextService executionContextService;
     private final NodeToolchain nodeToolchain;
 
+    /**
+ * 创建项目命令执行器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param processExecutor 进程执行器
+ * @param executionContextService 执行上下文服务
+ * @param nodeToolchain {@code nodeToolchain} 对应的调用参数
+ */
     @Autowired
     public ProjectCommandExecutor(
             ProjectCommandProperties properties,
@@ -48,6 +56,16 @@ public class ProjectCommandExecutor {
         return executePnpmScript(projectDirectory, scriptName, commandTimeout, null, logContext);
     }
 
+    /**
+ * 执行{@code Pnpm}{@code Script}处理流程。
+ *
+ * @param projectDirectory 项目目录
+ * @param scriptName 待执行脚本名称
+ * @param commandTimeout 命令超时
+ * @param taskId 任务编号
+ * @param logContext 日志上下文
+ * @return {@code Pnpm}{@code Script}
+ */
     public ProjectCommandResult executePnpmScript(
             Path projectDirectory,
             String scriptName,
@@ -79,6 +97,7 @@ public class ProjectCommandExecutor {
         return execute(projectDirectory, command, commandTimeout, null, logContext);
     }
 
+    /** 执行项目命令处理流程。 */
     private ProjectCommandResult execute(
             Path projectDirectory,
             List<String> command,
@@ -113,7 +132,9 @@ public class ProjectCommandExecutor {
         return result;
     }
 
+    /** 将当前对象转换为项目命令结果。 */
     private ProjectCommandResult toProjectCommandResult(ManagedProcessResult result) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (result.status() == ManagedProcessResult.Status.COMPLETED) {
             if (Integer.valueOf(0).equals(result.exitCode())) {
                 return new ProjectCommandResult(

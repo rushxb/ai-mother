@@ -30,6 +30,7 @@ final class BoundedChatMemoryFallbackStore {
         this(maximumEntries, expireAfterAccess, System::nanoTime);
     }
 
+    /** 创建{@code Bounded}对话记忆回退存储实例并完成必要的依赖和初始状态设置。 */
     BoundedChatMemoryFallbackStore(
             long maximumEntries,
             Duration expireAfterAccess,
@@ -46,6 +47,7 @@ final class BoundedChatMemoryFallbackStore {
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     }
 
+    /** 获取并返回{@code If}{@code Present}。 */
     FallbackState getIfPresent(Object memoryId) {
         lock.lock();
         try {
@@ -86,6 +88,7 @@ final class BoundedChatMemoryFallbackStore {
         }
     }
 
+    /** 处理{@code put}。 */
     private void put(Object memoryId, FallbackState state, boolean pendingMutation) {
         Objects.requireNonNull(memoryId, "memoryId");
         Objects.requireNonNull(state, "state");
@@ -108,6 +111,7 @@ final class BoundedChatMemoryFallbackStore {
         }
     }
 
+    /** 移除{@code Expired}{@code Synchronized}{@code Copies}。 */
     private void removeExpiredSynchronizedCopies(long now) {
         Iterator<Map.Entry<Object, StoredState>> iterator = states.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -118,6 +122,7 @@ final class BoundedChatMemoryFallbackStore {
         }
     }
 
+    /** 返回{@code evict}{@code Oldest}{@code Synchronized}文案。 */
     private boolean evictOldestSynchronizedCopy() {
         Iterator<Map.Entry<Object, StoredState>> iterator = states.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -133,6 +138,7 @@ final class BoundedChatMemoryFallbackStore {
         return now - storedState.lastAccessNanos >= expireAfterAccessNanos;
     }
 
+    /** 将目标时长转换为防溢出的纳秒数。 */
     private static long toNanosSaturated(Duration duration) {
         try {
             return duration.toNanos();

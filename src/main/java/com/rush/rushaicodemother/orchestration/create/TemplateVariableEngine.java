@@ -10,6 +10,13 @@ import java.util.Map;
 @Component
 public class TemplateVariableEngine {
 
+    /**
+ * 返回清单。
+ *
+ * @param templateId 模板编号
+ * @param spec {@code spec} 对应的调用参数
+ * @return 模板变量
+ */
     public TemplateVariableManifest manifest(String templateId, CreateSpec spec) {
         Map<String, Object> variables = new LinkedHashMap<>();
         CreateSpec.EntitySpec primary = spec.entities().isEmpty() ? null : spec.entities().getFirst();

@@ -37,11 +37,23 @@ public class SearchPaginationBenchmarkRule implements GenerationBenchmarkValidat
         return GenerationBenchmarkQualityDimension.FUNCTIONAL;
     }
 
+    /**
+ * 返回{@code supports}。
+ *
+ * @param task 任务
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return task != null && TASK_ID.equals(task.id());
     }
 
+    /**
+ * 准备后续流程所需的{@code Search}{@code Pagination}基准测试规则。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ */
     @Override
     public void prepare(GenerationBenchmarkTask task, GenerationWorkspace workspace) {
         VueBenchmarkRuleSupport.mountProbe(inspector, workspace, COMPONENT, """
@@ -69,6 +81,14 @@ public class SearchPaginationBenchmarkRule implements GenerationBenchmarkValidat
                 """);
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ * @param baseline {@code baseline} 对应的调用参数
+ * @return {@code Search}{@code Pagination}基准测试规则
+ */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,
@@ -101,6 +121,7 @@ public class SearchPaginationBenchmarkRule implements GenerationBenchmarkValidat
                 RULE_ID, dimension(), violations.isEmpty(), violations, 0);
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String value, String... candidates) {
         for (String candidate : candidates) {
             if (value.contains(candidate.toLowerCase(Locale.ROOT))) {

@@ -28,6 +28,15 @@ public class DependencyPolicyService {
             " iwr ", "chmod 777", "sudo", "del /s", "format "
     );
 
+    /**
+ * 校验{@code ate}{@code Add}{@code Or}{@code Update}是否有效。
+ *
+ * @param packageName 依赖包名称
+ * @param version 版本
+ * @param dependencyType 依赖类型
+ * @param reason 原因
+ * @return {@code ate}{@code Add}{@code Or}{@code Update}
+ */
     public PolicyDecision validateAddOrUpdate(String packageName, String version, String dependencyType, String reason) {
         PolicyDecision packageDecision = validatePackageName(packageName);
         if (!packageDecision.allowed()) {
@@ -51,6 +60,13 @@ public class DependencyPolicyService {
         ));
     }
 
+    /**
+ * 校验{@code ate}{@code Remove}是否有效。
+ *
+ * @param packageName 依赖包名称
+ * @param dependencyType 依赖类型
+ * @return {@code ate}{@code Remove}
+ */
     public PolicyDecision validateRemove(String packageName, String dependencyType) {
         PolicyDecision packageDecision = validatePackageName(packageName);
         if (!packageDecision.allowed()) {
@@ -59,6 +75,13 @@ public class DependencyPolicyService {
         return validateDependencyType(dependencyType);
     }
 
+    /**
+ * 校验{@code ate}{@code Script}是否有效。
+ *
+ * @param scriptName 待执行脚本名称
+ * @param scriptCommand {@code scriptCommand} 对应的调用参数
+ * @return {@code ate}{@code Script}
+ */
     public PolicyDecision validateScript(String scriptName, String scriptCommand) {
         if (StrUtil.isBlank(scriptName) || StrUtil.isBlank(scriptCommand)) {
             return PolicyDecision.rejected("脚本名称和脚本命令不能为空");
@@ -79,12 +102,24 @@ public class DependencyPolicyService {
         ));
     }
 
+    /**
+ * 校验{@code ate}{@code Install}是否有效。
+ *
+ * @param actionSource 动作来源
+ * @return {@code ate}{@code Install}
+ */
     public PolicyDecision validateInstall(String actionSource) {
         return PolicyDecision.allowed("install approved by dependency policy", Map.of(
                 "actionSource", StrUtil.blankToDefault(actionSource, "manual")
         ));
     }
 
+    /**
+ * 规范化依赖类型。
+ *
+ * @param dependencyType 依赖类型
+ * @return 处理后的依赖类型文本
+ */
     public String normalizeDependencyType(String dependencyType) {
         if (StrUtil.isBlank(dependencyType)) {
             return DEPENDENCIES;
@@ -96,6 +131,7 @@ public class DependencyPolicyService {
         throw new ToolInputException("依赖分组仅支持 dependencies 或 devDependencies");
     }
 
+    /** 校验{@code ate}依赖包名称是否有效。 */
     private PolicyDecision validatePackageName(String packageName) {
         if (StrUtil.isBlank(packageName)) {
             return PolicyDecision.rejected("依赖名称不能为空");
@@ -110,6 +146,7 @@ public class DependencyPolicyService {
         return PolicyDecision.allowed("package name approved", Map.of("package", normalized));
     }
 
+    /** 校验{@code ate}依赖类型是否有效。 */
     private PolicyDecision validateDependencyType(String dependencyType) {
         try {
             String normalized = normalizeDependencyType(dependencyType);

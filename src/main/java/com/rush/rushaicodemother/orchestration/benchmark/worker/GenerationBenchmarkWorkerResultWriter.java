@@ -24,6 +24,7 @@ public class GenerationBenchmarkWorkerResultWriter {
     private final GenerationBenchmarkWorkerProperties properties;
     private final ObjectMapper objectMapper;
 
+    /** 准备后续流程所需的生成基准测试工作器结果{@code Writer}。 */
     public void prepare() {
         Path target = target();
         Path temporary = null;
@@ -38,6 +39,11 @@ public class GenerationBenchmarkWorkerResultWriter {
         }
     }
 
+    /**
+ * 写入生成基准测试工作器结果{@code Writer}。
+ *
+ * @param result 待处理结果
+ */
     public void write(GenerationBenchmarkWorkerResult result) {
         if (result == null) {
             throw new IllegalArgumentException("Benchmark Worker 结果不能为空");
@@ -59,6 +65,7 @@ public class GenerationBenchmarkWorkerResultWriter {
         }
     }
 
+    /** 返回目标。 */
     private Path target() {
         try {
             Path target = Path.of(properties.getOutputFile()).toAbsolutePath().normalize();
@@ -74,6 +81,7 @@ public class GenerationBenchmarkWorkerResultWriter {
         }
     }
 
+    /** 移动{@code Atomically}。 */
     private void moveAtomically(Path source, Path target) throws IOException {
         try {
             Files.move(
@@ -87,6 +95,7 @@ public class GenerationBenchmarkWorkerResultWriter {
         }
     }
 
+    /** 删除{@code Temporary}。 */
     private void deleteTemporary(Path path) {
         if (path == null) {
             return;

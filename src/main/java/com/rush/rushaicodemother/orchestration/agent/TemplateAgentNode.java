@@ -35,6 +35,12 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
         this.fullStackPortAllocator = fullStackPortAllocator;
     }
 
+    /**
+ * 执行模板智能体节点处理流程。
+ *
+ * @param context 执行上下文
+ * @return 模板智能体节点
+ */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         App app = context.getRequest().app();
@@ -62,6 +68,7 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
         return skipped("无需复制项目模板", targetType, "unsupported_template_type");
     }
 
+    /** 返回{@code bootstrap}全栈项目。 */
     private AgentNodeResult bootstrapFullStackProject(GenerationAgentContext context, App app) {
         FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(app.getId());
         VueProjectTemplateBootstrapService.BootstrapResult frontendResult =
@@ -99,6 +106,7 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
         );
     }
 
+    /** 返回{@code skipped}。 */
     private AgentNodeResult skipped(String summary, CodeGenTypeEnum targetType, String reason) {
         GenerationArtifact skipped = GenerationArtifact.of(
                 "template_bootstrap",

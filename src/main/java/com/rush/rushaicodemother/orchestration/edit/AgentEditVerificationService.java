@@ -20,6 +20,18 @@ public class AgentEditVerificationService {
     private final EditValidationPolicyService editValidationPolicyService;
     private final AgentEditBackendValidationService backendValidationService;
 
+    /**
+ * 验证智能体编辑{@code Verification}是否符合预期。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @param workspace 工作区
+ * @param patchOperations 补丁操作
+ * @param changePlan {@code changePlan} 对应的调用参数
+ * @param userMessage 用户消息
+ * @return 智能体编辑{@code Verification}
+ */
     public BackgroundValidationService.ValidationResult verify(String taskId,
                                                                Long appId,
                                                                User loginUser,
@@ -27,6 +39,7 @@ public class AgentEditVerificationService {
                                                                List<PatchOperation> patchOperations,
                                                                EditChangePlan changePlan,
                                                                String userMessage) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (workspace.codeGenType() == CodeGenTypeEnum.BACKEND_PROJECT) {
             return backendValidationService.validate(taskId, workspace, patchOperations);
         }
@@ -59,6 +72,7 @@ public class AgentEditVerificationService {
         return backendResult;
     }
 
+    /** 返回{@code upgrade}{@code For}智能体编辑。 */
     private EditValidationPlan upgradeForAgentEdit(EditValidationPlan validationPlan, EditChangePlan changePlan) {
         if (validationPlan == null) {
             return new EditValidationPlan(EditValidationPlan.ValidationLevel.FAST_CHECK, "AGENT_EDIT 默认快速验证", List.of(), false);

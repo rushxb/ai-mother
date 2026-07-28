@@ -65,6 +65,14 @@ public class GenerationTaskController {
     private final GenerationToolContinuationScheduler toolContinuationScheduler;
     private final GenerationFeedbackService generationFeedbackService;
 
+    /**
+ * 校验并提交当前请求。
+ *
+ * @param request 请求参数
+ * @param idempotencyKey 幂等键
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60,
@@ -77,10 +85,16 @@ public class GenerationTaskController {
         User actor = userService.getLoginUser(servletRequest);
         GenerationTaskResult result = appService.submitGeneration(
                 request.getAppId(), request.getMessage(), actor, idempotencyKey);
-        GenerationTaskSnapshot snapshot = generationTaskQueryService.get(result.taskId(), actor);
-        return ResultUtils.success(GenerationTaskSubmissionVO.from(snapshot));
+        return ResultUtils.success(GenerationTaskSubmissionVO.from(result.submission()));
     }
 
+    /**
+ * 获取指定资源。
+ *
+ * @param taskId 任务编号
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @GetMapping("/{taskId}")
     public BaseResponse<GenerationTaskStatusVO> get(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
@@ -101,6 +115,15 @@ public class GenerationTaskController {
                 .orElse(null));
     }
 
+    /**
+ * 返回事件。
+ *
+ * @param taskId 任务编号
+ * @param afterSequence 执行后序列
+ * @param lastEventId 目标资源编号
+ * @param servletRequest 当前 HTTP 请求
+ * @return 异步响应式处理结果
+ */
     @GetMapping(value = "/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> events(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
@@ -114,6 +137,13 @@ public class GenerationTaskController {
                 generationTaskQueryService.sequencedEvents(taskId, resumeAfter, actor));
     }
 
+    /**
+ * 取消生成任务。
+ *
+ * @param taskId 任务编号
+ * @param servletRequest 当前 HTTP 请求
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @PostMapping("/{taskId}/cancel")
     public BaseResponse<GenerationTaskStatusVO> cancel(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
@@ -124,6 +154,14 @@ public class GenerationTaskController {
                 generationTaskControlService.cancel(taskId, actor)));
     }
 
+    /**
+ * 审批并返回工具动作。
+ *
+ * @param taskId 任务编号
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/{taskId}/approvals")
     public BaseResponse<Boolean> approveToolAction(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
@@ -145,6 +183,14 @@ public class GenerationTaskController {
         return ResultUtils.success(true);
     }
 
+    /**
+ * 提交并返回反馈。
+ *
+ * @param taskId 任务编号
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/{taskId}/feedback")
     public BaseResponse<GenerationFeedbackVO> submitFeedback(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
@@ -163,6 +209,7 @@ public class GenerationTaskController {
         ));
     }
 
+    /** 根据当前上下文解析{@code Resume}序列。 */
     private long resolveResumeSequence(Long afterSequence, String lastEventId) {
         long querySequence = afterSequence == null ? 0L : afterSequence;
         if (lastEventId == null || lastEventId.isBlank()) {

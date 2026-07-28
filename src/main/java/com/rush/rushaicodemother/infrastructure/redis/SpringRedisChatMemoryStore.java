@@ -29,6 +29,12 @@ public class SpringRedisChatMemoryStore implements ChatMemoryStore {
         this.ttl = requirePositiveDuration(ttl);
     }
 
+    /**
+ * 获取并返回消息。
+ *
+ * @param memoryId 记忆编号
+ * @return SpringRedis 对话记忆存储集合
+ */
     @Override
     public List<ChatMessage> getMessages(Object memoryId) {
         String serializedMessages = redisTemplate.opsForValue().get(redisKey(memoryId));
@@ -38,6 +44,12 @@ public class SpringRedisChatMemoryStore implements ChatMemoryStore {
         return List.copyOf(ChatMessageDeserializer.messagesFromJson(serializedMessages));
     }
 
+    /**
+ * 更新消息。
+ *
+ * @param memoryId 记忆编号
+ * @param messages 消息列表
+ */
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
         if (messages == null || messages.isEmpty()) {
@@ -47,11 +59,17 @@ public class SpringRedisChatMemoryStore implements ChatMemoryStore {
         redisTemplate.opsForValue().set(redisKey(memoryId), serializedMessages, ttl);
     }
 
+    /**
+ * 删除消息。
+ *
+ * @param memoryId 记忆编号
+ */
     @Override
     public void deleteMessages(Object memoryId) {
         redisTemplate.delete(redisKey(memoryId));
     }
 
+    /** 返回 Redis 键。 */
     private String redisKey(Object memoryId) {
         if (memoryId == null) {
             throw new IllegalArgumentException("memoryId cannot be null or blank");

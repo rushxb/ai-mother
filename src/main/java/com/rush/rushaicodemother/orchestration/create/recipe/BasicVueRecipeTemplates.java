@@ -10,6 +10,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class BasicVueRecipeTemplates {
 
+    /** 返回{@code basic}{@code Home}视图。 */
     String basicHomeView() {
         return """
                 <template>
@@ -62,6 +63,7 @@ final class BasicVueRecipeTemplates {
                 """;
     }
 
+    /** 返回{@code basic}{@code Site}{@code Data}。 */
     String basicSiteData(BasicRecipe recipe) {
         return """
                 export interface SiteInfo {
@@ -172,6 +174,7 @@ final class BasicVueRecipeTemplates {
                 """;
     }
 
+    /** 返回{@code basic}{@code Theme}{@code Css}。 */
     String basicThemeCss(BasicRecipe recipe) {
         return """
                 :root {

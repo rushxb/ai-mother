@@ -36,6 +36,7 @@ public class AgentEditRepairService {
         return repairInternal(taskId, userMessage, projectContext, validationResult, applyResult);
     }
 
+    /** 返回修复内部。 */
     private RepairAttempt repairInternal(String taskId,
                                          String userMessage,
                                          String projectContext,
@@ -68,6 +69,7 @@ public class AgentEditRepairService {
         return new RepairAttempt(editResult, operations);
     }
 
+    /** 构建并返回失败消息。 */
     private String buildFailureMessage(BackgroundValidationService.ValidationResult validationResult,
                                        PatchApplyResult applyResult) {
         if (validationResult != null && StrUtil.isNotBlank(validationResult.message())) {

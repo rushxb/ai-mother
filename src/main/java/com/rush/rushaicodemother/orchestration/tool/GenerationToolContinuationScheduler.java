@@ -92,7 +92,13 @@ public class GenerationToolContinuationScheduler {
         );
     }
 
+    /**
+ * 处理调度。
+ *
+ * @param decision 决策
+ */
     public void schedule(ToolApprovalRecord decision) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (decision == null || decision.invocationCheckpoint() == null
                 || (decision.status() != ToolApprovalStatus.APPROVED
                     && decision.status() != ToolApprovalStatus.CONSUMED
@@ -114,6 +120,7 @@ public class GenerationToolContinuationScheduler {
         }
         executionContext.bindExecutionFence(executionFence);
         GenerationExecutionWorkspace executionWorkspace = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (executionWorkspaceService != null) {
                 executionWorkspace = executionWorkspaceService.register(
@@ -151,6 +158,7 @@ public class GenerationToolContinuationScheduler {
         }
     }
 
+    /** 处理{@code resume}。 */
     private void resume(ToolApprovalRecord decision,
                         GenerationToolContinuationState state,
                         GenerationSession session,
@@ -181,6 +189,7 @@ public class GenerationToolContinuationScheduler {
         });
     }
 
+    /** 以原子方式声明{@code For}{@code Dispatch}。 */
     private Optional<GenerationExecutionFence> claimForDispatch(GenerationToolContinuationState state,
                                                                 GenerationSession session) {
         Optional<GenerationExecutionFence> claimed =
@@ -200,6 +209,7 @@ public class GenerationToolContinuationScheduler {
         throw new IllegalStateException("waiting approval task could not be claimed for continuation");
     }
 
+    /** 根据当前上下文解析会话。 */
     private GenerationSession resolveSession(GenerationToolContinuationState state,
                                              GenerationExecutionContext executionContext) {
         GenerationSession existing = sessionRegistry.getByTaskId(state.taskId());
@@ -233,6 +243,7 @@ public class GenerationToolContinuationScheduler {
         }
     }
 
+    /** 校验{@code ate}决策是否有效。 */
     private void validateDecision(ToolApprovalRecord decision,
                                   GenerationToolContinuationState state) {
         if (!GenerationToolContinuationState.supportsSchemaVersion(state.schemaVersion())

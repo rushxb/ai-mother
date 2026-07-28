@@ -30,6 +30,11 @@ public class GenerationBenchmarkWorkerApplicationRunner
     private final GenerationBenchmarkWorkerExecutionService executionService;
     private volatile int exitCode = EXIT_EXECUTION_FAILED;
 
+    /**
+ * 运行生成基准测试工作器应用处理流程。
+ *
+ * @param args 命令行参数
+ */
     @Override
     public void run(ApplicationArguments args) {
         try {

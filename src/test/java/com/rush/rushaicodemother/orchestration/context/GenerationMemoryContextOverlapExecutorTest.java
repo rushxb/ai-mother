@@ -12,13 +12,11 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -136,36 +134,31 @@ class GenerationMemoryContextOverlapExecutorTest {
     }
 
     @Test
-    void admissionMustBoundConcurrentMemoryBuilds() throws Exception {
+    void saturatedAdmissionMustDeferWithoutBlockingThePreparationThread() throws Exception {
         GenerationMemoryContextProperties properties = enabledProperties(1);
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         CountDownLatch secondStarted = new CountDownLatch(1);
-        AtomicReference<MemoryContextHandle> secondHandle = new AtomicReference<>();
 
         try (GenerationMemoryContextOverlapExecutor executor = executor(
                 properties, new SimpleMeterRegistry());
              MemoryContextHandle firstHandle = executor.start("task-overlap-first", () -> {
                  firstStarted.countDown();
                  await(releaseFirst);
-                 return "first";
-             })) {
+                  return "first";
+              })) {
             assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
-            Thread secondStarter = Thread.ofVirtual().start(() -> secondHandle.set(executor.start(
-                    "task-overlap-second",
-                    () -> {
+            try (MemoryContextHandle secondHandle = assertTimeout(
+                    Duration.ofMillis(300),
+                    () -> executor.start("task-overlap-second", () -> {
                         secondStarted.countDown();
                         return "second";
-                    })));
-
-            assertFalse(secondStarted.await(100, TimeUnit.MILLISECONDS));
-            releaseFirst.countDown();
-            assertEquals("first", firstHandle.resolve());
-            secondStarter.join(Duration.ofSeconds(1));
-            assertNotNull(secondHandle.get());
-            assertTrue(secondStarted.await(1, TimeUnit.SECONDS));
-            try (MemoryContextHandle handle = secondHandle.get()) {
-                assertEquals("second", handle.resolve());
+                    }))) {
+                assertFalse(secondStarted.await(100, TimeUnit.MILLISECONDS));
+                releaseFirst.countDown();
+                assertEquals("first", firstHandle.resolve());
+                assertEquals("second", secondHandle.resolve());
+                assertTrue(secondStarted.await(1, TimeUnit.SECONDS));
             }
         } finally {
             releaseFirst.countDown();
@@ -173,18 +166,15 @@ class GenerationMemoryContextOverlapExecutorTest {
     }
 
     @Test
-    void cancellationAfterAdmissionWaitMustReleaseThePermit() throws Exception {
+    void deferredBuildMustHonorCancellationBeforeResolveAndLeavePermitReusable() throws Exception {
         GenerationMemoryContextProperties properties = enabledProperties(1);
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
-        CountDownLatch secondEntered = new CountDownLatch(1);
-        AtomicReference<Throwable> secondFailure = new AtomicReference<>();
-        AtomicReference<MemoryContextHandle> unexpectedSecondHandle = new AtomicReference<>();
+        AtomicBoolean deferredBuilderCalled = new AtomicBoolean();
         GenerationExecutionContextService contextService = contextService(properties);
         AtomicInteger secondChecks = new AtomicInteger();
         doAnswer(invocation -> {
             if ("task-overlap-cancelled-waiter".equals(invocation.getArgument(0))) {
-                secondEntered.countDown();
                 if (secondChecks.incrementAndGet() >= 2) {
                     throw new IllegalStateException("等待者已取消");
                 }
@@ -200,24 +190,20 @@ class GenerationMemoryContextOverlapExecutorTest {
                  firstStarted.countDown();
                  await(releaseFirst);
                  return "first";
-             })) {
+              })) {
             assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
-            Thread secondStarter = Thread.ofVirtual().start(() -> {
-                try {
-                    unexpectedSecondHandle.set(executor.start(
-                            "task-overlap-cancelled-waiter", () -> "cancelled"));
-                } catch (Throwable failure) {
-                    secondFailure.set(failure);
-                }
-            });
-            assertTrue(secondEntered.await(1, TimeUnit.SECONDS));
+            try (MemoryContextHandle deferredHandle = executor.start(
+                    "task-overlap-cancelled-waiter", () -> {
+                        deferredBuilderCalled.set(true);
+                        return "cancelled";
+                    })) {
+                IllegalStateException failure = assertThrows(
+                        IllegalStateException.class, deferredHandle::resolve);
+                assertEquals("等待者已取消", failure.getMessage());
+                assertFalse(deferredBuilderCalled.get());
+            }
             releaseFirst.countDown();
             assertEquals("first", firstHandle.resolve());
-            assertTrue(secondStarter.join(Duration.ofSeconds(2)));
-
-            assertNotNull(secondFailure.get());
-            assertNull(unexpectedSecondHandle.get());
-            assertEquals("等待者已取消", secondFailure.get().getMessage());
             try (MemoryContextHandle thirdHandle = executor.start(
                     "task-overlap-after-cancellation", () -> "third")) {
                 assertEquals("third", thirdHandle.resolve());

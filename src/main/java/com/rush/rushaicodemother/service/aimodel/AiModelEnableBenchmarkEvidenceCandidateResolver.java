@@ -27,6 +27,12 @@ public class AiModelEnableBenchmarkEvidenceCandidateResolver
         return candidate instanceof GenerationBenchmarkEvidenceCandidate.AiModelEnable;
     }
 
+    /**
+ * 根据当前上下文解析 AI 模型启用基准测试证据候选。
+ *
+ * @param candidate 候选
+ * @return AI 模型启用基准测试证据候选
+ */
     @Override
     public GenerationBenchmarkEvidenceCandidateIdentity resolve(
             GenerationBenchmarkEvidenceCandidate candidate) {

@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTe
 import com.rush.rushaicodemother.infrastructure.git.GitCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 
@@ -35,7 +36,8 @@ final class SnapshotServiceTestFixture {
                 components.snapshotWorkspaceService(),
                 components.workspaceFileSystemService(),
                 components.snapshotNamePolicy(),
-                fenceGuard
+                fenceGuard,
+                mock(GenerationExecutionContextService.class)
         );
     }
 
@@ -44,7 +46,8 @@ final class SnapshotServiceTestFixture {
         return new GenerationDiffSummaryService(
                 components.generationWorkspaceService(),
                 components.snapshotWorkspaceService(),
-                components.workspaceFileSystemService()
+                components.workspaceFileSystemService(),
+                mock(GenerationExecutionContextService.class)
         );
     }
 
@@ -88,6 +91,7 @@ final class SnapshotServiceTestFixture {
                 components.workspaceFileSystemService(),
                 new GitTransactionResourceManager(),
                 components.generationWorkspaceService(),
+                mock(GenerationExecutionContextService.class),
                 properties
         );
     }

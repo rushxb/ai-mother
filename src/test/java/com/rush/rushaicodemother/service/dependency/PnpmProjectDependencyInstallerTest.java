@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -67,7 +68,7 @@ class PnpmProjectDependencyInstallerTest {
 
     @Test
     void shouldSkipInstallWhenDependenciesAreAlreadyComplete() {
-        when(integrityService.isComplete(any())).thenReturn(true);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(true);
         PnpmProjectDependencyInstaller installer = createInstaller();
 
         DependencyInstallResult result = installer.ensureInstalled(projectDirectory);
@@ -78,7 +79,7 @@ class PnpmProjectDependencyInstallerTest {
 
     @Test
     void shouldReturnAfterFirstSuccessfulAndCompleteInstall() throws IOException {
-        when(integrityService.isComplete(any())).thenReturn(false, true);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(false, true);
         when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("installed"));
         PnpmProjectDependencyInstaller installer = createInstaller();
@@ -95,7 +96,7 @@ class PnpmProjectDependencyInstallerTest {
 
     @Test
     void shouldFailWhenSuccessfulCommandsNeverProduceCompleteDependencies() throws IOException {
-        when(integrityService.isComplete(any())).thenReturn(false);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(false);
         when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("first"));
         when(commandExecutor.install(any(), eq(true), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
@@ -117,7 +118,7 @@ class PnpmProjectDependencyInstallerTest {
     @Test
     void shouldNotExposeCleanupExceptionDetails() throws IOException {
         String sensitiveDetail = "token=must-not-appear-in-result";
-        when(integrityService.isComplete(any())).thenReturn(false);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(false);
         when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.success("installed"));
         doThrow(new IOException(sensitiveDetail))
@@ -134,7 +135,7 @@ class PnpmProjectDependencyInstallerTest {
 
     @Test
     void shouldTerminateOnlyCurrentProjectProcessesAfterPermissionFailure() throws IOException {
-        when(integrityService.isComplete(any())).thenReturn(false, true);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(false, true);
         when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))
                 .thenReturn(DependencyInstallResult.failed(
                 DependencyInstallResult.Status.FAILED,
@@ -153,7 +154,7 @@ class PnpmProjectDependencyInstallerTest {
 
     @Test
     void shouldPreserveInterruptAndStopBeforeExecutingInstall() {
-        when(integrityService.isComplete(any())).thenReturn(false);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(false);
         PnpmProjectDependencyInstaller installer = createInstaller();
         Thread.currentThread().interrupt();
 
@@ -167,7 +168,7 @@ class PnpmProjectDependencyInstallerTest {
     @Test
     void shouldSerializeConcurrentInstallsForTheSameProject() throws Exception {
         properties.setMaxAttempts(1);
-        when(integrityService.isComplete(any())).thenReturn(false);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(false);
         CountDownLatch firstEntered = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         AtomicInteger activeExecutions = new AtomicInteger();
@@ -215,7 +216,7 @@ class PnpmProjectDependencyInstallerTest {
     void taskDeadlineMustBoundProjectLockWait() throws Exception {
         properties.setMaxAttempts(1);
         properties.setLockPolicyCheckInterval(Duration.ofMillis(10));
-        when(integrityService.isComplete(any())).thenReturn(false);
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(false);
         CountDownLatch firstEntered = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         when(commandExecutor.install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class)))

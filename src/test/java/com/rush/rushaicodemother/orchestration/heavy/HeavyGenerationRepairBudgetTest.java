@@ -89,7 +89,7 @@ class HeavyGenerationRepairBudgetTest {
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 mock(StreamHandlerExecutor.class),
-                mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
+                mock(com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime.class),
                 stageAdmissionService(),
                 new GenerationRuntimeProperties()
         ));

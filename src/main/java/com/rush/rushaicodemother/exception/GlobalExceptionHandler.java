@@ -37,6 +37,14 @@ public class GlobalExceptionHandler {
     private final SseExceptionResponseWriter sseExceptionResponseWriter;
     private final ValidationExceptionMessageResolver validationExceptionMessageResolver;
 
+    /**
+ * 返回{@code guardrail}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(GuardrailException.class)
     public BaseResponse<?> guardrailExceptionHandler(GuardrailException exception,
                                                      HttpServletRequest request,
@@ -49,6 +57,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, errorCode, readableMessage);
     }
 
+    /**
+ * 返回{@code business}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(BusinessException.class)
     public BaseResponse<?> businessExceptionHandler(BusinessException exception,
                                                     HttpServletRequest request,
@@ -58,6 +74,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, exception.getCode(), safeMessage);
     }
 
+    /**
+ * 返回{@code method}参数不有效异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public BaseResponse<?> methodArgumentNotValidExceptionHandler(MethodArgumentNotValidException exception,
                                                                   HttpServletRequest request,
@@ -67,6 +91,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, ErrorCode.PARAMS_ERROR.getCode(), message);
     }
 
+    /**
+ * 绑定异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(BindException.class)
     public BaseResponse<?> bindExceptionHandler(BindException exception,
                                                 HttpServletRequest request,
@@ -76,6 +108,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, ErrorCode.PARAMS_ERROR.getCode(), message);
     }
 
+    /**
+ * 返回{@code constraint}{@code Violation}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(ConstraintViolationException.class)
     public BaseResponse<?> constraintViolationExceptionHandler(ConstraintViolationException exception,
                                                                HttpServletRequest request,
@@ -85,6 +125,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, ErrorCode.PARAMS_ERROR.getCode(), message);
     }
 
+    /**
+ * 处理{@code r}{@code Method}校验异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(HandlerMethodValidationException.class)
     public BaseResponse<?> handlerMethodValidationExceptionHandler(HandlerMethodValidationException exception,
                                                                    HttpServletRequest request,
@@ -94,6 +142,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, ErrorCode.PARAMS_ERROR.getCode(), message);
     }
 
+    /**
+ * 返回HTTP消息不{@code Readable}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public BaseResponse<?> httpMessageNotReadableExceptionHandler(HttpMessageNotReadableException exception,
                                                                  HttpServletRequest request,
@@ -103,6 +159,14 @@ public class GlobalExceptionHandler {
                 ErrorCode.PARAMS_ERROR.getCode(), ErrorCode.PARAMS_ERROR.getMessage());
     }
 
+    /**
+ * 返回{@code method}参数类型{@code Mismatch}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public BaseResponse<?> methodArgumentTypeMismatchExceptionHandler(MethodArgumentTypeMismatchException exception,
                                                                       HttpServletRequest request,
@@ -112,6 +176,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, ErrorCode.PARAMS_ERROR.getCode(), message);
     }
 
+    /**
+ * 返回Servlet请求{@code Binding}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(ServletRequestBindingException.class)
     public BaseResponse<?> servletRequestBindingExceptionHandler(ServletRequestBindingException exception,
                                                                  HttpServletRequest request,
@@ -121,6 +193,14 @@ public class GlobalExceptionHandler {
         return respond(request, response, ErrorCode.PARAMS_ERROR.getCode(), message);
     }
 
+    /**
+ * 返回服务{@code Unavailable}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(ServiceUnavailableException.class)
     public BaseResponse<?> serviceUnavailableExceptionHandler(ServiceUnavailableException exception,
                                                               HttpServletRequest request,
@@ -131,6 +211,14 @@ public class GlobalExceptionHandler {
                 ErrorCode.SERVICE_UNAVAILABLE_ERROR.getCode(), exception.getPublicMessage());
     }
 
+    /**
+ * 返回{@code unexpected}异常处理器。
+ *
+ * @param exception 待转换或处理的异常
+ * @param request 请求参数
+ * @param response 响应对象
+ * @return 统一封装的接口响应
+ */
     @ExceptionHandler(Exception.class)
     public BaseResponse<?> unexpectedExceptionHandler(Exception exception,
                                                       HttpServletRequest request,
@@ -152,6 +240,7 @@ public class GlobalExceptionHandler {
         return ResultUtils.error(errorCode, safeMessage);
     }
 
+    /** 从输入中提取{@code Guardrail}消息。 */
     private String extractGuardrailMessage(String rawMessage) {
         if (!StringUtils.hasText(rawMessage)) {
             return "Request rejected by the safety policy";
@@ -167,6 +256,7 @@ public class GlobalExceptionHandler {
         return rawMessage.trim();
     }
 
+    /** 返回默认消息{@code For}。 */
     private String defaultMessageFor(int errorCode) {
         for (ErrorCode candidate : ErrorCode.values()) {
             if (candidate.getCode() == errorCode) {

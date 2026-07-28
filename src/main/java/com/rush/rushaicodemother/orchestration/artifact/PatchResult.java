@@ -31,6 +31,7 @@ public record PatchResult(
         LocalDateTime createdAt
 ) {
 
+    /** 创建补丁结果实例并完成必要的依赖和初始状态设置。 */
     public PatchResult {
         schemaVersion = StrUtil.blankToDefault(schemaVersion, "v1");
         provider = StrUtil.blankToDefault(provider, "local_diff");
@@ -47,6 +48,19 @@ public record PatchResult(
         createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
     }
 
+    /**
+ * 创建{@code d}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param changePlan {@code changePlan} 对应的调用参数
+ * @param actualAddedFiles 待处理的 {@code actualAddedFiles} 集合
+ * @param actualModifiedFiles 待处理的 {@code actualModifiedFiles} 集合
+ * @param actualDeletedFiles 待处理的 {@code actualDeletedFiles} 集合
+ * @param unplannedFiles 待处理的 {@code unplannedFiles} 集合
+ * @param missingPlannedFiles 待处理的 {@code missingPlannedFiles} 集合
+ * @return {@code d}
+ */
     public static PatchResult created(Long appId,
                                       String taskId,
                                       ChangePlan changePlan,
@@ -77,6 +91,14 @@ public record PatchResult(
         );
     }
 
+    /**
+ * 返回{@code skipped}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param reason 原因
+ * @return 补丁结果
+ */
     public static PatchResult skipped(Long appId, String taskId, String reason) {
         return new PatchResult(
                 "v1",
@@ -100,6 +122,11 @@ public record PatchResult(
         );
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", schemaVersion);

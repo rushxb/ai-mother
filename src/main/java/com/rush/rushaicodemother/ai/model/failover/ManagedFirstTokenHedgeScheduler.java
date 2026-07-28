@@ -22,6 +22,7 @@ public class ManagedFirstTokenHedgeScheduler implements FirstTokenHedgeScheduler
     private final ScheduledThreadPoolExecutor timerExecutor;
     private final ExecutorService launchExecutor;
 
+    /** 创建{@code Managed}{@code First}令牌{@code Hedge}调度器实例并完成必要的依赖和初始状态设置。 */
     public ManagedFirstTokenHedgeScheduler() {
         this.timerExecutor = new ScheduledThreadPoolExecutor(
                 1,
@@ -32,6 +33,13 @@ public class ManagedFirstTokenHedgeScheduler implements FirstTokenHedgeScheduler
         this.launchExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
+    /**
+ * 返回调度。
+ *
+ * @param delay 延迟
+ * @param task 任务
+ * @return {@code Managed}{@code First}令牌{@code Hedge}调度器
+ */
     @Override
     public GenerationCancellationHandle schedule(Duration delay, Runnable task) {
         Objects.requireNonNull(delay, "首 Token 对冲延迟不能为空");
@@ -47,6 +55,7 @@ public class ManagedFirstTokenHedgeScheduler implements FirstTokenHedgeScheduler
         return () -> future.cancel(false);
     }
 
+    /** 处理{@code launch}。 */
     private void launch(Runnable task) {
         try {
             launchExecutor.execute(task);
@@ -55,6 +64,7 @@ public class ManagedFirstTokenHedgeScheduler implements FirstTokenHedgeScheduler
         }
     }
 
+    /** 关闭{@code Managed}{@code First}令牌{@code Hedge}调度器并释放资源。 */
     @PreDestroy
     public void close() {
         timerExecutor.shutdownNow();

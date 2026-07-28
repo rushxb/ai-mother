@@ -86,6 +86,11 @@ public class AiModelConfigurationPolicy {
             )
     );
 
+    /**
+ * 列出符合条件的支持的模型。
+ *
+ * @return 支持的模型集合
+ */
     public List<SupportedAiModelVO> listSupportedModels() {
         return SUPPORTED_MODELS.stream()
                 .map(model -> SupportedAiModelVO.builder()
@@ -107,7 +112,14 @@ public class AiModelConfigurationPolicy {
                 .toList();
     }
 
+    /**
+ * 规范化{@code And}{@code Validate}。
+ *
+ * @param configuration 配置
+ * @return {@code And}{@code Validate}
+ */
     public AiModelConfiguration normalizeAndValidate(AiModelConfiguration configuration) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (configuration == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型配置不能为空");
         }
@@ -177,6 +189,12 @@ public class AiModelConfigurationPolicy {
                 .build();
     }
 
+    /**
+ * 判断可运行是否满足约束。
+ *
+ * @param configuration 配置
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isRunnable(AiModelConfiguration configuration) {
         try {
             normalizeAndValidate(configuration);
@@ -186,6 +204,12 @@ public class AiModelConfigurationPolicy {
         }
     }
 
+    /**
+ * 将当前对象转换为运行时配置。
+ *
+ * @param configuration 配置
+ * @return 运行时配置
+ */
     public AiModelRuntimeConfiguration toRuntimeConfiguration(AiModelConfiguration configuration) {
         AiModelConfiguration normalized = normalizeAndValidate(configuration);
         return new AiModelRuntimeConfiguration(
@@ -220,6 +244,7 @@ public class AiModelConfigurationPolicy {
         return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     }
 
+    /** 校验{@code ate}密钥元数据是否有效。 */
     private void validateSecretMetadata(String secretRef,
                                         String secretFingerprint,
                                         String secretKeyId) {
@@ -235,6 +260,7 @@ public class AiModelConfigurationPolicy {
         }
     }
 
+    /** 规范化基础地址。 */
     private String normalizeBaseUrl(String value) {
         String trimmed = StrUtil.trim(value);
         if (StrUtil.isBlank(trimmed)) {
@@ -255,6 +281,7 @@ public class AiModelConfigurationPolicy {
         }
     }
 
+    /** 规范化{@code Open}AI 基础地址。 */
     private String normalizeOpenAiBaseUrl(String value) {
         String baseUrl = normalizeBaseUrl(value);
         if (StrUtil.isBlank(baseUrl)) {
@@ -292,6 +319,7 @@ public class AiModelConfigurationPolicy {
         return JSONUtil.toJsonStr(config);
     }
 
+    /** 解析配置{@code Json}。 */
     private JSONObject parseConfigJson(String configJson) {
         if (StrUtil.isBlank(configJson)) {
             return new JSONObject();

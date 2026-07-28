@@ -41,6 +41,12 @@ public class AppManagementApplicationService {
         return appProvisioningService.copy(sourceAppId, actor);
     }
 
+    /**
+ * 更新名称。
+ *
+ * @param request 请求参数
+ * @param actor 操作发起人
+ */
     @CacheEvict(value = "good_app_page", allEntries = true)
     public void updateName(AppUpdateRequest request, User actor) {
         App existingApp = requireExistingApp(request.getId());
@@ -50,6 +56,12 @@ public class AppManagementApplicationService {
         appPersistenceService.updateName(existingApp.getId(), appName, LocalDateTime.now());
     }
 
+    /**
+ * 删除应用管理应用。
+ *
+ * @param appId 应用编号
+ * @param actor 操作发起人
+ */
     @CacheEvict(value = "good_app_page", allEntries = true)
     public void delete(Long appId, User actor) {
         App existingApp = requireExistingApp(appId);
@@ -57,6 +69,11 @@ public class AppManagementApplicationService {
         appDeletionService.delete(existingApp.getId());
     }
 
+    /**
+ * 更新{@code As}{@code Administrator}。
+ *
+ * @param request 请求参数
+ */
     @CacheEvict(value = "good_app_page", allEntries = true)
     public void updateAsAdministrator(AppAdminUpdateRequest request) {
         App existingApp = requireExistingApp(request.getId());
@@ -78,6 +95,11 @@ public class AppManagementApplicationService {
         );
     }
 
+    /**
+ * 删除{@code As}{@code Administrator}。
+ *
+ * @param appId 应用编号
+ */
     @CacheEvict(value = "good_app_page", allEntries = true)
     public void deleteAsAdministrator(Long appId) {
         App existingApp = requireExistingApp(appId);

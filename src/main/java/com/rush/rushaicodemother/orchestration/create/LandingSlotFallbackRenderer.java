@@ -29,6 +29,12 @@ public class LandingSlotFallbackRenderer {
             "contact_info"
     );
 
+    /**
+ * 返回{@code supports}。
+ *
+ * @param group 分组
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean supports(SlotGroup group) {
         if (group == null || !LANDING_TEMPLATE.equals(group.templateId())) {
             return false;
@@ -36,6 +42,15 @@ public class LandingSlotFallbackRenderer {
         return group.slotIds().stream().allMatch(LANDING_DATA_SLOTS::contains);
     }
 
+    /**
+ * 渲染{@code From}{@code Spec}。
+ *
+ * @param userMessage 用户消息
+ * @param group 分组
+ * @param spec {@code spec} 对应的调用参数
+ * @param reason 原因
+ * @return {@code From}{@code Spec}
+ */
     public LandingFallback renderFromSpec(String userMessage,
                                           SlotGroup group,
                                           CreateSpec spec,
@@ -53,6 +68,14 @@ public class LandingSlotFallbackRenderer {
         );
     }
 
+    /**
+ * 返回回退。
+ *
+ * @param userMessage 用户消息
+ * @param group 分组
+ * @param reason 原因
+ * @return {@code Landing}插槽回退渲染器
+ */
     public LandingFallback fallback(String userMessage, SlotGroup group, String reason) {
         if (!supports(group)) {
             return LandingFallback.empty();
@@ -67,6 +90,7 @@ public class LandingSlotFallbackRenderer {
         );
     }
 
+    /** 将当前对象转换为{@code Recipe}。 */
     private LandingRecipe toRecipe(String userMessage, CreateSpec spec) {
         LandingRecipe fallback = localRecipe(userMessage);
         if (spec == null) {
@@ -96,6 +120,7 @@ public class LandingSlotFallbackRenderer {
         );
     }
 
+    /** 返回{@code local}{@code Recipe}。 */
     private LandingRecipe localRecipe(String userMessage) {
         String industry = inferIndustry(userMessage);
         String brandName = inferBrandName(userMessage, industry);
@@ -143,6 +168,7 @@ public class LandingSlotFallbackRenderer {
         );
     }
 
+    /** 渲染{@code Landing}{@code Data}。 */
     private String renderLandingData(LandingRecipe recipe) {
         return """
                 export interface LandingBrand {
@@ -249,6 +275,7 @@ public class LandingSlotFallbackRenderer {
         );
     }
 
+    /** 返回{@code infer}{@code Industry}。 */
     private String inferIndustry(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "健身", "私教", "瑜伽", "运动", "课程")) {
@@ -272,6 +299,7 @@ public class LandingSlotFallbackRenderer {
         return "企业品牌";
     }
 
+    /** 返回{@code infer}品牌名称。 */
     private String inferBrandName(String userMessage, String industry) {
         if (StrUtil.isBlank(userMessage)) {
             return industry + "官网";
@@ -293,6 +321,7 @@ public class LandingSlotFallbackRenderer {
         };
     }
 
+    /** 返回{@code headline}。 */
     private String headline(String userMessage, String industry) {
         if (containsAny(userMessage, "专业", "商务")) {
             return "打造专业可信的" + industry + "官网";
@@ -310,6 +339,7 @@ public class LandingSlotFallbackRenderer {
         return "以品牌介绍、服务展示、案例证明和咨询转化为核心，帮助" + industry + "建立稳定的线上门面。";
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String value, String... keywords) {
         String normalized = StrUtil.blankToDefault(value, "").toLowerCase(Locale.ROOT);
         for (String keyword : keywords) {
@@ -341,6 +371,7 @@ public class LandingSlotFallbackRenderer {
         return normalized;
     }
 
+    /** 规范化{@code Nav}。 */
     private List<String> normalizeNav(List<String> source, List<String> fallback) {
         List<String> values = normalizeStringList(source, fallback, 5);
         Set<String> required = Set.of("亮点", "案例", "流程", "价格", "FAQ");
@@ -353,6 +384,7 @@ public class LandingSlotFallbackRenderer {
         return result;
     }
 
+    /** 规范化{@code String}列表。 */
     private List<String> normalizeStringList(List<String> source, List<String> fallback, int targetSize) {
         List<String> values = new ArrayList<>();
         if (source != null) {
@@ -373,6 +405,7 @@ public class LandingSlotFallbackRenderer {
         return values;
     }
 
+    /** 规范化统计。 */
     private List<Stat> normalizeStats(List<CreateSpec.Stat> source, List<Stat> fallback) {
         List<Stat> values = new ArrayList<>();
         if (source != null) {
@@ -391,6 +424,7 @@ public class LandingSlotFallbackRenderer {
         return values;
     }
 
+    /** 规范化{@code Text}{@code Blocks}。 */
     private List<TextBlock> normalizeTextBlocks(List<CreateSpec.TextBlock> source,
                                                 List<TextBlock> fallback,
                                                 int targetSize) {
@@ -412,6 +446,7 @@ public class LandingSlotFallbackRenderer {
         return values;
     }
 
+    /** 规范化{@code Plans}。 */
     private List<Plan> normalizePlans(List<CreateSpec.Plan> source, List<Plan> fallback) {
         List<Plan> values = new ArrayList<>();
         if (source != null) {
@@ -436,6 +471,7 @@ public class LandingSlotFallbackRenderer {
         return values;
     }
 
+    /** 规范化{@code Faqs}。 */
     private List<Faq> normalizeFaqs(List<CreateSpec.Faq> source, List<Faq> fallback) {
         List<Faq> values = new ArrayList<>();
         if (source != null) {
@@ -538,6 +574,11 @@ public class LandingSlotFallbackRenderer {
             int totalChars,
             String summary
     ) {
+        /**
+ * 返回{@code empty}。
+ *
+ * @return {@code Landing}回退
+ */
         public static LandingFallback empty() {
             return new LandingFallback(List.of(), List.of(), 0, "");
         }

@@ -31,6 +31,12 @@ public class GenerationBenchmarkEvidenceController {
 
     private final GenerationBenchmarkEvidenceManagementService managementService;
 
+    /**
+ * 接收、校验并持久化外部基准证据。
+ *
+ * @param request 请求参数
+ * @return 统一封装的接口响应
+ */
     @PostMapping
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<GenerationBenchmarkEvidenceVO> ingest(
@@ -56,6 +62,12 @@ public class GenerationBenchmarkEvidenceController {
         return ResultUtils.success(toView(evidence));
     }
 
+    /**
+ * 获取指定资源。
+ *
+ * @param evidenceId 证据编号
+ * @return 统一封装的接口响应
+ */
     @GetMapping("/{evidenceId}")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<GenerationBenchmarkEvidenceVO> get(
@@ -64,6 +76,7 @@ public class GenerationBenchmarkEvidenceController {
         return ResultUtils.success(toView(managementService.get(evidenceId)));
     }
 
+    /** 将当前对象转换为视图。 */
     private GenerationBenchmarkEvidenceVO toView(GenerationBenchmarkEvidenceRecord evidence) {
         var payload = evidence.payload();
         return new GenerationBenchmarkEvidenceVO(

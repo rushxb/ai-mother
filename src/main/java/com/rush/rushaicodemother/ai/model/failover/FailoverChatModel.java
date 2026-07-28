@@ -66,6 +66,7 @@ public final class FailoverChatModel implements ChatModel {
         this(candidates, metrics, totalTimeout, nanoTime, ignored -> { }, false);
     }
 
+    /** 创建故障转移对话模型实例并完成必要的依赖和初始状态设置。 */
     private FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
                               AiModelMetricsCollector metrics,
                               Duration totalTimeout,
@@ -86,26 +87,54 @@ public final class FailoverChatModel implements ChatModel {
         this.stickyProvider = stickyProvider;
     }
 
+    /**
+ * 返回对话。
+ *
+ * @param request 请求参数
+ * @return 故障转移对话模型
+ */
     @Override
     public ChatResponse chat(ChatRequest request) {
         return execute(model -> model.chat(request));
     }
 
+    /**
+ * 返回对话。
+ *
+ * @param request 请求参数
+ * @param options 待处理的 {@code options} 集合
+ * @return 故障转移对话模型
+ */
     @Override
     public ChatResponse chat(ChatRequest request, ChatRequestOptions options) {
         return execute(model -> model.chat(request, options));
     }
 
+    /**
+ * 返回默认请求{@code Parameters}。
+ *
+ * @return 故障转移对话模型
+ */
     @Override
     public ChatRequestParameters defaultRequestParameters() {
         return candidates.getFirst().model().defaultRequestParameters();
     }
 
+    /**
+ * 返回提供方。
+ *
+ * @return 故障转移对话模型
+ */
     @Override
     public ModelProvider provider() {
         return candidates.getFirst().model().provider();
     }
 
+    /**
+ * 返回支持的能力。
+ *
+ * @return 故障转移对话模型集合
+ */
     @Override
     public Set<Capability> supportedCapabilities() {
         Set<Capability> intersection = new LinkedHashSet<>(
@@ -116,10 +145,12 @@ public final class FailoverChatModel implements ChatModel {
         return Set.copyOf(intersection);
     }
 
+    /** 执行故障转移对话模型处理流程。 */
     private ChatResponse execute(Function<ChatModel, ChatResponse> invocation) {
         List<RuntimeException> failures = new ArrayList<>();
         long deadlineNanos = deadlineNanos();
         List<Integer> candidateOrder = candidateOrder();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int attemptIndex = 0; attemptIndex < candidateOrder.size(); attemptIndex++) {
             if (attemptIndex > 0 && deadlineReached(deadlineNanos)) {
                 throw timeout(failures);
@@ -163,6 +194,7 @@ public final class FailoverChatModel implements ChatModel {
         }
     }
 
+    /** 创建包含{@code Suppressed}的新对象。 */
     private RuntimeException withSuppressed(RuntimeException terminal,
                                             List<RuntimeException> failures) {
         for (RuntimeException failure : failures) {

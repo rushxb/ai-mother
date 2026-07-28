@@ -29,6 +29,12 @@ public class HeavyGenerationPipeline implements GenerationPipeline {
         return request.modeIs(GenerationMode.HEAVY_EXPERT);
     }
 
+    /**
+ * 执行重型生成流水线处理流程。
+ *
+ * @param request 请求参数
+ * @return 重型生成流水线
+ */
     @Override
     public GenerationPipelineOutcome execute(GenerationPipelineRequest request) {
         heavyGenerationCoordinator.startManaged(request);

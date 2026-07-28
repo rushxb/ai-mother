@@ -25,10 +25,19 @@ public class OrphanFileReviewService {
 
     private static final Set<String> REVIEW_EXTENSIONS = Set.of("vue", "js", "ts", "css", "scss", "json");
 
+    /**
+ * 返回{@code review}。
+ *
+ * @param projectRoot 项目根
+ * @param changePlan {@code changePlan} 对应的调用参数
+ * @return {@code Orphan}文件{@code Review}
+ */
     public OrphanFileReviewResult review(Path projectRoot, ChangePlan changePlan) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (projectRoot == null || !Files.isDirectory(projectRoot)) {
             return new OrphanFileReviewResult("skipped", List.of(), List.of(), List.of(), "项目目录不存在");
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             List<Path> files;
             try (Stream<Path> stream = Files.walk(projectRoot.resolve("src"), 8)) {
@@ -78,6 +87,7 @@ public class OrphanFileReviewService {
         return dotIndex > 0 && REVIEW_EXTENSIONS.contains(name.substring(dotIndex + 1).toLowerCase(Locale.ROOT));
     }
 
+    /** 构建并返回导入{@code Corpus}。 */
     private String buildImportCorpus(Path projectRoot, List<Path> files) throws IOException {
         StringBuilder builder = new StringBuilder();
         for (Path file : files) {

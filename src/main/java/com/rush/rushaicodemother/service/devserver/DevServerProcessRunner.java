@@ -44,6 +44,17 @@ public class DevServerProcessRunner {
     private final GeneratedCodeSandboxMetricsCollector sandboxMetrics;
     private final DevServerSandboxPlanListener sandboxPlanListener;
 
+    /**
+ * 创建开发服务器进程{@code Runner}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param launcherResolver {@code launcherResolver} 对应的调用参数
+ * @param processTerminator {@code processTerminator} 对应的调用参数
+ * @param readinessProbe {@code readinessProbe} 对应的调用参数
+ * @param processSandbox {@code processSandbox} 对应的调用参数
+ * @param sandboxMetrics 待处理的 {@code sandboxMetrics} 集合
+ * @param sandboxPlanListener 对应阶段使用的回调函数
+ */
     @Autowired
     public DevServerProcessRunner(
             DevServerRuntimeProperties properties,
@@ -66,6 +77,7 @@ public class DevServerProcessRunner {
         );
     }
 
+    /** 创建开发服务器进程{@code Runner}实例并完成必要的依赖和初始状态设置。 */
     DevServerProcessRunner(
             DevServerRuntimeProperties properties,
             ViteLauncherResolver launcherResolver,
@@ -85,6 +97,7 @@ public class DevServerProcessRunner {
         );
     }
 
+    /** 创建开发服务器进程{@code Runner}实例并完成必要的依赖和初始状态设置。 */
     DevServerProcessRunner(
             DevServerRuntimeProperties properties,
             ViteLauncherResolver launcherResolver,
@@ -105,6 +118,7 @@ public class DevServerProcessRunner {
         );
     }
 
+    /** 创建开发服务器进程{@code Runner}实例并完成必要的依赖和初始状态设置。 */
     DevServerProcessRunner(
             DevServerRuntimeProperties properties,
             ViteLauncherResolver launcherResolver,
@@ -183,6 +197,7 @@ public class DevServerProcessRunner {
         );
     }
 
+    /** 启动开发服务器进程。 */
     DevServerProcessSession start(
             Path projectDirectory,
             int port,
@@ -203,6 +218,7 @@ public class DevServerProcessRunner {
         long sandboxStartedAtNanos = System.nanoTime();
         boolean interrupted = false;
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ManagedProcessRequest request = ManagedProcessRequest.builder()
                     .workingDirectory(normalizedProjectDirectory)
@@ -292,6 +308,7 @@ public class DevServerProcessRunner {
         processTerminator.terminateProjectProcesses(projectDirectory);
     }
 
+    /** 处理{@code wait}{@code Until}就绪。 */
     private void waitUntilReady(
             Process process,
             int port,
@@ -303,6 +320,7 @@ public class DevServerProcessRunner {
         long pollNanos = properties.getReadinessPollInterval().toNanos();
         int consecutiveSuccesses = 0;
 
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (true) {
             if (cancellationRequested.getAsBoolean()) {
                 throw new DevServerStartException(
@@ -376,6 +394,7 @@ public class DevServerProcessRunner {
         }
     }
 
+    /** 清理{@code Sandbox}及其关联资源。 */
     private void cleanupSandbox(SandboxProcessPlan processPlan) {
         if (processPlan == null) {
             return;

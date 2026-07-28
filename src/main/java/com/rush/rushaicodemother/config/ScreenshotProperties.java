@@ -59,6 +59,11 @@ public class ScreenshotProperties {
         return !hasText(chromeBinaryPath) || isSafeRegularFile(chromeBinaryPath);
     }
 
+    /**
+ * 判断运行时限制是否有效。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "截图并发、队列、视口、超时和压缩质量配置必须在安全范围内")
     public boolean isRuntimeLimitsValid() {
         return workDirectory != null
@@ -79,6 +84,11 @@ public class ScreenshotProperties {
                 && compressionQuality <= 1.0F;
     }
 
+    /**
+ * 校验并返回有效的Chrome驱动路径。
+ *
+ * @return 解析后的Chrome驱动路径路径
+ */
     public Path requireChromeDriverPath() {
         if (!isSafeRegularFile(chromeDriverPath)) {
             throw new BusinessException(
@@ -89,6 +99,11 @@ public class ScreenshotProperties {
         return Path.of(chromeDriverPath.trim()).toAbsolutePath().normalize();
     }
 
+    /**
+ * 根据当前上下文解析Chrome可执行文件路径。
+ *
+ * @return 解析后的Chrome可执行文件路径路径
+ */
     public Path resolveChromeBinaryPath() {
         if (!hasText(chromeBinaryPath)) {
             return null;
@@ -102,6 +117,7 @@ public class ScreenshotProperties {
         return Path.of(chromeBinaryPath.trim()).toAbsolutePath().normalize();
     }
 
+    /** 判断安全常规文件是否满足约束。 */
     private boolean isSafeRegularFile(String rawPath) {
         if (!hasText(rawPath)) {
             return false;

@@ -23,6 +23,11 @@ public class GenerationSessionCleanupConfiguration implements SchedulingConfigur
     private final GenerationSessionRegistry generationSessionRegistry;
     private final GenerationSessionProperties generationSessionProperties;
 
+    /**
+ * 处理{@code configure}任务。
+ *
+ * @param taskRegistrar {@code taskRegistrar} 对应的调用参数
+ */
     @Override
     public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
         taskRegistrar.addFixedDelayTask(

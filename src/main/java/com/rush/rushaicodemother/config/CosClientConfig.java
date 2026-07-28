@@ -24,6 +24,11 @@ public class CosClientConfig {
 
     private final CosClientProperties properties;
 
+    /**
+ * 创建并配置对象存储客户端 Bean。
+ *
+ * @return 配置完成的对象存储客户端 Bean
+ */
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnProperty(prefix = "cos.client", name = "enabled", havingValue = "true")
     public COSClient cosClient() {

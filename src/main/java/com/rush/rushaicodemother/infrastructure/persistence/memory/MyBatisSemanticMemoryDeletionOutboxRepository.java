@@ -32,6 +32,14 @@ public class MyBatisSemanticMemoryDeletionOutboxRepository
     private final SemanticMemoryDeletionOutboxMapper mapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
 
+    /**
+ * 处理{@code enqueue}应用删除。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ * @param requestedByUserId 目标资源编号
+ * @param createdAt {@code createdAt} 对应的调用参数
+ */
     @Override
     public void enqueueApplicationDeletion(Long tenantId,
                                            Long appId,
@@ -46,6 +54,15 @@ public class MyBatisSemanticMemoryDeletionOutboxRepository
         mapper.enqueue(operationId, tenantId, appId, requestedByUserId, toLocal(createdAt));
     }
 
+    /**
+ * 以原子方式声明批次。
+ *
+ * @param now 当前时间
+ * @param leaseUntil {@code leaseUntil} 对应的调用参数
+ * @param leaseOwner 租约所有者
+ * @param batchSize 批次大小
+ * @return 批次集合
+ */
     @Override
     @Transactional
     public List<SemanticMemoryDeletionOutboxItem> claimBatch(Instant now,
@@ -78,6 +95,14 @@ public class MyBatisSemanticMemoryDeletionOutboxRepository
         return List.copyOf(claimed);
     }
 
+    /**
+ * 更新完成的标记状态。
+ *
+ * @param operationId 操作编号
+ * @param leaseOwner 租约所有者
+ * @param completedAt 完成时间
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean markCompleted(String operationId, String leaseOwner, Instant completedAt) {
         requireOperationId(operationId);
@@ -86,6 +111,16 @@ public class MyBatisSemanticMemoryDeletionOutboxRepository
         return mapper.markCompleted(operationId, leaseOwner, toLocal(completedAt)) == 1;
     }
 
+    /**
+ * 更新失败的标记状态。
+ *
+ * @param operationId 操作编号
+ * @param leaseOwner 租约所有者
+ * @param error 错误
+ * @param failedAt {@code failedAt} 对应的调用参数
+ * @param nextAttemptAt {@code nextAttemptAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean markFailed(String operationId,
                               String leaseOwner,
@@ -103,6 +138,12 @@ public class MyBatisSemanticMemoryDeletionOutboxRepository
                 toLocal(failedAt), toLocal(nextAttemptAt)) == 1;
     }
 
+    /**
+ * 返回{@code inspect}积压量。
+ *
+ * @param now 当前时间
+ * @return {@code My}{@code Batis}语义记忆删除事务发件箱
+ */
     @Override
     public SemanticMemoryOutboxBacklog inspectBacklog(Instant now) {
         requireInstant(now, "now");

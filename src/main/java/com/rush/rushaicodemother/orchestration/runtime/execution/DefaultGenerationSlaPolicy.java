@@ -17,6 +17,13 @@ public class DefaultGenerationSlaPolicy implements GenerationSlaPolicy {
 
     private final GenerationSlaProperties properties;
 
+    /**
+ * 根据当前上下文解析默认生成{@code Sla}策略。
+ *
+ * @param decision 决策
+ * @param targetType 目标类型
+ * @return 默认生成{@code Sla}策略
+ */
     @Override
     public GenerationSlaEnvelope resolve(GenerationModeDecision decision, CodeGenTypeEnum targetType) {
         Objects.requireNonNull(decision, "decision");

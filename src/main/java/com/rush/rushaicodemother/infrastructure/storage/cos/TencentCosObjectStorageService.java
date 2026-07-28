@@ -28,6 +28,12 @@ public final class TencentCosObjectStorageService implements ObjectStorageServic
         this.publicHost = stripTrailingSlash(properties.getHost().trim());
     }
 
+    /**
+ * 返回{@code upload}。
+ *
+ * @param upload {@code upload} 对应的调用参数
+ * @return 处理后的{@code Tencent}对象存储{@code Object}存储文本
+ */
     @Override
     public String upload(ObjectStorageUpload upload) {
         if (upload == null) {

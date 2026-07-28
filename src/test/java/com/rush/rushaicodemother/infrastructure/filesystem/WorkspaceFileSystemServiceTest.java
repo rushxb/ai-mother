@@ -47,6 +47,30 @@ class WorkspaceFileSystemServiceTest {
     }
 
     @Test
+    void scanMustStopWhenContinuationCheckRejectsWork() throws Exception {
+        Path root = createTempWorkspace("scan-cancelled");
+        try {
+            write(root, "src/one.ts", "1");
+            write(root, "src/two.ts", "2");
+            WorkspaceFileSystemService service = serviceWithDefaults();
+            AtomicInteger checks = new AtomicInteger();
+
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> service.scanProject(root, () -> {
+                        if (checks.incrementAndGet() >= 3) {
+                            throw new IllegalStateException("扫描已取消");
+                        }
+                    })
+            );
+
+            assertEquals(3, checks.get());
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
     void shouldFailExplicitlyWhenScanFileLimitIsExceeded() throws Exception {
         Path root = createTempWorkspace("limit");
         try {
@@ -318,6 +342,33 @@ class WorkspaceFileSystemServiceTest {
             try (Stream<Path> children = Files.list(targetParent)) {
                 assertTrue(children.noneMatch(path -> path.getFileName().toString().startsWith(".snapshot.copy-")));
             }
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void copyMustRemoveStagingDirectoryWhenContinuationCheckRejectsWork() throws Exception {
+        Path root = createTempWorkspace("copy-cancelled");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/one.ts", "1");
+            write(source, "src/two.ts", "2");
+            WorkspaceFileSystemService service = serviceWithDefaults();
+            AtomicInteger checks = new AtomicInteger();
+
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> service.copyDirectory(source, target, () -> {
+                        if (checks.incrementAndGet() >= 4) {
+                            throw new IllegalStateException("复制已取消");
+                        }
+                    })
+            );
+
+            assertFalse(Files.exists(target));
+            assertNoTemporarySibling(target, "copy");
         } finally {
             cleanup(root);
         }

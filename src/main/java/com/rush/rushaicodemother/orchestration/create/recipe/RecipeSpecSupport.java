@@ -17,6 +17,7 @@ final class RecipeSpecSupport {
     private RecipeSpecSupport() {
     }
 
+    /** 规范化{@code Fields}。 */
     static List<RecipeField> normalizeFields(List<CreateSpec.FieldSpec> fields) {
         List<RecipeField> normalized = new ArrayList<>();
         if (fields != null) {
@@ -47,6 +48,7 @@ final class RecipeSpecSupport {
         return normalized.stream().limit(6).toList();
     }
 
+    /** 规范化{@code Field}类型。 */
     static String normalizeFieldType(String type) {
         String normalized = StrUtil.blankToDefault(type, "string").toLowerCase(Locale.ROOT);
         return switch (normalized) {
@@ -88,6 +90,7 @@ final class RecipeSpecSupport {
         };
     }
 
+    /** 返回{@code frontend}{@code Options}。 */
     static FrontendOptions frontendOptions(CreateSpec spec) {
         CreateSpec.Frontend frontend = spec.frontend();
         List<String> styleKeywords = frontend == null || frontend.styleKeywords() == null ? List.of() : frontend.styleKeywords();
@@ -108,6 +111,7 @@ final class RecipeSpecSupport {
         return new FrontendOptions(density, styleKeywords, styleClasses, interactions, dataViz, navigation, radius, surfaceMuted);
     }
 
+    /** 返回后端{@code Options}。 */
     static BackendOptions backendOptions(CreateSpec spec) {
         CreateSpec.Backend backend = spec.backend();
         CreateSpec.Database database = spec.database();
@@ -128,6 +132,7 @@ final class RecipeSpecSupport {
         );
     }
 
+    /** 返回数据库{@code Indexes}。 */
     static List<String> databaseIndexes(CreateSpec spec, List<RecipeField> fields) {
         Set<String> allowed = fields.stream().map(field -> snake(field.name())).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         List<String> requested = spec.database() == null || spec.database().indexes() == null ? List.of() : spec.database().indexes();
@@ -147,6 +152,7 @@ final class RecipeSpecSupport {
         return indexes.stream().limit(4).toList();
     }
 
+    /** 规范化密度。 */
     static String normalizeDensity(String density) {
         String normalized = StrUtil.blankToDefault(density, "comfortable").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "compact", "紧凑", "高信息密度")) return "compact";
@@ -154,6 +160,7 @@ final class RecipeSpecSupport {
         return "comfortable";
     }
 
+    /** 规范化{@code Interaction}。 */
     static List<String> normalizeInteraction(List<String> values) {
         LinkedHashSet<String> result = new LinkedHashSet<>();
         for (String value : values == null ? List.<String>of() : values) {
@@ -170,6 +177,7 @@ final class RecipeSpecSupport {
         return result.stream().toList();
     }
 
+    /** 规范化{@code Data}{@code Viz}。 */
     static List<String> normalizeDataViz(List<String> values) {
         LinkedHashSet<String> result = new LinkedHashSet<>();
         for (String value : values == null ? List.<String>of() : values) {
@@ -185,6 +193,7 @@ final class RecipeSpecSupport {
         return result.stream().toList();
     }
 
+    /** 返回{@code style}{@code Class}。 */
     static String styleClass(String keyword) {
         if (containsAny(keyword, "运营", "中台", "专业")) return "style-ops";
         if (containsAny(keyword, "高级", "premium")) return "style-premium";

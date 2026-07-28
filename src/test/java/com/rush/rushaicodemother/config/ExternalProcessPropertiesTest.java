@@ -21,7 +21,7 @@ class ExternalProcessPropertiesTest {
     @Test
     void shouldRejectExcessiveGracePeriod() {
         ExternalProcessProperties properties = new ExternalProcessProperties();
-        properties.setTerminationGracePeriod(Duration.ofMinutes(6));
+        properties.setTerminationGracePeriod(Duration.ofSeconds(31));
 
         assertFalse(validator.validate(properties).isEmpty());
     }

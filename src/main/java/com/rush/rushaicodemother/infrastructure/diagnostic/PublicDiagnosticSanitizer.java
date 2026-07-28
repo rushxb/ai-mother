@@ -51,6 +51,13 @@ public final class PublicDiagnosticSanitizer {
         return sanitizeForPublicOutput(value, DEFAULT_MAX_OUTPUT_LENGTH);
     }
 
+    /**
+ * 清理{@code For}公开输出中的敏感或不安全内容。
+ *
+ * @param value 待处理值
+ * @param maxLength {@code maxLength} 对应的调用参数
+ * @return 处理后的{@code For}公开输出文本
+ */
     public static String sanitizeForPublicOutput(String value, int maxLength) {
         if (value == null || value.isEmpty() || maxLength <= 0) {
             return "";
@@ -65,6 +72,13 @@ public final class PublicDiagnosticSanitizer {
         return limitPreservingContext(sanitized, maxLength);
     }
 
+    /**
+ * 清理{@code Single}{@code Line}中的敏感或不安全内容。
+ *
+ * @param value 待处理值
+ * @param maxLength {@code maxLength} 对应的调用参数
+ * @return 处理后的{@code Single}{@code Line}文本
+ */
     public static String sanitizeSingleLine(String value, int maxLength) {
         if (value == null || value.isBlank() || maxLength <= 0) {
             return "";
@@ -81,6 +95,7 @@ public final class PublicDiagnosticSanitizer {
         return limitPreservingContext(normalized, maxLength);
     }
 
+    /** 返回限制{@code Preserving}上下文。 */
     private static String limitPreservingContext(String value, int maxLength) {
         if (value.length() <= maxLength) {
             return value;

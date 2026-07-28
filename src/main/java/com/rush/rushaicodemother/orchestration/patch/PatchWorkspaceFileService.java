@@ -31,6 +31,13 @@ public class PatchWorkspaceFileService {
         return resolveRealRoot(projectRoot);
     }
 
+    /**
+ * 根据当前上下文解析补丁工作区文件。
+ *
+ * @param projectRoot 项目根
+ * @param relativePath 相对路径
+ * @return 补丁工作区文件
+ */
     public PatchWorkspaceTarget resolve(Path projectRoot, String relativePath) throws PatchWorkspaceException {
         Path realRoot = resolveRealRoot(projectRoot);
         String normalizedRelativePath = normalizeRelativePath(relativePath);
@@ -42,6 +49,12 @@ public class PatchWorkspaceFileService {
         return new PatchWorkspaceTarget(realRoot, normalizedRelativePath, target);
     }
 
+    /**
+ * 返回{@code exists}。
+ *
+ * @param target 目标对象
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean exists(PatchWorkspaceTarget target) throws PatchWorkspaceException {
         PatchWorkspaceTarget current = revalidate(target);
         return Files.exists(current.absolutePath(), LinkOption.NOFOLLOW_LINKS);
@@ -59,6 +72,12 @@ public class PatchWorkspaceFileService {
                 && !Files.isSymbolicLink(current.absolutePath());
     }
 
+    /**
+ * 返回文件名称。
+ *
+ * @param target 目标对象
+ * @return 处理后的补丁工作区文件文本
+ */
     public String fileName(PatchWorkspaceTarget target) {
         Path fileName = target == null ? null : target.absolutePath().getFileName();
         return fileName == null ? "" : fileName.toString();
@@ -68,6 +87,12 @@ public class PatchWorkspaceFileService {
         encodedContent(content);
     }
 
+    /**
+ * 读取{@code Utf8}。
+ *
+ * @param target 目标对象
+ * @return 处理后的{@code Utf8}文本
+ */
     public String readUtf8(PatchWorkspaceTarget target) throws IOException {
         return readUtf8(target, properties.getMaxReadableFileBytes());
     }
@@ -76,6 +101,7 @@ public class PatchWorkspaceFileService {
      * 读取 UTF-8 文件，同时强制执行调用者限制和全局补丁工作空间限制。
      */
     public String readUtf8(PatchWorkspaceTarget target, long maxReadableBytes) throws IOException {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (maxReadableBytes <= 0) {
             throw new PatchWorkspaceException("invalid_read_limit");
         }
@@ -123,6 +149,12 @@ public class PatchWorkspaceFileService {
         }
     }
 
+    /**
+ * 写入{@code New}{@code Utf8}。
+ *
+ * @param target 目标对象
+ * @param content 文件或消息内容
+ */
     public void writeNewUtf8(PatchWorkspaceTarget target, String content) throws IOException {
         byte[] bytes = encodedContent(content);
         PatchWorkspaceTarget current = revalidate(target);
@@ -136,6 +168,12 @@ public class PatchWorkspaceFileService {
         writeBytes(current.absolutePath(), bytes, options);
     }
 
+    /**
+ * 覆盖写入{@code Utf8}。
+ *
+ * @param target 目标对象
+ * @param content 文件或消息内容
+ */
     public void overwriteUtf8(PatchWorkspaceTarget target, String content) throws IOException {
         byte[] bytes = encodedContent(content);
         PatchWorkspaceTarget current = requireRegularFile(target);
@@ -147,6 +185,11 @@ public class PatchWorkspaceFileService {
         writeBytes(current.absolutePath(), bytes, options);
     }
 
+    /**
+ * 删除补丁工作区文件。
+ *
+ * @param target 目标对象
+ */
     public void delete(PatchWorkspaceTarget target) throws IOException {
         PatchWorkspaceTarget current = requireRegularFile(target);
         try {
@@ -165,6 +208,7 @@ public class PatchWorkspaceFileService {
         return current;
     }
 
+    /** 返回{@code revalidate}。 */
     private PatchWorkspaceTarget revalidate(PatchWorkspaceTarget target) throws PatchWorkspaceException {
         if (target == null) {
             throw new PatchWorkspaceException("invalid_path");
@@ -176,6 +220,7 @@ public class PatchWorkspaceFileService {
         return current;
     }
 
+    /** 根据当前上下文解析{@code Real}根。 */
     private Path resolveRealRoot(Path projectRoot) throws PatchWorkspaceException {
         if (projectRoot == null) {
             throw new PatchWorkspaceException("project_root_missing");
@@ -191,6 +236,7 @@ public class PatchWorkspaceFileService {
         }
     }
 
+    /** 规范化{@code Relative}路径。 */
     private String normalizeRelativePath(String relativePath) throws PatchWorkspaceException {
         if (StrUtil.isBlank(relativePath) || relativePath.indexOf('\0') >= 0) {
             throw new PatchWorkspaceException("invalid_path");
@@ -215,6 +261,7 @@ public class PatchWorkspaceFileService {
         }
     }
 
+    /** 验证{@code Existing}{@code Segments}是否符合预期。 */
     private void verifyExistingSegments(Path realRoot, Path target) throws PatchWorkspaceException {
         Path current = realRoot;
         for (Path segment : realRoot.relativize(target)) {
@@ -237,6 +284,7 @@ public class PatchWorkspaceFileService {
         }
     }
 
+    /** 确保父级{@code Directories}已达到可用状态。 */
     private void ensureParentDirectories(PatchWorkspaceTarget target) throws IOException {
         Path parent = target.absolutePath().getParent();
         if (parent == null || parent.equals(target.realRoot())) {
@@ -272,6 +320,7 @@ public class PatchWorkspaceFileService {
         return bytes;
     }
 
+    /** 返回{@code write}对应的字节数。 */
     private void writeBytes(Path path,
                             byte[] bytes,
                             Set<java.nio.file.OpenOption> options) throws IOException {

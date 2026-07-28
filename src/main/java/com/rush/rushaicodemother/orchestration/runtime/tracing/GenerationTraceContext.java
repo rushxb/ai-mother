@@ -21,6 +21,7 @@ public record GenerationTraceContext(String traceparent, String tracestate) {
             "^00-(?!0{32})[0-9a-f]{32}-(?!0{16})[0-9a-f]{16}-[0-9a-f]{2}$"
     );
 
+    /** 创建生成追踪上下文实例并完成必要的依赖和初始状态设置。 */
     public GenerationTraceContext {
         traceparent = normalize(traceparent);
         tracestate = normalize(tracestate);
@@ -39,6 +40,12 @@ public record GenerationTraceContext(String traceparent, String tracestate) {
         return new GenerationTraceContext(null, null);
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param carrier {@code carrier} 对应的调用参数
+ * @return 生成追踪上下文
+ */
     public static GenerationTraceContext fromCarrier(Map<String, String> carrier) {
         if (carrier == null || carrier.isEmpty()) {
             return empty();
@@ -64,6 +71,11 @@ public record GenerationTraceContext(String traceparent, String tracestate) {
         return traceparent == null;
     }
 
+    /**
+ * 返回{@code carrier}。
+ *
+ * @return 生成追踪上下文集合
+ */
     public Map<String, String> carrier() {
         if (traceparent == null) {
             return Map.of();

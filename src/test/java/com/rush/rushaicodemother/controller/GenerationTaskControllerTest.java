@@ -6,12 +6,14 @@ import com.rush.rushaicodemother.controller.support.GenerationSseEventMapper;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.model.vo.GenerationTaskStatusVO;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapshot;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
@@ -43,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -81,12 +84,21 @@ class GenerationTaskControllerTest {
 
     @Test
     void submitMustReturnAcceptedTaskIdentityWithoutWaitingForEventStream() throws Exception {
-        GenerationTaskSnapshot snapshot = snapshot("running", false);
+        Instant submittedAt = Instant.parse("2026-07-20T10:00:00Z");
         when(appService.submitGeneration(
                 eq(11L), eq("build dashboard"), same(actor), eq("submission-key")))
                 .thenReturn(new GenerationTaskResult(
-                        "task-api-1", "lightweight_edit", mock(GenerationWorkspace.class), Flux.never()));
-        when(queryService.get("task-api-1", actor)).thenReturn(snapshot);
+                        new GenerationTaskSubmissionReceipt(
+                                "task-api-1",
+                                11L,
+                                "lightweight_edit",
+                                GenerationTaskStatus.QUEUED,
+                                submittedAt,
+                                submittedAt.plusSeconds(600)
+                        ),
+                        mock(GenerationWorkspace.class),
+                        Flux.never()
+                ));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         mockMvc.perform(post("/generation/tasks")
@@ -100,10 +112,12 @@ class GenerationTaskControllerTest {
                                 """))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.data.taskId").value("task-api-1"))
-                .andExpect(jsonPath("$.data.status").value("running"));
+                .andExpect(jsonPath("$.data.status").value("queued"))
+                .andExpect(jsonPath("$.data.submittedAt").value("2026-07-20T10:00:00Z"))
+                .andExpect(jsonPath("$.data.deadlineAt").value("2026-07-20T10:10:00Z"));
 
         verify(appService).submitGeneration(11L, "build dashboard", actor, "submission-key");
-        verify(queryService).get("task-api-1", actor);
+        verifyNoInteractions(queryService);
     }
 
     @Test

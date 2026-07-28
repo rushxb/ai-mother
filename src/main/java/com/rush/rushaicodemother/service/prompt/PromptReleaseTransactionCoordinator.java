@@ -20,6 +20,12 @@ public class PromptReleaseTransactionCoordinator {
     private final PromptReleaseRepository repository;
     private final GenerationReleaseEvidenceVerifier evidenceVerifier;
 
+    /**
+ * 在事务边界内变更提示词发布事务协调器。
+ *
+ * @param mutation 变更
+ * @return 提示词发布事务协调器
+ */
     @Transactional(rollbackFor = Exception.class)
     public PromptReleaseRecord mutate(PromptReleaseMutation mutation) {
         coordinationLock.acquire();

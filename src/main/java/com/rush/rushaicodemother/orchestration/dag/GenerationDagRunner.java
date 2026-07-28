@@ -55,12 +55,21 @@ public class GenerationDagRunner {
         this.snapshotProperties = snapshotProperties;
     }
 
+    /**
+ * 运行生成{@code Dag}处理流程。
+ *
+ * @param nodes 编排节点列表
+ * @param context 执行上下文
+ * @return 生成{@code Dag}集合
+ */
     public List<GenerationStreamEvent> run(List<GenerationAgentNode> nodes, GenerationAgentContext context) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (context == null || context.getTask() == null) {
             throw new IllegalArgumentException("generation DAG context is required");
         }
         Map<String, GenerationAgentNode> nodeMap = buildNodeMap(nodes);
         List<GenerationStreamEvent> events = new ArrayList<>();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             bindGraph(nodeMap, context.getTask());
             Set<String> completed = restoredCompletedNodes(nodeMap, context.getTask());
@@ -168,6 +177,7 @@ public class GenerationDagRunner {
         }
     }
 
+    /** 返回{@code restored}完成{@code Nodes}。 */
     private Set<String> restoredCompletedNodes(Map<String, GenerationAgentNode> nodeMap,
                                                GenerationOrchestrationTask task) {
         Set<String> completed = new LinkedHashSet<>();
@@ -195,6 +205,7 @@ public class GenerationDagRunner {
                         "a failed DAG node requires an explicit recovery decision");
             }
         });
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String nodeKey : completed) {
             GenerationAgentNode node = nodeMap.get(nodeKey);
             if (!completed.containsAll(node.dependencies())) {
@@ -204,8 +215,10 @@ public class GenerationDagRunner {
         return completed;
     }
 
+    /** 执行节点处理流程。 */
     private NodeExecution executeNode(GenerationAgentNode node, GenerationAgentContext context) {
         Instant startedAt = Instant.now();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             assertCanContinue(context);
             AgentNodeResult result = node.execute(context);
@@ -244,13 +257,16 @@ public class GenerationDagRunner {
         }
     }
 
+    /** 构建并返回节点映射。 */
     private Map<String, GenerationAgentNode> buildNodeMap(List<GenerationAgentNode> nodes) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (nodes == null || nodes.isEmpty()) {
             throw new GenerationDagRecoveryException(
                     GenerationDagRecoveryException.Reason.INVALID_GRAPH,
                     "generation DAG must contain at least one node");
         }
         Map<String, GenerationAgentNode> nodeMap = new LinkedHashMap<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationAgentNode node : nodes) {
             if (node == null || node.key() == null || node.key().isBlank()
                     || node.agentName() == null || node.agentName().isBlank()
@@ -284,6 +300,7 @@ public class GenerationDagRunner {
         return nodeMap;
     }
 
+    /** 绑定{@code Graph}。 */
     private void bindGraph(Map<String, GenerationAgentNode> nodeMap,
                            GenerationOrchestrationTask task) {
         String fingerprint = graphFingerprint(nodeMap);
@@ -322,6 +339,7 @@ public class GenerationDagRunner {
         return graphFingerprint(nodeMap, false);
     }
 
+    /** 返回{@code graph}指纹。 */
     private String graphFingerprint(Map<String, GenerationAgentNode> nodeMap,
                                     boolean includeReplayPolicy) {
         StringBuilder canonical = new StringBuilder();
@@ -357,6 +375,7 @@ public class GenerationDagRunner {
                 || (task.getNodeStatuses() != null && !task.getNodeStatuses().isEmpty());
     }
 
+    /** 持久化失败检查点。 */
     private void persistFailureCheckpoint(GenerationOrchestrationTask task, Throwable primaryFailure) {
         try {
             taskStore.save(task);
@@ -365,6 +384,7 @@ public class GenerationDagRunner {
         }
     }
 
+    /** 持久化节点开始检查点。 */
     private void persistNodeStartCheckpoint(GenerationAgentContext context,
                                             GenerationAgentNode node) {
         Instant startedAt = Instant.now();
@@ -388,6 +408,7 @@ public class GenerationDagRunner {
         }
     }
 
+    /** 持久化节点完成检查点。 */
     private boolean persistNodeCompletionCheckpoint(GenerationAgentContext context,
                                                     GenerationAgentNode node,
                                                     int pendingCompletionCount) {
@@ -431,6 +452,7 @@ public class GenerationDagRunner {
         executionContextService.assertCanContinue(context.getTask().getTaskId());
     }
 
+    /** 构建并返回事件。 */
     private GenerationStreamEvent buildEvent(GenerationAgentContext context,
                                              GenerationAgentNode node,
                                              String status,

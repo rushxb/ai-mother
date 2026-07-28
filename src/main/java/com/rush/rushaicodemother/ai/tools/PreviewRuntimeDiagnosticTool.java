@@ -55,6 +55,16 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         this.contextPath = contextPath;
     }
 
+    /**
+ * 返回{@code diagnose}预览运行时。
+ *
+ * @param action 动作
+ * @param targetUrl 目标地址
+ * @param relativeProjectPath 项目相对路径
+ * @param waitSeconds 待处理的 {@code waitSeconds} 集合
+ * @param appId 应用编号
+ * @return 处理后的预览运行时{@code Diagnostic}工具文本
+ */
     @Tool("用浏览器访问本地构建预览页或 dev server，采集页面标题、DOM 状态、首屏文本和 console 报错，用于排查白屏、路由异常、资源加载失败和运行时错误。")
     public String diagnosePreviewRuntime(
             @P("诊断模式：diagnoseBuildPreview、diagnoseDevServer")
@@ -79,6 +89,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         }
     }
 
+    /** 根据当前上下文解析目标地址。 */
     String resolveTargetUrl(String action, String targetUrl, String relativeProjectPath, Long appId) {
         validateDiagnosticAction(action);
         if (StrUtil.isNotBlank(targetUrl)) {
@@ -112,6 +123,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         }
     }
 
+    /** 校验并返回有效的{@code Loopback}HTTP地址。 */
     private String requireLoopbackHttpUrl(String rawUrl) {
         URI uri;
         try {
@@ -141,6 +153,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         return uri.normalize().toASCIIString();
     }
 
+    /** 返回{@code inspect}地址。 */
     private String inspectUrl(String action, String url, Integer waitSeconds) {
         int safeWaitSeconds = waitSeconds == null ? 3 : Math.max(1, Math.min(waitSeconds, 10));
         BrowserRuntimeObservation observation = browserRuntimeProbe.inspect(
@@ -169,6 +182,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         return buildRuntimeReport(action, url, pageInfo, browserLogs);
     }
 
+    /** 构建并返回运行时报告。 */
     private String buildRuntimeReport(String action, String url, JSONObject pageInfo, List<String> browserLogs) {
         List<String> findings = new ArrayList<>();
         List<String> suggestions = new ArrayList<>();
@@ -210,6 +224,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         return builder.toString().trim();
     }
 
+    /** 处理分析页面信息。 */
     private void analyzePageInfo(JSONObject pageInfo, List<String> browserLogs, List<String> findings, List<String> suggestions) {
         int bodyTextLength = pageInfo.getInt("bodyTextLength", 0);
         boolean appNodeExists = pageInfo.getBool("appNodeExists", false);
@@ -227,6 +242,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
             findings.add("页面疑似返回 404 内容，可能是预览地址、路由模式或静态资源路径不正确。");
             suggestions.add("检查 base 路径、hash 路由配置和静态预览 URL 是否指向 dist 根目录。");
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String logLine : browserLogs) {
             String lowerLine = logLine.toLowerCase(Locale.ROOT);
             if (lowerLine.contains("severe")) {
@@ -249,6 +265,7 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         }
     }
 
+    /** 规范化上下文路径。 */
     private String normalizeContextPath(String rawContextPath) {
         String normalized = StrUtil.blankToDefault(rawContextPath, "");
         if ("/".equals(normalized)) {
@@ -278,11 +295,24 @@ public class PreviewRuntimeDiagnosticTool extends BaseTool {
         return "运行时预览诊断";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s %s", getDisplayName(), arguments.getStr("action"));
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 360);

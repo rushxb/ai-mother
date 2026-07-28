@@ -4,12 +4,15 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskAdmissionRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskIdempotencyRecord;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.ZoneId;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -19,7 +22,14 @@ import java.util.Optional;
 public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskAdmissionRepository {
 
     private final GenerationTaskRuntimeMapper mapper;
+    private final ZoneId databaseZone = ZoneId.systemDefault();
 
+    /**
+ * 返回锁用户{@code And}数量{@code Non}{@code Terminal}任务。
+ *
+ * @param userId 用户编号
+ * @return 计算或处理后的数值结果
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int lockUserAndCountNonTerminalTasks(Long userId) {
@@ -33,6 +43,15 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
         return mapper.countNonTerminalTasksByUserId(userId);
     }
 
+    /**
+ * 查找匹配的按{@code Idempotency}键。
+ *
+ * @param tenantId 租户编号
+ * @param userId 用户编号
+ * @param appId 应用编号
+ * @param idempotencyKeyHash {@code idempotencyKeyHash} 对应的调用参数
+ * @return 可选的按{@code Idempotency}键；不存在时返回空值
+ */
     @Override
     public Optional<GenerationTaskIdempotencyRecord> findByIdempotencyKey(Long tenantId,
                                                                           Long userId,
@@ -49,8 +68,25 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
         if (task == null) {
             return Optional.empty();
         }
+        GenerationTaskStatus status = GenerationTaskStatus.fromValue(task.getStatus());
+        if (status == null || task.getAppId() == null
+                || task.getSubmittedAt() == null || task.getDeadlineAt() == null) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "生成任务幂等记录缺少提交回执字段"
+            );
+        }
         return Optional.of(new GenerationTaskIdempotencyRecord(
-                task.getTaskId(), task.getRoute(), task.getRequestFingerprint()));
+                new GenerationTaskSubmissionReceipt(
+                        task.getTaskId(),
+                        task.getAppId(),
+                        task.getRoute(),
+                        status,
+                        task.getSubmittedAt().atZone(databaseZone).toInstant(),
+                        task.getDeadlineAt().atZone(databaseZone).toInstant()
+                ),
+                task.getRequestFingerprint()
+        ));
     }
 
     private void requirePositive(Long value, String field) {

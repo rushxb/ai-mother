@@ -34,6 +34,15 @@ public class GenerationSemanticMemoryService {
         this.memoryTaskExecutor = memoryTaskExecutor;
     }
 
+    /**
+ * 返回{@code recall}。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ * @param queryText {@code queryText} 对应的调用参数
+ * @param types 待处理的 {@code types} 集合
+ * @return 生成语义记忆集合
+ */
     public List<SemanticMemoryHit> recall(Long tenantId,
                                           Long appId,
                                           String queryText,
@@ -59,6 +68,17 @@ public class GenerationSemanticMemoryService {
         }
     }
 
+    /**
+ * 处理记录异步。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param taskId 任务编号
+ * @param type 目标类型
+ * @param content 文件或消息内容
+ * @param metadata 元数据
+ */
     public void rememberAsync(Long tenantId,
                               Long appId,
                               Long userId,
@@ -81,6 +101,17 @@ public class GenerationSemanticMemoryService {
         }
     }
 
+    /**
+ * 处理记录立即。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param taskId 任务编号
+ * @param type 目标类型
+ * @param content 文件或消息内容
+ * @param metadata 元数据
+ */
     public void rememberNow(Long tenantId,
                             Long appId,
                             Long userId,
@@ -115,6 +146,7 @@ public class GenerationSemanticMemoryService {
         ));
     }
 
+    /** 处理记录安全处理。 */
     private void rememberSafely(Long tenantId,
                                 Long appId,
                                 Long userId,

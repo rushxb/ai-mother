@@ -133,7 +133,31 @@ class SlotFillGenerationPipelineTest {
     }
 
     @Test
-    void validationFailureMustHandoffWithoutPublishingTerminalFailure() {
+    void failureAfterWorkspaceMutationMustNotReplayThroughHeavyFallback() {
+        SlotFillGenerationService slotFillService = mock(SlotFillGenerationService.class);
+        GenerationEventPublisher eventPublisher = new GenerationEventPublisher();
+        SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
+                mock(GenerationTaskLifecycleService.class), mock(GenerationPerformanceMonitorService.class),
+                mock(CreatePostGenerationValidationService.class), eventPublisher, slotFillService);
+        GenerationPipelineRequest request = request("create-post-write-failure");
+        when(slotFillService.tryGenerate(any(), any(), any())).thenAnswer(invocation -> {
+            request.requireExecution().executionContext().recordSuccessfulWorkspaceMutations(1);
+            throw new IllegalStateException("provider-api-key=secret-value");
+        });
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationPipelineDisposition.COMPLETED, outcome.disposition());
+        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
+        assertEquals("create_validation_failed", outcome.reason());
+        assertTrue(outcome.resultSummary().contains("CREATE 写入后处理"));
+        assertFalse(outcome.resultSummary().contains("secret-value"));
+        assertTrue(eventPublisher.recent(1L).stream().anyMatch(
+                event -> event.type() == GenerationEventType.TASK_FAILED));
+    }
+
+    @Test
+    void validationFailureAfterAutoRepairMustTerminateWithoutHeavyHandoff() {
         SlotFillGenerationService slotFillService = mock(SlotFillGenerationService.class);
         GenerationPerformanceMonitorService monitor = mock(GenerationPerformanceMonitorService.class);
         CreatePostGenerationValidationService validationService =
@@ -152,15 +176,19 @@ class SlotFillGenerationPipelineTest {
 
         GenerationPipelineOutcome outcome = pipeline.execute(request);
 
-        assertEquals(GenerationPipelineDisposition.FALLBACK, outcome.disposition());
+        assertEquals(GenerationPipelineDisposition.COMPLETED, outcome.disposition());
+        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
         assertEquals("create_validation_failed", outcome.reason());
-        assertTrue(eventPublisher.recent(1L).stream().noneMatch(
+        assertTrue(outcome.resultSummary().contains("自动修复预算已用尽"));
+        assertTrue(eventPublisher.recent(1L).stream().anyMatch(
                 event -> event.type() == GenerationEventType.TASK_FAILED));
         assertFalse(eventPublisher.recent(1L).toString().contains("secret-value"));
-        verify(monitor, never()).finishTask("create-validation-fallback", "failed");
+        assertFalse(outcome.resultSummary().contains("secret-value"));
+        verify(monitor).finishTask("create-validation-fallback", "failed");
         verify(monitor).recordCreateTelemetry(
                 org.mockito.ArgumentMatchers.eq("create-validation-fallback"),
-                org.mockito.ArgumentMatchers.argThat(telemetry -> Boolean.TRUE.equals(telemetry.get("fallback"))));
+                org.mockito.ArgumentMatchers.argThat(telemetry -> Boolean.TRUE.equals(telemetry.get("validationFailed"))
+                        && Boolean.FALSE.equals(telemetry.get("fallback"))));
     }
 
     @Test

@@ -28,11 +28,24 @@ public class GenerationTaskAdmissionService {
     private final UserCreditService userCreditService;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
 
+    /**
+ * 返回{@code admit}。
+ *
+ * @param command 命令
+ * @return 生成任务准入
+ */
     @Transactional(rollbackFor = Exception.class)
     public GenerationTaskAdmissionResult admit(GenerationTaskCommand command) {
         return admit(command, GenerationTaskIdempotency.none());
     }
 
+    /**
+ * 返回{@code admit}。
+ *
+ * @param command 命令
+ * @param idempotency {@code idempotency} 对应的调用参数
+ * @return 生成任务准入
+ */
     @Transactional(rollbackFor = Exception.class)
     public GenerationTaskAdmissionResult admit(GenerationTaskCommand command,
                                                GenerationTaskIdempotency idempotency) {
@@ -50,7 +63,7 @@ public class GenerationTaskAdmissionService {
                             "Idempotency-Key has already been used for a different generation request"
                     );
                 }
-                return GenerationTaskAdmissionResult.reused(existing.taskId(), existing.route());
+                return GenerationTaskAdmissionResult.reused(existing.submission());
             }
         }
 
@@ -64,6 +77,6 @@ public class GenerationTaskAdmissionService {
                 quote.pricingReference()
         ));
         runtimeLifecycleService.submit(command, idempotency);
-        return GenerationTaskAdmissionResult.created(command.taskId(), command.route());
+        return GenerationTaskAdmissionResult.created(GenerationTaskSubmissionReceipt.queued(command));
     }
 }

@@ -25,6 +25,12 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
     private final VueSecurityReviewService vueSecurityReviewService;
     private final BackendQualityReviewService backendQualityReviewService;
 
+    /**
+ * 创建{@code Review}智能体节点实例并完成必要的依赖和初始状态设置。
+ *
+ * @param vueSecurityReviewService 处理该职责的领域服务
+ * @param backendQualityReviewService 处理该职责的领域服务
+ */
     public ReviewAgentNode(VueSecurityReviewService vueSecurityReviewService,
                            BackendQualityReviewService backendQualityReviewService) {
         super("review", "Review", "quality", List.of("code"), GenerationNodeReplayPolicy.REPLAY_SAFE);
@@ -38,6 +44,12 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         );
     }
 
+    /**
+ * 执行{@code Review}智能体节点处理流程。
+ *
+ * @param context 执行上下文
+ * @return {@code Review}智能体节点
+ */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         List<String> blockers = new ArrayList<>();

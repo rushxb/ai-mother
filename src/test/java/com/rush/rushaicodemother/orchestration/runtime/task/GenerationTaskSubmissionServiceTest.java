@@ -68,7 +68,8 @@ class GenerationTaskSubmissionServiceTest {
         when(admissionService.admit(any(GenerationTaskCommand.class), any(GenerationTaskIdempotency.class)))
                 .thenAnswer(invocation -> {
                     GenerationTaskCommand command = invocation.getArgument(0);
-                    return GenerationTaskAdmissionResult.created(command.taskId(), command.route());
+                    return GenerationTaskAdmissionResult.created(
+                            GenerationTaskSubmissionReceipt.queued(command));
                 });
         when(traceContextBridge.capture()).thenReturn(new GenerationTraceContext(
                 "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", null));
@@ -114,6 +115,9 @@ class GenerationTaskSubmissionServiceTest {
                 command.traceContext().traceparent());
         assertEquals("lightweight_edit", command.route());
         assertEquals("task-submit-1", result.taskId());
+        assertEquals(GenerationTaskStatus.QUEUED, result.submission().status());
+        assertEquals(NOW, result.submission().submittedAt());
+        assertEquals(NOW.plus(Duration.ofMinutes(12)), result.submission().deadlineAt());
         assertSame(expectedStream, result.contentFlux());
     }
 
@@ -124,7 +128,14 @@ class GenerationTaskSubmissionServiceTest {
         when(admissionService.admit(any(GenerationTaskCommand.class),
                 org.mockito.ArgumentMatchers.eq(idempotency)))
                 .thenReturn(GenerationTaskAdmissionResult.reused(
-                        "task-original", "heavy_generation"));
+                        new GenerationTaskSubmissionReceipt(
+                                "task-original",
+                                1L,
+                                "heavy_generation",
+                                GenerationTaskStatus.RUNNING,
+                                NOW.minusSeconds(30),
+                                NOW.plus(Duration.ofMinutes(10))
+                        )));
         Flux<?> expectedStream = Flux.empty();
         when(eventStream.stream("task-original")).thenReturn((Flux) expectedStream);
         GenerationEventPublisher recentPublisher = mock(GenerationEventPublisher.class);
@@ -134,6 +145,8 @@ class GenerationTaskSubmissionServiceTest {
 
         assertEquals("task-original", result.taskId());
         assertEquals("heavy_generation", result.route());
+        assertEquals(GenerationTaskStatus.RUNNING, result.submission().status());
+        assertEquals(NOW.minusSeconds(30), result.submission().submittedAt());
         assertFalse(result.created());
         assertSame(expectedStream, result.contentFlux());
         verify(dispatcher, never()).dispatch(org.mockito.ArgumentMatchers.anyString());

@@ -73,8 +73,8 @@ class GenerationTaskAdmissionServiceTest {
         Fixture fixture = fixture();
         when(fixture.repository().lockUserAndCountNonTerminalTasks(7L)).thenReturn(4);
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
-                .thenReturn(Optional.of(new GenerationTaskIdempotencyRecord(
-                        "task-original", "heavy_generation", IDEMPOTENCY.requestFingerprint())));
+                .thenReturn(Optional.of(idempotencyRecord(
+                        "heavy_generation", IDEMPOTENCY.requestFingerprint())));
 
         GenerationTaskAdmissionResult result = fixture.service().admit(command(), IDEMPOTENCY);
 
@@ -90,8 +90,8 @@ class GenerationTaskAdmissionServiceTest {
         Fixture fixture = fixture();
         when(fixture.repository().lockUserAndCountNonTerminalTasks(7L)).thenReturn(0);
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
-                .thenReturn(Optional.of(new GenerationTaskIdempotencyRecord(
-                        "task-original", "lightweight_edit", "c".repeat(64))));
+                .thenReturn(Optional.of(idempotencyRecord(
+                        "lightweight_edit", "c".repeat(64))));
 
         BusinessException conflict = assertThrows(BusinessException.class,
                 () -> fixture.service().admit(command(), IDEMPOTENCY));
@@ -154,6 +154,24 @@ class GenerationTaskAdmissionServiceTest {
                 "",
                 now,
                 now.plusSeconds(600)
+        );
+    }
+
+    private GenerationTaskIdempotencyRecord idempotencyRecord(
+            String route,
+            String requestFingerprint
+    ) {
+        Instant submittedAt = Instant.parse("2026-07-17T23:55:00Z");
+        return new GenerationTaskIdempotencyRecord(
+                new GenerationTaskSubmissionReceipt(
+                        "task-original",
+                        1L,
+                        route,
+                        GenerationTaskStatus.RUNNING,
+                        submittedAt,
+                        submittedAt.plusSeconds(600)
+                ),
+                requestFingerprint
         );
     }
 

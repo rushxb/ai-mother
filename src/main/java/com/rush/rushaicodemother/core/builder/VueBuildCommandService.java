@@ -43,6 +43,7 @@ public class VueBuildCommandService {
         this.stateStore = stateStore;
     }
 
+    /** 返回{@code install}{@code Dependencies}。 */
     VueBuildCommandResult installDependencies(
             Path projectRoot,
             boolean dependenciesReady,
@@ -78,6 +79,7 @@ public class VueBuildCommandService {
         }
     }
 
+    /** 执行{@code Light}校验处理流程。 */
     VueBuildCommandResult executeLightValidation(Path projectRoot, VueProjectScripts scripts, String taskId) {
         String script = scripts.lightValidationScript();
         if (script == null) {
@@ -111,6 +113,7 @@ public class VueBuildCommandService {
         return executeCommand("full_build", taskId, projectRoot, script, properties.getFullBuildTimeout());
     }
 
+    /** 执行命令处理流程。 */
     private VueBuildCommandResult executeCommand(
             String performanceStage,
             String taskId,
@@ -153,6 +156,7 @@ public class VueBuildCommandService {
                 : GenerationSpanCategory.BUILD;
     }
 
+    /** 持久化{@code Installed}依赖指纹。 */
     private void persistInstalledDependencyFingerprint(Path projectRoot, String dependencyFingerprint) {
         try {
             stateStore.recordDependencyInstalled(projectRoot, dependencyFingerprint);

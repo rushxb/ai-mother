@@ -33,6 +33,7 @@ public class GenerationRuntimeConfigurationFingerprintService {
             "app.ai-context-pack.",
             "app.generation-memory-context.",
             "app.generation-runtime.",
+            "app.generation-routing.",
             "app.generation-project-context.",
             "app.edit-locator.",
             "app.patch-execution.",
@@ -104,6 +105,11 @@ public class GenerationRuntimeConfigurationFingerprintService {
         this.configuredDefaults = discoverConfiguration(resourceLoader);
     }
 
+    /**
+ * 返回当前指纹。
+ *
+ * @return 处理后的生成运行时配置指纹文本
+ */
     public String currentFingerprint() {
         StringBuilder canonical = new StringBuilder(SCHEMA);
         configuredDefaults.forEach((name, defaultValue) -> {
@@ -116,6 +122,7 @@ public class GenerationRuntimeConfigurationFingerprintService {
         return ReleaseCandidateFingerprint.sha256(canonical.toString());
     }
 
+    /** 返回{@code discover}配置。 */
     private Map<String, String> discoverConfiguration(ResourceLoader resourceLoader) {
         Resource resource = resourceLoader.getResource(APPLICATION_CONFIG);
         Map<String, String> discovered = new TreeMap<>();
@@ -149,6 +156,7 @@ public class GenerationRuntimeConfigurationFingerprintService {
                 || INCLUDED_PREFIXES.stream().anyMatch(name::startsWith);
     }
 
+    /** 根据当前上下文解析值。 */
     private String resolveValue(String name, String defaultValue) {
         String value = environment.getProperty(name);
         String candidate = value == null ? defaultValue : value;

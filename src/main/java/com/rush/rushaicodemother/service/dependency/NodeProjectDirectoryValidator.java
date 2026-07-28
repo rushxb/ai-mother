@@ -11,6 +11,12 @@ import java.nio.file.Path;
 @Component
 public class NodeProjectDirectoryValidator {
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param projectDirectory 项目目录
+ * @return {@code ate}
+ */
     public Validation validate(Path projectDirectory) {
         if (projectDirectory == null) {
             return Validation.invalid("项目目录不能为空");

@@ -67,6 +67,7 @@ public class PnpmInstallCommandExecutor {
         );
     }
 
+    /** 返回{@code install}。 */
     DependencyInstallResult install(
             Path projectDirectory,
             boolean force,
@@ -74,6 +75,7 @@ public class PnpmInstallCommandExecutor {
             Duration commandTimeout,
             BooleanSupplier cancellationRequested
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (commandTimeout == null || commandTimeout.isZero() || commandTimeout.isNegative()) {
             throw new IllegalArgumentException("命令超时时间必须大于 0");
         }
@@ -98,6 +100,7 @@ public class PnpmInstallCommandExecutor {
             );
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             AtomicBoolean taskCancellationObserved = new AtomicBoolean(false);
             ManagedProcessResult processResult = processExecutor.execute(
@@ -141,6 +144,7 @@ public class PnpmInstallCommandExecutor {
         }
     }
 
+    /** 将当前对象转换为依赖结果。 */
     private DependencyInstallResult toDependencyResult(
             ManagedProcessResult processResult,
             boolean cancellationObserved
@@ -177,6 +181,7 @@ public class PnpmInstallCommandExecutor {
         );
     }
 
+    /** 取消{@code Pnpm}{@code Install}命令。 */
     boolean cancel(Path projectDirectory) {
         if (projectDirectory == null) {
             return false;
@@ -203,6 +208,7 @@ public class PnpmInstallCommandExecutor {
         return buildCommand(force, DependencyInstallMode.REUSE_IF_VALID);
     }
 
+    /** 构建并返回命令。 */
     List<String> buildCommand(boolean force, DependencyInstallMode mode) {
         List<String> command = new ArrayList<>(List.of(
                 nodeToolchain.pnpmExecutable(),
@@ -235,6 +241,11 @@ public class PnpmInstallCommandExecutor {
             this.processTerminator = processTerminator;
         }
 
+        /**
+ * 响应已启动事件。
+ *
+ * @param startedProcess 待处理的 {@code startedProcess} 集合
+ */
         @Override
         public void onStarted(Process startedProcess) {
             process.set(startedProcess);

@@ -53,12 +53,14 @@ public class DevServerErrorCollector {
      * @param line 原始输出行
      */
     public synchronized void feedLine(String line) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (line == null) {
             return;
         }
 
         // 保留原始行（带上限）
         rawLines.add(line.trim());
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (rawLines.size() > MAX_RAW_LINES) {
             rawLines.poll();
         }

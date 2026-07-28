@@ -17,12 +17,29 @@ public record GenerationRoutingSignal(
         GenerationRoutingTelemetrySnapshot telemetry
 ) {
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param request 请求参数
+ * @param codeGenType 代码生成类型
+ * @param workspace 工作区
+ * @return 生成路由{@code Signal}
+ */
     public static GenerationRoutingSignal from(GenerationTaskRequest request,
                                                CodeGenTypeEnum codeGenType,
                                                GenerationWorkspace workspace) {
         return from(request, codeGenType, workspace, GenerationRoutingTelemetrySnapshot.unavailable());
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param request 请求参数
+ * @param codeGenType 代码生成类型
+ * @param workspace 工作区
+ * @param telemetry 遥测
+ * @return 生成路由{@code Signal}
+ */
     public static GenerationRoutingSignal from(GenerationTaskRequest request,
                                                CodeGenTypeEnum codeGenType,
                                                GenerationWorkspace workspace,
@@ -44,6 +61,12 @@ public record GenerationRoutingSignal(
         return workspace != null && workspace.exists();
     }
 
+    /**
+ * 返回{@code contains}{@code Any}。
+ *
+ * @param keywords 待处理的 {@code keywords} 集合
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean containsAny(List<String> keywords) {
         if (keywords == null || keywords.isEmpty()) {
             return false;
@@ -51,6 +74,11 @@ public record GenerationRoutingSignal(
         return keywords.stream().anyMatch(normalizedMessage::contains);
     }
 
+    /**
+ * 返回{@code looks}{@code Like}{@code Small}{@code Single}文件编辑。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean looksLikeSmallSingleFileEdit() {
         if (StrUtil.isBlank(normalizedMessage) || normalizedMessage.length() > 160) {
             return false;

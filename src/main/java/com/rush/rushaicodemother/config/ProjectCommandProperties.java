@@ -57,6 +57,11 @@ public class ProjectCommandProperties {
     @Max(10_000)
     private int recentBuildResultMaxEntries = 500;
 
+    /**
+ * 校验各时长配置及其相互约束是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "项目命令相关超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
         return Stream.of(
@@ -73,6 +78,11 @@ public class ProjectCommandProperties {
                 .allMatch(duration -> duration != null && !duration.isZero() && !duration.isNegative());
     }
 
+    /**
+ * 判断心跳间隔是否安全。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "项目命令心跳间隔必须小于所有命令总超时")
     public boolean isHeartbeatIntervalSafe() {
         if (heartbeatInterval == null) {

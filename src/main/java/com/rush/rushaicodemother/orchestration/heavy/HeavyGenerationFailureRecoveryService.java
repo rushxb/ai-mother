@@ -53,6 +53,14 @@ public class HeavyGenerationFailureRecoveryService {
                 generationRollbackRestoreService);
     }
 
+    /**
+ * 发送生成错误事件。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ * @param throwable 待处理的异常
+ */
     public void emitGenerationError(Long appId,
                                     GenerationPreparation preparation,
                                     GenerationSession session,
@@ -67,6 +75,14 @@ public class HeavyGenerationFailureRecoveryService {
     }
 
 
+    /**
+ * 发送执行策略错误事件。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ * @param exception 待转换或处理的异常
+ */
     public void emitExecutionPolicyError(Long appId,
                                          GenerationPreparation preparation,
                                          GenerationSession session,
@@ -91,6 +107,14 @@ public class HeavyGenerationFailureRecoveryService {
         ));
     }
 
+    /**
+ * 发送构建失败事件。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ * @param failureSummary 失败汇总
+ */
     public void emitBuildFailure(Long appId,
                                  GenerationPreparation preparation,
                                  GenerationSession session,
@@ -105,6 +129,14 @@ public class HeavyGenerationFailureRecoveryService {
         ));
     }
 
+    /**
+ * 发送{@code Missing}项目代码事件。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ * @param workspaceState 工作区状态
+ */
     public void emitMissingProjectCode(Long appId,
                                        GenerationPreparation preparation,
                                        GenerationSession session,
@@ -114,6 +146,13 @@ public class HeavyGenerationFailureRecoveryService {
         rollbackCodeGenTypeIfNeeded(appId, preparation);
     }
 
+    /**
+ * 发送回滚恢复{@code If}{@code Allowed}事件。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ */
     public void emitRollbackRestoreIfAllowed(Long appId,
                                              GenerationPreparation preparation,
                                              GenerationSession session) {
@@ -142,6 +181,12 @@ public class HeavyGenerationFailureRecoveryService {
         ));
     }
 
+    /**
+ * 处理回滚代码生成类型{@code If}{@code Needed}。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ */
     public void rollbackCodeGenTypeIfNeeded(Long appId, GenerationPreparation preparation) {
         if (preparation == null || !preparation.upgradeRequired()) {
             return;
@@ -153,11 +198,26 @@ public class HeavyGenerationFailureRecoveryService {
         // 租约接管后，因此故障恢复故意不执行直接文件系统删除。
     }
 
+    /**
+ * 构建并返回生成错误{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param generationError 生成错误
+ * @return 生成错误{@code Data}集合
+ */
     public Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
                                                         GenerationErrorClassifier.GenerationError generationError) {
         return buildGenerationErrorData(preparation, generationError, generationError.message());
     }
 
+    /**
+ * 构建并返回生成错误{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param generationError 生成错误
+ * @param message 消息内容
+ * @return 生成错误{@code Data}集合
+ */
     public Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
                                                         GenerationErrorClassifier.GenerationError generationError,
                                                         String message) {
@@ -170,6 +230,16 @@ public class HeavyGenerationFailureRecoveryService {
         );
     }
 
+    /**
+ * 构建并返回生成错误{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param category {@code category} 对应的调用参数
+ * @param message 消息内容
+ * @param recoverable {@code recoverable} 对应的调用参数
+ * @param extraData {@code extraData} 对应的调用参数
+ * @return 生成错误{@code Data}集合
+ */
     public Map<String, Object> buildGenerationErrorData(GenerationPreparation preparation,
                                                         String category,
                                                         String message,
@@ -191,6 +261,13 @@ public class HeavyGenerationFailureRecoveryService {
         return data;
     }
 
+    /**
+ * 构建并返回回滚恢复事件{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param rollbackRestore 回滚恢复
+ * @return 回滚恢复事件{@code Data}集合
+ */
     public Map<String, Object> buildRollbackRestoreEventData(GenerationPreparation preparation,
                                                              GenerationArtifact rollbackRestore) {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -216,6 +293,7 @@ public class HeavyGenerationFailureRecoveryService {
                 + "。请重试生成；如果持续出现，请检查模型工具调用是否成功写入关键项目文件。";
     }
 
+    /** 发送{@code Missing}项目代码错误事件。 */
     private void emitMissingProjectCodeError(Long appId,
                                              GenerationPreparation preparation,
                                              GenerationSession session,
@@ -240,6 +318,7 @@ public class HeavyGenerationFailureRecoveryService {
         )));
     }
 
+    /** 构建并返回回滚恢复消息。 */
     private String buildRollbackRestoreMessage(GenerationArtifact rollbackRestore) {
         Object status = rollbackRestore.payload().get("status");
         if ("restored".equals(String.valueOf(status))) {

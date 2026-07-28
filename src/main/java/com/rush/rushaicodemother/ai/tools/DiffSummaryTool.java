@@ -44,6 +44,16 @@ public class DiffSummaryTool extends BaseTool {
         this.snapshotNamePolicy = snapshotNamePolicy;
     }
 
+    /**
+ * 计算{@code marize}{@code Diff}的汇总值。
+ *
+ * @param action 动作
+ * @param baseSnapshotName 基础快照名称
+ * @param compareSnapshotName {@code compareSnapshotName} 对应的调用参数
+ * @param relativeProjectPath 项目相对路径
+ * @param appId 应用编号
+ * @return 处理后的{@code marize}{@code Diff}文本
+ */
     @Tool("比较当前项目与快照之间的差异，或者比较两个快照之间的差异，输出新增、修改、删除文件摘要。")
     public String summarizeDiff(
             @P("操作类型：compareLatestSnapshot、compareCurrentWithSnapshot、compareSnapshots")
@@ -57,6 +67,7 @@ public class DiffSummaryTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
         String normalizedAction = StrUtil.blankToDefault(action, "compareLatestSnapshot");
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             requireAppId(appId);
             Path snapshotRoot = snapshotWorkspaceService.resolveApplicationRoot(appId);
@@ -118,6 +129,7 @@ public class DiffSummaryTool extends BaseTool {
         return buildDiffReport(baseSnapshotPath, compareSnapshotPath, baseSnapshotName, compareSnapshotName);
     }
 
+    /** 构建并返回{@code Diff}报告。 */
     private String buildDiffReport(Path leftRoot, Path rightRoot, String leftName, String rightName) throws Exception {
         if (!workspaceFileSystemService.isDirectory(leftRoot)) {
             return "错误：基准目录不存在 - " + leftName;
@@ -177,11 +189,24 @@ public class DiffSummaryTool extends BaseTool {
         return "差异摘要";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s %s", getDisplayName(), arguments.getStr("action"));
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);

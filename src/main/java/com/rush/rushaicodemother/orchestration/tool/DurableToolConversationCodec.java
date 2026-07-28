@@ -57,6 +57,16 @@ public class DurableToolConversationCodec {
         return capture(messages, requestId, toolName, argumentsJson, null);
     }
 
+    /**
+ * 返回{@code capture}。
+ *
+ * @param messages 消息列表
+ * @param requestId 请求编号
+ * @param toolName 工具名称
+ * @param argumentsJson {@code argumentsJson} 对应的调用参数
+ * @param currentUserMessage 当前用户消息
+ * @return 持久工具{@code Conversation}{@code Codec}
+ */
     public DurableToolConversation capture(List<ChatMessage> messages,
                                            String requestId,
                                            String toolName,
@@ -84,6 +94,13 @@ public class DurableToolConversationCodec {
         );
     }
 
+    /**
+ * 返回恢复。
+ *
+ * @param conversation {@code conversation} 对应的调用参数
+ * @param checkpoint 检查点
+ * @return 持久工具{@code Conversation}{@code Codec}集合
+ */
     public List<ChatMessage> restore(DurableToolConversation conversation,
                                      ToolInvocationCheckpoint checkpoint) {
         if (checkpoint == null) {
@@ -97,10 +114,12 @@ public class DurableToolConversationCodec {
         );
     }
 
+    /** 返回恢复。 */
     List<ChatMessage> restore(DurableToolConversation conversation,
                               String requestId,
                               String toolName,
                               String argumentsJson) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (conversation == null
                 || conversation.schemaVersion() != DurableToolConversation.CURRENT_SCHEMA_VERSION
                 || conversation.messagesJson().isEmpty()
@@ -115,6 +134,7 @@ public class DurableToolConversationCodec {
         }
         List<ChatMessage> messages = new ArrayList<>(conversation.messagesJson().size());
         int totalBytes = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String json : conversation.messagesJson()) {
             int messageBytes = utf8Length(json);
             if (messageBytes <= 0 || messageBytes > maxMessageBytes) {
@@ -152,6 +172,7 @@ public class DurableToolConversationCodec {
         return List.copyOf(messages);
     }
 
+    /** 校验{@code ate}{@code Interrupted}请求是否有效。 */
     private int validateInterruptedRequest(List<ChatMessage> messages,
                                            String requestId,
                                            String toolName,
@@ -161,6 +182,7 @@ public class DurableToolConversationCodec {
         String requiredArguments = argumentsJson == null ? "" : argumentsJson;
         int matchingRequestIndex = -1;
         int requestIdOccurrences = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int messageIndex = 0; messageIndex < messages.size(); messageIndex++) {
             ChatMessage message = messages.get(messageIndex);
             if (!(message instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
@@ -184,6 +206,7 @@ public class DurableToolConversationCodec {
         }
         AiMessage interruptedMessage = (AiMessage) messages.get(matchingRequestIndex);
         Set<String> siblingRequestIds = new HashSet<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (ToolExecutionRequest request : interruptedMessage.toolExecutionRequests()) {
             if (request.id() == null || request.id().isBlank() || !siblingRequestIds.add(request.id())) {
                 throw new IllegalStateException("interrupted tool round contains an invalid request id");
@@ -206,6 +229,7 @@ public class DurableToolConversationCodec {
         return matchingRequestIndex;
     }
 
+    /** 从候选项中选择{@code Continuation}窗口。 */
     private List<SerializedMessage> selectContinuationWindow(List<ChatMessage> messages,
                                                               int interruptedRequestIndex,
                                                               UserMessage currentUserMessage) {
@@ -236,6 +260,7 @@ public class DurableToolConversationCodec {
         List<List<SerializedMessage>> selectedGroups = new ArrayList<>();
         int selectedCount = requiredCount;
         int selectedBytes = requiredBytes;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int index = historyGroups.size() - 1; index >= 0; index--) {
             List<SerializedMessage> group = serializeOptional(historyGroups.get(index));
             if (group.isEmpty()) {
@@ -259,6 +284,7 @@ public class DurableToolConversationCodec {
         return List.copyOf(selected);
     }
 
+    /** 完成{@code d}历史{@code Groups}并持久化终态。 */
     private List<List<ChatMessage>> completedHistoryGroups(List<ChatMessage> messages,
                                                             int startIndex,
                                                             int endIndex) {
@@ -286,6 +312,7 @@ public class DurableToolConversationCodec {
         return List.copyOf(groups);
     }
 
+    /** 校验{@code ate}完成历史分组是否有效。 */
     private void validateCompletedHistoryGroup(AiMessage aiMessage, List<ChatMessage> group) {
         if (!aiMessage.hasToolExecutionRequests()) {
             if (group.size() != 1) {
@@ -311,6 +338,7 @@ public class DurableToolConversationCodec {
         }
     }
 
+    /** 返回{@code last}索引{@code Of}。 */
     private int lastIndexOf(List<ChatMessage> messages,
                             Class<? extends ChatMessage> messageType,
                             int beforeIndex) {
@@ -330,6 +358,7 @@ public class DurableToolConversationCodec {
         return List.copyOf(serialized);
     }
 
+    /** 返回{@code serialize}{@code Optional}。 */
     private List<SerializedMessage> serializeOptional(List<ChatMessage> messages) {
         List<SerializedMessage> serialized = new ArrayList<>(messages.size());
         for (ChatMessage message : messages) {
@@ -350,6 +379,7 @@ public class DurableToolConversationCodec {
         return serialized;
     }
 
+    /** 返回{@code serialize}。 */
     private SerializedMessage serialize(ChatMessage message, boolean required) {
         requireSupportedMessage(message);
         String json;
@@ -407,6 +437,7 @@ public class DurableToolConversationCodec {
         digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(value).array());
     }
 
+    /** 计算内容的 SHA-256 摘要。 */
     private MessageDigest sha256() {
         try {
             return MessageDigest.getInstance("SHA-256");

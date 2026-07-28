@@ -55,6 +55,7 @@ public class GenerationBenchmarkBackendReadinessVerifier implements SmartInitial
         verify();
     }
 
+    /** 验证生成基准测试后端就绪状态是否符合预期。 */
     void verify() {
         if (!properties.isEnabled()) {
             return;
@@ -90,6 +91,7 @@ public class GenerationBenchmarkBackendReadinessVerifier implements SmartInitial
         return root.resolve("readiness-" + UUID.randomUUID()).normalize();
     }
 
+    /** 构建并返回请求。 */
     private ManagedProcessRequest buildRequest(Path workspace) {
         return ManagedProcessRequest.builder()
                 .workingDirectory(workspace)
@@ -118,6 +120,7 @@ public class GenerationBenchmarkBackendReadinessVerifier implements SmartInitial
                 .build();
     }
 
+    /** 校验并返回有效的{@code Successful}{@code Verification}。 */
     private void requireSuccessfulVerification(ManagedProcessResult result) {
         if (result != null && result.exitedSuccessfully()) {
             return;
@@ -138,6 +141,7 @@ public class GenerationBenchmarkBackendReadinessVerifier implements SmartInitial
         );
     }
 
+    /** 删除工作区。 */
     private void deleteWorkspace(Path workspace, Throwable primaryFailure) {
         if (!Files.exists(workspace, LinkOption.NOFOLLOW_LINKS)) {
             return;

@@ -33,6 +33,7 @@ public class HeavyGenerationSessionCompletionService {
                                 GenerationSession session,
                                 GenerationPreparation preparation,
                                 GenerationTerminalOutcome outcome) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (session == null || preparation == null) {
             return;
         }
@@ -42,6 +43,7 @@ public class HeavyGenerationSessionCompletionService {
         String status = outcome.status();
         String memorySummary = buildMemorySummary(preparation, status);
         RuntimeException lifecycleFailure = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (outcome == GenerationTerminalOutcome.SUCCESS) {
                 generationTaskLifecycleService.completeGenerationAndCharge(
@@ -85,6 +87,12 @@ public class HeavyGenerationSessionCompletionService {
         rememberOutcome(appId, session, preparation, outcome, memorySummary);
     }
 
+    /**
+ * 返回编排模式。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @return 处理后的重型生成会话完成文本
+ */
     public String orchestrationMode(GenerationPreparation preparation) {
         if (preparation == null || preparation.events() == null) {
             return "unknown";
@@ -97,6 +105,7 @@ public class HeavyGenerationSessionCompletionService {
                 .orElse("unknown");
     }
 
+    /** 构建并返回记忆汇总。 */
     private String buildMemorySummary(GenerationPreparation preparation, String status) {
         if (preparation == null) {
             return "";
@@ -133,6 +142,7 @@ public class HeavyGenerationSessionCompletionService {
         return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
     }
 
+    /** 处理记录结果。 */
     private void rememberOutcome(Long appId,
                                  GenerationSession session,
                                  GenerationPreparation preparation,

@@ -23,6 +23,7 @@ public record ObjectStorageUpload(String objectKey, Path sourceFile) {
         sourceFile = normalizeSourceFile(sourceFile);
     }
 
+    /** 规范化{@code Object}键。 */
     private static String normalizeObjectKey(String objectKey) {
         if (objectKey == null || objectKey.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "对象键不能为空");
@@ -50,6 +51,7 @@ public record ObjectStorageUpload(String objectKey, Path sourceFile) {
         return normalized;
     }
 
+    /** 规范化来源文件。 */
     private static Path normalizeSourceFile(Path sourceFile) {
         if (sourceFile == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "待上传文件不能为空");

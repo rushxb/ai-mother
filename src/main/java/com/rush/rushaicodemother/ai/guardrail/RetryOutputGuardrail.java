@@ -9,6 +9,12 @@ import dev.langchain4j.guardrail.OutputGuardrailResult;
  */
 public class RetryOutputGuardrail implements OutputGuardrail {
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param responseFromLLM 模型原始响应
+ * @return {@code ate}
+ */
     @Override
     public OutputGuardrailResult validate(AiMessage responseFromLLM) {
         String response = responseFromLLM.text();

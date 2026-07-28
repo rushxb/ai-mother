@@ -33,6 +33,11 @@ public final class GenerationBenchmarkDeclarationValidator {
     private GenerationBenchmarkDeclarationValidator() {
     }
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param task 任务
+ */
     public static void validate(GenerationBenchmarkTask task) {
         if (task == null) {
             throw new IllegalArgumentException("评测任务不能为空");
@@ -44,6 +49,7 @@ public final class GenerationBenchmarkDeclarationValidator {
         }
     }
 
+    /** 校验{@code ate}{@code Fixtures}是否有效。 */
     private static void validateFixtures(List<GenerationBenchmarkFixtureFile> fixtures) {
         if (fixtures.size() > MAX_FIXTURE_FILES) {
             throw new IllegalArgumentException("单个评测任务的源码夹具文件过多");
@@ -70,12 +76,15 @@ public final class GenerationBenchmarkDeclarationValidator {
         }
     }
 
+    /** 校验{@code ate}{@code Assertions}是否有效。 */
     private static void validateAssertions(List<GenerationBenchmarkSourceAssertion> assertions) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (assertions.size() > MAX_ASSERTIONS) {
             throw new IllegalArgumentException("单个评测任务的源码断言过多");
         }
         Set<String> ids = new HashSet<>();
         Set<String> sourceFiles = new HashSet<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBenchmarkSourceAssertion assertion : assertions) {
             if (assertion == null || assertion.root() == null
                     || assertion.id() == null || !ID_PATTERN.matcher(assertion.id()).matches()) {
@@ -103,6 +112,7 @@ public final class GenerationBenchmarkDeclarationValidator {
         }
     }
 
+    /** 校验{@code ate}令牌是否有效。 */
     private static void validateTokens(List<String> tokens) {
         if (tokens.size() > MAX_ASSERTION_TOKENS) {
             throw new IllegalArgumentException("源码断言匹配项过多");
@@ -115,6 +125,7 @@ public final class GenerationBenchmarkDeclarationValidator {
         }
     }
 
+    /** 校验{@code ate}路径是否有效。 */
     private static void validatePath(String value) {
         if (value == null || value.isBlank() || value.length() > MAX_PATH_CHARS
                 || value.indexOf('\0') >= 0 || value.indexOf('\\') >= 0) {

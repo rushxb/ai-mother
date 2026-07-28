@@ -32,6 +32,12 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         );
     }
 
+    /**
+ * 执行代码智能体节点处理流程。
+ *
+ * @param context 执行上下文
+ * @return 代码智能体节点
+ */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");
@@ -85,6 +91,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         );
     }
 
+    /** 构建并返回执行提示词。 */
     private String buildExecutionPrompt(GenerationAgentContext context,
                                         String projectContext,
                                         List<String> modules,
@@ -167,6 +174,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         return contextCompressionService.compressFinalPrompt(String.join("\n", lines));
     }
 
+    /** 追加全栈上下文。 */
     private void appendFullStackContext(List<String> lines, GenerationAgentContext context) {
         lines.add("");
         lines.add("【全栈共享上下文】");
@@ -202,6 +210,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         lines.add("- 新增业务能力优先沿用模板中的 @AI_INJECT_MODULE_WIRING、@AI_INJECT_ROUTE 锚点和 RegisterRoutes 约定，避免重建工程骨架。");
     }
 
+    /** 读取{@code Recipe}{@code Payloads}。 */
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> readRecipePayloads(GenerationAgentContext context) {
         Object contextRecipes = context.getArtifactValue("context_summary", "recipes");
@@ -215,6 +224,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         return List.of();
     }
 
+    /** 读取{@code Skill}{@code Payloads}。 */
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> readSkillPayloads(GenerationAgentContext context) {
         Object contextSkills = context.getArtifactValue("context_summary", "skills");
@@ -228,8 +238,10 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         return List.of();
     }
 
+    /** 追加{@code Recipe}{@code Instructions}。 */
     @SuppressWarnings("unchecked")
     private void appendRecipeInstructions(List<String> lines, List<Map<String, Object>> recipes) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (recipes == null || recipes.isEmpty()) {
             return;
         }
@@ -238,6 +250,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                 .filter(StrUtil::isNotBlank)
                 .distinct()
                 .toList());
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (Map<String, Object> recipe : recipes) {
             lines.add("- " + recipe.get("title") + ": modules=" + recipe.get("modules"));
             Object steps = recipe.get("implementationSteps");
@@ -263,6 +276,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         }
     }
 
+    /** 追加{@code Skill}{@code Instructions}。 */
     private void appendSkillInstructions(List<String> lines, List<Map<String, Object>> skills) {
         if (skills == null || skills.isEmpty()) {
             return;
@@ -293,6 +307,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         }
     }
 
+    /** 构建并返回{@code Change}计划。 */
     private ChangePlan buildChangePlan(List<String> modules,
                                        List<String> selectedFiles,
                                        boolean patchFirst,
@@ -315,6 +330,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         );
     }
 
+    /** 构建并返回{@code Change}作用域。 */
     private String buildChangeScope(List<String> modules, boolean patchFirst) {
         if (!patchFirst) {
             return "project_bootstrap";

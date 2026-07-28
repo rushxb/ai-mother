@@ -24,6 +24,14 @@ public class GenerationContextPreparationMetricsCollector {
     private final ConcurrentMap<String, Counter> overlapCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> overlapTimers = new ConcurrentHashMap<>();
 
+    /**
+ * 记录记忆{@code Read}相关指标或状态。
+ *
+ * @param source 来源数据
+ * @param mode 模式
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordMemoryRead(String source, String mode, String status, Duration duration) {
         String normalizedSource = normalize(source);
         String normalizedMode = normalize(mode);
@@ -45,6 +53,13 @@ public class GenerationContextPreparationMetricsCollector {
                 .register(meterRegistry)).record(nonNegative(duration));
     }
 
+    /**
+ * 记录记忆{@code Preparation}{@code Overlap}相关指标或状态。
+ *
+ * @param phase {@code phase} 对应的调用参数
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordMemoryPreparationOverlap(String phase, String status, Duration duration) {
         String normalizedPhase = normalize(phase);
         String normalizedStatus = normalize(status);

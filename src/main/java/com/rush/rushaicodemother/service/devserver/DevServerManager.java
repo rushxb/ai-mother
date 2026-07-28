@@ -53,6 +53,18 @@ public class DevServerManager {
     private final ReentrantLock registryLock = new ReentrantLock();
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
 
+    /**
+ * 创建开发服务器管理器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param projectDependencyInstaller {@code projectDependencyInstaller} 对应的调用参数
+ * @param projectLocator {@code projectLocator} 对应的调用参数
+ * @param portAllocator {@code portAllocator} 对应的调用参数
+ * @param bootstrapInjector {@code bootstrapInjector} 对应的调用参数
+ * @param processRunner {@code processRunner} 对应的调用参数
+ * @param outputHub {@code outputHub} 对应的调用参数
+ * @param leaseCoordinator 租约协调器
+ */
     @Autowired
     public DevServerManager(
             DevServerRuntimeProperties properties,
@@ -74,6 +86,7 @@ public class DevServerManager {
         this.leaseCoordinator = leaseCoordinator;
     }
 
+    /** 创建开发服务器管理器实例并完成必要的依赖和初始状态设置。 */
     DevServerManager(
             DevServerRuntimeProperties properties,
             ProjectDependencyInstaller projectDependencyInstaller,
@@ -119,6 +132,7 @@ public class DevServerManager {
         return startDevServerInternal(app, userId, startOptions);
     }
 
+    /** 启动开发服务器内部。 */
     private DevServerStartResult startDevServerInternal(
             App app,
             Long userId,
@@ -176,6 +190,7 @@ public class DevServerManager {
             return DevServerStartResult.reused(session.port());
         }
         boolean started = false;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             throwIfExternallyCancelled(startOptions);
             ensureDependenciesInstalled(session, startOptions);
@@ -258,6 +273,12 @@ public class DevServerManager {
         stopSession(session, true);
     }
 
+    /**
+ * 判断运行中是否满足约束。
+ *
+ * @param appId 应用编号
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isRunning(Long appId) {
         if (appId == null) {
             return false;
@@ -295,11 +316,23 @@ public class DevServerManager {
         return null;
     }
 
+    /**
+ * 注册错误采集器。
+ *
+ * @param appId 应用编号
+ * @param collector 采集器
+ */
     public void registerErrorCollector(Long appId, DevServerErrorCollector collector) {
         outputHub.registerCollector(appId, collector);
         log.debug("已注册 Dev Server 错误收集器，appId={}", appId);
     }
 
+    /**
+ * 注销错误采集器。
+ *
+ * @param appId 应用编号
+ * @param collector 采集器
+ */
     public void unregisterErrorCollector(Long appId, DevServerErrorCollector collector) {
         outputHub.unregisterCollector(appId, collector);
         log.debug("已注销 Dev Server 错误收集器，appId={}", appId);
@@ -309,6 +342,7 @@ public class DevServerManager {
         return outputHub.recentLines(appId, limit);
     }
 
+    /** 处理{@code maintain}会话{@code Leases}。 */
     @Scheduled(fixedDelayString = "${app.dev-server.runtime.heartbeat-interval:10s}")
     public void maintainSessionLeases() {
         if (shuttingDown.get()) {
@@ -331,6 +365,7 @@ public class DevServerManager {
         }
     }
 
+    /** 处理{@code destroy}。 */
     @PreDestroy
     public void destroy() {
         if (!shuttingDown.compareAndSet(false, true)) {
@@ -352,12 +387,14 @@ public class DevServerManager {
         outputHub.clear();
     }
 
+    /** 查找匹配的{@code Reusable}会话。 */
     private ManagedDevServerSession findReusableSession(
             Long appId,
             Path requestedProjectDirectory,
             Map<String, String> requestedEnvironment
     ) {
         registryLock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ManagedDevServerSession existing = sessions.get(appId);
             if (existing == null) {
@@ -393,6 +430,7 @@ public class DevServerManager {
         }
     }
 
+    /** 注册{@code Starting}会话。 */
     private SessionRegistration registerStartingSession(
             Long appId,
             Long userId,
@@ -401,6 +439,7 @@ public class DevServerManager {
             Map<String, String> environmentOverrides
     ) {
         registryLock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (shuttingDown.get()) {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "服务正在关闭，不能启动 Dev Server");
@@ -492,6 +531,7 @@ public class DevServerManager {
                 && left.toAbsolutePath().normalize().equals(right.toAbsolutePath().normalize());
     }
 
+    /** 确保{@code Dependencies}{@code Installed}已达到可用状态。 */
     private void ensureDependenciesInstalled(ManagedDevServerSession session,
                                              DevServerStartOptions startOptions) {
         DependencyInstallResult result = startOptions == null
@@ -528,6 +568,7 @@ public class DevServerManager {
         );
     }
 
+    /** 启动进程。 */
     private DevServerProcessSession startProcess(
             ManagedDevServerSession session,
             Long appId,
@@ -578,9 +619,11 @@ public class DevServerManager {
         return startOptions != null && startOptions.isCancellationRequested();
     }
 
+    /** 停止会话。 */
     private void stopSession(ManagedDevServerSession session, boolean failOnTimeout) {
         session.requestStop();
         RuntimeException cleanupFailure = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             leaseCoordinator.markStopping(session.appId());
         } catch (RuntimeException exception) {
@@ -588,6 +631,7 @@ public class DevServerManager {
             log.warn("Failed to persist Dev Server stopping state, appId={}",
                     session.appId(), LogExceptionSanitizer.sanitize(exception));
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             projectDependencyInstaller.cancel(session.projectDirectory());
         } catch (RuntimeException exception) {
@@ -646,6 +690,7 @@ public class DevServerManager {
         });
     }
 
+    /** 清理会话及其关联资源。 */
     private void cleanupSession(ManagedDevServerSession session, String reason) {
         registryLock.lock();
         try {
@@ -665,6 +710,7 @@ public class DevServerManager {
         }
     }
 
+    /** 将输入映射为开始失败。 */
     private BusinessException mapStartFailure(DevServerStartException exception) {
         return switch (exception.reason()) {
             case INVALID_LAUNCHER -> new BusinessException(
@@ -705,6 +751,7 @@ public class DevServerManager {
         };
     }
 
+    /** 校验{@code ate}开始请求是否有效。 */
     private void validateStartRequest(App app, Long userId) {
         if (app == null || app.getId() == null || app.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
@@ -719,6 +766,7 @@ public class DevServerManager {
         }
     }
 
+    /** 返回安全{@code Exit}代码。 */
     private int safeExitCode(Process process) {
         try {
             return process.exitValue();
@@ -844,6 +892,7 @@ public class DevServerManager {
             startupCompletion.complete(null);
         }
 
+        /** 等待{@code Startup}完成。 */
         private StartupAwaitResult awaitStartup(Duration timeout) {
             try {
                 startupCompletion.get(Math.max(1, timeout.toMillis()), TimeUnit.MILLISECONDS);

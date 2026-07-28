@@ -13,12 +13,23 @@ import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.orchestration.runtime.agent.DefaultGenerationAgentRuntime;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentConversationInitializer;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentPromptResolver;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationStreamingModelCallSupervisor;
 import com.rush.rushaicodemother.orchestration.runtime.model.ManagedGenerationModelTimeoutScheduler;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
 import com.rush.rushaicodemother.orchestration.tool.CompletedToolCallContextCompactor;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentTurnPolicy;
+import com.rush.rushaicodemother.orchestration.tool.DurableToolConversationCodec;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.aimodel.AiModelCircuitBreaker;
@@ -37,6 +48,7 @@ class ProductionAiWiringTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withBean(AiModelRuntimeProperties.class, AiModelRuntimeProperties::new)
+            .withBean(GenerationRuntimeProperties.class, GenerationRuntimeProperties::new)
             .withBean(AiModelMetricsCollector.class,
                     () -> new AiModelMetricsCollector(new SimpleMeterRegistry()))
             .withBean(GenerationPerformanceMonitorService.class,
@@ -69,9 +81,20 @@ class ProductionAiWiringTest {
                     () -> mock(PromptSystemMessageTransformer.class))
             .withBean(CompletedToolCallContextCompactor.class,
                     () -> mock(CompletedToolCallContextCompactor.class))
+            .withBean(ToolApprovalService.class,
+                    () -> mock(ToolApprovalService.class))
+            .withBean(GenerationStageAdmissionService.class,
+                    () -> mock(GenerationStageAdmissionService.class))
             .withUserConfiguration(
                     AiModelCircuitBreakerProperties.class,
                     AiModelCircuitBreaker.class,
+                    GenerationExecutionContextService.class,
+                    GenerationAgentTurnPolicy.class,
+                    GenerationToolExecutionContextService.class,
+                    DurableToolConversationCodec.class,
+                    GenerationAgentPromptResolver.class,
+                    GenerationAgentConversationInitializer.class,
+                    DefaultGenerationAgentRuntime.class,
                     AiModelMonitorListener.class,
                     GenerationModelInvocationCancellationBridge.class,
                     GenerationModelTimeoutPolicy.class,
@@ -94,6 +117,9 @@ class ProductionAiWiringTest {
             assertThat(context).hasSingleBean(AiCodeGeneratorServiceFactory.class);
             assertThat(context).hasSingleBean(CancellableAiStreamingRequestExecutor.class);
             assertThat(context).hasSingleBean(GenerationStreamingModelCallSupervisor.class);
+            assertThat(context).hasSingleBean(GenerationAgentRuntime.class);
+            assertThat(context.getBean(GenerationAgentRuntime.class))
+                    .isInstanceOf(DefaultGenerationAgentRuntime.class);
         });
     }
 }

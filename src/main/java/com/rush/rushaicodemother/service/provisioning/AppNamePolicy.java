@@ -22,6 +22,7 @@ final class AppNamePolicy {
         return truncateByCodePoints(normalizedPrompt, FALLBACK_APP_NAME_LENGTH);
     }
 
+    /** 规范化{@code Generated}名称。 */
     static String normalizeGeneratedName(String appName) {
         if (StrUtil.isBlank(appName)) {
             return null;

@@ -59,6 +59,15 @@ public class GenerationPerformanceMonitorService {
         this.clock = java.util.Objects.requireNonNull(clock, "clock");
     }
 
+    /**
+ * 启动任务。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param route 代理路由
+ * @param targetType 目标类型
+ */
     public void startTask(String taskId, Long appId, Long userId, String route, String targetType) {
         startTask(taskId, appId, userId, route, targetType, clock.instant());
     }
@@ -67,6 +76,17 @@ public class GenerationPerformanceMonitorService {
         startTask(taskId, appId, userId, route, targetType, startAt, null);
     }
 
+    /**
+ * 启动任务。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param route 代理路由
+ * @param targetType 目标类型
+ * @param startAt {@code startAt} 对应的调用参数
+ * @param decision 决策
+ */
     public void startTask(String taskId,
                           Long appId,
                           Long userId,
@@ -111,6 +131,16 @@ public class GenerationPerformanceMonitorService {
         recordSpan(taskId, stage, GenerationSpanCategory.PIPELINE, status, duration, detail);
     }
 
+    /**
+ * 记录跨度相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param stage 阶段
+ * @param category {@code category} 对应的调用参数
+ * @param status 目标状态
+ * @param duration 目标时长
+ * @param detail {@code detail} 对应的调用参数
+ */
     public void recordSpan(String taskId,
                            String stage,
                            GenerationSpanCategory category,
@@ -123,6 +153,7 @@ public class GenerationPerformanceMonitorService {
         recordCompletedSpan(taskId, stage, category, status, startedAt, endedAt, detail);
     }
 
+    /** 记录完成跨度相关指标或状态。 */
     private void recordCompletedSpan(String taskId,
                                      String stage,
                                      GenerationSpanCategory category,
@@ -130,6 +161,7 @@ public class GenerationPerformanceMonitorService {
                                      Instant startedAt,
                                      Instant endedAt,
                                      String detail) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (StrUtil.isBlank(taskId) || StrUtil.isBlank(stage) || category == null
                 || startedAt == null || endedAt == null) {
             return;
@@ -146,6 +178,7 @@ public class GenerationPerformanceMonitorService {
         }
 
         GenerationSpanObservation observation;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             observation = new GenerationSpanObservation(
                     UUID.randomUUID().toString(), taskId, normalizedStage, category, normalizedStatus,
@@ -168,6 +201,12 @@ public class GenerationPerformanceMonitorService {
         }
     }
 
+    /**
+ * 完成任务并收口相关状态。
+ *
+ * @param taskId 任务编号
+ * @param status 目标状态
+ */
     public void finishTask(String taskId, String status) {
         if (StrUtil.isBlank(taskId)) {
             return;
@@ -179,6 +218,12 @@ public class GenerationPerformanceMonitorService {
         record.finish(normalize(status), clock.instant());
     }
 
+    /**
+ * 记录创建遥测相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param telemetry 遥测
+ */
     public void recordCreateTelemetry(String taskId, Map<String, Object> telemetry) {
         if (StrUtil.isBlank(taskId) || telemetry == null || telemetry.isEmpty()) {
             return;
@@ -190,6 +235,12 @@ public class GenerationPerformanceMonitorService {
         record.recordCreateTelemetry(telemetry);
     }
 
+    /**
+ * 记录运行时遥测相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param telemetry 遥测
+ */
     public void recordRuntimeTelemetry(String taskId, Map<String, Object> telemetry) {
         if (StrUtil.isBlank(taskId) || telemetry == null || telemetry.isEmpty()) {
             return;
@@ -201,6 +252,12 @@ public class GenerationPerformanceMonitorService {
         record.recordRuntimeTelemetry(telemetry);
     }
 
+    /**
+ * 获取并返回汇总。
+ *
+ * @param limit 资源上限
+ * @return 生成性能{@code Monitor}
+ */
     public GenerationPerformanceSummaryVO getSummary(Integer limit) {
         int recentLimit = limit == null || limit <= 0 ? DEFAULT_RECENT_LIMIT : Math.min(limit, MAX_RETAINED_TASKS);
         List<TaskRecord> records = taskOrder.stream()
@@ -231,6 +288,7 @@ public class GenerationPerformanceMonitorService {
                 .build();
     }
 
+    /** 构建并返回阶段统计。 */
     private List<GenerationPerformanceStageStatsVO> buildStageStats(List<TaskRecord> records) {
         Map<String, List<Long>> grouped = records.stream()
                 .flatMap(record -> record.spans().stream())
@@ -274,6 +332,7 @@ public class GenerationPerformanceMonitorService {
         return sortedValues.get(Math.max(0, Math.min(index, sortedValues.size() - 1)));
     }
 
+    /** 处理清理过期任务。 */
     private void trimOldTasks() {
         while (taskOrder.size() > MAX_RETAINED_TASKS) {
             String taskId = taskOrder.pollLast();
@@ -316,6 +375,12 @@ public class GenerationPerformanceMonitorService {
             close("failed", detail);
         }
 
+        /**
+ * 关闭跨度{@code Timer}并释放资源。
+ *
+ * @param status 目标状态
+ * @param detail {@code detail} 对应的调用参数
+ */
         public void close(String status, String detail) {
             if (!closed.compareAndSet(false, true)) {
                 return;
@@ -381,6 +446,7 @@ public class GenerationPerformanceMonitorService {
             applyDecision(decision);
         }
 
+        /** 应用决策。 */
         private void applyDecision(GenerationModeDecision decision) {
             this.mode = decision == null ? "unknown" : normalize(decision.mode().name());
             this.routerReason = decision == null
@@ -434,6 +500,7 @@ public class GenerationPerformanceMonitorService {
             return Math.max(0, Duration.between(startAt, end).toMillis());
         }
 
+        /** 将当前对象转换为视图对象。 */
         private GenerationPerformanceTaskVO toVO() {
             return GenerationPerformanceTaskVO.builder()
                     .taskId(taskId)
@@ -521,6 +588,7 @@ public class GenerationPerformanceMonitorService {
             return List.of();
         }
 
+        /** 返回{@code int}值。 */
         private static Integer intValue(Object value) {
             if (value instanceof Number number) {
                 return number.intValue();
@@ -532,6 +600,7 @@ public class GenerationPerformanceMonitorService {
             }
         }
 
+        /** 返回{@code long}值。 */
         private static Long longValue(Object value) {
             if (value instanceof Number number) {
                 return number.longValue();
@@ -574,6 +643,7 @@ public class GenerationPerformanceMonitorService {
             );
         }
 
+        /** 合并运行时遥测记录。 */
         private RuntimeTelemetryRecord merge(RuntimeTelemetryRecord other) {
             if (other == null) {
                 return this;

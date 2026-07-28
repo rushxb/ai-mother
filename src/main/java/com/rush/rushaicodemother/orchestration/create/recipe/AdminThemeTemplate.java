@@ -9,6 +9,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class AdminThemeTemplate {
 
+    /** 返回{@code theme}{@code Css}。 */
     String themeCss(AdminRecipe recipe) {
         DensityTokens density = densityTokens(recipe.frontend().density());
         String styleComment = String.join(", ", recipe.frontend().styleKeywords());

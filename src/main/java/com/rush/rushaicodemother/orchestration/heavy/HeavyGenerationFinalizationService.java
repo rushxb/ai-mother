@@ -35,6 +35,13 @@ public class HeavyGenerationFinalizationService {
     private final OrphanFileReviewService orphanFileReviewService;
     private final GenerationWorkspaceService generationWorkspaceService;
 
+    /**
+ * 发送{@code Diff}汇总{@code If}可用事件。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ */
     public void emitDiffSummaryIfAvailable(Long appId,
                                            GenerationPreparation preparation,
                                            GenerationSession session) {
@@ -68,6 +75,13 @@ public class HeavyGenerationFinalizationService {
         emitPatchResultIfAvailable(appId, preparation, session, diffSummary);
     }
 
+    /**
+ * 发送提交结果{@code If}可用事件。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ */
     public void emitCommitResultIfAvailable(Long appId,
                                             GenerationPreparation preparation,
                                             GenerationSession session) {
@@ -97,6 +111,13 @@ public class HeavyGenerationFinalizationService {
         ));
     }
 
+    /**
+ * 构建并返回{@code Diff}汇总事件{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param diffSummary {@code diffSummary} 对应的调用参数
+ * @return {@code Diff}汇总事件{@code Data}集合
+ */
     public Map<String, Object> buildDiffSummaryEventData(GenerationPreparation preparation,
                                                          GenerationArtifact diffSummary) {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -111,6 +132,13 @@ public class HeavyGenerationFinalizationService {
         return data;
     }
 
+    /**
+ * 构建并返回补丁结果事件{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param patchResult 补丁结果
+ * @return 补丁结果事件{@code Data}集合
+ */
     public Map<String, Object> buildPatchResultEventData(GenerationPreparation preparation,
                                                          GenerationArtifact patchResult) {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -125,6 +153,13 @@ public class HeavyGenerationFinalizationService {
         return data;
     }
 
+    /**
+ * 构建并返回{@code Orphan}{@code Review}事件{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param orphanReview {@code orphanReview} 对应的调用参数
+ * @return {@code Orphan}{@code Review}事件{@code Data}集合
+ */
     public Map<String, Object> buildOrphanReviewEventData(GenerationPreparation preparation,
                                                           GenerationArtifact orphanReview) {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -137,6 +172,13 @@ public class HeavyGenerationFinalizationService {
         return data;
     }
 
+    /**
+ * 构建并提交并返回结果事件{@code Data}。
+ *
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param commitResult 提交结果
+ * @return 提交结果事件{@code Data}集合
+ */
     public Map<String, Object> buildCommitResultEventData(GenerationPreparation preparation,
                                                           GenerationArtifact commitResult) {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -151,6 +193,7 @@ public class HeavyGenerationFinalizationService {
         return data;
     }
 
+    /** 发送补丁结果{@code If}可用事件。 */
     private void emitPatchResultIfAvailable(Long appId,
                                             GenerationPreparation preparation,
                                             GenerationSession session,
@@ -183,6 +226,7 @@ public class HeavyGenerationFinalizationService {
         emitOrphanFileReviewIfAvailable(appId, preparation, session);
     }
 
+    /** 发送{@code Orphan}文件{@code Review}{@code If}可用事件。 */
     private void emitOrphanFileReviewIfAvailable(Long appId,
                                                  GenerationPreparation preparation,
                                                  GenerationSession session) {

@@ -48,6 +48,15 @@ public class ToolApprovalService {
         this.clock = clock;
     }
 
+    /**
+ * 审批并返回。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param approvedBy 已审批按
+ * @return 工具审批
+ */
     public ToolApprovalRecord approve(String taskId,
                                       DestructiveToolAction action,
                                       String approvalId,
@@ -67,6 +76,12 @@ public class ToolApprovalService {
         throw unavailableApproval();
     }
 
+    /**
+ * 开始执行。
+ *
+ * @param approval 审批
+ * @return 执行
+ */
     public ToolApprovalRecord beginExecution(ToolApprovalRecord approval) {
         if (approval == null || approval.invocationCheckpoint() == null) {
             throw new IllegalArgumentException("approved tool invocation is incomplete");
@@ -89,6 +104,13 @@ public class ToolApprovalService {
         return current;
     }
 
+    /**
+ * 完成执行并持久化终态。
+ *
+ * @param executing {@code executing} 对应的调用参数
+ * @param outcome 结果
+ * @return 执行
+ */
     public ToolApprovalRecord completeExecution(ToolApprovalRecord executing,
                                                 ToolExecutionOutcome outcome) {
         if (executing == null || executing.invocationCheckpoint() == null || outcome == null) {
@@ -108,6 +130,15 @@ public class ToolApprovalService {
         return current;
     }
 
+    /**
+ * 判断执行{@code Authorized}是否满足约束。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param invocation 调用
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isExecutionAuthorized(
             String taskId,
             DestructiveToolAction action,
@@ -128,6 +159,15 @@ public class ToolApprovalService {
                 && checkpoint.argumentsDigest().equals(invocation.argumentsDigest());
     }
 
+    /**
+ * 拒绝工具审批并记录原因。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param rejectedBy {@code rejectedBy} 对应的调用参数
+ * @return 工具审批
+ */
     public ToolApprovalRecord reject(String taskId,
                                      DestructiveToolAction action,
                                      String approvalId,
@@ -166,6 +206,16 @@ public class ToolApprovalService {
         requestApproval(taskId, action, approvalId, requestDetails, null);
     }
 
+    /**
+ * 返回请求审批。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param requestDetails 请求详情
+ * @param checkpoint 检查点
+ * @return 工具审批
+ */
     public ToolApprovalRecord requestApproval(String taskId,
                                               DestructiveToolAction action,
                                               String approvalId,
@@ -217,10 +267,20 @@ public class ToolApprovalService {
         return persisted;
     }
 
+    /** 处理{@code expire}{@code Approvals}。 */
     public void expireApprovals() {
         approvalRepository.expireBefore(clock.instant(), properties.getExpirationBatchSize());
     }
 
+    /**
+ * 为当前上下文附加调用检查点。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param checkpoint 检查点
+ * @return 调用检查点
+ */
     public ToolApprovalRecord attachInvocationCheckpoint(String taskId,
                                                          DestructiveToolAction action,
                                                          String approvalId,
@@ -241,6 +301,7 @@ public class ToolApprovalService {
         }
     }
 
+    /** 校验并返回有效的{@code Identity}。 */
     private void requireIdentity(String taskId,
                                  DestructiveToolAction action,
                                  String approvalId) {
@@ -268,6 +329,7 @@ public class ToolApprovalService {
         }
     }
 
+    /** 校验并返回有效的{@code Decidable}任务。 */
     private void requireDecidableTask(String taskId, Long actorId, Instant now) {
         DurableGenerationTaskRecord task = taskRepository.findByTaskId(taskId)
                 .orElseThrow(this::unavailableApproval);

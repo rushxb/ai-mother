@@ -22,6 +22,13 @@ public class RedisChatMemoryStoreConfig {
 
     private final ChatMemoryProperties properties;
 
+    /**
+ * 创建并配置对话记忆存储 Bean。
+ *
+ * @param redisTemplate Redis 操作模板
+ * @param monitor 运行状态监控器
+ * @return 配置完成的对话记忆存储 Bean
+ */
     @Bean(name = "redisChatMemoryStore")
     public ChatMemoryStore chatMemoryStore(
             StringRedisTemplate redisTemplate,

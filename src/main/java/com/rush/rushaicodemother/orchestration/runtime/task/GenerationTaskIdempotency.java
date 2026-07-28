@@ -9,6 +9,7 @@ public record GenerationTaskIdempotency(
     private static final String SHA_256_PATTERN = "[0-9a-f]{64}";
     private static final GenerationTaskIdempotency NONE = new GenerationTaskIdempotency(null, null);
 
+    /** 创建生成任务{@code Idempotency}实例并完成必要的依赖和初始状态设置。 */
     public GenerationTaskIdempotency {
         if ((keyHash == null) != (requestFingerprint == null)) {
             throw new IllegalArgumentException("idempotency key hash and request fingerprint must be paired");

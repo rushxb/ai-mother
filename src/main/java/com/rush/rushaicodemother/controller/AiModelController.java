@@ -147,6 +147,7 @@ public class AiModelController {
         return ResultUtils.success(result);
     }
 
+    /** 将当前对象转换为创建命令。 */
     private AiModelManagementService.CreateCommand toCreateCommand(AiModelAddRequest request) {
         return new AiModelManagementService.CreateCommand(
                 request.getModelName(),
@@ -166,6 +167,7 @@ public class AiModelController {
         );
     }
 
+    /** 将当前对象转换为{@code Update}命令。 */
     private AiModelManagementService.UpdateCommand toUpdateCommand(AiModelUpdateRequest request) {
         return new AiModelManagementService.UpdateCommand(
                 request.getId(),
@@ -186,6 +188,7 @@ public class AiModelController {
         );
     }
 
+    /** 将当前对象转换为查询。 */
     private AiModelManagementService.Query toQuery(AiModelQueryRequest request) {
         return new AiModelManagementService.Query(
                 request.getPageNum(),

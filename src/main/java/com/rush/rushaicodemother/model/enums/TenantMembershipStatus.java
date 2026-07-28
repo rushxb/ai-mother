@@ -20,6 +20,12 @@ public enum TenantMembershipStatus {
         return value;
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param value 待处理值
+ * @return 租户成员关系状态
+ */
     public static TenantMembershipStatus fromValue(String value) {
         return Arrays.stream(values())
                 .filter(status -> status.value.equalsIgnoreCase(value))

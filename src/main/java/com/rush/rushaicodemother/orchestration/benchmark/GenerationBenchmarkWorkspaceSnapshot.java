@@ -10,6 +10,7 @@ public record GenerationBenchmarkWorkspaceSnapshot(
         Path root,
         Map<String, String> fileDigests
 ) {
+    /** 创建生成基准测试工作区快照实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkWorkspaceSnapshot {
         if (root == null) {
             throw new IllegalArgumentException("benchmark workspace root is required");
@@ -18,6 +19,12 @@ public record GenerationBenchmarkWorkspaceSnapshot(
         fileDigests = fileDigests == null ? Map.of() : Map.copyOf(fileDigests);
     }
 
+    /**
+ * 返回变更{@code Paths}。
+ *
+ * @param current 当前
+ * @return 生成基准测试工作区快照集合
+ */
     public Set<String> changedPaths(GenerationBenchmarkWorkspaceSnapshot current) {
         if (current == null || !root.equals(current.root())) {
             throw new IllegalArgumentException("benchmark snapshots must use the same workspace root");

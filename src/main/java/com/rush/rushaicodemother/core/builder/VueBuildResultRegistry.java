@@ -45,6 +45,7 @@ public class VueBuildResultRegistry {
         this.recentSuccessfulResults = boundedLruMap(maxEntries);
     }
 
+    /** 执行{@code Vue}构建结果注册器处理流程。 */
     VueBuildResult execute(
             String taskId,
             Path projectRoot,
@@ -61,6 +62,7 @@ public class VueBuildResultRegistry {
             return result;
         }
 
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (true) {
             VueBuildResult reused = reuseIfSafe(key, projectRoot, snapshot, reuseGuard);
             if (reused != null) {
@@ -128,6 +130,7 @@ public class VueBuildResultRegistry {
         return inFlight.size();
     }
 
+    /** 返回{@code reuse}{@code If}安全。 */
     private VueBuildResult reuseIfSafe(
             ReusableKey key,
             Path projectRoot,
@@ -148,6 +151,7 @@ public class VueBuildResultRegistry {
         return reused;
     }
 
+    /** 执行{@code And}记录处理流程。 */
     private VueBuildResult executeAndRecord(Supplier<VueBuildResult> execution) {
         metricsCollector.recordEvent(PROJECT_TYPE, "execution_started");
         try {
@@ -163,6 +167,7 @@ public class VueBuildResultRegistry {
         }
     }
 
+    /** 等待{@code And}记录完成。 */
     private VueBuildResult awaitAndRecord(CompletableFuture<VueBuildResult> future) {
         long startedAt = System.nanoTime();
         try {
@@ -183,6 +188,7 @@ public class VueBuildResultRegistry {
         }
     }
 
+    /** 等待{@code Vue}构建结果注册器完成。 */
     private VueBuildResult await(CompletableFuture<VueBuildResult> future) {
         try {
             return requireResult(future.get());
@@ -199,6 +205,7 @@ public class VueBuildResultRegistry {
         return Objects.requireNonNull(result, "Vue 构建执行结果不能为空");
     }
 
+    /** 返回{@code propagate}。 */
     private RuntimeException propagate(Throwable failure) {
         if (failure instanceof RuntimeException runtimeException) {
             return runtimeException;

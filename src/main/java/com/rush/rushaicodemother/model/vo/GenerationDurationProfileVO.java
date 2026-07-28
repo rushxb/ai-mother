@@ -15,6 +15,12 @@ public record GenerationDurationProfileVO(
         List<GenerationStageDurationProfileVO> stages,
         Instant computedAt
 ) {
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param profile 配置档
+ * @return 生成时长配置档视图对象
+ */
     public static GenerationDurationProfileVO from(GenerationDurationProfile profile) {
         return new GenerationDurationProfileVO(
                 profile.route(), profile.taskSampleSize(), profile.p50TotalDurationMs(),

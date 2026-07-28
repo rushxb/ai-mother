@@ -66,6 +66,7 @@ public class StaticResourceController {
             relativePath += "index.html";
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path resourcePath = deploymentArtifactResourceService.resolve(deployKey, relativePath);
             MediaType contentType = resolveContentType(resourcePath);
@@ -83,6 +84,7 @@ public class StaticResourceController {
         }
     }
 
+    /** 根据当前上下文解析内容类型。 */
     private MediaType resolveContentType(Path resourcePath) {
         String fileName = resourcePath.getFileName().toString().toLowerCase(Locale.ROOT);
         if (fileName.endsWith(".html")) {

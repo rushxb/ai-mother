@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvo
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.model.RootModelRetryExecutor;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,8 @@ class AiCodeGeneratorFacadeSpringWiringTest {
                     () -> new AiModelMetricsCollector(new SimpleMeterRegistry()))
             .withBean(GenerationStageAdmissionService.class,
                     () -> mock(GenerationStageAdmissionService.class))
+            .withBean(GenerationAgentRuntime.class,
+                    () -> mock(GenerationAgentRuntime.class))
             .withUserConfiguration(
                     RootModelRetryExecutor.class,
                     GenerationModelTimeoutPolicy.class,

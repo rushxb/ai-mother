@@ -69,11 +69,21 @@ public class DevServerProxyService {
         this.httpClient = httpClient;
     }
 
+    /**
+ * 处理代理。
+ *
+ * @param route 代理路由
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @param request 请求参数
+ * @param response 响应对象
+ */
     public void proxy(DevServerPreviewRoute route,
                       String path,
                       String queryString,
                       HttpServletRequest request,
                       HttpServletResponse response) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (route == null || path == null || !path.startsWith("/")) {
             writeError(response, HttpStatus.BAD_REQUEST.value(), "非法代理目标");
             return;
@@ -85,6 +95,7 @@ public class DevServerProxyService {
             return;
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             byte[] requestBody = readRequestBody(method, request);
             URI targetUri = targetResolver.httpTarget(route, path, queryString);
@@ -120,6 +131,17 @@ public class DevServerProxyService {
         }
     }
 
+    /**
+ * 处理代理{@code Local}。
+ *
+ * @param appId 应用编号
+ * @param port 端口
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @param request 请求参数
+ * @param response 响应对象
+ * @param verifiedRequest {@code verifiedRequest} 对应的调用参数
+ */
     public void proxyLocal(Long appId,
                            int port,
                            String path,
@@ -142,6 +164,7 @@ public class DevServerProxyService {
         );
     }
 
+    /** 处理代理内部。 */
     private void proxyInternal(Long appId,
                                int port,
                                String path,
@@ -149,6 +172,7 @@ public class DevServerProxyService {
                                HttpServletRequest request,
                                HttpServletResponse response,
                                VerifiedDevServerInternalRequest verifiedRequest) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (appId == null || appId <= 0 || port < 1 || port > 65535
                 || path == null || !path.startsWith("/")) {
             writeError(response, HttpStatus.BAD_REQUEST.value(), "非法代理目标");
@@ -159,6 +183,7 @@ public class DevServerProxyService {
             writeError(response, HttpStatus.METHOD_NOT_ALLOWED.value(), "不支持的请求方法");
             return;
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             byte[] requestBody = readRequestBody(method, request);
             internalRequestSigner.verifyBody(verifiedRequest, requestBody);
@@ -188,6 +213,7 @@ public class DevServerProxyService {
         }
     }
 
+    /** 构建并返回{@code Upstream}请求。 */
     private HttpRequest buildUpstreamRequest(URI targetUri,
                                              String method,
                                              byte[] requestBody,
@@ -216,6 +242,7 @@ public class DevServerProxyService {
         return builder.build();
     }
 
+    /** 读取请求正文。 */
     private byte[] readRequestBody(String method, HttpServletRequest request) throws IOException {
         if (!BODY_METHODS.contains(method)) {
             return new byte[0];
@@ -236,6 +263,7 @@ public class DevServerProxyService {
         );
     }
 
+    /** 读取{@code Limited}。 */
     private byte[] readLimited(InputStream inputStream,
                                long maxBytes,
                                int statusCode,
@@ -254,6 +282,7 @@ public class DevServerProxyService {
         return outputStream.toByteArray();
     }
 
+    /** 写入{@code Upstream}响应。 */
     private void writeUpstreamResponse(HttpResponse<InputStream> upstreamResponse,
                                        byte[] body,
                                        HttpServletResponse response) throws IOException {
@@ -272,6 +301,7 @@ public class DevServerProxyService {
         }
     }
 
+    /** 写入错误。 */
     private void writeError(HttpServletResponse response, int statusCode, String message) {
         if (response.isCommitted()) {
             return;
@@ -287,6 +317,7 @@ public class DevServerProxyService {
         }
     }
 
+    /** 校验{@code ate}属性是否有效。 */
     private void validateProperties(DevServerProxyProperties proxyProperties) {
         Duration connectTimeout = proxyProperties.getConnectTimeout();
         Duration requestTimeout = proxyProperties.getRequestTimeout();

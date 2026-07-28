@@ -8,6 +8,8 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -29,13 +31,24 @@ public class GenerationRollbackPointService {
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final SnapshotNamePolicy snapshotNamePolicy;
     private final GenerationTaskFenceGuard generationTaskFenceGuard;
+    private final GenerationExecutionContextService executionContextService;
 
+    /**
+ * 创建生成回滚点服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param generationWorkspaceService 生成工作区服务
+ * @param snapshotWorkspaceService 快照工作区服务
+ * @param workspaceFileSystemService 处理该职责的领域服务
+ * @param snapshotNamePolicy 快照名称策略
+ * @param generationTaskFenceGuard 生成任务围栏防护
+ */
     public GenerationRollbackPointService(
             GenerationWorkspaceService generationWorkspaceService,
             GenerationSnapshotWorkspaceService snapshotWorkspaceService,
             WorkspaceFileSystemService workspaceFileSystemService,
             SnapshotNamePolicy snapshotNamePolicy,
-            GenerationTaskFenceGuard generationTaskFenceGuard
+            GenerationTaskFenceGuard generationTaskFenceGuard,
+            GenerationExecutionContextService executionContextService
     ) {
         this.generationWorkspaceService = Objects.requireNonNull(
                 generationWorkspaceService,
@@ -52,8 +65,18 @@ public class GenerationRollbackPointService {
         this.snapshotNamePolicy = Objects.requireNonNull(snapshotNamePolicy, "snapshotNamePolicy must not be null");
         this.generationTaskFenceGuard = Objects.requireNonNull(
                 generationTaskFenceGuard, "generationTaskFenceGuard must not be null");
+        this.executionContextService = Objects.requireNonNull(
+                executionContextService, "executionContextService must not be null");
     }
 
+    /**
+ * 准备后续流程所需的回滚点。
+ *
+ * @param request 请求参数
+ * @param targetType 目标类型
+ * @param taskId 任务编号
+ * @return 回滚点
+ */
     public GenerationArtifact prepareRollbackPoint(GenerationOrchestrationRequest request,
                                                    CodeGenTypeEnum targetType,
                                                    String taskId) {
@@ -61,6 +84,7 @@ public class GenerationRollbackPointService {
         return GenerationArtifact.of("rollback_point", "Orchestrator", "Rollback point", rollbackPoint.toPayload());
     }
 
+    /** 创建回滚点。 */
     RollbackPoint createRollbackPoint(GenerationOrchestrationRequest request,
                                       CodeGenTypeEnum targetType,
                                       String taskId) {
@@ -80,6 +104,7 @@ public class GenerationRollbackPointService {
         }
 
         Path projectPath = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, sourceType);
             projectPath = workspace.canonicalRootPath();
@@ -97,8 +122,12 @@ public class GenerationRollbackPointService {
             snapshotWorkspaceService.prepareApplicationRoot(appId);
             String snapshotName = buildSnapshotName(taskId);
             Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, snapshotName);
+            Runnable continuationCheck = () -> executionContextService.assertCanContinue(taskId);
             if (workspaceFileSystemService.isDirectory(snapshotPath)) {
-                int existingFileCount = workspaceFileSystemService.scanProject(snapshotPath).files().size();
+                int existingFileCount = workspaceFileSystemService
+                        .scanProject(snapshotPath, continuationCheck)
+                        .files()
+                        .size();
                 return RollbackPoint.created(
                         appId,
                         taskId,
@@ -110,7 +139,11 @@ public class GenerationRollbackPointService {
                         existingFileCount
                 );
             }
-            WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
+            WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(
+                    projectPath,
+                    snapshotPath,
+                    continuationCheck
+            );
             return RollbackPoint.created(
                     appId,
                     taskId,
@@ -121,6 +154,8 @@ public class GenerationRollbackPointService {
                     targetTypeValue,
                     copyResult.fileCount()
             );
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception exception) {
             log.warn("Failed to create rollback point, appId: {}, taskId: {}",
                     appId, taskId, LogExceptionSanitizer.sanitize(exception));

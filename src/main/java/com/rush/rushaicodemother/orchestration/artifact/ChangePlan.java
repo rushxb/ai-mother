@@ -26,6 +26,7 @@ public record ChangePlan(
             "review_only", "build_validation", "validate_light", "build_light", "full_build"
     );
 
+    /** 创建{@code Change}计划实例并完成必要的依赖和初始状态设置。 */
     public ChangePlan {
         schemaVersion = StrUtil.blankToDefault(schemaVersion, "v1");
         changeScope = StrUtil.blankToDefault(changeScope, "unspecified");
@@ -37,6 +38,12 @@ public record ChangePlan(
         rollbackStrategy = StrUtil.blankToDefault(rollbackStrategy, "manual_retry_without_snapshot");
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param payload 载荷
+ * @return {@code Change}计划
+ */
     public static ChangePlan fromPayload(Map<String, Object> payload) {
         if (payload == null) {
             return null;
@@ -53,6 +60,11 @@ public record ChangePlan(
         );
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", schemaVersion);
@@ -70,10 +82,22 @@ public record ChangePlan(
         return !addFiles.isEmpty() || !modifyFiles.isEmpty() || !deleteFiles.isEmpty();
     }
 
+    /**
+ * 校验并返回有效的{@code s}快照回滚。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean requiresSnapshotRollback() {
         return rollbackStrategy.contains("snapshot") && !rollbackStrategy.contains("without_snapshot");
     }
 
+    /**
+ * 校验{@code ate}{@code For}补丁{@code First}是否有效。
+ *
+ * @param requiresBuild {@code requiresBuild} 对应的调用参数
+ * @param expectedValidationLevel {@code expectedValidationLevel} 对应的调用参数
+ * @return {@code ate}{@code For}补丁{@code First}集合
+ */
     public List<String> validateForPatchFirst(boolean requiresBuild, String expectedValidationLevel) {
         List<String> blockers = new java.util.ArrayList<>();
         if (!"v1".equals(schemaVersion)) {
@@ -94,6 +118,12 @@ public record ChangePlan(
         return blockers;
     }
 
+    /**
+ * 规范化文件{@code Paths}。
+ *
+ * @param paths 待处理的 {@code paths} 集合
+ * @return 文件{@code Paths}集合
+ */
     public static List<String> normalizeFilePaths(List<String> paths) {
         if (paths == null || paths.isEmpty()) {
             return List.of();
@@ -125,6 +155,7 @@ public record ChangePlan(
         return value == null ? null : String.valueOf(value);
     }
 
+    /** 列出符合条件的值。 */
     private static List<String> listValue(Object value) {
         if (value instanceof Collection<?> collection) {
             return collection.stream()

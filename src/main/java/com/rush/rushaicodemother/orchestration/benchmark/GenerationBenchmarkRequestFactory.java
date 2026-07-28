@@ -11,6 +11,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class GenerationBenchmarkRequestFactory {
 
+    /**
+ * 创建生成基准测试请求。
+ *
+ * @param task 任务
+ * @param app 应用
+ * @param user 用户
+ * @return 生成基准测试请求
+ */
     public GenerationTaskRequest create(GenerationBenchmarkTask task, App app, User user) {
         if (task == null || app == null || app.getId() == null || app.getId() <= 0
                 || user == null || user.getId() == null || user.getId() <= 0) {

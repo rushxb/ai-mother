@@ -27,6 +27,12 @@ public class DefaultAppDatabaseResourcePersistenceService
 
     private final AppDatabaseResourceMapper appDatabaseResourceMapper;
 
+    /**
+ * 启用资源。
+ *
+ * @param resource 资源
+ * @return 资源
+ */
     @Override
     @Transactional
     public AppDatabaseResource enableResource(NewAppDatabaseResource resource) {
@@ -43,6 +49,7 @@ public class DefaultAppDatabaseResourcePersistenceService
                 .status(STATUS_ACTIVE)
                 .lastUsedTime(resource.lastUsedTime())
                 .build();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             appDatabaseResourceMapper.upsertActiveResource(persistenceModel);
         } catch (DuplicateKeyException exception) {
@@ -60,12 +67,24 @@ public class DefaultAppDatabaseResourcePersistenceService
         return activeResource;
     }
 
+    /**
+ * 查找匹配的活动按应用编号。
+ *
+ * @param appId 应用编号
+ * @return 活动按应用编号
+ */
     @Override
     public AppDatabaseResource findActiveByAppId(Long appId) {
         validateAppId(appId);
         return appDatabaseResourceMapper.selectActiveByAppId(appId);
     }
 
+    /**
+ * 查找匹配的活动按应用{@code Ids}。
+ *
+ * @param appIds 待处理的 {@code appIds} 集合
+ * @return 活动按应用{@code Ids}集合
+ */
     @Override
     public List<AppDatabaseResource> findActiveByAppIds(Collection<Long> appIds) {
         if (appIds == null || appIds.isEmpty()) {
@@ -84,6 +103,7 @@ public class DefaultAppDatabaseResourcePersistenceService
                 : resources.stream().filter(Objects::nonNull).toList();
     }
 
+    /** 校验{@code ate}{@code New}资源是否有效。 */
     private void validateNewResource(NewAppDatabaseResource resource) {
         ThrowUtils.throwIf(resource == null, ErrorCode.PARAMS_ERROR, "Database 资源参数不能为空");
         validateAppId(resource.appId());

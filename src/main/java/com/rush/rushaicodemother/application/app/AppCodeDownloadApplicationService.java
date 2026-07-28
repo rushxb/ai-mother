@@ -27,6 +27,13 @@ public class AppCodeDownloadApplicationService {
     private final AppAccessPolicy appAccessPolicy;
     private final GenerationWorkspaceService generationWorkspaceService;
 
+    /**
+ * 处理{@code download}。
+ *
+ * @param appId 应用编号
+ * @param actor 操作发起人
+ * @param response 响应对象
+ */
     public void download(Long appId, User actor, HttpServletResponse response) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 无效");
         App app = appPersistenceService.findActiveById(appId);

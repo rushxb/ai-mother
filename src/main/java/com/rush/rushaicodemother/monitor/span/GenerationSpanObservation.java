@@ -18,6 +18,7 @@ public record GenerationSpanObservation(
 
     public static final int MAX_DETAIL_LENGTH = 1_000;
 
+    /** 创建生成跨度观测实例并完成必要的依赖和初始状态设置。 */
     public GenerationSpanObservation {
         requireText(spanId, "spanId", 36);
         requireText(taskId, "taskId", 128);
@@ -38,6 +39,7 @@ public record GenerationSpanObservation(
         }
     }
 
+    /** 校验并返回有效的{@code Text}。 */
     private static void requireText(String value, String fieldName, int maxLength) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(fieldName + " cannot be blank");

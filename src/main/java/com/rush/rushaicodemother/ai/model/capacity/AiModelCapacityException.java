@@ -10,6 +10,12 @@ public final class AiModelCapacityException extends RuntimeException {
         this.gate = gate;
     }
 
+    /**
+ * 拒绝{@code ed}并记录原因。
+ *
+ * @param gate 门禁
+ * @return {@code ed}
+ */
     public static AiModelCapacityException rejected(String gate) {
         return new AiModelCapacityException(
                 "AI model rate limit capacity exhausted",
@@ -18,6 +24,12 @@ public final class AiModelCapacityException extends RuntimeException {
         );
     }
 
+    /**
+ * 返回{@code unavailable}。
+ *
+ * @param cause {@code cause} 对应的调用参数
+ * @return AI 模型容量异常
+ */
     public static AiModelCapacityException unavailable(Throwable cause) {
         return new AiModelCapacityException(
                 "AI model capacity service unavailable",

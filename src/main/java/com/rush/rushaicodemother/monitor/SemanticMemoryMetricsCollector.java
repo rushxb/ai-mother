@@ -33,6 +33,11 @@ public class SemanticMemoryMetricsCollector {
     private final ConcurrentMap<String, Timer> timers = new ConcurrentHashMap<>();
     private final Map<String, BacklogState> backlogStates = new ConcurrentHashMap<>();
 
+    /**
+ * 创建语义记忆{@code Metrics}采集器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param meterRegistry {@code meterRegistry} 对应的调用参数
+ */
     @Autowired
     public SemanticMemoryMetricsCollector(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
@@ -61,6 +66,13 @@ public class SemanticMemoryMetricsCollector {
         return new SemanticMemoryMetricsCollector();
     }
 
+    /**
+ * 记录存储操作相关指标或状态。
+ *
+ * @param operation 操作
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordStoreOperation(String operation, String status, Duration duration) {
         if (meterRegistry == null) {
             return;
@@ -83,6 +95,11 @@ public class SemanticMemoryMetricsCollector {
                 .register(meterRegistry)).record(nonNegative(duration));
     }
 
+    /**
+ * 记录{@code Malformed}{@code Rows}相关指标或状态。
+ *
+ * @param count 数量
+ */
     public void recordMalformedRows(int count) {
         if (meterRegistry == null || count <= 0) {
             return;
@@ -93,6 +110,12 @@ public class SemanticMemoryMetricsCollector {
                 .register(meterRegistry)).increment(count);
     }
 
+    /**
+ * 记录就绪状态相关指标或状态。
+ *
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordReadiness(String status, Duration duration) {
         if (meterRegistry == null) {
             return;
@@ -112,6 +135,11 @@ public class SemanticMemoryMetricsCollector {
                 .register(meterRegistry)).record(nonNegative(duration));
     }
 
+    /**
+ * 记录故障转移相关指标或状态。
+ *
+ * @param operation 操作
+ */
     public void recordFailover(String operation) {
         if (meterRegistry == null) {
             return;
@@ -124,6 +152,13 @@ public class SemanticMemoryMetricsCollector {
                 .register(meterRegistry)).increment();
     }
 
+    /**
+ * 记录事务发件箱{@code Items}相关指标或状态。
+ *
+ * @param outbox 事务发件箱
+ * @param outcome 结果
+ * @param count 数量
+ */
     public void recordOutboxItems(String outbox, String outcome, long count) {
         if (meterRegistry == null || count <= 0) {
             return;
@@ -139,6 +174,13 @@ public class SemanticMemoryMetricsCollector {
                 .register(meterRegistry)).increment(count);
     }
 
+    /**
+ * 记录事务发件箱批次相关指标或状态。
+ *
+ * @param outbox 事务发件箱
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordOutboxBatch(String outbox, String status, Duration duration) {
         if (meterRegistry == null) {
             return;
@@ -161,6 +203,12 @@ public class SemanticMemoryMetricsCollector {
                 .register(meterRegistry)).record(nonNegative(duration));
     }
 
+    /**
+ * 记录积压量{@code Refresh}相关指标或状态。
+ *
+ * @param outbox 事务发件箱
+ * @param status 目标状态
+ */
     public void recordBacklogRefresh(String outbox, String status) {
         if (meterRegistry == null) {
             return;
@@ -176,6 +224,13 @@ public class SemanticMemoryMetricsCollector {
                 .register(meterRegistry)).increment();
     }
 
+    /**
+ * 更新积压量。
+ *
+ * @param outbox 事务发件箱
+ * @param backlog 积压量
+ * @param observedAt {@code observedAt} 对应的调用参数
+ */
     public void updateBacklog(String outbox,
                               SemanticMemoryOutboxBacklog backlog,
                               Instant observedAt) {

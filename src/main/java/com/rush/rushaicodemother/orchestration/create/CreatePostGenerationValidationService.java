@@ -32,6 +32,18 @@ public class CreatePostGenerationValidationService {
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
     private final HeavyGenerationBuildValidationService heavyGenerationBuildValidationService;
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @param codeGenType 代码生成类型
+ * @param userMessage 用户消息
+ * @param taskId 任务编号
+ * @param result 待处理结果
+ * @param session 会话
+ * @return {@code ate}
+ */
     public ValidationOutcome validate(Long appId,
                                       User loginUser,
                                       CodeGenTypeEnum codeGenType,
@@ -39,6 +51,7 @@ public class CreatePostGenerationValidationService {
                                       String taskId,
                                       SlotFillResult result,
                                       GenerationSession session) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT
                 && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT
                 && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
@@ -50,6 +63,7 @@ public class CreatePostGenerationValidationService {
                 ? null
                 : session.executionWorkspace();
         bindRepairContext(appId, codeGenType, taskId, result, executionFence, executionWorkspace);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.emit(GenerationStreamEvent.generationStage("CREATE 模板生成完成，正在执行构建验证...", Map.of(
                     "stage", AppConstant.GENERATING_STAGE_BUILD,
@@ -72,6 +86,7 @@ public class CreatePostGenerationValidationService {
         }
     }
 
+    /** 创建{@code Repair}{@code Preparation}。 */
     private GenerationPreparation createRepairPreparation(CodeGenTypeEnum codeGenType,
                                                           String userMessage,
                                                           String taskId,
@@ -107,6 +122,7 @@ public class CreatePostGenerationValidationService {
         );
     }
 
+    /** 返回{@code change}计划。 */
     private ChangePlan changePlan(SlotFillResult result) {
         List<String> touchedFiles = result == null || result.patchOperations() == null
                 ? List.of()
@@ -126,6 +142,7 @@ public class CreatePostGenerationValidationService {
         );
     }
 
+    /** 绑定{@code Repair}上下文。 */
     private void bindRepairContext(Long appId,
                                    CodeGenTypeEnum codeGenType,
                                    String taskId,

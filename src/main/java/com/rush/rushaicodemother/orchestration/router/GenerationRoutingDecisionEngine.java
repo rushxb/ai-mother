@@ -15,6 +15,11 @@ public class GenerationRoutingDecisionEngine {
         this.policies = policies == null ? List.of() : List.copyOf(policies);
     }
 
+    /**
+ * 返回默认{@code Engine}。
+ *
+ * @return 生成路由决策
+ */
     public static GenerationRoutingDecisionEngine defaultEngine() {
         return new GenerationRoutingDecisionEngine(List.of(
                 new CreateHeavyExpertRoutingPolicy(),
@@ -25,6 +30,12 @@ public class GenerationRoutingDecisionEngine {
         ));
     }
 
+    /**
+ * 根据输入信号确定生成路由决策。
+ *
+ * @param signal 输入信号
+ * @return 生成路由决策
+ */
     public GenerationModeDecision decide(GenerationRoutingSignal signal) {
         Objects.requireNonNull(signal, "signal");
         return policies.stream()

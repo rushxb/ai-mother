@@ -3,7 +3,10 @@ package com.rush.rushaicodemother.infrastructure.persistence.task;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -50,7 +53,11 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
         when(mapper.selectBySubmissionIdempotency(100L, 7L, 11L, keyHash))
                 .thenReturn(GenerationTask.builder()
                         .taskId("task-existing")
+                        .appId(11L)
                         .route("heavy_generation")
+                        .status(GenerationTaskStatus.RUNNING.getValue())
+                        .submittedAt(LocalDateTime.of(2026, 7, 20, 10, 0))
+                        .deadlineAt(LocalDateTime.of(2026, 7, 20, 10, 15))
                         .requestFingerprint("b".repeat(64))
                         .build());
         MyBatisGenerationTaskAdmissionRepository repository =
@@ -58,8 +65,10 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
 
         var existing = repository.findByIdempotencyKey(100L, 7L, 11L, keyHash).orElseThrow();
 
-        assertEquals("task-existing", existing.taskId());
-        assertEquals("heavy_generation", existing.route());
+        assertEquals("task-existing", existing.submission().taskId());
+        assertEquals(11L, existing.submission().appId());
+        assertEquals("heavy_generation", existing.submission().route());
+        assertEquals(GenerationTaskStatus.RUNNING, existing.submission().status());
         assertEquals("b".repeat(64), existing.requestFingerprint());
     }
 }

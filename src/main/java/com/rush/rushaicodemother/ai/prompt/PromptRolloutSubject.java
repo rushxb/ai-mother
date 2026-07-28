@@ -17,6 +17,12 @@ public record PromptRolloutSubject(
         cohortKey = normalize(cohortKey);
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param context 执行上下文
+ * @return 提示词{@code Rollout}{@code Subject}
+ */
     public static PromptRolloutSubject from(InvocationContext context) {
         if (context == null) {
             return new PromptRolloutSubject("unknown", "unknown", PromptDigest.sha256("unknown"));
@@ -38,6 +44,7 @@ public record PromptRolloutSubject(
         return interfaceName + "#" + methodName;
     }
 
+    /** 返回用户{@code Material}。 */
     private static String userMaterial(InvocationContext context) {
         try {
             UserMessage userMessage = context.userMessage();

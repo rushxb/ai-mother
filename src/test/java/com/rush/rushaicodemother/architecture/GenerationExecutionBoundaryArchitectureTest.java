@@ -101,6 +101,31 @@ class GenerationExecutionBoundaryArchitectureTest {
     }
 
     @Test
+    void streamingFacadeMustOnlyBeInvokedByManagedExecutionOwner() throws IOException {
+        List<String> violations = new ArrayList<>();
+        Path facade = MAIN_SOURCE_ROOT.resolve(Path.of("core", "AiCodeGeneratorFacade.java"));
+        Path expectedOwner = MAIN_SOURCE_ROOT.resolve(Path.of(
+                "orchestration", "heavy", "HeavyGenerationExecutionService.java"));
+        try (var sources = Files.walk(MAIN_SOURCE_ROOT)) {
+            for (Path source : sources.filter(this::isJavaSource).toList()) {
+                if (source.equals(facade) || source.equals(expectedOwner)) {
+                    continue;
+                }
+                String content = Files.readString(source);
+                if (content.contains(".generateAndSaveCodeStream(")) {
+                    violations.add(source.toString());
+                }
+            }
+        }
+
+        assertTrue(violations.isEmpty(),
+                "流式生成门面只能由持久化执行服务调用，禁止绕过任务 Deadline、预算和发布围栏：\n - "
+                        + String.join("\n - ", violations));
+        assertTrue(Files.readString(expectedOwner).contains("session.executionContext()"),
+                "持久化执行服务调用流式门面时必须显式传递任务执行上下文");
+    }
+
+    @Test
     void legacyEditModelInvocationMustStayInsideExplicitCompatibilityOwners() throws IOException {
         List<String> violations = new ArrayList<>();
         try (var sources = Files.walk(MAIN_SOURCE_ROOT)) {

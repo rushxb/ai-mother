@@ -34,8 +34,15 @@ public class TrustedProxyClientIpResolver implements ClientIpResolver {
         this.maximumForwardedHops = properties.getForwardedForMaxHops();
     }
 
+    /**
+ * 根据当前上下文解析{@code Trusted}代理客户端{@code Ip}。
+ *
+ * @param request 请求参数
+ * @return 处理后的{@code Trusted}代理客户端{@code Ip}文本
+ */
     @Override
     public String resolve(HttpServletRequest request) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (request == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "限流器无法获取 HTTP 请求");
         }
@@ -66,6 +73,7 @@ public class TrustedProxyClientIpResolver implements ClientIpResolver {
                 : directPeer.normalizedValue();
     }
 
+    /** 根据当前上下文解析{@code Forwarded}{@code Chain}。 */
     private Optional<IpAddressParser.ParsedIpAddress> resolveForwardedChain(
             String headerValue,
             IpAddressParser.ParsedIpAddress directPeer
@@ -93,6 +101,7 @@ public class TrustedProxyClientIpResolver implements ClientIpResolver {
         return trustedProxies.stream().anyMatch(cidr -> cidr.contains(address));
     }
 
+    /** 读取{@code Single}请求头。 */
     private HeaderValue readSingleHeader(HttpServletRequest request, String headerName) {
         Enumeration<String> values = request.getHeaders(headerName);
         if (values == null || !values.hasMoreElements()) {

@@ -16,6 +16,7 @@ public record SequencedGenerationEvent(
         COMPLETE
     }
 
+    /** 创建{@code Sequenced}生成事件实例并完成必要的依赖和初始状态设置。 */
     public SequencedGenerationEvent {
         if (sequence <= 0) {
             throw new IllegalArgumentException("generation event sequence must be positive");
@@ -46,6 +47,14 @@ public record SequencedGenerationEvent(
         return new SequencedGenerationEvent(sequence, Kind.EVENT, event, null);
     }
 
+    /**
+ * 返回{@code gap}。
+ *
+ * @param sequence 序列
+ * @param requestedSeq {@code requestedSeq} 对应的调用参数
+ * @param firstAvailableSeq {@code firstAvailableSeq} 对应的调用参数
+ * @return {@code Sequenced}生成事件
+ */
     public static SequencedGenerationEvent gap(long sequence,
                                                 long requestedSeq,
                                                 long firstAvailableSeq) {

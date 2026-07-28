@@ -107,6 +107,15 @@ public record DevServerValidationResult(
         );
     }
 
+    /**
+ * 返回{@code warning}。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param errors 待处理的 {@code errors} 集合
+ * @param durationMs 待处理的 {@code durationMs} 集合
+ * @return 开发服务器校验结果
+ */
     public static DevServerValidationResult warning(String taskId, Long appId,
                                                      List<DevServerError> errors, long durationMs) {
         int warnCount = errors.stream().filter(e -> !e.pattern().isCritical()).mapToInt(DevServerError::occurrenceCount).sum();
@@ -117,6 +126,15 @@ public record DevServerValidationResult(
         );
     }
 
+    /**
+ * 将{@code ed}标记为失败并记录原因。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param errors 待处理的 {@code errors} 集合
+ * @param durationMs 待处理的 {@code durationMs} 集合
+ * @return {@code ed}
+ */
     public static DevServerValidationResult failed(String taskId, Long appId,
                                                     List<DevServerError> errors, long durationMs) {
         int critCount = (int) errors.stream().filter(e -> e.pattern().isCritical()).count();
@@ -133,6 +151,15 @@ public record DevServerValidationResult(
         );
     }
 
+    /**
+ * 启动{@code up}失败。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param durationMs 待处理的 {@code durationMs} 集合
+ * @param reason 原因
+ * @return {@code up}失败
+ */
     public static DevServerValidationResult startupFailed(
             String taskId,
             Long appId,
@@ -147,6 +174,14 @@ public record DevServerValidationResult(
         );
     }
 
+    /**
+ * 返回{@code interrupted}。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param durationMs 待处理的 {@code durationMs} 集合
+ * @return 开发服务器校验结果
+ */
     public static DevServerValidationResult interrupted(String taskId, Long appId, long durationMs) {
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.FAILED, ValidationFailureKind.INTERRUPTED,
@@ -155,6 +190,14 @@ public record DevServerValidationResult(
         );
     }
 
+    /**
+ * 返回超时。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param durationMs 待处理的 {@code durationMs} 集合
+ * @return 开发服务器校验结果
+ */
     public static DevServerValidationResult timeout(String taskId, Long appId, long durationMs) {
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.TIMEOUT, ValidationFailureKind.STARTUP_TIMEOUT,
@@ -163,6 +206,14 @@ public record DevServerValidationResult(
         );
     }
 
+    /**
+ * 返回{@code skipped}。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param reason 原因
+ * @return 开发服务器校验结果
+ */
     public static DevServerValidationResult skipped(String taskId, Long appId, String reason) {
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.SKIPPED, ValidationFailureKind.SKIPPED,

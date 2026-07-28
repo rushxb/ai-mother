@@ -91,6 +91,8 @@ class GenerationExecutionContextTest {
         GenerationExecutionContext context = context(4, Duration.ofMinutes(2), clock);
         context.consume(GenerationBudgetKind.REPAIR_ROUND);
         context.recordSuccessfulWorkspaceMutations(2);
+        context.beginAgentAttempt(6);
+        context.reserveAgentModelTurn(6);
 
         GenerationExecutionSnapshot snapshot = context.snapshot();
 
@@ -101,6 +103,9 @@ class GenerationExecutionContextTest {
         assertEquals(1, snapshot.usages().get(GenerationBudgetKind.REPAIR_ROUND));
         assertEquals(4, snapshot.limits().get(GenerationBudgetKind.REPAIR_ROUND));
         assertEquals(2, snapshot.successfulWorkspaceMutations());
+        assertEquals(1L, snapshot.agentAttemptEpoch());
+        assertEquals(6, snapshot.agentToolRoundLimit());
+        assertEquals(1, snapshot.agentModelTurnsStarted());
     }
 
     @Test
@@ -109,6 +114,9 @@ class GenerationExecutionContextTest {
         GenerationExecutionContext original = context(4, Duration.ofMinutes(2), clock);
         original.consume(GenerationBudgetKind.ROOT_MODEL_ATTEMPT);
         original.recordSuccessfulWorkspaceMutations(1);
+        original.beginAgentAttempt(4);
+        original.reserveAgentModelTurn(4);
+        original.reserveAgentModelTurn(4);
         GenerationExecutionSnapshot snapshot = original.snapshot();
 
         clock.advance(Duration.ofSeconds(30));
@@ -118,6 +126,9 @@ class GenerationExecutionContextTest {
         assertEquals(snapshot.deadlineAt(), restored.deadlineAt());
         assertEquals(1, restored.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
         assertEquals(1, restored.successfulWorkspaceMutationCount());
+        assertEquals(1L, restored.agentAttemptEpoch());
+        assertEquals(4, restored.agentToolRoundLimit());
+        assertEquals(2, restored.agentModelTurnsStarted());
         assertEquals(Duration.ofSeconds(90), restored.remainingDuration());
     }
 

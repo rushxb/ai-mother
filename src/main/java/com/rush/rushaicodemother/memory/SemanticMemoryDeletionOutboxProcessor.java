@@ -80,9 +80,11 @@ public class SemanticMemoryDeletionOutboxProcessor {
         processBatch();
     }
 
+    /** 处理批次。 */
     int processBatch() {
         Instant batchStartedAt = clock.instant();
         String batchStatus = "success";
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Instant now = clock.instant();
             int completed = 0;
@@ -127,6 +129,7 @@ public class SemanticMemoryDeletionOutboxProcessor {
         }
     }
 
+    /** 根据当前尝试次数计算有上限的重试延迟。 */
     private Duration retryDelay(int attempts) {
         int exponent = Math.max(0, Math.min(20, attempts - 1));
         Duration candidate;
@@ -140,6 +143,7 @@ public class SemanticMemoryDeletionOutboxProcessor {
                 : candidate;
     }
 
+    /** 刷新积压量。 */
     private void refreshBacklog(Instant observedAt) {
         try {
             metrics.updateBacklog("deletion", repository.inspectBacklog(observedAt), observedAt);

@@ -40,6 +40,12 @@ public class FailoverChatMemoryStore implements ChatMemoryStore {
         );
     }
 
+    /**
+ * 获取并返回消息。
+ *
+ * @param memoryId 记忆编号
+ * @return 故障转移对话记忆存储集合
+ */
     @Override
     public List<ChatMessage> getMessages(Object memoryId) {
         Object requiredMemoryId = requireMemoryId(memoryId);
@@ -66,6 +72,12 @@ public class FailoverChatMemoryStore implements ChatMemoryStore {
         }
     }
 
+    /**
+ * 更新消息。
+ *
+ * @param memoryId 记忆编号
+ * @param messages 消息列表
+ */
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
         Object requiredMemoryId = requireMemoryId(memoryId);
@@ -86,6 +98,11 @@ public class FailoverChatMemoryStore implements ChatMemoryStore {
         }
     }
 
+    /**
+ * 删除消息。
+ *
+ * @param memoryId 记忆编号
+ */
     @Override
     public void deleteMessages(Object memoryId) {
         Object requiredMemoryId = requireMemoryId(memoryId);
@@ -105,6 +122,7 @@ public class FailoverChatMemoryStore implements ChatMemoryStore {
         }
     }
 
+    /** 返回{@code flush}{@code Pending}变更。 */
     private List<ChatMessage> flushPendingMutation(
             Object memoryId,
             BoundedChatMemoryFallbackStore.FallbackState fallbackState
@@ -128,6 +146,7 @@ public class FailoverChatMemoryStore implements ChatMemoryStore {
         return fallbackState.messages();
     }
 
+    /** 校验并返回有效的记忆编号。 */
     private Object requireMemoryId(Object memoryId) {
         if (memoryId == null) {
             throw new IllegalArgumentException("memoryId cannot be null or blank");

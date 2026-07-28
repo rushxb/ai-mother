@@ -16,6 +16,16 @@ import java.util.List;
 @Service
 public class AgentEditPlanningService {
 
+    /**
+ * 返回计划。
+ *
+ * @param readResult {@code readResult} 对应的调用参数
+ * @param understanding {@code understanding} 对应的调用参数
+ * @param codeGenType 代码生成类型
+ * @param editResult 编辑结果
+ * @param patchOperations 补丁操作
+ * @return 智能体编辑{@code Planning}
+ */
     public EditChangePlan plan(AgentEditReadResult readResult,
                                AgentEditUnderstanding understanding,
                                CodeGenTypeEnum codeGenType,
@@ -55,6 +65,12 @@ public class AgentEditPlanningService {
         );
     }
 
+    /**
+ * 将输入转换为{@code To}补丁操作。
+ *
+ * @param editResult 编辑结果
+ * @return {@code To}补丁操作集合
+ */
     public List<PatchOperation> convertToPatchOperations(EditResult editResult) {
         if (editResult == null || editResult.operations() == null) {
             return List.of();
@@ -65,6 +81,7 @@ public class AgentEditPlanningService {
                 .toList();
     }
 
+    /** 将输入转换为智能体编辑{@code Planning}。 */
     private PatchOperation convert(EditOperation operation) {
         if (operation == null || StrUtil.isBlank(operation.action())) {
             return null;
@@ -80,6 +97,7 @@ public class AgentEditPlanningService {
         };
     }
 
+    /** 返回{@code infer}作用域。 */
     private String inferScope(int fileCount, CodeGenTypeEnum codeGenType, AgentEditReadResult readResult) {
         if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return "fullstack_patch";
@@ -90,6 +108,7 @@ public class AgentEditPlanningService {
         return "single_module_patch";
     }
 
+    /** 返回{@code infer}校验。 */
     private String inferValidation(EditResult editResult,
                                    CodeGenTypeEnum codeGenType,
                                    AgentEditReadResult readResult,

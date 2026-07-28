@@ -21,6 +21,15 @@ public class LightweightEditAiService {
         return modelInvoker.invokeManaged(taskId, "initial", userMessage, projectContext);
     }
 
+    /**
+ * 返回重试执行后补丁{@code Rejection}。
+ *
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @param applyResult {@code applyResult} 对应的调用参数
+ * @param diagnostic {@code diagnostic} 对应的调用参数
+ * @return 轻量编辑 AI
+ */
     public EditResult retryAfterPatchRejection(String userMessage,
                                                String projectContext,
                                                PatchApplyResult applyResult,
@@ -45,6 +54,16 @@ public class LightweightEditAiService {
         return modelInvoker.invokeLegacy(retryMessage, projectContext);
     }
 
+    /**
+ * 返回重试执行后补丁{@code Rejection}。
+ *
+ * @param taskId 任务编号
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @param applyResult {@code applyResult} 对应的调用参数
+ * @param diagnostic {@code diagnostic} 对应的调用参数
+ * @return 轻量编辑 AI
+ */
     public EditResult retryAfterPatchRejection(String taskId,
                                                String userMessage,
                                                String projectContext,
@@ -54,6 +73,14 @@ public class LightweightEditAiService {
                 taskId, "patch_retry", buildPatchRetryMessage(userMessage, applyResult, diagnostic), projectContext);
     }
 
+    /**
+ * 返回重试执行后校验失败。
+ *
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @param validationResult 校验结果
+ * @return 轻量编辑 AI
+ */
     public EditResult retryAfterValidationFailure(
             String userMessage,
             String projectContext,
@@ -79,6 +106,15 @@ public class LightweightEditAiService {
         return modelInvoker.invokeLegacy(retryMessage, projectContext);
     }
 
+    /**
+ * 返回重试执行后校验失败{@code Managed}。
+ *
+ * @param taskId 任务编号
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @param validationResult 校验结果
+ * @return 轻量编辑 AI
+ */
     public EditResult retryAfterValidationFailureManaged(
             String taskId,
             String userMessage,
@@ -89,6 +125,7 @@ public class LightweightEditAiService {
                 buildValidationRetryMessage(userMessage, validationResult), projectContext);
     }
 
+    /** 构建并返回补丁重试消息。 */
     private String buildPatchRetryMessage(String userMessage,
                                           PatchApplyResult applyResult,
                                           String diagnostic) {
@@ -111,6 +148,7 @@ public class LightweightEditAiService {
         );
     }
 
+    /** 构建并返回校验重试消息。 */
     private String buildValidationRetryMessage(
             String userMessage,
             BackgroundValidationService.ValidationResult validationResult) {

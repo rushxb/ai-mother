@@ -20,6 +20,12 @@ public class DefaultAiModelEnabledConfigurationSource
         this.snapshot = snapshot;
     }
 
+    /**
+ * 查找匹配的启用。
+ *
+ * @param modelType 模型类型
+ * @return 启用集合
+ */
     @Override
     public List<AiModelConfiguration> findEnabled(String modelType) {
         if (snapshot.isEmpty()) {

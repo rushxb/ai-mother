@@ -21,15 +21,31 @@ public class AiModelFleetFingerprintService implements GenerationBenchmarkModelF
     private final AiModelCandidateFingerprintService candidateFingerprintService;
     private final AiModelRuntimeProperties runtimeProperties;
 
+    /**
+ * 返回当前指纹。
+ *
+ * @return 处理后的AI 模型{@code Fleet}指纹文本
+ */
     @Override
     public String currentFingerprint() {
         return fingerprint(configurationSource.findEnabled(null).stream());
     }
 
+    /**
+ * 返回当前{@code Persistent}指纹。
+ *
+ * @return 处理后的AI 模型{@code Fleet}指纹文本
+ */
     public String currentPersistentFingerprint() {
         return fingerprint(persistenceService.findEnabled(null).stream());
     }
 
+    /**
+ * 返回指纹并启用候选。
+ *
+ * @param candidate 候选
+ * @return 处理后的AI 模型{@code Fleet}指纹文本
+ */
     public String fingerprintWithEnabledCandidate(AiModelConfiguration candidate) {
         if (candidate == null || !candidate.enabled()) {
             throw new BusinessException(
@@ -43,6 +59,7 @@ public class AiModelFleetFingerprintService implements GenerationBenchmarkModelF
         ));
     }
 
+    /** 返回指纹。 */
     private String fingerprint(Stream<AiModelConfiguration> configurations) {
         List<String> modelFingerprints = configurations
                 .map(candidateFingerprintService::fingerprint)

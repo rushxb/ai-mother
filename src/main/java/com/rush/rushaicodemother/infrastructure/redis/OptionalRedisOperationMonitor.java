@@ -32,6 +32,11 @@ public class OptionalRedisOperationMonitor implements MeterBinder {
     private final LongAdder[][] operationCounters = createOperationCounters();
     private final ConcurrentMap<OptionalRedisOperation, AtomicBoolean> degradedStates = new ConcurrentHashMap<>();
 
+    /**
+ * 绑定{@code To}。
+ *
+ * @param registry 目标注册器
+ */
     @Override
     public void bindTo(MeterRegistry registry) {
         Objects.requireNonNull(registry, "registry");
@@ -41,6 +46,11 @@ public class OptionalRedisOperationMonitor implements MeterBinder {
         }
     }
 
+    /**
+ * 记录成功相关指标或状态。
+ *
+ * @param operation 操作
+ */
     public void recordSuccess(OptionalRedisOperation operation) {
         OptionalRedisOperation requiredOperation = Objects.requireNonNull(operation, "operation");
         increment(requiredOperation, RESULT_SUCCESS);
@@ -53,6 +63,12 @@ public class OptionalRedisOperationMonitor implements MeterBinder {
         }
     }
 
+    /**
+ * 记录失败相关指标或状态。
+ *
+ * @param operation 操作
+ * @param failure 失败
+ */
     public void recordFailure(OptionalRedisOperation operation, RuntimeException failure) {
         OptionalRedisOperation requiredOperation = Objects.requireNonNull(operation, "operation");
         RuntimeException requiredFailure = Objects.requireNonNull(failure, "failure");

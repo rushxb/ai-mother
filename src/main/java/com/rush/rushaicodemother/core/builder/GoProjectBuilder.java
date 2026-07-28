@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +24,14 @@ public class GoProjectBuilder {
     private final GoBuildResultRegistry resultRegistry;
     private final GenerationExecutionContextService executionContextService;
 
+    /**
+ * 创建{@code Go}项目{@code Builder}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param commandService 命令服务
+ * @param snapshotService 快照服务
+ * @param resultRegistry 结果注册器
+ * @param executionContextService 执行上下文服务
+ */
     public GoProjectBuilder(
             GoBuildCommandService commandService,
             GoProjectSnapshotService snapshotService,
@@ -38,6 +47,13 @@ public class GoProjectBuilder {
         );
     }
 
+    /**
+ * 构建并返回项目并结果。
+ *
+ * @param projectPath 项目路径
+ * @param taskId 任务编号
+ * @return 项目并结果
+ */
     public GoBuildResult buildProjectWithResult(String projectPath, String taskId) {
         return buildProjectWithResult(
                 projectPath,
@@ -46,6 +62,14 @@ public class GoProjectBuilder {
         );
     }
 
+    /**
+ * 构建并返回项目并结果。
+ *
+ * @param projectPath 项目路径
+ * @param taskId 任务编号
+ * @param budgetReservation {@code budgetReservation} 对应的调用参数
+ * @return 项目并结果
+ */
     public GoBuildResult buildProjectWithResult(
             String projectPath,
             String taskId,
@@ -66,7 +90,7 @@ public class GoProjectBuilder {
         if (StrUtil.isBlank(taskId)) {
             return executeTests(projectRoot, taskId, budgetReservation);
         }
-        GoProjectSnapshot snapshot = captureSnapshot(projectRoot);
+        GoProjectSnapshot snapshot = captureSnapshot(projectRoot, taskId);
         if (snapshot == null) {
             return executeTests(projectRoot, taskId, budgetReservation);
         }
@@ -82,6 +106,7 @@ public class GoProjectBuilder {
         return result;
     }
 
+    /** 执行稳定{@code Tests}处理流程。 */
     private GoBuildResult executeStableTests(
             Path projectRoot,
             String taskId,
@@ -92,7 +117,7 @@ public class GoProjectBuilder {
         if (!result.success()) {
             return result;
         }
-        GoProjectSnapshot completedSnapshot = captureSnapshot(projectRoot);
+        GoProjectSnapshot completedSnapshot = captureSnapshot(projectRoot, taskId);
         if (completedSnapshot == null || !expectedSnapshot.equals(completedSnapshot)) {
             log.warn("Go 项目在构建测试期间发生变化，不记录成功结果: taskId={}, projectRoot={}",
                     taskId, projectRoot);
@@ -112,9 +137,15 @@ public class GoProjectBuilder {
         return GoBuildResult.fromCommand(projectRoot.toString(), commandResult);
     }
 
-    private GoProjectSnapshot captureSnapshot(Path projectRoot) {
+    /** 返回{@code capture}快照。 */
+    private GoProjectSnapshot captureSnapshot(Path projectRoot, String taskId) {
         try {
-            return snapshotService.capture(projectRoot);
+            return snapshotService.capture(
+                    projectRoot,
+                    () -> executionContextService.assertCanContinue(taskId)
+            );
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception exception) {
             log.debug("Go 项目快照不可用，将执行真实构建测试: projectRoot={}, error={}",
                     projectRoot, LogExceptionSanitizer.sanitizeMessage(exception));
@@ -122,6 +153,7 @@ public class GoProjectBuilder {
         }
     }
 
+    /** 根据当前上下文解析项目根。 */
     private Path resolveProjectRoot(String projectPath) {
         if (StrUtil.isBlank(projectPath)) {
             return null;

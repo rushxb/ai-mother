@@ -57,6 +57,14 @@ public class AiModelProvenanceFactory {
         this.promptCatalog = promptCatalog == null ? PromptCatalog.unmanaged() : promptCatalog;
     }
 
+    /**
+ * 创建 AI 模型来源信息。
+ *
+ * @param request 请求参数
+ * @param provider 提供方
+ * @param configuredModel 已配置模型
+ * @return AI 模型来源信息
+ */
     public GenerationModelCallProvenance create(ChatRequest request,
                                                 String provider,
                                                 String configuredModel) {
@@ -121,6 +129,7 @@ public class AiModelProvenanceFactory {
         );
     }
 
+    /** 返回提示词{@code Versions}。 */
     private List<Map<String, Object>> promptVersions(List<ChatMessage> messages) {
         Map<String, Map<String, Object>> identified = new LinkedHashMap<>();
         for (ChatMessage message : messages) {
@@ -152,6 +161,7 @@ public class AiModelProvenanceFactory {
         return canonical.toString();
     }
 
+    /** 判断当前状态是否允许{@code onical}{@code System}消息。 */
     private String canonicalSystemMessages(List<ChatMessage> messages) {
         StringBuilder canonical = new StringBuilder();
         for (ChatMessage message : messages) {
@@ -162,6 +172,7 @@ public class AiModelProvenanceFactory {
         return canonical.toString();
     }
 
+    /** 判断当前状态是否允许{@code onical}{@code Tools}。 */
     private String canonicalTools(List<ToolSpecification> tools) {
         List<String> definitions = new ArrayList<>(tools.size());
         for (ToolSpecification tool : tools) {
@@ -173,6 +184,7 @@ public class AiModelProvenanceFactory {
         return String.join("\n", definitions);
     }
 
+    /** 返回上下文{@code Pack}{@code References}。 */
     private List<Map<String, Object>> contextPackReferences(List<ChatMessage> messages) {
         List<Map<String, Object>> references = new ArrayList<>();
         Set<String> identifiedDigests = new LinkedHashSet<>();
@@ -189,10 +201,12 @@ public class AiModelProvenanceFactory {
         return List.copyOf(references);
     }
 
+    /** 从输入中提取上下文{@code Packs}。 */
     private void extractContextPacks(String text,
                                      List<Map<String, Object>> references,
                                      Set<String> identifiedDigests) {
         int cursor = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (cursor < text.length() && references.size() < MAX_CONTEXT_PACK_REFERENCES) {
             int start = text.indexOf(CONTEXT_PACK_PREFIX, cursor);
             if (start < 0) {
@@ -248,6 +262,7 @@ public class AiModelProvenanceFactory {
         }
     }
 
+    /** 返回消息{@code Text}。 */
     private String messageText(ChatMessage message) {
         if (message instanceof SystemMessage systemMessage) {
             return systemMessage.text();
@@ -264,6 +279,7 @@ public class AiModelProvenanceFactory {
         return null;
     }
 
+    /** 返回{@code line}{@code Break}{@code End}。 */
     private int lineBreakEnd(String text, int index) {
         if (index >= text.length()) {
             return -1;
@@ -279,6 +295,7 @@ public class AiModelProvenanceFactory {
         return -1;
     }
 
+    /** 返回{@code line}{@code Break}开始。 */
     private int lineBreakStart(String text, int suffixStart) {
         if (suffixStart <= 0 || text.charAt(suffixStart - 1) != '\n') {
             return -1;
@@ -290,6 +307,7 @@ public class AiModelProvenanceFactory {
         return bodyEnd;
     }
 
+    /** 解析应用编号。 */
     private Long parseAppId(String value) {
         if ("null".equals(value)) {
             return null;
@@ -312,6 +330,7 @@ public class AiModelProvenanceFactory {
         return count;
     }
 
+    /** 判断当前状态是否允许{@code onical}模型配置。 */
     private String canonicalModelConfiguration(ChatRequest request,
                                                String provider,
                                                String configuredModel,
@@ -336,6 +355,7 @@ public class AiModelProvenanceFactory {
         );
     }
 
+    /** 返回{@code serialize}消息。 */
     private String serializeMessage(ChatMessage message) {
         if (message == null) {
             return "null";
@@ -347,6 +367,7 @@ public class AiModelProvenanceFactory {
         }
     }
 
+    /** 将当前对象转换为{@code Json}。 */
     private String toJson(Map<String, Object> metadata) {
         try {
             return objectMapper.writeValueAsString(metadata);
@@ -355,6 +376,7 @@ public class AiModelProvenanceFactory {
         }
     }
 
+    /** 判断是否存在{@code h}。 */
     private String hash(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

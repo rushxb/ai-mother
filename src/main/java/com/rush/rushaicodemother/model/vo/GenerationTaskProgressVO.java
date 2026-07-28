@@ -24,6 +24,12 @@ public record GenerationTaskProgressVO(
         Long deadlineSlackMs,
         Instant computedAt
 ) {
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param estimate {@code estimate} 对应的调用参数
+ * @return 生成任务{@code Progress}视图对象
+ */
     public static GenerationTaskProgressVO from(GenerationTaskProgressEstimate estimate) {
         if (estimate == null) {
             return null;

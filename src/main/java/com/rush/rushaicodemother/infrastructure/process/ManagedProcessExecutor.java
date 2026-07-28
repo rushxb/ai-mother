@@ -94,6 +94,12 @@ public class ManagedProcessExecutor {
         this.tracer = tracer;
     }
 
+    /**
+ * 执行{@code Managed}进程处理流程。
+ *
+ * @param request 请求参数
+ * @return {@code Managed}进程
+ */
     public ManagedProcessResult execute(ManagedProcessRequest request) {
         Span parent = tracer.currentSpan();
         if (parent == null) {
@@ -121,6 +127,7 @@ public class ManagedProcessExecutor {
         }
     }
 
+    /** 执行内部处理流程。 */
     private ManagedProcessResult executeInternal(ManagedProcessRequest request) {
         long startedAtNanos = System.nanoTime();
         validateRequest(request);
@@ -132,7 +139,19 @@ public class ManagedProcessExecutor {
         ProcessOutputCollector stderrCollector = null;
         List<CompletableFuture<Void>> outputCompletions = List.of();
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
+            WaitOutcome stopBeforePrepare = executionStopOutcome(request, startedAtNanos);
+            if (stopBeforePrepare != null) {
+                return measuredResult(result(
+                        stopBeforePrepare.status(),
+                        commandText,
+                        null,
+                        null,
+                        null,
+                        stopBeforePrepare.errorDetail()
+                ), null, request, startedAtNanos);
+            }
             processPlan = request.exposedPort() == null
                     ? processSandbox.prepare(request, workingDirectory)
                     : processSandbox.prepareDevServer(
@@ -140,6 +159,17 @@ public class ManagedProcessExecutor {
                             workingDirectory,
                             request.exposedPort()
                     );
+            WaitOutcome stopBeforeStart = executionStopOutcome(request, startedAtNanos);
+            if (stopBeforeStart != null) {
+                return measuredResult(result(
+                        stopBeforeStart.status(),
+                        commandText,
+                        null,
+                        null,
+                        null,
+                        stopBeforeStart.errorDetail()
+                ), processPlan, request, startedAtNanos);
+            }
             log.info("执行外部进程: category={}, sandbox={}, command={}, context={}",
                     normalizeLogValue(request.logCategory(), "external-process"),
                     processPlan.backend(),
@@ -168,14 +198,31 @@ public class ManagedProcessExecutor {
                 ));
             }
             outputCompletions = List.copyOf(mutableCompletions);
-            processSandbox.activate(processPlan);
+            WaitOutcome stopBeforeActivation = executionStopOutcome(request, startedAtNanos);
+            if (stopBeforeActivation != null) {
+                terminateAndDrain(process, outputCompletions, request.outputDrainTimeout());
+                return measuredResult(result(
+                        stopBeforeActivation.status(),
+                        commandText,
+                        null,
+                        stdoutCollector,
+                        stderrCollector,
+                        stopBeforeActivation.errorDetail()
+                ), processPlan, request, startedAtNanos);
+            }
+            processSandbox.activate(
+                    processPlan,
+                    remainingTimeout(request.timeout(), startedAtNanos),
+                    request.cancellationRequested()
+            );
             request.lifecycle().onStarted(process);
 
             WaitOutcome waitOutcome = waitForProcess(
                     process,
                     stdoutCollector,
                     stderrCollector,
-                    request
+                    request,
+                    startedAtNanos
             );
             if (!waitOutcome.completed()) {
                 processTerminator.terminate(process);
@@ -212,6 +259,17 @@ public class ManagedProcessExecutor {
             ), processPlan, request, startedAtNanos);
         } catch (IOException | RuntimeException exception) {
             terminateAndDrain(process, outputCompletions, request.outputDrainTimeout());
+            WaitOutcome stopOutcome = executionStopOutcome(request, startedAtNanos);
+            if (stopOutcome != null) {
+                return measuredResult(result(
+                        stopOutcome.status(),
+                        commandText,
+                        null,
+                        stdoutCollector,
+                        stderrCollector,
+                        stopOutcome.errorDetail()
+                ), processPlan, request, startedAtNanos);
+            }
             log.error("启动或执行外部进程失败: command={}, exceptionType={}",
                     commandText, exception.getClass().getName());
             return measuredResult(result(
@@ -228,6 +286,7 @@ public class ManagedProcessExecutor {
         }
     }
 
+    /** 清理{@code Sandbox}及其关联资源。 */
     private void cleanupSandbox(SandboxProcessPlan processPlan, String commandText) {
         if (processPlan == null) {
             return;
@@ -259,6 +318,7 @@ public class ManagedProcessExecutor {
         return result;
     }
 
+    /** 处理通知{@code Finished}。 */
     private void notifyFinished(
             ManagedProcessLifecycle lifecycle,
             Process process,
@@ -275,20 +335,22 @@ public class ManagedProcessExecutor {
         }
     }
 
+    /** 返回{@code wait}{@code For}进程。 */
     private WaitOutcome waitForProcess(
             Process process,
             ProcessOutputCollector stdoutCollector,
             ProcessOutputCollector stderrCollector,
-            ManagedProcessRequest request
+            ManagedProcessRequest request,
+            long executionStartedAtNanos
     ) throws InterruptedException {
-        long startedAt = System.nanoTime();
-        long lastHeartbeatAt = startedAt;
+        long lastHeartbeatAt = System.nanoTime();
         long timeoutNanos = request.timeout().toNanos();
         Long idleTimeoutNanos = request.idleTimeout() == null
                 ? null
                 : request.idleTimeout().toNanos();
         long heartbeatNanos = request.heartbeatInterval().toNanos();
 
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (true) {
             if (request.cancellationRequested().getAsBoolean()) {
                 return WaitOutcome.failed(
@@ -297,7 +359,7 @@ public class ManagedProcessExecutor {
                 );
             }
             long now = System.nanoTime();
-            long elapsedNanos = now - startedAt;
+            long elapsedNanos = now - executionStartedAtNanos;
             long idleNanos = idleNanos(now, stdoutCollector, stderrCollector);
             if (elapsedNanos >= timeoutNanos) {
                 logTimeout(
@@ -342,6 +404,30 @@ public class ManagedProcessExecutor {
                 return WaitOutcome.completedSuccessfully();
             }
         }
+    }
+
+    private WaitOutcome executionStopOutcome(
+            ManagedProcessRequest request,
+            long executionStartedAtNanos
+    ) {
+        if (request.cancellationRequested().getAsBoolean()) {
+            return WaitOutcome.failed(
+                    ManagedProcessResult.Status.INTERRUPTED,
+                    "外部进程执行已取消"
+            );
+        }
+        if (System.nanoTime() - executionStartedAtNanos >= request.timeout().toNanos()) {
+            return WaitOutcome.failed(
+                    ManagedProcessResult.Status.TIMED_OUT,
+                    "外部进程执行超过总超时 " + request.timeout()
+            );
+        }
+        return null;
+    }
+
+    private Duration remainingTimeout(Duration timeout, long executionStartedAtNanos) {
+        long remainingNanos = timeout.toNanos() - (System.nanoTime() - executionStartedAtNanos);
+        return Duration.ofNanos(Math.max(1L, remainingNanos));
     }
 
     private ProcessOutputCollector createCollector(ManagedProcessRequest request, String streamName) {
@@ -418,6 +504,7 @@ public class ManagedProcessExecutor {
         return stdoutTail + " | stderr: " + stderrCollector.tailForLog();
     }
 
+    /** 处理日志超时。 */
     private void logTimeout(
             String message,
             long elapsedNanos,
@@ -440,6 +527,7 @@ public class ManagedProcessExecutor {
                 outputTail(stdoutCollector, stderrCollector));
     }
 
+    /** 处理日志心跳。 */
     private void logHeartbeat(
             long elapsedNanos,
             long idleNanos,
@@ -459,6 +547,7 @@ public class ManagedProcessExecutor {
                 outputTail(stdoutCollector, stderrCollector));
     }
 
+    /** 校验{@code ate}请求是否有效。 */
     private void validateRequest(ManagedProcessRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("外部进程请求不能为空");
@@ -492,6 +581,7 @@ public class ManagedProcessExecutor {
         }
     }
 
+    /** 规范化{@code Working}目录。 */
     private Path normalizeWorkingDirectory(Path workingDirectory) {
         if (workingDirectory == null) {
             throw new IllegalArgumentException("外部进程工作目录不能为空");
@@ -516,12 +606,15 @@ public class ManagedProcessExecutor {
         return SensitiveLogSanitizer.sanitize(normalized);
     }
 
+    /** 返回{@code display}命令。 */
     private String displayCommand(ManagedProcessRequest request) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (request.displayCommand() != null && !request.displayCommand().isBlank()) {
             return SensitiveLogSanitizer.sanitize(request.displayCommand().trim());
         }
         StringBuilder display = new StringBuilder();
         boolean redactNext = false;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String argument : request.command()) {
             if (!display.isEmpty()) {
                 display.append(' ');

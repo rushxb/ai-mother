@@ -29,6 +29,7 @@ public class GenerationTaskRedispatchCoordinator {
         this.properties = properties;
     }
 
+    /** 处理{@code redispatch}{@code Queued}任务。 */
     @Scheduled(fixedDelayString = "${app.generation-task-queue.redispatch-interval:15s}")
     public void redispatchQueuedTasks() {
         Instant now = Instant.now();

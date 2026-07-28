@@ -22,6 +22,14 @@ public record FullStackGenerationContext(
         String containerizationStatus
 ) {
 
+    /**
+ * 创建全栈生成上下文。
+ *
+ * @param frontendPort {@code frontendPort} 对应的调用参数
+ * @param backendPort 后端端口
+ * @param workspace 工作区
+ * @return 全栈生成上下文
+ */
     public static FullStackGenerationContext create(int frontendPort,
                                                     int backendPort,
                                                     GenerationWorkspace workspace) {
@@ -51,6 +59,11 @@ public record FullStackGenerationContext(
         return path.toString().replace('\\', '/');
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("appId", appId);

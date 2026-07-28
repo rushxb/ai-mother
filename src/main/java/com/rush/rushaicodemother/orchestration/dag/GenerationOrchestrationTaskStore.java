@@ -68,6 +68,14 @@ public class GenerationOrchestrationTaskStore {
         this(properties, taskIdGenerator, checkpointRepository, null);
     }
 
+    /**
+ * 创建生成编排任务存储实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param taskIdGenerator 任务编号生成器
+ * @param checkpointRepository 检查点仓储
+ * @param executionContextService 执行上下文服务
+ */
     @Autowired
     public GenerationOrchestrationTaskStore(
             GenerationTaskSnapshotProperties properties,
@@ -85,10 +93,25 @@ public class GenerationOrchestrationTaskStore {
         }
     }
 
+    /**
+ * 创建生成编排任务存储。
+ *
+ * @param appId 应用编号
+ * @param userMessage 用户消息
+ * @return 生成编排任务存储
+ */
     public GenerationOrchestrationTask create(Long appId, String userMessage) {
         return create(taskIdGenerator.nextId(), appId, userMessage);
     }
 
+    /**
+ * 创建生成编排任务存储。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userMessage 用户消息
+ * @return 生成编排任务存储
+ */
     public GenerationOrchestrationTask create(String taskId, Long appId, String userMessage) {
         String normalizedTaskId = StrUtil.trim(taskId);
         if (!isSafeTaskId(normalizedTaskId)) {
@@ -104,7 +127,13 @@ public class GenerationOrchestrationTaskStore {
         return task;
     }
 
+    /**
+ * 保存生成编排任务存储。
+ *
+ * @param task 任务
+ */
     public void save(GenerationOrchestrationTask task) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (task == null) {
             throw new IllegalArgumentException("orchestration task is required");
         }
@@ -123,6 +152,7 @@ public class GenerationOrchestrationTaskStore {
 
         ReentrantLock lock = lockFor(appId);
         lock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             String snapshotJson = JSONUtil.toJsonPrettyStr(task);
             byte[] snapshotBytes = snapshotJson.getBytes(StandardCharsets.UTF_8);
@@ -152,6 +182,13 @@ public class GenerationOrchestrationTaskStore {
         }
     }
 
+    /**
+ * 加载生成编排任务存储。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @return 可选的生成编排任务存储；不存在时返回空值
+ */
     public Optional<GenerationOrchestrationTask> load(Long appId, String taskId) {
         String normalizedTaskId = StrUtil.trim(taskId);
         if (!isValidIdentity(appId, normalizedTaskId)) {
@@ -178,6 +215,7 @@ public class GenerationOrchestrationTaskStore {
         Path taskFile = resolveTaskPath(appId, normalizedTaskId);
         ReentrantLock lock = lockFor(appId);
         lock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (!Files.exists(taskFile, LinkOption.NOFOLLOW_LINKS)) {
                 return Optional.empty();
@@ -200,10 +238,18 @@ public class GenerationOrchestrationTaskStore {
         }
     }
 
+    /**
+ * 返回{@code matches}请求。
+ *
+ * @param task 任务
+ * @param userMessage 用户消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean matchesRequest(GenerationOrchestrationTask task, String userMessage) {
         return task != null && buildRequestHash(userMessage).equals(task.getRequestHash());
     }
 
+    /** 根据当前上下文解析任务路径。 */
     Path resolveTaskPath(Long appId, String taskId) {
         if (!isValidIdentity(appId, taskId)) {
             throw new IllegalArgumentException("invalid orchestration task identity");
@@ -216,6 +262,7 @@ public class GenerationOrchestrationTaskStore {
         return taskFile;
     }
 
+    /** 写入{@code Atomically}。 */
     private void writeAtomically(Path target, byte[] content) throws IOException {
         Path temporaryFile = Files.createTempFile(target.getParent(), ".snapshot-", ".tmp");
         try {
@@ -261,6 +308,7 @@ public class GenerationOrchestrationTaskStore {
         }
     }
 
+    /** 规范化{@code Loaded}任务。 */
     private void normalizeLoadedTask(GenerationOrchestrationTask task) {
         if (task.getRuntimeState() == null) {
             task.setRuntimeState(AgentRuntimeState.INITIALIZED);
@@ -279,6 +327,7 @@ public class GenerationOrchestrationTaskStore {
         }
     }
 
+    /** 清理{@code Snapshots}及其关联资源。 */
     private void cleanupSnapshots(Path appDirectory) throws IOException {
         if (!Files.isDirectory(appDirectory, LinkOption.NOFOLLOW_LINKS)) {
             return;
@@ -307,6 +356,7 @@ public class GenerationOrchestrationTaskStore {
         }
     }
 
+    /** 返回{@code inspect}快照。 */
     private SnapshotFile inspectSnapshot(Path path) {
         if (path == null
                 || !path.getFileName().toString().endsWith(SNAPSHOT_SUFFIX)

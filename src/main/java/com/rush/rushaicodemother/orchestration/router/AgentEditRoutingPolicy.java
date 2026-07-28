@@ -20,6 +20,12 @@ public class AgentEditRoutingPolicy implements GenerationRoutingPolicy {
             "bug", "报错", "crud", "字段同步", "权限", "登录", "注册"
     );
 
+    /**
+ * 根据输入信号确定智能体编辑路由策略。
+ *
+ * @param signal 输入信号
+ * @return 可选的智能体编辑路由策略；不存在时返回空值
+ */
     @Override
     public Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal) {
         if (!signal.existingWorkspace() || !signal.containsAny(AGENT_EDIT_KEYWORDS)) {

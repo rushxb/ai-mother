@@ -73,14 +73,30 @@ public class GenerationTaskRuntimeLifecycleService {
         this.clock = clock;
     }
 
+    /**
+ * 校验并提交当前请求。
+ *
+ * @param command 命令
+ */
     public void submit(GenerationTaskCommand command) {
         submit(command, GenerationTaskIdempotency.none());
     }
 
+    /**
+ * 校验并提交当前请求。
+ *
+ * @param command 命令
+ * @param idempotency {@code idempotency} 对应的调用参数
+ */
     public void submit(GenerationTaskCommand command, GenerationTaskIdempotency idempotency) {
         repository.createSubmitted(leaseCoordinator.submissionRecord(command, idempotency));
     }
 
+    /**
+ * 处理{@code activate}。
+ *
+ * @param fence 围栏
+ */
     public void activate(GenerationExecutionFence fence) {
         DurableGenerationTaskRecord queuedTask = safeFind(fence.taskId());
         leaseCoordinator.activate(fence);
@@ -95,10 +111,23 @@ public class GenerationTaskRuntimeLifecycleService {
         return leaseCoordinator.releaseClaimToQueue(fence, reason);
     }
 
+    /**
+ * 返回请求{@code Cancellation}。
+ *
+ * @param taskId 任务编号
+ * @param reason 原因
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean requestCancellation(String taskId, String reason) {
         return repository.requestCancellation(taskId, reason, clock.instant());
     }
 
+    /**
+ * 查找匹配的按任务编号。
+ *
+ * @param taskId 任务编号
+ * @return 可选的按任务编号；不存在时返回空值
+ */
     public Optional<DurableGenerationTaskRecord> findByTaskId(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             return Optional.empty();
@@ -123,6 +152,13 @@ public class GenerationTaskRuntimeLifecycleService {
         leaseCoordinator.renewForCriticalSection(fence);
     }
 
+    /**
+ * 完成{@code Owned}并持久化终态。
+ *
+ * @param fence 围栏
+ * @param status 目标状态
+ * @param reason 原因
+ */
     public void completeOwned(GenerationExecutionFence fence,
                               GenerationTaskStatus status,
                               String reason) {
@@ -139,6 +175,13 @@ public class GenerationTaskRuntimeLifecycleService {
         }
     }
 
+    /**
+ * 将无主任务更新为指定终态。
+ *
+ * @param taskId 任务编号
+ * @param status 目标状态
+ * @param reason 原因
+ */
     public void completeUnowned(String taskId, GenerationTaskStatus status, String reason) {
         DurableGenerationTaskRecord task = safeFind(taskId);
         Instant completedAt = clock.instant();
@@ -149,6 +192,7 @@ public class GenerationTaskRuntimeLifecycleService {
         }
     }
 
+    /** 返回安全{@code Find}。 */
     private DurableGenerationTaskRecord safeFind(String taskId) {
         try {
             return repository.findByTaskId(taskId).orElse(null);
@@ -157,6 +201,7 @@ public class GenerationTaskRuntimeLifecycleService {
         }
     }
 
+    /** 记录用户{@code Wait}相关指标或状态。 */
     private void recordUserWait(DurableGenerationTaskRecord task,
                                 GenerationTaskStatus status,
                                 Instant completedAt) {
@@ -178,6 +223,7 @@ public class GenerationTaskRuntimeLifecycleService {
         );
     }
 
+    /** 记录{@code Initial}持久{@code Queue}{@code Wait}相关指标或状态。 */
     private void recordInitialDurableQueueWait(DurableGenerationTaskRecord task, Instant activatedAt) {
         if (performanceMonitorService == null || task == null || task.attempt() > 0
                 || task.submittedAt() == null || activatedAt == null) {

@@ -38,6 +38,11 @@ public class MicrometerGenerationTraceContextBridge implements GenerationTraceCo
         this(tracer, propagator, new GenerationTraceParentRegistry());
     }
 
+    /**
+ * 返回{@code capture}。
+ *
+ * @return {@code Micrometer}生成追踪上下文{@code Bridge}
+ */
     @Override
     public GenerationTraceContext capture() {
         Span currentSpan = tracer.currentSpan();
@@ -49,6 +54,15 @@ public class MicrometerGenerationTraceContextBridge implements GenerationTraceCo
         return GenerationTraceContext.fromCarrier(carrier);
     }
 
+    /**
+ * 返回{@code wrap}。
+ *
+ * @param context 执行上下文
+ * @param spanName 跨度名称
+ * @param tags 待处理的 {@code tags} 集合
+ * @param task 任务
+ * @return {@code Micrometer}生成追踪上下文{@code Bridge}
+ */
     @Override
     public Runnable wrap(GenerationTraceContext context,
                          String spanName,
@@ -63,6 +77,7 @@ public class MicrometerGenerationTraceContextBridge implements GenerationTraceCo
         return () -> continueTrace(traceContext, normalizedSpanName, normalizedTags, task);
     }
 
+    /** 处理{@code continue}追踪。 */
     private void continueTrace(GenerationTraceContext context,
                                String spanName,
                                Map<String, String> tags,
@@ -95,6 +110,7 @@ public class MicrometerGenerationTraceContextBridge implements GenerationTraceCo
         return normalized.length() <= 96 ? normalized : normalized.substring(0, 96);
     }
 
+    /** 规范化{@code Tags}。 */
     private Map<String, String> normalizeTags(Map<String, String> tags) {
         if (tags == null || tags.isEmpty()) {
             return Map.of();

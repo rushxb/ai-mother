@@ -53,6 +53,7 @@ public record GenerationBenchmarkRunResult(
                 null, GenerationBenchmarkQualityEvidence.empty());
     }
 
+    /** 创建生成基准测试{@code Run}结果实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkRunResult {
         taskId = taskId == null ? "" : taskId;
         mode = mode == null ? "" : mode;

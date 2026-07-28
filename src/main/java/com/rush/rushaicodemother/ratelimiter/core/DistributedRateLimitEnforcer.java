@@ -27,6 +27,12 @@ public class DistributedRateLimitEnforcer {
         this.limiterIdleTtl = properties.getLimiterIdleTtl();
     }
 
+    /**
+ * 处理{@code enforce}。
+ *
+ * @param key 键
+ * @param policy 策略
+ */
     public void enforce(String key, RateLimit policy) {
         validatePolicy(key, policy);
         Duration interval = Duration.ofSeconds(policy.rateInterval());
@@ -50,6 +56,7 @@ public class DistributedRateLimitEnforcer {
                 || !Objects.equals(current.getRateInterval(), expectedInterval.toMillis());
     }
 
+    /** 校验{@code ate}策略是否有效。 */
     private void validatePolicy(String key, RateLimit policy) {
         if (key == null || key.isBlank()) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "限流键不能为空");

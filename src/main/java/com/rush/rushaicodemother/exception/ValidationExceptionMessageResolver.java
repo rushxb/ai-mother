@@ -22,6 +22,12 @@ import java.util.Comparator;
 @Component
 public class ValidationExceptionMessageResolver {
 
+    /**
+ * 根据当前上下文解析校验异常消息。
+ *
+ * @param exception 待转换或处理的异常
+ * @return 处理后的校验异常消息文本
+ */
     public String resolve(BindException exception) {
         if (!exception.getBindingResult().getFieldErrors().isEmpty()) {
             return formatFieldError(exception.getBindingResult().getFieldErrors().getFirst());
@@ -32,6 +38,12 @@ public class ValidationExceptionMessageResolver {
                 .orElse(ErrorCode.PARAMS_ERROR.getMessage());
     }
 
+    /**
+ * 根据当前上下文解析校验异常消息。
+ *
+ * @param exception 待转换或处理的异常
+ * @return 处理后的校验异常消息文本
+ */
     public String resolve(ConstraintViolationException exception) {
         return exception.getConstraintViolations().stream()
                 .sorted(Comparator.comparing(this::propertyPath))
@@ -40,6 +52,12 @@ public class ValidationExceptionMessageResolver {
                 .orElse(ErrorCode.PARAMS_ERROR.getMessage());
     }
 
+    /**
+ * 根据当前上下文解析校验异常消息。
+ *
+ * @param exception 待转换或处理的异常
+ * @return 处理后的校验异常消息文本
+ */
     public String resolve(HandlerMethodValidationException exception) {
         if (!exception.getParameterValidationResults().isEmpty()) {
             return formatParameterValidationResult(exception.getParameterValidationResults().getFirst());
@@ -50,11 +68,23 @@ public class ValidationExceptionMessageResolver {
                 .orElse(ErrorCode.PARAMS_ERROR.getMessage());
     }
 
+    /**
+ * 根据当前上下文解析校验异常消息。
+ *
+ * @param exception 待转换或处理的异常
+ * @return 处理后的校验异常消息文本
+ */
     public String resolve(MethodArgumentTypeMismatchException exception) {
         String parameterName = normalize(exception.getName(), "unknown");
         return parameterError(parameterName, "type mismatch");
     }
 
+    /**
+ * 根据当前上下文解析校验异常消息。
+ *
+ * @param exception 待转换或处理的异常
+ * @return 处理后的校验异常消息文本
+ */
     public String resolve(ServletRequestBindingException exception) {
         if (exception instanceof MissingServletRequestParameterException missingParameter) {
             return parameterError(missingParameter.getParameterName(), "is required");

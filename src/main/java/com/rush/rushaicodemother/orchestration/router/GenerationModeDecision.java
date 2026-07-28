@@ -15,6 +15,7 @@ public record GenerationModeDecision(
         GenerationRoutingDecisionCode decisionCode
 ) {
 
+    /** 创建生成模式决策实例并完成必要的依赖和初始状态设置。 */
     public GenerationModeDecision {
         if (mode == null) {
             mode = GenerationMode.HEAVY_EXPERT;
@@ -65,6 +66,13 @@ public record GenerationModeDecision(
         return mode.route();
     }
 
+    /**
+ * 创建包含回退的新对象。
+ *
+ * @param fallbackMode 回退模式
+ * @param reason 原因
+ * @return 回退
+ */
     public GenerationModeDecision withFallback(GenerationMode fallbackMode, String reason) {
         return new GenerationModeDecision(
                 fallbackMode,

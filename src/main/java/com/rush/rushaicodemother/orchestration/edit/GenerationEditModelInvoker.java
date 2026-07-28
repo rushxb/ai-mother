@@ -53,6 +53,7 @@ public class GenerationEditModelInvoker {
         Instant startedAt = Instant.now();
         MonitorContext previousContext = MonitorContextHolder.getContext();
         int attempt = 0;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             context.assertCanContinue();
             if (Thread.currentThread().isInterrupted()) {
@@ -142,6 +143,7 @@ public class GenerationEditModelInvoker {
         return normalized.length() <= 64 ? normalized : normalized.substring(0, 64);
     }
 
+    /** 校验并返回有效的重试窗口。 */
     private void requireRetryWindow(GenerationExecutionContext context, String stage) {
         if (!isRepairStage(stage)) {
             return;

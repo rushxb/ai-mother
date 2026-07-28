@@ -34,6 +34,13 @@ public final class ProcessOutputCollector {
     private final StringBuilder pendingLine = new StringBuilder();
     private final AtomicLong lastOutputAt = new AtomicLong(System.nanoTime());
 
+    /**
+ * 创建进程输出采集器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param logCategory 日志分类
+ * @param logContext 日志上下文
+ * @param maxOutputLength 最大输出长度
+ */
     public ProcessOutputCollector(String logCategory, String logContext, int maxOutputLength) {
         this(
                 logCategory,
@@ -44,6 +51,14 @@ public final class ProcessOutputCollector {
         );
     }
 
+    /**
+ * 创建进程输出采集器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param logCategory 日志分类
+ * @param logContext 日志上下文
+ * @param maxOutputLength 最大输出长度
+ * @param outputCharset 输出字符集
+ */
     public ProcessOutputCollector(
             String logCategory,
             String logContext,
@@ -59,6 +74,15 @@ public final class ProcessOutputCollector {
         );
     }
 
+    /**
+ * 创建进程输出采集器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param logCategory 日志分类
+ * @param logContext 日志上下文
+ * @param maxOutputLength 最大输出长度
+ * @param outputCharset 输出字符集
+ * @param outputLogPolicy 输出日志策略
+ */
     public ProcessOutputCollector(
             String logCategory,
             String logContext,
@@ -78,10 +102,24 @@ public final class ProcessOutputCollector {
                 : outputLogPolicy;
     }
 
+    /**
+ * 启动进程输出。
+ *
+ * @param process 进程
+ * @return 异步处理结果
+ */
     public CompletableFuture<Void> start(Process process) {
         return start(process.getInputStream(), process.pid(), "combined");
     }
 
+    /**
+ * 启动进程输出。
+ *
+ * @param inputStream 输入流
+ * @param processId 进程编号
+ * @param streamName 流名称
+ * @return 异步处理结果
+ */
     public CompletableFuture<Void> start(InputStream inputStream, long processId, String streamName) {
         CompletableFuture<Void> completion = new CompletableFuture<>();
         Thread.ofVirtual()
@@ -97,16 +135,32 @@ public final class ProcessOutputCollector {
         return completion;
     }
 
+    /**
+ * 返回{@code idle}纳秒数。
+ *
+ * @param nowNanos 待处理的 {@code nowNanos} 集合
+ * @return 计算或处理后的数值结果
+ */
     public long idleNanos(long nowNanos) {
         return Math.max(0, nowNanos - lastOutputAt.get());
     }
 
+    /**
+ * 返回输出。
+ *
+ * @return 处理后的进程输出文本
+ */
     public synchronized String output() {
         return output.toString()
                 .replace("\0", "")
                 .replace("\uFEFF", "");
     }
 
+    /**
+ * 返回{@code tail}{@code For}日志。
+ *
+ * @return 处理后的进程输出文本
+ */
     public synchronized String tailForLog() {
         String normalized = SensitiveLogSanitizer.sanitize(output())
                 .replace("\u001B", "")
@@ -121,6 +175,12 @@ public final class ProcessOutputCollector {
                 : normalized;
     }
 
+    /**
+ * 等待完成{@code Preserving}{@code Interrupt}完成。
+ *
+ * @param completion 完成
+ * @param timeout 超时时间
+ */
     public static void awaitCompletionPreservingInterrupt(
             CompletableFuture<Void> completion,
             Duration timeout
@@ -139,6 +199,7 @@ public final class ProcessOutputCollector {
         }
     }
 
+    /** 处理{@code drain}。 */
     private void drain(InputStream inputStream) throws IOException {
         char[] buffer = new char[READ_BUFFER_SIZE];
         try (Reader reader = new InputStreamReader(inputStream, outputCharset)) {
@@ -169,6 +230,7 @@ public final class ProcessOutputCollector {
         }
     }
 
+    /** 追加日志{@code Lines}。 */
     private synchronized void appendLogLines(String chunk) {
         String normalized = chunk.replace('\r', '\n');
         String[] parts = normalized.split("\n", -1);

@@ -32,6 +32,13 @@ public class EditFileSnapshotService {
     private final PatchExecutionProperties properties;
     private final GenerationTaskFenceGuard generationTaskFenceGuard;
 
+    /**
+ * 返回{@code capture}。
+ *
+ * @param projectRoot 项目根
+ * @param patchOperations 补丁操作
+ * @return 编辑文件快照
+ */
     public EditFileSnapshot capture(Path projectRoot,
                                     List<PatchOperation> patchOperations) throws PatchWorkspaceException {
         Path realRoot = workspaceFileService.resolveProjectRoot(projectRoot);
@@ -40,6 +47,12 @@ public class EditFileSnapshotService {
         return snapshot;
     }
 
+    /**
+ * 处理{@code capture}{@code Missing}。
+ *
+ * @param snapshot 快照
+ * @param patchOperations 补丁操作
+ */
     public void captureMissing(EditFileSnapshot snapshot,
                                List<PatchOperation> patchOperations) throws PatchWorkspaceException {
         if (snapshot == null || patchOperations == null || patchOperations.isEmpty()) {
@@ -64,6 +77,13 @@ public class EditFileSnapshotService {
         return restore(null, snapshot);
     }
 
+    /**
+ * 返回恢复。
+ *
+ * @param taskId 任务编号
+ * @param snapshot 快照
+ * @return 编辑文件快照
+ */
     public RestoreResult restore(String taskId, EditFileSnapshot snapshot) {
         if (snapshot == null || snapshot.projectRoot() == null || snapshot.isEmpty()) {
             return RestoreResult.skipped("snapshot_empty");
@@ -93,6 +113,7 @@ public class EditFileSnapshotService {
         return new RestoreResult("restored", restoredFiles, List.of());
     }
 
+    /** 处理{@code capture}目标。 */
     private void captureTarget(EditFileSnapshot snapshot,
                                PatchWorkspaceTarget target) throws PatchWorkspaceException {
         boolean existed = workspaceFileService.exists(target);
@@ -117,6 +138,7 @@ public class EditFileSnapshotService {
         snapshot.add(target.relativePath(), new FileSnapshot(existed, content), contentBytes);
     }
 
+    /** 处理恢复目标。 */
     private void restoreTarget(Path projectRoot,
                                String relativePath,
                                FileSnapshot fileSnapshot) throws Exception {
@@ -149,6 +171,11 @@ public class EditFileSnapshotService {
             return projectRoot;
         }
 
+        /**
+ * 返回文件。
+ *
+ * @return 编辑文件快照集合
+ */
         public Map<String, FileSnapshot> files() {
             synchronized (this) {
                 return Collections.unmodifiableMap(new LinkedHashMap<>(files));
@@ -194,6 +221,12 @@ public class EditFileSnapshotService {
             failedFiles = failedFiles == null ? List.of() : List.copyOf(failedFiles);
         }
 
+        /**
+ * 返回{@code skipped}。
+ *
+ * @param reason 原因
+ * @return 恢复结果
+ */
         public static RestoreResult skipped(String reason) {
             return new RestoreResult("skipped:" + reason, List.of(), List.of());
         }

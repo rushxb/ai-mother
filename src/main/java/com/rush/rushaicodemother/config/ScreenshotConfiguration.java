@@ -27,6 +27,12 @@ public class ScreenshotConfiguration {
         return new SeleniumChromeDriverFactory(properties);
     }
 
+    /**
+ * 创建并配置线程池任务执行器 Bean。
+ *
+ * @param properties 配置属性
+ * @return 配置完成的线程池任务执行器 Bean
+ */
     @Bean(name = SCREENSHOT_TASK_EXECUTOR)
     public ThreadPoolTaskExecutor screenshotTaskExecutor(ScreenshotProperties properties) {
         ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();
@@ -50,6 +56,15 @@ public class ScreenshotConfiguration {
         return new SeleniumWebPageScreenshotRenderer(driverFactory, properties);
     }
 
+    /**
+ * 创建并配置截图服务 Bean。
+ *
+ * @param screenshotRenderer 网页截图渲染器
+ * @param objectStorageService 对象存储服务
+ * @param screenshotProperties 截图配置属性
+ * @param deploymentProperties 部署配置属性
+ * @return 配置完成的截图服务 Bean
+ */
     @Bean
     @ConditionalOnProperty(prefix = "app.screenshot", name = "enabled", havingValue = "true")
     public ScreenshotService screenshotService(WebPageScreenshotRenderer screenshotRenderer,

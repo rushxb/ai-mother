@@ -18,6 +18,12 @@ import java.util.Map;
 @Component
 public class GenerationBenchmarkWorkspaceInspector {
 
+    /**
+ * 返回{@code capture}。
+ *
+ * @param root 根
+ * @return 生成基准测试工作区{@code Inspector}
+ */
     public GenerationBenchmarkWorkspaceSnapshot capture(Path root) {
         Path normalizedRoot = normalizeRoot(root);
         if (!Files.isDirectory(normalizedRoot, LinkOption.NOFOLLOW_LINKS)) {
@@ -38,6 +44,13 @@ public class GenerationBenchmarkWorkspaceInspector {
         return new GenerationBenchmarkWorkspaceSnapshot(normalizedRoot, digests);
     }
 
+    /**
+ * 读取{@code Utf8}。
+ *
+ * @param root 根
+ * @param relativePath 相对路径
+ * @return 处理后的{@code Utf8}文本
+ */
     public String readUtf8(Path root, String relativePath) {
         Path target = resolve(root, relativePath);
         if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
@@ -50,6 +63,14 @@ public class GenerationBenchmarkWorkspaceInspector {
         }
     }
 
+    /**
+ * 读取{@code Utf8}。
+ *
+ * @param root 根
+ * @param relativePath 相对路径
+ * @param maximumChars 待处理的 {@code maximumChars} 集合
+ * @return 处理后的{@code Utf8}文本
+ */
     public String readUtf8(Path root, String relativePath, int maximumChars) {
         if (maximumChars <= 0) {
             throw new IllegalArgumentException("评测文件字符上限必须为正数");
@@ -79,6 +100,13 @@ public class GenerationBenchmarkWorkspaceInspector {
         }
     }
 
+    /**
+ * 写入{@code Utf8}。
+ *
+ * @param root 根
+ * @param relativePath 相对路径
+ * @param content 文件或消息内容
+ */
     public void writeUtf8(Path root, String relativePath, String content) {
         Path target = resolve(root, relativePath);
         try {
@@ -89,10 +117,24 @@ public class GenerationBenchmarkWorkspaceInspector {
         }
     }
 
+    /**
+ * 返回{@code exists}。
+ *
+ * @param root 根
+ * @param relativePath 相对路径
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean exists(Path root, String relativePath) {
         return Files.isRegularFile(resolve(root, relativePath), LinkOption.NOFOLLOW_LINKS);
     }
 
+    /**
+ * 根据当前上下文解析生成基准测试工作区{@code Inspector}。
+ *
+ * @param root 根
+ * @param relativePath 相对路径
+ * @return 解析后的生成基准测试工作区{@code Inspector}路径
+ */
     public Path resolve(Path root, String relativePath) {
         Path normalizedRoot = normalizeRoot(root);
         if (relativePath == null || relativePath.isBlank()) {
@@ -106,6 +148,7 @@ public class GenerationBenchmarkWorkspaceInspector {
         return target;
     }
 
+    /** 拒绝{@code Symbolic}{@code Links}并记录原因。 */
     private void rejectSymbolicLinks(Path root, Path target) {
         Path current = root;
         if (Files.isSymbolicLink(current)) {
@@ -126,6 +169,7 @@ public class GenerationBenchmarkWorkspaceInspector {
         return root.toAbsolutePath().normalize();
     }
 
+    /** 返回{@code excluded}。 */
     private boolean excluded(Path root, Path candidate) {
         Path relative = root.relativize(candidate);
         for (Path segment : relative) {
@@ -140,6 +184,7 @@ public class GenerationBenchmarkWorkspaceInspector {
         return root.relativize(path).toString().replace('\\', '/');
     }
 
+    /** 计算内容的 SHA-256 摘要。 */
     private String sha256(Path path) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (InputStream input = Files.newInputStream(path)) {

@@ -62,6 +62,11 @@ public class GenerationRuntimeProperties {
     @Max(10)
     private int maxRepairRounds = 1;
 
+    /**
+ * 将当前对象转换为限制。
+ *
+ * @return 限制
+ */
     public GenerationExecutionLimits toLimits() {
         if (!isModelBudgetConfigurationValid()) {
             throw new IllegalArgumentException("根模型调用预算无法覆盖重型生成与修复流程");
@@ -82,6 +87,11 @@ public class GenerationRuntimeProperties {
         );
     }
 
+    /**
+ * 校验各时长配置及其相互约束是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "生成任务运行时长配置无效")
     public boolean isDurationConfigurationValid() {
         if (!isPositive(taskTimeout)

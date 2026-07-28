@@ -36,6 +36,12 @@ public class ProjectTemplateCatalog {
         return isNodeTemplateId(templateId);
     }
 
+    /**
+ * 校验并返回有效的{@code Known}。
+ *
+ * @param templateId 模板编号
+ * @return 处理后的{@code Known}文本
+ */
     public String requireKnown(String templateId) {
         if (!isKnown(templateId)) {
             throw new IllegalArgumentException("Unknown project template id");
@@ -43,6 +49,12 @@ public class ProjectTemplateCatalog {
         return templateId;
     }
 
+    /**
+ * 校验并返回有效的节点模板。
+ *
+ * @param templateId 模板编号
+ * @return 处理后的节点模板文本
+ */
     public String requireNodeTemplate(String templateId) {
         requireKnown(templateId);
         if (!isNodeTemplate(templateId)) {

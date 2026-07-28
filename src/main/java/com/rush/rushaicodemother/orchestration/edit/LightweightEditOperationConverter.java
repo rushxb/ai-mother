@@ -20,6 +20,12 @@ public class LightweightEditOperationConverter {
             "package.json", "vite.config", "go.mod", "dockerfile", "tsconfig"
     );
 
+    /**
+ * 将输入转换为轻量编辑操作转换器。
+ *
+ * @param editOperations 编辑操作
+ * @return 轻量编辑操作转换器集合
+ */
     public List<PatchOperation> convert(List<EditOperation> editOperations) {
         if (editOperations == null || editOperations.isEmpty()) {
             return List.of();
@@ -31,6 +37,7 @@ public class LightweightEditOperationConverter {
         return List.copyOf(patchOperations);
     }
 
+    /** 将输入转换为操作。 */
     private void convertOperation(EditOperation editOperation,
                                   List<PatchOperation> patchOperations) {
         if (editOperation == null || StrUtil.isBlank(editOperation.action())) {

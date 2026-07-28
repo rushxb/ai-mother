@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Primary;
 @Configuration(proxyBeanMethods = false)
 public class MilvusMemoryConfiguration {
 
+    /** 创建并配置 Milvus 客户端{@code V2} Bean。 */
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(prefix = "app.memory.long-term", name = "enabled",
             havingValue = "true")

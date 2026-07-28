@@ -72,6 +72,11 @@ public class GeneratedCodeSandboxProperties {
         private Duration activationTimeout = Duration.ofSeconds(10);
         private Duration cleanupTimeout = Duration.ofSeconds(5);
 
+        /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
         @AssertTrue(message = "generated-code container sandbox configuration is invalid")
         public boolean isConfigurationValid() {
             return hasText(runtime)
@@ -125,6 +130,7 @@ public class GeneratedCodeSandboxProperties {
                     && value.matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}");
         }
 
+        /** 判断安全容器挂载是否满足约束。 */
         private boolean isSafeContainerMount(String value) {
             if (!hasText(value)
                     || !value.startsWith("/")

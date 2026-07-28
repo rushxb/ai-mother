@@ -75,6 +75,7 @@ public class GenerationBenchmarkEvidenceEnvelopeService {
     @Transactional(rollbackFor = Exception.class)
     public GenerationBenchmarkEvidenceSubmission create(
             GenerationBenchmarkEvidenceEnvelopeRequest request) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (request == null || request.candidate() == null || request.report() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Benchmark Worker 请求不完整");
         }
@@ -120,6 +121,7 @@ public class GenerationBenchmarkEvidenceEnvelopeService {
         GenerationReleaseProvenanceManifest provenance = releaseProvenanceProvider.current();
         Instant evaluatedAt = clock.instant();
         Instant expiresAt;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             expiresAt = evaluatedAt.plus(validity);
         } catch (RuntimeException overflow) {

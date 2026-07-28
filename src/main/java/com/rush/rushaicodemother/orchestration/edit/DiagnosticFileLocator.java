@@ -34,6 +34,13 @@ public class DiagnosticFileLocator {
     private final WorkspaceSemanticIndexService semanticIndexService;
     private final EditWorkspaceFileService workspaceFileService;
 
+    /**
+ * 返回{@code locate}。
+ *
+ * @param workspace 工作区
+ * @param userMessage 用户消息
+ * @return {@code Diagnostic}文件{@code Locator}集合
+ */
     public List<EditFileCandidate> locate(GenerationWorkspace workspace, String userMessage) {
         if (workspace == null || StrUtil.isBlank(userMessage)) {
             return List.of();
@@ -47,6 +54,7 @@ public class DiagnosticFileLocator {
         return candidates;
     }
 
+    /** 添加{@code Route}{@code Diagnostic}文件。 */
     private void addRouteDiagnosticFiles(List<EditFileCandidate> candidates,
                                          GenerationWorkspace workspace,
                                          String userMessage) {
@@ -70,6 +78,7 @@ public class DiagnosticFileLocator {
         }
     }
 
+    /** 添加导入{@code Diagnostic}文件。 */
     private void addImportDiagnosticFiles(List<EditFileCandidate> candidates,
                                           GenerationWorkspace workspace,
                                           String userMessage) {
@@ -107,6 +116,7 @@ public class DiagnosticFileLocator {
                 "The source file contains the duplicate identifier");
     }
 
+    /** 添加{@code Pinia}{@code Diagnostic}文件。 */
     private void addPiniaDiagnosticFiles(List<EditFileCandidate> candidates,
                                          GenerationWorkspace workspace,
                                          String userMessage) {
@@ -140,6 +150,7 @@ public class DiagnosticFileLocator {
                 .forEach(file -> addFile(candidates, file, matchType, score, reason));
     }
 
+    /** 添加{@code Indexed}{@code Reference}文件。 */
     private void addIndexedReferenceFiles(List<EditFileCandidate> candidates,
                                           GenerationWorkspace workspace,
                                           String token,
@@ -159,6 +170,7 @@ public class DiagnosticFileLocator {
         }
     }
 
+    /** 添加导入错误上下文文件。 */
     private void addImportErrorContextFiles(List<EditFileCandidate> candidates,
                                             GenerationWorkspace workspace,
                                             String importPath,
@@ -238,6 +250,7 @@ public class DiagnosticFileLocator {
                 || normalizeComponentName(parentName).equals(componentName);
     }
 
+    /** 规范化{@code Component}名称。 */
     private String normalizeComponentName(String name) {
         String normalized = StrUtil.blankToDefault(name, "").trim().toLowerCase();
         if (normalized.endsWith(".vue")) {

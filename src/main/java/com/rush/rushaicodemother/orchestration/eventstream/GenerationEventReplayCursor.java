@@ -18,6 +18,7 @@ final class GenerationEventReplayCursor {
         return Flux.defer(() -> resume(source, new AtomicLong(afterSequence)));
     }
 
+    /** 返回{@code resume}。 */
     static Flux<SequencedGenerationEvent> resume(Flux<SequencedGenerationEvent> source,
                                                  AtomicLong cursor) {
         if (source == null || cursor == null || cursor.get() < 0) {

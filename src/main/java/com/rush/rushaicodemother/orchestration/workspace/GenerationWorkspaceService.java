@@ -52,6 +52,13 @@ public class GenerationWorkspaceService {
                 new GenerationWorkspacePublicationCatalog(storageProperties));
     }
 
+    /**
+ * 创建生成工作区服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param storageProperties 存储属性
+ * @param executionScope 执行作用域
+ * @param publicationCatalog 发布目录
+ */
     @org.springframework.beans.factory.annotation.Autowired
     public GenerationWorkspaceService(CodeStorageProperties storageProperties,
                                       GenerationWorkspaceExecutionScope executionScope,
@@ -70,6 +77,13 @@ public class GenerationWorkspaceService {
         );
     }
 
+    /**
+ * 根据当前上下文解析生成工作区。
+ *
+ * @param app 应用
+ * @param codeGenType 代码生成类型
+ * @return 生成工作区
+ */
     public GenerationWorkspace resolve(App app, CodeGenTypeEnum codeGenType) {
         if (app == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成工作区参数错误");
@@ -109,6 +123,7 @@ public class GenerationWorkspaceService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,
                     "published workspace task identity is invalid");
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             GenerationWorkspacePublicationPointer pointer = publicationCatalog.findCurrent(appId, codeGenType)
                     .orElseThrow(() -> new BusinessException(
@@ -155,11 +170,13 @@ public class GenerationWorkspaceService {
      * 所提供应用程序的工作区布局。
      */
     public GenerationWorkspace resolveReportedWorkspace(Long appId, Path reportedPath) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (appId == null || appId <= 0 || reportedPath == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Application id and reported workspace path are required");
         }
         Path candidate = reportedPath.toAbsolutePath().normalize();
         Path outputRoot;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             outputRoot = canonicalOutputRoot();
         } catch (Exception exception) {
@@ -203,6 +220,7 @@ public class GenerationWorkspaceService {
         if (executionWorkspace != null) {
             return executionWorkspace.workspace();
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (publicationCatalog.findCurrentWorkspace(appId, codeGenType).isPresent()) {
                 return resolveCanonical(appId, codeGenType);
@@ -251,6 +269,7 @@ public class GenerationWorkspaceService {
         if (workspaceRoot == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "execution workspace path is required");
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path outputRoot = canonicalOutputRoot();
             Path executionRoot = outputRoot.resolve(GenerationExecutionWorkspaceService.EXECUTION_ROOT_NAME)
@@ -278,6 +297,7 @@ public class GenerationWorkspaceService {
         }
     }
 
+    /** 根据当前上下文解析{@code Location}。 */
     private WorkspaceLocation resolveLocation(Long appId, CodeGenTypeEnum codeGenType) throws Exception {
         Path outputRoot = canonicalOutputRoot();
         Path rootPath = declaredWorkspaceRoot(outputRoot, appId, codeGenType);
@@ -336,6 +356,7 @@ public class GenerationWorkspaceService {
 
     private static final String WORKSPACE_DIRECTORY_NAME = "workspace";
 
+    /** 创建工作区。 */
     private GenerationWorkspace createWorkspace(
             Long appId,
             CodeGenTypeEnum codeGenType,

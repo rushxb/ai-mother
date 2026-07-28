@@ -53,6 +53,11 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
     private final PromptReleaseMetricsCollector metricsCollector;
     private final PromptReleaseTransactionCoordinator transactionCoordinator;
 
+    /**
+ * 获取并返回{@code Overview}。
+ *
+ * @return 默认提示词发布管理
+ */
     @Override
     public PromptCatalogAdminVO getOverview() {
         PromptReleaseState durable = repository.loadCurrent();
@@ -79,6 +84,13 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
         );
     }
 
+    /**
+ * 发布当前处理结果或领域事件。
+ *
+ * @param command 命令
+ * @param operatorUserId 目标资源编号
+ * @return 方法执行结果
+ */
     @Override
     public PromptReleaseMutationVO publish(PublishCommand command, long operatorUserId) {
         requireRuntimeReleaseControl();
@@ -108,6 +120,13 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
         return mutate(mutation);
     }
 
+    /**
+ * 返回回滚。
+ *
+ * @param command 命令
+ * @param operatorUserId 目标资源编号
+ * @return 默认提示词发布管理
+ */
     @Override
     public PromptReleaseMutationVO rollback(RollbackCommand command, long operatorUserId) {
         requireRuntimeReleaseControl();
@@ -133,6 +152,13 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
         return mutate(mutation);
     }
 
+    /**
+ * 列出符合条件的历史。
+ *
+ * @param promptKey 提示词键
+ * @param limit 资源上限
+ * @return 历史集合
+ */
     @Override
     public List<PromptReleaseHistoryVO> listHistory(String promptKey, int limit) {
         String normalizedKey = normalizeKey(promptKey);
@@ -144,8 +170,10 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
                 .toList();
     }
 
+    /** 在事务边界内变更默认提示词发布管理。 */
     private PromptReleaseMutationVO mutate(PromptReleaseMutation mutation) {
         PromptReleaseRecord persisted;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             persisted = transactionCoordinator.mutate(mutation);
         } catch (PromptReleaseConflictException exception) {
@@ -159,6 +187,7 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
             throw exception;
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             refreshService.refreshNow();
         } catch (RuntimeException exception) {
@@ -176,6 +205,7 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
         );
     }
 
+    /** 校验{@code ate}发布是否有效。 */
     private PromptReleaseSpec validateRelease(String promptKey, PromptReleaseSpec release) {
         PromptReleaseCapabilities capabilities = runtime.capabilities();
         if (!VERSION_PATTERN.matcher(release.stableVersion()).matches()
@@ -201,6 +231,7 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
         return release;
     }
 
+    /** 将当前对象转换为管理端视图。 */
     private PromptReleaseAdminVO toAdminView(
             String promptKey,
             PromptCatalogSnapshot.PromptRelease active,
@@ -226,6 +257,7 @@ public class DefaultPromptReleaseManagementService implements PromptReleaseManag
         );
     }
 
+    /** 将当前对象转换为历史视图。 */
     private PromptReleaseHistoryVO toHistoryView(PromptReleaseHistoryEntry entry) {
         return new PromptReleaseHistoryVO(
                 entry.promptKey(),

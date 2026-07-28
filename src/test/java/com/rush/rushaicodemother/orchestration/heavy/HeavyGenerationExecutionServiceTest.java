@@ -69,7 +69,7 @@ class HeavyGenerationExecutionServiceTest {
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 mock(StreamHandlerExecutor.class),
-                mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
+                mock(com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime.class),
                 mock(GenerationStageAdmissionService.class),
                 new GenerationRuntimeProperties()
         ));
@@ -145,7 +145,7 @@ class HeavyGenerationExecutionServiceTest {
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 mock(StreamHandlerExecutor.class),
-                mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
+                mock(com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime.class),
                 mock(GenerationStageAdmissionService.class),
                 new GenerationRuntimeProperties()
         );
@@ -210,7 +210,7 @@ class HeavyGenerationExecutionServiceTest {
                 completionService,
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 streamHandlerExecutor,
-                mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
+                mock(com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime.class),
                 mock(GenerationStageAdmissionService.class),
                 new GenerationRuntimeProperties()
         ));
@@ -280,7 +280,7 @@ class HeavyGenerationExecutionServiceTest {
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 streamHandlerExecutor,
-                mock(com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine.class),
+                mock(com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime.class),
                 mock(GenerationStageAdmissionService.class),
                 new GenerationRuntimeProperties()
         );

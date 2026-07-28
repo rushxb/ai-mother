@@ -33,6 +33,13 @@ public class GenerationBenchmarkRunner {
         this(catalog, promptCatalog, UNMANAGED_MODEL_FINGERPRINT_PROVIDER);
     }
 
+    /**
+ * 创建生成基准测试{@code Runner}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param catalog 目录
+ * @param promptCatalog 提示词目录
+ * @param modelFingerprintProvider 模型指纹提供方
+ */
     @Autowired
     public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog,
                                      PromptCatalog promptCatalog,
@@ -48,6 +55,12 @@ public class GenerationBenchmarkRunner {
         ));
     }
 
+    /**
+ * 运行生成基准测试处理流程。
+ *
+ * @param executor 执行器
+ * @return 生成基准测试
+ */
     public GenerationBenchmarkReport run(GenerationBenchmarkExecutor executor) {
         ExecutionIdentity before = currentExecutionIdentity();
         List<GenerationBenchmarkRunResult> results = executor == null
@@ -64,6 +77,12 @@ public class GenerationBenchmarkRunner {
         return summarize(results, before.promptBundleId(), before.modelFingerprint());
     }
 
+    /**
+ * 计算{@code marize}的汇总值。
+ *
+ * @param results 待处理的 {@code results} 集合
+ * @return {@code marize}
+ */
     public GenerationBenchmarkReport summarize(List<GenerationBenchmarkRunResult> results) {
         return summarize(
                 results,
@@ -72,6 +91,7 @@ public class GenerationBenchmarkRunner {
         );
     }
 
+    /** 计算{@code marize}的汇总值。 */
     GenerationBenchmarkReport summarize(List<GenerationBenchmarkRunResult> results,
                                         String promptBundleId,
                                         String modelFingerprint) {
@@ -115,6 +135,7 @@ public class GenerationBenchmarkRunner {
         );
     }
 
+    /** 计算{@code marize}模式的汇总值。 */
     private GenerationBenchmarkReport.ModeStats summarizeMode(List<GenerationBenchmarkRunResult> results) {
         return new GenerationBenchmarkReport.ModeStats(
                 results.size(),
@@ -174,6 +195,7 @@ public class GenerationBenchmarkRunner {
                 .orElse(0));
     }
 
+    /** 返回{@code percentile}{@code First}令牌{@code Latency}。 */
     private long percentileFirstTokenLatency(List<GenerationBenchmarkRunResult> results, double percentile) {
         List<Long> values = results.stream()
                 .map(GenerationBenchmarkRunResult::firstTokenLatencyMs)
@@ -202,6 +224,7 @@ public class GenerationBenchmarkRunner {
                 .orElse(0));
     }
 
+    /** 返回{@code percentile}{@code First}预览{@code Latency}。 */
     private long percentileFirstPreviewLatency(List<GenerationBenchmarkRunResult> results,
                                                double percentile) {
         List<Long> values = results.stream()
@@ -216,6 +239,7 @@ public class GenerationBenchmarkRunner {
         return values.get(Math.max(0, Math.min(index, values.size() - 1)));
     }
 
+    /** 计算{@code marize}质量的汇总值。 */
     private Map<String, GenerationBenchmarkReport.QualityStats> summarizeQuality(
             List<GenerationBenchmarkRunResult> results
     ) {

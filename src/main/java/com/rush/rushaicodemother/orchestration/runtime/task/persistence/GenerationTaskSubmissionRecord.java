@@ -16,6 +16,7 @@ public record GenerationTaskSubmissionRecord(
         String requestFingerprint,
         GenerationTaskCommand command
 ) {
+    /** 创建生成任务提交记录实例并完成必要的依赖和初始状态设置。 */
     public GenerationTaskSubmissionRecord {
         requireText(taskId, "taskId");
         requirePositive(appId, "appId");

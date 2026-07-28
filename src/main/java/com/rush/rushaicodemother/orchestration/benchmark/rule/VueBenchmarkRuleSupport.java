@@ -11,6 +11,7 @@ final class VueBenchmarkRuleSupport {
     private VueBenchmarkRuleSupport() {
     }
 
+    /** 处理挂载{@code Probe}。 */
     static void mountProbe(GenerationBenchmarkWorkspaceInspector inspector,
                            GenerationWorkspace workspace,
                            String componentName,

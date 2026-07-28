@@ -109,7 +109,7 @@ class CreateRecipeRendererServiceTest {
         assertTrue(result.patchOperations().stream().anyMatch(operation ->
                 operation.relativePath().equals("src/styles/theme.css")
                         && operation.content().contains("--dashboard-padding: 12px")
-                        && operation.content().contains("styleKeywords: 专业, 运营中台")));
+                        && operation.content().contains("样式关键词: 专业, 运营中台")));
         assertTrue(result.patchOperations().stream().anyMatch(operation ->
                 operation.relativePath().equals("src/data/adminData.ts")
                         && operation.content().contains("dashboard-compact")

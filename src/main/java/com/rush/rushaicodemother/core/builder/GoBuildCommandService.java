@@ -24,9 +24,11 @@ public class GoBuildCommandService {
     private final GoProjectCommandExecutor commandExecutor;
     private final GenerationPerformanceMonitorService performanceMonitorService;
 
+    /** 执行{@code Tests}处理流程。 */
     ProjectCommandResult executeTests(Path projectRoot, String taskId) {
         GenerationPerformanceMonitorService.SpanTimer span =
                 performanceMonitorService.startSpan(taskId, "go_test", GenerationSpanCategory.BUILD);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ProjectCommandResult result = commandExecutor.executeTests(
                     projectRoot,

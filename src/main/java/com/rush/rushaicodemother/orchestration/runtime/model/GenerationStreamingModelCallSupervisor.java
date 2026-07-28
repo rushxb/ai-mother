@@ -103,6 +103,16 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                 cancellationBridge, "模型取消桥不能为空");
     }
 
+    /**
+ * 处理对话。
+ *
+ * @param model 模型
+ * @param request 请求参数
+ * @param executionContext 执行上下文
+ * @param cancelChecker {@code cancelChecker} 对应的调用参数
+ * @param cancellationHandleConsumer 对应阶段使用的回调函数
+ * @param downstream {@code downstream} 对应的调用参数
+ */
     public void chat(StreamingChatModel model,
                      ChatRequest request,
                      GenerationExecutionContext executionContext,
@@ -153,6 +163,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
         call.start();
     }
 
+    /** 关闭生成{@code Streaming}模型调用{@code Supervisor}并释放资源。 */
     @PreDestroy
     @Override
     public void close() {
@@ -214,6 +225,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             this.firstSignalTimeout = firstSignalTimeout;
         }
 
+        /** 启动{@code Supervised}调用。 */
         private void start() {
             if (cancelled()) {
                 cancel();
@@ -229,6 +241,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             }
         }
 
+        /** 取消{@code Supervised}调用。 */
         @Override
         public void cancel() {
             String reason = executionContext.cancellationReason();
@@ -236,6 +249,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                     reason == null || reason.isBlank() ? "cancelled" : reason), true);
         }
 
+        /** 转发{@code ing}处理器。 */
         private StreamingChatResponseHandler forwardingHandler() {
             return new GenerationCancellationAwareStreamingHandler() {
                 @Override
@@ -243,11 +257,22 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                     registerUpstreamCancellation(cancellationHandle);
                 }
 
+                /**
+ * 响应部分响应事件。
+ *
+ * @param partialResponse 部分响应
+ */
                 @Override
                 public void onPartialResponse(String partialResponse) {
                     forward(null, () -> downstream.onPartialResponse(partialResponse));
                 }
 
+                /**
+ * 响应部分响应事件。
+ *
+ * @param partialResponse 部分响应
+ * @param context 执行上下文
+ */
                 @Override
                 public void onPartialResponse(PartialResponse partialResponse,
                                               PartialResponseContext context) {
@@ -255,11 +280,22 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                             () -> downstream.onPartialResponse(partialResponse, context));
                 }
 
+                /**
+ * 响应部分{@code Thinking}事件。
+ *
+ * @param partialThinking {@code partialThinking} 对应的调用参数
+ */
                 @Override
                 public void onPartialThinking(PartialThinking partialThinking) {
                     forward(null, () -> downstream.onPartialThinking(partialThinking));
                 }
 
+                /**
+ * 响应部分{@code Thinking}事件。
+ *
+ * @param partialThinking {@code partialThinking} 对应的调用参数
+ * @param context 执行上下文
+ */
                 @Override
                 public void onPartialThinking(PartialThinking partialThinking,
                                               PartialThinkingContext context) {
@@ -267,11 +303,22 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                             () -> downstream.onPartialThinking(partialThinking, context));
                 }
 
+                /**
+ * 响应部分工具调用事件。
+ *
+ * @param partialToolCall 部分工具调用
+ */
                 @Override
                 public void onPartialToolCall(PartialToolCall partialToolCall) {
                     forward(null, () -> downstream.onPartialToolCall(partialToolCall));
                 }
 
+                /**
+ * 响应部分工具调用事件。
+ *
+ * @param partialToolCall 部分工具调用
+ * @param context 执行上下文
+ */
                 @Override
                 public void onPartialToolCall(PartialToolCall partialToolCall,
                                               PartialToolCallContext context) {
@@ -279,16 +326,31 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
                             () -> downstream.onPartialToolCall(partialToolCall, context));
                 }
 
+                /**
+ * 响应{@code Complete}工具调用事件。
+ *
+ * @param completeToolCall {@code completeToolCall} 对应的调用参数
+ */
                 @Override
                 public void onCompleteToolCall(CompleteToolCall completeToolCall) {
                     forward(null, () -> downstream.onCompleteToolCall(completeToolCall));
                 }
 
+                /**
+ * 响应{@code Unmapped}原始事件事件。
+ *
+ * @param event 待处理的领域事件
+ */
                 @Override
                 public void onUnmappedRawEvent(Object event) {
                     forward(null, () -> downstream.onUnmappedRawEvent(event));
                 }
 
+                /**
+ * 响应{@code Complete}响应事件。
+ *
+ * @param completeResponse {@code completeResponse} 对应的调用参数
+ */
                 @Override
                 public void onCompleteResponse(ChatResponse completeResponse) {
                     complete(() -> downstream.onCompleteResponse(completeResponse));
@@ -302,6 +364,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             };
         }
 
+        /** 转发{@code Supervised}调用。 */
         private void forward(StreamingHandle handle, Runnable callback) {
             registerHandle(handle);
             if (terminal.get()) {
@@ -323,6 +386,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             }
         }
 
+        /** 完成{@code Supervised}调用并持久化终态。 */
         private void complete(Runnable callback) {
             if (!terminal.compareAndSet(false, true)) {
                 return;
@@ -344,6 +408,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             notifyFailure(failure, cancelProvider);
         }
 
+        /** 将{@code From}{@code Watchdog}标记为失败并记录原因。 */
         private void failFromWatchdog(Throwable failure) {
             if (!claimTerminal()) {
                 return;
@@ -364,6 +429,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             return true;
         }
 
+        /** 处理通知失败。 */
         private void notifyFailure(Throwable failure, boolean cancelProvider) {
             if (cancelProvider) {
                 cancelActiveHandles();
@@ -394,6 +460,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             return failure;
         }
 
+        /** 注册句柄。 */
         private void registerHandle(StreamingHandle handle) {
             if (handle == null) {
                 return;
@@ -410,6 +477,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             }
         }
 
+        /** 注册{@code Upstream}{@code Cancellation}。 */
         private void registerUpstreamCancellation(GenerationCancellationHandle cancellationHandle) {
             if (cancellationHandle == null) {
                 throw new IllegalArgumentException("上游取消句柄不能为空");
@@ -443,6 +511,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             replaceTimer(inactivityTimer, future);
         }
 
+        /** 处理{@code replace}{@code Timer}。 */
         private void replaceTimer(AtomicReference<ScheduledFuture<?>> target,
                                   ScheduledFuture<?> replacement) {
             ScheduledFuture<?> previous = target.getAndSet(replacement);
@@ -482,6 +551,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             transportCancellationScope.complete();
         }
 
+        /** 取消{@code Cancellation}句柄。 */
         private void cancelCancellationHandle(GenerationCancellationHandle cancellationHandle) {
             if (cancellationHandle == null) {
                 return;
@@ -494,6 +564,7 @@ public class GenerationStreamingModelCallSupervisor implements AutoCloseable {
             }
         }
 
+        /** 取消句柄。 */
         private void cancelHandle(StreamingHandle handle) {
             if (handle == null || handle.isCancelled()) {
                 return;

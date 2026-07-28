@@ -39,6 +39,12 @@ public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceServic
     private final AppDatabaseResourceViewConverter viewConverter;
     private final AppDatabaseResourceProperties properties;
 
+    /**
+ * 启用数据库。
+ *
+ * @param app 应用
+ * @return 数据库
+ */
     @Override
     public AppDatabaseResourceVO enableDatabase(App app) {
         validateApp(app);
@@ -57,6 +63,12 @@ public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceServic
         return viewConverter.toView(persistenceService.enableResource(newResource));
     }
 
+    /**
+ * 查找匹配的活动资源视图。
+ *
+ * @param appId 应用编号
+ * @return 活动资源视图
+ */
     @Override
     public AppDatabaseResourceVO findActiveResourceView(Long appId) {
         if (!isValidId(appId)) {
@@ -65,6 +77,12 @@ public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceServic
         return viewConverter.toView(persistenceService.findActiveByAppId(appId));
     }
 
+    /**
+ * 查找匹配的活动资源{@code Views}。
+ *
+ * @param appIds 待处理的 {@code appIds} 集合
+ * @return 活动资源{@code Views}集合
+ */
     @Override
     public Map<Long, AppDatabaseResourceVO> findActiveResourceViews(Collection<Long> appIds) {
         List<AppDatabaseResource> resources = persistenceService.findActiveByAppIds(appIds);
@@ -79,6 +97,12 @@ public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceServic
                 ));
     }
 
+    /**
+ * 判断是否应执行启用{@code For}提示词。
+ *
+ * @param userMessage 用户消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean shouldEnableForPrompt(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
@@ -96,6 +120,13 @@ public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceServic
                     && (normalized.contains("data") || normalized.contains("api") || normalized.contains("sql")));
     }
 
+    /**
+ * 追加生成指令{@code If}启用。
+ *
+ * @param app 应用
+ * @param userMessage 用户消息
+ * @return 处理后的生成指令{@code If}启用文本
+ */
     @Override
     public String appendGenerationInstructionIfEnabled(App app, String userMessage) {
         if (app == null || !isValidId(app.getId())) {
@@ -129,6 +160,7 @@ public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceServic
         return "%s://%s.%s".formatted(scheme, resourceId, domain);
     }
 
+    /** 构建并返回数据库指令。 */
     private String buildDatabaseInstruction(AppDatabaseResource resource) {
         return """
                 【Database 服务接入要求】

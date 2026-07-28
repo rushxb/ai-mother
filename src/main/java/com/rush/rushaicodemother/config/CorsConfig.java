@@ -16,6 +16,11 @@ public class CorsConfig implements WebMvcConfigurer {
 
     private final CorsProperties corsProperties;
 
+    /**
+ * 添加跨域映射。
+ *
+ * @param registry 目标注册器
+ */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")

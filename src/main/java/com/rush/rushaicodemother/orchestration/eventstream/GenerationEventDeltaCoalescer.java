@@ -50,6 +50,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         this.flushScheduler = createScheduler();
     }
 
+    /** 发布当前处理结果或领域事件。 */
     void publish(String taskId, GenerationStreamEvent event) {
         if (!enabled || !isCoalescibleDelta(event)) {
             if (enabled) {
@@ -68,7 +69,9 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         writer.complete(taskId);
     }
 
+    /** 发布增量。 */
     private void publishDelta(String taskId, GenerationStreamEvent event) {
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (true) {
             DeltaState state = stateFor(taskId);
             if (state == null) {
@@ -117,6 +120,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         }
     }
 
+    /** 返回状态{@code For}。 */
     private DeltaState stateFor(String taskId) {
         if (closing.get()) {
             return null;
@@ -133,6 +137,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         });
     }
 
+    /** 处理{@code flush}{@code And}{@code Remove}。 */
     private void flushAndRemove(String taskId, String trigger) {
         DeltaState state = states.get(taskId);
         if (state == null) {
@@ -147,6 +152,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         }
     }
 
+    /** 处理{@code flush}{@code Locked}。 */
     private void flushLocked(String taskId, DeltaState state, String trigger) {
         if (state.pendingEventCount == 0) {
             state.asyncFlushRetries = 0;
@@ -168,6 +174,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         }
     }
 
+    /** 处理调度{@code Locked}。 */
     private void scheduleLocked(String taskId, DeltaState state, Duration delay) {
         if (state.closed || closing.get() || state.asyncRetryExhausted) {
             return;
@@ -189,6 +196,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         }
     }
 
+    /** 处理{@code flush}{@code On}{@code Timer}。 */
     private void flushOnTimer(String taskId, DeltaState state) {
         synchronized (state) {
             if (state.closed) {
@@ -217,6 +225,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         }
     }
 
+    /** 关闭状态{@code Locked}并释放资源。 */
     private void closeStateLocked(String taskId, DeltaState state) {
         if (state.closed) {
             return;
@@ -249,6 +258,7 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         return executor;
     }
 
+    /** 关闭生成事件增量合并器并释放资源。 */
     @Override
     public void close() {
         if (!closing.compareAndSet(false, true)) {

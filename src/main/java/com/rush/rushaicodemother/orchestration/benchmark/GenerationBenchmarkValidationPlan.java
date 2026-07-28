@@ -20,6 +20,11 @@ public record GenerationBenchmarkValidationPlan(
         userId = Math.max(0, userId);
     }
 
+    /**
+ * 返回{@code empty}。
+ *
+ * @return 生成基准测试校验计划
+ */
     public static GenerationBenchmarkValidationPlan empty() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         return new GenerationBenchmarkValidationPlan(
@@ -32,6 +37,12 @@ public record GenerationBenchmarkValidationPlan(
         );
     }
 
+    /**
+ * 创建包含工作区的新对象。
+ *
+ * @param publishedWorkspace {@code publishedWorkspace} 对应的调用参数
+ * @return 工作区
+ */
     public GenerationBenchmarkValidationPlan withWorkspace(GenerationWorkspace publishedWorkspace) {
         if (publishedWorkspace == null) {
             throw new IllegalArgumentException("published benchmark workspace cannot be null");

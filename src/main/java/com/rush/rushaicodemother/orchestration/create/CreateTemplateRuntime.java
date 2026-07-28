@@ -62,6 +62,21 @@ public class CreateTemplateRuntime {
     private final LandingSlotFallbackRenderer landingSlotFallbackRenderer;
     private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
 
+    /**
+ * 创建模板运行时实例并完成必要的依赖和初始状态设置。
+ *
+ * @param backendProjectTemplateBootstrapService 处理该职责的领域服务
+ * @param createPatchMergeService 处理该职责的领域服务
+ * @param createPreWriteValidationService 处理该职责的领域服务
+ * @param createSpecService 处理该职责的领域服务
+ * @param createRecipeRendererService 处理该职责的领域服务
+ * @param fullStackPortAllocator {@code fullStackPortAllocator} 对应的调用参数
+ * @param generationPatchApplyService 处理该职责的领域服务
+ * @param generationTaskFenceGuard 生成任务围栏防护
+ * @param generationWorkspaceService 生成工作区服务
+ * @param landingSlotFallbackRenderer {@code landingSlotFallbackRenderer} 对应的调用参数
+ * @param vueProjectTemplateBootstrapService 处理该职责的领域服务
+ */
     public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
                                  CreatePatchMergeService createPatchMergeService,
                                  CreatePreWriteValidationService createPreWriteValidationService,
@@ -90,6 +105,22 @@ public class CreateTemplateRuntime {
          );
      }
 
+    /**
+ * 创建模板运行时实例并完成必要的依赖和初始状态设置。
+ *
+ * @param backendProjectTemplateBootstrapService 处理该职责的领域服务
+ * @param createPatchMergeService 处理该职责的领域服务
+ * @param createPreWriteValidationService 处理该职责的领域服务
+ * @param createSpecService 处理该职责的领域服务
+ * @param createRecipeRendererService 处理该职责的领域服务
+ * @param fullStackPortAllocator {@code fullStackPortAllocator} 对应的调用参数
+ * @param generationPatchApplyService 处理该职责的领域服务
+ * @param generationTaskFenceGuard 生成任务围栏防护
+ * @param generationWorkspaceService 生成工作区服务
+ * @param landingSlotFallbackRenderer {@code landingSlotFallbackRenderer} 对应的调用参数
+ * @param vueProjectTemplateBootstrapService 处理该职责的领域服务
+ * @param generationPerformanceMonitorService 处理该职责的领域服务
+ */
     public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
                                  CreatePatchMergeService createPatchMergeService,
                                  CreatePreWriteValidationService createPreWriteValidationService,
@@ -119,6 +150,23 @@ public class CreateTemplateRuntime {
         );
     }
 
+    /**
+ * 创建模板运行时实例并完成必要的依赖和初始状态设置。
+ *
+ * @param backendProjectTemplateBootstrapService 处理该职责的领域服务
+ * @param createPatchMergeService 处理该职责的领域服务
+ * @param createPreWriteValidationService 处理该职责的领域服务
+ * @param createSpecService 处理该职责的领域服务
+ * @param createRecipeRendererService 处理该职责的领域服务
+ * @param fullStackPortAllocator {@code fullStackPortAllocator} 对应的调用参数
+ * @param generationPatchApplyService 处理该职责的领域服务
+ * @param generationTaskFenceGuard 生成任务围栏防护
+ * @param generationWorkspaceService 生成工作区服务
+ * @param landingSlotFallbackRenderer {@code landingSlotFallbackRenderer} 对应的调用参数
+ * @param vueProjectTemplateBootstrapService 处理该职责的领域服务
+ * @param generationPerformanceMonitorService 处理该职责的领域服务
+ * @param createSpecTaskExecutor {@code createSpecTaskExecutor} 对应的调用参数
+ */
     @Autowired
     public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
                                  CreatePatchMergeService createPatchMergeService,
@@ -152,7 +200,17 @@ public class CreateTemplateRuntime {
         return generate(app, request, plan, null);
     }
 
+    /**
+ * 根据输入生成创建模板运行时。
+ *
+ * @param app 应用
+ * @param request 请求参数
+ * @param plan 计划
+ * @param session 会话
+ * @return 创建模板运行时
+ */
     public SlotFillResult generate(App app, GenerationTaskRequest request, CreateGenerationPlan plan, GenerationSession session) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (app == null || request == null || plan == null || plan.slotGroups().isEmpty()) {
             return null;
         }
@@ -163,6 +221,7 @@ public class CreateTemplateRuntime {
         BootstrapContext bootstrapContext;
         GenerationPerformanceMonitorService.SpanTimer bootstrapSpan = startSpan(
                 session, "create_bootstrap", GenerationSpanCategory.WORKSPACE);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             bootstrapContext = bootstrap(app, request, plan);
             bootstrapSpan.close(
@@ -358,6 +417,7 @@ public class CreateTemplateRuntime {
         );
     }
 
+    /** 提交并返回创建{@code Spec}。 */
     private CreateSpecTask submitCreateSpec(GenerationTaskRequest request,
                                             CreateGenerationPlan plan,
                                             GenerationSession session) {
@@ -385,6 +445,7 @@ public class CreateTemplateRuntime {
         }
     }
 
+    /** 根据当前上下文解析创建{@code Spec}。 */
     private CreateSpecService.SpecResult resolveCreateSpec(CreateSpecTask createSpecTask,
                                                            GenerationTaskRequest request,
                                                            CreateGenerationPlan plan,
@@ -401,6 +462,7 @@ public class CreateTemplateRuntime {
         return specResult;
     }
 
+    /** 根据输入生成创建{@code Spec}模型。 */
     private CreateSpecService.SpecResult generateCreateSpecModel(GenerationTaskRequest request,
                                                                  CreateGenerationPlan plan,
                                                                  String taskId) {
@@ -429,12 +491,14 @@ public class CreateTemplateRuntime {
         return specResult;
     }
 
+    /** 等待创建{@code Spec}完成。 */
     private CreateSpecService.SpecResult awaitCreateSpec(
             Future<CreateSpecService.SpecResult> future,
             GenerationTaskRequest request,
             CreateGenerationPlan plan,
             GenerationSession session
     ) {
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             GenerationExecutionContext executionContext = session == null ? null : session.executionContext();
             if (executionContext == null) {
@@ -514,6 +578,7 @@ public class CreateTemplateRuntime {
         return generationPerformanceMonitorService.startSpan(taskId, stage, category);
     }
 
+    /** 记录{@code First}模型{@code Signal}相关指标或状态。 */
     private void recordFirstModelSignal(String taskId,
                                         Instant startedAt,
                                         String detail) {
@@ -544,6 +609,7 @@ public class CreateTemplateRuntime {
                 .build();
     }
 
+    /** 绑定{@code Monitor}上下文。 */
     private MonitorContext bindMonitorContext(GenerationTaskRequest request,
                                               String taskId) {
         MonitorContext previousContext = MonitorContextHolder.getContext();
@@ -576,6 +642,7 @@ public class CreateTemplateRuntime {
         }
     }
 
+    /** 返回{@code try}{@code Render}{@code Recipe}。 */
     private RecipeRenderResult tryRenderRecipe(GenerationTaskRequest request,
                                                SlotGroup group,
                                                CreateSpecService.SpecResult specResult,
@@ -608,6 +675,7 @@ public class CreateTemplateRuntime {
         return result;
     }
 
+    /** 返回{@code bootstrap}。 */
     private BootstrapContext bootstrap(App app, GenerationTaskRequest request, CreateGenerationPlan plan) {
         CodeGenTypeEnum codeGenType = plan.codeGenType();
         if (codeGenType == null) {
@@ -662,6 +730,7 @@ public class CreateTemplateRuntime {
         );
     }
 
+    /** 将{@code ure}结果标记为失败并记录原因。 */
     private SlotFillResult failureResult(CreateGenerationPlan plan,
                                          List<String> filledSlots,
                                          int totalChars,
@@ -683,6 +752,7 @@ public class CreateTemplateRuntime {
         );
     }
 
+    /** 返回骨架仅结果。 */
     private SlotFillResult skeletonOnlyResult(CreateGenerationPlan plan,
                                               BootstrapContext bootstrapContext,
                                               List<String> filledSlots,
@@ -706,6 +776,7 @@ public class CreateTemplateRuntime {
         );
     }
 
+    /** 返回元数据。 */
     private Map<String, Object> metadata(CreateGenerationPlan plan,
                                          BootstrapContext bootstrapContext,
                                          int aiCalls,
@@ -733,6 +804,7 @@ public class CreateTemplateRuntime {
         return metadata;
     }
 
+    /** 返回{@code coalesce}插槽{@code Groups}。 */
     private List<SlotGroup> coalesceSlotGroups(List<SlotGroup> slotGroups) {
         if (slotGroups == null || slotGroups.isEmpty()) {
             return List.of();
@@ -760,6 +832,7 @@ public class CreateTemplateRuntime {
         }
     }
 
+    /** 返回{@code prefix}操作。 */
     private List<PatchOperation> prefixOperations(String prefix, List<PatchOperation> operations) {
         if (StrUtil.isBlank(prefix) || operations == null || operations.isEmpty()) {
             return operations == null ? List.of() : operations;
@@ -775,6 +848,7 @@ public class CreateTemplateRuntime {
                 .toList();
     }
 
+    /** 返回{@code prefix}插槽{@code Ids}。 */
     private List<String> prefixSlotIds(String prefix, List<String> slotIds) {
         if (slotIds == null || slotIds.isEmpty()) {
             return List.of();
@@ -840,6 +914,7 @@ public class CreateTemplateRuntime {
             this.order = order;
         }
 
+        /** 添加{@code Coalesced}插槽分组。 */
         private void add(SlotGroup group) {
             if (StrUtil.isNotBlank(group.moduleId()) && !moduleIds.contains(group.moduleId())) {
                 moduleIds.add(group.moduleId());

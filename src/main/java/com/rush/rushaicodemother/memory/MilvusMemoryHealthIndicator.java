@@ -23,6 +23,11 @@ public class MilvusMemoryHealthIndicator implements HealthIndicator {
         this.collectionManager = collectionManager;
     }
 
+    /**
+ * 返回健康状态。
+ *
+ * @return Milvus 记忆健康状态指示器
+ */
     @Override
     public Health health() {
         try {

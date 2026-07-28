@@ -63,6 +63,12 @@ public class WorkspaceSemanticIndexService {
         this.workspaceFileSystemService = workspaceFileSystemService;
     }
 
+    /**
+ * 加载{@code Or}构建。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @return {@code Or}构建
+ */
     public WorkspaceSemanticIndex loadOrBuild(Path rootDir) {
         Path normalizedRoot = normalizeRoot(rootDir);
         String cacheKey = normalizedRoot.toString();
@@ -105,6 +111,12 @@ public class WorkspaceSemanticIndexService {
         }
     }
 
+    /**
+ * 返回数量{@code Indexable}文件。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     public int countIndexableFiles(Path rootDir) {
         return indexedFileCount(loadOrBuild(rootDir));
     }
@@ -113,10 +125,22 @@ public class WorkspaceSemanticIndexService {
         return index == null ? 0 : index.indexedFileCount();
     }
 
+    /**
+ * 返回数量{@code Indexed}{@code Symbols}。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     public int countIndexedSymbols(Path rootDir) {
         return indexedSymbolCount(loadOrBuild(rootDir));
     }
 
+    /**
+ * 返回{@code indexed}{@code Symbol}数量。
+ *
+ * @param index 索引
+ * @return 计算或处理后的数值结果
+ */
     public int indexedSymbolCount(WorkspaceSemanticIndex index) {
         if (index == null || index.entries() == null) {
             return 0;
@@ -127,6 +151,14 @@ public class WorkspaceSemanticIndexService {
                 .sum();
     }
 
+    /**
+ * 返回{@code suggest}文件。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param query 查询
+ * @param limit 资源上限
+ * @return 工作区语义索引集合
+ */
     public List<String> suggestFiles(Path rootDir, String query, int limit) {
         if (rootDir == null) {
             return List.of();
@@ -134,12 +166,28 @@ public class WorkspaceSemanticIndexService {
         return suggestFilesFromSnapshot(loadOrBuild(rootDir), query, limit);
     }
 
+    /**
+ * 返回{@code suggest}文件{@code From}快照。
+ *
+ * @param index 索引
+ * @param query 查询
+ * @param limit 资源上限
+ * @return 工作区语义索引集合
+ */
     public List<String> suggestFilesFromSnapshot(WorkspaceSemanticIndex index, String query, int limit) {
         return searchSnapshot(index, query, Set.of(), limit).stream()
                 .map(WorkspaceSemanticSearchHit::relativePath)
                 .toList();
     }
 
+    /**
+ * 查找匹配的{@code Matching}文件。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param keywords 待处理的 {@code keywords} 集合
+ * @param limit 资源上限
+ * @return {@code Matching}文件集合
+ */
     public List<String> findMatchingFiles(Path rootDir, List<String> keywords, int limit) {
         if (rootDir == null) {
             return List.of();
@@ -147,6 +195,14 @@ public class WorkspaceSemanticIndexService {
         return findMatchingFilesFromSnapshot(loadOrBuild(rootDir), keywords, limit);
     }
 
+    /**
+ * 查找匹配的{@code Matching}文件{@code From}快照。
+ *
+ * @param index 索引
+ * @param keywords 待处理的 {@code keywords} 集合
+ * @param limit 资源上限
+ * @return {@code Matching}文件{@code From}快照集合
+ */
     public List<String> findMatchingFilesFromSnapshot(WorkspaceSemanticIndex index,
                                                       List<String> keywords,
                                                       int limit) {
@@ -157,6 +213,14 @@ public class WorkspaceSemanticIndexService {
         return suggestFilesFromSnapshot(index, query, limit);
     }
 
+    /**
+ * 查找匹配的文件按{@code Symbol}。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param symbol {@code symbol} 对应的调用参数
+ * @param limit 资源上限
+ * @return 文件按{@code Symbol}集合
+ */
     public List<String> findFilesBySymbol(Path rootDir, String symbol, int limit) {
         if (rootDir == null || StrUtil.isBlank(symbol) || limit <= 0) {
             return List.of();
@@ -171,6 +235,15 @@ public class WorkspaceSemanticIndexService {
                 .toList();
     }
 
+    /**
+ * 查找匹配的文件{@code Referencing}。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param token 令牌
+ * @param extensionFilter {@code extensionFilter} 对应的调用参数
+ * @param limit 资源上限
+ * @return 文件{@code Referencing}集合
+ */
     public List<String> findFilesReferencing(Path rootDir, String token, Set<String> extensionFilter, int limit) {
         if (rootDir == null || StrUtil.isBlank(token) || limit <= 0) {
             return List.of();
@@ -186,6 +259,14 @@ public class WorkspaceSemanticIndexService {
                 .toList();
     }
 
+    /**
+ * 查找匹配的文件{@code Importing}。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param importTarget 导入目标
+ * @param limit 资源上限
+ * @return 文件{@code Importing}集合
+ */
     public List<String> findFilesImporting(Path rootDir, String importTarget, int limit) {
         if (rootDir == null || StrUtil.isBlank(importTarget) || limit <= 0) {
             return List.of();
@@ -203,6 +284,13 @@ public class WorkspaceSemanticIndexService {
                 .toList();
     }
 
+    /**
+ * 返回{@code describe}文件。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param relativePaths 待处理的 {@code relativePaths} 集合
+ * @return 工作区语义索引集合
+ */
     public List<WorkspaceSemanticSearchHit> describeFiles(Path rootDir, List<String> relativePaths) {
         if (rootDir == null) {
             return List.of();
@@ -210,6 +298,13 @@ public class WorkspaceSemanticIndexService {
         return describeFilesFromSnapshot(loadOrBuild(rootDir), relativePaths);
     }
 
+    /**
+ * 返回{@code describe}文件{@code From}快照。
+ *
+ * @param index 索引
+ * @param relativePaths 待处理的 {@code relativePaths} 集合
+ * @return 工作区语义索引集合
+ */
     public List<WorkspaceSemanticSearchHit> describeFilesFromSnapshot(WorkspaceSemanticIndex index,
                                                                       List<String> relativePaths) {
         if (index == null || CollUtil.isEmpty(relativePaths)) {
@@ -268,6 +363,7 @@ public class WorkspaceSemanticIndexService {
      * @param relativePaths 相对路径列表
      */
     public void refreshFilesIndex(Path rootDir, List<String> relativePaths) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (rootDir == null || CollUtil.isEmpty(relativePaths)) {
             return;
         }
@@ -284,6 +380,7 @@ public class WorkspaceSemanticIndexService {
         if (selectedPaths.isEmpty()) {
             return;
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             WorkspaceScan scan = workspaceFileSystemService.scanProject(normalizedRoot);
             java.util.Map<String, WorkspaceFileMetadata> filesByPath = scan.files().stream()
@@ -329,6 +426,15 @@ public class WorkspaceSemanticIndexService {
         refreshFileIndex(rootDir, relativePath);
     }
 
+    /**
+ * 搜索匹配的工作区语义索引。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param query 查询
+ * @param extensionFilter {@code extensionFilter} 对应的调用参数
+ * @param limit 资源上限
+ * @return 工作区语义索引集合
+ */
     public List<WorkspaceSemanticSearchHit> search(Path rootDir, String query, Set<String> extensionFilter, int limit) {
         if (rootDir == null || StrUtil.isBlank(query) || limit <= 0) {
             return List.of();
@@ -336,6 +442,15 @@ public class WorkspaceSemanticIndexService {
         return searchSnapshot(loadOrBuild(rootDir), query, extensionFilter, limit);
     }
 
+    /**
+ * 搜索匹配的快照。
+ *
+ * @param index 索引
+ * @param query 查询
+ * @param extensionFilter {@code extensionFilter} 对应的调用参数
+ * @param limit 资源上限
+ * @return 快照集合
+ */
     public List<WorkspaceSemanticSearchHit> searchSnapshot(WorkspaceSemanticIndex index,
                                                            String query,
                                                            Set<String> extensionFilter,
@@ -366,6 +481,7 @@ public class WorkspaceSemanticIndexService {
                 .toList();
     }
 
+    /** 构建并返回索引。 */
     private WorkspaceSemanticIndex buildIndex(WorkspaceScan scan, String signature) throws IOException {
         List<WorkspaceSemanticIndexEntry> entries = new ArrayList<>();
         for (WorkspaceFileMetadata file : scan.files()) {
@@ -384,6 +500,7 @@ public class WorkspaceSemanticIndexService {
         );
     }
 
+    /** 构建并返回条目。 */
     private WorkspaceSemanticIndexEntry buildEntry(WorkspaceScan scan, WorkspaceFileMetadata file) throws IOException {
         String relativePath = file.relativePath();
         String fileName = file.fileName();
@@ -418,6 +535,7 @@ public class WorkspaceSemanticIndexService {
         );
     }
 
+    /** 返回{@code score}条目。 */
     private ScoredHit scoreEntry(WorkspaceSemanticIndexEntry entry, String query, List<String> queryTerms) {
         int score = 0;
         String relativePath = normalize(entry.relativePath());
@@ -451,6 +569,7 @@ public class WorkspaceSemanticIndexService {
             }
             matchedTerms.add(query);
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String term : queryTerms) {
             if (relativePath.contains(term)) {
                 score += 25;
@@ -504,6 +623,7 @@ public class WorkspaceSemanticIndexService {
         return StrUtil.blankToDefault(preview, "");
     }
 
+    /** 写入索引。 */
     private void writeIndex(Path rootDir, WorkspaceSemanticIndex index) {
         try {
             JSONObject payload = toJson(index);
@@ -513,6 +633,7 @@ public class WorkspaceSemanticIndexService {
         }
     }
 
+    /** 读取索引。 */
     private WorkspaceSemanticIndex readIndex(Path rootDir) {
         try {
             String persistedIndex = workspaceFileSystemService
@@ -532,6 +653,7 @@ public class WorkspaceSemanticIndexService {
         }
     }
 
+    /** 将当前对象转换为{@code Json}。 */
     private JSONObject toJson(WorkspaceSemanticIndex index) {
         JSONObject payload = new JSONObject();
         payload.set("schemaVersion", index.schemaVersion());
@@ -557,6 +679,7 @@ public class WorkspaceSemanticIndexService {
         return payload;
     }
 
+    /** 根据输入数据创建当前对象。 */
     private WorkspaceSemanticIndex fromJson(JSONObject payload) {
         JSONArray entriesArray = payload.getJSONArray("entries");
         List<WorkspaceSemanticIndexEntry> entries = new ArrayList<>();
@@ -588,6 +711,7 @@ public class WorkspaceSemanticIndexService {
         );
     }
 
+    /** 读取{@code String}列表。 */
     private List<String> readStringList(JSONArray array) {
         if (array == null || array.isEmpty()) {
             return List.of();
@@ -601,6 +725,7 @@ public class WorkspaceSemanticIndexService {
         return List.copyOf(values);
     }
 
+    /** 计算工作区签名。 */
     private String computeWorkspaceSignature(WorkspaceScan scan) {
         StringBuilder builder = new StringBuilder(scan.root().toString())
                 .append('|')
@@ -634,6 +759,7 @@ public class WorkspaceSemanticIndexService {
         );
     }
 
+    /** 判断{@code Indexable}是否满足约束。 */
     private boolean isIndexable(String relativePath) {
         if (StrUtil.isBlank(relativePath)) {
             return false;
@@ -676,6 +802,7 @@ public class WorkspaceSemanticIndexService {
         return StrUtil.blankToDefault(value, "").toLowerCase(Locale.ROOT).replace('\\', '/').trim();
     }
 
+    /** 从输入中提取{@code Terms}。 */
     private List<String> extractTerms(String value) {
         if (StrUtil.isBlank(value)) {
             return List.of();
@@ -691,6 +818,7 @@ public class WorkspaceSemanticIndexService {
         return List.copyOf(terms);
     }
 
+    /** 从输入中提取{@code Symbols}。 */
     private List<String> extractSymbols(String content, String fileName) {
         LinkedHashSet<String> symbols = new LinkedHashSet<>();
         String mainName = FileUtil.mainName(StrUtil.blankToDefault(fileName, ""));
@@ -712,6 +840,7 @@ public class WorkspaceSemanticIndexService {
         return List.copyOf(symbols);
     }
 
+    /** 规范化{@code Extensions}。 */
     private Set<String> normalizeExtensions(Set<String> extensionFilter) {
         if (extensionFilter == null || extensionFilter.isEmpty()) {
             return Set.of();

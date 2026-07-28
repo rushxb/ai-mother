@@ -19,6 +19,12 @@ public class PatchBatchRollbackService {
     private final PatchWorkspaceFileService workspaceFileService;
     private final PatchExecutionProperties properties;
 
+    /**
+ * 返回{@code capture}。
+ *
+ * @param targets 待处理的 {@code targets} 集合
+ * @return 补丁批次回滚
+ */
     public PatchRollbackSnapshot capture(List<PatchWorkspaceTarget> targets) throws IOException {
         Map<String, PatchRollbackSnapshot.FileState> states = new LinkedHashMap<>();
         long capturedBytes = 0;
@@ -43,6 +49,11 @@ public class PatchBatchRollbackService {
         return new PatchRollbackSnapshot(new ArrayList<>(states.values()));
     }
 
+    /**
+ * 处理恢复。
+ *
+ * @param snapshot 快照
+ */
     public void restore(PatchRollbackSnapshot snapshot) throws IOException {
         if (snapshot == null || snapshot.files().isEmpty()) {
             return;
@@ -64,6 +75,7 @@ public class PatchBatchRollbackService {
         }
     }
 
+    /** 处理恢复文件。 */
     private void restoreFile(PatchRollbackSnapshot.FileState state) throws IOException {
         boolean currentExists = workspaceFileService.exists(state.target());
         if (state.existed()) {

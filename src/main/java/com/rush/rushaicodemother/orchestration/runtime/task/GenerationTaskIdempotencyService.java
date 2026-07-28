@@ -18,6 +18,14 @@ public class GenerationTaskIdempotencyService {
     private static final byte[] FINGERPRINT_NAMESPACE =
             "generation-task-submission:v1".getBytes(StandardCharsets.UTF_8);
 
+    /**
+ * 根据当前上下文解析生成任务{@code Idempotency}。
+ *
+ * @param rawKey 原始键
+ * @param appId 应用编号
+ * @param message 消息内容
+ * @return 生成任务{@code Idempotency}
+ */
     public GenerationTaskIdempotency resolve(String rawKey, Long appId, String message) {
         if (rawKey == null) {
             return GenerationTaskIdempotency.none();
@@ -43,6 +51,7 @@ public class GenerationTaskIdempotencyService {
         );
     }
 
+    /** 判断{@code Visible}{@code Ascii}是否满足约束。 */
     private boolean isVisibleAscii(String value) {
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
@@ -58,6 +67,7 @@ public class GenerationTaskIdempotencyService {
         digest.update(value);
     }
 
+    /** 计算内容的 SHA-256 摘要。 */
     private MessageDigest sha256() {
         try {
             return MessageDigest.getInstance("SHA-256");

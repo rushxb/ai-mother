@@ -20,11 +20,23 @@ public class DefaultAiModelRuntimeService implements AiModelRuntimeService {
     private final AiModelConfigurationPolicy configurationPolicy;
     private final AiModelCircuitBreaker circuitBreaker;
 
+    /**
+ * 校验并返回有效的可运行模型按类型。
+ *
+ * @param modelType 模型类型
+ * @return 可运行模型按类型
+ */
     @Override
     public AiModelRuntimeConfiguration requireRunnableModelByType(String modelType) {
         return listRunnableModelsByType(modelType).getFirst();
     }
 
+    /**
+ * 列出符合条件的可运行模型按类型。
+ *
+ * @param modelType 模型类型
+ * @return 可运行模型按类型集合
+ */
     @Override
     public List<AiModelRuntimeConfiguration> listRunnableModelsByType(String modelType) {
         if (StrUtil.isBlank(modelType)) {
@@ -52,6 +64,7 @@ public class DefaultAiModelRuntimeService implements AiModelRuntimeService {
         return available;
     }
 
+    /** 确保生成模型已配置已达到可用状态。 */
     @Override
     public void ensureGenerationModelsConfigured() {
         requireRunnableModelByType(CHAT_MODEL_TYPE);

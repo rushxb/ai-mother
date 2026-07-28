@@ -44,6 +44,24 @@ public class LightweightRuntimeValidationService {
         return editFileSnapshotService.capture(projectRoot, patchOperations);
     }
 
+    /**
+ * 校验{@code ate}并{@code Retries}是否有效。
+ *
+ * @param request 请求参数
+ * @param app 应用
+ * @param loginUser 当前登录用户
+ * @param taskId 任务编号
+ * @param workspace 工作区
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @param editResult 编辑结果
+ * @param patchOperations 补丁操作
+ * @param applyResult {@code applyResult} 对应的调用参数
+ * @param validationPlan 校验计划
+ * @param editSnapshot 编辑快照
+ * @param managedModelCalls 受生命周期管理的模型调用集合
+ * @return {@code ate}并{@code Retries}
+ */
     public LightweightRuntimeValidationOutcome validateWithRetries(
             GenerationTaskRequest request,
             App app,
@@ -100,6 +118,16 @@ public class LightweightRuntimeValidationService {
                 taskId, app, loginUser, workspace, patchOperations, validationPlan, userMessage);
     }
 
+    /**
+ * 返回回滚。
+ *
+ * @param request 请求参数
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param editSnapshot 编辑快照
+ * @param projectRoot 项目根
+ * @return 轻量运行时校验
+ */
     public EditFileSnapshotService.RestoreResult rollback(GenerationTaskRequest request,
                                                           Long appId,
                                                           String taskId,
@@ -125,6 +153,7 @@ public class LightweightRuntimeValidationService {
         return restoreResult;
     }
 
+    /** 返回重试{@code Repair}。 */
     private RuntimeRepairAttempt retryRepair(GenerationTaskRequest request,
                                              App app,
                                              User loginUser,
@@ -144,6 +173,7 @@ public class LightweightRuntimeValidationService {
                         "validationLevel", previousValidationPlan.level().name(),
                         "message", StrUtil.blankToDefault(previousValidationResult.message(), "")
                 ));
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             String retryContext = contextAssembler.rebuildAfterValidationFailure(
                     workspace, userMessage, previousValidationResult, projectContext);

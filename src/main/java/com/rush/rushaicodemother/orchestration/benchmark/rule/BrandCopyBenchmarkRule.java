@@ -40,11 +40,23 @@ public class BrandCopyBenchmarkRule implements GenerationBenchmarkValidationRule
         return GenerationBenchmarkQualityDimension.FUNCTIONAL;
     }
 
+    /**
+ * 返回{@code supports}。
+ *
+ * @param task 任务
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return task != null && TASK_ID.equals(task.id());
     }
 
+    /**
+ * 准备后续流程所需的品牌文案基准测试规则。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ */
     @Override
     public void prepare(GenerationBenchmarkTask task, GenerationWorkspace workspace) {
         String path = "src/data/siteData.ts";
@@ -57,6 +69,14 @@ public class BrandCopyBenchmarkRule implements GenerationBenchmarkValidationRule
         inspector.writeUtf8(workspace.frontendRootPath(), path, seeded);
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ * @param baseline {@code baseline} 对应的调用参数
+ * @return 品牌文案基准测试规则
+ */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,

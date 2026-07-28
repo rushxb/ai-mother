@@ -28,6 +28,15 @@ abstract class AbstractSlotRecipeRenderer<R> implements CreateRecipeRenderer {
         return templateId;
     }
 
+    /**
+ * 渲染{@code Abstract}插槽{@code Recipe}渲染器。
+ *
+ * @param userMessage 用户消息
+ * @param group 分组
+ * @param spec {@code spec} 对应的调用参数
+ * @param manifest 清单
+ * @return {@code Abstract}插槽{@code Recipe}渲染器
+ */
     @Override
     public final RecipeRenderResult render(String userMessage,
                                            SlotGroup group,

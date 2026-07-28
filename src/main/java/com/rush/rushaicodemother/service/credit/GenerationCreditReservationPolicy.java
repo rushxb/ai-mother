@@ -17,6 +17,12 @@ public class GenerationCreditReservationPolicy {
     private final GenerationCreditReservationProperties properties;
     private final UserCreditCostCalculator costCalculator;
 
+    /**
+ * 返回{@code quote}。
+ *
+ * @param command 命令
+ * @return 生成额度{@code Reservation}策略
+ */
     public GenerationCreditReservationQuote quote(GenerationTaskCommand command) {
         Objects.requireNonNull(command, "command");
         long baseTokens = estimatedTokens(command.mode());
@@ -60,6 +66,7 @@ public class GenerationCreditReservationPolicy {
         };
     }
 
+    /** 返回{@code multiply}{@code And}{@code Round}{@code Up}。 */
     private long multiplyAndRoundUp(long value, int percent) {
         try {
             long product = Math.multiplyExact(value, percent);

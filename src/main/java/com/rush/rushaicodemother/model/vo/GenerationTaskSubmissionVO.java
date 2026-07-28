@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.model.vo;
 
-import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapshot;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 
 import java.time.Instant;
 
@@ -13,9 +13,15 @@ public record GenerationTaskSubmissionVO(
         Instant submittedAt,
         Instant deadlineAt
 ) {
-    public static GenerationTaskSubmissionVO from(GenerationTaskSnapshot snapshot) {
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param submission 提交回执
+ * @return 生成任务提交视图对象
+ */
+    public static GenerationTaskSubmissionVO from(GenerationTaskSubmissionReceipt submission) {
         return new GenerationTaskSubmissionVO(
-                snapshot.taskId(), snapshot.appId(), snapshot.route(), snapshot.status(),
-                snapshot.submittedAt(), snapshot.deadlineAt());
+                submission.taskId(), submission.appId(), submission.route(), submission.status().getValue(),
+                submission.submittedAt(), submission.deadlineAt());
     }
 }

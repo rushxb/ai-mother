@@ -18,6 +18,7 @@ public class GenerationRecipeLibrary {
 
     private final List<GenerationRecipe> recipes;
 
+    /** 创建生成{@code Recipe}{@code Library}实例并完成必要的依赖和初始状态设置。 */
     public GenerationRecipeLibrary() {
         this.recipes = List.of(
                 recipe(
@@ -119,6 +120,13 @@ public class GenerationRecipeLibrary {
         );
     }
 
+    /**
+ * 返回{@code match}。
+ *
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @return 生成{@code Recipe}{@code Library}集合
+ */
     public List<GenerationRecipe> match(String userMessage, String projectContext) {
         String normalized = normalize(userMessage + "\n" + StrUtil.blankToDefault(projectContext, ""));
         if (StrUtil.isBlank(normalized)) {
@@ -130,6 +138,12 @@ public class GenerationRecipeLibrary {
                 .toList();
     }
 
+    /**
+ * 将当前对象转换为{@code Payloads}。
+ *
+ * @param matchedRecipes 待处理的 {@code matchedRecipes} 集合
+ * @return {@code Payloads}集合
+ */
     public List<Map<String, Object>> toPayloads(List<GenerationRecipe> matchedRecipes) {
         if (matchedRecipes == null || matchedRecipes.isEmpty()) {
             return List.of();
@@ -139,6 +153,12 @@ public class GenerationRecipeLibrary {
                 .toList();
     }
 
+    /**
+ * 返回{@code modules}。
+ *
+ * @param matchedRecipes 待处理的 {@code matchedRecipes} 集合
+ * @return 生成{@code Recipe}{@code Library}集合
+ */
     public List<String> modules(List<GenerationRecipe> matchedRecipes) {
         LinkedHashSet<String> modules = new LinkedHashSet<>();
         if (matchedRecipes != null) {
@@ -147,6 +167,12 @@ public class GenerationRecipeLibrary {
         return List.copyOf(modules);
     }
 
+    /**
+ * 返回上下文文件{@code Hints}。
+ *
+ * @param matchedRecipes 待处理的 {@code matchedRecipes} 集合
+ * @return 生成{@code Recipe}{@code Library}集合
+ */
     public List<String> contextFileHints(List<GenerationRecipe> matchedRecipes) {
         LinkedHashSet<String> hints = new LinkedHashSet<>();
         if (matchedRecipes != null) {
@@ -155,6 +181,7 @@ public class GenerationRecipeLibrary {
         return List.copyOf(hints);
     }
 
+    /** 返回{@code recipe}。 */
     private GenerationRecipe recipe(String id,
                                     String title,
                                     String intent,

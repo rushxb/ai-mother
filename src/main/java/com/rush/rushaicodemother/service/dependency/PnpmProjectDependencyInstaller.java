@@ -30,6 +30,16 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
     private final NodeProjectDirectoryValidator projectDirectoryValidator;
     private final ReentrantLock[] projectLocks;
 
+    /**
+ * 创建{@code Pnpm}项目依赖{@code Installer}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param commandExecutor 命令执行器
+ * @param integrityService 处理该职责的领域服务
+ * @param processTerminator {@code processTerminator} 对应的调用参数
+ * @param properties 配置属性
+ * @param executionContextService 执行上下文服务
+ * @param projectDirectoryValidator {@code projectDirectoryValidator} 对应的调用参数
+ */
     @Autowired
     public PnpmProjectDependencyInstaller(
             PnpmInstallCommandExecutor commandExecutor,
@@ -58,6 +68,14 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         return ensureInstalled(projectDirectory, taskId, DependencyInstallMode.REUSE_IF_VALID);
     }
 
+    /**
+ * 确保{@code Installed}已达到可用状态。
+ *
+ * @param projectDirectory 项目目录
+ * @param taskId 任务编号
+ * @param mode 模式
+ * @return {@code Installed}
+ */
     @Override
     public DependencyInstallResult ensureInstalled(Path projectDirectory,
                                                    String taskId,
@@ -76,6 +94,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
         Path projectPath = validation.projectPath();
         ReentrantLock projectLock = lockFor(projectPath);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             acquireProjectLock(projectLock, taskId);
         } catch (InterruptedException exception) {
@@ -83,8 +102,9 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             return interruptedResult("");
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            if (effectiveMode.reuseIfValid() && integrityService.isComplete(projectPath)) {
+            if (effectiveMode.reuseIfValid() && integrityService.isComplete(projectPath, taskId)) {
                 log.info("项目依赖完整，跳过安装: project={}", projectPath);
                 return DependencyInstallResult.success(COMPLETE_MESSAGE);
             }
@@ -97,6 +117,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         }
     }
 
+    /** 获取项目锁。 */
     private void acquireProjectLock(ReentrantLock projectLock, String taskId) throws InterruptedException {
         while (true) {
             executionContextService.assertCanContinue(taskId);
@@ -120,6 +141,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         return projectDirectory != null && commandExecutor.cancel(projectDirectory);
     }
 
+    /** 返回{@code install}并{@code Bounded}{@code Retries}。 */
     private DependencyInstallResult installWithBoundedRetries(Path projectPath,
                                                               String taskId,
                                                               DependencyInstallMode mode) {
@@ -127,6 +149,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         DependencyInstallResult lastResult = null;
         boolean force = false;
 
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int attempt = 1; attempt <= properties.getMaxAttempts(); attempt++) {
             if (Thread.currentThread().isInterrupted()) {
                 return interruptedResult(limitOutput(combinedOutput.toString()));
@@ -147,7 +170,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             }
 
             if (installResult.success()) {
-                if (integrityService.isComplete(projectPath)) {
+                if (integrityService.isComplete(projectPath, taskId)) {
                     log.info("项目依赖安装并校验成功: project={}, attempt={}", projectPath, attempt);
                     return DependencyInstallResult.success(limitOutput(combinedOutput.toString()));
                 }
@@ -193,6 +216,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         return withCombinedOutput(lastResult, combinedOutput);
     }
 
+    /** 清理损坏的依赖包。 */
     private DependencyInstallResult cleanCorruptedPackages(Path projectPath, StringBuilder combinedOutput) {
         try {
             integrityService.cleanCorruptedNativePackages(projectPath);
@@ -218,6 +242,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
                 : DependencyInstallResult.failed(result.status(), output, result.errorDetail());
     }
 
+    /** 追加尝试输出。 */
     private void appendAttemptOutput(StringBuilder combinedOutput, int attempt, String output) {
         if (!combinedOutput.isEmpty()) {
             combinedOutput.append('\n');
@@ -261,6 +286,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         return projectLocks[Math.floorMod(projectPath.toString().hashCode(), projectLocks.length)];
     }
 
+    /** 创建{@code Locks}。 */
     private ReentrantLock[] createLocks(int stripeCount) {
         if (stripeCount <= 0) {
             throw new IllegalArgumentException("项目安装锁条带数必须大于 0");

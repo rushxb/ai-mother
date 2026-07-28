@@ -38,6 +38,11 @@ public class DevServerOutputHub {
         this.maxOutputLineLength = maxOutputLineLength;
     }
 
+    /**
+ * 准备后续流程所需的开发服务器输出{@code Hub}。
+ *
+ * @param appId 应用编号
+ */
     public void prepare(Long appId) {
         if (appId != null) {
             recentOutputLines.remove(appId);
@@ -48,6 +53,12 @@ public class DevServerOutputHub {
         return line -> accept(appId, line);
     }
 
+    /**
+ * 注册采集器。
+ *
+ * @param appId 应用编号
+ * @param collector 采集器
+ */
     public void registerCollector(Long appId, DevServerErrorCollector collector) {
         if (appId == null || appId <= 0 || collector == null) {
             throw new IllegalArgumentException("应用 ID 和错误收集器不能为空");
@@ -56,6 +67,12 @@ public class DevServerOutputHub {
                 .add(collector);
     }
 
+    /**
+ * 注销采集器。
+ *
+ * @param appId 应用编号
+ * @param collector 采集器
+ */
     public void unregisterCollector(Long appId, DevServerErrorCollector collector) {
         if (appId == null || collector == null) {
             return;
@@ -70,6 +87,13 @@ public class DevServerOutputHub {
         }
     }
 
+    /**
+ * 返回{@code recent}{@code Lines}。
+ *
+ * @param appId 应用编号
+ * @param limit 资源上限
+ * @return 开发服务器输出{@code Hub}集合
+ */
     public List<String> recentLines(Long appId, int limit) {
         if (appId == null || limit <= 0) {
             return List.of();
@@ -84,11 +108,13 @@ public class DevServerOutputHub {
         return List.copyOf(snapshot.subList(fromIndex, snapshot.size()));
     }
 
+    /** 清理开发服务器输出{@code Hub}。 */
     public void clear() {
         errorCollectors.clear();
         recentOutputLines.clear();
     }
 
+    /** 接收并处理开发服务器输出{@code Hub}。 */
     private void accept(Long appId, String rawLine) {
         if (appId == null || rawLine == null || rawLine.isBlank()) {
             return;
@@ -109,6 +135,7 @@ public class DevServerOutputHub {
         }
     }
 
+    /** 返回绑定{@code Line}。 */
     private String boundLine(String line) {
         if (line.length() <= maxOutputLineLength) {
             return line;

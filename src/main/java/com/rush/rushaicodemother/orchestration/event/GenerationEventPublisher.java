@@ -25,6 +25,14 @@ public class GenerationEventPublisher {
     private final Map<Long, Deque<GenerationEvent>> replayEvents = new ConcurrentHashMap<>();
     private final Map<Long, Sinks.Many<GenerationEvent>> eventSinks = new ConcurrentHashMap<>();
 
+    /**
+ * 发布当前处理结果或领域事件。
+ *
+ * @param request 请求参数
+ * @param type 目标类型
+ * @param message 消息内容
+ * @param data {@code data} 对应的调用参数
+ */
     public void publish(GenerationTaskRequest request,
                         GenerationEventType type,
                         String message,
@@ -70,6 +78,12 @@ public class GenerationEventPublisher {
         }
     }
 
+    /**
+ * 返回{@code recent}。
+ *
+ * @param appId 应用编号
+ * @return 生成事件集合
+ */
     public List<GenerationEvent> recent(Long appId) {
         if (appId == null) {
             return List.of();
@@ -83,12 +97,23 @@ public class GenerationEventPublisher {
         }
     }
 
+    /**
+ * 清理{@code Recent}。
+ *
+ * @param appId 应用编号
+ */
     public void clearRecent(Long appId) {
         if (appId != null) {
             replayEvents.remove(appId);
         }
     }
 
+    /**
+ * 返回流。
+ *
+ * @param appId 应用编号
+ * @return 异步响应式处理结果
+ */
     public Flux<GenerationEvent> stream(Long appId) {
         if (appId == null) {
             return Flux.empty();
@@ -99,6 +124,7 @@ public class GenerationEventPublisher {
         ));
     }
 
+    /** 处理记录。 */
     private void remember(GenerationEvent event) {
         Deque<GenerationEvent> events = replayEvents.computeIfAbsent(
                 event.appId(),

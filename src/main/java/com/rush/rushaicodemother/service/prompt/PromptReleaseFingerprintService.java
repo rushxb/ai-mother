@@ -22,6 +22,11 @@ public class PromptReleaseFingerprintService
         return promptCatalog.bundleId();
     }
 
+    /**
+ * 返回当前持久指纹。
+ *
+ * @return 处理后的提示词发布指纹文本
+ */
     @Override
     public String currentDurableFingerprint() {
         return runtime.preview(repository.loadCurrent()).bundleId();

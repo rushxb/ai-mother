@@ -56,6 +56,7 @@ public class DevServerInternalRequestSigner {
         this(properties, identityProvider, Clock.systemUTC(), () -> UUID.randomUUID().toString());
     }
 
+    /** 创建开发服务器内部请求{@code Signer}实例并完成必要的依赖和初始状态设置。 */
     DevServerInternalRequestSigner(
             DevServerInternalRoutingProperties properties,
             DevServerNodeIdentityProvider identityProvider,
@@ -75,6 +76,14 @@ public class DevServerInternalRequestSigner {
                 .build();
     }
 
+    /**
+ * 返回{@code sign}。
+ *
+ * @param method {@code method} 对应的调用参数
+ * @param targetUri {@code targetUri} 对应的调用参数
+ * @param requestBody 请求正文
+ * @return 开发服务器内部请求{@code Signer}集合
+ */
     public Map<String, String> sign(String method, URI targetUri, byte[] requestBody) {
         requireConfigured();
         String timestamp = String.valueOf(clock.instant().getEpochSecond());
@@ -95,6 +104,12 @@ public class DevServerInternalRequestSigner {
         return Map.copyOf(headers);
     }
 
+    /**
+ * 验证开发服务器内部请求{@code Signer}是否符合预期。
+ *
+ * @param request 请求参数
+ * @return 开发服务器内部请求{@code Signer}
+ */
     public VerifiedDevServerInternalRequest verify(HttpServletRequest request) {
         requireConfigured();
         if (request == null) {
@@ -114,6 +129,7 @@ public class DevServerInternalRequestSigner {
         }
 
         Instant signedAt;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             signedAt = Instant.ofEpochSecond(Long.parseLong(timestamp));
         } catch (RuntimeException invalidTimestamp) {
@@ -143,6 +159,12 @@ public class DevServerInternalRequestSigner {
         return new VerifiedDevServerInternalRequest(source, nonce, bodySha256);
     }
 
+    /**
+ * 验证正文是否符合预期。
+ *
+ * @param verifiedRequest {@code verifiedRequest} 对应的调用参数
+ * @param requestBody 请求正文
+ */
     public void verifyBody(VerifiedDevServerInternalRequest verifiedRequest, byte[] requestBody) {
         if (verifiedRequest == null) {
             throw denied();
@@ -185,6 +207,7 @@ public class DevServerInternalRequestSigner {
         return query == null || query.isBlank() ? requestUri : requestUri + "?" + query;
     }
 
+    /** 返回签名。 */
     private String signature(String canonical) {
         try {
             Mac mac = Mac.getInstance(HMAC_ALGORITHM);
@@ -196,6 +219,7 @@ public class DevServerInternalRequestSigner {
         }
     }
 
+    /** 计算内容的 SHA-256 摘要。 */
     private String sha256(byte[] value) {
         try {
             byte[] digest = MessageDigest.getInstance(SHA256_ALGORITHM).digest(value);

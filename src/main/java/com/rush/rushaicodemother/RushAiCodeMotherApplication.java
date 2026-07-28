@@ -15,6 +15,11 @@ import org.springframework.context.ConfigurableApplicationContext;
 @MapperScan("com.rush.rushaicodemother.mapper")
 public class RushAiCodeMotherApplication {
 
+    /**
+ * 启动 Spring Boot 后端应用，并在启动失败时返回非零退出码。
+ *
+ * @param args 命令行参数
+ */
     public static void main(String[] args) {
         ConfigurableApplicationContext context = SpringApplication.run(
                 RushAiCodeMotherApplication.class, args);

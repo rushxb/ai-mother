@@ -125,6 +125,7 @@ class GenerationTaskRecoveryServiceTest {
         GenerationOrchestrationTask checkpoint = new GenerationOrchestrationTask();
         checkpoint.setTaskId("task-resume");
         checkpoint.setAppId(1L);
+        checkpoint.setExecutionEpoch(1L);
         checkpoint.setStatus("running");
         when(taskStore.load(1L, "task-resume")).thenReturn(Optional.of(checkpoint));
         when(repository.requeueExpiredLease(candidate, NOW, "checkpoint_resume")).thenReturn(true);
@@ -151,6 +152,7 @@ class GenerationTaskRecoveryServiceTest {
         GenerationOrchestrationTask checkpoint = new GenerationOrchestrationTask();
         checkpoint.setTaskId("task-completed-dag");
         checkpoint.setAppId(1L);
+        checkpoint.setExecutionEpoch(1L);
         checkpoint.setStatus("completed");
         checkpoint.setRuntimeState(AgentRuntimeState.COMPLETED);
         checkpoint.setDagFingerprint("a".repeat(64));
@@ -183,6 +185,7 @@ class GenerationTaskRecoveryServiceTest {
         GenerationOrchestrationTask checkpoint = new GenerationOrchestrationTask();
         checkpoint.setTaskId("task-running-node");
         checkpoint.setAppId(1L);
+        checkpoint.setExecutionEpoch(1L);
         checkpoint.setStatus("running");
         checkpoint.setRuntimeState(AgentRuntimeState.RUNNING);
         checkpoint.setDagFingerprint("b".repeat(64));
@@ -199,6 +202,33 @@ class GenerationTaskRecoveryServiceTest {
         verify(repository, never()).requeueExpiredLease(candidate, NOW, "checkpoint_resume");
         verify(dispatcher, never()).dispatch("task-running-node");
         verify(appStateService).releaseOwnedGenerationState(1L, "task-running-node", 1L);
+    }
+
+    @Test
+    void checkpointFromAnotherExecutionEpochMustNotBeRequeued() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationTaskDispatcher dispatcher = mock(GenerationTaskDispatcher.class);
+        service = new GenerationTaskRecoveryService(
+                repository, properties(), new GenerationTaskRecoveryPolicy(),
+                appStateService, executionContextService, null, null,
+                taskStore, dispatcher, Clock.fixed(NOW, ZoneOffset.UTC));
+        GenerationTaskRecoveryCandidate candidate = orphanCandidate("task-stale-checkpoint", 1L, 10L);
+        GenerationOrchestrationTask checkpoint = new GenerationOrchestrationTask();
+        checkpoint.setTaskId("task-stale-checkpoint");
+        checkpoint.setAppId(1L);
+        checkpoint.setExecutionEpoch(2L);
+        checkpoint.setStatus("running");
+        when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(candidate));
+        when(taskStore.load(1L, "task-stale-checkpoint")).thenReturn(Optional.of(checkpoint));
+        when(repository.finalizeExpiredLease(
+                candidate, GenerationTaskStatus.FAILED, NOW,
+                GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON)).thenReturn(true);
+
+        assertEquals(1, service.recoverExpiredTasks());
+
+        verify(repository, never()).requeueExpiredLease(candidate, NOW, "checkpoint_resume");
+        verify(dispatcher, never()).dispatch("task-stale-checkpoint");
+        verify(appStateService).releaseOwnedGenerationState(1L, "task-stale-checkpoint", 1L);
     }
 
     @Test

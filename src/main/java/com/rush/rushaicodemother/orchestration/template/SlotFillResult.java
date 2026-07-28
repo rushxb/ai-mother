@@ -71,6 +71,11 @@ public record SlotFillResult(
         return patchOperations != null ? patchOperations.size() : 0;
     }
 
+    /**
+ * 返回回退。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean fallback() {
         Object telemetry = telemetry();
         if (!(telemetry instanceof Map<?, ?> telemetryMap)) {
@@ -79,6 +84,11 @@ public record SlotFillResult(
         return Boolean.TRUE.equals(telemetryMap.get("fallback"));
     }
 
+    /**
+ * 返回回退原因。
+ *
+ * @return 处理后的插槽填充结果文本
+ */
     public String fallbackReason() {
         Object telemetry = telemetry();
         if (!(telemetry instanceof Map<?, ?> telemetryMap)) {
@@ -88,6 +98,11 @@ public record SlotFillResult(
         return reason == null ? "" : String.valueOf(reason);
     }
 
+    /**
+ * 返回遥测。
+ *
+ * @return 插槽填充结果
+ */
     public Object telemetry() {
         if (metadata == null) {
             return Map.of();

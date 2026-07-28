@@ -28,6 +28,16 @@ public class GenerationPatchApplyService {
     private final PatchOperationExecutor operationExecutor;
     private final GenerationTaskFenceGuard fenceGuard;
 
+    /**
+ * 应用生成补丁{@code Apply}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectRoot 项目根
+ * @param changePlanArtifact {@code changePlanArtifact} 对应的调用参数
+ * @param operations 操作
+ * @return 生成补丁{@code Apply}
+ */
     public PatchApplyResult apply(Long appId,
                                   String taskId,
                                   Path projectRoot,
@@ -48,6 +58,16 @@ public class GenerationPatchApplyService {
         );
     }
 
+    /**
+ * 应用生成补丁{@code Apply}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectRoot 项目根
+ * @param changePlan {@code changePlan} 对应的调用参数
+ * @param operations 操作
+ * @return 生成补丁{@code Apply}
+ */
     public PatchApplyResult apply(Long appId,
                                   String taskId,
                                   Path projectRoot,
@@ -68,6 +88,16 @@ public class GenerationPatchApplyService {
         return validateAndExecute(appId, taskId, normalizedRoot, changePlan, operations, "planned_patch");
     }
 
+    /**
+ * 应用{@code Without}{@code Change}计划。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectRoot 项目根
+ * @param operations 操作
+ * @param reason 原因
+ * @return {@code Without}{@code Change}计划
+ */
     public PatchApplyResult applyWithoutChangePlan(Long appId,
                                                    String taskId,
                                                    Path projectRoot,
@@ -81,6 +111,12 @@ public class GenerationPatchApplyService {
         return validateAndExecute(appId, taskId, normalizedRoot, null, operations, reason);
     }
 
+    /**
+ * 渲染{@code Text}。
+ *
+ * @param result 待处理结果
+ * @return 处理后的{@code Text}文本
+ */
     public String renderText(PatchApplyResult result) {
         if (result == null) {
             return "补丁执行结果不可用";
@@ -95,6 +131,7 @@ public class GenerationPatchApplyService {
         return "补丁执行已跳过: " + result.reason();
     }
 
+    /** 校验{@code ate}{@code And}{@code Execute}是否有效。 */
     private PatchApplyResult validateAndExecute(Long appId,
                                                 String taskId,
                                                 Path projectRoot,
@@ -120,6 +157,7 @@ public class GenerationPatchApplyService {
             );
         }
         fenceGuard.assertCurrent(taskId);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             List<String> appliedFiles = operationExecutor.execute(validationResult.validOperations());
             return record(PatchApplyResult.applied(

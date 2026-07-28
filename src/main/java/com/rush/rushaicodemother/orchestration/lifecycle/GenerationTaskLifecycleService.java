@@ -28,6 +28,13 @@ public class GenerationTaskLifecycleService {
     private final GenerationTraceService generationTraceService;
     private final UserCreditService userCreditService;
 
+    /**
+ * 记录用户消息相关指标或状态。
+ *
+ * @param app 应用
+ * @param user 用户
+ * @param message 消息内容
+ */
     public void recordUserMessage(App app, User user, String message) {
         if (app == null || app.getId() == null || user == null || user.getId() == null || StrUtil.isBlank(message)) {
             return;
@@ -35,6 +42,13 @@ public class GenerationTaskLifecycleService {
         recordUserMessage(app.getId(), user.getId(), message);
     }
 
+    /**
+ * 记录用户消息相关指标或状态。
+ *
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param message 消息内容
+ */
     public void recordUserMessage(Long appId, Long userId, String message) {
         if (appId == null || userId == null || StrUtil.isBlank(message)) {
             return;
@@ -42,6 +56,21 @@ public class GenerationTaskLifecycleService {
         chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), userId);
     }
 
+    /**
+ * 启动生成。
+ *
+ * @param taskId 任务编号
+ * @param app 应用
+ * @param user 用户
+ * @param originalType {@code originalType} 对应的调用参数
+ * @param targetType 目标类型
+ * @param userPrompt 用户提示词
+ * @param enhancedPrompt {@code enhancedPrompt} 对应的调用参数
+ * @param requiresBuildValidation {@code requiresBuildValidation} 对应的调用参数
+ * @param qualityGate 质量门禁
+ * @param orchestrationMode 编排模式
+ * @param generatingStage {@code generatingStage} 对应的调用参数
+ */
     @Transactional(rollbackFor = Exception.class)
     public void startGeneration(String taskId,
                                 App app,
@@ -69,6 +98,21 @@ public class GenerationTaskLifecycleService {
         );
     }
 
+    /**
+ * 启动生成。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param originalType {@code originalType} 对应的调用参数
+ * @param targetType 目标类型
+ * @param userPrompt 用户提示词
+ * @param enhancedPrompt {@code enhancedPrompt} 对应的调用参数
+ * @param requiresBuildValidation {@code requiresBuildValidation} 对应的调用参数
+ * @param qualityGate 质量门禁
+ * @param orchestrationMode 编排模式
+ * @param generatingStage {@code generatingStage} 对应的调用参数
+ */
     @Transactional(rollbackFor = Exception.class)
     public void startGeneration(String taskId,
                                 Long appId,
@@ -88,6 +132,21 @@ public class GenerationTaskLifecycleService {
         );
     }
 
+    /**
+ * 启动{@code Or}状态转换生成。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param originalType {@code originalType} 对应的调用参数
+ * @param targetType 目标类型
+ * @param userPrompt 用户提示词
+ * @param enhancedPrompt {@code enhancedPrompt} 对应的调用参数
+ * @param requiresBuildValidation {@code requiresBuildValidation} 对应的调用参数
+ * @param qualityGate 质量门禁
+ * @param orchestrationMode 编排模式
+ * @param generatingStage {@code generatingStage} 对应的调用参数
+ */
     @Transactional(rollbackFor = Exception.class)
     public void startOrTransitionGeneration(String taskId,
                                             Long appId,
@@ -137,6 +196,14 @@ public class GenerationTaskLifecycleService {
         ));
     }
 
+    /**
+ * 更新生成阶段。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param generatingStage {@code generatingStage} 对应的调用参数
+ * @param generatingMessage {@code generatingMessage} 对应的调用参数
+ */
     @Transactional(rollbackFor = Exception.class)
     public void updateGenerationStage(String taskId,
                                       Long appId,
@@ -148,6 +215,15 @@ public class GenerationTaskLifecycleService {
     }
 
 
+    /**
+ * 完成生成并持久化终态。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Transactional(rollbackFor = Exception.class)
     public boolean completeGeneration(String taskId,
                                       Long appId,
@@ -158,6 +234,16 @@ public class GenerationTaskLifecycleService {
         return released;
     }
 
+    /**
+ * 完成生成并持久化终态。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ * @param memorySummary 记忆汇总
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Transactional(rollbackFor = Exception.class)
     public boolean completeGeneration(String taskId,
                                       Long appId,
@@ -168,6 +254,15 @@ public class GenerationTaskLifecycleService {
         return completeGeneration(taskId, appId, status, errorMessage);
     }
 
+    /**
+ * 完成生成{@code And}{@code Charge}并持久化终态。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Transactional(rollbackFor = Exception.class)
     public boolean completeGenerationAndCharge(String taskId,
                                                Long appId,
@@ -179,6 +274,16 @@ public class GenerationTaskLifecycleService {
         return released;
     }
 
+    /**
+ * 完成生成{@code And}{@code Charge}并持久化终态。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ * @param memorySummary 记忆汇总
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Transactional(rollbackFor = Exception.class)
     public boolean completeGenerationAndCharge(String taskId,
                                                Long appId,

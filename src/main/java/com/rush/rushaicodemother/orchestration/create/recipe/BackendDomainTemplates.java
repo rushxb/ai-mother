@@ -9,6 +9,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class BackendDomainTemplates {
 
+    /** 返回{@code domain}{@code Contract}。 */
     String domainContract(BackendRecipe recipe) {
         return """
                 package domain
@@ -36,6 +37,7 @@ final class BackendDomainTemplates {
                 """;
     }
 
+    /** 返回后端模型。 */
     String backendModel(BackendRecipe recipe) {
         StringBuilder fields = new StringBuilder();
         StringBuilder createFields = new StringBuilder();
@@ -126,6 +128,7 @@ final class BackendDomainTemplates {
         );
     }
 
+    /** 返回后端结构。 */
     String backendSchema(BackendRecipe recipe) {
         StringBuilder fields = new StringBuilder();
         for (RecipeField field : recipe.fields()) {

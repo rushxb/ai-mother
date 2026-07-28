@@ -428,7 +428,8 @@ class AgentGenerationOrchestratorTest {
                 new GenerationSnapshotWorkspaceService(storageProperties, fileSystemService, snapshotNamePolicy),
                 fileSystemService,
                 snapshotNamePolicy,
-                mock(GenerationTaskFenceGuard.class)
+                mock(GenerationTaskFenceGuard.class),
+                mock(GenerationExecutionContextService.class)
         );
     }
 

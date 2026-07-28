@@ -16,8 +16,15 @@ public class GenerationBenchmarkEvidenceProvenanceValidator {
     private final GenerationReleaseProvenanceProvider releaseProvenanceProvider;
     private final GenerationBenchmarkModelFingerprintProvider modelFingerprintProvider;
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param payload 载荷
+ * @param report 报告
+ */
     public void validate(GenerationBenchmarkEvidencePayload payload,
                          GenerationBenchmarkReport report) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (payload == null || report == null
                 || !payload.promptBundleFingerprint().equals(report.promptBundleId())) {
             throw new BusinessException(

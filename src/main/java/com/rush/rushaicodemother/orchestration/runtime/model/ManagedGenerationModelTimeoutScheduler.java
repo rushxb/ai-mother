@@ -25,6 +25,13 @@ public final class ManagedGenerationModelTimeoutScheduler
         scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
     }
 
+    /**
+ * 返回调度。
+ *
+ * @param delay 延迟
+ * @param timeoutAction 超时动作
+ * @return {@code Managed}生成模型超时调度器
+ */
     @Override
     public GenerationCancellationHandle schedule(Duration delay, Runnable timeoutAction) {
         Objects.requireNonNull(timeoutAction, "模型超时动作不能为空");

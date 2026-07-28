@@ -17,6 +17,12 @@ public class GenerationBenchmarkEvidenceCandidateIdentityResolver {
         this.resolvers = resolvers == null ? List.of() : List.copyOf(resolvers);
     }
 
+    /**
+ * 根据当前上下文解析生成基准测试证据候选{@code Identity}。
+ *
+ * @param candidate 候选
+ * @return 生成基准测试证据候选{@code Identity}
+ */
     public GenerationBenchmarkEvidenceCandidateIdentity resolve(
             GenerationBenchmarkEvidenceCandidate candidate) {
         if (candidate == null) {

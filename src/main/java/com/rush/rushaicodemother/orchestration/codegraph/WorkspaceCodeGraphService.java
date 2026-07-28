@@ -37,13 +37,21 @@ public class WorkspaceCodeGraphService {
         this.workspaceFileSystemService = workspaceFileSystemService;
     }
 
+    /**
+ * 构建并返回工作区代码{@code Graph}。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @return 工作区代码{@code Graph}
+ */
     public WorkspaceCodeGraph build(Path rootDir) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (rootDir == null) {
             return new WorkspaceCodeGraph("", List.of(), Map.of(), Map.of(), Map.of(), List.of("root_missing"));
         }
         Path normalizedRoot = rootDir.toAbsolutePath().normalize();
         List<CodeGraphFileNode> files = new ArrayList<>();
         List<String> diagnostics = new ArrayList<>();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             WorkspaceScan scan = workspaceFileSystemService.scanProject(normalizedRoot);
             Set<String> knownFiles = scan.files().stream()
@@ -71,6 +79,14 @@ public class WorkspaceCodeGraphService {
         return buildGraph(normalizedRoot, files, diagnostics);
     }
 
+    /**
+ * 查找匹配的{@code Referencing}文件。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param relativePath 相对路径
+ * @param limit 资源上限
+ * @return {@code Referencing}文件集合
+ */
     public List<String> findReferencingFiles(Path rootDir, String relativePath, int limit) {
         if (StrUtil.isBlank(relativePath) || limit <= 0) {
             return List.of();
@@ -78,6 +94,14 @@ public class WorkspaceCodeGraphService {
         return build(rootDir).referencedBy(relativePath).stream().limit(limit).toList();
     }
 
+    /**
+ * 查找匹配的{@code Symbols}。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param symbolName {@code symbolName} 对应的调用参数
+ * @param limit 资源上限
+ * @return {@code Symbols}集合
+ */
     public List<CodeGraphSymbol> findSymbols(Path rootDir, String symbolName, int limit) {
         if (StrUtil.isBlank(symbolName) || limit <= 0) {
             return List.of();
@@ -87,6 +111,14 @@ public class WorkspaceCodeGraphService {
                 .toList();
     }
 
+    /**
+ * 查找匹配的结构{@code Field}{@code Impact}。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param fieldName {@code fieldName} 对应的调用参数
+ * @param limit 资源上限
+ * @return 结构{@code Field}{@code Impact}集合
+ */
     public List<String> findSchemaFieldImpact(Path rootDir, String fieldName, int limit) {
         if (StrUtil.isBlank(fieldName) || limit <= 0) {
             return List.of();
@@ -109,12 +141,14 @@ public class WorkspaceCodeGraphService {
         return impacted.stream().limit(limit).toList();
     }
 
+    /** 构建并返回{@code Graph}。 */
     private WorkspaceCodeGraph buildGraph(Path rootDir, List<CodeGraphFileNode> files, List<String> diagnostics) {
         Map<String, List<String>> importsByFile = new LinkedHashMap<>();
         Map<String, LinkedHashSet<String>> referencedBy = new LinkedHashMap<>();
         Map<String, List<CodeGraphSymbol>> symbolsByName = new LinkedHashMap<>();
         List<String> graphDiagnostics = new ArrayList<>(diagnostics);
         List<String> knownFiles = files.stream().map(CodeGraphFileNode::relativePath).toList();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (CodeGraphFileNode file : files) {
             List<String> imports = file.imports().stream()
                     .map(CodeGraphImport::resolvedFile)
@@ -131,6 +165,7 @@ public class WorkspaceCodeGraphService {
             }
             graphDiagnostics.addAll(file.diagnostics());
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String file : knownFiles) {
             referencedBy.computeIfAbsent(file, unused -> new LinkedHashSet<>());
         }

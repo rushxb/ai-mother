@@ -14,6 +14,14 @@ public record AgentNodeResult(
         Map<String, Object> data
 ) {
 
+    /**
+ * 根据给定参数创建当前对象。
+ *
+ * @param summary 汇总
+ * @param artifacts 待处理的 {@code artifacts} 集合
+ * @param data {@code data} 对应的调用参数
+ * @return 智能体节点结果
+ */
     public static AgentNodeResult of(String summary, List<GenerationArtifact> artifacts, Map<String, Object> data) {
         return new AgentNodeResult(
                 summary,

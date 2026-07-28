@@ -24,6 +24,12 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
         this.support = support;
     }
 
+    /**
+ * 执行架构智能体节点处理流程。
+ *
+ * @param context 执行上下文
+ * @return 架构智能体节点
+ */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");

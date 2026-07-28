@@ -14,6 +14,7 @@ public final class SortFieldWhitelist {
     private final Map<String, String> allowedFields;
     private final String defaultColumn;
 
+    /** 创建{@code Sort}{@code Field}{@code Whitelist}实例并完成必要的依赖和初始状态设置。 */
     private SortFieldWhitelist(Map<String, String> allowedFields, String defaultField) {
         Objects.requireNonNull(allowedFields, "allowedFields must not be null");
         if (allowedFields.isEmpty()) {

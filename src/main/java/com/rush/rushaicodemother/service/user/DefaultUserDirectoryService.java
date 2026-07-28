@@ -20,11 +20,23 @@ public class DefaultUserDirectoryService implements UserDirectoryService {
     private final UserPersistenceService userPersistenceService;
     private final UserViewConverter userViewConverter;
 
+    /**
+ * 查找匹配的活动用户视图。
+ *
+ * @param userId 用户编号
+ * @return 活动用户视图
+ */
     @Override
     public UserVO findActiveUserView(Long userId) {
         return userViewConverter.toUserView(userPersistenceService.findActiveById(userId));
     }
 
+    /**
+ * 查找匹配的活动用户{@code Views}。
+ *
+ * @param userIds 待处理的 {@code userIds} 集合
+ * @return 活动用户{@code Views}集合
+ */
     @Override
     public Map<Long, UserVO> findActiveUserViews(Collection<Long> userIds) {
         List<User> users = userPersistenceService.findActiveByIds(userIds);
@@ -47,6 +59,12 @@ public class DefaultUserDirectoryService implements UserDirectoryService {
         return Map.copyOf(userViews);
     }
 
+    /**
+ * 返回{@code page}活动用户{@code Views}。
+ *
+ * @param queryRequest 查询请求
+ * @return 默认用户目录
+ */
     @Override
     public Page<UserVO> pageActiveUserViews(UserQueryRequest queryRequest) {
         Page<User> userPage = userPersistenceService.pageActiveUsers(queryRequest);

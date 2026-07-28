@@ -11,6 +11,12 @@ public interface GenerationCancellationAwareStreamingHandler extends StreamingCh
 
     void registerCancellationHandle(GenerationCancellationHandle cancellationHandle);
 
+    /**
+ * 注册{@code If}支持的。
+ *
+ * @param handler 处理器
+ * @param cancellationHandle {@code cancellationHandle} 对应的调用参数
+ */
     static void registerIfSupported(StreamingChatResponseHandler handler,
                                     GenerationCancellationHandle cancellationHandle) {
         Objects.requireNonNull(handler, "流式响应处理器不能为空");

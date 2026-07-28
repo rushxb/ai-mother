@@ -15,6 +15,12 @@ public class TemplatePreWarmConfiguration {
 
     public static final String TEMPLATE_PRE_WARM_TASK_EXECUTOR = "templatePreWarmTaskExecutor";
 
+    /**
+ * 创建并配置线程池任务执行器 Bean。
+ *
+ * @param properties 配置属性
+ * @return 配置完成的线程池任务执行器 Bean
+ */
     @Bean(name = TEMPLATE_PRE_WARM_TASK_EXECUTOR)
     public ThreadPoolTaskExecutor templatePreWarmTaskExecutor(TemplatePreWarmProperties properties) {
         ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();

@@ -53,6 +53,11 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
         this.consumerName = normalizeConsumerName(ownerProvider.ownerId());
     }
 
+    /**
+ * 处理{@code enqueue}。
+ *
+ * @param taskId 任务编号
+ */
     @Override
     public void enqueue(String taskId) {
         requireTaskId(taskId);
@@ -68,6 +73,11 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
                 .trim(properties.getStreamKey(), properties.getMaxStreamLength(), true);
     }
 
+    /**
+ * 读取{@code New}。
+ *
+ * @return {@code New}集合
+ */
     @Override
     @SuppressWarnings("unchecked")
     public List<GenerationTaskQueueDelivery> readNew() {
@@ -83,6 +93,11 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
         return toDeliveries(records, Map.of());
     }
 
+    /**
+ * 返回{@code reclaim}{@code Expired}。
+ *
+ * @return Redis 生成任务{@code Queue}集合
+ */
     @Override
     public List<GenerationTaskQueueDelivery> reclaimExpired() {
         ensureGroup();
@@ -97,6 +112,7 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
         }
         List<RecordId> ids = new ArrayList<>();
         Map<String, Long> deliveryCounts = new HashMap<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (PendingMessage message : pending) {
             if (message.getElapsedTimeSinceLastDelivery().compareTo(properties.getVisibilityTimeout()) < 0) {
                 continue;
@@ -118,6 +134,11 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
         return toDeliveries(claimed, deliveryCounts);
     }
 
+    /**
+ * 处理心跳。
+ *
+ * @param deliveries 待处理的 {@code deliveries} 集合
+ */
     @Override
     public void heartbeat(Collection<GenerationTaskQueueDelivery> deliveries) {
         if (deliveries == null || deliveries.isEmpty()) {
@@ -147,6 +168,11 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
                 ));
     }
 
+    /**
+ * 处理{@code acknowledge}。
+ *
+ * @param delivery {@code delivery} 对应的调用参数
+ */
     @Override
     public void acknowledge(GenerationTaskQueueDelivery delivery) {
         Objects.requireNonNull(delivery, "delivery");
@@ -154,6 +180,12 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
                 properties.getStreamKey(), properties.getGroup(), RecordId.of(delivery.messageId()));
     }
 
+    /**
+ * 处理{@code dead}{@code Letter}。
+ *
+ * @param delivery {@code delivery} 对应的调用参数
+ * @param reason 原因
+ */
     @Override
     public void deadLetter(GenerationTaskQueueDelivery delivery, String reason) {
         Objects.requireNonNull(delivery, "delivery");
@@ -171,6 +203,7 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
         acknowledge(delivery);
     }
 
+    /** 将当前对象转换为{@code Deliveries}。 */
     private List<GenerationTaskQueueDelivery> toDeliveries(
             List<MapRecord<String, String, String>> records,
             Map<String, Long> deliveryCounts) {
@@ -203,6 +236,7 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
                 properties.getStreamKey(), properties.getGroup(), id);
     }
 
+    /** 确保分组已达到可用状态。 */
     private void ensureGroup() {
         if (groupReady.get()) {
             return;
@@ -231,6 +265,7 @@ public class RedisGenerationTaskQueue implements DurableGenerationTaskQueue {
         }
     }
 
+    /** 判断{@code Existing}消费者分组是否满足约束。 */
     private boolean isExistingConsumerGroup(Throwable failure) {
         Throwable current = failure;
         for (int depth = 0; current != null && depth < 16; depth++) {

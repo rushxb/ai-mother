@@ -17,12 +17,12 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.external-process")
 public class ExternalProcessProperties {
 
-    private static final Duration MAX_TERMINATION_GRACE_PERIOD = Duration.ofMinutes(5);
+    private static final Duration MAX_TERMINATION_GRACE_PERIOD = Duration.ofSeconds(30);
 
-    /** 发送正常终止信号后，等待进程树自行退出的宽限期。 */
+    /** 正常终止和强制终止两个阶段共享的总时间预算。 */
     private Duration terminationGracePeriod = Duration.ofSeconds(2);
 
-    @AssertTrue(message = "外部进程终止宽限期必须大于 0 且不超过 5 分钟")
+    @AssertTrue(message = "外部进程终止总预算必须大于 0 且不超过 30 秒")
     public boolean isTerminationGracePeriodValid() {
         return terminationGracePeriod != null
                 && !terminationGracePeriod.isZero()

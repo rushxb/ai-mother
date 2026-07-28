@@ -69,6 +69,14 @@ public class ProjectTemplateMaterializer {
         return materializeAtomically(templateId, targetDirectory, null);
     }
 
+    /**
+ * 返回{@code materialize}{@code Atomically}。
+ *
+ * @param templateId 模板编号
+ * @param targetDirectory 目标目录
+ * @param customizer {@code customizer} 对应的调用参数
+ * @return 项目模板{@code Materializer}
+ */
     public MaterializationResult materializeAtomically(String templateId,
                                                        Path targetDirectory,
                                                        StagingCustomizer customizer) throws Exception {
@@ -86,6 +94,7 @@ public class ProjectTemplateMaterializer {
             throw failure(TemplateMaterializationException.Reason.UNSAFE_TARGET, "Template staging path is invalid");
         }
         Exception authoritativeFailure = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Files.createDirectory(staging);
             MaterializationResult stagedResult = materializeContents(templateId, staging);
@@ -134,9 +143,11 @@ public class ProjectTemplateMaterializer {
         return materializeContents(templateId, target);
     }
 
+    /** 返回{@code materialize}{@code Contents}。 */
     private MaterializationResult materializeContents(String templateId, Path targetRoot) throws IOException {
         String templatePrefix = TEMPLATE_ROOT + "/" + templateId + "/";
         Resource[] resources;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             resources = resourceResolver.getResources("classpath:" + templatePrefix + "**/*");
         } catch (IOException exception) {
@@ -145,6 +156,7 @@ public class ProjectTemplateMaterializer {
 
         Set<String> copiedRelativePaths = new HashSet<>();
         MutableCopyTotals totals = new MutableCopyTotals();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (Resource resource : resources) {
             if (!resource.exists() || !resource.isReadable()) {
                 continue;
@@ -185,8 +197,10 @@ public class ProjectTemplateMaterializer {
         return new MaterializationResult(targetRoot, totals.fileCount, totals.totalBytes);
     }
 
+    /** 校验{@code ate}{@code Relative}路径是否有效。 */
     private Path validateRelativePath(String resourcePath) throws TemplateMaterializationException {
         String decoded;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             decoded = URLDecoder.decode(resourcePath, StandardCharsets.UTF_8);
         } catch (IllegalArgumentException exception) {
@@ -207,6 +221,7 @@ public class ProjectTemplateMaterializer {
             );
         }
         String[] segments = decoded.split("/", -1);
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String segment : segments) {
             if (segment.isBlank() || ".".equals(segment) || "..".equals(segment)) {
                 throw failure(
@@ -235,6 +250,7 @@ public class ProjectTemplateMaterializer {
         return relative;
     }
 
+    /** 复制{@code Bounded}。 */
     private long copyBounded(Resource resource, Path targetFile, long currentTotalBytes) throws IOException {
         long copied = 0L;
         byte[] buffer = new byte[COPY_BUFFER_SIZE];
@@ -270,6 +286,7 @@ public class ProjectTemplateMaterializer {
         return copied;
     }
 
+    /** 返回安全{@code Add}。 */
     private long safeAdd(long left, long right) throws TemplateMaterializationException {
         try {
             return Math.addExact(left, right);
@@ -294,6 +311,7 @@ public class ProjectTemplateMaterializer {
         return resourceUrl.substring(prefixIndex + templatePrefix.length());
     }
 
+    /** 判断目录资源是否满足约束。 */
     private boolean isDirectoryResource(Resource resource, String relativePath) {
         if (relativePath.endsWith("/")) {
             return true;
@@ -305,6 +323,7 @@ public class ProjectTemplateMaterializer {
         }
     }
 
+    /** 确保安全父级{@code Directories}已达到可用状态。 */
     private void ensureSafeParentDirectories(Path root, Path parent) throws IOException {
         Path relativeParent = root.relativize(parent);
         Path current = root;
@@ -328,6 +347,7 @@ public class ProjectTemplateMaterializer {
         }
     }
 
+    /** 校验并返回有效的安全{@code Empty}目录。 */
     private Path requireSafeEmptyDirectory(Path targetDirectory) throws IOException {
         Path target = normalizeTarget(targetDirectory);
         BasicFileAttributes attributes = Files.readAttributes(
@@ -346,6 +366,7 @@ public class ProjectTemplateMaterializer {
         return target;
     }
 
+    /** 拒绝{@code Existing}目标并记录原因。 */
     private void rejectExistingTarget(Path target) throws IOException {
         if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             return;
@@ -361,6 +382,7 @@ public class ProjectTemplateMaterializer {
         throw failure(TemplateMaterializationException.Reason.TARGET_ALREADY_EXISTS, "Template target already exists");
     }
 
+    /** 校验{@code ate}模板编号是否有效。 */
     private void validateTemplateId(String templateId) throws TemplateMaterializationException {
         try {
             templateCatalog.requireKnown(templateId);
@@ -380,6 +402,7 @@ public class ProjectTemplateMaterializer {
         return targetDirectory.toAbsolutePath().normalize();
     }
 
+    /** 移动{@code Without}{@code Replace}。 */
     private void moveWithoutReplace(Path source, Path target) throws IOException {
         for (int attempt = 1; attempt <= properties.getPublishMaxAttempts(); attempt++) {
             try {
@@ -397,6 +420,7 @@ public class ProjectTemplateMaterializer {
         }
     }
 
+    /** 移动{@code Once}{@code Without}{@code Replace}。 */
     private void moveOnceWithoutReplace(Path source, Path target) throws IOException {
         try {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
@@ -405,6 +429,7 @@ public class ProjectTemplateMaterializer {
         }
     }
 
+    /** 等待{@code Publish}重试完成。 */
     private void awaitPublishRetry(AccessDeniedException publishFailure) throws IOException {
         try {
             Thread.sleep(properties.getPublishRetryDelayMillis());

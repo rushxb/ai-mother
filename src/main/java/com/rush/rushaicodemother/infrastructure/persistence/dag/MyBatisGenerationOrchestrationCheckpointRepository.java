@@ -21,6 +21,13 @@ public class MyBatisGenerationOrchestrationCheckpointRepository
 
     private final GenerationOrchestrationCheckpointMapper mapper;
 
+    /**
+ * 保存{@code My}{@code Batis}生成编排检查点。
+ *
+ * @param task 任务
+ * @param payloadJson {@code payloadJson} 对应的调用参数
+ * @param payloadBytes 载荷字节数
+ */
     @Override
     @Transactional
     public void save(GenerationOrchestrationTask task, String payloadJson, int payloadBytes) {
@@ -42,6 +49,13 @@ public class MyBatisGenerationOrchestrationCheckpointRepository
                 "orchestration checkpoint was rejected by the durable execution fence");
     }
 
+    /**
+ * 加载载荷。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @return 可选的载荷；不存在时返回空值
+ */
     @Override
     public Optional<String> loadPayload(Long appId, String taskId) {
         return Optional.ofNullable(mapper.selectPayload(appId, taskId));
@@ -52,6 +66,7 @@ public class MyBatisGenerationOrchestrationCheckpointRepository
         mapper.softDelete(appId, taskId, executionEpoch);
     }
 
+    /** 将当前对象转换为检查点。 */
     private GenerationOrchestrationCheckpoint toCheckpoint(GenerationOrchestrationTask task,
                                                            String payloadJson,
                                                            int payloadBytes) {

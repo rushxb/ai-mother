@@ -35,6 +35,7 @@ public class GenerationTaskMaintenanceService {
         this.nextRecoveryAt.set(clock.instant());
     }
 
+    /** 运行{@code Maintenance}处理流程。 */
     public void runMaintenance() {
         leaseCoordinator.heartbeatTrackedTasks();
         Instant now = clock.instant();

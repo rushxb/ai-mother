@@ -24,6 +24,13 @@ public class DevServerPreviewPathFactory {
         return contextPath + DevServerPreviewPaths.PUBLIC_PROXY_PREFIX + appId + "/";
     }
 
+    /**
+ * 返回{@code local}{@code Upstream}路径。
+ *
+ * @param appId 应用编号
+ * @param targetPath 目标路径
+ * @return 处理后的开发服务器预览路径文本
+ */
     public String localUpstreamPath(Long appId, String targetPath) {
         String normalizedTarget = requireTargetPath(targetPath);
         String relativeTarget = normalizedTarget.length() == 1
@@ -32,6 +39,7 @@ public class DevServerPreviewPathFactory {
         return publicBasePath(appId) + relativeTarget;
     }
 
+    /** 规范化上下文路径。 */
     private String normalizeContextPath(String value) {
         if (value == null || value.isBlank() || "/".equals(value.trim())) {
             return "";

@@ -34,6 +34,11 @@ public class GenerationWorkspacePublicationMetadataService
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    /**
+ * 处理提交。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ */
     @Override
     @Transactional
     public void commit(GenerationWorkspacePublicationPointer pointer) {

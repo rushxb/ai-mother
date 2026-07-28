@@ -4,6 +4,7 @@ import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.monitor.ProjectBuildCoordinationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -75,8 +77,22 @@ class VueProjectBuilderTest {
                 StandardCharsets.UTF_8
         );
         when(snapshotService.capture(eq(projectRoot), any(JSONObject.class))).thenReturn(snapshot);
+        when(snapshotService.capture(
+                eq(projectRoot), any(JSONObject.class), any(Runnable.class))).thenReturn(snapshot);
         when(scriptResolver.resolve(any(JSONObject.class)))
                 .thenReturn(new VueProjectScripts("build", "pure-build", "type-check"));
+    }
+
+    @Test
+    void shouldNotSwallowDeadlineWhileScanningBuildSnapshot() throws Exception {
+        when(snapshotService.capture(
+                eq(projectRoot), any(JSONObject.class), any(Runnable.class)))
+                .thenThrow(new GenerationDeadlineExceededException("task-expired"));
+
+        assertThrows(
+                GenerationDeadlineExceededException.class,
+                () -> builder.buildProjectWithResult(projectRoot.toString(), "task-expired")
+        );
     }
 
     @Test
@@ -355,7 +371,7 @@ class VueProjectBuilderTest {
                 "changed-critical",
                 "presentation"
         );
-        when(snapshotService.capture(eq(projectRoot), any(JSONObject.class)))
+        when(snapshotService.capture(eq(projectRoot), any(JSONObject.class), any(Runnable.class)))
                 .thenReturn(snapshot, changedSnapshot);
         when(stateStore.read(projectRoot))
                 .thenReturn(new VueBuildState("dependency", "old-critical", "presentation"));
@@ -382,7 +398,7 @@ class VueProjectBuilderTest {
                 "critical",
                 "changed-presentation"
         );
-        when(snapshotService.capture(eq(projectRoot), any(JSONObject.class)))
+        when(snapshotService.capture(eq(projectRoot), any(JSONObject.class), any(Runnable.class)))
                 .thenReturn(snapshot, changedSnapshot);
         when(stateStore.read(projectRoot)).thenReturn(VueBuildState.fromSnapshot(snapshot));
 

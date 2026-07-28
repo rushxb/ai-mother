@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,7 +23,7 @@ class ProjectProcessTerminatorTest {
     @Test
     void shouldRejectUnboundedTerminationGracePeriod() {
         assertThrows(IllegalArgumentException.class,
-                () -> new ProjectProcessTerminator(Duration.ofMinutes(6)));
+                () -> new ProjectProcessTerminator(Duration.ofSeconds(31)));
     }
 
     @Test
@@ -100,6 +101,27 @@ class ProjectProcessTerminatorTest {
         assertFalse(parent.isAlive());
         awaitProcessExit(child, Duration.ofSeconds(2));
         assertFalse(child.isAlive());
+    }
+
+    @Test
+    void softAndForcedTerminationMustShareOneTotalBudget() {
+        Process process = mock(Process.class);
+        ProcessHandle handle = mock(ProcessHandle.class);
+        when(process.toHandle()).thenReturn(handle);
+        when(handle.pid()).thenReturn(9876L);
+        when(handle.descendants()).thenReturn(Stream.empty());
+        when(handle.isAlive()).thenReturn(true);
+        when(handle.destroy()).thenReturn(true);
+        when(handle.destroyForcibly()).thenReturn(true);
+        when(handle.onExit()).thenReturn(new CompletableFuture<>());
+        ProjectProcessTerminator boundedTerminator =
+                new ProjectProcessTerminator(Duration.ofMillis(200));
+
+        long startedAt = System.nanoTime();
+        assertFalse(boundedTerminator.terminate(process));
+        long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+
+        assertTrue(elapsedMillis < 350, "正常和强制终止不应分别消耗完整宽限期");
     }
 
     private ProcessHandle.Info processInfo(String command, String[] arguments, String commandLine) {

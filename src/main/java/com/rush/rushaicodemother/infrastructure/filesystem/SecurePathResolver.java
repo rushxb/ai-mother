@@ -52,6 +52,7 @@ public class SecurePathResolver {
         }
     }
 
+    /** 解析{@code Relative}路径。 */
     private Path parseRelativePath(String relativePath) {
         if (relativePath == null || relativePath.isBlank()) {
             throw new IllegalArgumentException("资源路径不能为空");

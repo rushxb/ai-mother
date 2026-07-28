@@ -58,6 +58,14 @@ public class AppServiceImpl implements AppService {
     private final AppDeploymentService appDeploymentService;
     private final AppAccessPolicy appAccessPolicy;
 
+    /**
+ * 返回对话{@code To}生成代码。
+ *
+ * @param appId 应用编号
+ * @param message 消息内容
+ * @param loginUser 当前登录用户
+ * @return 异步响应式处理结果
+ */
     @Override
     public Flux<GenerationStreamEvent> chatToGenCode(Long appId, String message, User loginUser) {
         return submitGeneration(appId, message, loginUser).contentFlux();
@@ -68,6 +76,15 @@ public class AppServiceImpl implements AppService {
         return submitGeneration(appId, message, loginUser, null);
     }
 
+    /**
+ * 提交并返回生成。
+ *
+ * @param appId 应用编号
+ * @param message 消息内容
+ * @param loginUser 当前登录用户
+ * @param idempotencyKey 幂等键
+ * @return 应用服务{@code Impl}
+ */
     @Override
     public GenerationTaskResult submitGeneration(Long appId,
                                                  String message,
@@ -101,6 +118,13 @@ public class AppServiceImpl implements AppService {
         }
     }
 
+    /**
+ * 获取并返回生成流。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @return 异步响应式处理结果
+ */
     @Override
     public Flux<GenerationStreamEvent> getGenerationStream(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
@@ -121,12 +145,25 @@ public class AppServiceImpl implements AppService {
         return GenerationStreamEvent.agentEvent(StrUtil.blankToDefault(event.message(), ""), data);
     }
 
+    /**
+ * 停止生成。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ */
     @Override
     public void stopGeneration(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
         generationTaskOrchestrator.stop(app.getId(), loginUser);
     }
 
+    /**
+ * 优化并返回提示词。
+ *
+ * @param prompt 提示词
+ * @param loginUser 当前登录用户
+ * @return 处理后的应用服务{@code Impl}文本
+ */
     @Override
     public String optimizePrompt(String prompt, User loginUser) {
         ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
@@ -148,12 +185,26 @@ public class AppServiceImpl implements AppService {
         }
     }
 
+    /**
+ * 返回部署应用。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @return 处理后的应用服务{@code Impl}文本
+ */
     @Override
     public String deployApp(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
         return appDeploymentService.deploy(app);
     }
 
+    /**
+ * 列出符合条件的应用代码文件。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @return 应用代码文件集合
+ */
     @Override
     public List<AppCodeFileTreeVO> listAppCodeFiles(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
@@ -166,6 +217,13 @@ public class AppServiceImpl implements AppService {
         return appCodeWorkspaceService.readFile(app, filePath);
     }
 
+    /**
+ * 保存应用代码文件。
+ *
+ * @param saveRequest {@code saveRequest} 对应的调用参数
+ * @param loginUser 当前登录用户
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public Boolean saveAppCodeFile(AppCodeFileSaveRequest saveRequest, User loginUser) {
         ThrowUtils.throwIf(saveRequest == null, ErrorCode.PARAMS_ERROR);
@@ -174,12 +232,26 @@ public class AppServiceImpl implements AppService {
         return true;
     }
 
+    /**
+ * 同步并返回应用部署。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @return 处理后的应用服务{@code Impl}文本
+ */
     @Override
     public String syncAppDeployment(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
         return appDeploymentService.synchronize(app);
     }
 
+    /**
+ * 启用数据库。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @return 数据库
+ */
     @Override
     public AppDatabaseResourceVO enableDatabase(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);

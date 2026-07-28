@@ -19,9 +19,8 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 终止由于不存在版本化检查点而无法恢复的过期任务。
- * 这是故意诚实的恢复：它保留取消/截止日期语义，防止
- *僵尸所有权，并且从不假装中断的生成工作已经恢复。
+ * 恢复位于确定性版本化检查点边界的过期任务，并终止其余过期任务。
+ * 取消和截止日期始终优先，执行轮次围栏用于阻止旧工作器快照被新租约复用。
  */
 @Slf4j
 @Service
@@ -53,6 +52,7 @@ public class GenerationTaskRecoveryService {
                 toolContinuationScheduler, orchestrationTaskStore, taskDispatcher, Clock.systemUTC());
     }
 
+    /** 创建生成任务恢复服务实例并完成必要的依赖和初始状态设置。 */
     GenerationTaskRecoveryService(DurableGenerationTaskRepository repository,
                                   GenerationTaskLeaseProperties properties,
                                   GenerationTaskRecoveryPolicy recoveryPolicy,
@@ -71,6 +71,7 @@ public class GenerationTaskRecoveryService {
         this.clock = clock;
     }
 
+    /** 创建生成任务恢复服务实例并完成必要的依赖和初始状态设置。 */
     GenerationTaskRecoveryService(DurableGenerationTaskRepository repository,
                                   GenerationTaskLeaseProperties properties,
                                   GenerationTaskRecoveryPolicy recoveryPolicy,
@@ -93,11 +94,17 @@ public class GenerationTaskRecoveryService {
         this.clock = clock;
     }
 
+    /**
+ * 恢复{@code Expired}任务。
+ *
+ * @return 计算或处理后的数值结果
+ */
     public int recoverExpiredTasks() {
         Instant now = clock.instant();
         List<GenerationTaskRecoveryCandidate> candidates = repository.findExpiredLeases(
                 now, properties.getRecoveryBatchSize());
         int recovered = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationTaskRecoveryCandidate candidate : candidates) {
             try {
                 GenerationTaskRecoveryDecision decision = recoveryPolicy.decide(candidate, now);
@@ -110,7 +117,7 @@ public class GenerationTaskRecoveryService {
                         try {
                             toolContinuationScheduler.schedule(approval);
                         } catch (RuntimeException dispatchFailure) {
-                            log.warn("Recovered tool continuation remains queued for retry, taskId: {}",
+                            log.warn("已恢复的工具续执行仍在队列中等待重试，taskId: {}",
                                     candidate.taskId(), LogExceptionSanitizer.sanitize(dispatchFailure));
                         }
                         continue;
@@ -123,7 +130,7 @@ public class GenerationTaskRecoveryService {
                     try {
                         taskDispatcher.dispatch(candidate.taskId());
                     } catch (RuntimeException dispatchFailure) {
-                        log.warn("Recovered generation task remains queued for redispatch, taskId: {}",
+                        log.warn("已恢复的生成任务仍在队列中等待重新分派，taskId: {}",
                                 candidate.taskId(), LogExceptionSanitizer.sanitize(dispatchFailure));
                     }
                     continue;
@@ -137,11 +144,11 @@ public class GenerationTaskRecoveryService {
                 generationAppStateService.releaseOwnedGenerationState(
                         candidate.appId(), candidate.taskId(), candidate.executionEpoch());
                 log.warn(
-                        "Expired generation task terminalized, taskId: {}, status: {}, previousOwner: {}",
+                        "过期生成任务已进入终态，taskId: {}，status: {}，previousOwner: {}",
                         candidate.taskId(), decision.status().getValue(), candidate.leaseOwner()
                 );
             } catch (RuntimeException recoveryFailure) {
-                log.error("Failed to terminalize expired generation task, taskId: {}",
+                log.error("处理过期生成任务失败，taskId: {}",
                         candidate.taskId(), LogExceptionSanitizer.sanitize(recoveryFailure));
             }
         }
@@ -164,10 +171,16 @@ public class GenerationTaskRecoveryService {
                 && GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON.equals(decision.reason());
     }
 
+    /** 判断是否存在{@code Recoverable}{@code Dag}检查点。 */
     private boolean hasRecoverableDagCheckpoint(GenerationTaskRecoveryCandidate candidate) {
         try {
             var checkpoint = orchestrationTaskStore.load(candidate.appId(), candidate.taskId()).orElse(null);
             if (checkpoint == null) {
+                return false;
+            }
+            if (checkpoint.getExecutionEpoch() != candidate.executionEpoch()) {
+                log.warn("生成 DAG 检查点执行轮次不匹配，taskId: {}，checkpointEpoch: {}，leaseEpoch: {}",
+                        candidate.taskId(), checkpoint.getExecutionEpoch(), candidate.executionEpoch());
                 return false;
             }
             GenerationDagCheckpointRecoveryPolicy.Assessment assessment =
@@ -178,7 +191,7 @@ public class GenerationTaskRecoveryService {
             }
             return assessment.automaticallyRecoverable();
         } catch (RuntimeException corruptedCheckpoint) {
-            log.warn("Generation DAG checkpoint is unavailable for recovery, taskId: {}",
+            log.warn("生成 DAG 检查点不可用于恢复，taskId: {}",
                     candidate.taskId(), LogExceptionSanitizer.sanitize(corruptedCheckpoint));
             return false;
         }

@@ -39,6 +39,12 @@ public class BackendGenerationBenchmarkRuntimeGrader implements GenerationBenchm
         return List.of(GenerationBenchmarkQualityDimension.RUNTIME);
     }
 
+    /**
+ * 返回{@code supports}。
+ *
+ * @param task 任务
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return properties.isEnabled()
@@ -47,6 +53,12 @@ public class BackendGenerationBenchmarkRuntimeGrader implements GenerationBenchm
                 == CodeGenTypeEnum.BACKEND_PROJECT;
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param context 执行上下文
+ * @return 后端生成基准测试运行时{@code Grader}集合
+ */
     @Override
     public List<GenerationBenchmarkRuleResult> evaluate(GenerationBenchmarkRuntimeContext context) {
         try (BackendRuntimeHandle handle = backendRuntime.start(

@@ -127,6 +127,10 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `GENERATION_MAX_ROOT_MODEL_ATTEMPTS`、`GENERATION_MAX_MODEL_TURNS`、`GENERATION_MAX_PROVIDER_FAILOVER_ATTEMPTS`：未携带路由 SLA 信封的兼容执行路径预算，默认 `3`、`16`、`4`，上限与路由预算一致；根模型调用预算至少覆盖重型意图路由、首次主生成和已声明修复轮次。
 - `GENERATION_<ROUTE>_MAX_MODEL_ATTEMPTS`、`GENERATION_MAX_MODEL_ATTEMPTS`：仅供滚动升级期间兼容旧部署，值只回退到根模型重试预算。新部署必须使用 `MAX_ROOT_MODEL_ATTEMPTS`，不得再用一个变量混合表达根重试、Agent 回合和 provider 故障转移。
 - 任务级 provider 粘性仅在一次根模型尝试内生效：fallback 成功后，后续正常模型回合优先复用该 provider，避免反复等待已知故障的首选 provider；当前 provider 失败时仍按候选池环形尝试其余健康 provider。根重试会重新创建任务级模型并重新读取健康模型池与熔断状态；粘性不跨根重试、不跨任务，也不会进入缓存模型或路由模型。
+- `GENERATION_ROUTING_TELEMETRY_COLD_LOAD_TIMEOUT`：任务提交前首次读取路由遥测允许占用请求线程的最大时间，默认 `100ms`，必须小于刷新周期。超时立即使用确定性路由，后台加载继续执行；不得让历史任务、反馈或队列负载查询阻塞 taskId 和 SLA 信封创建。
+- `GENERATION_ROUTING_TELEMETRY_CACHE_TTL`、`GENERATION_ROUTING_TELEMETRY_STALE_RETENTION`：路由遥测异步刷新周期与最大陈旧期，默认 `30s`、`10m`。刷新期间继续返回旧快照；刷新失败只在快照未超过最大陈旧期时保留旧值，禁止用瞬时故障覆盖已有质量风险信号，也禁止无限使用陈旧数据。
+- `GENERATION_ROUTING_TELEMETRY_MAX_CONCURRENT_LOADS`、`GENERATION_ROUTING_TELEMETRY_SHUTDOWN_TIMEOUT`：单实例后台遥测数据库加载并发和关闭等待上限，默认 `4`、`5s`。容量耗尽时冷请求立即降级、已有请求继续使用旧快照，不创建无界后台任务。
+- 路由遥测通过 `generation_routing_telemetry_operations_total` 与 `generation_routing_telemetry_operation_duration_seconds` 观测，标签固定为 `phase=snapshot|load` 和有限 `status`。发布前必须检查冷加载 `timeout`、后台 `saturated/failed` 比例以及 taskId 返回延迟，不能用异步化掩盖数据库长期故障。
 - `AI_MODEL_SECRET_ACTIVE_KEY_ID`：当前 AI 模型凭据 KEK 的稳定版本标识，只允许字母、数字、点、下划线和连字符。轮换时必须使用新 ID，禁止复用旧 ID 表示不同密钥材料。
 - `AI_MODEL_SECRET_ACTIVE_KEY`：Base64 编码的 32 字节 AES-256 KEK，由 Secret Manager/KMS 注入；数据库不保存该值。
 - `AI_MODEL_SECRET_FINGERPRINT_KEY`：Base64 编码的独立 32 字节 HMAC-SHA256 密钥，必须与 KEK 不同并跨 KEK 轮换保持稳定，使 Benchmark 候选指纹不受随机密文影响。
@@ -163,8 +167,9 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `MILVUS_MEMORY_TOP_K`、`MILVUS_MEMORY_MINIMUM_SCORE`：长期记忆最大召回数和 COSINE 最低分数，默认 `6`、`0.45`。
 - `GENERATION_MEMORY_CONTEXT_PARALLEL_READS_ENABLED`：并行读取最近任务、最近构建日志和长期语义记忆，默认 `false`。三类输入均为只读且结果仍按固定顺序组装；只能在 Benchmark 证明首 Token 延迟下降且质量门禁无回退后灰度开启。
 - `GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_READS`：单实例生成记忆上下文只读 I/O 的全局并发上限，默认 `12`，允许范围 `1` 至 `64`；该上限应与生成任务并发、数据库连接池和 Milvus 查询容量联合评估。
+- `GENERATION_MEMORY_CONTEXT_READ_TIMEOUT`：每批并行读取或单项顺序读取的最大时长，默认 `10s`；运行时会再按任务总 deadline 收紧，超时后取消尚未完成的读取并按上下文准备失败处理。
 - `GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_ENABLED`：让记忆构建与 Planner、模板准备和项目索引重叠执行，默认 `false`。Context 节点在产出上下文前按任务 deadline 汇合；记忆失败仍阻断生成，编排提前结束会取消未消费的记忆任务。只有 Benchmark 同时证明首 Token p95/p99 改善、质量门禁无回退且依赖池无饱和时才能灰度开启。
-- `GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_PREPARATION_OVERLAPS`：单实例记忆准备重叠任务的全局并发上限，默认 `4`，允许范围 `1` 至 `64`。许可耗尽时调用线程在 deadline 内等待，不会创建无界后台任务。
+- `GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_PREPARATION_OVERLAPS`：单实例后台记忆准备任务的全局并发上限，默认 `4`，允许范围 `1` 至 `64`。许可耗尽时不会阻塞编排准备或创建无界后台任务，而是在 Context 节点首次读取时按需构建；底层读取仍受全局读取并发和任务 deadline 约束。
 - `GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_TIMEOUT`：单次重叠任务从提交到 Context 汇合的最大时长，默认 `30s`；实际等待会被任务总 deadline 进一步收紧，超时后中断后台读取并按准备失败处理。
 - `GENERATION_MEMORY_CONTEXT_SHUTDOWN_TIMEOUT`：应用关闭时等待生成记忆读取任务收口的上限，默认 `10s`。任务取消会中断尚未完成的读取，不能绕过任务总 deadline。
 - `GENERATION_MEMORY_OUTBOX_SCAN_INTERVAL`、`GENERATION_MEMORY_OUTBOX_BATCH_SIZE`：两个 semantic-memory outbox 共用的扫描周期与单轮 claim 上限，默认 `30s`、`50`。
@@ -477,7 +482,7 @@ Backend 运行时评分使用以下有界配置：
 9. v1→v2 发布时先保留 v1 collection 作为短期回滚资产，再启动 v2 verifier 与重放 worker。只有 `semantic_memory_outbox_pending{outbox="generation"}` 回落、dead-letter 为零、抽样 tenant/app 召回正确并完成备份后才能删除 v1；禁止直接复制缺少 tenant、embedding identity 或 schema digest 的旧行到 v2。
 10. `/api/actuator/health` 提供 `milvusMemory` 组件，但默认 readiness group 不包含 Milvus：运行期短故障由 fallback 与 outbox 吸收，不应制造实例级抖动；生产启动仍由 `MILVUS_VERIFY_ON_STARTUP=true` 严格阻断不兼容部署。
 
-首 Token 前的记忆读取通过 `generation_memory_context_reads_total` 和 `generation_memory_context_read_duration_seconds` 观测，标签固定为 `source`、`mode`、`status`。准备重叠通过 `generation_memory_context_preparation_overlap_total` 和 `generation_memory_context_preparation_overlap_duration_seconds` 观测，标签固定为 `phase`、`status`；`phase=execution` 表示后台构建时长，`phase=join` 表示 Context 实际等待时长，`phase=admission` 表示并发许可等待。开启并行读取或准备重叠前后必须比较各来源 p95/p99、失败率、Context 汇合等待、数据库连接池等待和 Milvus 查询饱和度，不能只比较平均耗时。
+首 Token 前的记忆读取通过 `generation_memory_context_reads_total` 和 `generation_memory_context_read_duration_seconds` 观测，标签固定为 `source`、`mode`、`status`。准备重叠通过 `generation_memory_context_preparation_overlap_total` 和 `generation_memory_context_preparation_overlap_duration_seconds` 观测，标签固定为 `phase`、`status`；`phase=execution` 表示后台构建时长，`phase=join` 表示 Context 实际等待或延迟构建时长，`phase=admission` 表示后台准入结果，`status=deferred` 表示容量饱和后切换按需构建。开启并行读取或准备重叠前后必须比较各来源 p95/p99、失败率、Context 汇合等待、数据库连接池等待和 Milvus 查询饱和度，不能只比较平均耗时。
 
 Prometheus 至少配置以下告警，阈值应按业务 SLO 调整：
 

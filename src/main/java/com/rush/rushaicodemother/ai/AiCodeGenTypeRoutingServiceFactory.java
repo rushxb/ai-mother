@@ -39,6 +39,14 @@ public class AiCodeGenTypeRoutingServiceFactory {
         return createService(chatModel);
     }
 
+    /**
+ * 创建执行 AI 代码生成类型路由服务。
+ *
+ * @param timeout 超时时间
+ * @param beforeModelTurn 每轮模型调用前执行的回调
+ * @param beforeProviderFailoverAttempt 模型提供方故障转移前执行的回调
+ * @return 执行 AI 代码生成类型路由服务
+ */
     public AiCodeGenTypeRoutingService createExecutionAiCodeGenTypeRoutingService(
             Duration timeout,
             Runnable beforeModelTurn,

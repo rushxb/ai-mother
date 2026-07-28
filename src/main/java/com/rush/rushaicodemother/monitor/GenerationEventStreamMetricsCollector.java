@@ -37,6 +37,13 @@ public class GenerationEventStreamMetricsCollector {
         this.meterRegistry = meterRegistry;
     }
 
+    /**
+ * 记录 Redis{@code Append}相关指标或状态。
+ *
+ * @param kind 类别
+ * @param outcome 结果
+ * @param duration 目标时长
+ */
     public void recordRedisAppend(String kind, String outcome, Duration duration) {
         String normalizedKind = allowed(kind, APPEND_KINDS, "unknown");
         String normalizedOutcome = allowed(outcome, OUTCOMES, "failed");
@@ -57,6 +64,11 @@ public class GenerationEventStreamMetricsCollector {
         ).record(nonNegative(duration));
     }
 
+    /**
+ * 记录增量输入相关指标或状态。
+ *
+ * @param disposition {@code disposition} 对应的调用参数
+ */
     public void recordDeltaInput(String disposition) {
         String normalizedDisposition = allowed(disposition, DELTA_DISPOSITIONS, "unknown");
         deltaInputCounters.computeIfAbsent(normalizedDisposition, unused ->
@@ -67,6 +79,14 @@ public class GenerationEventStreamMetricsCollector {
         ).increment();
     }
 
+    /**
+ * 记录增量{@code Flush}相关指标或状态。
+ *
+ * @param trigger {@code trigger} 对应的调用参数
+ * @param outcome 结果
+ * @param eventCount 事件数量
+ * @param charCount {@code charCount} 对应的调用参数
+ */
     public void recordDeltaFlush(String trigger,
                                  String outcome,
                                  int eventCount,

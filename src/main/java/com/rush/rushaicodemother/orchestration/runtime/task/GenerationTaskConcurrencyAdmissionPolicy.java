@@ -13,6 +13,11 @@ public class GenerationTaskConcurrencyAdmissionPolicy {
 
     private final GenerationTaskAdmissionProperties properties;
 
+    /**
+ * 断言{@code May}创建仍满足当前执行约束。
+ *
+ * @param current 当前
+ */
     public void assertMayCreate(int current) {
         if (current < 0) {
             throw new IllegalArgumentException("current non-terminal task count cannot be negative");

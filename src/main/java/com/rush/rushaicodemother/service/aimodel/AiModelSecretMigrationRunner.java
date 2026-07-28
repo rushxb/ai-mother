@@ -34,6 +34,11 @@ public class AiModelSecretMigrationRunner implements ApplicationRunner {
     private final AiModelSecretMigrationRepository repository;
     private final AiModelSecretService secretService;
 
+    /**
+ * 运行 AI 模型密钥{@code Migration}处理流程。
+ *
+ * @param args 命令行参数
+ */
     @Override
     public void run(ApplicationArguments args) {
         long afterId = 0L;
@@ -41,6 +46,7 @@ public class AiModelSecretMigrationRunner implements ApplicationRunner {
         int cleared = 0;
         int verified = 0;
 
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (true) {
             List<AiModelSecretMigrationRecord> batch = repository.findBatchAfter(afterId, BATCH_SIZE);
             if (batch.isEmpty()) {
@@ -79,6 +85,7 @@ public class AiModelSecretMigrationRunner implements ApplicationRunner {
         }
     }
 
+    /** 返回{@code migrate}{@code Legacy}密钥。 */
     private boolean migrateLegacySecret(AiModelSecretMigrationRecord record) {
         AiModelProtectedSecret protectedSecret = secretService.protect(record.secretRef());
         int affectedRows = repository.replaceIfCurrent(
@@ -93,6 +100,7 @@ public class AiModelSecretMigrationRunner implements ApplicationRunner {
         return false;
     }
 
+    /** 清理{@code Deleted}密钥。 */
     private boolean clearDeletedSecret(AiModelSecretMigrationRecord record) {
         int affectedRows = repository.clearDeleted(record.modelId());
         if (affectedRows == 1) {
@@ -109,6 +117,7 @@ public class AiModelSecretMigrationRunner implements ApplicationRunner {
         throw migrationFailure(record.modelId(), "deleted secret cleanup lost an unsafe race");
     }
 
+    /** 校验并返回有效的安全{@code Concurrent}结果。 */
     private void requireSafeConcurrentResult(long modelId) {
         AiModelSecretMigrationRecord current = repository.findById(modelId);
         if (current == null) {
@@ -121,6 +130,7 @@ public class AiModelSecretMigrationRunner implements ApplicationRunner {
         requireValidProtectedRecord(current);
     }
 
+    /** 校验并返回有效的有效{@code Protected}记录。 */
     private void requireValidProtectedRecord(AiModelSecretMigrationRecord record) {
         String fingerprint = record.secretFingerprint();
         String keyId = record.secretKeyId();
@@ -144,6 +154,7 @@ public class AiModelSecretMigrationRunner implements ApplicationRunner {
         return value == null || value.isBlank();
     }
 
+    /** 计算内容的 SHA-256 摘要。 */
     private String sha256(String value) {
         byte[] input = value.getBytes(StandardCharsets.UTF_8);
         byte[] digest = null;

@@ -71,6 +71,7 @@ public class GenerationTaskSubmissionService {
                 traceContextBridge, clock);
     }
 
+    /** 创建生成任务提交服务实例并完成必要的依赖和初始状态设置。 */
     GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
                                     GenerationSlaPolicy generationSlaPolicy,
                                     GenerationTaskDispatcher taskDispatcher,
@@ -93,12 +94,26 @@ public class GenerationTaskSubmissionService {
         this.clock = clock;
     }
 
+    /**
+ * 校验并提交当前请求。
+ *
+ * @param request 请求参数
+ * @return 方法执行结果
+ */
     public GenerationTaskResult submit(GenerationPipelineRequest request) {
         return submit(request, GenerationTaskIdempotency.none());
     }
 
+    /**
+ * 校验并提交当前请求。
+ *
+ * @param request 请求参数
+ * @param idempotency {@code idempotency} 对应的调用参数
+ * @return 方法执行结果
+ */
     public GenerationTaskResult submit(GenerationPipelineRequest request,
                                        GenerationTaskIdempotency idempotency) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (request == null || request.taskRequest() == null) {
             throw new IllegalArgumentException("generation pipeline request cannot be null");
         }
@@ -124,6 +139,7 @@ public class GenerationTaskSubmissionService {
                 traceContextBridge.capture()
         );
         GenerationTaskAdmissionResult admission = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             admission = taskAdmissionService.admit(command, idempotency);
             if (admission.created()) {
@@ -133,8 +149,7 @@ public class GenerationTaskSubmissionService {
                 taskDispatcher.dispatch(admission.taskId());
             }
             return new GenerationTaskResult(
-                    admission.taskId(),
-                    admission.route(),
+                    admission.submission(),
                     request.workspace(),
                     generationEventStream.stream(admission.taskId()),
                     admission.created()

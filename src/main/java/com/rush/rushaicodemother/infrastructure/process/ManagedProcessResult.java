@@ -22,10 +22,20 @@ public record ManagedProcessResult(
         return status == Status.COMPLETED;
     }
 
+    /**
+ * 返回{@code exited}{@code Successfully}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean exitedSuccessfully() {
         return completed() && Integer.valueOf(0).equals(exitCode);
     }
 
+    /**
+ * 返回{@code combined}输出。
+ *
+ * @return 处理后的{@code Managed}进程结果文本
+ */
     public String combinedOutput() {
         if (stderr == null || stderr.isBlank()) {
             return stdout == null ? "" : stdout;

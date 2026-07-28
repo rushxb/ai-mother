@@ -14,6 +14,13 @@ public class AiContextRelevanceScorer {
     private static final int MAX_INPUT_CHARS = 4_000;
     private static final double RELATED_THRESHOLD = 0.18;
 
+    /**
+ * 返回{@code score}。
+ *
+ * @param query 查询
+ * @param candidate 候选
+ * @return 计算或处理后的数值结果
+ */
     public double score(String query, String candidate) {
         String normalizedQuery = normalize(query);
         String normalizedCandidate = normalize(candidate);
@@ -27,6 +34,7 @@ public class AiContextRelevanceScorer {
             return 0.0;
         }
         int intersection = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String term : queryTerms) {
             if (candidateTerms.contains(term)) {
                 intersection++;
@@ -51,6 +59,7 @@ public class AiContextRelevanceScorer {
         return score(query, candidate) >= RELATED_THRESHOLD;
     }
 
+    /** 返回{@code terms}。 */
     private Set<String> terms(String text) {
         Set<String> terms = new HashSet<>();
         StringBuilder latin = new StringBuilder();
@@ -80,6 +89,7 @@ public class AiContextRelevanceScorer {
         token.setLength(0);
     }
 
+    /** 处理{@code flush}{@code Cjk}。 */
     private void flushCjk(Set<String> terms, StringBuilder run) {
         if (run.isEmpty()) {
             return;

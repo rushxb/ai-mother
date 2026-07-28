@@ -18,6 +18,12 @@ public record GenerationFeedbackVO(
         LocalDateTime updateTime
 ) {
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param feedback 反馈
+ * @return 生成反馈视图对象
+ */
     public static GenerationFeedbackVO from(GenerationFeedback feedback) {
         return new GenerationFeedbackVO(
                 feedback.getId(),

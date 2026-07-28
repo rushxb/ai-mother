@@ -49,6 +49,21 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
     private final TenantProvisioningService tenantProvisioningService;
     private final TransactionOperations transactionOperations;
 
+    /**
+ * 创建默认应用{@code Provisioning}服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param appMapper 应用映射器
+ * @param aiModelRuntimeService AI 模型运行时服务
+ * @param backendIntentDetector {@code backendIntentDetector} 对应的调用参数
+ * @param deterministicCodeGenTypeRouter {@code deterministicCodeGenTypeRouter} 对应的调用参数
+ * @param routingServiceFactory 路由服务工厂
+ * @param appNameEnrichmentService 应用名称补全服务
+ * @param chatHistoryService 对话历史服务
+ * @param artifactLifecycleService 制品生命周期服务
+ * @param operationLockManager 操作锁管理器
+ * @param tenantProvisioningService 处理该职责的领域服务
+ * @param transactionManager 事务管理器
+ */
     @Autowired
     public DefaultAppProvisioningService(AppMapper appMapper,
                                          AiModelRuntimeService aiModelRuntimeService,
@@ -76,6 +91,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         );
     }
 
+    /** 创建默认应用{@code Provisioning}服务实例并完成必要的依赖和初始状态设置。 */
     DefaultAppProvisioningService(AppMapper appMapper,
                                   AiModelRuntimeService aiModelRuntimeService,
                                   BackendIntentDetector backendIntentDetector,
@@ -100,6 +116,13 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         this.transactionOperations = transactionOperations;
     }
 
+    /**
+ * 创建默认应用{@code Provisioning}。
+ *
+ * @param request 请求参数
+ * @param actor 操作发起人
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public Long create(AppAddRequest request, User actor) {
         ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR, "创建应用请求不能为空");
@@ -132,6 +155,13 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         return appId;
     }
 
+    /**
+ * 复制默认应用{@code Provisioning}。
+ *
+ * @param sourceAppId 来源应用编号
+ * @param actor 操作发起人
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public Long copy(Long sourceAppId, User actor) {
         ThrowUtils.throwIf(sourceAppId == null || sourceAppId <= 0,
@@ -140,6 +170,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         return operationLockManager.execute(sourceAppId, () -> copyLocked(sourceAppId, actor));
     }
 
+    /** 复制{@code Locked}。 */
     private Long copyLocked(Long sourceAppId, User actor) {
         App sourceApp = appMapper.selectCopySourceState(sourceAppId);
         ThrowUtils.throwIf(sourceApp == null, ErrorCode.NOT_FOUND_ERROR, "源应用不存在");
@@ -178,6 +209,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         }
     }
 
+    /** 从候选项中选择代码生成类型。 */
     private CodeGenTypeEnum selectCodeGenType(String initPrompt) {
         BackendIntentDetector.BackendIntentResult intentResult =
                 backendIntentDetector.detectIntent(initPrompt);
@@ -193,6 +225,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         return routeAmbiguousCodeGenType(initPrompt, intentResult);
     }
 
+    /** 为{@code Ambiguous}代码生成类型选择处理路由。 */
     private CodeGenTypeEnum routeAmbiguousCodeGenType(
             String initPrompt,
             BackendIntentDetector.BackendIntentResult intentResult) {
@@ -235,6 +268,7 @@ public class DefaultAppProvisioningService implements AppProvisioningService {
         return appId;
     }
 
+    /** 处理补偿{@code Copied}制品。 */
     private void compensateCopiedArtifact(App targetApp,
                                           boolean artifactCopied,
                                           RuntimeException copyFailure) {

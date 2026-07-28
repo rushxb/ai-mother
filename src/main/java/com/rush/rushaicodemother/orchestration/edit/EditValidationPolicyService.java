@@ -80,12 +80,22 @@ public class EditValidationPolicyService {
         return determineValidationPlan(patchOperations, codeGenType, aiValidation, null);
     }
 
+    /**
+ * 根据当前上下文确定校验计划。
+ *
+ * @param patchOperations 补丁操作
+ * @param codeGenType 代码生成类型
+ * @param aiValidation AI 校验
+ * @param userMessage 用户消息
+ * @return 校验计划
+ */
     public EditValidationPlan determineValidationPlan(
             List<PatchOperation> patchOperations,
             CodeGenTypeEnum codeGenType,
             EditResult.EditValidation aiValidation,
             String userMessage) {
 
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (patchOperations == null || patchOperations.isEmpty()) {
             return new EditValidationPlan(
                     EditValidationPlan.ValidationLevel.NONE,
@@ -139,6 +149,12 @@ public class EditValidationPolicyService {
         return new EditValidationPlan(level, reason, changedFiles, aiSuggestedBuild);
     }
 
+    /**
+ * 判断运行时错误{@code Repair}请求是否满足约束。
+ *
+ * @param userMessage 用户消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isRuntimeErrorRepairRequest(String userMessage) {
         if (StrUtil.isBlank(userMessage)) {
             return false;
@@ -167,6 +183,7 @@ public class EditValidationPolicyService {
         boolean hasOnlyFastCheckFiles = true;
         var buildRequiredFiles = new java.util.ArrayList<String>();
 
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String filePath : changedFiles) {
             if (StrUtil.isBlank(filePath)) {
                 continue;

@@ -58,12 +58,25 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         this.readExecutor = readExecutor;
     }
 
+    /**
+ * 构建并返回生成记忆上下文。
+ *
+ * @param app 应用
+ * @param userMessage 用户消息
+ * @param targetType 目标类型
+ * @return 处理后的生成记忆上下文文本
+ */
     @Override
-    public String buildGenerationMemoryContext(App app, String userMessage, CodeGenTypeEnum targetType) {
+    public String buildGenerationMemoryContext(
+            String taskId,
+            App app,
+            String userMessage,
+            CodeGenTypeEnum targetType
+    ) {
         if (app == null || app.getId() == null) {
             return "";
         }
-        GenerationMemoryReads reads = readGenerationMemory(app, userMessage);
+        GenerationMemoryReads reads = readGenerationMemory(taskId, app, userMessage);
         AiContextPack contextPack = contextPackAssembler.buildGenerationPack(
                 app,
                 userMessage,
@@ -75,6 +88,15 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         return renderBudgeted(contextPack);
     }
 
+    /**
+ * 构建并返回{@code Auto}{@code Repair}记忆上下文。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param errorMessage 错误消息
+ * @param repairRound {@code repairRound} 对应的调用参数
+ * @return 处理后的{@code Auto}{@code Repair}记忆上下文文本
+ */
     @Override
     public String buildAutoRepairMemoryContext(Long appId, String taskId, String errorMessage, int repairRound) {
         if (appId == null) {
@@ -99,17 +121,18 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         return contextPack.render();
     }
 
-    private GenerationMemoryReads readGenerationMemory(App app, String userMessage) {
+    /** 读取生成记忆。 */
+    private GenerationMemoryReads readGenerationMemory(String taskId, App app, String userMessage) {
         if (readExecutor == null) {
             return readGenerationMemoryDirectly(app, userMessage);
         }
         if (!readExecutor.parallelReadsEnabled()) {
             return new GenerationMemoryReads(
-                    readExecutor.readSequential("recent_tasks",
+                    readExecutor.readSequential(taskId, "recent_tasks",
                             () -> generationTraceService.listRecentTasksByAppId(app.getId(), 5)),
-                    readExecutor.readSequential("recent_build_logs",
+                    readExecutor.readSequential(taskId, "recent_build_logs",
                             () -> generationTraceService.listRecentBuildLogsByAppId(app.getId(), 3)),
-                    readExecutor.readSequential("semantic_memory",
+                    readExecutor.readSequential(taskId, "semantic_memory",
                             () -> recallSemanticMemory(app, userMessage))
             );
         }
@@ -122,7 +145,7 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         var semanticMemories = readExecutor.task(
                 "semantic_memory",
                 () -> recallSemanticMemory(app, userMessage));
-        readExecutor.executeFailFast(recentTasks, recentBuildLogs, semanticMemories);
+        readExecutor.executeFailFast(taskId, recentTasks, recentBuildLogs, semanticMemories);
         return new GenerationMemoryReads(
                 recentTasks.result(),
                 recentBuildLogs.result(),
@@ -147,6 +170,7 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         );
     }
 
+    /** 读取{@code Auto}{@code Repair}记忆。 */
     private AutoRepairMemoryReads readAutoRepairMemory(Long appId, String taskId) {
         if (readExecutor == null) {
             return new AutoRepairMemoryReads(
@@ -156,8 +180,8 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
         }
         if (!readExecutor.parallelReadsEnabled()) {
             return new AutoRepairMemoryReads(
-                    readExecutor.readSequential("task_build_logs", () -> listTaskBuildLogs(taskId)),
-                    readExecutor.readSequential("recent_build_logs",
+                    readExecutor.readSequential(taskId, "task_build_logs", () -> listTaskBuildLogs(taskId)),
+                    readExecutor.readSequential(taskId, "recent_build_logs",
                             () -> generationTraceService.listRecentBuildLogsByAppId(appId, 3))
             );
         }
@@ -165,7 +189,7 @@ public class GenerationMemoryContextServiceImpl implements GenerationMemoryConte
                 "task_build_logs", () -> listTaskBuildLogs(taskId));
         var recentBuildLogs = readExecutor.task(
                 "recent_build_logs", () -> generationTraceService.listRecentBuildLogsByAppId(appId, 3));
-        readExecutor.executeFailFast(taskBuildLogs, recentBuildLogs);
+        readExecutor.executeFailFast(taskId, taskBuildLogs, recentBuildLogs);
         return new AutoRepairMemoryReads(taskBuildLogs.result(), recentBuildLogs.result());
     }
 

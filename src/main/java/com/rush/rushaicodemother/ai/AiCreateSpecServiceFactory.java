@@ -23,11 +23,24 @@ public class AiCreateSpecServiceFactory {
         this.promptSystemMessageTransformer = promptSystemMessageTransformer;
     }
 
+    /**
+ * 创建服务。
+ *
+ * @return 服务
+ */
     public AiCreateSpecService createService() {
         ChatModel chatModel = streamingModelFactory.createCreateSpecChatModel();
         return createService(chatModel);
     }
 
+    /**
+ * 创建执行服务。
+ *
+ * @param timeout 超时时间
+ * @param beforeModelTurn 每轮模型调用前执行的回调
+ * @param beforeProviderFailoverAttempt 模型提供方故障转移前执行的回调
+ * @return 执行服务
+ */
     public AiCreateSpecService createExecutionService(Duration timeout,
                                                       Runnable beforeModelTurn,
                                                       Runnable beforeProviderFailoverAttempt) {

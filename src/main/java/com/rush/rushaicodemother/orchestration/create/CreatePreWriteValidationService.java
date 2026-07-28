@@ -42,6 +42,12 @@ public class CreatePreWriteValidationService {
         this.syntaxValidationService = syntaxValidationService;
     }
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param operations 操作
+ * @return {@code ate}
+ */
     public ValidationResult validate(List<PatchOperation> operations) {
         Instant startedAt = Instant.now();
         List<String> errors = new ArrayList<>();
@@ -55,7 +61,9 @@ public class CreatePreWriteValidationService {
         return new ValidationResult(errors.isEmpty(), errors, Duration.between(startedAt, Instant.now()).toMillis());
     }
 
+    /** 校验{@code ate}操作是否有效。 */
     private void validateOperation(PatchOperation operation, List<String> errors) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (operation == null) {
             errors.add("operation_null");
             return;
@@ -88,6 +96,7 @@ public class CreatePreWriteValidationService {
         }
     }
 
+    /** 校验{@code ate}依赖包{@code Json}是否有效。 */
     private void validatePackageJson(String relativePath, String content, List<String> errors) {
         validateJson(relativePath, content, errors);
         String lower = StrUtil.blankToDefault(content, "").toLowerCase(Locale.ROOT);
@@ -101,6 +110,7 @@ public class CreatePreWriteValidationService {
         }
     }
 
+    /** 校验{@code ate}{@code Json}是否有效。 */
     private void validateJson(String relativePath, String content, List<String> errors) {
         if (StrUtil.isBlank(content)) {
             return;
@@ -112,6 +122,7 @@ public class CreatePreWriteValidationService {
         }
     }
 
+    /** 校验{@code ate}{@code Vue}是否有效。 */
     private void validateVue(String relativePath, String content, List<String> errors) {
         if (StrUtil.isBlank(content)) {
             return;
@@ -125,6 +136,7 @@ public class CreatePreWriteValidationService {
         validateJavaScriptLike(relativePath, content, errors);
     }
 
+    /** 校验{@code ate}{@code Java}{@code Script}{@code Like}是否有效。 */
     private void validateJavaScriptLike(String relativePath, String content, List<String> errors) {
         if (StrUtil.isBlank(content)) {
             return;
@@ -137,6 +149,7 @@ public class CreatePreWriteValidationService {
         }
     }
 
+    /** 校验{@code ate}{@code Go}是否有效。 */
     private void validateGo(String relativePath, PatchOperation operation, String content, List<String> errors) {
         if (StrUtil.isBlank(content)) {
             return;
@@ -159,6 +172,7 @@ public class CreatePreWriteValidationService {
         validateGoPackageMatchesModulePath(relativePath, content, errors);
     }
 
+    /** 校验{@code ate}{@code Sql}是否有效。 */
     private void validateSql(String relativePath, String content, List<String> errors) {
         String lower = StrUtil.blankToDefault(content, "").toLowerCase(Locale.ROOT);
         if (lower.contains("drop table") || lower.contains("drop database") || lower.contains("truncate table")) {
@@ -174,6 +188,7 @@ public class CreatePreWriteValidationService {
         }
     }
 
+    /** 校验{@code ate}{@code Go}导入路径是否有效。 */
     private void validateGoImportPath(String relativePath, String content, List<String> errors) {
         String normalized = StrUtil.blankToDefault(content, "").trim();
         if (normalized.contains("\"")
@@ -188,6 +203,7 @@ public class CreatePreWriteValidationService {
         }
     }
 
+    /** 校验{@code ate}{@code Go}依赖包{@code Matches}模块路径是否有效。 */
     private void validateGoPackageMatchesModulePath(String relativePath, String content, List<String> errors) {
         String normalizedPath = StrUtil.blankToDefault(relativePath, "").replace('\\', '/');
         java.util.regex.Matcher pathMatcher = GO_MODULE_PACKAGE_PATH_PATTERN.matcher(normalizedPath);
@@ -200,6 +216,7 @@ public class CreatePreWriteValidationService {
         }
     }
 
+    /** 返回操作内容。 */
     private String operationContent(PatchOperation operation) {
         return switch (operation.action()) {
             case PatchOperation.ACTION_ADD, PatchOperation.ACTION_MODIFY -> operation.content();
@@ -237,6 +254,7 @@ public class CreatePreWriteValidationService {
         return count(content, "'") % 2 != 0 || count(content, "\"") % 2 != 0;
     }
 
+    /** 返回数量。 */
     private int count(String content, String needle) {
         if (StrUtil.isBlank(content) || StrUtil.isBlank(needle)) {
             return 0;

@@ -43,6 +43,16 @@ public class GenerationExecutionWorkspaceService {
     private final GenerationExecutionContextService executionContextService;
     private final ArtifactLifecycleProperties artifactLifecycleProperties;
 
+    /**
+ * 创建生成执行工作区服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param storageProperties 存储属性
+ * @param generationWorkspaceService 生成工作区服务
+ * @param executionScope 执行作用域
+ * @param artifactDirectoryCopier {@code artifactDirectoryCopier} 对应的调用参数
+ * @param executionContextService 执行上下文服务
+ * @param artifactLifecycleProperties 制品生命周期属性
+ */
     public GenerationExecutionWorkspaceService(
             CodeStorageProperties storageProperties,
             GenerationWorkspaceService generationWorkspaceService,
@@ -99,12 +109,14 @@ public class GenerationExecutionWorkspaceService {
         executionScope.clear(fence);
     }
 
+    /** 返回{@code materialize}。 */
     private GenerationExecutionWorkspace materialize(GenerationExecutionFence fence,
                                                      Long appId,
                                                      CodeGenTypeEnum codeGenType,
                                                      boolean seedCanonicalWorkspace) {
         String taskId = fence.taskId();
         Path partialTypeRoot = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             executionContextService.assertCanContinue(taskId);
             Path outputRoot = prepareOutputRoot();
@@ -210,6 +222,7 @@ public class GenerationExecutionWorkspaceService {
                 : SeedWorkspace.empty();
     }
 
+    /** 查找匹配的{@code Previous}轮次工作区。 */
     private Optional<SeedWorkspace> findPreviousEpochWorkspace(Path taskRoot,
                                                                long currentEpoch,
                                                                CodeGenTypeEnum codeGenType,
@@ -232,6 +245,7 @@ public class GenerationExecutionWorkspaceService {
         }
     }
 
+    /** 返回{@code previous}工作区。 */
     private Optional<SeedWorkspace> previousWorkspace(EpochDirectory candidate,
                                                       CodeGenTypeEnum codeGenType) {
         Path typeRoot = candidate.path().resolve(codeGenType.getValue()).normalize();
@@ -254,6 +268,7 @@ public class GenerationExecutionWorkspaceService {
         }
     }
 
+    /** 解析轮次。 */
     private long parseEpoch(Path path) {
         Path fileName = path == null ? null : path.getFileName();
         if (fileName == null || !fileName.toString().startsWith("epoch-")) {
@@ -266,6 +281,7 @@ public class GenerationExecutionWorkspaceService {
         }
     }
 
+    /** 确保{@code Direct}子级已达到可用状态。 */
     private Path ensureDirectChild(Path parent, String childName) throws IOException {
         if (childName == null || childName.isBlank()
                 || childName.contains("/") || childName.contains("\\")
@@ -314,6 +330,7 @@ public class GenerationExecutionWorkspaceService {
         );
     }
 
+    /** 读取就绪元数据。 */
     private ReadyMetadata readReadyMetadata(Path readyMarker) {
         try {
             String value = Files.readString(readyMarker).trim();
@@ -344,6 +361,7 @@ public class GenerationExecutionWorkspaceService {
         deleteTreeIfExists(root, null);
     }
 
+    /** 删除{@code Tree}{@code If}{@code Exists}。 */
     private void deleteTreeIfExists(Path root, String taskId) throws IOException {
         assertCanContinueIfManaged(taskId);
         if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
@@ -354,6 +372,13 @@ public class GenerationExecutionWorkspaceService {
             return;
         }
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
+            /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return 生成执行工作区
+ */
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                 assertCanContinueIfManaged(taskId);
@@ -361,6 +386,13 @@ public class GenerationExecutionWorkspaceService {
                 return FileVisitResult.CONTINUE;
             }
 
+            /**
+ * 在目录访问完成后处理异常并收口遍历状态。
+ *
+ * @param directory 目录
+ * @param exception 待转换或处理的异常
+ * @return 方法执行结果
+ */
             @Override
             public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
                 assertCanContinueIfManaged(taskId);
@@ -385,6 +417,7 @@ public class GenerationExecutionWorkspaceService {
                 || reason == ArtifactCopyException.Reason.INTERRUPTED;
     }
 
+    /** 清理部分{@code Materialization}及其关联资源。 */
     private void cleanupPartialMaterialization(Path partialTypeRoot, Throwable primaryFailure) {
         if (partialTypeRoot == null) {
             return;

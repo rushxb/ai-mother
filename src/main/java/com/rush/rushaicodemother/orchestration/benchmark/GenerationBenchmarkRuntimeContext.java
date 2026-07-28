@@ -9,6 +9,7 @@ public record GenerationBenchmarkRuntimeContext(
         long userId
 ) {
 
+    /** 创建生成基准测试运行时上下文实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkRuntimeContext {
         if (task == null
                 || workspace == null

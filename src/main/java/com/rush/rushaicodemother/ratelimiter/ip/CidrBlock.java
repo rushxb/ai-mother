@@ -15,6 +15,7 @@ final class CidrBlock {
         this.prefixLength = prefixLength;
     }
 
+    /** 解析{@code Cidr}{@code Block}。 */
     static CidrBlock parse(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("可信代理 CIDR 不能为空");
@@ -45,6 +46,7 @@ final class CidrBlock {
         return java.util.Arrays.equals(networkAddress, maskedCandidate);
     }
 
+    /** 解析{@code Prefix}{@code Length}。 */
     private static int parsePrefixLength(String value, int maximum, String source) {
         try {
             int prefix = Integer.parseInt(value);
@@ -57,6 +59,7 @@ final class CidrBlock {
         }
     }
 
+    /** 返回{@code mask}。 */
     private static byte[] mask(byte[] address, int prefixLength) {
         byte[] masked = address.clone();
         int completeBytes = prefixLength / Byte.SIZE;

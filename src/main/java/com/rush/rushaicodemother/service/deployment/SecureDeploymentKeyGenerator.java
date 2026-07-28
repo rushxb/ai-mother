@@ -14,6 +14,11 @@ public final class SecureDeploymentKeyGenerator implements DeploymentKeyGenerato
 
     private final SecureRandom secureRandom = new SecureRandom();
 
+    /**
+ * 根据输入生成{@code Secure}部署键生成器。
+ *
+ * @return 处理后的{@code Secure}部署键生成器文本
+ */
     @Override
     public String generate() {
         StringBuilder deployKey = new StringBuilder(DEPLOY_KEY_LENGTH);

@@ -11,7 +11,9 @@ public record GenerationPipelineOutcome(
         String resultSummary
 ) {
 
+    /** 创建生成流水线结果实例并完成必要的依赖和初始状态设置。 */
     public GenerationPipelineOutcome {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (disposition == null) {
             throw new IllegalArgumentException("生成管线结果类型不能为空");
         }

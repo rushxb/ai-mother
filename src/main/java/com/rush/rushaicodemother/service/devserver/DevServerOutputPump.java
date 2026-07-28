@@ -33,6 +33,7 @@ final class DevServerOutputPump {
         this.maxLineLength = maxLineLength;
     }
 
+    /** 启动开发服务器输出{@code Pump}。 */
     CompletableFuture<Void> start(Process process, String logContext, Consumer<String> lineConsumer) {
         Objects.requireNonNull(process, "Dev Server 进程不能为空");
         Objects.requireNonNull(lineConsumer, "输出消费者不能为空");
@@ -54,6 +55,7 @@ final class DevServerOutputPump {
         return completion;
     }
 
+    /** 等待完成{@code Preserving}{@code Interrupt}完成。 */
     static void awaitCompletionPreservingInterrupt(CompletableFuture<Void> completion, Duration timeout) {
         if (completion == null || timeout == null) {
             return;
@@ -72,6 +74,7 @@ final class DevServerOutputPump {
         }
     }
 
+    /** 处理{@code drain}。 */
     private void drain(InputStream inputStream,
                        String logContext,
                        Consumer<String> lineConsumer) throws IOException {
@@ -111,6 +114,7 @@ final class DevServerOutputPump {
         }
     }
 
+    /** 发送{@code Line}事件。 */
     private void emitLine(StringBuilder pendingLine,
                           boolean truncated,
                           String logContext,

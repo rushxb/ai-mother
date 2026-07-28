@@ -77,6 +77,7 @@ public class LightweightEditService {
         return executeInternal(taskId, request, workspace, true);
     }
 
+    /** 执行内部处理流程。 */
     private LightweightEditResult executeInternal(String taskId,
                                                    GenerationTaskRequest request,
                                                    GenerationWorkspace workspace,
@@ -104,6 +105,7 @@ public class LightweightEditService {
             return null;
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             publishRouteEvent(request, taskId, routeResult);
             taskLifecycleService.start(
@@ -241,6 +243,7 @@ public class LightweightEditService {
         }
     }
 
+    /** 根据输入生成{@code Initial}编辑。 */
     private EditResult generateInitialEdit(App app,
                                            String taskId,
                                            String userMessage,
@@ -256,6 +259,7 @@ public class LightweightEditService {
         }
     }
 
+    /** 处理运行时校验失败。 */
     private LightweightEditResult handleRuntimeValidationFailure(
             GenerationTaskRequest request,
             App app,
@@ -288,6 +292,7 @@ public class LightweightEditService {
         return buildFailedResult(taskId, failedMessage);
     }
 
+    /** 处理补丁失败。 */
     private LightweightEditResult handlePatchFailure(GenerationTaskRequest request,
                                                      App app,
                                                      User loginUser,
@@ -313,6 +318,7 @@ public class LightweightEditService {
         return buildFailedResult(taskId, failedMessage);
     }
 
+    /** 处理发布校验失败。 */
     private LightweightEditResult handlePublicationValidationFailure(
             GenerationTaskRequest request,
             App app,
@@ -345,6 +351,7 @@ public class LightweightEditService {
         return buildFailedResult(taskId, failedMessage);
     }
 
+    /** 完成成功并持久化终态。 */
     private LightweightEditResult completeSuccess(GenerationTaskRequest request,
                                                   App app,
                                                   User loginUser,
@@ -400,6 +407,7 @@ public class LightweightEditService {
                 ));
     }
 
+    /** 构建并返回汇总消息。 */
     private String buildSummaryMessage(EditResult editResult,
                                        PatchApplyResult applyResult,
                                        EditValidationPlan validationPlan) {

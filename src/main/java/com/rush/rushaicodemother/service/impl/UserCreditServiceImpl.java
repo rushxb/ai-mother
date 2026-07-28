@@ -34,6 +34,11 @@ public class UserCreditServiceImpl implements UserCreditService {
     private final UserCreditPersistenceService persistenceService;
     private final UserCreditCostCalculator costCalculator;
 
+    /**
+ * 确保{@code Has}额度已达到可用状态。
+ *
+ * @param userId 用户编号
+ */
     @Override
     public void ensureHasCredit(Long userId) {
         if (!hasPositiveId(userId)) {
@@ -48,6 +53,13 @@ public class UserCreditServiceImpl implements UserCreditService {
         }
     }
 
+    /**
+ * 初始化额度。
+ *
+ * @param userId 用户编号
+ * @param initialCredit {@code initialCredit} 对应的调用参数
+ * @param adminUserId 管理端用户编号
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void initializeCredit(Long userId, Long initialCredit, Long adminUserId) {
@@ -81,6 +93,12 @@ public class UserCreditServiceImpl implements UserCreditService {
         ));
     }
 
+    /**
+ * 返回{@code adjust}额度按管理端。
+ *
+ * @param command 命令
+ * @return 计算或处理后的数值结果
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public long adjustCreditByAdmin(AdminCreditAdjustmentCommand command) {
@@ -110,6 +128,11 @@ public class UserCreditServiceImpl implements UserCreditService {
         return balanceAfter;
     }
 
+    /**
+ * 处理{@code charge}生成任务。
+ *
+ * @param taskId 任务编号
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void chargeGenerationTask(String taskId) {
@@ -152,9 +175,15 @@ public class UserCreditServiceImpl implements UserCreditService {
         settleLegacyGenerationTask(task);
     }
 
+    /**
+ * 处理{@code reserve}生成任务。
+ *
+ * @param command 命令
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reserveGenerationTask(GenerationCreditReservationCommand command) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (command == null || !hasPositiveId(command.userId()) || command.reservedCredit() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分预授权参数不合法");
         }
@@ -190,6 +219,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         ));
     }
 
+    /** 处理{@code settle}{@code Reserved}生成任务。 */
     private void settleReservedGenerationTask(GenerationCreditTask task,
                                               CreditTransaction reservation) {
         long reservedCredit = validateReservation(task, reservation);
@@ -232,6 +262,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         );
     }
 
+    /** 处理{@code settle}{@code Legacy}生成任务。 */
     private void settleLegacyGenerationTask(GenerationCreditTask task) {
         long totalTokens = persistenceService.sumPositiveTaskTokens(task.taskId());
         long expectedCreditCost = costCalculator.calculate(totalTokens);
@@ -263,6 +294,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         return account;
     }
 
+    /** 恢复生成{@code Settlement}。 */
     private void recoverGenerationSettlement(GenerationCreditTask task, CreditTransaction transaction) {
         if (transaction.userId() != task.userId()
                 || transaction.type() != UserCreditTransactionType.GENERATION_CHARGE
@@ -290,6 +322,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         log.warn("已根据积分流水恢复生成任务结算状态，taskId: {}", task.taskId());
     }
 
+    /** 恢复{@code Reserved}生成{@code Settlement}。 */
     private void recoverReservedGenerationSettlement(GenerationCreditTask task,
                                                      CreditTransaction settlement) {
         CreditTransaction reservation = persistenceService.findTransaction(
@@ -309,6 +342,7 @@ public class UserCreditServiceImpl implements UserCreditService {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务预授权结算流水与任务数据不一致");
         }
         final long actualCreditCost;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             actualCreditCost = Math.subtractExact(reservedCredit, settlement.changeAmount());
         } catch (ArithmeticException overflow) {
@@ -322,6 +356,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         log.warn("已根据预授权结算流水恢复生成任务结算状态，taskId: {}", task.taskId());
     }
 
+    /** 校验{@code ate}{@code Reservation}是否有效。 */
     private long validateReservation(GenerationCreditTask task, CreditTransaction reservation) {
         if (reservation.userId() != task.userId()
                 || reservation.type() != UserCreditTransactionType.GENERATION_RESERVATION
@@ -380,6 +415,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         }
     }
 
+    /** 校验{@code ate}{@code Adjustment}是否有效。 */
     private ValidatedAdjustment validateAdjustment(AdminCreditAdjustmentCommand command) {
         if (command == null || !hasPositiveId(command.userId())
                 || command.changeAmount() == null || command.changeAmount() == 0) {
@@ -397,6 +433,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         );
     }
 
+    /** 规范化请求编号。 */
     private String normalizeRequestId(String requestId) {
         if (requestId == null || requestId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "requestId 不能为空");
@@ -414,6 +451,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         return uuid.toString();
     }
 
+    /** 规范化{@code Remark}。 */
     private String normalizeRemark(String remark) {
         if (remark == null || remark.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分调整原因不能为空");
@@ -425,6 +463,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         return normalized;
     }
 
+    /** 规范化{@code Pricing}{@code Reference}。 */
     private String normalizePricingReference(String pricingReference) {
         if (pricingReference == null || pricingReference.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分预授权计价引用不能为空");
@@ -436,6 +475,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         return normalized;
     }
 
+    /** 校验并返回有效的任务编号。 */
     private String requireTaskId(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务 ID 不能为空");
@@ -453,6 +493,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         }
     }
 
+    /** 计算本次额度变更后的账户余额。 */
     private long calculateBalanceAfter(long currentBalance, long changeAmount) {
         final long balanceAfter;
         try {
@@ -470,6 +511,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         return balanceAfter;
     }
 
+    /** 返回安全{@code Add}。 */
     private long safeAdd(long left, long right) {
         try {
             return Math.addExact(left, right);

@@ -43,6 +43,12 @@ public class GenerationTaskLatencyLedgerService {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    /**
+ * 获取并返回{@code Ledger}。
+ *
+ * @param taskId 任务编号
+ * @return 生成任务{@code Latency}{@code Ledger}
+ */
     public GenerationTaskLatencyLedger getLedger(String taskId) {
         DurableGenerationTaskRecord task = taskRepository.findByTaskId(taskId)
                 .orElseThrow(() -> new BusinessException(
@@ -122,6 +128,7 @@ public class GenerationTaskLatencyLedgerService {
         );
     }
 
+    /** 规范化跨度。 */
     private List<NormalizedSpan> normalizeSpans(
             List<GenerationSpanQueryService.StoredSpan> storedSpans,
             long windowStartMs,
@@ -149,6 +156,7 @@ public class GenerationTaskLatencyLedgerService {
         return List.copyOf(spans);
     }
 
+    /** 返回{@code attributed}{@code Category}{@code Durations}。 */
     private Map<String, Long> attributedCategoryDurations(List<NormalizedSpan> spans) {
         Map<String, Long> durations = new HashMap<>();
         if (spans.isEmpty()) {
@@ -166,6 +174,7 @@ public class GenerationTaskLatencyLedgerService {
                 .thenComparingLong(span -> span.interval().durationMs())
                 .thenComparing(NormalizedSpan::category)
                 .thenComparing(NormalizedSpan::stage);
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int index = 1; index < orderedBoundaries.size(); index++) {
             long segmentStart = orderedBoundaries.get(index - 1);
             long segmentEnd = orderedBoundaries.get(index);
@@ -184,6 +193,7 @@ public class GenerationTaskLatencyLedgerService {
         return durations;
     }
 
+    /** 合并{@code d}时长。 */
     private long mergedDuration(List<Interval> intervals) {
         if (intervals == null || intervals.isEmpty()) {
             return 0;

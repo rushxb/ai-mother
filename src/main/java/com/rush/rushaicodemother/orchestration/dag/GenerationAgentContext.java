@@ -52,6 +52,11 @@ public class GenerationAgentContext {
         return heavyPath ? "heavy" : "light";
     }
 
+    /**
+ * 处理{@code put}{@code Artifacts}。
+ *
+ * @param newArtifacts 待处理的 {@code newArtifacts} 集合
+ */
     public synchronized void putArtifacts(Collection<GenerationArtifact> newArtifacts) {
         if (newArtifacts == null) {
             return;
@@ -65,6 +70,13 @@ public class GenerationAgentContext {
         return Optional.ofNullable(artifacts.get(key));
     }
 
+    /**
+ * 获取并返回制品值。
+ *
+ * @param artifactKey 制品键
+ * @param payloadKey 载荷键
+ * @return 生成智能体上下文
+ */
     public synchronized Object getArtifactValue(String artifactKey, String payloadKey) {
         GenerationArtifact artifact = artifacts.get(artifactKey);
         if (artifact == null || artifact.payload() == null) {
@@ -77,6 +89,7 @@ public class GenerationAgentContext {
         timings.put(nodeKey, durationMs);
     }
 
+    /** 处理恢复检查点状态。 */
     private void restoreCheckpointState() {
         if (task.getArtifacts() != null) {
             artifacts.putAll(task.getArtifacts());

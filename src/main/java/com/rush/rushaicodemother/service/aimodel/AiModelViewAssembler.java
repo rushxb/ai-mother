@@ -9,6 +9,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class AiModelViewAssembler {
 
+    /**
+ * 将当前对象转换为公开视图。
+ *
+ * @param configuration 配置
+ * @return 公开视图
+ */
     public AiModelPublicVO toPublicView(AiModelConfiguration configuration) {
         if (configuration == null) {
             return null;
@@ -25,6 +31,12 @@ public class AiModelViewAssembler {
                 .build();
     }
 
+    /**
+ * 将当前对象转换为管理端视图。
+ *
+ * @param configuration 配置
+ * @return 管理端视图
+ */
     public AiModelAdminVO toAdminView(AiModelConfiguration configuration) {
         if (configuration == null) {
             return null;

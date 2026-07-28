@@ -35,10 +35,23 @@ public class GenerationTaskOrchestrator {
     private final GenerationTaskSubmissionService generationTaskSubmissionService;
     private final GenerationTaskControlService generationTaskControlService;
 
+    /**
+ * 启动生成任务{@code Orchestrator}。
+ *
+ * @param request 请求参数
+ * @return 生成任务{@code Orchestrator}
+ */
     public GenerationTaskResult start(GenerationTaskRequest request) {
         return start(request, GenerationTaskIdempotency.none());
     }
 
+    /**
+ * 启动生成任务{@code Orchestrator}。
+ *
+ * @param request 请求参数
+ * @param idempotency {@code idempotency} 对应的调用参数
+ * @return 生成任务{@code Orchestrator}
+ */
     public GenerationTaskResult start(GenerationTaskRequest request,
                                       GenerationTaskIdempotency idempotency) {
         ThrowUtils.throwIf(request == null || request.app() == null || request.loginUser() == null,

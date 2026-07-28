@@ -18,6 +18,12 @@ public class SymbolIndexService {
         this.codeGraphService = codeGraphService;
     }
 
+    /**
+ * 构建并返回{@code Symbol}索引。
+ *
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @return {@code Symbol}索引集合
+ */
     public Map<String, List<CodeGraphSymbol>> buildSymbolIndex(Path rootDir) {
         return codeGraphService.build(rootDir).symbolsByName();
     }

@@ -17,6 +17,14 @@ public class MyBatisGenerationDurationSampleRepository implements GenerationDura
     private final GenerationTaskRuntimeMapper taskMapper;
     private final GenerationTaskSpanMapper spanMapper;
 
+    /**
+ * 加载{@code Recent}{@code Successful}{@code Samples}。
+ *
+ * @param route 代理路由
+ * @param taskSampleLimit {@code taskSampleLimit} 对应的调用参数
+ * @param spanSampleLimit {@code spanSampleLimit} 对应的调用参数
+ * @return {@code Recent}{@code Successful}{@code Samples}
+ */
     @Override
     public GenerationDurationSamples loadRecentSuccessfulSamples(String route,
                                                                  int taskSampleLimit,

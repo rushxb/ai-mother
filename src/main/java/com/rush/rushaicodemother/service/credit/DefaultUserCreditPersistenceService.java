@@ -23,18 +23,36 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
 
     private final UserCreditMapper mapper;
 
+    /**
+ * 查找匹配的活动{@code Account}。
+ *
+ * @param userId 用户编号
+ * @return 活动{@code Account}
+ */
     @Override
     public CreditAccount findActiveAccount(Long userId) {
         requirePositiveId(userId, "用户 ID");
         return toCreditAccount(mapper.selectActiveCreditAccount(userId));
     }
 
+    /**
+ * 返回锁活动{@code Account}。
+ *
+ * @param userId 用户编号
+ * @return 默认用户额度持久化
+ */
     @Override
     public CreditAccount lockActiveAccount(Long userId) {
         requirePositiveId(userId, "用户 ID");
         return toCreditAccount(mapper.selectActiveCreditAccountForUpdate(userId));
     }
 
+    /**
+ * 返回锁生成任务。
+ *
+ * @param taskId 任务编号
+ * @return 默认用户额度持久化
+ */
     @Override
     public GenerationCreditTask lockGenerationTask(String taskId) {
         String normalizedTaskId = requireBusinessId(taskId, "生成任务 ID");
@@ -55,6 +73,13 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         );
     }
 
+    /**
+ * 查找匹配的事务。
+ *
+ * @param type 目标类型
+ * @param bizId 目标资源编号
+ * @return 事务
+ */
     @Override
     public CreditTransaction findTransaction(UserCreditTransactionType type, String bizId) {
         if (type == null) {
@@ -68,6 +93,12 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         return transaction == null ? null : toCreditTransaction(transaction);
     }
 
+    /**
+ * 计算正数任务令牌的汇总值。
+ *
+ * @param taskId 任务编号
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public long sumPositiveTaskTokens(String taskId) {
         String normalizedTaskId = requireBusinessId(taskId, "生成任务 ID");
@@ -81,6 +112,12 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         return totalTokens;
     }
 
+    /**
+ * 更新余额。
+ *
+ * @param userId 用户编号
+ * @param balanceAfter 余额执行后
+ */
     @Override
     public void updateBalance(Long userId, long balanceAfter) {
         requirePositiveId(userId, "用户 ID");
@@ -92,6 +129,11 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         }
     }
 
+    /**
+ * 追加事务。
+ *
+ * @param transaction 事务
+ */
     @Override
     public void appendTransaction(NewCreditTransaction transaction) {
         validateNewTransaction(transaction);
@@ -118,6 +160,13 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         }
     }
 
+    /**
+ * 处理{@code settle}生成任务。
+ *
+ * @param taskRecordId 任务记录编号
+ * @param creditCost {@code creditCost} 对应的调用参数
+ * @param totalTokens 总量令牌
+ */
     @Override
     public void settleGenerationTask(Long taskRecordId, long creditCost, long totalTokens) {
         requirePositiveId(taskRecordId, "生成任务记录 ID");
@@ -129,6 +178,12 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         }
     }
 
+    /**
+ * 查找匹配的{@code Unsettled}{@code Terminal}任务{@code Ids}。
+ *
+ * @param limit 资源上限
+ * @return {@code Unsettled}{@code Terminal}任务{@code Ids}集合
+ */
     @Override
     public List<String> findUnsettledTerminalTaskIds(int limit) {
         if (limit <= 0 || limit > 500) {
@@ -144,6 +199,7 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         return List.copyOf(taskIds);
     }
 
+    /** 将当前对象转换为额度{@code Account}。 */
     private CreditAccount toCreditAccount(User user) {
         if (user == null) {
             return null;
@@ -155,6 +211,7 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         return new CreditAccount(user.getId(), user.getCreditBalance());
     }
 
+    /** 将当前对象转换为额度事务。 */
     private CreditTransaction toCreditTransaction(UserCreditTransaction transaction) {
         if (transaction.getUserId() == null || transaction.getUserId() <= 0
                 || transaction.getChangeAmount() == null
@@ -184,6 +241,7 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         );
     }
 
+    /** 校验{@code ate}{@code New}事务是否有效。 */
     private void validateNewTransaction(NewCreditTransaction transaction) {
         if (transaction == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分流水不能为空");

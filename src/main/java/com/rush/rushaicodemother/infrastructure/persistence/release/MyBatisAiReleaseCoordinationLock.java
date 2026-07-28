@@ -15,6 +15,7 @@ public class MyBatisAiReleaseCoordinationLock implements AiReleaseCoordinationLo
 
     private final AiReleaseCoordinationMapper mapper;
 
+    /** 获取{@code My}{@code Batis}AI 发布协调锁。 */
     @Override
     public void acquire() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()

@@ -19,6 +19,7 @@ public record GenerationSkill(
         String sourcePath
 ) {
 
+    /** 创建生成{@code Skill}实例并完成必要的依赖和初始状态设置。 */
     public GenerationSkill {
         keywords = keywords == null ? List.of() : List.copyOf(keywords);
         modules = modules == null ? List.of() : List.copyOf(modules);

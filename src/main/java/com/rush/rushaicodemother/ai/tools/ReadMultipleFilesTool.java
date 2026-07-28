@@ -29,6 +29,14 @@ public class ReadMultipleFilesTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 读取{@code Multiple}文件。
+ *
+ * @param relativeFilePaths 待处理的 {@code relativeFilePaths} 集合
+ * @param maxCharsPerFile {@code maxCharsPerFile} 对应的调用参数
+ * @param appId 应用编号
+ * @return 处理后的{@code Multiple}文件文本
+ */
     @Tool("一次读取多个文件内容，适合在修改前批量获取项目上下文。")
     public String readMultipleFiles(
             @P("要读取的相对文件路径列表")
@@ -37,6 +45,7 @@ public class ReadMultipleFilesTool extends BaseTool {
             Integer maxCharsPerFile,
             @ToolMemoryId Long appId
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (relativeFilePaths == null || relativeFilePaths.isEmpty()) {
             return "错误：文件路径列表不能为空";
         }
@@ -46,6 +55,7 @@ public class ReadMultipleFilesTool extends BaseTool {
         int requestedCharLimit = maxCharsPerFile == null ? DEFAULT_MAX_CHARS : maxCharsPerFile;
         int charLimit = Math.max(1, Math.min(requestedCharLimit, MAX_CHARS_LIMIT));
         StringBuilder builder = new StringBuilder();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String relativeFilePath : relativeFilePaths) {
             try {
                 ToolWorkspaceFileService.ToolWorkspaceFile file =
@@ -72,6 +82,7 @@ public class ReadMultipleFilesTool extends BaseTool {
         return StrUtil.trim(builder.toString());
     }
 
+    /** 按资源上限截断{@code Read}{@code Multiple}文件工具。 */
     private String truncate(String content, int charLimit) {
         if (content == null) {
             return "";
@@ -102,12 +113,25 @@ public class ReadMultipleFilesTool extends BaseTool {
         return "批量读取文件";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         Object filePaths = arguments.get("relativeFilePaths");
         return String.format("[工具调用] %s %s", getDisplayName(), filePaths);
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);

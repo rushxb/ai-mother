@@ -52,6 +52,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         this(properties, new SecureRandom());
     }
 
+    /** 创建{@code Envelope}AI 模型密钥服务实例并完成必要的依赖和初始状态设置。 */
     EnvelopeAiModelSecretService(AiModelSecretProperties properties, SecureRandom secureRandom) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.secureRandom = Objects.requireNonNull(secureRandom, "secureRandom");
@@ -87,6 +88,12 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         requireSeparatedKeyPurposes();
     }
 
+    /**
+ * 清理并保护{@code Envelope}AI 模型密钥，避免敏感内容越过边界。
+ *
+ * @param apiKey {@code apiKey} 对应的调用参数
+ * @return {@code Envelope}AI 模型密钥
+ */
     @Override
     public AiModelProtectedSecret protect(String apiKey) {
         requireWriteKeys();
@@ -103,6 +110,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         byte[] dataKeyBytes = randomBytes(KEY_BYTES);
         byte[] wrapNonce = randomBytes(NONCE_BYTES);
         byte[] secretNonce = randomBytes(NONCE_BYTES);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             SecretKey dataKey = new SecretKeySpec(dataKeyBytes, KEY_ALGORITHM);
             byte[] wrappedDataKey = encrypt(
@@ -134,6 +142,13 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
     }
 
+    /**
+ * 根据当前上下文解析{@code Envelope}AI 模型密钥。
+ *
+ * @param secretReference {@code secretReference} 对应的调用参数
+ * @param expectedFingerprint {@code expectedFingerprint} 对应的调用参数
+ * @return 处理后的{@code Envelope}AI 模型密钥文本
+ */
     @Override
     public String resolve(String secretReference, String expectedFingerprint) {
         ParsedReference parsed = parse(secretReference);
@@ -144,6 +159,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
         byte[] dataKeyBytes = null;
         byte[] secretBytes = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             dataKeyBytes = decrypt(
                     keyEncryptionKey,
@@ -176,6 +192,12 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
     }
 
+    /**
+ * 判断{@code Protected}{@code Reference}是否满足约束。
+ *
+ * @param secretReference {@code secretReference} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean isProtectedReference(String secretReference) {
         try {
@@ -186,6 +208,12 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
     }
 
+    /**
+ * 判断当前状态是否允许{@code Resolve}。
+ *
+ * @param secretReference {@code secretReference} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean canResolve(String secretReference) {
         try {
@@ -195,11 +223,18 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
     }
 
+    /**
+ * 返回键编号。
+ *
+ * @param secretReference {@code secretReference} 对应的调用参数
+ * @return 处理后的{@code Envelope}AI 模型密钥文本
+ */
     @Override
     public String keyId(String secretReference) {
         return parse(secretReference).keyId();
     }
 
+    /** 解析{@code Envelope}AI 模型密钥。 */
     private ParsedReference parse(String reference) {
         if (!hasText(reference)
                 || reference.getBytes(StandardCharsets.UTF_8).length > properties.getMaxReferenceBytes()) {
@@ -262,6 +297,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         return mac.doFinal(secretBytes);
     }
 
+    /** 校验并返回有效的{@code Matching}指纹。 */
     private void requireMatchingFingerprint(byte[] secretBytes,
                                             String expectedFingerprint) throws GeneralSecurityException {
         if (!hasText(expectedFingerprint) || !expectedFingerprint.matches("[a-f0-9]{64}")) {
@@ -297,6 +333,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         return REFERENCE_ENCODER.encodeToString(value);
     }
 
+    /** 返回{@code decode}{@code Reference}{@code Part}。 */
     private byte[] decodeReferencePart(String value, int minimumLength, int maximumLength) {
         try {
             byte[] decoded = REFERENCE_DECODER.decode(value);
@@ -328,6 +365,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
     }
 
+    /** 返回{@code decode}已配置键。 */
     private byte[] decodeConfiguredKey(String encoded, String label) {
         if (!hasText(encoded)) {
             throw new IllegalStateException("AI model secret " + label + " is blank");
@@ -351,6 +389,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
     }
 
+    /** 规范化键编号。 */
     private String normalizeKeyId(String keyId, boolean required) {
         String normalized = keyId == null ? null : keyId.trim();
         if (!hasText(normalized)) {
@@ -380,6 +419,7 @@ public class EnvelopeAiModelSecretService implements AiModelSecretService {
         }
     }
 
+    /** 校验并返回有效的{@code Separated}键{@code Purposes}。 */
     private void requireSeparatedKeyPurposes() {
         if (fingerprintKey == null) {
             return;

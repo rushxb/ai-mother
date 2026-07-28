@@ -40,6 +40,14 @@ public class GitTransactionResourceManager {
             LinkOption.NOFOLLOW_LINKS
     );
 
+    /**
+ * 创建{@code Git}事务资源。
+ *
+ * @param gitDirectory {@code gitDirectory} 对应的调用参数
+ * @param pathspecs 待处理的 {@code pathspecs} 集合
+ * @param maxPathspecBytes 待处理的 {@code maxPathspecBytes} 集合
+ * @return {@code Git}事务资源
+ */
     public GitTransactionResources create(Path gitDirectory,
                                           List<String> pathspecs,
                                           int maxPathspecBytes) throws GitTransactionResourceException {
@@ -90,6 +98,11 @@ public class GitTransactionResourceManager {
         }
     }
 
+    /**
+ * 清理{@code Git}事务资源及其关联资源。
+ *
+ * @param resources 待处理的 {@code resources} 集合
+ */
     public void cleanup(GitTransactionResources resources) {
         if (resources == null) {
             return;
@@ -110,6 +123,7 @@ public class GitTransactionResourceManager {
                 || maxOutputBytes <= 0) {
             throw invalidStagedOutput();
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             BasicFileAttributes attributes = Files.readAttributes(
                     outputPath,
@@ -134,6 +148,7 @@ public class GitTransactionResourceManager {
         }
     }
 
+    /** 校验并返回有效的安全{@code Git}目录。 */
     private Path requireSafeGitDirectory(Path gitDirectory) throws GitTransactionResourceException {
         if (gitDirectory == null) {
             throw invalidRoot();
@@ -162,6 +177,7 @@ public class GitTransactionResourceManager {
         }
     }
 
+    /** 返回{@code encode}{@code Pathspecs}。 */
     private byte[] encodePathspecs(List<String> pathspecs,
                                    int maxPathspecBytes) throws GitTransactionResourceException {
         if (pathspecs == null || pathspecs.isEmpty() || maxPathspecBytes <= 0) {
@@ -191,6 +207,7 @@ public class GitTransactionResourceManager {
         return output.toByteArray();
     }
 
+    /** 读取{@code Bounded}。 */
     private byte[] readBounded(Path path, int maxBytes) throws IOException, GitTransactionResourceException {
         ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maxBytes, 16 * 1024));
         try (SeekableByteChannel channel = Files.newByteChannel(path, READ_NOFOLLOW_OPTIONS)) {
@@ -213,6 +230,7 @@ public class GitTransactionResourceManager {
         return output.toByteArray();
     }
 
+    /** 返回{@code decode}{@code Nul}{@code Delimited}{@code Paths}。 */
     private List<String> decodeNulDelimitedPaths(byte[] bytes) throws GitTransactionResourceException {
         if (bytes.length == 0) {
             return List.of();
@@ -236,6 +254,7 @@ public class GitTransactionResourceManager {
         return List.copyOf(paths);
     }
 
+    /** 返回{@code decode}{@code Utf8}路径。 */
     private String decodeUtf8Path(byte[] bytes,
                                   int offset,
                                   int length) throws GitTransactionResourceException {
@@ -261,6 +280,7 @@ public class GitTransactionResourceManager {
         return child;
     }
 
+    /** 删除{@code If}安全。 */
     private void deleteIfSafe(Path expectedParent, Path path, ResourceType resourceType) {
         if (!isOwnedResource(expectedParent, path, resourceType)) {
             log.warn("拒绝清理不受信任的 Git 临时资源，resourceType: {}", resourceType);
@@ -277,6 +297,7 @@ public class GitTransactionResourceManager {
         }
     }
 
+    /** 判断{@code Owned}资源是否满足约束。 */
     private boolean isOwnedResource(Path expectedParent, Path path, ResourceType resourceType) {
         if (expectedParent == null || path == null || path.getFileName() == null || path.getParent() == null) {
             return false;
@@ -334,6 +355,11 @@ public class GitTransactionResourceManager {
             Objects.requireNonNull(temporaryHooksDirectory, "temporaryHooksDirectory must not be null");
         }
 
+        /**
+ * 返回{@code temporary}索引锁。
+ *
+ * @return 解析后的{@code Git}事务{@code Resources}路径
+ */
         public Path temporaryIndexLock() {
             return temporaryIndex.resolveSibling(temporaryIndex.getFileName() + ".lock");
         }

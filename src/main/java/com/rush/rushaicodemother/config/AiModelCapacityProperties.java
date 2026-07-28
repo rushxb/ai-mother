@@ -67,6 +67,11 @@ public class AiModelCapacityProperties {
     /** 可用逃生舱口；生产应保持故障关闭。 */
     private boolean failOpen;
 
+    /**
+ * 校验各时长配置及其相互约束是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "AI model capacity duration configuration is invalid")
     public boolean isDurationConfigurationValid() {
         return atLeastOneMillisecond(acquireTimeout)

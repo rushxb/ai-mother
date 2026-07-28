@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseRecord;
 import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseSpec;
 import com.rush.rushaicodemother.ai.prompt.release.PromptReleaseState;
 import com.rush.rushaicodemother.config.AiPromptCatalogProperties;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentPromptBinding;
 import dev.langchain4j.invocation.InvocationContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -82,30 +84,21 @@ class ClasspathPromptCatalogTest {
     void productionCatalogMustActivateBatchWritePromptsAndRetainV1Rollback() {
         AiPromptCatalogProperties properties = properties();
         properties.setManifest("classpath:prompt/prompt-catalog.json");
-        PromptRolloutSubject vueGeneration = new PromptRolloutSubject(
-                "com.rush.rushaicodemother.ai.AiCodeGeneratorService",
-                "generateVueProjectCodeStream",
-                "app-42"
-        );
-        PromptRolloutSubject backendGeneration = new PromptRolloutSubject(
-                "com.rush.rushaicodemother.ai.AiCodeGeneratorService",
-                "generateBackendProjectCodeStream",
-                "app-42"
-        );
-        PromptRolloutSubject fullStackGeneration = new PromptRolloutSubject(
-                "com.rush.rushaicodemother.ai.AiCodeGeneratorService",
-                "generateFullStackProjectCodeStream",
-                "app-42"
-        );
+        GenerationAgentPromptBinding vueGeneration =
+                GenerationAgentPromptBinding.forCodeGenType(CodeGenTypeEnum.VUE_PROJECT);
+        GenerationAgentPromptBinding backendGeneration =
+                GenerationAgentPromptBinding.forCodeGenType(CodeGenTypeEnum.BACKEND_PROJECT);
+        GenerationAgentPromptBinding fullStackGeneration =
+                GenerationAgentPromptBinding.forCodeGenType(CodeGenTypeEnum.FULL_STACK_PROJECT);
         ClasspathPromptCatalog defaultCatalog = catalog(properties);
 
-        PromptSelection defaultSelection = defaultCatalog.select(vueGeneration).orElseThrow();
+        PromptSelection defaultSelection = select(defaultCatalog, vueGeneration);
         assertEquals("v2", defaultSelection.version());
         assertTrue(defaultSelection.content().contains("writeFiles"));
-        assertEquals("v2", defaultCatalog.select(backendGeneration).orElseThrow().version());
-        assertTrue(defaultCatalog.select(backendGeneration).orElseThrow().content().contains("writeFiles"));
-        assertEquals("v2", defaultCatalog.select(fullStackGeneration).orElseThrow().version());
-        assertTrue(defaultCatalog.select(fullStackGeneration).orElseThrow().content().contains("writeFiles"));
+        assertEquals("v2", select(defaultCatalog, backendGeneration).version());
+        assertTrue(select(defaultCatalog, backendGeneration).content().contains("writeFiles"));
+        assertEquals("v2", select(defaultCatalog, fullStackGeneration).version());
+        assertTrue(select(defaultCatalog, fullStackGeneration).content().contains("writeFiles"));
         assertTrue(defaultCatalog.capabilities().supports("codegen-vue-project", "v1"));
         assertTrue(defaultCatalog.capabilities().supports("codegen-vue-project", "v2"));
         assertTrue(defaultCatalog.capabilities().supports("codegen-backend-project", "v2"));
@@ -115,7 +108,7 @@ class ClasspathPromptCatalogTest {
         release.setStableVersion("v1");
         properties.getReleases().put("codegen-vue-project", release);
         ClasspathPromptCatalog rollbackCatalog = catalog(properties);
-        PromptSelection rollbackSelection = rollbackCatalog.select(vueGeneration).orElseThrow();
+        PromptSelection rollbackSelection = select(rollbackCatalog, vueGeneration);
         assertEquals("v1", rollbackSelection.version());
         assertFalse(rollbackSelection.content().contains("writeFiles"));
     }
@@ -201,6 +194,11 @@ class ClasspathPromptCatalogTest {
 
     private PromptRolloutSubject subject(String cohort) {
         return new PromptRolloutSubject("com.example.TestService", "generate", cohort);
+    }
+
+    private PromptSelection select(ClasspathPromptCatalog catalog,
+                                   GenerationAgentPromptBinding binding) {
+        return catalog.selectByKey(binding.promptKey(), "app-42").orElseThrow();
     }
 
     private PromptReleaseState state(long revision, PromptReleaseSpec release) {

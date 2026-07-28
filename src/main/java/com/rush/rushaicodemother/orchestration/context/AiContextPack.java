@@ -38,10 +38,20 @@ public record AiContextPack(
         return sections.isEmpty();
     }
 
+    /**
+ * 返回摘要。
+ *
+ * @return 处理后的AI 上下文{@code Pack}文本
+ */
     public String digest() {
         return DigestUtil.sha256Hex(render());
     }
 
+    /**
+ * 渲染 AI 上下文{@code Pack}。
+ *
+ * @return 处理后的AI 上下文{@code Pack}文本
+ */
     public String render() {
         if (sections.isEmpty()) {
             return "";
@@ -63,6 +73,7 @@ public record AiContextPack(
         ).trim();
     }
 
+    /** 渲染{@code Section}。 */
     private String renderSection(AiContextPackSection section) {
         String content = neutralizePackControlMarkers(section.content());
         String trust = metadata(section, "trust", defaultTrust(section.type()));

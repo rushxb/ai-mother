@@ -49,6 +49,13 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         this.properties = properties;
     }
 
+    /**
+ * 返回{@code inspect}。
+ *
+ * @param targetUri {@code targetUri} 对应的调用参数
+ * @param settleDelay {@code settleDelay} 对应的调用参数
+ * @return {@code Selenium}浏览器运行时{@code Probe}
+ */
     @Override
     public BrowserRuntimeObservation inspect(URI targetUri, Duration settleDelay) {
         URI allowedTarget = LoopbackBrowserTargetPolicy.requireAllowed(targetUri);
@@ -96,6 +103,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         ));
     }
 
+    /** 等待{@code Settle}延迟完成。 */
     private void awaitSettleDelay(Duration requestedDelay) throws InterruptedException {
         Duration delay = requestedDelay == null ? Duration.ZERO : requestedDelay;
         if (delay.isNegative()) {
@@ -109,6 +117,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         }
     }
 
+    /** 采集并汇总页面证据。 */
     private JSONObject collectPageEvidence(WebDriver driver) {
         String script = """
                 const body = document.body;
@@ -158,6 +167,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         return JSONUtil.parseObj(StrUtil.blankToDefault(String.valueOf(value), "{}"));
     }
 
+    /** 采集并汇总{@code Console}消息。 */
     private List<BrowserRuntimeObservation.ConsoleMessage> collectConsoleMessages(WebDriver driver) {
         List<BrowserRuntimeObservation.ConsoleMessage> messages = new ArrayList<>();
         for (LogEntry entry : driver.manage().logs().get(LogType.BROWSER)) {
@@ -172,6 +182,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         return List.copyOf(messages);
     }
 
+    /** 汇总截图结果的尺寸和内容统计。 */
     private BrowserRuntimeObservation.ScreenshotStats collectScreenshotStats(WebDriver driver) {
         byte[] bytes = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
         if (bytes == null || bytes.length == 0) {
@@ -188,6 +199,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         }
     }
 
+    /** 返回分析{@code Image}。 */
     static BrowserRuntimeObservation.ScreenshotStats analyzeImage(BufferedImage image) {
         if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
             return BrowserRuntimeObservation.ScreenshotStats.empty();
@@ -218,6 +230,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         );
     }
 
+    /** 返回{@code string}列表。 */
     private List<String> stringList(JSONObject page, String key) {
         JSONArray values = page.getJSONArray(key);
         if (values == null || values.isEmpty()) {
@@ -232,6 +245,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         return List.copyOf(result);
     }
 
+    /** 关闭驱动并释放资源。 */
     private void closeDriver(WebDriver driver) {
         if (driver == null) {
             return;

@@ -26,6 +26,13 @@ public class ProjectHealthCheckTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 检查项目健康状态的当前状态。
+ *
+ * @param relativeProjectPath 项目相对路径
+ * @param appId 应用编号
+ * @return 处理后的项目健康状态文本
+ */
     @Tool("对 Vue 项目的 package.json、vite 配置、入口文件、路由和 index.html 做静态健康检查，提前发现 base、alias、hash 路由、入口缺失等高频问题。")
     public String checkProjectHealth(
             @P("可选，相对项目子目录；为空则检查整个项目根目录")
@@ -52,6 +59,7 @@ public class ProjectHealthCheckTool extends BaseTool {
         }
     }
 
+    /** 检查依赖包{@code Json}的当前状态。 */
     private void checkPackageJson(
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory,
             List<String> blockers,
@@ -100,6 +108,7 @@ public class ProjectHealthCheckTool extends BaseTool {
         }
     }
 
+    /** 检查{@code Vite}配置的当前状态。 */
     private void checkViteConfig(
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory,
             List<String> blockers,
@@ -134,6 +143,7 @@ public class ProjectHealthCheckTool extends BaseTool {
         }
     }
 
+    /** 检查{@code Entrypoints}的当前状态。 */
     private void checkEntrypoints(
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory,
             List<String> blockers,
@@ -158,6 +168,7 @@ public class ProjectHealthCheckTool extends BaseTool {
         }
     }
 
+    /** 检查{@code Router}的当前状态。 */
     private void checkRouter(
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory,
             List<String> warnings,
@@ -180,6 +191,7 @@ public class ProjectHealthCheckTool extends BaseTool {
         }
     }
 
+    /** 检查索引{@code Html}的当前状态。 */
     private void checkIndexHtml(
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory,
             List<String> blockers,
@@ -200,6 +212,7 @@ public class ProjectHealthCheckTool extends BaseTool {
         }
     }
 
+    /** 构建并返回报告。 */
     private String buildReport(String projectPath, List<String> blockers, List<String> warnings, List<String> passes) {
         StringBuilder builder = new StringBuilder();
         builder.append("项目健康检查: ").append(projectPath).append('\n');
@@ -225,6 +238,7 @@ public class ProjectHealthCheckTool extends BaseTool {
         return object == null ? new JSONObject() : object;
     }
 
+    /** 返回首次{@code Existing}文件。 */
     private ToolWorkspaceFileService.ToolWorkspaceFile firstExistingFile(
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory,
             String... relativePaths
@@ -254,11 +268,24 @@ public class ProjectHealthCheckTool extends BaseTool {
         return "项目健康检查";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s", getDisplayName());
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);

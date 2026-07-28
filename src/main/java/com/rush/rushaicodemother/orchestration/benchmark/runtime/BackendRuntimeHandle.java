@@ -23,6 +23,14 @@ public final class BackendRuntimeHandle implements AutoCloseable {
         this(port, observation, () -> true, cleanup);
     }
 
+    /**
+ * 创建后端运行时句柄实例并完成必要的依赖和初始状态设置。
+ *
+ * @param port 端口
+ * @param observation 观测
+ * @param processAlive 进程存活状态探测器
+ * @param cleanup 资源清理回调
+ */
     public BackendRuntimeHandle(
             int port,
             BackendRuntimeObservation observation,
@@ -54,10 +62,16 @@ public final class BackendRuntimeHandle implements AutoCloseable {
         return port > 0 && observation.passedValidation();
     }
 
+    /**
+ * 处理{@code Alive}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean processAlive() {
         return healthy() && processAlive.getAsBoolean();
     }
 
+    /** 关闭后端运行时句柄并释放资源。 */
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {

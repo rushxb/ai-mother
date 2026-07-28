@@ -65,6 +65,11 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
         return SUPPORTED_PROTOCOLS;
     }
 
+    /**
+ * 处理执行后连接{@code Established}。
+ *
+ * @param session 会话
+ */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         Object attribute = session.getAttributes().get(UPSTREAM_ATTRIBUTE);
@@ -82,6 +87,7 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
             headers.setSecWebSocketProtocol(List.of(session.getAcceptedProtocol()));
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             CompletableFuture<WebSocketSession> connectFuture = connector.connect(
                     upstream.targetUri(),
@@ -103,21 +109,45 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
         }
     }
 
+    /**
+ * 处理{@code Text}消息。
+ *
+ * @param session 会话
+ * @param message 消息内容
+ */
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         forwardInbound(session, copy(message));
     }
 
+    /**
+ * 处理可执行文件消息。
+ *
+ * @param session 会话
+ * @param message 消息内容
+ */
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
         forwardInbound(session, copy(message));
     }
 
+    /**
+ * 处理{@code Pong}消息。
+ *
+ * @param session 会话
+ * @param message 消息内容
+ */
     @Override
     protected void handlePongMessage(WebSocketSession session, PongMessage message) {
         forwardInbound(session, copy(message));
     }
 
+    /**
+ * 处理传输错误。
+ *
+ * @param session 会话
+ * @param exception 待转换或处理的异常
+ */
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         Bridge bridge = bridges.get(session.getId());
@@ -128,6 +158,12 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
         }
     }
 
+    /**
+ * 处理执行后连接关闭。
+ *
+ * @param session 会话
+ * @param status 目标状态
+ */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         Bridge bridge = bridges.remove(session.getId());
@@ -150,6 +186,7 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
         session.setBinaryMessageSizeLimit(maxMessageSizeBytes);
     }
 
+    /** 复制开发服务器 WebSocket 代理。 */
     private WebSocketMessage<?> copy(WebSocketMessage<?> message) {
         if (message instanceof TextMessage textMessage) {
             return new TextMessage(textMessage.getPayload(), textMessage.isLast());
@@ -171,6 +208,7 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
         return bytes;
     }
 
+    /** 关闭{@code Quietly}并释放资源。 */
     private void closeQuietly(WebSocketSession session, CloseStatus status) {
         if (session == null || !session.isOpen()) {
             return;
@@ -190,22 +228,45 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
             this.bridge = bridge;
         }
 
+        /**
+ * 处理执行后连接{@code Established}。
+ *
+ * @param session 会话
+ */
         @Override
         public void afterConnectionEstablished(WebSocketSession session) {
             configureMessageLimits(session);
             bridge.attachOutbound(session);
         }
 
+        /**
+ * 处理{@code Text}消息。
+ *
+ * @param session 会话
+ * @param message 消息内容
+ */
         @Override
         protected void handleTextMessage(WebSocketSession session, TextMessage message) {
             bridge.forwardOutbound(copy(message));
         }
 
+        /**
+ * 处理可执行文件消息。
+ *
+ * @param session 会话
+ * @param message 消息内容
+ */
         @Override
         protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
             bridge.forwardOutbound(copy(message));
         }
 
+        /**
+ * 处理{@code Pong}消息。
+ *
+ * @param session 会话
+ * @param message 消息内容
+ */
         @Override
         protected void handlePongMessage(WebSocketSession session, PongMessage message) {
             bridge.forwardOutbound(copy(message));
@@ -242,6 +303,7 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
             this.connectFuture = connectFuture;
         }
 
+        /** 为当前上下文附加{@code Outbound}。 */
         private void attachOutbound(WebSocketSession session) {
             WebSocketSession decorated = decorate(session);
             Throwable sendFailure = null;
@@ -265,7 +327,9 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
             }
         }
 
+        /** 转发入站数据。 */
         private void forwardInbound(WebSocketMessage<?> message) {
+            // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
             if (!validMessageSize(message)) {
                 fail(CloseStatus.TOO_BIG_TO_PROCESS, null);
                 return;
@@ -299,6 +363,7 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
             }
         }
 
+        /** 转发{@code Outbound}。 */
         private void forwardOutbound(WebSocketMessage<?> message) {
             if (!validMessageSize(message)) {
                 fail(CloseStatus.TOO_BIG_TO_PROCESS, null);
@@ -324,6 +389,7 @@ public class DevServerWebSocketProxyHandler extends AbstractWebSocketHandler
             return message != null && message.getPayloadLength() <= maxMessageSizeBytes;
         }
 
+        /** 发送{@code Bridge}。 */
         private void send(WebSocketSession session, WebSocketMessage<?> message) throws IOException {
             if (!session.isOpen()) {
                 throw new IOException("Preview WebSocket session is closed");

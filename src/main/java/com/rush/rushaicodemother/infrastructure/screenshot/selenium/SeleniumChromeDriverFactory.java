@@ -42,6 +42,7 @@ public final class SeleniumChromeDriverFactory {
         return createDriver(true, true);
     }
 
+    /** 创建驱动。 */
     private WebDriver createDriver(boolean browserLoggingEnabled, boolean loopbackOnly) {
         Path driverExecutable = properties.requireChromeDriverPath();
         ChromeDriverService driverService = new ChromeDriverService.Builder()
@@ -63,6 +64,7 @@ public final class SeleniumChromeDriverFactory {
         }
     }
 
+    /** 构建并返回{@code Options}。 */
     private ChromeOptions buildOptions(boolean browserLoggingEnabled, boolean loopbackOnly) {
         ChromeOptions options = new ChromeOptions();
         Path chromeBinary = properties.resolveChromeBinaryPath();

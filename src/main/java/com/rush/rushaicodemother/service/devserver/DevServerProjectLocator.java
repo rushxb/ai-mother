@@ -21,6 +21,12 @@ public class DevServerProjectLocator {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
 
+    /**
+ * 创建开发服务器项目{@code Locator}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param generationWorkspaceService 生成工作区服务
+ * @param workspaceFileSystemService 处理该职责的领域服务
+ */
     public DevServerProjectLocator(
             GenerationWorkspaceService generationWorkspaceService,
             WorkspaceFileSystemService workspaceFileSystemService
@@ -68,6 +74,7 @@ public class DevServerProjectLocator {
         }
     }
 
+    /** 校验并返回有效的支持的类型。 */
     private CodeGenTypeEnum requireSupportedType(App app) {
         if (app == null || app.getId() == null || app.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
@@ -80,6 +87,7 @@ public class DevServerProjectLocator {
         return codeGenType;
     }
 
+    /** 根据当前上下文解析工作区。 */
     private GenerationWorkspace resolveWorkspace(Long appId,
                                                  CodeGenTypeEnum codeGenType,
                                                  DevServerStartOptions startOptions) {

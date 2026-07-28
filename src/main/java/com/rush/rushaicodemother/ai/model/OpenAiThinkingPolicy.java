@@ -12,6 +12,13 @@ import java.util.Map;
 @Component
 public class OpenAiThinkingPolicy {
 
+    /**
+ * 根据当前上下文解析{@code Open}AI{@code Thinking}策略。
+ *
+ * @param model 模型
+ * @param thinkingRequested {@code thinkingRequested} 对应的调用参数
+ * @return {@code Open}AI{@code Thinking}策略
+ */
     public ThinkingConfiguration resolve(AiModelRuntimeConfiguration model, boolean thinkingRequested) {
         boolean thinkingSupported = model != null && model.supportsThinking();
         boolean thinkingEnabled = thinkingSupported && thinkingRequested;

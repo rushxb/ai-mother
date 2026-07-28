@@ -33,6 +33,11 @@ public class AiPromptCatalogProperties {
     @Valid
     private Map<String, Release> releases = new LinkedHashMap<>();
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "AI prompt catalog configuration is invalid")
     public boolean isConfigurationValid() {
         if (!enabled) {

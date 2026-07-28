@@ -44,6 +44,12 @@ public class ProjectBuildCoordinationMetricsCollector {
         return new ProjectBuildCoordinationMetricsCollector();
     }
 
+    /**
+ * 记录事件相关指标或状态。
+ *
+ * @param projectType 项目类型
+ * @param event 待处理的领域事件
+ */
     public void recordEvent(String projectType, String event) {
         if (meterRegistry == null) {
             return;
@@ -59,6 +65,13 @@ public class ProjectBuildCoordinationMetricsCollector {
                 .register(meterRegistry)).increment();
     }
 
+    /**
+ * 记录{@code Join}{@code Wait}相关指标或状态。
+ *
+ * @param projectType 项目类型
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordJoinWait(String projectType, String status, Duration duration) {
         if (meterRegistry == null) {
             return;

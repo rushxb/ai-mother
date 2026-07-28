@@ -15,6 +15,14 @@ public class CreateSpecSafetySanitizer {
     private static final Pattern SECRET_LIKE = Pattern.compile("(?i)(sk-[A-Za-z0-9_-]{8,}|api[_-]?key\\s*[:=]\\s*\\S+|token\\s*[:=]\\s*\\S+|password\\s*[:=]\\s*\\S+)");
     private static final Pattern PRIVATE_ENDPOINT = Pattern.compile("(?i)(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|10\\.\\d+\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+|172\\.(1[6-9]|2\\d|3[0-1])\\.\\d+\\.\\d+)");
 
+    /**
+ * 返回{@code text}。
+ *
+ * @param value 待处理值
+ * @param maxLength {@code maxLength} 对应的调用参数
+ * @param fallback 回退
+ * @return 处理后的创建{@code Spec}安全净化器文本
+ */
     public String text(String value, int maxLength, String fallback) {
         String cleaned = StrUtil.blankToDefault(value, "");
         cleaned = SCRIPT_BLOCK.matcher(cleaned).replaceAll("");

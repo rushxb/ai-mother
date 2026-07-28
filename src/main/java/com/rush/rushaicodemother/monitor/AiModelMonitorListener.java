@@ -51,6 +51,11 @@ public class AiModelMonitorListener implements ChatModelListener {
         return new BoundChatModelListener(normalize(provider), normalize(model));
     }
 
+    /**
+ * 响应请求事件。
+ *
+ * @param requestContext 请求上下文
+ */
     @Override
     public void onRequest(ChatModelRequestContext requestContext) {
         Map<Object, Object> attributes = requestContext.attributes();
@@ -79,6 +84,11 @@ public class AiModelMonitorListener implements ChatModelListener {
                 monitorContext.getTaskId(), identity.model(), "started");
     }
 
+    /**
+ * 响应响应事件。
+ *
+ * @param responseContext 响应上下文
+ */
     @Override
     public void onResponse(ChatModelResponseContext responseContext) {
         Map<Object, Object> attributes = responseContext.attributes();
@@ -103,6 +113,11 @@ public class AiModelMonitorListener implements ChatModelListener {
         recordSuccessfulCall(responseContext, context, identity, tokenUsage, responseTime);
     }
 
+    /**
+ * 响应错误事件。
+ *
+ * @param errorContext 错误上下文
+ */
     @Override
     public void onError(ChatModelErrorContext errorContext) {
         Map<Object, Object> attributes = errorContext.attributes();
@@ -138,6 +153,7 @@ public class AiModelMonitorListener implements ChatModelListener {
         );
     }
 
+    /** 记录{@code Successful}调用相关指标或状态。 */
     private void recordSuccessfulCall(ChatModelResponseContext responseContext,
                                       MonitorContext context,
                                       ModelIdentity identity,
@@ -167,6 +183,7 @@ public class AiModelMonitorListener implements ChatModelListener {
         );
     }
 
+    /** 记录调用相关指标或状态。 */
     private void recordCall(Map<Object, Object> attributes,
                             MonitorContext context,
                             ModelIdentity identity,
@@ -190,6 +207,7 @@ public class AiModelMonitorListener implements ChatModelListener {
                 || !(provenance instanceof GenerationModelCallProvenance callProvenance)) {
             return;
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             generationTraceService.recordModelCall(new GenerationModelCallCommand(
                     callIdText,
@@ -270,6 +288,7 @@ public class AiModelMonitorListener implements ChatModelListener {
                 identity.model(), type, count);
     }
 
+    /** 规范化令牌用量。 */
     private TokenSnapshot normalizeTokenUsage(TokenUsage tokenUsage) {
         if (tokenUsage == null
                 || tokenUsage.inputTokenCount() == null
@@ -317,6 +336,7 @@ public class AiModelMonitorListener implements ChatModelListener {
                 .build();
     }
 
+    /** 处理通知调用观察者。 */
     private void notifyInvocationObservers(ModelIdentity identity) {
         for (AiModelInvocationObserver observer : invocationObservers) {
             try {
@@ -329,6 +349,7 @@ public class AiModelMonitorListener implements ChatModelListener {
         }
     }
 
+    /** 解析正数{@code Long}。 */
     private Long parsePositiveLong(String value) {
         try {
             long parsed = Long.parseLong(value);
@@ -365,18 +386,33 @@ public class AiModelMonitorListener implements ChatModelListener {
             this.model = model;
         }
 
+        /**
+ * 响应请求事件。
+ *
+ * @param requestContext 请求上下文
+ */
         @Override
         public void onRequest(ChatModelRequestContext requestContext) {
             bind(requestContext.attributes());
             AiModelMonitorListener.this.onRequest(requestContext);
         }
 
+        /**
+ * 响应响应事件。
+ *
+ * @param responseContext 响应上下文
+ */
         @Override
         public void onResponse(ChatModelResponseContext responseContext) {
             bind(responseContext.attributes());
             AiModelMonitorListener.this.onResponse(responseContext);
         }
 
+        /**
+ * 响应错误事件。
+ *
+ * @param errorContext 错误上下文
+ */
         @Override
         public void onError(ChatModelErrorContext errorContext) {
             bind(errorContext.attributes());

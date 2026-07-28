@@ -33,6 +33,7 @@ public class GenerationContextCompressionServiceImpl implements GenerationContex
         return compress(prompt, FINAL_PROMPT_BUDGET);
     }
 
+    /** 返回{@code compress}。 */
     private String compress(String value, int maxChars) {
         if (StrUtil.isBlank(value)) {
             return "";
@@ -57,6 +58,7 @@ public class GenerationContextCompressionServiceImpl implements GenerationContex
                 + tail;
     }
 
+    /** 规范化生成上下文压缩服务{@code Impl}。 */
     private String normalize(String value) {
         List<String> lines = new ArrayList<>();
         for (String rawLine : value.replace("\r\n", "\n").replace('\r', '\n').split("\n")) {

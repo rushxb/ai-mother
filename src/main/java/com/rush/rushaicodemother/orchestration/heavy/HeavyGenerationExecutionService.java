@@ -24,7 +24,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
-import com.rush.rushaicodemother.orchestration.tool.AiToolContinuationEngine;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationState;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -65,10 +65,18 @@ public class HeavyGenerationExecutionService {
     private final HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final StreamHandlerExecutor streamHandlerExecutor;
-    private final AiToolContinuationEngine toolContinuationEngine;
+    private final GenerationAgentRuntime generationAgentRuntime;
     private final GenerationStageAdmissionService generationStageAdmissionService;
     private final GenerationRuntimeProperties generationRuntimeProperties;
 
+    /**
+ * 运行生成并{@code Auto}{@code Repair}处理流程。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ */
     public void runGenerationWithAutoRepair(Long appId,
                                             User loginUser,
                                             GenerationPreparation preparation,
@@ -92,6 +100,7 @@ public class HeavyGenerationExecutionService {
         GenerationPerformanceProfile profile = generationPerformanceSelector.select(
                 isFirstGeneration, isComplex, preparation.targetType());
 
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int round = 0; round <= maxGenerationRepairRounds; round++) {
             session.throwIfCancelled();
             if (round > 0) {
@@ -176,6 +185,18 @@ public class HeavyGenerationExecutionService {
         executeGenerationRound(appId, loginUser, codeGenType, prompt, session, generatedContent, lastSnapshotUpdateAt, null);
     }
 
+    /**
+ * 执行生成{@code Round}处理流程。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @param codeGenType 代码生成类型
+ * @param prompt 提示词
+ * @param session 会话
+ * @param generatedContent {@code generatedContent} 对应的调用参数
+ * @param lastSnapshotUpdateAt {@code lastSnapshotUpdateAt} 对应的调用参数
+ * @param profile 配置档
+ */
     public void executeGenerationRound(Long appId,
                                        User loginUser,
                                        CodeGenTypeEnum codeGenType,
@@ -207,6 +228,15 @@ public class HeavyGenerationExecutionService {
         verifyGeneratedProjectReady(appId, codeGenType, session);
     }
 
+    /**
+ * 处理{@code continue}生成执行后决策。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @param approval 审批
+ * @param state 状态
+ * @param session 会话
+ */
     public void continueGenerationAfterDecision(Long appId,
                                                 User loginUser,
                                                 ToolApprovalRecord approval,
@@ -214,7 +244,7 @@ public class HeavyGenerationExecutionService {
                                                 GenerationSession session) {
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
-        Flux<GenerationStreamEvent> codeStream = toolContinuationEngine.continueAfterDecision(
+        Flux<GenerationStreamEvent> codeStream = generationAgentRuntime.continueAfterDecision(
                 approval,
                 state,
                 session.executionContext(),
@@ -236,6 +266,15 @@ public class HeavyGenerationExecutionService {
         verifyGeneratedProjectReady(appId, state.codeGenType(), session);
     }
 
+    /**
+ * 构建并返回{@code Auto}{@code Repair}提示词。
+ *
+ * @param appId 应用编号
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param exception 待转换或处理的异常
+ * @param repairRound {@code repairRound} 对应的调用参数
+ * @return 处理后的{@code Auto}{@code Repair}提示词文本
+ */
     public String buildAutoRepairPrompt(Long appId,
                                         GenerationPreparation preparation,
                                         Exception exception,
@@ -279,6 +318,7 @@ public class HeavyGenerationExecutionService {
                 generationError.category(), generationError.message(), publicDiagnostic);
     }
 
+    /** 验证{@code Generated}项目就绪是否符合预期。 */
     private void verifyGeneratedProjectReady(Long appId,
                                              CodeGenTypeEnum codeGenType,
                                              GenerationSession session) {
@@ -323,6 +363,7 @@ public class HeavyGenerationExecutionService {
         return path != null && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS);
     }
 
+    /** 更新生成快照{@code If}{@code Due}。 */
     private void updateGenerationSnapshotIfDue(Long appId,
                                                GenerationSession session,
                                                StringBuilder generatedContent,
@@ -354,6 +395,7 @@ public class HeavyGenerationExecutionService {
         }
     }
 
+    /** 追加生成快照{@code Chunk}。 */
     private void appendGenerationSnapshotChunk(StringBuilder generatedContent, String chunk) {
         if (chunk == null || chunk.isEmpty()) {
             return;

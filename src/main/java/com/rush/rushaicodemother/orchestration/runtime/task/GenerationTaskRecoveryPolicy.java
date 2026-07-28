@@ -8,9 +8,8 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * 选择过期租约的真实终止状态。取消优先，因为
- * 这是明确的持久的用户意图；已过的绝对期限单独分类；
- * 在检查点版本化之前，所有其他孤儿仍然是不可恢复的工作故障。
+ * 选择无法从检查点恢复的过期租约终态。
+ * 取消优先，因为它是明确持久化的用户意图；已过的绝对期限单独分类。
  */
 @Component
 public class GenerationTaskRecoveryPolicy {
@@ -19,6 +18,13 @@ public class GenerationTaskRecoveryPolicy {
     static final String DEADLINE_EXCEEDED_REASON = "task_deadline_exceeded";
     static final String ORPHAN_FAILURE_REASON = "worker_lease_expired_non_recoverable";
 
+    /**
+ * 根据输入信号确定生成任务恢复策略。
+ *
+ * @param candidate 候选
+ * @param now 当前时间
+ * @return 生成任务恢复策略
+ */
     public GenerationTaskRecoveryDecision decide(GenerationTaskRecoveryCandidate candidate, Instant now) {
         Objects.requireNonNull(candidate, "candidate");
         Objects.requireNonNull(now, "now");

@@ -31,6 +31,12 @@ public class GenerationSlaProperties {
             "agent-edit-saturated", Duration.ofMinutes(2), Duration.ofMinutes(6),
             Duration.ofMinutes(2), Duration.ofSeconds(30), 2, 8, 2, 24, 1, 1);
 
+    /**
+ * 返回配置档。
+ *
+ * @param mode 模式
+ * @return 生成{@code Sla}
+ */
     public Profile profile(GenerationMode mode) {
         Profile configured = profiles == null ? null : profiles.get(mode);
         if (configured == null) {
@@ -39,6 +45,11 @@ public class GenerationSlaProperties {
         return configured;
     }
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "生成任务 SLA 配置无效")
     public boolean isConfigurationValid() {
         if (profiles == null || profiles.size() != GenerationMode.values().length
@@ -59,6 +70,7 @@ public class GenerationSlaProperties {
                 saturatedAgentEdit.getMaxRepairRounds());
     }
 
+    /** 返回默认{@code Profiles}。 */
     private static Map<GenerationMode, Profile> defaultProfiles() {
         EnumMap<GenerationMode, Profile> profiles = new EnumMap<>(GenerationMode.class);
         profiles.put(GenerationMode.CREATE, profile(
@@ -76,6 +88,7 @@ public class GenerationSlaProperties {
         return profiles;
     }
 
+    /** 返回配置档。 */
     private static Profile profile(String name,
                                    Duration firstPreviewTimeout,
                                    Duration totalTimeout,
@@ -118,6 +131,7 @@ public class GenerationSlaProperties {
         private int maxBuildExecutions;
         private int maxRepairRounds;
 
+        /** 返回有效。 */
         boolean valid() {
             return name != null && !name.isBlank()
                     && positive(firstPreviewTimeout)

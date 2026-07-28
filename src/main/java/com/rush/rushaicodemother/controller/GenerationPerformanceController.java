@@ -45,6 +45,13 @@ public class GenerationPerformanceController {
         return ResultUtils.success(generationPerformanceMonitorService.getSummary(limit));
     }
 
+    /**
+ * 获取并返回任务跨度。
+ *
+ * @param taskId 任务编号
+ * @param limit 资源上限
+ * @return 统一封装的接口响应
+ */
     @GetMapping("/admin/tasks/{taskId}/spans")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<List<GenerationTaskSpanVO>> getTaskSpans(

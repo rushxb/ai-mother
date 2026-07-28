@@ -32,6 +32,7 @@ public class GenerationSessionRegistry {
         this(properties, System::nanoTime);
     }
 
+    /** 创建生成会话注册器实例并完成必要的依赖和初始状态设置。 */
     GenerationSessionRegistry(GenerationSessionProperties properties, LongSupplier nanoTimeSupplier) {
         if (properties == null) {
             throw new IllegalArgumentException("properties cannot be null");
@@ -46,6 +47,12 @@ public class GenerationSessionRegistry {
         this.nanoTimeSupplier = nanoTimeSupplier;
     }
 
+    /**
+ * 获取指定资源。
+ *
+ * @param appId 应用编号
+ * @return 方法执行结果
+ */
     public GenerationSession get(Long appId) {
         long validatedAppId = requirePositiveAppId(appId);
         while (true) {
@@ -62,6 +69,12 @@ public class GenerationSessionRegistry {
         }
     }
 
+    /**
+ * 处理{@code put}。
+ *
+ * @param appId 应用编号
+ * @param session 会话
+ */
     public void put(Long appId, GenerationSession session) {
         long validatedAppId = requirePositiveAppId(appId);
         GenerationSession validatedSession = requireSession(session);
@@ -105,6 +118,12 @@ public class GenerationSessionRegistry {
         return null;
     }
 
+    /**
+ * 移除生成会话注册器。
+ *
+ * @param appId 应用编号
+ * @param session 会话
+ */
     public void remove(Long appId, GenerationSession session) {
         long validatedAppId = requirePositiveAppId(appId);
         GenerationSession validatedSession = requireSession(session);
@@ -117,6 +136,11 @@ public class GenerationSessionRegistry {
         }
     }
 
+    /**
+ * 移除生成会话注册器。
+ *
+ * @param appId 应用编号
+ */
     public void remove(Long appId) {
         long validatedAppId = requirePositiveAppId(appId);
         synchronized (sessionMutationMonitor) {
@@ -125,12 +149,23 @@ public class GenerationSessionRegistry {
         }
     }
 
+    /**
+ * 返回锁。
+ *
+ * @param appId 应用编号
+ * @return 生成会话注册器
+ */
     public Object lock(Long appId) {
         long validatedAppId = requirePositiveAppId(appId);
         int stripeIndex = Math.floorMod(Long.hashCode(validatedAppId), lockStripes.length);
         return lockStripes[stripeIndex];
     }
 
+    /**
+ * 断言{@code No}活动会话仍满足当前执行约束。
+ *
+ * @param appId 应用编号
+ */
     public void assertNoActiveSession(Long appId) {
         GenerationSession session = get(appId);
         if (session != null && session.isActive()) {
@@ -163,6 +198,7 @@ public class GenerationSessionRegistry {
         return sessions.size();
     }
 
+    /** 移除{@code Expired}{@code Sessions}。 */
     private int removeExpiredSessions(long nowNanos) {
         int removed = 0;
         for (Map.Entry<Long, SessionEntry> candidate : sessions.entrySet()) {
@@ -175,6 +211,7 @@ public class GenerationSessionRegistry {
         return removed;
     }
 
+    /** 移除{@code If}当前。 */
     private boolean removeIfCurrent(long appId, SessionEntry expectedEntry) {
         synchronized (sessionMutationMonitor) {
             SessionEntry current = sessions.get(appId);
@@ -189,6 +226,7 @@ public class GenerationSessionRegistry {
         }
     }
 
+    /** 移除任务索引。 */
     private void removeTaskIndex(long appId, SessionEntry entry) {
         if (entry == null) {
             return;

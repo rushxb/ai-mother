@@ -25,6 +25,12 @@ public class GenerationToolExecutionContextService {
     private final ThreadLocal<ToolInvocationExecution> activeInvocation = new ThreadLocal<>();
     private final ThreadLocal<GenerationExecutionFence> activeFence = new ThreadLocal<>();
 
+    /**
+ * 获取并返回上下文。
+ *
+ * @param appId 应用编号
+ * @return 可选的生成工具执行上下文；不存在时返回空值
+ */
     public Optional<GenerationToolExecutionContext> getContext(Long appId) {
         if (appId == null) {
             return Optional.empty();
@@ -70,6 +76,11 @@ public class GenerationToolExecutionContextService {
                 : Optional.empty();
     }
 
+    /**
+ * 绑定上下文。
+ *
+ * @param context 执行上下文
+ */
     public void bindContext(GenerationToolExecutionContext context) {
         if (context == null || context.appId() == null) {
             return;
@@ -109,6 +120,18 @@ public class GenerationToolExecutionContextService {
                 allowUnplannedWrite, reason, workspace, fence));
     }
 
+    /**
+ * 绑定{@code Change}计划。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param generationMode 生成模式
+ * @param codeGenType 代码生成类型
+ * @param changePlan {@code changePlan} 对应的调用参数
+ * @param allowUnplannedWrite {@code allowUnplannedWrite} 对应的调用参数
+ * @param reason 原因
+ * @param workspace 工作区
+ */
     public void bindChangePlan(Long appId,
                                String taskId,
                                String generationMode,
@@ -190,6 +213,11 @@ public class GenerationToolExecutionContextService {
         return bound.get();
     }
 
+    /**
+ * 清理上下文。
+ *
+ * @param appId 应用编号
+ */
     public void clearContext(Long appId) {
         if (appId != null) {
             GenerationToolExecutionContext removed = contexts.remove(appId);
@@ -245,6 +273,11 @@ public class GenerationToolExecutionContextService {
         }
     }
 
+    /**
+ * 清理围栏上下文。
+ *
+ * @param fence 围栏
+ */
     public void clearFenceContext(GenerationExecutionFence fence) {
         if (fence == null) {
             return;
@@ -274,6 +307,13 @@ public class GenerationToolExecutionContextService {
         activeFence.remove();
     }
 
+    /**
+ * 创建包含围栏的新对象。
+ *
+ * @param fence 围栏
+ * @param action 动作
+ * @return 围栏
+ */
     public <T> T withFence(GenerationExecutionFence fence, Supplier<T> action) {
         if (fence == null || action == null) {
             throw new IllegalArgumentException("tool execution fence scope is incomplete");
@@ -291,10 +331,22 @@ public class GenerationToolExecutionContextService {
         }
     }
 
+    /**
+ * 返回当前调用。
+ *
+ * @return 可选的生成工具执行上下文；不存在时返回空值
+ */
     public Optional<ToolInvocationExecution> currentInvocation() {
         return Optional.ofNullable(activeInvocation.get());
     }
 
+    /**
+ * 创建包含调用的新对象。
+ *
+ * @param invocation 调用
+ * @param action 动作
+ * @return 调用
+ */
     public <T> T withInvocation(ToolInvocationExecution invocation, Supplier<T> action) {
         if (invocation == null || action == null) {
             throw new IllegalArgumentException("tool invocation scope is incomplete");
@@ -319,6 +371,7 @@ public class GenerationToolExecutionContextService {
             String argumentsDigest
     ) {
 
+        /** 创建工具调用执行实例并完成必要的依赖和初始状态设置。 */
         public ToolInvocationExecution {
             if (taskId == null || taskId.isBlank()
                     || requestId == null || requestId.isBlank()

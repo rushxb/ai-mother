@@ -40,6 +40,13 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
     private final PromptReleaseCapabilities capabilities;
     private final AtomicReference<RuntimeState> runtimeState;
 
+    /**
+ * 创建{@code Classpath}提示词目录实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param resourceLoader {@code resourceLoader} 对应的调用参数
+ * @param objectMapper {@code objectMapper} 对应的调用参数
+ */
     public ClasspathPromptCatalog(AiPromptCatalogProperties properties,
                                   ResourceLoader resourceLoader,
                                   ObjectMapper objectMapper) {
@@ -63,20 +70,41 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         this.runtimeState = new AtomicReference<>(buildRuntimeState(0L, configuredReleases));
     }
 
+    /**
+ * 从候选项中选择{@code Classpath}提示词目录。
+ *
+ * @param subject {@code subject} 对应的调用参数
+ * @return 可选的{@code Classpath}提示词目录；不存在时返回空值
+ */
     @Override
     public Optional<PromptSelection> select(PromptRolloutSubject subject) {
         if (subject == null) {
             return Optional.empty();
         }
-        RuntimeState state = runtimeState.get();
         String promptKey = bindingToPromptKey.get(subject.bindingKey());
         if (promptKey == null) {
             return Optional.empty();
         }
-        ResolvedRelease release = state.releases().get(promptKey);
+        return selectByKey(promptKey, subject.cohortKey());
+    }
+
+    @Override
+    public Optional<PromptSelection> selectByKey(String promptKey, String cohortKey) {
+        if (promptKey == null || promptKey.isBlank()) {
+            return Optional.empty();
+        }
+        String normalizedPromptKey = promptKey.trim();
+        String normalizedCohortKey = cohortKey == null || cohortKey.isBlank()
+                ? "unknown"
+                : cohortKey.trim();
+        RuntimeState state = runtimeState.get();
+        ResolvedRelease release = state.releases().get(normalizedPromptKey);
+        if (release == null) {
+            return Optional.empty();
+        }
         boolean canary = release.canary() != null
                 && release.canaryPercentage() > 0
-                && bucket(promptKey, subject.cohortKey()) < release.canaryPercentage();
+                && bucket(normalizedPromptKey, normalizedCohortKey) < release.canaryPercentage();
         Definition selected = canary ? release.canary() : release.stable();
         return Optional.of(toSelection(
                 selected,
@@ -85,6 +113,12 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         ));
     }
 
+    /**
+ * 返回{@code identify}。
+ *
+ * @param promptContent 提示词内容
+ * @return 可选的{@code Classpath}提示词目录；不存在时返回空值
+ */
     @Override
     public Optional<PromptSelection> identify(String promptContent) {
         String contentHash = PromptDigest.sha256(PromptDigest.normalizeContent(promptContent));
@@ -102,6 +136,11 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return Optional.of(toSelection(definition, channel, state.snapshot()));
     }
 
+    /**
+ * 返回快照。
+ *
+ * @return {@code Classpath}提示词目录
+ */
     @Override
     public PromptCatalogSnapshot snapshot() {
         return runtimeState.get().snapshot();
@@ -112,11 +151,22 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return capabilities;
     }
 
+    /**
+ * 返回活动修订版本。
+ *
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public long activeRevision() {
         return runtimeState.get().revision();
     }
 
+    /**
+ * 返回预览。
+ *
+ * @param state 状态
+ * @return {@code Classpath}提示词目录
+ */
     @Override
     public PromptCatalogSnapshot preview(PromptReleaseState state) {
         if (state == null) {
@@ -125,6 +175,12 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return buildRuntimeState(state.revision(), mergeReleaseOverrides(state)).snapshot();
     }
 
+    /**
+ * 返回{@code activate}。
+ *
+ * @param state 状态
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean activate(PromptReleaseState state) {
         if (state == null) {
@@ -152,6 +208,7 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         }
     }
 
+    /** 读取清单。 */
     private Manifest readManifest(ResourceLoader resourceLoader, ObjectMapper objectMapper) {
         Resource resource = resourceLoader.getResource(properties.getManifest());
         if (!resource.exists()) {
@@ -173,9 +230,11 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         }
     }
 
+    /** 加载{@code Definitions}。 */
     private LoadedDefinitions loadDefinitions(Manifest manifest, ResourceLoader resourceLoader) {
         Map<String, Map<String, Definition>> byKey = new LinkedHashMap<>();
         Map<String, Definition> byHash = new LinkedHashMap<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (PromptEntry prompt : manifest.prompts()) {
             requireKey(prompt == null ? null : prompt.key());
             if (byKey.containsKey(prompt.key())) {
@@ -206,9 +265,11 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return new LoadedDefinitions(Map.copyOf(byKey), Map.copyOf(byHash));
     }
 
+    /** 加载{@code Definition}。 */
     private Definition loadDefinition(String promptKey,
                                       VersionEntry version,
                                       ResourceLoader resourceLoader) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (version == null) {
             throw new IllegalStateException("AI prompt catalog version is required");
         }
@@ -239,6 +300,7 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         }
     }
 
+    /** 加载{@code Bindings}。 */
     private Map<String, String> loadBindings(Manifest manifest, Set<String> promptKeys) {
         if (manifest.bindings() == null || manifest.bindings().isEmpty()) {
             return Map.of();
@@ -259,6 +321,7 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return Map.copyOf(bindings);
     }
 
+    /** 根据当前上下文解析{@code Releases}。 */
     private Map<String, ResolvedRelease> resolveReleases(Manifest manifest) {
         Map<String, String> defaultVersions = manifest.prompts().stream()
                 .collect(java.util.stream.Collectors.toMap(
@@ -274,6 +337,7 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
             throw new IllegalStateException("AI prompt release references an unknown prompt key");
         }
         Map<String, ResolvedRelease> resolved = new TreeMap<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String promptKey : definitionsByKey.keySet()) {
             AiPromptCatalogProperties.Release release = configured.get(promptKey);
             String stableVersion = release == null || release.getStableVersion() == null
@@ -294,6 +358,7 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return Map.copyOf(resolved);
     }
 
+    /** 合并发布{@code Overrides}。 */
     private Map<String, ResolvedRelease> mergeReleaseOverrides(PromptReleaseState state) {
         Map<String, ResolvedRelease> merged = new TreeMap<>(configuredReleases);
         for (Map.Entry<String, PromptReleaseRecord> entry : state.releases().entrySet()) {
@@ -307,6 +372,7 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return Map.copyOf(merged);
     }
 
+    /** 根据当前上下文解析发布。 */
     private ResolvedRelease resolveRelease(String promptKey, PromptReleaseSpec release) {
         if (release == null || !definitionsByKey.containsKey(promptKey)) {
             throw new IllegalStateException("AI prompt release references an unknown prompt key");
@@ -327,6 +393,7 @@ public class ClasspathPromptCatalog implements PromptCatalog, PromptReleaseRunti
         return new ResolvedRelease(stable, canary, release.canaryPercentage());
     }
 
+    /** 构建并返回运行时状态。 */
     private RuntimeState buildRuntimeState(long revision, Map<String, ResolvedRelease> resolved) {
         Map<String, PromptCatalogSnapshot.PromptRelease> releaseSnapshot = new LinkedHashMap<>();
         StringBuilder canonical = new StringBuilder("prompt-catalog-v1\n")

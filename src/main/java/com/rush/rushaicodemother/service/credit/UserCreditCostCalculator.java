@@ -11,6 +11,12 @@ public class UserCreditCostCalculator {
 
     private final UserCreditProperties properties;
 
+    /**
+ * 计算用户额度{@code Cost}{@code Calculator}。
+ *
+ * @param totalTokens 总量令牌
+ * @return 计算或处理后的数值结果
+ */
     public long calculate(long totalTokens) {
         if (totalTokens <= 0) {
             return 0L;

@@ -26,6 +26,13 @@ public class PromptReleaseCandidateFingerprintService {
     private final PromptReleaseRepository repository;
     private final PromptReleaseRuntime runtime;
 
+    /**
+ * 返回指纹。
+ *
+ * @param promptKey 提示词键
+ * @param candidate 候选
+ * @return 处理后的提示词发布候选指纹文本
+ */
     public String fingerprint(String promptKey, PromptReleaseSpec candidate) {
         TreeMap<String, PromptReleaseSpec> desired = desiredReleases(promptKey, candidate);
         PromptReleaseCapabilities capabilities = runtime.capabilities();
@@ -48,6 +55,13 @@ public class PromptReleaseCandidateFingerprintService {
         return ReleaseCandidateFingerprint.sha256(canonical.toString());
     }
 
+    /**
+ * 返回提示词{@code Bundle}指纹。
+ *
+ * @param promptKey 提示词键
+ * @param candidate 候选
+ * @return 处理后的提示词发布候选指纹文本
+ */
     public String promptBundleFingerprint(String promptKey, PromptReleaseSpec candidate) {
         PromptReleaseState current = repository.loadCurrent();
         Map<String, PromptReleaseRecord> releases = new LinkedHashMap<>(current.releases());

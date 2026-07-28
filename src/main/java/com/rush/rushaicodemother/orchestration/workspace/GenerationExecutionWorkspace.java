@@ -22,6 +22,7 @@ public record GenerationExecutionWorkspace(
         Long seededFromEpoch
 ) {
 
+    /** 创建生成执行工作区实例并完成必要的依赖和初始状态设置。 */
     public GenerationExecutionWorkspace {
         if (appId == null || appId <= 0) {
             throw new IllegalArgumentException("appId must be positive");

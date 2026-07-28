@@ -32,6 +32,7 @@ public record GenerationExecutionLimits(
                 null, budgets);
     }
 
+    /** 创建生成执行限制实例并完成必要的依赖和初始状态设置。 */
     public GenerationExecutionLimits {
         requirePositive(taskTimeout, "taskTimeout");
         requirePositive(modelCallTimeout, "modelCallTimeout");
@@ -53,6 +54,7 @@ public record GenerationExecutionLimits(
         Map<GenerationBudgetKind, Integer> sourceBudgets = budgets == null ? Map.of() : budgets;
         Integer rootAttempts = sourceBudgets.get(GenerationBudgetKind.ROOT_MODEL_ATTEMPT);
         EnumMap<GenerationBudgetKind, Integer> normalizedBudgets = new EnumMap<>(GenerationBudgetKind.class);
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             Integer limit = sourceBudgets.get(kind);
             if (limit == null && rootAttempts != null) {
@@ -66,6 +68,12 @@ public record GenerationExecutionLimits(
         budgets = Map.copyOf(normalizedBudgets);
     }
 
+    /**
+ * 返回限制。
+ *
+ * @param kind 类别
+ * @return 计算或处理后的数值结果
+ */
     public int limit(GenerationBudgetKind kind) {
         Integer value = budgets.get(kind);
         if (value == null) {
@@ -92,6 +100,7 @@ public record GenerationExecutionLimits(
         };
     }
 
+    /** 返回安全{@code Multiply}。 */
     private static int safeMultiply(int value, int multiplier) {
         try {
             return Math.multiplyExact(value, multiplier);

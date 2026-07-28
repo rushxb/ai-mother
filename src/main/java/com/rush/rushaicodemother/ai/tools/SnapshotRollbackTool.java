@@ -44,6 +44,15 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
     private final ToolApprovalService toolApprovalService;
     private final GenerationTaskFenceGuard generationTaskFenceGuard;
 
+    /**
+ * 返回{@code manage}快照。
+ *
+ * @param action 动作
+ * @param snapshotName 快照名称
+ * @param relativeProjectPath 项目相对路径
+ * @param appId 应用编号
+ * @return 处理后的快照回滚工具文本
+ */
     @Tool("创建项目快照、列出快照、回滚到指定快照、删除快照。进行较大范围改动前建议先创建快照。")
     public String manageSnapshot(
             @P("操作类型：createSnapshot、listSnapshots、rollbackSnapshot、deleteSnapshot")
@@ -55,6 +64,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
             @ToolMemoryId Long appId
     ) {
         String normalizedAction = StrUtil.blankToDefault(action, "listSnapshots");
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             requireAppId(appId);
             String approvedInvocationId = requireApprovalIfNeeded(
@@ -103,6 +113,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         }
     }
 
+    /** 创建快照。 */
     private String createSnapshot(Path projectPath,
                                   String normalizedSnapshotName,
                                   Long appId) throws Exception {
@@ -132,6 +143,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                 + "\nartifact: " + cn.hutool.json.JSONUtil.toJsonStr(artifact.toPayload());
     }
 
+    /** 列出符合条件的{@code Snapshots}。 */
     private String listSnapshots(Path snapshotRoot) throws Exception {
         if (!workspaceFileSystemService.isDirectory(snapshotRoot)) {
             return "当前没有可用快照";
@@ -151,6 +163,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         return builder.toString().trim();
     }
 
+    /** 返回回滚快照。 */
     private String rollbackSnapshot(Long appId,
                                     Path projectPath,
                                     String normalizedSnapshotName,
@@ -169,6 +182,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         return "已回滚到快照: " + normalizedSnapshotName + "，并自动备份当前版本为: " + backupSnapshotName;
     }
 
+    /** 删除快照。 */
     private String deleteSnapshot(Long appId,
                                   String normalizedSnapshotName,
                                   String invocationId) throws Exception {
@@ -207,6 +221,12 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         return snapshotNamePolicy.validateRequired(snapshotName);
     }
 
+    /**
+ * 处理授权调用。
+ *
+ * @param request 请求参数
+ * @param appId 应用编号
+ */
     @Override
     public void authorizeInvocation(ToolExecutionRequest request, Long appId) {
         if (request == null || request.arguments() == null || request.arguments().isBlank()) {
@@ -238,6 +258,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         }
     }
 
+    /** 校验并返回有效的审批{@code If}{@code Needed}。 */
     private String requireApprovalIfNeeded(Long appId,
                                            String action,
                                            String snapshotName,
@@ -318,6 +339,12 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         return "快照回滚";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s %s %s",
@@ -326,6 +353,13 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                 StrUtil.blankToDefault(arguments.getStr("snapshotName"), ""));
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 240);

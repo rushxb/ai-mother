@@ -62,6 +62,18 @@ public class ToolInvocationCheckpointFactory {
         return capture(taskId, toolRequestId, toolName, argumentsJson, codeGenType, profile, null);
     }
 
+    /**
+ * 返回{@code capture}。
+ *
+ * @param taskId 任务编号
+ * @param toolRequestId 工具请求编号
+ * @param toolName 工具名称
+ * @param argumentsJson {@code argumentsJson} 对应的调用参数
+ * @param codeGenType 代码生成类型
+ * @param profile 配置档
+ * @param currentUserMessage 当前用户消息
+ * @return 工具调用检查点
+ */
     public ToolInvocationCheckpoint capture(String taskId,
                                              String toolRequestId,
                                              String toolName,
@@ -110,6 +122,12 @@ public class ToolInvocationCheckpointFactory {
         );
     }
 
+    /**
+ * 返回恢复。
+ *
+ * @param checkpoint 检查点
+ * @return 工具调用检查点
+ */
     public GenerationToolContinuationState restore(ToolInvocationCheckpoint checkpoint) {
         if (checkpoint == null || checkpoint.runtimeStateJson().isBlank()) {
             throw new IllegalArgumentException("tool invocation checkpoint is required");
@@ -132,6 +150,7 @@ public class ToolInvocationCheckpointFactory {
         }
     }
 
+    /** 返回{@code serialize}。 */
     private String serialize(GenerationToolContinuationState state) {
         try {
             return objectMapper.writeValueAsString(state);

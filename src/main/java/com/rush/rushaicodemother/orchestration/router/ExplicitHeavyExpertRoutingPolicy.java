@@ -18,6 +18,12 @@ public class ExplicitHeavyExpertRoutingPolicy implements GenerationRoutingPolicy
             "重新生成整个项目", "专家模式", "深度重构", "更换技术栈", "换框架"
     );
 
+    /**
+ * 根据输入信号确定{@code Explicit}重型{@code Expert}路由策略。
+ *
+ * @param signal 输入信号
+ * @return 可选的{@code Explicit}重型{@code Expert}路由策略；不存在时返回空值
+ */
     @Override
     public Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal) {
         if (!signal.existingWorkspace() || !signal.containsAny(HEAVY_EXPERT_KEYWORDS)) {

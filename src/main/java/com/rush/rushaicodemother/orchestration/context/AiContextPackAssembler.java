@@ -50,6 +50,17 @@ public class AiContextPackAssembler {
         this.relevanceScorer = new AiContextRelevanceScorer();
     }
 
+    /**
+ * 构建并返回生成{@code Pack}。
+ *
+ * @param app 应用
+ * @param userMessage 用户消息
+ * @param targetType 目标类型
+ * @param semanticMemories 待处理的 {@code semanticMemories} 集合
+ * @param recentTasks 待处理的 {@code recentTasks} 集合
+ * @param recentBuildLogs 待处理的 {@code recentBuildLogs} 集合
+ * @return 生成{@code Pack}
+ */
     public AiContextPack buildGenerationPack(App app,
                                              String userMessage,
                                              CodeGenTypeEnum targetType,
@@ -94,6 +105,17 @@ public class AiContextPackAssembler {
                 app.getId(), app.getAppName(), resolveTargetType(app, targetType), sections));
     }
 
+    /**
+ * 构建并返回{@code Auto}{@code Repair}{@code Pack}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param errorMessage 错误消息
+ * @param repairRound {@code repairRound} 对应的调用参数
+ * @param taskBuildLogs 待处理的 {@code taskBuildLogs} 集合
+ * @param recentBuildLogs 待处理的 {@code recentBuildLogs} 集合
+ * @return {@code Auto}{@code Repair}{@code Pack}
+ */
     public AiContextPack buildAutoRepairPack(Long appId,
                                              String taskId,
                                              String errorMessage,
@@ -149,11 +171,14 @@ public class AiContextPackAssembler {
         return contextPackBudgeter.apply(new AiContextPack(appId, "", "repair", sections));
     }
 
+    /** 追加语义{@code Memories}。 */
     private void appendSemanticMemories(List<AiContextPackSection> sections, List<SemanticMemoryHit> memories) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (memories == null || memories.isEmpty()) {
             return;
         }
         int index = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (SemanticMemoryHit hit : memories) {
             if (hit == null || hit.memory() == null || StrUtil.isBlank(hit.memory().content())) {
                 continue;
@@ -185,13 +210,16 @@ public class AiContextPackAssembler {
         }
     }
 
+    /** 追加{@code Recent}任务。 */
     private void appendRecentTasks(List<AiContextPackSection> sections,
                                    List<GenerationTaskTrace> recentTasks,
                                    String userMessage) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (recentTasks == null || recentTasks.isEmpty()) {
             return;
         }
         StringBuilder builder = new StringBuilder();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationTaskTrace task : recentTasks) {
             double relevance = relevanceScorer.score(userMessage, task.userPrompt());
             String relation = relevanceScorer.related(userMessage, task.userPrompt())
@@ -224,6 +252,7 @@ public class AiContextPackAssembler {
         );
     }
 
+    /** 追加构建{@code Logs}。 */
     private void appendBuildLogs(List<AiContextPackSection> sections,
                                  String title,
                                  List<GenerationBuildTrace> buildLogs,
@@ -264,6 +293,7 @@ public class AiContextPackAssembler {
         return StrUtil.isBlank(note) ? "" : ", note=" + compact(note);
     }
 
+    /** 追加{@code Protected}证据。 */
     private void appendProtectedEvidence(List<AiContextPackSection> sections,
                                          AiContextPackSectionType sectionType,
                                          String title,

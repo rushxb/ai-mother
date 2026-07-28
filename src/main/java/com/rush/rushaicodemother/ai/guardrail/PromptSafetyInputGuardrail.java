@@ -34,6 +34,12 @@ public class PromptSafetyInputGuardrail implements InputGuardrail {
             Pattern.compile("(?i)new\\s+(?:instructions?|commands?|prompts?)\\s*:")
     );
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param userMessage 用户消息
+ * @return {@code ate}
+ */
     @Override
     public InputGuardrailResult validate(UserMessage userMessage) {
         String rawInput = userMessage.singleText();
@@ -62,6 +68,7 @@ public class PromptSafetyInputGuardrail implements InputGuardrail {
         return success();
     }
 
+    /** 从输入中提取{@code Original}用户输入。 */
     private String extractOriginalUserInput(String input) {
         if (input == null) {
             return "";

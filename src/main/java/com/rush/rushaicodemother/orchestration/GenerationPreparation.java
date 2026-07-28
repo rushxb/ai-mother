@@ -4,7 +4,9 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,10 +22,17 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
                                     Map<String, Long> timings,
                                     String taskId) {
 
+    private static final String VALIDATION_POLICY_ARTIFACT = "validation_policy";
+
     public String qualityGateLevel() {
         return qualityGateResult == null ? "unknown" : qualityGateResult.level();
     }
 
+    /**
+ * 校验并返回有效的{@code s}构建校验。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean requiresBuildValidation() {
         if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
             return true;
@@ -31,12 +40,53 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
         if (targetType != CodeGenTypeEnum.VUE_PROJECT && targetType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return false;
         }
+        GenerationArtifact validationPolicy = artifact(VALIDATION_POLICY_ARTIFACT);
+        if (validationPolicy != null
+                && validationPolicy.payload() != null
+                && Boolean.TRUE.equals(validationPolicy.payload().get("requiresBuild"))) {
+            return true;
+        }
         GenerationArtifact generationSpec = artifacts == null ? null : artifacts.get("generation_spec");
         if (generationSpec == null || generationSpec.payload() == null) {
             return true;
         }
         Object requiresBuild = generationSpec.payload().get("requiresBuild");
         return requiresBuild == null || Boolean.TRUE.equals(requiresBuild);
+    }
+
+    /** 将路由层声明的最低校验级别固化到可恢复的生成准备中。 */
+    public GenerationPreparation enforceValidationFloor(ExpectedValidationLevel validationLevel) {
+        if (validationLevel == null
+                || validationLevel == ExpectedValidationLevel.FAST
+                || (targetType != CodeGenTypeEnum.VUE_PROJECT
+                && targetType != CodeGenTypeEnum.BACKEND_PROJECT
+                && targetType != CodeGenTypeEnum.FULL_STACK_PROJECT)) {
+            return this;
+        }
+        Map<String, GenerationArtifact> updatedArtifacts = new LinkedHashMap<>(
+                artifacts == null ? Map.of() : artifacts);
+        updatedArtifacts.put(VALIDATION_POLICY_ARTIFACT, GenerationArtifact.of(
+                VALIDATION_POLICY_ARTIFACT,
+                "ExecutionPolicy",
+                "最低校验策略",
+                Map.of(
+                        "minimumLevel", validationLevel.name(),
+                        "requiresBuild", true,
+                        "source", "route_decision"
+                )
+        ));
+        return new GenerationPreparation(
+                originalType,
+                targetType,
+                upgradeRequired,
+                generatingStage,
+                enhancedMessage,
+                events,
+                updatedArtifacts,
+                qualityGateResult,
+                timings,
+                taskId
+        );
     }
 
     /**
@@ -56,6 +106,11 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
         return artifacts == null ? null : artifacts.get(key);
     }
 
+    /**
+ * 处理{@code put}制品。
+ *
+ * @param artifact 制品
+ */
     public void putArtifact(GenerationArtifact artifact) {
         if (artifacts == null || artifact == null) {
             return;

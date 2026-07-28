@@ -17,6 +17,7 @@ public record GenerationWorkspacePublicationJournalEntry(
         long version,
         String lastError
 ) {
+    /** 创建生成工作区发布日志条目实例并完成必要的依赖和初始状态设置。 */
     public GenerationWorkspacePublicationJournalEntry {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
             throw new IllegalArgumentException("publication journal task identity is invalid");
@@ -29,6 +30,11 @@ public record GenerationWorkspacePublicationJournalEntry(
         lastError = lastError == null ? "" : lastError;
     }
 
+    /**
+ * 返回{@code pointer}。
+ *
+ * @return 生成工作区发布日志条目
+ */
     public GenerationWorkspacePublicationPointer pointer() {
         return new GenerationWorkspacePublicationPointer(
                 GenerationWorkspacePublicationPointer.CURRENT_SCHEMA_VERSION,
@@ -40,6 +46,12 @@ public record GenerationWorkspacePublicationJournalEntry(
         );
     }
 
+    /**
+ * 返回{@code same}执行。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean sameExecution(GenerationWorkspacePublicationPointer pointer) {
         return pointer != null
                 && Objects.equals(taskId, pointer.taskId())
@@ -48,6 +60,12 @@ public record GenerationWorkspacePublicationJournalEntry(
                 && executionEpoch == pointer.executionEpoch();
     }
 
+    /**
+ * 返回{@code same}发布。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean samePublication(GenerationWorkspacePublicationPointer pointer) {
         return sameExecution(pointer) && Objects.equals(publishedAt, pointer.publishedAt());
     }

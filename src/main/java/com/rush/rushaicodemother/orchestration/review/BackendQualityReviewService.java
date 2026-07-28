@@ -19,7 +19,15 @@ import java.util.Map;
 @Service
 public class BackendQualityReviewService {
 
+    /**
+ * 返回{@code review}。
+ *
+ * @param context 执行上下文
+ * @param prompt 提示词
+ * @return 后端质量{@code Review}
+ */
     public BackendReviewResult review(GenerationAgentContext context, String prompt) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (context == null || !requiresBackendReview(context.getTargetType())) {
             return BackendReviewResult.passed(List.of(), List.of("非后端目标，跳过后端门禁"));
         }
@@ -93,12 +101,27 @@ public class BackendQualityReviewService {
             List<String> warnings,
             List<String> passes
     ) {
+        /**
+ * 返回{@code passed}。
+ *
+ * @param warnings 待处理的 {@code warnings} 集合
+ * @param passes 待处理的 {@code passes} 集合
+ * @return 后端{@code Review}结果
+ */
         public static BackendReviewResult passed(List<String> warnings, List<String> passes) {
             return new BackendReviewResult(true, List.of(),
                     warnings == null ? List.of() : List.copyOf(warnings),
                     passes == null ? List.of() : List.copyOf(passes));
         }
 
+        /**
+ * 将{@code ed}标记为失败并记录原因。
+ *
+ * @param blockers 待处理的 {@code blockers} 集合
+ * @param warnings 待处理的 {@code warnings} 集合
+ * @param passes 待处理的 {@code passes} 集合
+ * @return {@code ed}
+ */
         public static BackendReviewResult failed(List<String> blockers, List<String> warnings, List<String> passes) {
             return new BackendReviewResult(false,
                     blockers == null ? List.of() : List.copyOf(blockers),

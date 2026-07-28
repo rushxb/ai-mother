@@ -11,6 +11,15 @@ import java.util.Locale;
  */
 public class CreateSpecDefaults {
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param userMessage 用户消息
+ * @param plan 计划
+ * @param group 分组
+ * @param reason 原因
+ * @return 创建{@code Spec}{@code Defaults}
+ */
     public CreateSpec fromRequest(String userMessage, CreateGenerationPlan plan, SlotGroup group, String reason) {
         String message = StrUtil.blankToDefault(userMessage, "");
         String appType = appType(plan, group);
@@ -82,6 +91,7 @@ public class CreateSpecDefaults {
         );
     }
 
+    /** 返回应用类型。 */
     private String appType(CreateGenerationPlan plan, SlotGroup group) {
         String templateId = group == null ? "" : StrUtil.blankToDefault(group.templateId(), "");
         if (templateId.contains("admin")) return "admin";
@@ -94,6 +104,7 @@ public class CreateSpecDefaults {
         return "basic";
     }
 
+    /** 返回{@code domain}。 */
     private String domain(String message) {
         String normalized = message.toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "健身", "私教", "瑜伽", "运动")) return "fitness_saas";
@@ -104,6 +115,7 @@ public class CreateSpecDefaults {
         return "enterprise_service";
     }
 
+    /** 返回品牌名称。 */
     private String brandName(String message, String domain) {
         java.util.regex.Matcher matcher = java.util.regex.Pattern
                 .compile("(?:品牌|产品|系统|平台|应用|项目)[名名称为叫：: ]+([\\p{IsHan}A-Za-z0-9]{2,18})")
@@ -121,6 +133,7 @@ public class CreateSpecDefaults {
         };
     }
 
+    /** 返回{@code entity}名称。 */
     private String entityName(String message) {
         if (containsAny(message, "课程")) return "Course";
         if (containsAny(message, "会员")) return "Member";
@@ -131,6 +144,7 @@ public class CreateSpecDefaults {
         return "Record";
     }
 
+    /** 返回{@code entity}{@code Label}。 */
     private String entityLabel(String message) {
         if (containsAny(message, "课程")) return "课程";
         if (containsAny(message, "会员")) return "会员";
@@ -141,6 +155,7 @@ public class CreateSpecDefaults {
         return "业务记录";
     }
 
+    /** 返回{@code fields}{@code For}。 */
     private List<CreateSpec.FieldSpec> fieldsFor(String entityName, String entityLabel) {
         if ("Course".equals(entityName)) {
             return List.of(
@@ -168,6 +183,7 @@ public class CreateSpecDefaults {
         return new CreateSpec.FieldSpec(name, type, label, required, options);
     }
 
+    /** 返回{@code modules}。 */
     private List<CreateSpec.ModuleSpec> modules(String appType, String entityLabel) {
         if ("admin".equals(appType)) {
             return List.of(new CreateSpec.ModuleSpec("dashboard", "工作台", List.of("metrics", "charts")),
@@ -192,6 +208,7 @@ public class CreateSpecDefaults {
         return "admin".equals(appType) || "backend".equals(appType) ? "compact" : "comfortable";
     }
 
+    /** 返回{@code style}{@code Keywords}。 */
     private List<String> styleKeywords(String domain, String appType) {
         if ("healthcare".equals(domain)) return List.of("医疗可信", "清爽", "专业");
         if ("education".equals(domain)) return List.of("教育温暖", "亲和", "清晰");
@@ -230,6 +247,7 @@ public class CreateSpecDefaults {
                 : List.of("landing", "pricing", "faq");
     }
 
+    /** 返回{@code landing}。 */
     private CreateSpec.Landing landing(String brandName, String domain) {
         String domainText = readableDomain(domain);
         return new CreateSpec.Landing(
@@ -297,6 +315,7 @@ public class CreateSpecDefaults {
         return value.substring(0, 1).toLowerCase(Locale.ROOT) + value.substring(1);
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String value, String... keywords) {
         String normalized = StrUtil.blankToDefault(value, "").toLowerCase(Locale.ROOT);
         for (String keyword : keywords) {

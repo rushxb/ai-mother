@@ -21,6 +21,15 @@ public record GenerationArtifact(
         LocalDateTime createdAt
 ) {
 
+    /**
+ * 根据给定参数创建当前对象。
+ *
+ * @param key 键
+ * @param role 角色
+ * @param title {@code title} 对应的调用参数
+ * @param payload 载荷
+ * @return 生成制品
+ */
     public static GenerationArtifact of(String key, String role, String title, Map<String, Object> payload) {
         return new GenerationArtifact(
                 key,

@@ -40,6 +40,13 @@ public class AppGenerationController {
     private final UserService userService;
     private final GenerationSseEventMapper generationSseEventMapper;
 
+    /**
+ * 优化并返回提示词。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/optimize/prompt")
     @RateLimit(limitType = RateLimitType.USER, rate = 10, rateInterval = 60,
             message = "提示词优化请求过于频繁，请稍后再试")
@@ -49,6 +56,13 @@ public class AppGenerationController {
         return ResultUtils.success(appService.optimizePrompt(request.getPrompt(), loginUser));
     }
 
+    /**
+ * 启动对话{@code To}生成代码。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/chat/gen/code")
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60,
             message = "AI 对话请求过于频繁，请稍后再试")
@@ -59,6 +73,13 @@ public class AppGenerationController {
         return ResultUtils.success(true);
     }
 
+    /**
+ * 停止对话{@code To}生成代码。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/chat/gen/code/stop")
     public BaseResponse<Boolean> stopChatToGenCode(@Valid @RequestBody AppStopRequest request,
                                                    HttpServletRequest servletRequest) {
@@ -67,6 +88,13 @@ public class AppGenerationController {
         return ResultUtils.success(true);
     }
 
+    /**
+ * 返回订阅对话{@code To}生成代码。
+ *
+ * @param appId 应用编号
+ * @param servletRequest 当前 HTTP 请求
+ * @return 异步响应式处理结果
+ */
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> subscribeChatToGenCode(@RequestParam @Positive Long appId,
                                                                  HttpServletRequest servletRequest) {
@@ -75,6 +103,13 @@ public class AppGenerationController {
         return generationSseEventMapper.map(contentFlux);
     }
 
+    /**
+ * 启用数据库。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/database/enable")
     public BaseResponse<AppDatabaseResourceVO> enableDatabase(
             @Valid @RequestBody AppDatabaseEnableRequest request,

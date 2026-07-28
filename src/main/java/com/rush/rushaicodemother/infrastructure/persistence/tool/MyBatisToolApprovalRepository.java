@@ -37,6 +37,12 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
     private final GenerationToolApprovalMapper mapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
 
+    /**
+ * 创建{@code Pending}。
+ *
+ * @param approval 审批
+ * @return {@code Pending}
+ */
     @Override
     public ToolApprovalRecord createPending(ToolApprovalRecord approval) {
         validateRecord(approval);
@@ -50,6 +56,14 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return persisted;
     }
 
+    /**
+ * 查找匹配的{@code My}{@code Batis}工具审批。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @return 可选的{@code My}{@code Batis}工具审批；不存在时返回空值
+ */
     @Override
     public Optional<ToolApprovalRecord> find(String taskId,
                                              DestructiveToolAction action,
@@ -58,6 +72,15 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return Optional.ofNullable(mapper.selectOne(taskId, action.value(), approvalId)).map(this::toRecord);
     }
 
+    /**
+ * 为当前上下文附加调用检查点。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param checkpoint 检查点
+ * @return 调用检查点
+ */
     @Override
     public ToolApprovalRecord attachInvocationCheckpoint(String taskId,
                                                          DestructiveToolAction action,
@@ -88,6 +111,16 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return persisted;
     }
 
+    /**
+ * 审批并返回。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param decidedBy {@code decidedBy} 对应的调用参数
+ * @param decidedAt {@code decidedAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean approve(String taskId,
                            DestructiveToolAction action,
@@ -98,6 +131,16 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return mapper.approve(taskId, action.value(), approvalId, decidedBy, toLocal(decidedAt)) == 1;
     }
 
+    /**
+ * 拒绝{@code My}{@code Batis}工具审批并记录原因。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param decidedBy {@code decidedBy} 对应的调用参数
+ * @param decidedAt {@code decidedAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean reject(String taskId,
                           DestructiveToolAction action,
@@ -108,6 +151,17 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return mapper.reject(taskId, action.value(), approvalId, decidedBy, toLocal(decidedAt)) == 1;
     }
 
+    /**
+ * 开始执行。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param toolRequestId 工具请求编号
+ * @param executionStartedAt {@code executionStartedAt} 对应的调用参数
+ * @param maxAttempts 待处理的 {@code maxAttempts} 集合
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean beginExecution(String taskId,
                                   DestructiveToolAction action,
@@ -124,6 +178,17 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
                 toLocal(executionStartedAt), maxAttempts) == 1;
     }
 
+    /**
+ * 完成执行并持久化终态。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param toolRequestId 工具请求编号
+ * @param outcome 结果
+ * @param consumedAt {@code consumedAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean completeExecution(String taskId,
                                      DestructiveToolAction action,
@@ -140,6 +205,12 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
                 serializedOutcome, toLocal(consumedAt)) == 1;
     }
 
+    /**
+ * 查找匹配的{@code Recoverable}执行。
+ *
+ * @param taskId 任务编号
+ * @return 可选的{@code Recoverable}执行；不存在时返回空值
+ */
     @Override
     public Optional<ToolApprovalRecord> findRecoverableExecution(String taskId) {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
@@ -148,6 +219,15 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return Optional.ofNullable(mapper.selectRecoverableExecution(taskId)).map(this::toRecord);
     }
 
+    /**
+ * 返回{@code reset}{@code Stale}执行。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param expectedVersion {@code expectedVersion} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean resetStaleExecution(String taskId,
                                        DestructiveToolAction action,
@@ -161,6 +241,13 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
                 taskId, action.value(), approvalId, expectedVersion) == 1;
     }
 
+    /**
+ * 返回{@code expire}执行前。
+ *
+ * @param now 当前时间
+ * @param limit 资源上限
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public int expireBefore(Instant now, int limit) {
         Objects.requireNonNull(now, "now");
@@ -170,6 +257,12 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return mapper.expireBefore(toLocal(now), limit);
     }
 
+    /**
+ * 查找匹配的{@code Waiting}{@code Continuations}。
+ *
+ * @param limit 资源上限
+ * @return {@code Waiting}{@code Continuations}集合
+ */
     @Override
     public List<ToolApprovalRecord> findWaitingContinuations(int limit) {
         validateBatchLimit(limit);
@@ -180,6 +273,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return approvals.stream().filter(Objects::nonNull).map(this::toRecord).toList();
     }
 
+    /** 将当前对象转换为{@code Entity}。 */
     private GenerationToolApproval toEntity(ToolApprovalRecord approval) {
         ToolInvocationCheckpoint checkpoint = approval.invocationCheckpoint();
         return GenerationToolApproval.builder()
@@ -204,6 +298,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
                 .build();
     }
 
+    /** 将当前对象转换为记录。 */
     private ToolApprovalRecord toRecord(GenerationToolApproval entity) {
         DestructiveToolAction action = DestructiveToolAction.fromValue(entity.getAction());
         ToolApprovalStatus status = ToolApprovalStatus.fromValue(entity.getStatus());
@@ -221,6 +316,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         );
     }
 
+    /** 将当前对象转换为检查点。 */
     private ToolInvocationCheckpoint toCheckpoint(GenerationToolApproval entity) {
         boolean absent = entity.getToolRequestId() == null
                 && entity.getToolName() == null
@@ -234,6 +330,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "工具审批调用断点数据不完整");
         }
         ToolInvocationCheckpoint checkpoint;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             var json = JSONUtil.parseObj(entity.getCheckpointJson());
             checkpoint = new ToolInvocationCheckpoint(
@@ -278,6 +375,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return JSONUtil.toJsonStr(json);
     }
 
+    /** 将当前对象转换为结果。 */
     private ToolExecutionOutcome toOutcome(String executionResult) {
         if (executionResult == null) {
             return null;
@@ -303,6 +401,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
                 && Objects.equals(left.invocationCheckpoint(), right.invocationCheckpoint());
     }
 
+    /** 校验{@code ate}记录是否有效。 */
     private void validateRecord(ToolApprovalRecord approval) {
         Objects.requireNonNull(approval, "approval");
         validateIdentity(approval.taskId(), approval.action(), approval.approvalId());
@@ -329,6 +428,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         }
     }
 
+    /** 校验{@code ate}检查点是否有效。 */
     private void validateCheckpoint(ToolInvocationCheckpoint checkpoint) {
         if (checkpoint == null
                 || checkpoint.schemaVersion() != ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION

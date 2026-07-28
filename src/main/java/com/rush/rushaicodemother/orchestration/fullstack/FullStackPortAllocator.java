@@ -29,6 +29,12 @@ public class FullStackPortAllocator {
     private final Set<Integer> reservedPorts = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<Long, FullStackGenerationContext> allocations = new ConcurrentHashMap<>();
 
+    /**
+ * 返回{@code allocate}。
+ *
+ * @param appId 应用编号
+ * @return 全栈端口{@code Allocator}
+ */
     public FullStackGenerationContext allocate(Long appId) {
         GenerationWorkspace workspace = generationWorkspaceService.resolve(
                 appId,
@@ -47,6 +53,7 @@ public class FullStackPortAllocator {
         return allocations.computeIfAbsent(workspace.appId(), ignored -> allocateNewContext(workspace));
     }
 
+    /** 返回{@code allocate}{@code New}上下文。 */
     private FullStackGenerationContext allocateNewContext(GenerationWorkspace workspace) {
         int frontendPort = allocatePort(FRONTEND_PORT_START, FRONTEND_PORT_END);
         try {
@@ -70,6 +77,7 @@ public class FullStackPortAllocator {
         }
     }
 
+    /** 返回{@code allocate}端口。 */
     private int allocatePort(int startInclusive, int endInclusive) {
         for (int port = startInclusive; port <= endInclusive; port++) {
             if (reservedPorts.contains(port) || !isAvailable(port)) {

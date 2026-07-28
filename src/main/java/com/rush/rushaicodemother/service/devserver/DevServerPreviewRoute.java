@@ -11,6 +11,7 @@ public record DevServerPreviewRoute(
         URI ownerNodeBaseUri
 ) {
 
+    /** 创建开发服务器预览{@code Route}实例并完成必要的依赖和初始状态设置。 */
     public DevServerPreviewRoute {
         if (appId == null || appId <= 0 || nodeId == null || nodeId.isBlank()
                 || port < 1 || port > 65535) {
@@ -29,6 +30,13 @@ public record DevServerPreviewRoute(
         return new DevServerPreviewRoute(appId, nodeId, port, false, ownerNodeBaseUri);
     }
 
+    /**
+ * 返回HTTP目标。
+ *
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @return 开发服务器预览{@code Route}
+ */
     public URI httpTarget(String path, String queryString) {
         String targetPath = requirePath(path);
         String base = local
@@ -37,6 +45,13 @@ public record DevServerPreviewRoute(
         return appendQuery(URI.create(base + targetPath), queryString);
     }
 
+    /**
+ * 返回 WebSocket 目标。
+ *
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @return 开发服务器预览{@code Route}
+ */
     public URI webSocketTarget(String path, String queryString) {
         URI httpTarget = httpTarget(path, queryString);
         String scheme = "https".equalsIgnoreCase(httpTarget.getScheme()) ? "wss" : "ws";

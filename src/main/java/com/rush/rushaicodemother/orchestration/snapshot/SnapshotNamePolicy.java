@@ -24,6 +24,13 @@ public class SnapshotNamePolicy {
     private static final DateTimeFormatter TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS");
 
+    /**
+ * 根据当前上下文解析{@code Or}创建。
+ *
+ * @param snapshotName 快照名称
+ * @param automaticPrefix {@code automaticPrefix} 对应的调用参数
+ * @return 处理后的{@code Or}创建文本
+ */
     public String resolveOrCreate(String snapshotName, String automaticPrefix) {
         if (StrUtil.isBlank(snapshotName)) {
             return createAutomaticName(automaticPrefix);
@@ -31,6 +38,12 @@ public class SnapshotNamePolicy {
         return validateRequired(snapshotName);
     }
 
+    /**
+ * 校验{@code ate}{@code Required}是否有效。
+ *
+ * @param snapshotName 快照名称
+ * @return 处理后的{@code ate}{@code Required}文本
+ */
     public String validateRequired(String snapshotName) {
         if (StrUtil.isBlank(snapshotName)) {
             throw new ValidationException("快照名称不能为空");
@@ -45,6 +58,12 @@ public class SnapshotNamePolicy {
         return normalized;
     }
 
+    /**
+ * 创建{@code Automatic}名称。
+ *
+ * @param prefix {@code prefix} 对应的调用参数
+ * @return 处理后的{@code Automatic}名称文本
+ */
     public String createAutomaticName(String prefix) {
         String normalizedPrefix = validateRequired(prefix);
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER);

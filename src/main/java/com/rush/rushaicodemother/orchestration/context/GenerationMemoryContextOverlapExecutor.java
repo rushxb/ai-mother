@@ -47,6 +47,13 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
                 Thread.ofVirtual().name("generation-memory-overlap-", 0).factory());
     }
 
+    /**
+ * 启动生成记忆上下文{@code Overlap}。
+ *
+ * @param taskId 任务编号
+ * @param memoryContextBuilder {@code memoryContextBuilder} 对应的调用参数
+ * @return 生成记忆上下文{@code Overlap}
+ */
     public MemoryContextHandle start(String taskId, Supplier<String> memoryContextBuilder) {
         Objects.requireNonNull(memoryContextBuilder, "生成记忆上下文构建器不能为空");
         if (!properties.isPreparationOverlapEnabled()) {
@@ -59,10 +66,33 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
         Duration timeout = executionContextService.clampTimeout(
                 taskId, properties.getPreparationOverlapTimeout());
         long deadlineNanos = deadlineAfter(timeout);
-        acquireAdmission(taskId, deadlineNanos);
+        MonitorContext capturedContext = copyContext(MonitorContextHolder.getContext());
+        long admissionStarted = System.nanoTime();
+        if (!admissionPermits.tryAcquire()) {
+            metricsCollector.recordMemoryPreparationOverlap(
+                    "admission", "deferred", elapsed(admissionStarted));
+            return new DeferredMemoryContextHandle(
+                    taskId,
+                    memoryContextBuilder,
+                    capturedContext,
+                    deadlineNanos,
+                    executionContextService,
+                    metricsCollector
+            );
+        }
+        try {
+            executionContextService.assertCanContinue(taskId);
+            metricsCollector.recordMemoryPreparationOverlap(
+                    "admission", "success", elapsed(admissionStarted));
+        } catch (RuntimeException | Error failure) {
+            admissionPermits.release();
+            metricsCollector.recordMemoryPreparationOverlap(
+                    "admission", "failed", elapsed(admissionStarted));
+            throw failure;
+        }
 
         TaskState taskState = new TaskState(admissionPermits);
-        MonitorContext capturedContext = copyContext(MonitorContextHolder.getContext());
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Future<String> future = executor.submit(() -> execute(
                     taskId, memoryContextBuilder, capturedContext, taskState));
@@ -80,6 +110,7 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
         }
     }
 
+    /** 执行生成记忆上下文{@code Overlap}处理流程。 */
     private String execute(String taskId,
                            Supplier<String> memoryContextBuilder,
                            MonitorContext capturedContext,
@@ -108,47 +139,7 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
         }
     }
 
-    private void acquireAdmission(String taskId, long deadlineNanos) {
-        if (admissionPermits.tryAcquire()) {
-            try {
-                executionContextService.assertCanContinue(taskId);
-            } catch (RuntimeException | Error failure) {
-                admissionPermits.release();
-                throw failure;
-            }
-            return;
-        }
-        long started = System.nanoTime();
-        String status = "success";
-        boolean acquired = false;
-        try {
-            long remainingNanos = remainingNanos(deadlineNanos);
-            if (remainingNanos <= 0L
-                    || !admissionPermits.tryAcquire(remainingNanos, TimeUnit.NANOSECONDS)) {
-                status = "timeout";
-                executionContextService.assertCanContinue(taskId);
-                throw new IllegalStateException("等待生成记忆上下文并发许可超时");
-            }
-            acquired = true;
-            executionContextService.assertCanContinue(taskId);
-        } catch (InterruptedException interrupted) {
-            status = "interrupted";
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("等待生成记忆上下文并发许可被中断", interrupted);
-        } catch (RuntimeException | Error failure) {
-            if ("success".equals(status)) {
-                status = "failed";
-            }
-            if (acquired) {
-                admissionPermits.release();
-            }
-            throw failure;
-        } finally {
-            metricsCollector.recordMemoryPreparationOverlap(
-                    "admission", status, elapsed(started));
-        }
-    }
-
+    /** 返回截止时间执行后。 */
     private long deadlineAfter(Duration timeout) {
         long now = System.nanoTime();
         long timeoutNanos;
@@ -198,6 +189,12 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
         @Override
         void close();
 
+        /**
+ * 完成{@code d}并持久化终态。
+ *
+ * @param value 待处理值
+ * @return {@code d}
+ */
         static MemoryContextHandle completed(String value) {
             return new MemoryContextHandle() {
                 @Override
@@ -210,6 +207,86 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
                     // 同步结果不持有后台资源。
                 }
             };
+        }
+    }
+
+    /** 后台准入饱和时，将记忆构建延迟到编排真正读取上下文的时刻。 */
+    private static final class DeferredMemoryContextHandle implements MemoryContextHandle {
+
+        private final String taskId;
+        private final MonitorContext capturedContext;
+        private final long deadlineNanos;
+        private final GenerationExecutionContextService executionContextService;
+        private final GenerationContextPreparationMetricsCollector metricsCollector;
+        private Supplier<String> memoryContextBuilder;
+        private String value;
+        private boolean resolved;
+        private boolean closed;
+
+        private DeferredMemoryContextHandle(
+                String taskId,
+                Supplier<String> memoryContextBuilder,
+                MonitorContext capturedContext,
+                long deadlineNanos,
+                GenerationExecutionContextService executionContextService,
+                GenerationContextPreparationMetricsCollector metricsCollector
+        ) {
+            this.taskId = taskId;
+            this.memoryContextBuilder = memoryContextBuilder;
+            this.capturedContext = capturedContext;
+            this.deadlineNanos = deadlineNanos;
+            this.executionContextService = executionContextService;
+            this.metricsCollector = metricsCollector;
+        }
+
+        @Override
+        public synchronized String resolve() {
+            if (resolved) {
+                return value;
+            }
+            if (closed || memoryContextBuilder == null) {
+                throw new IllegalStateException("延迟生成记忆上下文句柄已关闭");
+            }
+            long started = System.nanoTime();
+            String status = "success";
+            MonitorContext previousContext = MonitorContextHolder.getContext();
+            try {
+                executionContextService.assertCanContinue(taskId);
+                if (remainingNanos(deadlineNanos) <= 0L) {
+                    status = "timeout";
+                    throw new IllegalStateException("等待生成记忆上下文超时");
+                }
+                installContext(capturedContext);
+                String resolvedValue = memoryContextBuilder.get();
+                executionContextService.assertCanContinue(taskId);
+                if (remainingNanos(deadlineNanos) <= 0L) {
+                    status = "timeout";
+                    throw new IllegalStateException("等待生成记忆上下文超时");
+                }
+                value = resolvedValue;
+                resolved = true;
+                memoryContextBuilder = null;
+                return value;
+            } catch (RuntimeException | Error failure) {
+                if ("success".equals(status)) {
+                    status = executionContextService.shouldStop(taskId) ? "cancelled" : "failed";
+                }
+                closed = true;
+                memoryContextBuilder = null;
+                throw failure;
+            } finally {
+                restoreContext(previousContext);
+                metricsCollector.recordMemoryPreparationOverlap(
+                        "join", status, elapsed(started));
+            }
+        }
+
+        @Override
+        public synchronized void close() {
+            closed = true;
+            if (!resolved) {
+                memoryContextBuilder = null;
+            }
         }
     }
 
@@ -238,10 +315,16 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
             this.metricsCollector = metricsCollector;
         }
 
+        /**
+ * 根据当前上下文解析异步记忆上下文句柄。
+ *
+ * @return 处理后的异步记忆上下文句柄文本
+ */
         @Override
         public String resolve() {
             long started = System.nanoTime();
             String status = "success";
+            // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
             try {
                 executionContextService.assertCanContinue(taskId);
                 long remainingNanos = remainingNanos(deadlineNanos);
@@ -277,6 +360,7 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
             }
         }
 
+        /** 返回{@code propagate}。 */
         private RuntimeException propagate(ExecutionException executionFailure) {
             Throwable cause = executionFailure.getCause();
             if (cause instanceof RuntimeException runtimeFailure) {
@@ -293,6 +377,7 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
             taskState.cancelBeforeStart();
         }
 
+        /** 关闭异步记忆上下文句柄并释放资源。 */
         @Override
         public void close() {
             if (!future.isDone()) {
@@ -331,6 +416,7 @@ public class GenerationMemoryContextOverlapExecutor implements AutoCloseable {
         }
     }
 
+    /** 关闭生成记忆上下文{@code Overlap}并释放资源。 */
     @Override
     @PreDestroy
     public void close() {

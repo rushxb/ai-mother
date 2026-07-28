@@ -19,6 +19,11 @@ public record GenerationRoutingTelemetrySnapshot(
         boolean available
 ) {
 
+    /**
+ * 返回{@code unavailable}。
+ *
+ * @return 生成路由遥测快照
+ */
     public static GenerationRoutingTelemetrySnapshot unavailable() {
         return new GenerationRoutingTelemetrySnapshot(
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, Instant.EPOCH, false

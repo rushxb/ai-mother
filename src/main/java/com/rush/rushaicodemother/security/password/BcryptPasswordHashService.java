@@ -24,12 +24,25 @@ public class BcryptPasswordHashService implements PasswordHashService {
 
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(BCRYPT_STRENGTH);
 
+    /**
+ * 判断是否存在{@code h}。
+ *
+ * @param rawPassword 原始密码
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public String hash(String rawPassword) {
         validateRawPassword(rawPassword);
         return passwordEncoder.encode(rawPassword);
     }
 
+    /**
+ * 验证{@code Bcrypt}密码哈希是否符合预期。
+ *
+ * @param rawPassword 原始密码
+ * @param storedHash {@code storedHash} 对应的调用参数
+ * @return {@code Bcrypt}密码哈希
+ */
     @Override
     public PasswordVerificationResult verify(String rawPassword, String storedHash) {
         if (rawPassword == null || storedHash == null || storedHash.isBlank()) {
@@ -44,6 +57,7 @@ public class BcryptPasswordHashService implements PasswordHashService {
         return PasswordVerificationResult.failed();
     }
 
+    /** 验证{@code Bcrypt}是否符合预期。 */
     private PasswordVerificationResult verifyBcrypt(String rawPassword, String storedHash) {
         try {
             boolean matched = passwordEncoder.matches(rawPassword, storedHash);
@@ -67,6 +81,7 @@ public class BcryptPasswordHashService implements PasswordHashService {
                 : PasswordVerificationResult.failed();
     }
 
+    /** 校验{@code ate}原始密码是否有效。 */
     private void validateRawPassword(String rawPassword) {
         if (rawPassword == null || rawPassword.isBlank()) {
             throw new IllegalArgumentException("密码不能为空");

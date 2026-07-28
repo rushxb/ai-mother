@@ -26,6 +26,7 @@ public record GenerationCommitResult(
         LocalDateTime createdAt
 ) {
 
+    /** 创建生成提交结果实例并完成必要的依赖和初始状态设置。 */
     public GenerationCommitResult {
         schemaVersion = StrUtil.blankToDefault(schemaVersion, "v1");
         provider = StrUtil.blankToDefault(provider, "local_git");
@@ -39,6 +40,17 @@ public record GenerationCommitResult(
         createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
     }
 
+    /**
+ * 返回{@code committed}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectPath 项目路径
+ * @param commitId 提交编号
+ * @param branch {@code branch} 对应的调用参数
+ * @param committedFiles 待处理的 {@code committedFiles} 集合
+ * @return 生成提交结果
+ */
     public static GenerationCommitResult committed(Long appId,
                                                    String taskId,
                                                    String projectPath,
@@ -63,6 +75,17 @@ public record GenerationCommitResult(
         );
     }
 
+    /**
+ * 返回{@code skipped}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectPath 项目路径
+ * @param commitId 提交编号
+ * @param branch {@code branch} 对应的调用参数
+ * @param reason 原因
+ * @return 生成提交结果
+ */
     public static GenerationCommitResult skipped(Long appId,
                                                  String taskId,
                                                  String projectPath,
@@ -87,6 +110,17 @@ public record GenerationCommitResult(
         );
     }
 
+    /**
+ * 将{@code ed}标记为失败并记录原因。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectPath 项目路径
+ * @param commitId 提交编号
+ * @param branch {@code branch} 对应的调用参数
+ * @param reason 原因
+ * @return {@code ed}
+ */
     public static GenerationCommitResult failed(Long appId,
                                                 String taskId,
                                                 String projectPath,
@@ -111,6 +145,11 @@ public record GenerationCommitResult(
         );
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", schemaVersion);

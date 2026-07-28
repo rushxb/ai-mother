@@ -33,6 +33,13 @@ public class DeterministicCodeGenTypeRouter {
             "活动页", "落地页", "产品宣传页", "一次性展示页", "landing page"
     );
 
+    /**
+ * 为{@code Deterministic}代码生成类型{@code Router}选择处理路由。
+ *
+ * @param userMessage 用户消息
+ * @param intent {@code intent} 对应的调用参数
+ * @return 可选的{@code Deterministic}代码生成类型{@code Router}；不存在时返回空值
+ */
     public Optional<CodeGenTypeEnum> route(
             String userMessage,
             BackendIntentDetector.BackendIntentResult intent) {
@@ -63,6 +70,7 @@ public class DeterministicCodeGenTypeRouter {
         };
     }
 
+    /** 为{@code Explicit}{@code Frontend}选择处理路由。 */
     private Optional<CodeGenTypeEnum> routeExplicitFrontend(String userMessage) {
         String normalized = userMessage == null ? "" : userMessage.toLowerCase(Locale.ROOT).trim();
         if (containsAny(normalized, ENGINEERED_FRONTEND_SIGNALS)) {

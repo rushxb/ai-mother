@@ -47,6 +47,19 @@ public class LocalAppDeploymentService implements AppDeploymentService {
     private final AppOperationLockManager operationLockManager;
     private final ConcurrentMap<Long, String> screenshotVersions;
 
+    /**
+ * 创建{@code Local}应用部署服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param artifactLifecycleService 制品生命周期服务
+ * @param vueProjectBuilder {@code vueProjectBuilder} 对应的调用参数
+ * @param screenshotService 截图服务
+ * @param appMapper 应用映射器
+ * @param deploymentProperties 部署配置属性
+ * @param operationLockManager 操作锁管理器
+ * @param deploymentKeyPolicy 部署键策略
+ * @param deploymentKeyGenerator 部署键生成器
+ * @param screenshotExecutor 截图执行器
+ */
     public LocalAppDeploymentService(AppArtifactLifecycleService artifactLifecycleService,
                                      VueProjectBuilder vueProjectBuilder,
                                      ScreenshotService screenshotService,
@@ -81,6 +94,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         return deployWithCurrentState(app, true);
     }
 
+    /** 返回部署并当前状态。 */
     private String deployWithCurrentState(App requestedApp, boolean requireExistingDeployment) {
         validateApp(requestedApp);
         requireSupportedCodeType(requestedApp.getCodeGenType());
@@ -98,6 +112,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         });
     }
 
+    /** 返回部署{@code Locked}。 */
     private String deployLocked(App app) {
         CodeGenTypeEnum codeGenType = requireSupportedCodeType(app.getCodeGenType());
         Path generatedDirectory = artifactLifecycleService.requireGeneratedDirectory(app);
@@ -128,6 +143,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         return deployUrl;
     }
 
+    /** 准备后续流程所需的{@code Deployable}目录。 */
     private Path prepareDeployableDirectory(CodeGenTypeEnum codeGenType, Path generatedDirectory) {
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
             return generatedDirectory;
@@ -145,6 +161,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         return distDirectory;
     }
 
+    /** 校验并返回有效的支持的代码类型。 */
     private CodeGenTypeEnum requireSupportedCodeType(String codeGenTypeValue) {
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(codeGenTypeValue);
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
@@ -176,6 +193,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         return deployHost + "/" + deployKey + "/";
     }
 
+    /** 根据输入生成截图异步。 */
     private void generateScreenshotAsync(Long appId,
                                          LocalDateTime deployedTime,
                                          String deployUrl,
@@ -204,6 +222,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         }
     }
 
+    /** 更新{@code Cover}{@code If}部署{@code Is}当前。 */
     private void updateCoverIfDeploymentIsCurrent(Long appId,
                                                   LocalDateTime deployedTime,
                                                   String screenshotUrl,
@@ -219,6 +238,7 @@ public class LocalAppDeploymentService implements AppDeploymentService {
         });
     }
 
+    /** 处理回滚部署。 */
     private void rollbackDeployment(DeploymentArtifactTransaction artifactTransaction,
                                     RuntimeException deploymentFailure) {
         try {

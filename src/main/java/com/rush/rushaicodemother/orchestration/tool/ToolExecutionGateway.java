@@ -23,6 +23,16 @@ public class ToolExecutionGateway {
     private final GenerationToolExecutionContextService toolExecutionContextService;
     private final GenerationExecutionContextService executionContextService;
 
+    /**
+ * 应用补丁。
+ *
+ * @param appId 应用编号
+ * @param projectRoot 项目根
+ * @param operations 操作
+ * @param fallbackTaskId 回退任务编号
+ * @param reason 原因
+ * @return 补丁
+ */
     public PatchApplyResult applyPatch(Long appId,
                                        Path projectRoot,
                                        List<PatchOperation> operations,
@@ -48,6 +58,16 @@ public class ToolExecutionGateway {
         return result;
     }
 
+    /**
+ * 应用补丁。
+ *
+ * @param appId 应用编号
+ * @param projectRoot 项目根
+ * @param operation 操作
+ * @param fallbackTaskId 回退任务编号
+ * @param reason 原因
+ * @return 补丁
+ */
     public PatchApplyResult applyPatch(Long appId,
                                        Path projectRoot,
                                        PatchOperation operation,

@@ -28,6 +28,7 @@ final class GoBuildDiagnosticFormatter {
         return PublicDiagnosticSanitizer.sanitizeForPublicOutput(report.toString());
     }
 
+    /** 将当前对象转换为公开失败汇总。 */
     static String toPublicFailureSummary(GoBuildResult result) {
         StringBuilder summary = new StringBuilder("Go 项目构建测试失败")
                 .append("，阶段: ").append(result.stage())
@@ -45,6 +46,7 @@ final class GoBuildDiagnosticFormatter {
         return PublicDiagnosticSanitizer.sanitizeSingleLine(summary.toString(), 1_200);
     }
 
+    /** 追加命令结果。 */
     private static void appendCommandResult(StringBuilder report, ProjectCommandResult result) {
         if (result == null) {
             return;

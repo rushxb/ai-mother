@@ -22,6 +22,11 @@ public record AgentEditReadResult(
         return contextPackage == null || contextPackage.isEmpty();
     }
 
+    /**
+ * 从候选项中选择{@code ed}文件。
+ *
+ * @return {@code ed}文件集合
+ */
     public List<String> selectedFiles() {
         return contextPackage == null || contextPackage.candidates() == null
                 ? List.of()

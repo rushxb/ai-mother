@@ -38,6 +38,11 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
     private final GenerationTaskRuntimeMapper mapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
 
+    /**
+ * 创建{@code Submitted}。
+ *
+ * @param task 任务
+ */
     @Override
     @Transactional
     public void createSubmitted(GenerationTaskSubmissionRecord task) {
@@ -67,6 +72,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 .runtimeSchemaVersion(task.command().schemaVersion())
                 .runtimePayloadJson(GenerationTaskCommandCodec.toJson(task.command()))
                 .build();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             requireOneRow(mapper.insertSubmittedTask(entity), "create submitted generation task");
         } catch (DuplicateKeyException duplicateKey) {
@@ -83,18 +89,36 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         }
     }
 
+    /**
+ * 查找匹配的按任务编号。
+ *
+ * @param taskId 任务编号
+ * @return 可选的按任务编号；不存在时返回空值
+ */
     @Override
     public Optional<DurableGenerationTaskRecord> findByTaskId(String taskId) {
         requireTaskId(taskId);
         return Optional.ofNullable(mapper.selectRuntimeByTaskId(taskId)).map(this::toRecord);
     }
 
+    /**
+ * 查找匹配的{@code Latest}{@code Non}{@code Terminal}按应用编号。
+ *
+ * @param appId 应用编号
+ * @return 可选的{@code Latest}{@code Non}{@code Terminal}按应用编号；不存在时返回空值
+ */
     @Override
     public Optional<DurableGenerationTaskRecord> findLatestNonTerminalByAppId(Long appId) {
         if (appId == null || appId <= 0) throw new IllegalArgumentException("appId must be positive");
         return Optional.ofNullable(mapper.selectLatestNonTerminalByAppId(appId)).map(this::toRecord);
     }
 
+    /**
+ * 查找匹配的命令按任务编号。
+ *
+ * @param taskId 任务编号
+ * @return 可选的命令按任务编号；不存在时返回空值
+ */
     @Override
     public Optional<GenerationTaskCommand> findCommandByTaskId(String taskId) {
         requireTaskId(taskId);
@@ -131,6 +155,11 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 fence.taskId(), fence.leaseOwner(), fence.executionEpoch(), toLocal(now)) == 1;
     }
 
+    /**
+ * 加载当前{@code Load}。
+ *
+ * @return 当前{@code Load}
+ */
     @Override
     public GenerationTaskLoadSnapshot loadCurrentLoad() {
         return new GenerationTaskLoadSnapshot(
@@ -140,6 +169,15 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         );
     }
 
+    /**
+ * 返回{@code reserve}{@code Queued}。
+ *
+ * @param taskId 任务编号
+ * @param owner 所有者
+ * @param now 当前时间
+ * @param until {@code until} 对应的调用参数
+ * @return 可选的{@code My}{@code Batis}持久生成任务；不存在时返回空值
+ */
     @Override
     @Transactional
     public Optional<GenerationTaskLease> reserveQueued(String taskId,
@@ -153,6 +191,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         return Optional.of(requireOwnedLease(taskId, owner));
     }
 
+    /**
+ * 返回{@code activate}。
+ *
+ * @param lease 租约
+ * @param now 当前时间
+ * @param until {@code until} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean activate(GenerationTaskLease lease, Instant now, Instant until) {
         requireLeaseArguments(lease, now, until);
@@ -161,6 +207,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 toLocal(now), toLocal(until)) == 1;
     }
 
+    /**
+ * 释放{@code Claim}{@code To}{@code Queue}。
+ *
+ * @param lease 租约
+ * @param releasedAt {@code releasedAt} 对应的调用参数
+ * @param reason 原因
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean releaseClaimToQueue(GenerationTaskLease lease,
                                        Instant releasedAt,
@@ -174,6 +228,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 toLocal(releasedAt), normalizeReason(reason)) == 1;
     }
 
+    /**
+ * 返回{@code renew}租约。
+ *
+ * @param lease 租约
+ * @param now 当前时间
+ * @param until {@code until} 对应的调用参数
+ * @return {@code My}{@code Batis}持久生成任务
+ */
     @Override
     @Transactional
     public GenerationTaskLeaseRenewal renewLease(GenerationTaskLease lease,
@@ -192,6 +254,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 current.getCancellationReason());
     }
 
+    /**
+ * 返回{@code suspend}{@code For}审批。
+ *
+ * @param lease 租约
+ * @param stageMessage 阶段消息
+ * @param suspendedAt {@code suspendedAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean suspendForApproval(GenerationTaskLease lease,
                                       String stageMessage,
@@ -208,6 +278,15 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 normalizedMessage, toLocal(suspendedAt)) == 1;
     }
 
+    /**
+ * 返回{@code requeue}执行后审批。
+ *
+ * @param taskId 任务编号
+ * @param owner 所有者
+ * @param now 当前时间
+ * @param until {@code until} 对应的调用参数
+ * @return 可选的{@code My}{@code Batis}持久生成任务；不存在时返回空值
+ */
     @Override
     @Transactional
     public Optional<GenerationTaskLease> requeueAfterApproval(String taskId,
@@ -222,6 +301,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         return Optional.of(requireOwnedLease(taskId, owner));
     }
 
+    /**
+ * 返回恢复{@code Waiting}执行后{@code Dispatch}失败。
+ *
+ * @param lease 租约
+ * @param stageMessage 阶段消息
+ * @param restoredAt {@code restoredAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean restoreWaitingAfterDispatchFailure(GenerationTaskLease lease,
                                                       String stageMessage,
@@ -238,6 +325,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 normalizedMessage, toLocal(restoredAt)) == 1;
     }
 
+    /**
+ * 返回恢复{@code Waiting}执行后{@code Stale}工具执行。
+ *
+ * @param candidate 候选
+ * @param stageMessage 阶段消息
+ * @param restoredAt {@code restoredAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean restoreWaitingAfterStaleToolExecution(GenerationTaskRecoveryCandidate candidate,
                                                          String stageMessage,
@@ -252,6 +347,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 normalizedMessage, toLocal(restoredAt)) == 1;
     }
 
+    /**
+ * 返回请求{@code Cancellation}。
+ *
+ * @param taskId 任务编号
+ * @param reason 原因
+ * @param requestedAt {@code requestedAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean requestCancellation(String taskId, String reason, Instant requestedAt) {
         requireTaskId(taskId);
@@ -261,6 +364,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         return findByTaskId(taskId).map(DurableGenerationTaskRecord::cancellationRequested).orElse(false);
     }
 
+    /**
+ * 完成{@code Owned}并持久化终态。
+ *
+ * @param lease 租约
+ * @param status 目标状态
+ * @param reason 原因
+ * @param completedAt 完成时间
+ */
     @Override
     @Transactional
     public void completeOwned(GenerationTaskLease lease,
@@ -277,6 +388,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         requireIdempotentTerminalStatus(lease.taskId(), status);
     }
 
+    /**
+ * 将无主任务更新为指定终态。
+ *
+ * @param taskId 任务编号
+ * @param status 目标状态
+ * @param reason 原因
+ * @param completedAt 完成时间
+ */
     @Override
     @Transactional
     public void completeUnowned(String taskId,
@@ -302,6 +421,13 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         }
     }
 
+    /**
+ * 查找匹配的{@code Expired}{@code Leases}。
+ *
+ * @param now 当前时间
+ * @param limit 资源上限
+ * @return {@code Expired}{@code Leases}集合
+ */
     @Override
     public List<GenerationTaskRecoveryCandidate> findExpiredLeases(Instant now, int limit) {
         Objects.requireNonNull(now, "now");
@@ -313,6 +439,15 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         return values.stream().filter(Objects::nonNull).map(this::toRecoveryCandidate).toList();
     }
 
+    /**
+ * 返回{@code finalize}{@code Expired}租约。
+ *
+ * @param candidate 候选
+ * @param terminalStatus 待处理的 {@code terminalStatus} 集合
+ * @param completedAt 完成时间
+ * @param reason 原因
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean finalizeExpiredLease(GenerationTaskRecoveryCandidate candidate,
                                         GenerationTaskStatus terminalStatus,
@@ -331,6 +466,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         ) == 1;
     }
 
+    /**
+ * 返回{@code requeue}{@code Expired}租约。
+ *
+ * @param candidate 候选
+ * @param requeuedAt {@code requeuedAt} 对应的调用参数
+ * @param reason 原因
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean requeueExpiredLease(GenerationTaskRecoveryCandidate candidate,
                                        Instant requeuedAt,
@@ -346,6 +489,14 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         ) == 1;
     }
 
+    /**
+ * 查找匹配的{@code Dispatchable}{@code Queued}任务{@code Ids}。
+ *
+ * @param now 当前时间
+ * @param dispatchedBefore {@code dispatchedBefore} 对应的调用参数
+ * @param limit 资源上限
+ * @return {@code Dispatchable}{@code Queued}任务{@code Ids}集合
+ */
     @Override
     public List<String> findDispatchableQueuedTaskIds(Instant now,
                                                        Instant dispatchedBefore,
@@ -363,6 +514,12 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 .toList();
     }
 
+    /**
+ * 记录{@code Dispatch}成功相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param dispatchedAt {@code dispatchedAt} 对应的调用参数
+ */
     @Override
     public void recordDispatchSuccess(String taskId, Instant dispatchedAt) {
         requireTaskId(taskId);
@@ -370,6 +527,13 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         mapper.recordDispatchSuccess(taskId, toLocal(dispatchedAt));
     }
 
+    /**
+ * 记录{@code Dispatch}失败相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param error 错误
+ * @param failedAt {@code failedAt} 对应的调用参数
+ */
     @Override
     public void recordDispatchFailure(String taskId, String error, Instant failedAt) {
         requireTaskId(taskId);
@@ -381,6 +545,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         mapper.recordDispatchFailure(taskId, normalized, toLocal(failedAt));
     }
 
+    /** 将当前对象转换为记录。 */
     private DurableGenerationTaskRecord toRecord(GenerationTask entity) {
         GenerationTaskStatus status = GenerationTaskStatus.fromValue(entity.getStatus());
         if (status == null || entity.getTaskId() == null || entity.getAppId() == null
@@ -398,6 +563,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 toInstant(entity.getEndTime()), entity.getErrorMessage());
     }
 
+    /** 校验{@code ate}{@code Duplicate}{@code Identity}是否有效。 */
     private void validateDuplicateIdentity(GenerationTask existing,
                                            GenerationTaskSubmissionRecord task) {
         if (existing == null || !Objects.equals(existing.getAppId(), task.appId())
@@ -424,6 +590,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         }
     }
 
+    /** 将当前对象转换为恢复候选。 */
     private GenerationTaskRecoveryCandidate toRecoveryCandidate(GenerationTask entity) {
         GenerationTaskStatus status = GenerationTaskStatus.fromValue(entity.getStatus());
         if (status == null || status.isTerminal()) {
@@ -439,6 +606,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         );
     }
 
+    /** 校验并返回有效的{@code Owned}租约。 */
     private GenerationTaskLease requireOwnedLease(String taskId, String owner) {
         GenerationTask entity = mapper.selectOwnedLease(taskId, owner);
         if (entity == null || entity.getLeaseUntil() == null || entity.getExecutionEpoch() == null
@@ -459,6 +627,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         requireLeaseArguments(lease.taskId(), lease.leaseOwner(), now, until);
     }
 
+    /** 校验并返回有效的租约参数。 */
     private void requireLeaseArguments(String taskId, String owner, Instant now, Instant until) {
         requireTaskId(taskId);
         if (owner == null || owner.isBlank()) throw new IllegalArgumentException("leaseOwner cannot be blank");

@@ -26,6 +26,7 @@ public record PatchApplyResult(
         LocalDateTime createdAt
 ) {
 
+    /** 创建补丁{@code Apply}结果实例并完成必要的依赖和初始状态设置。 */
     public PatchApplyResult {
         schemaVersion = StrUtil.blankToDefault(schemaVersion, "v1");
         provider = StrUtil.blankToDefault(provider, "local_patch_executor");
@@ -37,6 +38,16 @@ public record PatchApplyResult(
         createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
     }
 
+    /**
+ * 返回{@code applied}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectPath 项目路径
+ * @param plannedOperationCount {@code plannedOperationCount} 对应的调用参数
+ * @param appliedFiles 待处理的 {@code appliedFiles} 集合
+ * @return 补丁{@code Apply}结果
+ */
     public static PatchApplyResult applied(Long appId,
                                            String taskId,
                                            String projectPath,
@@ -59,6 +70,17 @@ public record PatchApplyResult(
         );
     }
 
+    /**
+ * 拒绝{@code ed}并记录原因。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectPath 项目路径
+ * @param plannedOperationCount {@code plannedOperationCount} 对应的调用参数
+ * @param rejectedOperations 待处理的 {@code rejectedOperations} 集合
+ * @param reason 原因
+ * @return {@code ed}
+ */
     public static PatchApplyResult rejected(Long appId,
                                             String taskId,
                                             String projectPath,
@@ -82,6 +104,15 @@ public record PatchApplyResult(
         );
     }
 
+    /**
+ * 返回{@code skipped}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectPath 项目路径
+ * @param reason 原因
+ * @return 补丁{@code Apply}结果
+ */
     public static PatchApplyResult skipped(Long appId, String taskId, String projectPath, String reason) {
         return new PatchApplyResult(
                 "v1",
@@ -100,6 +131,11 @@ public record PatchApplyResult(
         );
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", schemaVersion);

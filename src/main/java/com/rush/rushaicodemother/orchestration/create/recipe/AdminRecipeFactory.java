@@ -15,6 +15,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class AdminRecipeFactory {
 
+    /** 创建管理端{@code Recipe}。 */
     AdminRecipe create(String userMessage, CreateSpec spec) {
         String brand = firstNonBlank(spec.product() == null ? null : spec.product().brandName(), inferBrand(userMessage, "运营中台"));
         String domain = firstNonBlank(readableDomain(spec.product() == null ? null : spec.product().domain()), inferIndustry(userMessage));

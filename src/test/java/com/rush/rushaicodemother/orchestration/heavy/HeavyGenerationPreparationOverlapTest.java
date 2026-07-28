@@ -42,7 +42,7 @@ class HeavyGenerationPreparationOverlapTest {
     void disabledPolicyMustKeepMemoryBuildBeforeOrchestration() {
         AtomicBoolean memoryReady = new AtomicBoolean();
         GenerationMemoryContextService memoryService = mock(GenerationMemoryContextService.class);
-        when(memoryService.buildGenerationMemoryContext(any(), any(), any())).thenAnswer(invocation -> {
+        when(memoryService.buildGenerationMemoryContext(any(), any(), any(), any())).thenAnswer(invocation -> {
             memoryReady.set(true);
             return "memory";
         });
@@ -64,7 +64,7 @@ class HeavyGenerationPreparationOverlapTest {
         CountDownLatch releaseMemory = new CountDownLatch(1);
         AtomicBoolean memoryFinished = new AtomicBoolean();
         GenerationMemoryContextService memoryService = mock(GenerationMemoryContextService.class);
-        when(memoryService.buildGenerationMemoryContext(any(), any(), any())).thenAnswer(invocation -> {
+        when(memoryService.buildGenerationMemoryContext(any(), any(), any(), any())).thenAnswer(invocation -> {
             memoryStarted.countDown();
             assertTrue(releaseMemory.await(2, TimeUnit.SECONDS));
             memoryFinished.set(true);
@@ -92,7 +92,7 @@ class HeavyGenerationPreparationOverlapTest {
         CountDownLatch memoryInterrupted = new CountDownLatch(1);
         CountDownLatch releaseMemory = new CountDownLatch(1);
         GenerationMemoryContextService memoryService = mock(GenerationMemoryContextService.class);
-        when(memoryService.buildGenerationMemoryContext(any(), any(), any())).thenAnswer(invocation -> {
+        when(memoryService.buildGenerationMemoryContext(any(), any(), any(), any())).thenAnswer(invocation -> {
             memoryStarted.countDown();
             try {
                 releaseMemory.await(5, TimeUnit.SECONDS);
@@ -124,7 +124,7 @@ class HeavyGenerationPreparationOverlapTest {
         CountDownLatch memoryInterrupted = new CountDownLatch(1);
         CountDownLatch releaseMemory = new CountDownLatch(1);
         GenerationMemoryContextService memoryService = mock(GenerationMemoryContextService.class);
-        when(memoryService.buildGenerationMemoryContext(any(), any(), any())).thenAnswer(invocation -> {
+        when(memoryService.buildGenerationMemoryContext(any(), any(), any(), any())).thenAnswer(invocation -> {
             memoryStarted.countDown();
             try {
                 releaseMemory.await(5, TimeUnit.SECONDS);

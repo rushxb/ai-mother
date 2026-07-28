@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.memory.GenerationSemanticMemoryService;
 import com.rush.rushaicodemother.monitor.GenerationContextPreparationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.context.AiContextPackAssembler;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextReadExecutor;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,8 @@ class GenerationMemoryContextServiceSpringWiringTest {
             .withBean(GenerationMemoryContextProperties.class, GenerationMemoryContextProperties::new)
             .withBean(GenerationContextPreparationMetricsCollector.class,
                     () -> new GenerationContextPreparationMetricsCollector(new SimpleMeterRegistry()))
+            .withBean(GenerationExecutionContextService.class,
+                    () -> mock(GenerationExecutionContextService.class))
             .withUserConfiguration(
                     GenerationMemoryContextReadExecutor.class,
                     GenerationMemoryContextServiceImpl.class

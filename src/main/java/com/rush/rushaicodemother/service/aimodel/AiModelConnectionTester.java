@@ -17,6 +17,12 @@ public class AiModelConnectionTester {
 
     private final AiModelSecretService secretService;
 
+    /**
+ * 返回{@code test}。
+ *
+ * @param configuration 配置
+ * @return AI 模型连接{@code Tester}
+ */
     public AiModelConnectionTestResultVO test(AiModelRuntimeConfiguration configuration) {
         try {
             OpenAiChatModel.OpenAiChatModelBuilder builder = OpenAiChatModel.builder()

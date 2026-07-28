@@ -39,6 +39,14 @@ public class GeneratedCodeSandboxMetricsCollector {
         return new GeneratedCodeSandboxMetricsCollector();
     }
 
+    /**
+ * 记录执行相关指标或状态。
+ *
+ * @param backend 后端
+ * @param workload {@code workload} 对应的调用参数
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordExecution(
             String backend,
             String workload,
@@ -68,6 +76,12 @@ public class GeneratedCodeSandboxMetricsCollector {
                 .register(meterRegistry)).record(nonNegative(duration));
     }
 
+    /**
+ * 记录{@code Cleanup}相关指标或状态。
+ *
+ * @param backend 后端
+ * @param status 目标状态
+ */
     public void recordCleanup(String backend, String status) {
         if (meterRegistry == null) {
             return;
@@ -83,6 +97,12 @@ public class GeneratedCodeSandboxMetricsCollector {
                 .register(meterRegistry)).increment();
     }
 
+    /**
+ * 记录就绪状态相关指标或状态。
+ *
+ * @param resource 资源
+ * @param status 目标状态
+ */
     public void recordReadiness(String resource, String status) {
         if (meterRegistry == null) {
             return;

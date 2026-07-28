@@ -50,6 +50,12 @@ public class ToolWorkspaceFileService {
     private final PatchWorkspaceFileService patchWorkspaceFileService;
     private final AiToolWorkspaceProperties properties;
 
+    /**
+ * 根据当前上下文解析项目根。
+ *
+ * @param appId 应用编号
+ * @return 解析后的项目根路径
+ */
     public Path resolveProjectRoot(Long appId) {
         Path configuredRoot = toolPathSupport.resolveProjectRoot(appId);
         try {
@@ -114,6 +120,12 @@ public class ToolWorkspaceFileService {
         }
     }
 
+    /**
+ * 返回{@code exists}。
+ *
+ * @param file 文件
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean exists(ToolWorkspaceFile file) {
         try {
             return patchWorkspaceFileService.exists(requireFile(file).target());
@@ -122,6 +134,12 @@ public class ToolWorkspaceFileService {
         }
     }
 
+    /**
+ * 判断常规文件是否满足约束。
+ *
+ * @param file 文件
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isRegularFile(ToolWorkspaceFile file) {
         try {
             return patchWorkspaceFileService.isRegularFile(requireFile(file).target());
@@ -130,6 +148,12 @@ public class ToolWorkspaceFileService {
         }
     }
 
+    /**
+ * 读取{@code Utf8}。
+ *
+ * @param file 文件
+ * @return 处理后的{@code Utf8}文本
+ */
     public String readUtf8(ToolWorkspaceFile file) {
         try {
             return patchWorkspaceFileService.readUtf8(
@@ -143,6 +167,13 @@ public class ToolWorkspaceFileService {
         }
     }
 
+    /**
+ * 列出符合条件的目录。
+ *
+ * @param appId 应用编号
+ * @param relativeDirectoryPath {@code relativeDirectoryPath} 对应的调用参数
+ * @return 目录
+ */
     public DirectoryListing listDirectory(Long appId, String relativeDirectoryPath) {
         Path projectRoot = resolveProjectRoot(appId);
         Path directory = projectRoot;
@@ -156,6 +187,7 @@ public class ToolWorkspaceFileService {
 
         DirectoryCollector collector = new DirectoryCollector(projectRoot, directory);
         int traversalDepth = Math.addExact(properties.getMaxDirectoryDepth(), 1);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Files.walkFileTree(
                     directory,
@@ -175,6 +207,7 @@ public class ToolWorkspaceFileService {
         return new DirectoryListing(entries, collector.truncated);
     }
 
+    /** 判断目录是否满足约束。 */
     private boolean isDirectory(ToolWorkspaceFile file) {
         try {
             return patchWorkspaceFileService.isDirectory(requireFile(file).target());
@@ -197,6 +230,7 @@ public class ToolWorkspaceFileService {
         return directory;
     }
 
+    /** 处理{@code revalidate}目录。 */
     private void revalidateDirectory(ToolWorkspaceDirectory directory) throws PatchWorkspaceException {
         if (directory.target() == null) {
             patchWorkspaceFileService.resolveProjectRoot(directory.projectRoot());
@@ -207,6 +241,7 @@ public class ToolWorkspaceFileService {
         }
     }
 
+    /** 返回{@code revalidate}{@code Visited}路径。 */
     private PatchWorkspaceTarget revalidateVisitedPath(Path projectRoot, Path visitedPath)
             throws PatchWorkspaceException {
         Path normalizedPath = visitedPath.toAbsolutePath().normalize();
@@ -221,6 +256,7 @@ public class ToolWorkspaceFileService {
         return patchWorkspaceFileService.resolve(projectRoot, relativePath);
     }
 
+    /** 将输入映射为工作区异常。 */
     private ToolInputException mapWorkspaceException(PatchWorkspaceException exception) {
         String publicMessage = switch (exception.reason()) {
             case "invalid_path" -> "文件路径格式错误";
@@ -236,6 +272,7 @@ public class ToolWorkspaceFileService {
         return new ToolInputException(publicMessage, exception);
     }
 
+    /** 判断是否应执行{@code Ignore}。 */
     private static boolean shouldIgnore(Path path) {
         Path fileNamePath = path.getFileName();
         if (fileNamePath == null) {
@@ -250,6 +287,7 @@ public class ToolWorkspaceFileService {
 
     public record ToolWorkspaceFile(String relativePath, PatchWorkspaceTarget target) {
 
+        /** 创建工具工作区文件实例并完成必要的依赖和初始状态设置。 */
         public ToolWorkspaceFile {
             if (relativePath == null || relativePath.isBlank()) {
                 throw new IllegalArgumentException("relativePath must not be blank");
@@ -265,6 +303,11 @@ public class ToolWorkspaceFileService {
             return target.absolutePath();
         }
 
+        /**
+ * 返回文件名称。
+ *
+ * @return 处理后的工具工作区文件文本
+ */
         public String fileName() {
             Path fileName = target.absolutePath().getFileName();
             return fileName == null ? "" : fileName.toString();
@@ -277,6 +320,7 @@ public class ToolWorkspaceFileService {
             PatchWorkspaceTarget target
     ) {
 
+        /** 创建工具工作区目录实例并完成必要的依赖和初始状态设置。 */
         public ToolWorkspaceDirectory {
             relativePath = relativePath == null ? "" : relativePath;
             Objects.requireNonNull(projectRoot, "projectRoot");
@@ -308,16 +352,27 @@ public class ToolWorkspaceFileService {
 
     public record DirectoryEntry(String relativePath, boolean directory) {
 
+        /** 创建目录条目实例并完成必要的依赖和初始状态设置。 */
         public DirectoryEntry {
             if (relativePath == null || relativePath.isBlank()) {
                 throw new IllegalArgumentException("relativePath must not be blank");
             }
         }
 
+        /**
+ * 返回{@code depth}。
+ *
+ * @return 计算或处理后的数值结果
+ */
         public int depth() {
             return Path.of(relativePath).getNameCount() - 1;
         }
 
+        /**
+ * 返回文件名称。
+ *
+ * @return 处理后的目录条目文本
+ */
         public String fileName() {
             Path fileName = Path.of(relativePath).getFileName();
             return fileName == null ? "" : fileName.toString();
@@ -343,6 +398,13 @@ public class ToolWorkspaceFileService {
             this.listingRoot = listingRoot;
         }
 
+        /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
         @Override
         public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
             if (attributes.isSymbolicLink() || Files.isSymbolicLink(directory)) {
@@ -366,6 +428,13 @@ public class ToolWorkspaceFileService {
             return addEntry(directory, true);
         }
 
+        /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return 目录
+ */
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
             if (file.equals(listingRoot)) {
@@ -391,6 +460,13 @@ public class ToolWorkspaceFileService {
             throw exception;
         }
 
+        /**
+ * 在目录访问完成后处理异常并收口遍历状态。
+ *
+ * @param directory 目录
+ * @param exception 待转换或处理的异常
+ * @return 方法执行结果
+ */
         @Override
         public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
             if (exception != null) {

@@ -45,6 +45,12 @@ public class GenerationSkillLibrary {
         logSkillRegistrySummary(filesystemSkillRoots, includeClasspathSkills, this.skills);
     }
 
+    /**
+ * 返回{@code match}。
+ *
+ * @param userMessage 用户消息
+ * @return 生成{@code Skill}{@code Library}集合
+ */
     public List<GenerationSkill> match(String userMessage) {
         String normalized = normalize(userMessage);
         if (StrUtil.isBlank(normalized)) {
@@ -74,6 +80,12 @@ public class GenerationSkillLibrary {
         return matchedSkills;
     }
 
+    /**
+ * 返回{@code modules}。
+ *
+ * @param matchedSkills 待处理的 {@code matchedSkills} 集合
+ * @return 生成{@code Skill}{@code Library}集合
+ */
     public List<String> modules(List<GenerationSkill> matchedSkills) {
         if (matchedSkills == null || matchedSkills.isEmpty()) {
             return List.of();
@@ -83,6 +95,12 @@ public class GenerationSkillLibrary {
         return List.copyOf(modules);
     }
 
+    /**
+ * 返回上下文文件{@code Hints}。
+ *
+ * @param matchedSkills 待处理的 {@code matchedSkills} 集合
+ * @return 生成{@code Skill}{@code Library}集合
+ */
     public List<String> contextFileHints(List<GenerationSkill> matchedSkills) {
         if (matchedSkills == null || matchedSkills.isEmpty()) {
             return List.of();
@@ -92,6 +110,12 @@ public class GenerationSkillLibrary {
         return List.copyOf(hints);
     }
 
+    /**
+ * 将当前对象转换为{@code Payloads}。
+ *
+ * @param matchedSkills 待处理的 {@code matchedSkills} 集合
+ * @return {@code Payloads}集合
+ */
     public List<Map<String, Object>> toPayloads(List<GenerationSkill> matchedSkills) {
         if (matchedSkills == null || matchedSkills.isEmpty()) {
             return List.of();
@@ -115,6 +139,7 @@ public class GenerationSkillLibrary {
                 .toList();
     }
 
+    /** 加载{@code Skills}。 */
     private List<GenerationSkill> loadSkills(List<Path> filesystemSkillRoots, boolean includeClasspathSkills) {
         Map<String, GenerationSkill> loaded = new LinkedHashMap<>();
         if (includeClasspathSkills) {
@@ -128,6 +153,7 @@ public class GenerationSkillLibrary {
         return new ArrayList<>(loaded.values());
     }
 
+    /** 加载{@code Classpath}{@code Skills}。 */
     private List<GenerationSkill> loadClasspathSkills() {
         ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
         try {
@@ -151,6 +177,7 @@ public class GenerationSkillLibrary {
         }
     }
 
+    /** 加载文件{@code System}{@code Skills}。 */
     private List<GenerationSkill> loadFileSystemSkills(Path root) {
         if (root == null || !Files.exists(root) || !Files.isDirectory(root)) {
             return List.of();
@@ -173,6 +200,7 @@ public class GenerationSkillLibrary {
         }
     }
 
+    /** 解析{@code Skill}。 */
     private GenerationSkill parseSkill(String content, String sourcePath) {
         String normalizedContent = StrUtil.blankToDefault(content, "").replace("\r\n", "\n");
         String[] lines = normalizedContent.split("\n", -1);
@@ -226,6 +254,7 @@ public class GenerationSkillLibrary {
         );
     }
 
+    /** 返回{@code score}。 */
     private int score(GenerationSkill skill, String normalizedText) {
         int score = 0;
         if (contains(normalizedText, skill.id())) {
@@ -254,6 +283,7 @@ public class GenerationSkillLibrary {
         return normalizedText.contains(normalize(keyword));
     }
 
+    /** 返回{@code split}列表。 */
     private List<String> splitList(String... values) {
         if (values == null || values.length == 0) {
             return List.of();
@@ -279,6 +309,7 @@ public class GenerationSkillLibrary {
         return List.copyOf(result);
     }
 
+    /** 返回首次{@code Non}{@code Blank}。 */
     private String firstNonBlank(String... values) {
         if (values == null || values.length == 0) {
             return "";
@@ -291,6 +322,7 @@ public class GenerationSkillLibrary {
         return "";
     }
 
+    /** 返回{@code derive}回退编号。 */
     private String deriveFallbackId(String sourcePath) {
         if (StrUtil.isBlank(sourcePath)) {
             return "skill";
@@ -319,6 +351,7 @@ public class GenerationSkillLibrary {
         return StrUtil.blankToDefault(value, "").trim().toLowerCase(Locale.ROOT);
     }
 
+    /** 处理日志{@code Skill}注册器汇总。 */
     private void logSkillRegistrySummary(List<Path> filesystemSkillRoots,
                                          boolean includeClasspathSkills,
                                          List<GenerationSkill> loadedSkills) {

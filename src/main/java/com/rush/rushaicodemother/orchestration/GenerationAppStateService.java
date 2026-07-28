@@ -57,6 +57,14 @@ public class GenerationAppStateService {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    /**
+ * 以原子方式声明生成状态。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param generatingStage {@code generatingStage} 对应的调用参数
+ * @param targetType 目标类型
+ */
     public void claimGenerationState(Long appId,
                                      String taskId,
                                      String generatingStage,
@@ -86,6 +94,14 @@ public class GenerationAppStateService {
         throw new BusinessException(ErrorCode.OPERATION_ERROR, "当前应用正在执行其他生成任务，请稍后再试");
     }
 
+    /**
+ * 更新{@code Owned}生成阶段。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param generatingStage {@code generatingStage} 对应的调用参数
+ * @param generatingMessage {@code generatingMessage} 对应的调用参数
+ */
     public void updateOwnedGenerationStage(Long appId,
                                            String taskId,
                                            String generatingStage,
@@ -106,6 +122,13 @@ public class GenerationAppStateService {
         requireOwnedWrite(updatedRows, normalizedAppId);
     }
 
+    /**
+ * 更新{@code Owned}生成快照。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param generatingMessage {@code generatingMessage} 对应的调用参数
+ */
     public void updateOwnedGenerationSnapshot(Long appId,
                                               String taskId,
                                               String generatingMessage) {
@@ -123,6 +146,13 @@ public class GenerationAppStateService {
         requireOwnedWrite(updatedRows, normalizedAppId);
     }
 
+    /**
+ * 更新{@code Owned}代码生成类型。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param codeGenType 代码生成类型
+ */
     public void updateOwnedCodeGenType(Long appId, String taskId, CodeGenTypeEnum codeGenType) {
         String normalizedTaskId = requireTaskId(taskId);
         updateOwnedCodeGenType(
@@ -133,6 +163,14 @@ public class GenerationAppStateService {
         );
     }
 
+    /**
+ * 更新{@code Owned}代码生成类型。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param executionEpoch 执行轮次
+ * @param codeGenType 代码生成类型
+ */
     public void updateOwnedCodeGenType(Long appId,
                                        String taskId,
                                        long executionEpoch,
@@ -151,10 +189,25 @@ public class GenerationAppStateService {
         requireOwnedWrite(updatedRows, normalizedAppId);
     }
 
+    /**
+ * 释放{@code Owned}生成状态。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean releaseOwnedGenerationState(Long appId, String taskId) {
         return releaseOwnedGenerationState(appId, taskId, resolveExecutionEpoch(requireTaskId(taskId)));
     }
 
+    /**
+ * 释放{@code Owned}生成状态。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param executionEpoch 执行轮次
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean releaseOwnedGenerationState(Long appId,
                                                String taskId,
                                                long executionEpoch) {
@@ -176,6 +229,7 @@ public class GenerationAppStateService {
                 .orElse(0L);
     }
 
+    /** 校验并返回有效的{@code Owned}{@code Write}。 */
     private void requireOwnedWrite(int updatedRows, long appId) {
         if (updatedRows == 1) {
             return;
@@ -205,6 +259,7 @@ public class GenerationAppStateService {
         return appId;
     }
 
+    /** 校验并返回有效的任务编号。 */
     private String requireTaskId(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务 ID 不能为空");
@@ -216,6 +271,7 @@ public class GenerationAppStateService {
         return normalized;
     }
 
+    /** 校验并返回有效的阶段。 */
     private String requireStage(String stage) {
         if (stage == null || stage.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成阶段不能为空");
@@ -227,6 +283,7 @@ public class GenerationAppStateService {
         return normalized;
     }
 
+    /** 规范化消息。 */
     private String normalizeMessage(String message) {
         if (message == null) {
             return "";

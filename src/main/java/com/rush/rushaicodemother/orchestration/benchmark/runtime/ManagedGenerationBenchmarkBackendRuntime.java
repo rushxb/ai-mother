@@ -43,6 +43,17 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final GoToolchain goToolchain;
 
+    /**
+ * 创建{@code Managed}生成基准测试后端运行时实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param portAllocator {@code portAllocator} 对应的调用参数
+ * @param httpProbe {@code httpProbe} 对应的调用参数
+ * @param processExecutor 进程执行器
+ * @param processTerminator {@code processTerminator} 对应的调用参数
+ * @param workspaceFileSystemService 处理该职责的领域服务
+ * @param goToolchain {@code goToolchain} 对应的调用参数
+ */
     public ManagedGenerationBenchmarkBackendRuntime(
             GenerationBenchmarkBackendProperties properties,
             GenerationBenchmarkBackendPortAllocator portAllocator,
@@ -61,11 +72,18 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
         this.goToolchain = goToolchain;
     }
 
+    /**
+ * 启动{@code Managed}生成基准测试后端运行时。
+ *
+ * @param backendProjectDirectory 后端项目目录
+ * @return {@code Managed}生成基准测试后端运行时
+ */
     @Override
     public BackendRuntimeHandle start(Path backendProjectDirectory) {
         Path stagedProject = null;
         GenerationBenchmarkBackendPortAllocator.PortLease portLease = null;
         RuntimeCleanup cleanup = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             stagedProject = stageProject(backendProjectDirectory);
             portLease = portAllocator.reserve();
@@ -131,6 +149,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
         }
     }
 
+    /** 返回阶段项目。 */
     private Path stageProject(Path source) throws IOException {
         if (source == null) {
             throw new IllegalArgumentException("后端项目目录不能为空");
@@ -148,6 +167,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
         return workspaceFileSystemService.copyDirectory(normalizedSource, target).targetDirectory();
     }
 
+    /** 构建并返回请求。 */
     private ManagedProcessRequest buildRequest(
             Path stagedProject,
             int port,
@@ -183,6 +203,11 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
                 .logContext("port=" + port)
                 .cancellationRequested(cancellationRequested::get)
                 .lifecycle(new ManagedProcessLifecycle() {
+                    /**
+ * 响应已启动事件。
+ *
+ * @param process 进程
+ */
                     @Override
                     public void onStarted(Process process) {
                         processReference.set(process);
@@ -197,6 +222,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
                 .build();
     }
 
+    /** 启动进程。 */
     private void startProcess(
             ManagedProcessRequest request,
             CompletableFuture<ManagedProcessResult> completion
@@ -212,6 +238,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
                 });
     }
 
+    /** 等待进程开始完成。 */
     private Process awaitProcessStart(
             CompletableFuture<Process> processStarted,
             CompletableFuture<ManagedProcessResult> processCompletion
@@ -227,6 +254,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
         }
     }
 
+    /** 返回{@code launch}失败。 */
     private BackendRuntimeObservation launchFailure(
             CompletableFuture<ManagedProcessResult> processCompletion
     ) {
@@ -244,6 +272,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
         }
     }
 
+    /** 关闭部分并释放资源。 */
     private void closePartial(
             RuntimeCleanup cleanup,
             Path stagedProject,
@@ -259,6 +288,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
         deleteStagedProject(stagedProject);
     }
 
+    /** 删除{@code Staged}项目。 */
     private void deleteStagedProject(Path stagedProject) {
         if (stagedProject == null) {
             return;
@@ -295,6 +325,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
             this.processCompletion = processCompletion;
         }
 
+        /** 关闭运行时{@code Cleanup}并释放资源。 */
         private void close() {
             if (!cleanupStarted.compareAndSet(false, true)) {
                 return;
@@ -318,6 +349,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
             }
         }
 
+        /** 等待异步执行完成并返回最终结果。 */
         private boolean awaitCompletion() {
             boolean interrupted = false;
             try {

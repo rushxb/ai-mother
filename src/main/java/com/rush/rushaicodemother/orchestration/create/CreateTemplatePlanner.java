@@ -18,6 +18,13 @@ public class CreateTemplatePlanner {
 
     private static final String BACKEND_TEMPLATE = "go-sqlite-backend-basic";
 
+    /**
+ * 返回计划。
+ *
+ * @param codeGenType 代码生成类型
+ * @param userMessage 用户消息
+ * @return 创建模板{@code Planner}
+ */
     public CreateGenerationPlan plan(CodeGenTypeEnum codeGenType, String userMessage) {
         if (codeGenType == null) {
             return unsupported(null, "代码生成类型为空");
@@ -30,6 +37,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回计划{@code Vue}。 */
     private CreateGenerationPlan planVue(String userMessage) {
         String baseTemplate = selectVueBaseTemplate(userMessage);
         List<FeatureModuleManifest> modules = new ArrayList<>();
@@ -93,6 +101,7 @@ public class CreateTemplatePlanner {
         return build(CodeGenTypeEnum.VUE_PROJECT, baseTemplate, "Vue 首次生成模板计划", modules);
     }
 
+    /** 返回计划后端。 */
     private CreateGenerationPlan planBackend(String userMessage) {
         List<FeatureModuleManifest> modules = new ArrayList<>();
         modules.add(module("backend-crud-api", "Go SQLite CRUD API", BACKEND_TEMPLATE,
@@ -122,6 +131,7 @@ public class CreateTemplatePlanner {
         return build(CodeGenTypeEnum.BACKEND_PROJECT, BACKEND_TEMPLATE, "Go SQLite 后端 CRUD 模板计划", modules);
     }
 
+    /** 返回计划全栈。 */
     private CreateGenerationPlan planFullStack(String userMessage) {
         String frontendTemplate = selectVueBaseTemplate(userMessage);
         List<FeatureModuleManifest> modules = new ArrayList<>();
@@ -146,6 +156,7 @@ public class CreateTemplatePlanner {
                 modules);
     }
 
+    /** 构建并返回创建模板{@code Planner}。 */
     private CreateGenerationPlan build(CodeGenTypeEnum codeGenType,
                                        String baseTemplateId,
                                        String reason,
@@ -178,6 +189,7 @@ public class CreateTemplatePlanner {
         return new FeatureModuleManifest(moduleId, name, templateId, slotIds, reason);
     }
 
+    /** 返回默认{@code Frontend}模块。 */
     private FeatureModuleManifest defaultFrontendModule(String templateId) {
         return switch (templateId) {
             case "vue-web-admin" -> module("admin-dashboard", "后台工作台", templateId,
@@ -195,6 +207,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回{@code auth}模块。 */
     private FeatureModuleManifest authModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-auth-profile", "移动端用户中心", templateId,
@@ -212,6 +225,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回{@code crud}模块。 */
     private FeatureModuleManifest crudModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-list-detail", "移动端列表详情", templateId,
@@ -235,6 +249,7 @@ public class CreateTemplatePlanner {
                 "全栈 CRUD 需要前端管理页面、搜索表格和表单与后端 API 对齐");
     }
 
+    /** 返回{@code commerce}模块。 */
     private FeatureModuleManifest commerceModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-commerce", "移动电商", templateId,
@@ -252,6 +267,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回{@code booking}模块。 */
     private FeatureModuleManifest bookingModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-booking", "移动预约", templateId,
@@ -266,6 +282,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回内容模块。 */
     private FeatureModuleManifest contentModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-content", "移动内容流", templateId,
@@ -280,6 +297,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回{@code analytics}模块。 */
     private FeatureModuleManifest analyticsModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-analytics", "移动数据概览", templateId,
@@ -294,6 +312,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回{@code settings}模块。 */
     private FeatureModuleManifest settingsModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-profile-settings", "移动个人设置", templateId,
@@ -309,6 +328,7 @@ public class CreateTemplatePlanner {
     }
 
 
+    /** 返回{@code order}模块。 */
     private FeatureModuleManifest orderModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-orders", "移动端订单", templateId,
@@ -337,6 +357,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 搜索匹配的模块。 */
     private FeatureModuleManifest searchModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-search", "移动搜索", templateId,
@@ -362,6 +383,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回{@code contact}模块。 */
     private FeatureModuleManifest contactModule(String templateId) {
         return switch (templateId) {
             case "vue-web-mobile" -> module("mobile-contact", "移动联系", templateId,
@@ -398,6 +420,7 @@ public class CreateTemplatePlanner {
         };
     }
 
+    /** 返回{@code feature}模块。 */
     private FeatureModuleManifest featureModule(String templateId) {
         return switch (templateId) {
             case "vue-web-landing" -> module("landing-features", "落地页特性", templateId,
@@ -439,6 +462,7 @@ public class CreateTemplatePlanner {
                 "local_rules", "template_coverage_missing");
     }
 
+    /** 从候选项中选择{@code Vue}基础模板。 */
     private String selectVueBaseTemplate(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "移动端", "手机", "h5", "mobile", "商城", "会员", "预约", "vant")) {
@@ -453,6 +477,7 @@ public class CreateTemplatePlanner {
         return "vue-web-basic";
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String value, String... keywords) {
         String normalized = StrUtil.blankToDefault(value, "").toLowerCase(Locale.ROOT);
         for (String keyword : keywords) {

@@ -54,6 +54,14 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
 
     private final ChatHistoryMapper chatHistoryMapper;
 
+    /**
+ * 添加对话消息。
+ *
+ * @param appId 应用编号
+ * @param message 消息内容
+ * @param messageType 消息类型
+ * @param userId 用户编号
+ */
     @Override
     public void addChatMessage(Long appId, String message, String messageType, Long userId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
@@ -74,6 +82,13 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         }
     }
 
+    /**
+ * 复制按应用编号。
+ *
+ * @param sourceAppId 来源应用编号
+ * @param targetAppId 目标应用编号
+ * @param targetUserId 目标用户编号
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void copyByAppId(Long sourceAppId, Long targetAppId, Long targetUserId) {
@@ -87,6 +102,15 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         chatHistoryMapper.copyActiveHistory(sourceAppId, targetAppId, targetUserId);
     }
 
+    /**
+ * 列出符合条件的{@code For}应用。
+ *
+ * @param appId 应用编号
+ * @param pageSize {@code pageSize} 对应的调用参数
+ * @param lastCreateTime {@code lastCreateTime} 对应的调用参数
+ * @param lastId 目标资源编号
+ * @return {@code For}应用
+ */
     @Override
     public ChatHistorySlice listForApp(Long appId,
                                        int pageSize,
@@ -113,6 +137,12 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         return new ChatHistorySlice(visibleRecords, hasMore);
     }
 
+    /**
+ * 返回{@code page}{@code For}{@code Administration}。
+ *
+ * @param queryRequest 查询请求
+ * @return 对话历史服务{@code Impl}
+ */
     @Override
     public Page<ChatHistory> pageForAdministration(ChatHistoryQueryRequest queryRequest) {
         ThrowUtils.throwIf(queryRequest == null, ErrorCode.PARAMS_ERROR, "查询条件不能为空");
@@ -127,6 +157,14 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         );
     }
 
+    /**
+ * 加载对话历史{@code To}记忆。
+ *
+ * @param appId 应用编号
+ * @param chatMemory 对话记忆
+ * @param maxCount 最大数量
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount) {
         validatePositiveId(appId, "应用 ID 不能为空");
@@ -141,6 +179,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
                 .orderBy("id", false)
                 .limit(1, maxCount);
         List<ChatHistory> historyList;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             historyList = chatHistoryMapper.selectListByQuery(queryWrapper);
         } catch (RuntimeException exception) {
@@ -150,6 +189,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         }
 
         List<ChatMessage> messages = toChronologicalMessages(appId, historyList);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             // 查询成功后始终重建记忆，空历史也必须清除旧缓存。
             chatMemory.clear();
@@ -164,6 +204,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         }
     }
 
+    /** 构建并返回{@code Administration}查询。 */
     private QueryWrapper buildAdministrationQuery(ChatHistoryQueryRequest queryRequest) {
         String sortField = SORT_FIELDS.resolve(queryRequest.getSortField());
         boolean ascending = "ascend".equals(queryRequest.getSortOrder());
@@ -181,6 +222,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         return queryWrapper;
     }
 
+    /** 将当前对象转换为{@code Chronological}消息。 */
     private List<ChatMessage> toChronologicalMessages(Long appId, List<ChatHistory> historyList) {
         List<ChatMessage> messages = new ArrayList<>(historyList.size());
         for (ChatHistory history : historyList.reversed()) {
@@ -196,6 +238,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         return messages;
     }
 
+    /** 清理{@code Partially}{@code Rebuilt}记忆。 */
     private void clearPartiallyRebuiltMemory(MessageWindowChatMemory chatMemory,
                                              Long appId,
                                              RuntimeException rebuildFailure) {
@@ -208,6 +251,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
         }
     }
 
+    /** 追加{@code Cursor}{@code Condition}。 */
     private void appendCursorCondition(QueryWrapper queryWrapper,
                                        LocalDateTime lastCreateTime,
                                        Long lastId) {

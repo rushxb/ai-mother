@@ -37,6 +37,7 @@ public record DevServerStartOptions(
         this(taskId, startupTimeout, cancellationRequested, executionFence, Map.of());
     }
 
+    /** 创建开发服务器开始{@code Options}实例并完成必要的依赖和初始状态设置。 */
     public DevServerStartOptions {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("Managed Dev Server task ID cannot be blank");
@@ -52,6 +53,7 @@ public record DevServerStartOptions(
         return cancellationRequested.getAsBoolean();
     }
 
+    /** 校验{@code ate}{@code Environment}{@code Overrides}是否有效。 */
     private static Map<String, String> validateEnvironmentOverrides(Map<String, String> overrides) {
         if (overrides == null || overrides.isEmpty()) {
             return Map.of();
@@ -66,6 +68,7 @@ public record DevServerStartOptions(
         return Map.of("VITE_API_BASE_URL", value.trim());
     }
 
+    /** 判断安全{@code Loopback}{@code Api}基础是否满足约束。 */
     private static boolean isSafeLoopbackApiBase(String value) {
         if (value == null || value.isBlank() || value.length() > 256
                 || value.chars().anyMatch(Character::isISOControl)) {

@@ -23,6 +23,12 @@ public record WorkspaceCodeGraph(
         diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);
     }
 
+    /**
+ * 返回{@code referenced}按。
+ *
+ * @param relativePath 相对路径
+ * @return 工作区代码{@code Graph}集合
+ */
     public List<String> referencedBy(String relativePath) {
         if (relativePath == null) {
             return List.of();

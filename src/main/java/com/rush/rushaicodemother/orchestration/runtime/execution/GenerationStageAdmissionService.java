@@ -154,6 +154,7 @@ public class GenerationStageAdmissionService {
         return evaluate(session, "repair", required);
     }
 
+    /** 返回{@code evaluate}模型轮次。 */
     private ModelTurnDecision evaluateModelTurn(GenerationExecutionContext context,
                                                 CodeGenTypeEnum targetType) {
         if (context == null) {
@@ -205,6 +206,7 @@ public class GenerationStageAdmissionService {
                 : Duration.ZERO;
     }
 
+    /** 记录{@code Rejection}相关指标或状态。 */
     private void recordRejection(GenerationSession session,
                                  String orchestrationMode,
                                  Decision decision,
@@ -251,6 +253,7 @@ public class GenerationStageAdmissionService {
                 decision.remaining().toMillis(), decision.required().toMillis());
     }
 
+    /** 记录模型轮次{@code Reservation}相关指标或状态。 */
     private void recordModelTurnReservation(GenerationExecutionContext context,
                                             String orchestrationMode,
                                             ModelTurnDecision decision) {
@@ -283,6 +286,7 @@ public class GenerationStageAdmissionService {
 
     private record Decision(String stage, boolean admitted, Duration remaining, Duration required) {
 
+        /** 创建决策实例并完成必要的依赖和初始状态设置。 */
         private Decision {
             if (stage == null || stage.isBlank()) {
                 throw new IllegalArgumentException("generation stage cannot be blank");
@@ -308,6 +312,7 @@ public class GenerationStageAdmissionService {
                                   Duration minimumRequired,
                                   boolean completionWindowLimited) {
 
+        /** 创建模型轮次窗口实例并完成必要的依赖和初始状态设置。 */
         public ModelTurnWindow {
             if (timeout == null || timeout.isZero() || timeout.isNegative()) {
                 throw new IllegalArgumentException("模型回合超时必须大于 0");

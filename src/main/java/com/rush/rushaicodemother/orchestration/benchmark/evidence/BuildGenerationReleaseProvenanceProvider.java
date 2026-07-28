@@ -14,6 +14,11 @@ public class BuildGenerationReleaseProvenanceProvider
     private final GenerationGitBuildMetadataProvider gitBuildMetadataProvider;
     private final GenerationRuntimeConfigurationFingerprintService runtimeFingerprintService;
 
+    /**
+ * 返回当前。
+ *
+ * @return 构建生成发布来源信息提供方
+ */
     @Override
     public GenerationReleaseProvenanceManifest current() {
         GenerationGitBuildMetadataProvider.BuildMetadata build =

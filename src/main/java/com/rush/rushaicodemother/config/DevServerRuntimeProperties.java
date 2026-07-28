@@ -98,6 +98,7 @@ public class DevServerRuntimeProperties {
                 .allMatch(duration -> duration != null && duration.compareTo(MAX_RUNTIME_DURATION) <= 0);
     }
 
+    /** 汇总参与约束校验的时长配置。 */
     private Stream<Duration> configuredDurations() {
         return Stream.of(
                 startupTimeout,

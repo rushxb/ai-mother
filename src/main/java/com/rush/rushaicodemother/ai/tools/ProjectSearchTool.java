@@ -36,6 +36,15 @@ public class ProjectSearchTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 搜索匹配的项目。
+ *
+ * @param keyword {@code keyword} 对应的调用参数
+ * @param extensions 待处理的 {@code extensions} 集合
+ * @param relativeDirPath {@code relativeDirPath} 对应的调用参数
+ * @param appId 应用编号
+ * @return 处理后的项目文本
+ */
     @Tool("按文件名、符号或文本内容搜索当前项目，适合在排查问题、定位组件、定位路由、查找变量和引用时使用。")
     public String searchProject(
             @P("搜索关键词，支持按文件名、符号或文件内容模糊匹配")
@@ -46,9 +55,11 @@ public class ProjectSearchTool extends BaseTool {
             String relativeDirPath,
             @ToolMemoryId Long appId
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (StrUtil.isBlank(keyword)) {
             return "错误：搜索关键词不能为空";
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ToolWorkspaceFileService.ToolWorkspaceDirectory searchDirectory =
                     workspaceFileService.resolveDirectory(appId, relativeDirPath);
@@ -113,11 +124,24 @@ public class ProjectSearchTool extends BaseTool {
         return "项目搜索";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s %s", getDisplayName(), arguments.getStr("keyword"));
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);

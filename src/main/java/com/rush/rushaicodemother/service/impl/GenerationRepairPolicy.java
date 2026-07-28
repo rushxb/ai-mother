@@ -12,6 +12,14 @@ public final class GenerationRepairPolicy {
     private GenerationRepairPolicy() {
     }
 
+    /**
+ * 返回{@code allow}{@code Auto}{@code Repair}。
+ *
+ * @param generatingStage {@code generatingStage} 对应的调用参数
+ * @param targetType 目标类型
+ * @param maxAutoRepairRounds 待处理的 {@code maxAutoRepairRounds} 集合
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public static boolean allowAutoRepair(String generatingStage, CodeGenTypeEnum targetType, int maxAutoRepairRounds) {
         return maxAutoRepairRounds > 0
                 && CodeGenTypeEnum.VUE_PROJECT == targetType

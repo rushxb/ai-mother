@@ -18,6 +18,12 @@ public class AgentEditUnderstandingService {
             "package.json", "vite.config", "tsconfig", "go.mod", "go.sum", "Dockerfile"
     );
 
+    /**
+ * 返回{@code understand}。
+ *
+ * @param readResult {@code readResult} 对应的调用参数
+ * @return 智能体编辑{@code Understanding}
+ */
     public AgentEditUnderstanding understand(AgentEditReadResult readResult) {
         if (readResult == null || readResult.contextPackage() == null) {
             return new AgentEditUnderstanding("未读取到可分析上下文", List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), "high");
@@ -41,6 +47,7 @@ public class AgentEditUnderstandingService {
         return PROTECTED_FILE_PREFIXES.stream().anyMatch(fileName::startsWith);
     }
 
+    /** 返回{@code infer}{@code Modules}。 */
     private List<String> inferModules(Map<String, String> fileContents) {
         if (fileContents == null || fileContents.isEmpty()) {
             return List.of();

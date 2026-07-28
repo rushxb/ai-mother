@@ -29,9 +29,17 @@ public class AiToolInvocationPolicy {
     private final GenerationToolLoopGuard toolLoopGuard;
     private final GenerationAgentProductivityGuard productivityGuard;
 
+    /**
+ * 处理授权。
+ *
+ * @param event 待处理的领域事件
+ * @param expectedCodeGenType {@code expectedCodeGenType} 对应的调用参数
+ * @param profile 配置档
+ */
     public void authorize(BeforeToolExecution event,
                           CodeGenTypeEnum expectedCodeGenType,
                           GenerationPerformanceProfile profile) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (event == null || event.request() == null || event.invocationContext() == null) {
             reject("invocation_context_missing");
         }
@@ -72,6 +80,7 @@ public class AiToolInvocationPolicy {
         if (request.id() == null || request.id().isBlank()) {
             reject("destructive_request_id_missing");
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             approvalGatedTool.authorizeInvocation(request, appId);
         } catch (GenerationApprovalRequiredException approvalRequired) {
@@ -112,6 +121,13 @@ public class AiToolInvocationPolicy {
         }
     }
 
+    /**
+ * 处理恢复循环状态。
+ *
+ * @param taskId 任务编号
+ * @param messages 消息列表
+ * @param successfulWorkspaceMutations 待处理的 {@code successfulWorkspaceMutations} 集合
+ */
     public void restoreLoopState(String taskId,
                                  List<ChatMessage> messages,
                                  int successfulWorkspaceMutations) {

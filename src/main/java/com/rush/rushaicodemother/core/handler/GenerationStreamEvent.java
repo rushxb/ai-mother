@@ -42,6 +42,12 @@ public class GenerationStreamEvent {
      */
     private Map<String, Object> data;
 
+    /**
+ * 返回 AI 增量。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent aiDelta(String text) {
         return GenerationStreamEvent.builder()
                 .type(AI_DELTA)
@@ -49,6 +55,12 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回 AI{@code Thinking}增量。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent aiThinkingDelta(String text) {
         return GenerationStreamEvent.builder()
                 .type(AI_THINKING_DELTA)
@@ -56,6 +68,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 将当前对象转换为{@code ol}调用。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return {@code ol}调用
+ */
     public static GenerationStreamEvent toolCall(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(TOOL_CALL)
@@ -64,6 +83,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 将当前对象转换为{@code ol}结果。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return {@code ol}结果
+ */
     public static GenerationStreamEvent toolResult(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(TOOL_RESULT)
@@ -72,6 +98,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 构建并返回结果。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 结果
+ */
     public static GenerationStreamEvent buildResult(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(BUILD_RESULT)
@@ -80,6 +113,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回生成阶段。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent generationStage(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(GENERATION_STAGE)
@@ -88,6 +128,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回智能体事件。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent agentEvent(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(AGENT_EVENT)
@@ -96,6 +143,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回生成错误。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent generationError(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(GENERATION_ERROR)
@@ -104,6 +158,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回修复开始。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent repairStart(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(REPAIR_START)
@@ -112,6 +173,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回生成{@code Stopped}。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent generationStopped(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(GENERATION_STOPPED)
@@ -120,6 +188,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回开发服务器校验。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent devServerValidation(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(DEV_SERVER_VALIDATION)
@@ -128,6 +203,13 @@ public class GenerationStreamEvent {
                 .build();
     }
 
+    /**
+ * 返回首次预览就绪。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @param data {@code data} 对应的调用参数
+ * @return 生成流事件
+ */
     public static GenerationStreamEvent firstPreviewReady(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(FIRST_PREVIEW_READY)

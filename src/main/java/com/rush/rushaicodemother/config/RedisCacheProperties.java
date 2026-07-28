@@ -23,6 +23,11 @@ public class RedisCacheProperties {
             Map.of("good_app_page", Duration.ofMinutes(5))
     );
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "Redis 缓存 TTL 必须全部大于 0，缓存名称不得为空")
     public boolean isConfigurationValid() {
         return isPositive(defaultTtl)

@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -103,7 +104,7 @@ public class VueProjectBuilder {
             JSONObject packageJson = readPackageJson(packageJsonFile);
             VueProjectSnapshot snapshot = snapshotService.capture(projectRoot, packageJson);
             VueBuildResult recentResult = resultRegistry.find(projectRoot, snapshot);
-            return recentResult != null && canReuseValidatedResult(projectRoot, snapshot)
+            return recentResult != null && canReuseValidatedResult(projectRoot, snapshot, null)
                     ? recentResult
                     : null;
         } catch (Exception exception) {
@@ -112,6 +113,7 @@ public class VueProjectBuilder {
         }
     }
 
+    /** 执行{@code Coordinated}构建处理流程。 */
     private VueBuildResult executeCoordinatedBuild(
             String projectPath,
             String taskId,
@@ -133,6 +135,7 @@ public class VueProjectBuilder {
 
         log.info("开始构建 Vue 项目: {}", normalizedProjectPath);
         JSONObject packageJson;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             packageJson = readPackageJson(packageJsonFile);
         } catch (Exception exception) {
@@ -141,8 +144,15 @@ public class VueProjectBuilder {
         }
 
         VueProjectSnapshot currentSnapshot;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            currentSnapshot = snapshotService.capture(projectRoot, packageJson);
+            currentSnapshot = snapshotService.capture(
+                    projectRoot,
+                    packageJson,
+                    () -> executionContextService.assertCanContinue(taskId)
+            );
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception exception) {
             log.error("Vue 项目指纹计算失败: {}", LogExceptionSanitizer.sanitizeMessage(exception), LogExceptionSanitizer.sanitize(exception));
             return VueBuildResult.invalid(normalizedProjectPath, "项目指纹计算失败");
@@ -152,7 +162,7 @@ public class VueProjectBuilder {
                 taskId,
                 projectRoot,
                 currentSnapshot,
-                () -> canReuseValidatedResult(projectRoot, currentSnapshot),
+                () -> canReuseValidatedResult(projectRoot, currentSnapshot, taskId),
                 () -> executeStableBuild(
                         projectRoot,
                         normalizedProjectPath,
@@ -168,6 +178,7 @@ public class VueProjectBuilder {
         return result;
     }
 
+    /** 执行稳定构建处理流程。 */
     private VueBuildResult executeStableBuild(
             Path projectRoot,
             String projectPath,
@@ -189,8 +200,11 @@ public class VueProjectBuilder {
         }
 
         VueProjectSnapshot completedSnapshot;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            completedSnapshot = captureCurrentSnapshot(projectRoot);
+            completedSnapshot = captureCurrentSnapshot(projectRoot, taskId);
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception exception) {
             log.warn("Vue 构建完成后无法校验源码快照: projectRoot={}, error={}",
                     projectRoot, LogExceptionSanitizer.sanitizeMessage(exception));
@@ -210,6 +224,7 @@ public class VueProjectBuilder {
         return result;
     }
 
+    /** 执行构建处理流程。 */
     private VueBuildResult executeBuild(
             Path projectRoot,
             String normalizedProjectPath,
@@ -286,6 +301,7 @@ public class VueProjectBuilder {
         );
     }
 
+    /** 执行{@code Light}构建处理流程。 */
     private VueBuildResult executeLightBuild(
             Path projectRoot,
             String projectPath,
@@ -316,6 +332,7 @@ public class VueProjectBuilder {
         return result;
     }
 
+    /** 执行全构建处理流程。 */
     private VueBuildResult executeFullBuild(
             Path projectRoot,
             String projectPath,
@@ -336,7 +353,12 @@ public class VueProjectBuilder {
         return VueBuildResult.success(projectPath, installResult, buildResult);
     }
 
-    private boolean canReuseValidatedResult(Path projectRoot, VueProjectSnapshot expectedSnapshot) {
+    /** 判断当前状态是否允许{@code Reuse}{@code Validated}结果。 */
+    private boolean canReuseValidatedResult(
+            Path projectRoot,
+            VueProjectSnapshot expectedSnapshot,
+            String taskId
+    ) {
         try {
             if (!isSafeDirectory(projectRoot.resolve("node_modules"))
                     || !isSafeDirectory(projectRoot.resolve("dist"))) {
@@ -348,7 +370,9 @@ public class VueProjectBuilder {
                     || !expectedSnapshot.presentationFingerprint().equals(state.presentationFingerprint())) {
                 return false;
             }
-            return expectedSnapshot.equals(captureCurrentSnapshot(projectRoot));
+            return expectedSnapshot.equals(captureCurrentSnapshot(projectRoot, taskId));
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception exception) {
             log.debug("Vue 构建结果复用校验失败，将执行真实构建: projectRoot={}, error={}",
                     projectRoot, LogExceptionSanitizer.sanitizeMessage(exception));
@@ -356,18 +380,23 @@ public class VueProjectBuilder {
         }
     }
 
-    private VueProjectSnapshot captureCurrentSnapshot(Path projectRoot) throws Exception {
+    private VueProjectSnapshot captureCurrentSnapshot(Path projectRoot, String taskId) throws Exception {
         Path packageJsonFile = projectRoot.resolve("package.json");
         if (!isSafeRegularFile(packageJsonFile)) {
             throw new IllegalStateException("Vue 项目缺少安全的 package.json 文件");
         }
-        return snapshotService.capture(projectRoot, readPackageJson(packageJsonFile));
+        return snapshotService.capture(
+                projectRoot,
+                readPackageJson(packageJsonFile),
+                () -> executionContextService.assertCanContinue(taskId)
+        );
     }
 
     private JSONObject readPackageJson(Path packageJsonFile) throws Exception {
         return JSONUtil.parseObj(Files.readString(packageJsonFile, StandardCharsets.UTF_8));
     }
 
+    /** 持久化构建状态。 */
     private void persistBuildState(Path projectRoot, VueProjectSnapshot snapshot) {
         try {
             stateStore.persist(projectRoot, snapshot);
@@ -377,6 +406,7 @@ public class VueProjectBuilder {
         }
     }
 
+    /** 根据当前上下文解析项目根。 */
     private Path resolveProjectRoot(String projectPath) {
         if (StrUtil.isBlank(projectPath)) {
             return null;

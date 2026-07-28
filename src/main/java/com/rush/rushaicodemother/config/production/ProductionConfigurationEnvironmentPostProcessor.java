@@ -106,6 +106,12 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
                     "app.generated-code-sandbox.container.dependency-cache-enabled", "true")
     );
 
+    /**
+ * 处理{@code post}进程{@code Environment}。
+ *
+ * @param environment {@code environment} 对应的调用参数
+ * @param application 应用
+ */
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         if (!environment.acceptsProfiles(PRODUCTION_PROFILE)) {
@@ -124,6 +130,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         return Ordered.LOWEST_PRECEDENCE;
     }
 
+    /** 查找匹配的{@code Missing}属性。 */
     private List<String> findMissingProperties(ConfigurableEnvironment environment) {
         List<String> missingProperties = new ArrayList<>();
         REQUIRED_PROPERTIES.stream()
@@ -142,6 +149,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         return missingProperties;
     }
 
+    /** 查找匹配的{@code Unsafe}属性。 */
     private List<String> findUnsafeProperties(ConfigurableEnvironment environment) {
         List<String> unsafeProperties = new ArrayList<>();
         REQUIRED_PROPERTY_VALUES.stream()
@@ -176,6 +184,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         return unsafeProperties;
     }
 
+    /** 校验{@code ate}进程角色是否有效。 */
     private void validateProcessRole(ConfigurableEnvironment environment,
                                      List<String> unsafeProperties) {
         String workerEnabled = readProperty(
@@ -232,6 +241,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         validateSecret(environment, unsafeProperties, "spring.data.redis.password");
     }
 
+    /** 校验{@code ate}Milvus 记忆是否有效。 */
     private void validateMilvusMemory(
             ConfigurableEnvironment environment,
             List<String> unsafeProperties
@@ -258,6 +268,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 校验{@code ate}AI 模型密钥{@code Keys}是否有效。 */
     private void validateAiModelSecretKeys(ConfigurableEnvironment environment,
                                            List<String> unsafeProperties) {
         String keyId = readProperty(environment, "app.ai-model-secrets.active-key-id");
@@ -270,6 +281,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
                 readProperty(environment, "app.ai-model-secrets.active-key"));
         byte[] fingerprintKey = decodeBase64Key(
                 readProperty(environment, "app.ai-model-secrets.fingerprint-key"));
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (hasTextProperty(environment, "app.ai-model-secrets.active-key") && activeKey == null) {
                 unsafeProperties.add(
@@ -295,6 +307,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 返回{@code decode}{@code Base64}键。 */
     private byte[] decodeBase64Key(String encoded) {
         if (!hasTextValue(encoded) || encoded.contains("${")) {
             return null;
@@ -324,6 +337,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         validateSecret(environment, unsafeProperties, propertyName, MINIMUM_PRODUCTION_SECRET_LENGTH);
     }
 
+    /** 校验{@code ate}密钥是否有效。 */
     private void validateSecret(
             ConfigurableEnvironment environment,
             List<String> unsafeProperties,
@@ -344,6 +358,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 校验{@code ate}公开端点策略是否有效。 */
     private void validatePublicEndpointPolicy(
             ConfigurableEnvironment environment,
             List<String> unsafeProperties
@@ -363,6 +378,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 返回{@code contains}{@code Unsafe}{@code Production}来源。 */
     private boolean containsUnsafeProductionOrigin(String origins) {
         if (!hasTextValue(origins)) {
             return true;
@@ -379,6 +395,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         return false;
     }
 
+    /** 判断{@code Unsafe}{@code Production}来源是否满足约束。 */
     private boolean isUnsafeProductionOrigin(String value) {
         if (!hasTextValue(value) || value.contains("*")) {
             return true;
@@ -397,6 +414,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 判断{@code Loopback}端点是否满足约束。 */
     private boolean isLoopbackEndpoint(String value) {
         if (!hasTextValue(value)) {
             return false;
@@ -409,6 +427,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 判断{@code Loopback}主机是否满足约束。 */
     private boolean isLoopbackHost(String host) {
         if (!hasTextValue(host)) {
             return false;
@@ -424,6 +443,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
                 || "0:0:0:0:0:0:0:1".equals(normalizedHost);
     }
 
+    /** 校验{@code ate}开发服务器内部路由是否有效。 */
     private void validateDevServerInternalRouting(
             ConfigurableEnvironment environment,
             List<String> unsafeProperties
@@ -458,6 +478,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 校验{@code ate}容器{@code Sandbox}{@code Supply}{@code Chain}{@code And}{@code Networks}是否有效。 */
     private void validateContainerSandboxSupplyChainAndNetworks(
             ConfigurableEnvironment environment,
             List<String> unsafeProperties
@@ -506,6 +527,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 校验{@code ate}{@code Pnpm}存储配置是否有效。 */
     private void validatePnpmStoreConfiguration(
             ConfigurableEnvironment environment,
             List<String> unsafeProperties
@@ -547,6 +569,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         }
     }
 
+    /** 判断安全容器挂载是否满足约束。 */
     private boolean isSafeContainerMount(String value) {
         if (!hasTextValue(value)) {
             return false;
@@ -589,6 +612,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         return value != null && !value.isBlank();
     }
 
+    /** 读取属性。 */
     private String readProperty(ConfigurableEnvironment environment, String propertyName) {
         try {
             return environment.getProperty(propertyName);
@@ -609,6 +633,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         return value == null ? null : value.trim().toLowerCase(Locale.ROOT);
     }
 
+    /** 构建并返回失败消息。 */
     private String buildFailureMessage(List<String> missingProperties, List<String> unsafeProperties) {
         List<String> violations = new ArrayList<>(2);
         if (!missingProperties.isEmpty()) {

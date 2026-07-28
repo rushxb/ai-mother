@@ -46,12 +46,20 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
         this.toolApprovalService = toolApprovalService;
     }
 
+    /**
+ * 删除文件。
+ *
+ * @param relativeFilePath {@code relativeFilePath} 对应的调用参数
+ * @param appId 应用编号
+ * @return 处理后的文件文本
+ */
     @Tool("删除指定路径的文件")
     public String deleteFile(
             @P("文件的相对路径")
             String relativeFilePath,
             @ToolMemoryId Long appId
     ) {
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ToolWorkspaceFileService.ToolWorkspaceFile file =
                     workspaceFileService.resolveFile(appId, relativeFilePath);
@@ -94,6 +102,12 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
         return toolExecutionGateway.applyPatch(appId, projectRoot, operation, "tool-delete-file", "delete_file");
     }
 
+    /**
+ * 处理授权调用。
+ *
+ * @param request 请求参数
+ * @param appId 应用编号
+ */
     @Override
     public void authorizeInvocation(ToolExecutionRequest request, Long appId) {
         if (request == null || request.arguments() == null || request.arguments().isBlank()) {
@@ -123,6 +137,7 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
         }
     }
 
+    /** 校验并返回有效的审批。 */
     private void requireApproval(Long appId, String normalizedPath) {
         String taskId = toolExecutionContextService.getContext(appId)
                 .map(context -> context.taskId())
@@ -187,6 +202,12 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
         return "删除文件";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");

@@ -30,6 +30,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationState;
@@ -150,6 +151,7 @@ public class HeavyGenerationCoordinator {
         GenerationSession session = null;
         boolean performanceStarted = false;
         boolean preparationRecorded = false;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (executionContext == null) {
                 executionContext = reserveExecutionContext(taskId, app.getId(), loginUser.getId());
@@ -169,6 +171,8 @@ public class HeavyGenerationCoordinator {
             preparation = heavyGenerationPreparationService.prepare(taskId, app, request.message());
             executionContext.assertCanContinue();
             assertConsistentTaskIdentity(taskId, preparation);
+            preparation = preparation.enforceValidationFloor(
+                    pipelineRequest.modeDecision().expectedValidationLevel());
             generationPerformanceMonitorService.recordSpan(
                     taskId,
                     "heavy_prepare",
@@ -193,8 +197,14 @@ public class HeavyGenerationCoordinator {
             }
             startGenerationTask(app.getId(), loginUser, preparation, session, request);
             return new GenerationTaskResult(
-                    taskId,
-                    pipelineRequest.modeDecision().route(),
+                    new GenerationTaskSubmissionReceipt(
+                            taskId,
+                            app.getId(),
+                            pipelineRequest.modeDecision().route(),
+                            GenerationTaskStatus.RUNNING,
+                            executionContext.startedAt(),
+                            executionContext.deadlineAt()
+                    ),
                     session.executionWorkspace() == null
                             ? pipelineRequest.workspace()
                             : session.executionWorkspace().workspace(),
@@ -231,6 +241,11 @@ public class HeavyGenerationCoordinator {
         return session.asFlux();
     }
 
+    /**
+ * 停止重型生成协调器。
+ *
+ * @param appId 应用编号
+ */
     public void stop(Long appId) {
         GenerationSession session = generationSessionRegistry.get(appId);
         ThrowUtils.throwIf(session == null || !session.isActive(), ErrorCode.OPERATION_ERROR, "当前应用没有进行中的生成任务");
@@ -242,9 +257,17 @@ public class HeavyGenerationCoordinator {
         }
     }
 
+    /**
+ * 处理{@code resume}执行后工具决策。
+ *
+ * @param approval 审批
+ * @param state 状态
+ * @param session 会话
+ */
     public void resumeAfterToolDecision(ToolApprovalRecord approval,
                                         GenerationToolContinuationState state,
                                         GenerationSession session) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (approval == null || state == null || session == null
                 || session.taskRequest() == null || session.taskRequest().loginUser() == null
                 || !Objects.equals(approval.taskId(), state.taskId())
@@ -262,6 +285,7 @@ public class HeavyGenerationCoordinator {
                         .taskId(state.taskId())
                         .build()
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.throwIfCancelled();
             markGenerationStage(
@@ -298,6 +322,12 @@ public class HeavyGenerationCoordinator {
         }
     }
 
+    /**
+ * 处理超时{@code Waiting}工具审批。
+ *
+ * @param state 状态
+ * @param session 会话
+ */
     public void timeoutWaitingToolApproval(GenerationToolContinuationState state,
                                            GenerationSession session) {
         if (state == null || session == null || !Objects.equals(state.taskId(), session.taskId())) {
@@ -314,6 +344,7 @@ public class HeavyGenerationCoordinator {
         );
     }
 
+    /** 打开并初始化生成会话。 */
     private GenerationSession openGenerationSession(Long appId,
                                                      String message,
                                                      User loginUser,
@@ -397,6 +428,7 @@ public class HeavyGenerationCoordinator {
         }
     }
 
+    /** 清理{@code Initialization}失败及其关联资源。 */
     private void cleanupInitializationFailure(String taskId,
                                               Long appId,
                                               GenerationTaskRequest request,
@@ -444,6 +476,7 @@ public class HeavyGenerationCoordinator {
                 () -> finishExecutionContext(taskId, executionFence, outcome.status()));
     }
 
+    /** 运行{@code Initialization}{@code Cleanup}{@code Step}处理流程。 */
     private void runInitializationCleanupStep(String taskId,
                                               String step,
                                               RuntimeException startupFailure,
@@ -457,6 +490,7 @@ public class HeavyGenerationCoordinator {
         }
     }
 
+    /** 启动生成任务。 */
     private void startGenerationTask(Long appId,
                                      User loginUser,
                                      GenerationPreparation preparation,
@@ -469,6 +503,7 @@ public class HeavyGenerationCoordinator {
                         .taskId(preparation.taskId())
                         .build()
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.throwIfCancelled();
             generationEventPublisher.publish(request, GenerationEventType.GENERATION_START, "重型生成任务开始", Map.of(
@@ -516,6 +551,7 @@ public class HeavyGenerationCoordinator {
         }
     }
 
+    /** 处理{@code suspend}{@code For}审批。 */
     private void suspendForApproval(GenerationPreparation preparation,
                                     GenerationSession session,
                                     GenerationApprovalRequiredException approvalRequired) {
@@ -547,6 +583,7 @@ public class HeavyGenerationCoordinator {
         return session.executionContext().executionFence();
     }
 
+    /** 运行构建校验处理流程。 */
     private void runBuildValidation(Long appId,
                                     User loginUser,
                                     GenerationPreparation preparation,
@@ -559,6 +596,7 @@ public class HeavyGenerationCoordinator {
         GenerationPerformanceMonitorService.SpanTimer buildSpan =
                 generationPerformanceMonitorService.startSpan(
                         preparation.taskId(), "build_validation", GenerationSpanCategory.VALIDATION);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.throwIfCancelled();
             boolean buildSucceeded = heavyGenerationBuildValidationService.runWithAutoRepair(
@@ -585,6 +623,7 @@ public class HeavyGenerationCoordinator {
         }
     }
 
+    /** 运行{@code Finalization}处理流程。 */
     private void runFinalization(Long appId,
                                  GenerationPreparation preparation,
                                  GenerationSession session,
@@ -609,6 +648,7 @@ public class HeavyGenerationCoordinator {
         }
     }
 
+    /** 运行{@code Finalization}{@code Steps}处理流程。 */
     private void runFinalizationSteps(Long appId,
                                       GenerationPreparation preparation,
                                       GenerationSession session) {
@@ -635,12 +675,14 @@ public class HeavyGenerationCoordinator {
         completeHeavyTask(appId, null, preparation, session, GenerationTerminalOutcome.CANCELLED, null);
     }
 
+    /** 完成重型任务并持久化终态。 */
     private void completeHeavyTask(Long appId,
                                    GenerationTaskRequest request,
                                    GenerationPreparation preparation,
                                    GenerationSession session,
                                    GenerationTerminalOutcome outcome,
                                    Throwable failure) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (session == null || !session.tryBeginCompletion()) {
             return;
         }
@@ -677,6 +719,7 @@ public class HeavyGenerationCoordinator {
                 () -> finishExecutionContext(preparation, executionFence, resolvedOutcome.status()));
     }
 
+    /** 发送{@code Terminal}流事件事件。 */
     private void emitTerminalStreamEvent(Long appId,
                                          GenerationPreparation preparation,
                                          GenerationSession session,
@@ -698,6 +741,7 @@ public class HeavyGenerationCoordinator {
         heavyGenerationFailureRecoveryService.emitGenerationError(appId, preparation, session, failure);
     }
 
+    /** 查找匹配的执行策略异常。 */
     private GenerationExecutionPolicyException findExecutionPolicyException(Throwable throwable) {
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current instanceof GenerationExecutionPolicyException policyException) {
@@ -717,6 +761,7 @@ public class HeavyGenerationCoordinator {
         ));
     }
 
+    /** 运行{@code Terminal}{@code Step}处理流程。 */
     private boolean runTerminalStep(String step,
                                     GenerationPreparation preparation,
                                     Runnable action) {

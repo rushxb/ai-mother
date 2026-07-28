@@ -20,6 +20,13 @@ public class MyBatisAiModelSecretMigrationRepository implements AiModelSecretMig
     private final AiModelMapper mapper;
     private final AiReleaseCoordinationLock coordinationLock;
 
+    /**
+ * 从指定游标之后查找下一批记录。
+ *
+ * @param afterId 执行后编号
+ * @param batchSize 批次大小
+ * @return 方法执行结果集合
+ */
     @Override
     public List<AiModelSecretMigrationRecord> findBatchAfter(long afterId, int batchSize) {
         return mapper.selectSecretMigrationBatch(afterId, batchSize).stream()
@@ -27,11 +34,25 @@ public class MyBatisAiModelSecretMigrationRepository implements AiModelSecretMig
                 .toList();
     }
 
+    /**
+ * 查找匹配的按编号。
+ *
+ * @param modelId 模型编号
+ * @return 按编号
+ */
     @Override
     public AiModelSecretMigrationRecord findById(long modelId) {
         return toRecord(mapper.selectStoredSecretById(modelId));
     }
 
+    /**
+ * 返回{@code replace}{@code If}当前。
+ *
+ * @param modelId 模型编号
+ * @param expectedLegacySecretSha256 {@code expectedLegacySecretSha256} 对应的调用参数
+ * @param protectedSecret {@code protectedSecret} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int replaceIfCurrent(long modelId,
@@ -47,6 +68,12 @@ public class MyBatisAiModelSecretMigrationRepository implements AiModelSecretMig
         );
     }
 
+    /**
+ * 清理{@code Deleted}。
+ *
+ * @param modelId 模型编号
+ * @return 计算或处理后的数值结果
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int clearDeleted(long modelId) {
@@ -54,6 +81,7 @@ public class MyBatisAiModelSecretMigrationRepository implements AiModelSecretMig
         return mapper.clearDeletedStoredSecret(modelId);
     }
 
+    /** 将当前对象转换为记录。 */
     private AiModelSecretMigrationRecord toRecord(AiModel entity) {
         if (entity == null) {
             return null;

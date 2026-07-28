@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.context.AiContextPackSection;
 import com.rush.rushaicodemother.orchestration.context.AiContextPackSectionType;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextReadExecutor;
 import com.rush.rushaicodemother.monitor.GenerationContextPreparationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -56,7 +58,7 @@ class GenerationMemoryContextServiceImplTest {
         App app = App.builder().id(1L).userId(2L).build();
 
         String result = service.buildGenerationMemoryContext(
-                app, "continue", CodeGenTypeEnum.VUE_PROJECT);
+                "task-structured-pack", app, "continue", CodeGenTypeEnum.VUE_PROJECT);
 
         assertEquals(pack.render(), result);
     }
@@ -82,13 +84,14 @@ class GenerationMemoryContextServiceImplTest {
 
         try (GenerationMemoryContextReadExecutor executor = new GenerationMemoryContextReadExecutor(
                 properties,
-                new GenerationContextPreparationMetricsCollector(new SimpleMeterRegistry()))) {
+                new GenerationContextPreparationMetricsCollector(new SimpleMeterRegistry()),
+                executionContextService())) {
             GenerationMemoryContextServiceImpl service = new GenerationMemoryContextServiceImpl(
                     traceService, memoryService, assembler, executor);
             App app = App.builder().id(1L).tenantId(2L).userId(3L).build();
 
             assertEquals("", service.buildGenerationMemoryContext(
-                    app, "继续生成", CodeGenTypeEnum.VUE_PROJECT));
+                    "task-parallel-memory", app, "继续生成", CodeGenTypeEnum.VUE_PROJECT));
             assertEquals(0, allReadsStarted.getCount());
         }
     }
@@ -117,13 +120,14 @@ class GenerationMemoryContextServiceImplTest {
         assertFalse(properties.isParallelReadsEnabled());
         try (GenerationMemoryContextReadExecutor executor = new GenerationMemoryContextReadExecutor(
                 properties,
-                new GenerationContextPreparationMetricsCollector(new SimpleMeterRegistry()))) {
+                new GenerationContextPreparationMetricsCollector(new SimpleMeterRegistry()),
+                executionContextService())) {
             GenerationMemoryContextServiceImpl service = new GenerationMemoryContextServiceImpl(
                     traceService, memoryService, assembler, executor);
             App app = App.builder().id(1L).tenantId(2L).userId(3L).build();
 
             assertEquals("", service.buildGenerationMemoryContext(
-                    app, "继续生成", CodeGenTypeEnum.VUE_PROJECT));
+                    "task-sequential-memory", app, "继续生成", CodeGenTypeEnum.VUE_PROJECT));
         }
         assertEquals(List.of("recent_tasks", "recent_build_logs", "semantic_memory"), readOrder);
     }
@@ -132,5 +136,12 @@ class GenerationMemoryContextServiceImplTest {
         allReadsStarted.countDown();
         assertTrue(allReadsStarted.await(2, TimeUnit.SECONDS));
         return result;
+    }
+
+    private GenerationExecutionContextService executionContextService() {
+        GenerationExecutionContextService service = mock(GenerationExecutionContextService.class);
+        when(service.clampTimeout(nullable(String.class), any(Duration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        return service;
     }
 }

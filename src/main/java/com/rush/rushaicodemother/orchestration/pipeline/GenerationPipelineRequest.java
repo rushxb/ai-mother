@@ -29,6 +29,11 @@ public record GenerationPipelineRequest(
         return modeDecision != null && modeDecision.mode() == mode;
     }
 
+    /**
+ * 校验并返回有效的执行。
+ *
+ * @return 执行
+ */
     public GenerationTaskExecution requireExecution() {
         if (execution == null) {
             throw new IllegalStateException("generation task execution is not bound");

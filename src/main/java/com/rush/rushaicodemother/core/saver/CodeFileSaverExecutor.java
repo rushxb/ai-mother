@@ -18,6 +18,11 @@ public class CodeFileSaverExecutor {
 
     private final Map<CodeGenTypeEnum, CodeFileSaverTemplate<?>> saversByType;
 
+    /**
+ * 创建代码文件{@code Saver}执行器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param savers 待处理的 {@code savers} 集合
+ */
     public CodeFileSaverExecutor(List<CodeFileSaverTemplate<?>> savers) {
         Objects.requireNonNull(savers, "savers must not be null");
         EnumMap<CodeGenTypeEnum, CodeFileSaverTemplate<?>> registeredSavers =

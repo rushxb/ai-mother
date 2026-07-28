@@ -57,6 +57,11 @@ public class GenerationTaskProgressProperties {
     @Max(99)
     private int runningProgressCap = 95;
 
+    /**
+ * 判断配置{@code Coherent}是否满足约束。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "generation progress durations and sample thresholds must be coherent")
     public boolean isConfigurationCoherent() {
         return isPositive(profileCacheTtl)

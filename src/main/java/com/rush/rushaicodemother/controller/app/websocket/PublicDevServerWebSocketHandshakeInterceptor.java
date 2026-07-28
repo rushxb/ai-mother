@@ -44,6 +44,15 @@ public class PublicDevServerWebSocketHandshakeInterceptor implements HandshakeIn
         this.requestSigner = requestSigner;
     }
 
+    /**
+ * 返回执行前{@code Handshake}。
+ *
+ * @param request 请求参数
+ * @param response 响应对象
+ * @param wsHandler {@code wsHandler} 对应的调用参数
+ * @param attributes 属性
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean beforeHandshake(
             ServerHttpRequest request,
@@ -51,9 +60,11 @@ public class PublicDevServerWebSocketHandshakeInterceptor implements HandshakeIn
             WebSocketHandler wsHandler,
             Map<String, Object> attributes
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (!(request instanceof ServletServerHttpRequest servletRequest)) {
             return reject(response, HttpStatus.BAD_REQUEST);
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             DevServerWebSocketRequest parsed = requestParser.parsePublic(
                     servletRequest.getServletRequest());

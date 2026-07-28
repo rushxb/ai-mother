@@ -53,6 +53,12 @@ public final class GeneratedProjectWorkspaceInspector {
     private GeneratedProjectWorkspaceInspector() {
     }
 
+    /**
+ * 返回{@code inspect}{@code Vue}项目。
+ *
+ * @param projectPath 项目路径
+ * @return {@code Generated}项目工作区{@code Inspector}
+ */
     public static WorkspaceState inspectVueProject(String projectPath) {
         if (projectPath == null || projectPath.isBlank()) {
             throw new IllegalArgumentException("projectPath 不能为空");
@@ -72,7 +78,9 @@ public final class GeneratedProjectWorkspaceInspector {
         return inspectProject(projectPath, FULL_STACK_KEY_PROJECT_FILES);
     }
 
+    /** 返回{@code inspect}项目。 */
     private static WorkspaceState inspectProject(Path projectPath, Set<String> keyProjectFiles) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (projectPath == null) {
             throw new IllegalArgumentException("projectPath 不能为空");
         }
@@ -83,8 +91,16 @@ public final class GeneratedProjectWorkspaceInspector {
         long[] fileCount = {0};
         long[] meaningfulFileCount = {0};
         Set<String> detectedKeyFiles = new LinkedHashSet<>();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
+                /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param dir {@code dir} 对应的调用参数
+ * @param attrs 待处理的 {@code attrs} 集合
+ * @return 方法执行结果
+ */
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                     if (!rootPath.equals(dir) && IGNORED_DIR_NAMES.contains(dir.getFileName().toString().toLowerCase(Locale.ROOT))) {
@@ -93,6 +109,13 @@ public final class GeneratedProjectWorkspaceInspector {
                     return FileVisitResult.CONTINUE;
                 }
 
+                /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attrs 待处理的 {@code attrs} 集合
+ * @return {@code Generated}项目工作区{@code Inspector}
+ */
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     if (!attrs.isRegularFile()) {
@@ -149,6 +172,11 @@ public final class GeneratedProjectWorkspaceInspector {
             return detectedKeyFiles != null && !detectedKeyFiles.isEmpty();
         }
 
+        /**
+ * 返回{@code missing}项目汇总。
+ *
+ * @return 处理后的工作区状态文本
+ */
         public String missingProjectSummary() {
             if (!directoryExists) {
                 return "代码生成未产出项目目录，无法执行构建或自动修复";

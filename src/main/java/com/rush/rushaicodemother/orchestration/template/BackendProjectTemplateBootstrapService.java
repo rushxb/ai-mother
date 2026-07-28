@@ -30,7 +30,15 @@ public class BackendProjectTemplateBootstrapService {
         this.templateBootstrapper = Objects.requireNonNull(templateBootstrapper, "templateBootstrapper must not be null");
     }
 
+    /**
+ * 返回{@code bootstrap}{@code If}{@code Necessary}。
+ *
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @return 后端项目模板{@code Bootstrap}
+ */
     public BootstrapResult bootstrapIfNecessary(Long appId, CodeGenTypeEnum codeGenType) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (appId == null || appId <= 0) {
             return BootstrapResult.skipped("", "", "invalid_app_id");
         }
@@ -38,6 +46,7 @@ public class BackendProjectTemplateBootstrapService {
             return BootstrapResult.skipped("", "", "unsupported_code_gen_type");
         }
         String templateId = ProjectTemplateCatalog.GO_SQLITE_BACKEND;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
             ProjectTemplateBootstrapper.BootstrapOutcome outcome = templateBootstrapper.bootstrap(
@@ -88,6 +97,11 @@ public class BackendProjectTemplateBootstrapService {
             return new BootstrapResult(false, templateId, projectPath, 0, reason);
         }
 
+        /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
         public Map<String, Object> toPayload() {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("bootstrapped", bootstrapped);

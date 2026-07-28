@@ -47,6 +47,14 @@ public class HeavyGenerationIntentAssembler {
         return assemble(null, app, userMessage);
     }
 
+    /**
+ * 汇总相关数据并组装重型生成{@code Intent}{@code Assembler}。
+ *
+ * @param taskId 任务编号
+ * @param app 应用
+ * @param userMessage 用户消息
+ * @return 重型生成{@code Intent}{@code Assembler}
+ */
     public HeavyGenerationIntentDecision assemble(String taskId, App app, String userMessage) {
         ThrowUtils.throwIf(app == null || app.getId() == null, ErrorCode.PARAMS_ERROR, "应用参数错误");
         CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
@@ -91,6 +99,7 @@ public class HeavyGenerationIntentAssembler {
         );
     }
 
+    /** 校验并返回有效的{@code s}构建校验。 */
     private boolean requiresBuildValidation(String message,
                                             CodeGenTypeEnum currentType,
                                             CodeGenTypeEnum targetType,

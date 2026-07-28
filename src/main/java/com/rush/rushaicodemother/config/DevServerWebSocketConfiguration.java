@@ -28,6 +28,11 @@ public class DevServerWebSocketConfiguration implements WebSocketConfigurer {
         this.internalInterceptor = internalInterceptor;
     }
 
+    /**
+ * 注册 WebSocket 处理器。
+ *
+ * @param registry 目标注册器
+ */
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(proxyHandler, DevServerPreviewPaths.PUBLIC_PROXY_PREFIX + "**")

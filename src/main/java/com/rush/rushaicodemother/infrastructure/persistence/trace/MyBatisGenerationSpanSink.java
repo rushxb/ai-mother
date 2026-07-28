@@ -28,6 +28,11 @@ public class MyBatisGenerationSpanSink implements GenerationSpanSink {
         this.databaseZone = Objects.requireNonNull(databaseZone, "databaseZone");
     }
 
+    /**
+ * 记录{@code My}{@code Batis}生成跨度{@code Sink}相关指标或状态。
+ *
+ * @param observation 观测
+ */
     @Override
     public void record(GenerationSpanObservation observation) {
         Objects.requireNonNull(observation, "observation");

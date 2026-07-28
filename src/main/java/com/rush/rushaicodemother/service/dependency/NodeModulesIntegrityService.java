@@ -6,6 +6,8 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -17,9 +19,11 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.BooleanSupplier;
 
 /** 负责 node_modules 结构、Vite 运行时及关键 Windows 原生包的完整性校验与安全修复。 */
 @Slf4j
@@ -34,30 +38,35 @@ public class NodeModulesIntegrityService {
     private final DependencyInstallProperties properties;
     private final ManagedProcessExecutor processExecutor;
     private final NodeToolchain nodeToolchain;
+    private final GenerationExecutionContextService executionContextService;
     private final boolean windows;
 
     @Autowired
     public NodeModulesIntegrityService(
             DependencyInstallProperties properties,
             ManagedProcessExecutor processExecutor,
-            NodeToolchain nodeToolchain
+            NodeToolchain nodeToolchain,
+            GenerationExecutionContextService executionContextService
     ) {
-        this(properties, processExecutor, nodeToolchain, isWindowsOperatingSystem());
+        this(properties, processExecutor, nodeToolchain, executionContextService, isWindowsOperatingSystem());
     }
 
     NodeModulesIntegrityService(
             DependencyInstallProperties properties,
             ManagedProcessExecutor processExecutor,
             NodeToolchain nodeToolchain,
+            GenerationExecutionContextService executionContextService,
             boolean windows
     ) {
         this.properties = properties;
         this.processExecutor = processExecutor;
         this.nodeToolchain = nodeToolchain;
+        this.executionContextService = executionContextService;
         this.windows = windows;
     }
 
-    boolean isComplete(Path projectDirectory) {
+    /** 判断{@code Complete}是否满足约束。 */
+    boolean isComplete(Path projectDirectory, String taskId) {
         Path projectPath = normalize(projectDirectory);
         Path nodeModules = projectPath.resolve("node_modules");
         Path pnpmDirectory = nodeModules.resolve(".pnpm");
@@ -67,12 +76,13 @@ public class NodeModulesIntegrityService {
         if (!containsEntries(pnpmDirectory) || !hasSafeViteExecutable(nodeModules)) {
             return false;
         }
-        if (!isViteRuntimeResolvable(projectPath)) {
+        if (!isViteRuntimeResolvable(projectPath, taskId)) {
             return false;
         }
         return areNativePackagesComplete(pnpmDirectory);
     }
 
+    /** 清理损坏的{@code Native}依赖包。 */
     void cleanCorruptedNativePackages(Path projectDirectory) throws IOException {
         if (!windows) {
             return;
@@ -95,6 +105,7 @@ public class NodeModulesIntegrityService {
         }
     }
 
+    /** 删除{@code Native}依赖包目录。 */
     void deleteNativePackageDirectory(Path pnpmDirectory, Path packageDirectory) throws IOException {
         Path safeRoot = normalize(pnpmDirectory);
         Path target = normalize(packageDirectory);
@@ -113,6 +124,13 @@ public class NodeModulesIntegrityService {
                 return FileVisitResult.CONTINUE;
             }
 
+            /**
+ * 在目录访问完成后处理异常并收口遍历状态。
+ *
+ * @param directory 目录
+ * @param exception 待转换或处理的异常
+ * @return 方法执行结果
+ */
             @Override
             public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
                 if (exception != null) {
@@ -124,6 +142,7 @@ public class NodeModulesIntegrityService {
         });
     }
 
+    /** 校验{@code ate}安全{@code Ancestors}是否有效。 */
     private void validateSafeAncestors(Path safeRoot, Path target) throws IOException {
         if (!isSafeDirectory(safeRoot)) {
             throw new IOException(".pnpm 根目录不是安全的普通目录: " + safeRoot);
@@ -139,7 +158,8 @@ public class NodeModulesIntegrityService {
         }
     }
 
-    private boolean isViteRuntimeResolvable(Path projectDirectory) {
+    /** 判断{@code Vite}运行时{@code Resolvable}是否满足约束。 */
+    private boolean isViteRuntimeResolvable(Path projectDirectory, String taskId) {
         List<String> command = List.of(
                 nodeToolchain.nodeExecutable(),
                 "--input-type=module",
@@ -147,6 +167,12 @@ public class NodeModulesIntegrityService {
                 "import('vite').then(() => process.exit(0)).catch((error) => { "
                         + "console.error(error?.message || error); process.exit(1); })"
         );
+        Duration timeout = executionContextService.clampTimeout(
+                taskId,
+                properties.getRuntimeValidationTimeout()
+        );
+        BooleanSupplier cancellationRequested = () -> executionContextService.shouldStop(taskId);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ManagedProcessResult result = processExecutor.execute(
                     ManagedProcessRequest.builder()
@@ -154,7 +180,7 @@ public class NodeModulesIntegrityService {
                             .command(command)
                             .environment(NodeProcessEnvironment.overrides(false))
                             .environmentVariablesToRemove(NodeProcessEnvironment.variablesToRemove())
-                            .timeout(properties.getRuntimeValidationTimeout())
+                            .timeout(timeout)
                             .idleTimeout(null)
                             .heartbeatInterval(properties.getHeartbeatInterval())
                             .outputDrainTimeout(properties.getOutputDrainTimeout())
@@ -162,14 +188,18 @@ public class NodeModulesIntegrityService {
                             .redirectErrorStream(true)
                             .logCategory("dependency-validation")
                             .logContext("vite-runtime-check " + projectDirectory)
+                            .cancellationRequested(cancellationRequested)
                             .build()
             );
+            executionContextService.assertCanContinue(taskId);
             if (!result.exitedSuccessfully()) {
                 log.warn("Vite 运行时校验失败: project={}, status={}, exitCode={}",
                         projectDirectory, result.status(), result.exitCode());
                 return false;
             }
             return true;
+        } catch (GenerationExecutionPolicyException policyFailure) {
+            throw policyFailure;
         } catch (RuntimeException exception) {
             log.warn("Vite 运行时校验异常: project={}, exceptionType={}",
                     projectDirectory, exception.getClass().getName());
@@ -177,6 +207,7 @@ public class NodeModulesIntegrityService {
         }
     }
 
+    /** 返回{@code are}{@code Native}依赖包{@code Complete}。 */
     private boolean areNativePackagesComplete(Path pnpmDirectory) {
         if (!windows) {
             return true;
@@ -230,6 +261,7 @@ public class NodeModulesIntegrityService {
                 || isSafeExecutable(nodeModules, unixLauncher);
     }
 
+    /** 判断安全{@code Executable}是否满足约束。 */
     private boolean isSafeExecutable(Path nodeModules, Path executable) {
         if (!Files.exists(executable, LinkOption.NOFOLLOW_LINKS)) {
             return false;

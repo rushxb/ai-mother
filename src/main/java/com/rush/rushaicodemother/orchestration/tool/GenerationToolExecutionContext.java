@@ -43,6 +43,11 @@ public record GenerationToolExecutionContext(
                 allowUnplannedWrite, reason, workspace, null);
     }
 
+    /**
+ * 返回{@code allows}{@code Bootstrap}{@code Write}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean allowsBootstrapWrite() {
         return allowUnplannedWrite
                 || "full_generation".equals(generationMode)

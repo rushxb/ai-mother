@@ -28,6 +28,13 @@ public class SelectedElementFileLocator {
     private final EditWorkspaceFileService workspaceFileService;
     private final EditLocatorProperties properties;
 
+    /**
+ * 返回{@code locate}。
+ *
+ * @param workspace 工作区
+ * @param userMessage 用户消息
+ * @return {@code Selected}{@code Element}文件{@code Locator}集合
+ */
     public List<EditFileCandidate> locate(GenerationWorkspace workspace, String userMessage) {
         if (workspace == null || StrUtil.isBlank(userMessage) || !userMessage.contains(SELECTED_ELEMENT_HEADING)) {
             return List.of();
@@ -47,6 +54,7 @@ public class SelectedElementFileLocator {
                 .toList();
     }
 
+    /** 从输入中提取{@code Class}{@code Names}。 */
     private LinkedHashSet<String> extractClassNames(String userMessage) {
         LinkedHashSet<String> classNames = new LinkedHashSet<>();
         String selector = extractSelector(userMessage);
@@ -63,6 +71,7 @@ public class SelectedElementFileLocator {
         return classNames;
     }
 
+    /** 从输入中提取{@code Selector}。 */
     private String extractSelector(String userMessage) {
         String prefix = "- \u9009\u62e9\u5668:";
         for (String line : userMessage.split("\\R")) {
@@ -74,6 +83,7 @@ public class SelectedElementFileLocator {
         return "";
     }
 
+    /** 从输入中提取{@code Text}{@code Signals}。 */
     private LinkedHashSet<String> extractTextSignals(String userMessage) {
         LinkedHashSet<String> signals = new LinkedHashSet<>();
         Matcher matcher = CONTENT_PATTERN.matcher(userMessage);
@@ -94,6 +104,7 @@ public class SelectedElementFileLocator {
         return signals;
     }
 
+    /** 返回{@code score}文件。 */
     private EditFileCandidate scoreFile(GenerationWorkspace workspace,
                                         EditWorkspaceFile file,
                                         Set<String> classNames,
@@ -105,6 +116,7 @@ public class SelectedElementFileLocator {
 
         int score = 0;
         List<String> matchedTerms = new ArrayList<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String className : classNames) {
             if (file.fileName().equalsIgnoreCase(kebabToPascal(className) + ".vue")) {
                 score += 180;
@@ -115,6 +127,7 @@ public class SelectedElementFileLocator {
                 matchedTerms.add(className);
             }
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String signal : textSignals) {
             if (content.contains(signal)) {
                 score += CART_TEXT.equals(signal) ? 150 : 60;
@@ -137,6 +150,7 @@ public class SelectedElementFileLocator {
         );
     }
 
+    /** 返回{@code kebab}{@code To}{@code Pascal}。 */
     private String kebabToPascal(String value) {
         if (StrUtil.isBlank(value)) {
             return "";

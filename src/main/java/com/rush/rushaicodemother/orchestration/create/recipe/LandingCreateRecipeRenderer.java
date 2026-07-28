@@ -27,6 +27,15 @@ final class LandingCreateRecipeRenderer implements CreateRecipeRenderer {
         return TEMPLATE_ID;
     }
 
+    /**
+ * 渲染{@code Landing}创建{@code Recipe}渲染器。
+ *
+ * @param userMessage 用户消息
+ * @param group 分组
+ * @param spec {@code spec} 对应的调用参数
+ * @param manifest 清单
+ * @return {@code Landing}创建{@code Recipe}渲染器
+ */
     @Override
     public RecipeRenderResult render(String userMessage,
                                      SlotGroup group,

@@ -40,6 +40,11 @@ public class DevServerSessionMetricsCollector {
         return new DevServerSessionMetricsCollector();
     }
 
+    /**
+ * 记录{@code Claim}相关指标或状态。
+ *
+ * @param status 目标状态
+ */
     public void recordClaim(String status) {
         increment(
                 "claim:" + bounded(status, CLAIM_STATUSES),
@@ -50,6 +55,11 @@ public class DevServerSessionMetricsCollector {
         );
     }
 
+    /**
+ * 记录租约{@code Renewal}相关指标或状态。
+ *
+ * @param status 目标状态
+ */
     public void recordLeaseRenewal(String status) {
         increment(
                 "lease:" + bounded(status, LEASE_STATUSES),
@@ -60,6 +70,12 @@ public class DevServerSessionMetricsCollector {
         );
     }
 
+    /**
+ * 记录恢复相关指标或状态。
+ *
+ * @param backend 后端
+ * @param status 目标状态
+ */
     public void recordRecovery(String backend, String status) {
         String normalizedBackend = backend(backend);
         String normalizedStatus = bounded(status, RECOVERY_STATUSES);

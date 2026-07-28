@@ -41,6 +41,7 @@ public record ManagedProcessRequest(
         Integer exposedPort
 ) {
 
+    /** 创建{@code Managed}进程请求实例并完成必要的依赖和初始状态设置。 */
     public ManagedProcessRequest {
         command = command == null ? null : List.copyOf(command);
         environment = environment == null ? Map.of() : Map.copyOf(environment);

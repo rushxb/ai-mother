@@ -52,6 +52,11 @@ public class MilvusMemoryProperties {
     private int defaultTopK = 6;
     private double minimumScore = 0.45;
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "Milvus memory durations and score must be valid")
     public boolean isConfigurationValid() {
         if (!positive(connectTimeout) || !positive(requestTimeout)
@@ -73,6 +78,7 @@ public class MilvusMemoryProperties {
         return duration != null && !duration.isZero() && !duration.isNegative();
     }
 
+    /** 校验服务端点配置是否有效。 */
     private boolean validEndpoint(String value) {
         if (value == null || value.isBlank()) {
             return false;

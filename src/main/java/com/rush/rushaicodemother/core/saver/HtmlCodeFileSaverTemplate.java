@@ -27,11 +27,22 @@ public final class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlC
         return CodeGenTypeEnum.HTML;
     }
 
+    /**
+ * 保存文件。
+ *
+ * @param result 待处理结果
+ * @param workspaceRoot 工作区根
+ */
     @Override
     protected void saveFiles(HtmlCodeResult result, Path workspaceRoot) {
         synchronizeFile(workspaceRoot, "index.html", result.getHtmlCode());
     }
 
+    /**
+ * 校验{@code ate}输入是否有效。
+ *
+ * @param result 待处理结果
+ */
     @Override
     protected void validateInput(HtmlCodeResult result) {
         super.validateInput(result);

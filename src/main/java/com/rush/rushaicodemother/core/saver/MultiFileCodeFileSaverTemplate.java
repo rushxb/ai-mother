@@ -27,6 +27,12 @@ public final class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<
         return CodeGenTypeEnum.MULTI_FILE;
     }
 
+    /**
+ * 保存文件。
+ *
+ * @param result 待处理结果
+ * @param workspaceRoot 工作区根
+ */
     @Override
     protected void saveFiles(MultiFileCodeResult result, Path workspaceRoot) {
         synchronizeFile(workspaceRoot, "index.html", result.getHtmlCode());
@@ -34,6 +40,11 @@ public final class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<
         synchronizeFile(workspaceRoot, "script.js", result.getJsCode());
     }
 
+    /**
+ * 校验{@code ate}输入是否有效。
+ *
+ * @param result 待处理结果
+ */
     @Override
     protected void validateInput(MultiFileCodeResult result) {
         super.validateInput(result);

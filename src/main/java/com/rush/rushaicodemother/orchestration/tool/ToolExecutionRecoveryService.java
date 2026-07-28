@@ -19,6 +19,13 @@ public class ToolExecutionRecoveryService {
     private final DurableGenerationTaskRepository taskRepository;
     private final AiToolApprovalProperties properties;
 
+    /**
+ * 恢复工具执行恢复。
+ *
+ * @param candidate 候选
+ * @param recoveredAt {@code recoveredAt} 对应的调用参数
+ * @return 可选的工具执行恢复；不存在时返回空值
+ */
     @Transactional
     public Optional<ToolApprovalRecord> recover(
             GenerationTaskRecoveryCandidate candidate,

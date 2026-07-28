@@ -71,6 +71,11 @@ public class RateLimiterProperties {
     @NotNull
     private Duration retryInterval = Duration.ofMillis(1500);
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "限流器时长、连接池和可信代理配置无效")
     public boolean isConfigurationValid() {
         return isPositiveAndFitsIntegerMillis(limiterIdleTtl)
@@ -83,6 +88,7 @@ public class RateLimiterProperties {
                 && trustedProxies.stream().allMatch(value -> value != null && !value.isBlank());
     }
 
+    /** 返回{@code is}正数{@code And}{@code Fits}{@code Integer}对应的毫秒数。 */
     private boolean isPositiveAndFitsIntegerMillis(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) {
             return false;

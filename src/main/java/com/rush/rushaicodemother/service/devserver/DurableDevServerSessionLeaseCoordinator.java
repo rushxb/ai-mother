@@ -63,8 +63,15 @@ public class DurableDevServerSessionLeaseCoordinator
         this.clock = clock;
     }
 
+    /**
+ * 响应计划{@code Prepared}事件。
+ *
+ * @param appId 应用编号
+ * @param plan 计划
+ */
     @Override
     public void onPlanPrepared(Long appId, SandboxProcessPlan plan) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (plan == null) {
             throw new DevServerStartException(
                     DevServerStartException.Reason.PROCESS_START_FAILED,
@@ -73,6 +80,7 @@ public class DurableDevServerSessionLeaseCoordinator
         }
         Instant now = clock.instant();
         Instant leaseUntil = now.plus(properties.getLeaseDuration());
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             boolean recorded = registry.recordStartingResources(
                     appId,
@@ -100,6 +108,15 @@ public class DurableDevServerSessionLeaseCoordinator
         }
     }
 
+    /**
+ * 以原子方式声明{@code Starting}。
+ *
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param projectDirectory 项目目录
+ * @param port 端口
+ * @return {@code Starting}
+ */
     @Override
     public DevServerSessionClaimResult claimStarting(
             Long appId,
@@ -135,6 +152,14 @@ public class DurableDevServerSessionLeaseCoordinator
         return result;
     }
 
+    /**
+ * 更新运行中的标记状态。
+ *
+ * @param appId 应用编号
+ * @param sandboxBackend {@code sandboxBackend} 对应的调用参数
+ * @param cleanupResourceIds 待处理的 {@code cleanupResourceIds} 集合
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean markRunning(Long appId, String sandboxBackend, List<String> cleanupResourceIds) {
         Instant now = clock.instant();
@@ -153,10 +178,17 @@ public class DurableDevServerSessionLeaseCoordinator
         return updated;
     }
 
+    /**
+ * 返回{@code renew}。
+ *
+ * @param appId 应用编号
+ * @return 持久开发服务器会话租约协调器
+ */
     @Override
     public LeaseStatus renew(Long appId) {
         Instant now = clock.instant();
         Instant leaseUntil = now.plus(properties.getLeaseDuration());
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (registry.renew(appId, identityProvider.ownerId(), now, leaseUntil)) {
                 localLeaseDeadlines.put(appId, leaseUntil);
@@ -185,11 +217,23 @@ public class DurableDevServerSessionLeaseCoordinator
         }
     }
 
+    /**
+ * 返回请求{@code Stop}。
+ *
+ * @param appId 应用编号
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean requestStop(Long appId) {
         return registry.requestStop(appId, clock.instant());
     }
 
+    /**
+ * 更新{@code Stopping}的标记状态。
+ *
+ * @param appId 应用编号
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean markStopping(Long appId) {
         Instant now = clock.instant();
@@ -202,6 +246,12 @@ public class DurableDevServerSessionLeaseCoordinator
         return updated;
     }
 
+    /**
+ * 释放持久开发服务器会话租约协调器。
+ *
+ * @param appId 应用编号
+ * @param reason 原因
+ */
     @Override
     public void release(Long appId, String reason) {
         try {

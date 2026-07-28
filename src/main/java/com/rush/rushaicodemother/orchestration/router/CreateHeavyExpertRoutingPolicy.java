@@ -18,6 +18,12 @@ public class CreateHeavyExpertRoutingPolicy implements GenerationRoutingPolicy {
             "支付系统", "区块链", "训练模型", "自研框架", "复杂工作流"
     );
 
+    /**
+ * 根据输入信号确定创建重型{@code Expert}路由策略。
+ *
+ * @param signal 输入信号
+ * @return 可选的创建重型{@code Expert}路由策略；不存在时返回空值
+ */
     @Override
     public Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal) {
         if (!signal.firstGeneration() || !signal.containsAny(CREATE_HEAVY_EXPERT_KEYWORDS)) {

@@ -45,6 +45,13 @@ public class PromptReleaseController {
         return ResultUtils.success(managementService.getOverview());
     }
 
+    /**
+ * 发布当前处理结果或领域事件。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/releases/publish")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<PromptReleaseMutationVO> publish(
@@ -66,6 +73,13 @@ public class PromptReleaseController {
         ));
     }
 
+    /**
+ * 返回回滚。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/releases/rollback")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<PromptReleaseMutationVO> rollback(
@@ -84,6 +98,13 @@ public class PromptReleaseController {
         ));
     }
 
+    /**
+ * 列出符合条件的历史。
+ *
+ * @param promptKey 提示词键
+ * @param limit 资源上限
+ * @return 统一封装的接口响应
+ */
     @GetMapping("/releases/history")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<List<PromptReleaseHistoryVO>> listHistory(

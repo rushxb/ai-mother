@@ -30,6 +30,13 @@ public class MyBatisGenerationSpanQueryService implements GenerationSpanQuerySer
         this.databaseZone = Objects.requireNonNull(databaseZone, "databaseZone");
     }
 
+    /**
+ * 查找匹配的按任务编号。
+ *
+ * @param taskId 任务编号
+ * @param limit 资源上限
+ * @return 按任务编号集合
+ */
     @Override
     public List<StoredSpan> findByTaskId(String taskId, Integer limit) {
         if (taskId == null || !TASK_ID_PATTERN.matcher(taskId).matches()) {
@@ -47,6 +54,7 @@ public class MyBatisGenerationSpanQueryService implements GenerationSpanQuerySer
                 .toList();
     }
 
+    /** 将当前对象转换为{@code Stored}跨度。 */
     private StoredSpan toStoredSpan(GenerationTaskSpan entity) {
         if (entity == null || entity.getStartedAt() == null || entity.getEndedAt() == null) {
             throw new IllegalStateException("generation span row is incomplete");

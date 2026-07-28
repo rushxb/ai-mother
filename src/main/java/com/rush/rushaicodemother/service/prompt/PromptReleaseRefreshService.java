@@ -26,6 +26,7 @@ public class PromptReleaseRefreshService {
     private final PromptReleaseRuntime runtime;
     private final PromptReleaseMetricsCollector metricsCollector;
 
+    /** 加载{@code Initial}发布状态。 */
     @EventListener(ApplicationReadyEvent.class)
     public void loadInitialReleaseState() {
         if (!runtimeReleases().isEnabled()) {
@@ -44,6 +45,7 @@ public class PromptReleaseRefreshService {
         }
     }
 
+    /** 刷新{@code Scheduled}。 */
     @Scheduled(fixedDelayString = "${app.ai-prompt-catalog.runtime-releases.refresh-interval:5s}")
     public void refreshScheduled() {
         if (!runtimeReleases().isEnabled()) {
@@ -57,6 +59,11 @@ public class PromptReleaseRefreshService {
         }
     }
 
+    /**
+ * 刷新立即。
+ *
+ * @return 立即
+ */
     public PromptReleaseRefreshResult refreshNow() {
         if (!runtimeReleases().isEnabled()) {
             metricsCollector.recordRefresh("disabled", Duration.ZERO, runtime.activeRevision());

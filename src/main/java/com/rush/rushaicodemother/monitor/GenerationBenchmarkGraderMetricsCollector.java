@@ -37,6 +37,14 @@ public class GenerationBenchmarkGraderMetricsCollector {
         return new GenerationBenchmarkGraderMetricsCollector();
     }
 
+    /**
+ * 记录生成基准测试{@code Grader}{@code Metrics}相关指标或状态。
+ *
+ * @param kind 类别
+ * @param dimension {@code dimension} 对应的调用参数
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void record(
             String kind,
             GenerationBenchmarkQualityDimension dimension,

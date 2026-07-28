@@ -103,6 +103,13 @@ public class GenerationTaskCommandExecutionService {
         );
     }
 
+    /**
+ * 返回调度。
+ *
+ * @param taskId 任务编号
+ * @param completionCallback 完成回调
+ * @return 生成任务命令执行
+ */
     public GenerationTaskDispatchResult schedule(String taskId, Runnable completionCallback) {
         Runnable callback = completionCallback == null ? () -> { } : completionCallback;
         DurableGenerationTaskRecord task = repository.findByTaskId(taskId).orElse(null);
@@ -147,6 +154,7 @@ public class GenerationTaskCommandExecutionService {
         boolean toolContextBound = false;
         boolean sessionRegistered = false;
         boolean claimReleased = false;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             GenerationTaskCommand command = repository.findCommandByTaskId(taskId).orElse(null);
             if (command == null) {
@@ -315,6 +323,7 @@ public class GenerationTaskCommandExecutionService {
         }
     }
 
+    /** 清理{@code Dispatch}{@code Resources}安全处理及其关联资源。 */
     private void cleanupDispatchResourcesSafely(Long appId,
                                                 String taskId,
                                                 GenerationExecutionFence executionFence,
@@ -334,6 +343,7 @@ public class GenerationTaskCommandExecutionService {
         }
     }
 
+    /** 清理{@code Dispatch}{@code Resources}及其关联资源。 */
     private void cleanupDispatchResources(Long appId,
                                           String taskId,
                                           GenerationExecutionFence executionFence,
@@ -372,6 +382,7 @@ public class GenerationTaskCommandExecutionService {
         });
     }
 
+    /** 返回恢复执行上下文。 */
     private GenerationExecutionContext restoreExecutionContext(GenerationTaskCommand command) {
         return executionContextService.getByTaskId(command.taskId())
                 .orElseGet(() -> {
@@ -401,6 +412,7 @@ public class GenerationTaskCommandExecutionService {
         return value == null || value.isBlank() ? fallback : value.trim();
     }
 
+    /** 记录工作器{@code Queue}{@code Wait}相关指标或状态。 */
     private void recordWorkerQueueWait(DurableGenerationTaskRecord task,
                                        GenerationExecutionContext executionContext,
                                        Instant queuedAt) {

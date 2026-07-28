@@ -43,6 +43,13 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
     private final boolean shutdownScheduler;
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
 
+    /**
+ * 创建{@code Distributed}AI 模型容量防护实例并完成必要的依赖和初始状态设置。
+ *
+ * @param redissonClient {@code redissonClient} 对应的调用参数
+ * @param properties 配置属性
+ * @param metrics 待处理的 {@code metrics} 集合
+ */
     @Autowired
     public DistributedAiModelCapacityGuard(RedissonClient redissonClient,
                                            AiModelCapacityProperties properties,
@@ -87,6 +94,16 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return acquire(provider, modelId, configuredMaxOutputTokens, request, null);
     }
 
+    /**
+ * 获取{@code Distributed}AI 模型容量防护。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ * @param configuredMaxOutputTokens 已配置最大输出令牌
+ * @param request 请求参数
+ * @param upstreamTimeout 上游调用超时时间
+ * @return {@code Distributed}AI 模型容量防护
+ */
     @Override
     public Lease acquire(String provider,
                          String modelId,
@@ -116,6 +133,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         RPermitExpirableSemaphore semaphore = null;
         String permitId = null;
         long permitAcquiredAt = 0L;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             semaphore = concurrencySemaphore(identity);
             permitId = acquireConcurrency(semaphore, initialPermitLease);
@@ -169,6 +187,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         }
     }
 
+    /** 关闭{@code Distributed}AI 模型容量防护并释放资源。 */
     @PreDestroy
     @Override
     public void close() {
@@ -195,6 +214,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         );
     }
 
+    /** 获取{@code Rate}。 */
     private void acquireRate(String identity,
                              String gate,
                              long rate,
@@ -230,6 +250,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return AiModelCapacityException.rejected(gate);
     }
 
+    /** 释放{@code Distributed}AI 模型容量防护。 */
     private void release(RPermitExpirableSemaphore semaphore,
                          String permitId,
                          String provider,
@@ -256,6 +277,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return estimatedInputTokens + outputReservation;
     }
 
+    /** 返回{@code maximum}{@code Hold}。 */
     private Duration maximumHold(Duration upstreamTimeout) {
         if (upstreamTimeout == null) {
             return properties.getMaximumHold();
@@ -277,6 +299,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return DigestUtil.sha256Hex(normalize(provider) + ":" + normalize(modelId));
     }
 
+    /** 校验并返回有效的{@code Identity}。 */
     private void requireIdentity(String provider,
                                  String modelId,
                                  int configuredMaxOutputTokens,
@@ -310,6 +333,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return Math.max(1L, duration.toMillis());
     }
 
+    /** 返回截止时间。 */
     private long deadline(long startedAt, Duration duration) {
         long durationNanos;
         try {
@@ -326,6 +350,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return deadline != Long.MAX_VALUE && now >= deadline;
     }
 
+    /** 返回{@code remaining}纳秒数。 */
     private long remainingNanos(long now, long deadline) {
         if (deadline == Long.MAX_VALUE) {
             return Long.MAX_VALUE;
@@ -337,6 +362,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return remaining < 0L ? Long.MAX_VALUE : remaining;
     }
 
+    /** 返回{@code renewal}租约对应的毫秒数。 */
     private long renewalLeaseMillis(long now, long maximumHoldDeadline) {
         long configuredMillis = positiveMillis(properties.getPermitLease());
         long remainingNanos = remainingNanos(now, maximumHoldDeadline);
@@ -350,6 +376,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         return Math.max(1L, Math.min(configuredMillis, remainingMillis));
     }
 
+    /** 创建调度器。 */
     private static ScheduledExecutorService createScheduler(int threads) {
         AtomicInteger sequence = new AtomicInteger();
         ThreadFactory threadFactory = runnable -> Thread.ofPlatform()
@@ -380,6 +407,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
         private Runnable lossListener;
         private long confirmedPermitDeadline;
 
+        /** 创建{@code Renewable}租约实例并完成必要的依赖和初始状态设置。 */
         private RenewableLease(RPermitExpirableSemaphore semaphore,
                                String permitId,
                                String provider,
@@ -420,6 +448,11 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
             return !lost;
         }
 
+        /**
+ * 响应{@code Lost}事件。
+ *
+ * @param listener 监听器
+ */
         @Override
         public void onLost(Runnable listener) {
             if (listener == null) {
@@ -439,6 +472,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
             invokeLossListener(invoke);
         }
 
+        /** 关闭{@code Renewable}租约并释放资源。 */
         @Override
         public void close() {
             ScheduledFuture<?> heartbeat;
@@ -456,6 +490,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
             release(semaphore, permitId, provider, modelId);
         }
 
+        /** 处理{@code renew}。 */
         private void renew() {
             long now = nanoTime.getAsLong();
             boolean inFlightExpired;
@@ -484,6 +519,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
                 }
                 renewalInFlight = true;
             }
+            // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
             try {
                 RFuture<Boolean> renewal = semaphore.updateLeaseTimeAsync(
                         permitId, leaseMillis, TimeUnit.MILLISECONDS);
@@ -498,6 +534,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
             }
         }
 
+        /** 完成{@code Renewal}并持久化终态。 */
         private void completeRenewal(long leaseMillis, Boolean renewed, Throwable failure) {
             synchronized (this) {
                 renewalInFlight = false;
@@ -530,6 +567,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
             }
         }
 
+        /** 处理{@code Renewal}失败。 */
         private void handleRenewalFailure(Throwable renewalFailure) {
             boolean expired;
             synchronized (this) {
@@ -545,6 +583,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
             metrics.recordCapacityLeaseEvent(provider, modelId, "retryable_failure");
         }
 
+        /** 更新{@code Lost}的标记状态。 */
         private void markLost(String outcome, Throwable cause) {
             Runnable listener;
             ScheduledFuture<?> heartbeat;
@@ -578,6 +617,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
                 log.warn("AI model capacity lease was lost, provider={}, modelId={}",
                         safe(provider), safe(modelId));
             }
+            // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
             try {
                 invokeLossListener(listener);
             } finally {
@@ -585,6 +625,7 @@ public class DistributedAiModelCapacityGuard implements AiModelCapacityGuard, Au
             }
         }
 
+        /** 处理{@code invoke}{@code Loss}监听器。 */
         private void invokeLossListener(Runnable listener) {
             if (listener == null) {
                 return;

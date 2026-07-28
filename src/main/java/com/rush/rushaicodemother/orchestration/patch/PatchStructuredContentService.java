@@ -7,6 +7,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class PatchStructuredContentService {
 
+    /**
+ * 将输入转换为补丁{@code Structured}内容。
+ *
+ * @param action 动作
+ * @param originalContent {@code originalContent} 对应的调用参数
+ * @param operation 操作
+ * @return 处理后的补丁{@code Structured}内容文本
+ */
     public String transform(String action,
                             String originalContent,
                             PatchOperation operation) throws PatchWorkspaceException {
@@ -23,6 +31,12 @@ public class PatchStructuredContentService {
         };
     }
 
+    /**
+ * 返回{@code contains}{@code Dangerous}{@code Sql}。
+ *
+ * @param sql {@code sql} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean containsDangerousSql(String sql) {
         String normalized = StrUtil.blankToDefault(sql, "").toLowerCase();
         return normalized.contains("drop table")
@@ -32,6 +46,7 @@ public class PatchStructuredContentService {
                 || normalized.contains("pragma writable_schema");
     }
 
+    /** 将输入转换为{@code Go}导入。 */
     private String transformGoImport(String content, String importPath) throws PatchWorkspaceException {
         String normalizedImport = StrUtil.blankToDefault(importPath, "").trim();
         String quotedImport = "\"" + normalizedImport.replace("\"", "") + "\"";
@@ -53,6 +68,7 @@ public class PatchStructuredContentService {
                 + content.substring(packageLineEnd + 1);
     }
 
+    /** 将输入转换为{@code Go}{@code Function}{@code Append}。 */
     private String transformGoFunctionAppend(String content,
                                              String functionName,
                                              String snippet) throws PatchWorkspaceException {
@@ -73,6 +89,7 @@ public class PatchStructuredContentService {
                 + content.substring(bodyEnd);
     }
 
+    /** 将输入转换为{@code Go}{@code Struct}{@code Fields}。 */
     private String transformGoStructFields(String content,
                                            String structName,
                                            String fields) throws PatchWorkspaceException {
@@ -100,6 +117,7 @@ public class PatchStructuredContentService {
                 + normalizedMigration;
     }
 
+    /** 查找匹配的{@code Matching}{@code Brace}。 */
     private int findMatchingBrace(String content, int openBraceIndex) {
         if (openBraceIndex < 0) {
             return -1;

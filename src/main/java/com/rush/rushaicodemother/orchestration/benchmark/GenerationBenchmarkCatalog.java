@@ -52,6 +52,7 @@ public class GenerationBenchmarkCatalog {
         return dataset;
     }
 
+    /** 加载生成基准测试目录。 */
     private GenerationBenchmarkDataset load(ObjectMapper objectMapper) {
         if (objectMapper == null) {
             throw new IllegalArgumentException("评测数据集需要 JSON 解析器");
@@ -64,6 +65,7 @@ public class GenerationBenchmarkCatalog {
         }
     }
 
+    /** 校验{@code ate}是否有效。 */
     void validate(GenerationBenchmarkDataset candidate) {
         if (candidate == null || candidate.schemaVersion() != SUPPORTED_SCHEMA_VERSION
                 || candidate.datasetId() == null || !ID_PATTERN.matcher(candidate.datasetId()).matches()
@@ -80,7 +82,9 @@ public class GenerationBenchmarkCatalog {
         validateCoverage(candidate.tasks());
     }
 
+    /** 校验{@code ate}任务是否有效。 */
     private void validateTask(GenerationBenchmarkTask task, Set<String> ids) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (task == null || task.id() == null || !ID_PATTERN.matcher(task.id()).matches()
                 || !ids.add(task.id())) {
             throw new IllegalStateException("生成质量评测任务标识无效或重复");
@@ -135,6 +139,7 @@ public class GenerationBenchmarkCatalog {
                 GenerationBenchmarkQualityDimension.FUNCTIONAL)) {
             throw new IllegalStateException("声明式源码断言必须计入功能质量维度: " + task.id());
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             GenerationBenchmarkDeclarationValidator.validate(task);
         } catch (IllegalArgumentException invalid) {
@@ -146,6 +151,7 @@ public class GenerationBenchmarkCatalog {
         }
     }
 
+    /** 校验{@code ate}{@code Coverage}是否有效。 */
     private void validateCoverage(List<GenerationBenchmarkTask> tasks) {
         Map<String, Long> modes = count(tasks, GenerationBenchmarkTask::mode);
         Map<String, Long> types = count(tasks, GenerationBenchmarkTask::codeGenType);
@@ -174,6 +180,7 @@ public class GenerationBenchmarkCatalog {
         return tasks.stream().collect(Collectors.groupingBy(classifier, Collectors.counting()));
     }
 
+    /** 返回{@code compatible}。 */
     private boolean compatible(CodeGenTypeEnum type, GenerationBenchmarkSourceRoot root) {
         if (root == null || root == GenerationBenchmarkSourceRoot.WORKSPACE) {
             return root != null;

@@ -53,6 +53,11 @@ public class AiContextPackBudgetProperties {
 
     private double minimumSemanticTrust = 0.25;
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "AI context pack budget configuration is invalid")
     public boolean isConfigurationValid() {
         return generationMaxTokens >= minimumSectionTokens

@@ -8,6 +8,8 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.extern.slf4j.Slf4j;
@@ -39,11 +41,20 @@ public class GenerationDiffSummaryService {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
+    private final GenerationExecutionContextService executionContextService;
 
+    /**
+ * 创建生成{@code Diff}汇总服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param generationWorkspaceService 生成工作区服务
+ * @param snapshotWorkspaceService 快照工作区服务
+ * @param workspaceFileSystemService 处理该职责的领域服务
+ */
     public GenerationDiffSummaryService(
             GenerationWorkspaceService generationWorkspaceService,
             GenerationSnapshotWorkspaceService snapshotWorkspaceService,
-            WorkspaceFileSystemService workspaceFileSystemService
+            WorkspaceFileSystemService workspaceFileSystemService,
+            GenerationExecutionContextService executionContextService
     ) {
         this.generationWorkspaceService = java.util.Objects.requireNonNull(
                 generationWorkspaceService,
@@ -57,8 +68,21 @@ public class GenerationDiffSummaryService {
                 workspaceFileSystemService,
                 "workspaceFileSystemService must not be null"
         );
+        this.executionContextService = java.util.Objects.requireNonNull(
+                executionContextService,
+                "executionContextService must not be null"
+        );
     }
 
+    /**
+ * 计算{@code marize}的汇总值。
+ *
+ * @param appId 应用编号
+ * @param targetType 目标类型
+ * @param taskId 任务编号
+ * @param rollbackPointArtifact 回滚点制品
+ * @return {@code marize}
+ */
     public DiffSummary summarize(Long appId,
                                   CodeGenTypeEnum targetType,
                                   String taskId,
@@ -84,6 +108,7 @@ public class GenerationDiffSummaryService {
                                  String taskId,
                                  GenerationArtifact rollbackPointArtifact,
                                  GenerationWorkspace workspace) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (appId == null || appId <= 0 || targetType == null || workspace == null
                 || !appId.equals(workspace.appId()) || workspace.codeGenType() != targetType) {
             return DiffSummary.skipped(appId, taskId, "", "", "invalid_generation_context");
@@ -114,6 +139,7 @@ public class GenerationDiffSummaryService {
         }
 
         Path basePath;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             basePath = snapshotWorkspaceService.resolveReportedSnapshot(
                     appId,
@@ -131,6 +157,8 @@ public class GenerationDiffSummaryService {
         }
         try {
             return summarizePaths(appId, taskId, basePath, currentPath);
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception exception) {
             log.warn("Failed to summarize workspace diff, appId: {}, taskId: {}, exceptionType: {}",
                     appId, taskId, exception.getClass().getSimpleName());
@@ -144,6 +172,15 @@ public class GenerationDiffSummaryService {
         }
     }
 
+    /**
+ * 计算{@code marize}{@code Paths}的汇总值。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param basePath 基础路径
+ * @param currentPath 当前路径
+ * @return {@code marize}{@code Paths}
+ */
     public DiffSummary summarizePaths(Long appId, String taskId, Path basePath, Path currentPath) throws IOException {
         if (!workspaceFileSystemService.isDirectory(basePath)) {
             return DiffSummary.skipped(appId, taskId, pathToString(basePath), pathToString(currentPath), "base_snapshot_missing");
@@ -159,6 +196,12 @@ public class GenerationDiffSummaryService {
         );
     }
 
+    /**
+ * 渲染{@code Text}。
+ *
+ * @param summary 汇总
+ * @return 处理后的{@code Text}文本
+ */
     public String renderText(DiffSummary summary) {
         if (summary == null) {
             return "差异摘要不可用";
@@ -177,9 +220,11 @@ public class GenerationDiffSummaryService {
         return builder.toString().trim();
     }
 
+    /** 构建并返回{@code Diff}汇总。 */
     private DiffSummary buildDiffSummary(Long appId, String taskId, Path basePath, Path currentPath) throws IOException {
-        WorkspaceScan baseScan = workspaceFileSystemService.scanProject(basePath);
-        WorkspaceScan currentScan = workspaceFileSystemService.scanProject(currentPath);
+        Runnable continuationCheck = () -> executionContextService.assertCanContinue(taskId);
+        WorkspaceScan baseScan = workspaceFileSystemService.scanProject(basePath, continuationCheck);
+        WorkspaceScan currentScan = workspaceFileSystemService.scanProject(currentPath, continuationCheck);
         Map<String, WorkspaceFileMetadata> baseFiles = indexByRelativePath(baseScan);
         Map<String, WorkspaceFileMetadata> currentFiles = indexByRelativePath(currentScan);
         Set<String> allPaths = new TreeSet<>();
@@ -189,7 +234,9 @@ public class GenerationDiffSummaryService {
         List<String> deleted = new ArrayList<>();
         List<String> modified = new ArrayList<>();
         List<String> modifiedDetails = new ArrayList<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String relativePath : allPaths) {
+            continuationCheck.run();
             WorkspaceFileMetadata baseFile = baseFiles.get(relativePath);
             WorkspaceFileMetadata currentFile = currentFiles.get(relativePath);
             if (baseFile == null) {
@@ -200,7 +247,13 @@ public class GenerationDiffSummaryService {
                 deleted.add(relativePath);
                 continue;
             }
-            if (!workspaceFileSystemService.contentEquals(baseScan, baseFile, currentScan, currentFile)) {
+            if (!workspaceFileSystemService.contentEquals(
+                    baseScan,
+                    baseFile,
+                    currentScan,
+                    currentFile,
+                    continuationCheck
+            )) {
                 modified.add(relativePath);
                 if (modifiedDetails.size() < MAX_FILES) {
                     modifiedDetails.add(buildModifiedDetail(relativePath, baseScan, baseFile, currentScan, currentFile));
@@ -219,6 +272,7 @@ public class GenerationDiffSummaryService {
         );
     }
 
+    /** 构建并返回{@code Modified}{@code Detail}。 */
     private String buildModifiedDetail(String relativePath,
                                        WorkspaceScan baseScan,
                                        WorkspaceFileMetadata baseFile,
@@ -282,6 +336,7 @@ public class GenerationDiffSummaryService {
         return lines.get(safeIndex).trim().substring(0, Math.min(lines.get(safeIndex).trim().length(), 120));
     }
 
+    /** 追加{@code Section}。 */
     private void appendSection(StringBuilder builder, String title, List<String> items) {
         if (items.isEmpty()) {
             return;

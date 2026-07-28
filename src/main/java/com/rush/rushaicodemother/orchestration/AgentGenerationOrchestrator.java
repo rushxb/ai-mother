@@ -54,6 +54,12 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GenerationRollbackPointService rollbackPointService;
 
+    /**
+ * 准备后续流程所需的智能体生成{@code Orchestrator}。
+ *
+ * @param request 请求参数
+ * @return 智能体生成{@code Orchestrator}
+ */
     @Override
     public GenerationOrchestrationResult prepare(GenerationOrchestrationRequest request) {
         Long appId = request.app() == null ? null : request.app().getId();
@@ -70,6 +76,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         List<GenerationAgentNode> nodes = selectNodes(heavyPath);
         List<GenerationStreamEvent> events = new ArrayList<>();
         events.add(orchestrationStartEvent(task.getTaskId(), heavyPath));
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             events.addAll(dagRunner.run(nodes, context));
             QualityGateResult gateResult = context.getQualityGateResult();
@@ -131,6 +138,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
                 .orElseGet(() -> taskStore.create(request.taskId(), appId, request.userMessage()));
     }
 
+    /** 校验{@code ate}{@code Resumable}任务是否有效。 */
     private GenerationOrchestrationTask validateResumableTask(GenerationOrchestrationTask task,
                                                                GenerationOrchestrationRequest request) {
         if (!taskStore.matchesRequest(task, request.userMessage())) {
@@ -144,6 +152,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return task;
     }
 
+    /** 根据当前上下文解析编排模式。 */
     private boolean resolveOrchestrationMode(GenerationOrchestrationRequest request,
                                              GenerationOrchestrationTask task) {
         if (StrUtil.isBlank(task.getOrchestrationMode())) {
@@ -158,6 +167,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         throw new BusinessException(ErrorCode.OPERATION_ERROR, "任务检查点包含未知编排模式");
     }
 
+    /** 从候选项中选择{@code Nodes}。 */
     private List<GenerationAgentNode> selectNodes(boolean heavyPath) {
         List<GenerationAgentNode> nodes = new ArrayList<>();
         nodes.add(plannerAgentNode);
@@ -172,6 +182,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return List.copyOf(nodes);
     }
 
+    /** 为当前上下文附加回滚点。 */
     private void attachRollbackPoint(GenerationOrchestrationRequest request,
                                      GenerationAgentContext context,
                                      CodeGenTypeEnum targetType) {
@@ -188,6 +199,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         taskStore.save(context.getTask());
     }
 
+    /** 从输入中提取{@code Enhanced}提示词。 */
     private String extractEnhancedPrompt(Map<String, GenerationArtifact> artifacts) {
         GenerationArtifact generationSpec = artifacts.get("generation_spec");
         if (generationSpec == null) {
@@ -200,6 +212,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return String.valueOf(prompt);
     }
 
+    /** 返回编排开始事件。 */
     private GenerationStreamEvent orchestrationStartEvent(String taskId, boolean heavyPath) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agent", "Orchestrator");
@@ -213,6 +226,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return GenerationStreamEvent.agentEvent("", data);
     }
 
+    /** 返回编排就绪事件。 */
     private GenerationStreamEvent orchestrationReadyEvent(String taskId, GenerationAgentContext context, boolean heavyPath) {
         long totalDuration = sumDurations(context);
         Map<String, Object> data = new LinkedHashMap<>();
@@ -230,6 +244,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return GenerationStreamEvent.agentEvent("", data);
     }
 
+    /** 记录汇总{@code Metrics}相关指标或状态。 */
     private void recordSummaryMetrics(GenerationAgentContext context, QualityGateResult gateResult) {
         String orchestrationMode = context.getOrchestrationMode();
         boolean patchFirst = artifactBoolean(context, "generation_spec", "patchFirst");
@@ -275,6 +290,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return value == null ? "" : String.valueOf(value);
     }
 
+    /** 返回制品{@code Int}。 */
     private int artifactInt(GenerationAgentContext context, String artifactKey, String payloadKey) {
         Object value = context.getArtifactValue(artifactKey, payloadKey);
         if (value instanceof Number number) {

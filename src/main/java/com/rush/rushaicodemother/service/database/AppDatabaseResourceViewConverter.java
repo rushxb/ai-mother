@@ -10,6 +10,12 @@ public class AppDatabaseResourceViewConverter {
 
     private static final String STATUS_ACTIVE = "active";
 
+    /**
+ * 将当前对象转换为视图。
+ *
+ * @param resource 资源
+ * @return 视图
+ */
     public AppDatabaseResourceVO toView(AppDatabaseResource resource) {
         if (resource == null) {
             return null;

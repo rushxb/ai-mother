@@ -87,9 +87,11 @@ public class JsonMessageStreamHandler {
                                                     StringBuilder chatHistoryStringBuilder,
                                                     Set<String> seenToolIds,
                                                     Map<String, StringBuilder> toolArgumentBuffers) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (event == null || StrUtil.isBlank(event.getType())) {
             return null;
         }
+        // 根据当前类型选择对应的处理分支。
         switch (event.getType()) {
             case GenerationStreamEvent.AI_DELTA -> {
                 chatHistoryStringBuilder.append(event.getText());
@@ -209,6 +211,7 @@ public class JsonMessageStreamHandler {
         }
     }
 
+    /** 构建并返回工具事件{@code Data}。 */
     private Map<String, Object> buildToolEventData(String requestId, String toolName, boolean registered, String arguments, String result) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("requestId", StrUtil.blankToDefault(requestId, ""));
@@ -227,6 +230,7 @@ public class JsonMessageStreamHandler {
         return data;
     }
 
+    /** 追加工具参数。 */
     private String appendToolArguments(Map<String, StringBuilder> toolArgumentBuffers,
                                        String toolId,
                                        String toolName,
@@ -256,6 +260,7 @@ public class JsonMessageStreamHandler {
         toolArgumentBuffers.remove(bufferKey);
     }
 
+    /** 根据当前上下文解析工具缓冲区键。 */
     private String resolveToolBufferKey(String toolId, String toolName, String toolIndex) {
         if (StrUtil.isNotBlank(toolId)) {
             return toolId;
@@ -270,9 +275,11 @@ public class JsonMessageStreamHandler {
         return value == null ? null : String.valueOf(value);
     }
 
+    /** 追加文件操作{@code Data}。 */
     private void appendFileOperationData(Map<String, Object> data,
                                          String toolName,
                                          String arguments) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (StrUtil.isBlank(arguments)) {
             return;
         }
@@ -281,6 +288,7 @@ public class JsonMessageStreamHandler {
             return;
         }
         boolean parsed = false;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             JSONObject jsonObject = JSONUtil.parseObj(arguments);
             String filePath = jsonObject.getStr("relativeFilePath");
@@ -311,7 +319,9 @@ public class JsonMessageStreamHandler {
         }
     }
 
+    /** 追加批次文件操作{@code Data}。 */
     private void appendBatchFileOperationData(Map<String, Object> data, String arguments) {
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             JSONArray files = JSONUtil.parseObj(arguments).getJSONArray("files");
             if (files == null) {
@@ -349,6 +359,7 @@ public class JsonMessageStreamHandler {
         putPartialJsonStringValue(data, arguments, "newContent", "newContent");
     }
 
+    /** 处理{@code put}完成{@code Json}{@code String}值。 */
     private void putCompletedJsonStringValue(Map<String, Object> data, String arguments, String sourceKey, String targetKey) {
         String value = extractJsonStringValue(arguments, sourceKey, false);
         if (value != null) {
@@ -385,6 +396,7 @@ public class JsonMessageStreamHandler {
         return String.format("\n\n%s\n\n", summary);
     }
 
+    /** 从输入中提取{@code Json}{@code String}值。 */
     private String extractJsonStringValue(String jsonText, String key, boolean allowUnclosedValue) {
         String keyPattern = "\"" + key + "\"";
         int keyIndex = jsonText.indexOf(keyPattern);
@@ -401,6 +413,7 @@ public class JsonMessageStreamHandler {
         }
         StringBuilder valueBuilder = new StringBuilder();
         boolean escaping = false;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int index = quoteIndex + 1; index < jsonText.length(); index++) {
             char currentChar = jsonText.charAt(index);
             if (escaping) {

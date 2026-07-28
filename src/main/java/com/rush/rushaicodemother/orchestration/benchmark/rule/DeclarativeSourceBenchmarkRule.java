@@ -41,6 +41,12 @@ public class DeclarativeSourceBenchmarkRule implements GenerationBenchmarkValida
         return GenerationBenchmarkQualityDimension.FUNCTIONAL;
     }
 
+    /**
+ * 返回{@code supports}。
+ *
+ * @param task 任务
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return task != null && !task.sourceAssertions().isEmpty();
@@ -51,6 +57,12 @@ public class DeclarativeSourceBenchmarkRule implements GenerationBenchmarkValida
         return 10;
     }
 
+    /**
+ * 准备后续流程所需的{@code Declarative}来源基准测试规则。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ */
     @Override
     public void prepare(GenerationBenchmarkTask task, GenerationWorkspace workspace) {
         GenerationBenchmarkDeclarationValidator.validate(task);
@@ -63,6 +75,14 @@ public class DeclarativeSourceBenchmarkRule implements GenerationBenchmarkValida
         }
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ * @param baseline {@code baseline} 对应的调用参数
+ * @return {@code Declarative}来源基准测试规则
+ */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,
@@ -96,6 +116,7 @@ public class DeclarativeSourceBenchmarkRule implements GenerationBenchmarkValida
         );
     }
 
+    /** 加载{@code Sources}。 */
     private Map<SourceFile, String> loadSources(GenerationBenchmarkTask task,
                                                 GenerationWorkspace workspace) {
         Map<SourceFile, String> contents = new LinkedHashMap<>();
@@ -128,6 +149,7 @@ public class DeclarativeSourceBenchmarkRule implements GenerationBenchmarkValida
         return contents.stream().anyMatch(content -> content.contains(token));
     }
 
+    /** 根据当前上下文解析根。 */
     private Path resolveRoot(GenerationWorkspace workspace, GenerationBenchmarkSourceRoot root) {
         if (workspace == null || root == null) {
             throw new IllegalArgumentException("评测源码工作区或根目录不能为空");

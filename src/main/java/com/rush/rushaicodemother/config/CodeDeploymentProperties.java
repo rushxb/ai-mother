@@ -20,6 +20,11 @@ public class CodeDeploymentProperties {
     /** 对外暴露的部署访问根地址。 */
     private String deployHost;
 
+    /**
+ * 判断部署主机是否有效。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "应用部署地址必须是合法的 http/https 绝对地址，且不能包含查询参数或片段")
     public boolean isDeployHostValid() {
         if (deployHost == null || deployHost.isBlank()) {

@@ -11,6 +11,12 @@ public record GenerationStageDurationProfileVO(
         long p90DurationMs,
         long maxDurationMs
 ) {
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param profile 配置档
+ * @return 生成阶段时长配置档视图对象
+ */
     public static GenerationStageDurationProfileVO from(GenerationStageDurationProfile profile) {
         return new GenerationStageDurationProfileVO(
                 profile.stage(), profile.category(), profile.sampleSize(),

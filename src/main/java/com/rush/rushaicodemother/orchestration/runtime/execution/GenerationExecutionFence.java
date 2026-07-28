@@ -13,6 +13,7 @@ public record GenerationExecutionFence(
         long executionEpoch
 ) {
 
+    /** 创建生成执行围栏实例并完成必要的依赖和初始状态设置。 */
     public GenerationExecutionFence {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
             throw new IllegalArgumentException("taskId format is invalid");

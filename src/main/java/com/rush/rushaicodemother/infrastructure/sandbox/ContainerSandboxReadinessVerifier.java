@@ -48,6 +48,7 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
         return new ContainerSandboxReadinessVerifier(properties, sandboxMetrics, processStarter);
     }
 
+    /** 在 Spring 单例 Bean 初始化完成后执行启动校验。 */
     @Override
     public void afterSingletonsInstantiated() {
         if (!properties.isVerifyOnStartup()) {
@@ -95,12 +96,14 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
         );
     }
 
+    /** 验证可用是否符合预期。 */
     private void verifyAvailable(
             String metricResource,
             String unavailableMessage,
             List<String> arguments
     ) {
         Process process = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             List<String> command = new ArrayList<>(arguments.size() + 1);
             command.add(properties.getRuntime());
@@ -136,6 +139,7 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
         }
     }
 
+    /** 验证{@code Image}工具是否符合预期。 */
     private void verifyImageTool(String metricResource, String executable, String argument) {
         List<String> command = new ArrayList<>();
         command.add("run");
@@ -157,12 +161,14 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
         );
     }
 
+    /** 验证{@code Network}内部策略是否符合预期。 */
     private void verifyNetworkInternalPolicy(
             String network,
             boolean expectedInternal,
             String metricResource
     ) {
         Process process = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(
                     properties.getRuntime(),

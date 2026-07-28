@@ -8,6 +8,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class BackendRepositoryTemplate {
 
+    /** 返回后端仓储。 */
     String backendRepository(BackendRecipe recipe) {
         String columns = String.join(", ", recipe.fields().stream().map(field -> snake(field.name())).toList());
         String placeholders = String.join(", ", recipe.fields().stream().map(ignored -> "?").toList());
@@ -174,6 +175,7 @@ final class BackendRepositoryTemplate {
         );
     }
 
+    /** 返回安全{@code Order}按{@code Function}。 */
     private String safeOrderByFunction(BackendRecipe recipe) {
         String cases = recipe.fields().stream()
                 .map(field -> "\tcase \"" + camel(field.name()) + "\":\n\t\tcolumn = \"" + snake(field.name()) + "\"")

@@ -16,6 +16,11 @@ public record DevServerPreviewSession(
         return available && state == DevServerSessionState.RUNNING;
     }
 
+    /**
+ * 返回状态。
+ *
+ * @return 处理后的开发服务器预览会话文本
+ */
     public String status() {
         if (state == null) {
             return "stopped";

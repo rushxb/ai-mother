@@ -36,6 +36,20 @@ public class PackageManagerTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 返回{@code manage}依赖包{@code Json}。
+ *
+ * @param action 动作
+ * @param packageName 依赖包名称
+ * @param version 版本
+ * @param dependencyType 依赖类型
+ * @param scriptName 待执行脚本名称
+ * @param scriptCommand {@code scriptCommand} 对应的调用参数
+ * @param runInstall {@code runInstall} 对应的调用参数
+ * @param reason 原因
+ * @param appId 应用编号
+ * @return 处理后的依赖包管理器工具文本
+ */
     @Tool("管理 package.json 的依赖和 scripts；依赖安装由后续构建校验流水线统一执行。")
     public String managePackageJson(
             @P("操作类型：getPackageJson、addDependency、updateDependency、removeDependency、setScript、removeScript、installDependencies（仅移交构建阶段）")
@@ -56,6 +70,7 @@ public class PackageManagerTool extends BaseTool {
             String reason,
             @ToolMemoryId Long appId
     ) {
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory =
                     workspaceFileService.resolveDirectory(appId, null);
@@ -99,6 +114,7 @@ public class PackageManagerTool extends BaseTool {
         return workspaceFileService.resolveFile(projectDirectory, "frontend/package.json");
     }
 
+    /** 处理{@code Upsert}依赖。 */
     private String handleUpsertDependency(Long appId,
                                           ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                           JSONObject packageJson,
@@ -146,6 +162,7 @@ public class PackageManagerTool extends BaseTool {
         return builder.toString();
     }
 
+    /** 处理{@code Remove}依赖。 */
     private String handleRemoveDependency(Long appId,
                                           ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                           JSONObject packageJson,
@@ -170,6 +187,7 @@ public class PackageManagerTool extends BaseTool {
         return builder.toString();
     }
 
+    /** 处理集合{@code Script}。 */
     private String handleSetScript(Long appId,
                                    ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                    JSONObject packageJson,
@@ -200,6 +218,7 @@ public class PackageManagerTool extends BaseTool {
         return builder.toString();
     }
 
+    /** 处理{@code Remove}{@code Script}。 */
     private String handleRemoveScript(Long appId,
                                       ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                       JSONObject packageJson,
@@ -233,6 +252,7 @@ public class PackageManagerTool extends BaseTool {
         return "依赖安装已移交构建校验流水线，代码生成回合不重复执行 pnpm install";
     }
 
+    /** 写入依赖包{@code Json}。 */
     private String writePackageJson(Long appId,
                                     ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                     JSONObject packageJson,
@@ -271,6 +291,12 @@ public class PackageManagerTool extends BaseTool {
         return "依赖与脚本管理";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String action = arguments.getStr("action");
@@ -280,6 +306,13 @@ public class PackageManagerTool extends BaseTool {
         return String.format("[工具调用] %s %s %s", getDisplayName(), action, StrUtil.blankToDefault(target, ""));
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 280);

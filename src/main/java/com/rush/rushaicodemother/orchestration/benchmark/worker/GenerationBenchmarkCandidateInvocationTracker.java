@@ -27,6 +27,12 @@ public class GenerationBenchmarkCandidateInvocationTracker
     private volatile boolean tracking;
     private volatile ModelIdentity candidateIdentity;
 
+    /**
+ * 响应请求事件。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ */
     @Override
     public void onRequest(String provider, String modelId) {
         if (!tracking) {
@@ -40,6 +46,11 @@ public class GenerationBenchmarkCandidateInvocationTracker
         }
     }
 
+    /**
+ * 开始生成基准测试候选调用{@code Tracker}。
+ *
+ * @param candidate 候选
+ */
     public synchronized void begin(GenerationBenchmarkEvidenceCandidate candidate) {
         requireConfiguredCandidate(candidate);
         if (tracking) {
@@ -50,6 +61,12 @@ public class GenerationBenchmarkCandidateInvocationTracker
         tracking = true;
     }
 
+    /**
+ * 校验并返回有效的候选{@code Invoked}。
+ *
+ * @param candidate 候选
+ * @return 计算或处理后的数值结果
+ */
     public long requireCandidateInvoked(GenerationBenchmarkEvidenceCandidate candidate) {
         requireConfiguredCandidate(candidate);
         if (!tracking) {
@@ -78,6 +95,7 @@ public class GenerationBenchmarkCandidateInvocationTracker
         }
     }
 
+    /** 判断当前状态是否允许{@code didate}{@code Identity}。 */
     private ModelIdentity candidateIdentity() {
         if (initialized) {
             return candidateIdentity;
@@ -91,6 +109,7 @@ public class GenerationBenchmarkCandidateInvocationTracker
         }
     }
 
+    /** 根据当前上下文解析候选{@code Identity}。 */
     private ModelIdentity resolveCandidateIdentity() {
         GenerationBenchmarkEvidenceCandidate candidate = candidateProvider.candidate();
         if (!(candidate instanceof GenerationBenchmarkEvidenceCandidate.AiModelEnable modelCandidate)) {

@@ -32,6 +32,11 @@ public class GenerationBenchmarkCandidateRuntime {
     private final PromptReleaseRuntime promptRuntime;
     private final PromptCatalog promptCatalog;
 
+    /**
+ * 准备后续流程所需的生成基准测试候选运行时。
+ *
+ * @param candidate 候选
+ */
     public void prepare(GenerationBenchmarkEvidenceCandidate candidate) {
         if (candidate == null) {
             throw new IllegalArgumentException("Benchmark Worker 候选不能为空");

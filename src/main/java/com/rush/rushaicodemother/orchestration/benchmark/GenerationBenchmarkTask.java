@@ -19,6 +19,15 @@ public record GenerationBenchmarkTask(
         List<GenerationBenchmarkSourceAssertion> sourceAssertions
 ) {
 
+    /**
+ * 创建生成基准测试任务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param id 编号
+ * @param mode 模式
+ * @param codeGenType 代码生成类型
+ * @param prompt 提示词
+ * @param expectedValidation {@code expectedValidation} 对应的调用参数
+ */
     public GenerationBenchmarkTask(String id,
                                    String mode,
                                    String codeGenType,

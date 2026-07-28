@@ -10,6 +10,12 @@ public record CreateSpecValidationResult(
         List<String> warnings,
         List<String> errors
 ) {
+    /**
+ * 返回{@code ok}。
+ *
+ * @param warnings 待处理的 {@code warnings} 集合
+ * @return 创建{@code Spec}校验结果
+ */
     public static CreateSpecValidationResult ok(List<String> warnings) {
         return new CreateSpecValidationResult(true, warnings == null ? List.of() : List.copyOf(warnings), List.of());
     }

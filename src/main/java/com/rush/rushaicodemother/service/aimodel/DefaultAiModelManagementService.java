@@ -35,6 +35,13 @@ public class DefaultAiModelManagementService implements AiModelManagementService
     private final AiReleaseAuditService releaseAuditService;
     private final AiReleaseCoordinationLock coordinationLock;
 
+    /**
+ * 创建模型。
+ *
+ * @param command 命令
+ * @param operatorUserId 目标资源编号
+ * @return 计算或处理后的数值结果
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public long createModel(CreateCommand command, long operatorUserId) {
@@ -57,6 +64,11 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         return modelId;
     }
 
+    /**
+ * 更新模型。
+ *
+ * @param command 命令
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateModel(UpdateCommand command) {
@@ -82,6 +94,11 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         publishConfigurationChanged();
     }
 
+    /**
+ * 删除模型。
+ *
+ * @param modelId 模型编号
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteModel(long modelId) {
@@ -91,6 +108,14 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         publishConfigurationChanged();
     }
 
+    /**
+ * 将当前对象转换为{@code ggle}模型启用。
+ *
+ * @param modelId 模型编号
+ * @param evidenceId 证据编号
+ * @param operatorUserId 目标资源编号
+ * @return {@code ggle}模型启用
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AiModelAdminVO toggleModelEnabled(long modelId,
@@ -120,6 +145,12 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         return viewAssembler.toAdminView(updated);
     }
 
+    /**
+ * 获取并返回模型按编号。
+ *
+ * @param modelId 模型编号
+ * @return 默认 AI 模型管理
+ */
     @Override
     public AiModelAdminVO getModelById(long modelId) {
         if (modelId <= 0) {
@@ -132,6 +163,12 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         return viewAssembler.toAdminView(configuration);
     }
 
+    /**
+ * 返回{@code page}模型。
+ *
+ * @param query 查询
+ * @return 默认 AI 模型管理
+ */
     @Override
     public Page<AiModelAdminVO> pageModels(Query query) {
         if (query == null) {
@@ -159,6 +196,12 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         return listEnabledModelsByType(null);
     }
 
+    /**
+ * 列出符合条件的启用模型按类型。
+ *
+ * @param modelType 模型类型
+ * @return 启用模型按类型集合
+ */
     @Override
     public List<AiModelPublicVO> listEnabledModelsByType(String modelType) {
         return persistenceService.findEnabled(modelType).stream()
@@ -171,6 +214,12 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         return configurationPolicy.listSupportedModels();
     }
 
+    /**
+ * 返回{@code test}{@code Saved}模型连接。
+ *
+ * @param modelId 模型编号
+ * @return 默认 AI 模型管理
+ */
     @Override
     public AiModelConnectionTestResultVO testSavedModelConnection(long modelId) {
         AiModelConfiguration configuration = persistenceService.findActiveById(modelId);
@@ -180,6 +229,12 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         return connectionTester.test(configurationPolicy.toRuntimeConfiguration(configuration));
     }
 
+    /**
+ * 返回{@code test}配置。
+ *
+ * @param command 命令
+ * @return 默认 AI 模型管理
+ */
     @Override
     public AiModelConnectionTestResultVO testConfiguration(CreateCommand command) {
         AiModelConfiguration configuration = configurationPolicy.normalizeAndValidate(
@@ -188,6 +243,7 @@ public class DefaultAiModelManagementService implements AiModelManagementService
         return connectionTester.test(configurationPolicy.toRuntimeConfiguration(configuration));
     }
 
+    /** 校验并返回有效的{@code Locked}模型。 */
     private AiModelConfiguration requireLockedModel(long modelId) {
         if (modelId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型 ID 不合法");

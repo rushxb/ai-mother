@@ -15,6 +15,13 @@ import java.nio.file.Path;
 )
 public class HostLocalGeneratedCodeProcessSandbox implements GeneratedCodeProcessSandbox {
 
+    /**
+ * 准备后续流程所需的主机{@code Local}{@code Generated}代码进程{@code Sandbox}。
+ *
+ * @param request 请求参数
+ * @param normalizedWorkingDirectory {@code normalizedWorkingDirectory} 对应的调用参数
+ * @return 主机{@code Local}{@code Generated}代码进程{@code Sandbox}
+ */
     @Override
     public SandboxProcessPlan prepare(ManagedProcessRequest request, Path normalizedWorkingDirectory) {
         return new SandboxProcessPlan(

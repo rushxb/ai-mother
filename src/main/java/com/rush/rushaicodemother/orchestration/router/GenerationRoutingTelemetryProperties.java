@@ -49,13 +49,28 @@ public class GenerationRoutingTelemetryProperties {
 
     private Duration cacheTtl = Duration.ofSeconds(30);
 
+    private Duration coldLoadTimeout = Duration.ofMillis(100);
+
+    private Duration staleRetention = Duration.ofMinutes(10);
+
+    private Duration shutdownTimeout = Duration.ofSeconds(5);
+
     @Min(10)
     @Max(100000)
     private int maxCachedApplications = 10000;
 
-    @AssertTrue(message = "generation routing telemetry durations must be positive")
+    @Min(1)
+    @Max(64)
+    private int maxConcurrentLoads = 4;
+
+    @AssertTrue(message = "生成路由遥测时间配置无效")
     public boolean isDurationConfigurationValid() {
         return slowAverageDuration != null && !slowAverageDuration.isZero() && !slowAverageDuration.isNegative()
-                && cacheTtl != null && !cacheTtl.isZero() && !cacheTtl.isNegative();
+                && cacheTtl != null && !cacheTtl.isZero() && !cacheTtl.isNegative()
+                && coldLoadTimeout != null && !coldLoadTimeout.isZero() && !coldLoadTimeout.isNegative()
+                && staleRetention != null && !staleRetention.isZero() && !staleRetention.isNegative()
+                && shutdownTimeout != null && !shutdownTimeout.isZero() && !shutdownTimeout.isNegative()
+                && coldLoadTimeout.compareTo(cacheTtl) < 0
+                && staleRetention.compareTo(cacheTtl) > 0;
     }
 }

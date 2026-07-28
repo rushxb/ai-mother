@@ -46,6 +46,7 @@ public class EditStatePersistenceService {
         this(properties, stateStore, Clock.systemUTC());
     }
 
+    /** 创建编辑状态持久化服务实例并完成必要的依赖和初始状态设置。 */
     EditStatePersistenceService(EditStatePersistenceProperties properties,
                                 LocalEditStateStore stateStore,
                                 Clock clock) {
@@ -199,6 +200,7 @@ public class EditStatePersistenceService {
         }
     }
 
+    /** 加载状态。 */
     private EditStateSnapshot loadState(Long appId) {
         EditStateSnapshot cached = cache.getIfPresent(appId);
         if (cached != null) {
@@ -213,6 +215,7 @@ public class EditStatePersistenceService {
         return normalized;
     }
 
+    /** 规范化{@code Loaded}状态。 */
     private EditStateSnapshot normalizeLoadedState(EditStateSnapshot loaded) {
         long nowEpochMillis = clock.millis();
         if (loaded == null || loaded.schemaVersion() != EditStateSnapshot.CURRENT_SCHEMA_VERSION) {
@@ -263,6 +266,7 @@ public class EditStatePersistenceService {
         );
     }
 
+    /** 更新{@code Recent}文件。 */
     private List<EditStateSnapshot.RecentFile> updateRecentFiles(
             List<EditStateSnapshot.RecentFile> currentFiles,
             List<String> changedFiles,
@@ -279,6 +283,7 @@ public class EditStatePersistenceService {
         return List.copyOf(updated);
     }
 
+    /** 从输入中提取变更文件。 */
     private List<String> extractChangedFiles(List<PatchOperation> patchOperations) {
         if (patchOperations == null || patchOperations.isEmpty()) {
             return List.of();
@@ -310,6 +315,7 @@ public class EditStatePersistenceService {
         return normalized;
     }
 
+    /** 规范化文件路径。 */
     private String normalizeFilePath(String filePath) {
         String normalized = StrUtil.trim(filePath);
         if (StrUtil.isBlank(normalized)) {

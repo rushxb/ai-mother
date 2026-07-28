@@ -30,10 +30,20 @@ public record CreateGenerationPlan(
         return baseTemplate == null ? "" : baseTemplate.templateId();
     }
 
+    /**
+ * 返回模块{@code Ids}。
+ *
+ * @return 创建生成计划集合
+ */
     public List<String> moduleIds() {
         return modules.stream().map(FeatureModuleManifest::moduleId).toList();
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         return Map.of(
                 "codeGenType", codeGenType == null ? "" : codeGenType.getValue(),

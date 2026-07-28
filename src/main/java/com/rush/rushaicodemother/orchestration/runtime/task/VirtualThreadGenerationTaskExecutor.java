@@ -39,6 +39,12 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
     private final Duration shutdownTimeout;
     private final Duration queuePolicyCheckInterval;
 
+    /**
+ * 创建{@code Virtual}线程生成任务执行器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param watchdog {@code watchdog} 对应的调用参数
+ */
     public VirtualThreadGenerationTaskExecutor(GenerationTaskExecutorProperties properties,
                                                GenerationTaskWatchdog watchdog) {
         Objects.requireNonNull(properties, "properties");
@@ -62,12 +68,19 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
         executeInternal(taskId, null, task);
     }
 
+    /**
+ * 执行{@code Virtual}线程生成任务处理流程。
+ *
+ * @param execution 执行
+ * @param task 任务
+ */
     @Override
     public void execute(GenerationTaskExecution execution, Runnable task) {
         Objects.requireNonNull(execution, "execution");
         executeInternal(execution.taskId(), execution, task);
     }
 
+    /** 执行内部处理流程。 */
     private void executeInternal(String taskId, GenerationTaskExecution execution, Runnable task) {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("taskId cannot be blank");
@@ -97,6 +110,7 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
         }
     }
 
+    /** 运行{@code Admitted}处理流程。 */
     private void runAdmitted(String taskId,
                              GenerationTaskExecution execution,
                              Runnable task,
@@ -104,6 +118,7 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
         boolean removedFromQueue = false;
         boolean running = false;
         control.bindWorker(Thread.currentThread());
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             boolean permitAcquired = awaitConcurrencyPermit(execution);
             queuedTasks.decrementAndGet();
@@ -140,6 +155,7 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
         taskControls.remove(control.taskId(), control);
     }
 
+    /** 等待{@code Concurrency}{@code Permit}完成。 */
     private boolean awaitConcurrencyPermit(GenerationTaskExecution execution) throws InterruptedException {
         if (execution == null) {
             concurrencyPermits.acquire();
@@ -170,6 +186,7 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
         }
     }
 
+    /** 处理{@code shutdown}。 */
     @PreDestroy
     void shutdown() {
         shuttingDown.set(true);
@@ -238,6 +255,7 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
             workerThread.set(worker);
         }
 
+        /** 绑定{@code Watchdog}。 */
         private void bindWatchdog(GenerationTaskWatchdog.Registration registration) {
             if (!watchdogRegistration.compareAndSet(null, registration)) {
                 registration.close();
@@ -263,6 +281,7 @@ public class VirtualThreadGenerationTaskExecutor implements GenerationTaskExecut
             }
         }
 
+        /** 完成任务{@code Control}并收口相关状态。 */
         private void finish() {
             if (!finished.compareAndSet(false, true)) {
                 return;

@@ -43,6 +43,12 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final WorkspaceFileSystemProperties workspaceFileSystemProperties;
 
+    /**
+ * 列出符合条件的文件。
+ *
+ * @param app 应用
+ * @return 文件集合
+ */
     @Override
     public List<AppCodeFileTreeVO> listFiles(App app) {
         GenerationWorkspace workspace = resolveWorkspace(app);
@@ -69,6 +75,13 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
         }
     }
 
+    /**
+ * 读取文件。
+ *
+ * @param app 应用
+ * @param filePath 文件路径
+ * @return 文件
+ */
     @Override
     public AppCodeFileContentVO readFile(App app, String filePath) {
         GenerationWorkspace workspace = requireExistingWorkspace(app);
@@ -95,6 +108,13 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
         }
     }
 
+    /**
+ * 保存文件。
+ *
+ * @param app 应用
+ * @param filePath 文件路径
+ * @param content 文件或消息内容
+ */
     @Override
     public void saveFile(App app, String filePath, String content) {
         ThrowUtils.throwIf(content == null, ErrorCode.PARAMS_ERROR, "文件内容不能为空");
@@ -109,6 +129,7 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
 
         String originalContent;
         WorkspaceFileMetadata savedFile;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             originalContent = workspaceFileSystemService.readUtf8(
                     workspace.canonicalRootPath(),
@@ -130,6 +151,7 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "保存应用代码文件失败");
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             rebuildIfRequired(workspace);
         } catch (BusinessException exception) {
@@ -168,6 +190,7 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
                 ErrorCode.NO_AUTH_ERROR, "应用代码工作区路径异常");
     }
 
+    /** 校验{@code ate}{@code Accessible}{@code Relative}路径是否有效。 */
     private void validateAccessibleRelativePath(GenerationWorkspace workspace, String filePath) {
         ThrowUtils.throwIf(filePath == null || filePath.isBlank(), ErrorCode.PARAMS_ERROR, "文件路径不能为空");
         String normalizedPath = filePath.replace('\\', '/');
@@ -182,6 +205,7 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
         }
     }
 
+    /** 根据当前上下文解析{@code Existing}文件。 */
     private WorkspaceFileMetadata resolveExistingFile(GenerationWorkspace workspace, String filePath) {
         try {
             return workspaceFileSystemService.resolveExistingFile(workspace.canonicalRootPath(), filePath);
@@ -227,6 +251,7 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
         ThrowUtils.throwIf(!buildResult.success(), ErrorCode.SYSTEM_ERROR, buildResult.toPublicFailureSummary());
     }
 
+    /** 处理回滚{@code Saved}文件。 */
     private void rollbackSavedFile(GenerationWorkspace workspace,
                                    WorkspaceFileMetadata savedFile,
                                    String originalContent) {
@@ -259,6 +284,7 @@ public class LocalAppCodeWorkspaceService implements AppCodeWorkspaceService {
         return new BusinessException(ErrorCode.SYSTEM_ERROR, "保存失败且自动回退异常，请联系管理员处理");
     }
 
+    /** 将输入映射为文件{@code System}失败。 */
     private BusinessException mapFileSystemFailure(WorkspaceFileSystemException exception, String operation) {
         return switch (exception.reason()) {
             case INVALID_PATH -> new BusinessException(ErrorCode.NO_AUTH_ERROR, "非法文件路径");

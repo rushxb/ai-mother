@@ -43,6 +43,14 @@ public class BrowserGenerationRuntimeEvaluator {
         this.browserRuntimeProbe = browserRuntimeProbe;
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param context 执行上下文
+ * @param codeGenType 代码生成类型
+ * @param startOptions 待处理的 {@code startOptions} 集合
+ * @return 浏览器生成运行时{@code Evaluator}集合
+ */
     public List<GenerationBenchmarkRuleResult> evaluate(
             GenerationBenchmarkRuntimeContext context,
             CodeGenTypeEnum codeGenType,
@@ -74,6 +82,7 @@ public class BrowserGenerationRuntimeEvaluator {
         }
     }
 
+    /** 返回{@code grade}运行时。 */
     private GenerationBenchmarkRuleResult gradeRuntime(
             BrowserRuntimeObservation observation,
             DevServerErrorCollector errorCollector
@@ -105,6 +114,7 @@ public class BrowserGenerationRuntimeEvaluator {
         return result(RUNTIME_RULE_ID, GenerationBenchmarkQualityDimension.RUNTIME, violations);
     }
 
+    /** 返回{@code grade}{@code Visual}。 */
     private GenerationBenchmarkRuleResult gradeVisual(BrowserRuntimeObservation observation) {
         List<String> violations = new ArrayList<>();
         BrowserRuntimeObservation.ScreenshotStats screenshot = observation.screenshot();
@@ -145,6 +155,7 @@ public class BrowserGenerationRuntimeEvaluator {
         );
     }
 
+    /** 停止{@code Owned}会话。 */
     private void stopOwnedSession(long appId, DevServerStartResult startResult) {
         if (startResult == null || !startResult.startedByCaller()) {
             return;

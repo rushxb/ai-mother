@@ -10,6 +10,7 @@ public record AiContextPackSection(
         int priority,
         Map<String, Object> metadata
 ) {
+    /** 创建 AI 上下文{@code Pack}{@code Section}实例并完成必要的依赖和初始状态设置。 */
     public AiContextPackSection {
         if (type == null) {
             throw new IllegalArgumentException("context pack section type is required");

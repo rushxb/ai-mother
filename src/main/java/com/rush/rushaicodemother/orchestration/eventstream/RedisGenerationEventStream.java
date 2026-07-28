@@ -67,6 +67,13 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
     private final GenerationEventStreamMetricsCollector metricsCollector;
     private final GenerationEventDeltaCoalescer deltaCoalescer;
 
+    /**
+ * 创建 Redis 生成事件流实例并完成必要的依赖和初始状态设置。
+ *
+ * @param redisTemplate Redis 操作模板
+ * @param properties 配置属性
+ * @param metricsCollector {@code metricsCollector} 对应的调用参数
+ */
     public RedisGenerationEventStream(StringRedisTemplate redisTemplate,
                                       GenerationEventStreamProperties properties,
                                       GenerationEventStreamMetricsCollector metricsCollector) {
@@ -90,6 +97,12 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
         );
     }
 
+    /**
+ * 发布当前处理结果或领域事件。
+ *
+ * @param taskId 任务编号
+ * @param event 待处理的领域事件
+ */
     @Override
     public void publish(String taskId, GenerationStreamEvent event) {
         if (!validTaskId(taskId) || event == null) {
@@ -102,6 +115,11 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
         deltaCoalescer.publish(taskId, publicEvent);
     }
 
+    /**
+ * 完成 Redis 生成事件流并持久化终态。
+ *
+ * @param taskId 任务编号
+ */
     @Override
     public void complete(String taskId) {
         if (!validTaskId(taskId)) {
@@ -110,11 +128,24 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
         deltaCoalescer.complete(taskId);
     }
 
+    /**
+ * 返回可用。
+ *
+ * @param taskId 任务编号
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean available(String taskId) {
         return validTaskId(taskId) && Boolean.TRUE.equals(redisTemplate.hasKey(key(taskId)));
     }
 
+    /**
+ * 返回流。
+ *
+ * @param taskId 任务编号
+ * @param afterSequence 执行后序列
+ * @return 异步响应式处理结果
+ */
     @Override
     public Flux<SequencedGenerationEvent> stream(String taskId, long afterSequence) {
         if (!validTaskId(taskId)) {
@@ -127,6 +158,7 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
         return Flux.defer(() -> resumableStream(streamKey, afterSequence));
     }
 
+    /** 返回{@code resumable}流。 */
     private Flux<SequencedGenerationEvent> resumableStream(String streamKey, long afterSequence) {
         AtomicReference<String> offset = new AtomicReference<>("0-0");
         AtomicLong legacySequence = new AtomicLong(0L);
@@ -145,6 +177,7 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
                         .jitter(0.25));
     }
 
+    /** 追加 Redis 生成事件流。 */
     private void append(String taskId, String kind, String payload) {
         long startedAt = System.nanoTime();
         boolean success = false;
@@ -185,6 +218,7 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
         return records == null ? List.of() : records;
     }
 
+    /** 将当前对象转换为{@code Sequenced}事件。 */
     private SequencedGenerationEvent toSequencedEvent(
             MapRecord<String, String, String> record,
             AtomicReference<String> offset,
@@ -209,6 +243,7 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
         return SequencedGenerationEvent.event(sequence, event);
     }
 
+    /** 解析序列。 */
     private long parseSequence(String value, AtomicLong legacySequence) {
         if (value == null || value.isBlank()) {
             return legacySequence.incrementAndGet();

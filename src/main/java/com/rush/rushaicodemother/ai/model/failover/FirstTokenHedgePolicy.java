@@ -14,6 +14,7 @@ public record FirstTokenHedgePolicy(
         FirstTokenHedgeScheduler scheduler
 ) {
 
+    /** 创建{@code First}令牌{@code Hedge}策略实例并完成必要的依赖和初始状态设置。 */
     public FirstTokenHedgePolicy {
         if (enabled) {
             Objects.requireNonNull(delay, "首 Token 对冲延迟不能为空");
@@ -28,6 +29,7 @@ public record FirstTokenHedgePolicy(
         return new FirstTokenHedgePolicy(false, Duration.ZERO, true, null);
     }
 
+    /** 判断当前状态是否允许{@code Hedge}。 */
     boolean canHedge(
             List<AiModelCandidate<dev.langchain4j.model.chat.StreamingChatModel>> candidates,
             List<Integer> candidateOrder

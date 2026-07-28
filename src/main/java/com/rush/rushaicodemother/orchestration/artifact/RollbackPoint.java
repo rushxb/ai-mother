@@ -33,6 +33,19 @@ public record RollbackPoint(
         createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
     }
 
+    /**
+ * 创建{@code d}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param snapshotName 快照名称
+ * @param snapshotPath 快照路径
+ * @param projectPath 项目路径
+ * @param sourceType 来源类型
+ * @param targetType 目标类型
+ * @param fileCount 文件数量
+ * @return {@code d}
+ */
     public static RollbackPoint created(Long appId,
                                         String taskId,
                                         String snapshotName,
@@ -58,6 +71,17 @@ public record RollbackPoint(
         );
     }
 
+    /**
+ * 返回{@code skipped}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectPath 项目路径
+ * @param sourceType 来源类型
+ * @param targetType 目标类型
+ * @param reason 原因
+ * @return 回滚点
+ */
     public static RollbackPoint skipped(Long appId,
                                         String taskId,
                                         String projectPath,
@@ -81,6 +105,11 @@ public record RollbackPoint(
         );
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", schemaVersion);

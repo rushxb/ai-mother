@@ -48,6 +48,12 @@ public class GenerationOrchestrationMetricsCollector {
     private final ConcurrentMap<String, Counter> completionCheckpointCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> completionCheckpointTimers = new ConcurrentHashMap<>();
 
+    /**
+ * 记录{@code Run}相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param status 目标状态
+ */
     public void recordRun(String orchestrationMode, String status) {
         String mode = normalize(orchestrationMode);
         String normalizedStatus = normalize(status);
@@ -62,6 +68,14 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录总量时长相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param targetType 目标类型
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordTotalDuration(String orchestrationMode, String targetType, String status, Duration duration) {
         String mode = normalize(orchestrationMode);
         String type = normalize(targetType);
@@ -78,6 +92,15 @@ public class GenerationOrchestrationMetricsCollector {
         timer.record(nonNegative(duration));
     }
 
+    /**
+ * 记录节点时长相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param dagNode {@code dagNode} 对应的调用参数
+ * @param stage 阶段
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordNodeDuration(String orchestrationMode,
                                    String dagNode,
                                    String stage,
@@ -108,6 +131,17 @@ public class GenerationOrchestrationMetricsCollector {
         recordContextSnapshot(orchestrationMode, contextMode, selectedFileCount, indexedFileCount, 0, 0, contextChars);
     }
 
+    /**
+ * 记录上下文快照相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param contextMode 上下文模式
+ * @param selectedFileCount {@code selectedFileCount} 对应的调用参数
+ * @param indexedFileCount {@code indexedFileCount} 对应的调用参数
+ * @param indexedSymbolCount {@code indexedSymbolCount} 对应的调用参数
+ * @param indexHitCount 索引命中数量
+ * @param contextChars 待处理的 {@code contextChars} 集合
+ */
     public void recordContextSnapshot(String orchestrationMode,
                                       String contextMode,
                                       int selectedFileCount,
@@ -144,6 +178,12 @@ public class GenerationOrchestrationMetricsCollector {
                 Math.max(0, contextChars));
     }
 
+    /**
+ * 记录构建{@code Fix}计划相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param enabled 是否启用
+ */
     public void recordBuildFixPlan(String orchestrationMode, boolean enabled) {
         String mode = normalize(orchestrationMode);
         String enabledTag = String.valueOf(enabled);
@@ -158,6 +198,12 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录补丁{@code First}计划相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param enabled 是否启用
+ */
     public void recordPatchFirstPlan(String orchestrationMode, boolean enabled) {
         String mode = normalize(orchestrationMode);
         String enabledTag = String.valueOf(enabled);
@@ -172,6 +218,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录质量门禁相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param passed {@code passed} 对应的调用参数
+ * @param level {@code level} 对应的调用参数
+ */
     public void recordQualityGate(String orchestrationMode, boolean passed, String level) {
         String mode = normalize(orchestrationMode);
         String passedTag = String.valueOf(passed);
@@ -188,6 +241,12 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录回滚计划相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param rollbackStrategy {@code rollbackStrategy} 对应的调用参数
+ */
     public void recordRollbackPlan(String orchestrationMode, String rollbackStrategy) {
         String mode = normalize(orchestrationMode);
         String strategy = normalize(rollbackStrategy);
@@ -202,6 +261,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录回滚恢复相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param status 目标状态
+ * @param reason 原因
+ */
     public void recordRollbackRestore(String orchestrationMode, String status, String reason) {
         String mode = normalize(orchestrationMode);
         String normalizedStatus = normalize(status);
@@ -218,6 +284,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录生成提交相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param status 目标状态
+ * @param reason 原因
+ */
     public void recordGenerationCommit(String provider, String status, String reason) {
         String normalizedProvider = normalize(provider);
         String normalizedStatus = normalize(status);
@@ -234,6 +307,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录补丁结果相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param status 目标状态
+ * @param reason 原因
+ */
     public void recordPatchResult(String orchestrationMode, String status, String reason) {
         String mode = normalize(orchestrationMode);
         String normalizedStatus = normalize(status);
@@ -250,6 +330,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录补丁{@code Apply}相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param status 目标状态
+ * @param reason 原因
+ */
     public void recordPatchApply(String provider, String status, String reason) {
         String normalizedProvider = normalize(provider);
         String normalizedStatus = normalize(status);
@@ -266,6 +353,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录{@code Auto}{@code Repair}相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param stage 阶段
+ * @param status 目标状态
+ */
     public void recordAutoRepair(String orchestrationMode, String stage, String status) {
         String mode = normalize(orchestrationMode);
         String normalizedStage = normalize(stage);
@@ -282,6 +376,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录运行时校验相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param targetType 目标类型
+ * @param status 目标状态
+ */
     public void recordRuntimeValidation(String orchestrationMode, String targetType, String status) {
         String mode = normalize(orchestrationMode);
         String type = normalize(targetType);
@@ -298,6 +399,13 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录阶段准入相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param stage 阶段
+ * @param outcome 结果
+ */
     public void recordStageAdmission(String orchestrationMode, String stage, String outcome) {
         String mode = normalize(orchestrationMode);
         String normalizedStage = normalize(stage);
@@ -314,6 +422,14 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录用户{@code Wait}时长相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param targetType 目标类型
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordUserWaitDuration(String orchestrationMode, String targetType, String status, Duration duration) {
         String mode = normalize(orchestrationMode);
         String type = normalize(targetType);
@@ -330,6 +446,14 @@ public class GenerationOrchestrationMetricsCollector {
         timer.record(nonNegative(duration));
     }
 
+    /**
+ * 记录{@code First}预览时长相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param targetType 目标类型
+ * @param status 目标状态
+ * @param duration 目标时长
+ */
     public void recordFirstPreviewDuration(String orchestrationMode,
                                            String targetType,
                                            String status,
@@ -349,6 +473,14 @@ public class GenerationOrchestrationMetricsCollector {
         timer.record(nonNegative(duration));
     }
 
+    /**
+ * 记录{@code Sla}结果相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param milestone {@code milestone} 对应的调用参数
+ * @param status 目标状态
+ * @param reason 原因
+ */
     public void recordSlaOutcome(String orchestrationMode,
                                  String milestone,
                                  String status,
@@ -370,6 +502,12 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录流快照{@code Write}相关指标或状态。
+ *
+ * @param outcome 结果
+ * @param duration 目标时长
+ */
     public void recordStreamSnapshotWrite(String outcome, Duration duration) {
         String normalizedOutcome = normalize(outcome);
         streamSnapshotWriteCounters.computeIfAbsent(normalizedOutcome, unused ->
@@ -386,6 +524,12 @@ public class GenerationOrchestrationMetricsCollector {
         ).record(nonNegative(duration));
     }
 
+    /**
+ * 记录工具循环防护相关指标或状态。
+ *
+ * @param reason 原因
+ * @param toolName 工具名称
+ */
     public void recordToolLoopGuard(String reason, String toolName) {
         String normalizedReason = normalize(reason);
         String normalizedToolName = normalize(toolName);
@@ -400,6 +544,12 @@ public class GenerationOrchestrationMetricsCollector {
         counter.increment();
     }
 
+    /**
+ * 记录智能体{@code Productivity}{@code Intervention}相关指标或状态。
+ *
+ * @param action 动作
+ * @param reason 原因
+ */
     public void recordAgentProductivityIntervention(String action, String reason) {
         String normalizedAction = normalize(action);
         String normalizedReason = normalize(reason);
@@ -413,6 +563,14 @@ public class GenerationOrchestrationMetricsCollector {
         ).increment();
     }
 
+    /**
+ * 记录节点开始检查点相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param dagNode {@code dagNode} 对应的调用参数
+ * @param outcome 结果
+ * @param duration 目标时长
+ */
     public void recordNodeStartCheckpoint(String orchestrationMode,
                                           String dagNode,
                                           String outcome,
@@ -439,6 +597,14 @@ public class GenerationOrchestrationMetricsCollector {
         ).record(nonNegative(duration));
     }
 
+    /**
+ * 记录节点完成检查点相关指标或状态。
+ *
+ * @param orchestrationMode 编排模式
+ * @param dagNode {@code dagNode} 对应的调用参数
+ * @param outcome 结果
+ * @param duration 目标时长
+ */
     public void recordNodeCompletionCheckpoint(String orchestrationMode,
                                                String dagNode,
                                                String outcome,

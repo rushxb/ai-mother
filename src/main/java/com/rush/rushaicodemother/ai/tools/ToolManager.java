@@ -57,6 +57,7 @@ public class ToolManager {
         log.info("工具管理器初始化完成，共注册 {} 个工具", toolMap.size());
     }
 
+    /** 校验{@code ate}{@code Exposed}工具名称是否有效。 */
     private void validateExposedToolName(BaseTool tool) {
         Class<?> toolClass = ClassUtils.getUserClass(tool);
         List<Method> exposedMethods = Arrays.stream(toolClass.getMethods())

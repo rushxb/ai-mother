@@ -10,12 +10,21 @@ public final class GenerationApprovalRequiredException extends RuntimeException 
     private final DestructiveToolAction action;
     private final String approvalId;
     private final Map<String, Object> requestDetails;
+    private volatile boolean suspensionPrepared;
 
+    /**
+ * 创建生成审批{@code Required}异常实例并完成必要的依赖和初始状态设置。
+ *
+ * @param taskId 任务编号
+ * @param action 动作
+ * @param approvalId 审批编号
+ * @param requestDetails 请求详情
+ */
     public GenerationApprovalRequiredException(String taskId,
                                                DestructiveToolAction action,
                                                String approvalId,
                                                Map<String, Object> requestDetails) {
-        super("destructive tool action requires approval", null, false, false);
+        super("破坏性工具操作需要人工审批", null, false, false);
         this.taskId = taskId;
         this.action = action;
         this.approvalId = approvalId;
@@ -38,5 +47,13 @@ public final class GenerationApprovalRequiredException extends RuntimeException 
 
     public Map<String, Object> requestDetails() {
         return requestDetails;
+    }
+
+    boolean suspensionPrepared() {
+        return suspensionPrepared;
+    }
+
+    void markSuspensionPrepared() {
+        suspensionPrepared = true;
     }
 }

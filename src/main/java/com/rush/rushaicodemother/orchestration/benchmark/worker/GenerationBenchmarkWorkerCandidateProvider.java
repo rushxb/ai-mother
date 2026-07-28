@@ -21,6 +21,11 @@ public class GenerationBenchmarkWorkerCandidateProvider {
 
     private final GenerationBenchmarkWorkerProperties properties;
 
+    /**
+ * 判断当前状态是否允许{@code didate}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public GenerationBenchmarkEvidenceCandidate candidate() {
         GenerationBenchmarkWorkerProperties.Candidate configured = properties.getCandidate();
         if (configured == null) {
@@ -41,6 +46,7 @@ public class GenerationBenchmarkWorkerCandidateProvider {
         };
     }
 
+    /** 返回{@code subject}。 */
     private GenerationBenchmarkEvidenceSubject subject(String value) {
         try {
             return GenerationBenchmarkEvidenceSubject.valueOf(

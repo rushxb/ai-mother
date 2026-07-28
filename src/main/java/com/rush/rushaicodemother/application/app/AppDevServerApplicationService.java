@@ -30,6 +30,13 @@ public class AppDevServerApplicationService {
     private final DevServerPreviewPathFactory previewPathFactory;
     private final AppAccessPolicy appAccessPolicy;
 
+    /**
+ * 启动应用开发服务器应用。
+ *
+ * @param appId 应用编号
+ * @param actor 操作发起人
+ * @return 应用开发服务器应用
+ */
     public DevServerStatusVO start(Long appId, User actor) {
         App app = requireOwnedApp(appId, actor, "无权限操作该应用");
         DevServerPreviewSession current = previewRoutingService.findCurrent(appId).orElse(null);
@@ -47,6 +54,12 @@ public class AppDevServerApplicationService {
         }
     }
 
+    /**
+ * 停止应用开发服务器应用。
+ *
+ * @param appId 应用编号
+ * @param actor 操作发起人
+ */
     public void stop(Long appId, User actor) {
         requireOwnedApp(appId, actor, "无权限操作该应用");
         devServerManager.stopDevServer(appId);
@@ -58,6 +71,13 @@ public class AppDevServerApplicationService {
         return status(appId, current, app.getDevServerPort());
     }
 
+    /**
+ * 校验并返回有效的代理{@code Route}。
+ *
+ * @param appId 应用编号
+ * @param actor 操作发起人
+ * @return 代理{@code Route}
+ */
     public DevServerPreviewRoute requireProxyRoute(Long appId, User actor) {
         requireOwnedApp(appId, actor, "无权限访问该应用");
         return previewRoutingService.requireRunningRoute(appId);
@@ -70,6 +90,7 @@ public class AppDevServerApplicationService {
         appPersistenceService.updateDevServerPort(app.getId(), port);
     }
 
+    /** 处理补偿已启动服务器。 */
     private void compensateStartedServer(
             Long appId,
             DevServerStartResult startResult,
@@ -102,6 +123,7 @@ public class AppDevServerApplicationService {
                 .build();
     }
 
+    /** 返回状态。 */
     private DevServerStatusVO status(
             Long appId,
             DevServerPreviewSession session,

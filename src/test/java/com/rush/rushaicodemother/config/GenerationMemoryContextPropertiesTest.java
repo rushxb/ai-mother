@@ -31,6 +31,14 @@ class GenerationMemoryContextPropertiesTest {
     }
 
     @Test
+    void memoryReadTimeoutMustBePositive() {
+        GenerationMemoryContextProperties properties = new GenerationMemoryContextProperties();
+        properties.setReadTimeout(Duration.ZERO);
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
     void preparationOverlapConcurrencyMustStayBounded() {
         GenerationMemoryContextProperties properties = new GenerationMemoryContextProperties();
         properties.setMaxConcurrentPreparationOverlaps(65);

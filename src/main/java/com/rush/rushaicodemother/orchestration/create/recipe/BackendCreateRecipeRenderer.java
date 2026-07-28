@@ -31,6 +31,13 @@ final class BackendCreateRecipeRenderer extends AbstractSlotRecipeRenderer<Backe
         return recipeFactory.create(userMessage, spec);
     }
 
+    /**
+ * 渲染插槽。
+ *
+ * @param slotId 插槽编号
+ * @param recipe {@code recipe} 对应的调用参数
+ * @return 插槽
+ */
     @Override
     protected PatchOperation renderSlot(String slotId, BackendRecipe recipe) {
         String moduleRoot = "internal/modules/" + recipe.packageName();

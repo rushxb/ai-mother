@@ -12,6 +12,12 @@ import java.util.Optional;
 @Order(20)
 public class CreateFirstRoutingPolicy implements GenerationRoutingPolicy {
 
+    /**
+ * 根据输入信号确定创建{@code First}路由策略。
+ *
+ * @param signal 输入信号
+ * @return 可选的创建{@code First}路由策略；不存在时返回空值
+ */
     @Override
     public Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal) {
         if (!signal.firstGeneration()) {

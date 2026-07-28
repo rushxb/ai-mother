@@ -28,6 +28,14 @@ public class GenerationProjectBuildValidationService {
     private final GoProjectBuilder goProjectBuilder;
     private final GenerationExecutionContextService executionContextService;
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param workspace 工作区
+ * @param codeGenType 代码生成类型
+ * @param taskId 任务编号
+ * @return {@code ate}
+ */
     public ProjectBuildValidationResult validate(
             GenerationWorkspace workspace,
             CodeGenTypeEnum codeGenType,
@@ -58,6 +66,7 @@ public class GenerationProjectBuildValidationService {
         return ProjectBuildValidationResult.fromVue(result);
     }
 
+    /** 校验{@code ate}{@code Go}是否有效。 */
     private ProjectBuildValidationResult validateGo(
             GenerationWorkspace workspace,
             String taskId,
@@ -77,6 +86,7 @@ public class GenerationProjectBuildValidationService {
         return ProjectBuildValidationResult.fromGo(result);
     }
 
+    /** 校验{@code ate}全栈是否有效。 */
     private ProjectBuildValidationResult validateFullStack(
             GenerationWorkspace workspace,
             String taskId,
@@ -127,6 +137,7 @@ public class GenerationProjectBuildValidationService {
         }
     }
 
+    /** 返回{@code propagate}。 */
     private RuntimeException propagate(ExecutionException exception) {
         Throwable cause = exception.getCause();
         if (cause instanceof RuntimeException runtimeException) {
@@ -138,6 +149,7 @@ public class GenerationProjectBuildValidationService {
         return new IllegalStateException("全栈构建验证执行失败", cause);
     }
 
+    /** 取消生成项目构建校验。 */
     private void cancel(Future<?>... futures) {
         for (Future<?> future : futures) {
             if (future != null && !future.isDone()) {

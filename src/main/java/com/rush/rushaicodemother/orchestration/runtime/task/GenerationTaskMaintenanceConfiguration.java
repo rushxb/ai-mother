@@ -21,6 +21,11 @@ public class GenerationTaskMaintenanceConfiguration implements SchedulingConfigu
     private final GenerationTaskMaintenanceService maintenanceService;
     private final GenerationTaskLeaseProperties properties;
 
+    /**
+ * 处理{@code configure}任务。
+ *
+ * @param taskRegistrar {@code taskRegistrar} 对应的调用参数
+ */
     @Override
     public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
         taskRegistrar.addFixedDelayTask(maintenanceService::runMaintenance, properties.getHeartbeatInterval());

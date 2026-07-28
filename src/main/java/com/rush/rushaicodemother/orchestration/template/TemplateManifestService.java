@@ -95,6 +95,12 @@ public class TemplateManifestService {
         return getManifest(templateId) != null;
     }
 
+    /**
+ * 校验{@code ate}清单是否有效。
+ *
+ * @param templateId 模板编号
+ * @return {@code ate}清单
+ */
     public ManifestValidationResult validateManifest(String templateId) {
         TemplateManifest manifest = getManifest(templateId);
         if (manifest == null) {
@@ -103,8 +109,10 @@ public class TemplateManifestService {
         return validateManifest(templateId, manifest);
     }
 
+    /** 加载清单。 */
     private TemplateManifest loadManifest(String templateId) {
         String manifestPath = TEMPLATE_ROOT + "/" + templateId + "/" + MANIFEST_FILENAME;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Resource resource = resourceResolver.getResource("classpath:" + manifestPath);
             if (!resource.exists() || !resource.isReadable()) {
@@ -146,6 +154,7 @@ public class TemplateManifestService {
         );
     }
 
+    /** 解析{@code Slots}。 */
     private List<TemplateSlot> parseSlots(JSONArray slotsArray) {
         if (slotsArray == null || slotsArray.isEmpty()) {
             return Collections.emptyList();
@@ -174,6 +183,7 @@ public class TemplateManifestService {
         return slots;
     }
 
+    /** 解析{@code String}列表。 */
     private List<String> parseStringList(JSONArray array) {
         if (array == null) {
             return null;
@@ -190,6 +200,7 @@ public class TemplateManifestService {
         return values;
     }
 
+    /** 校验{@code ate}清单是否有效。 */
     private ManifestValidationResult validateManifest(String templateId, TemplateManifest manifest) {
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
@@ -248,6 +259,7 @@ public class TemplateManifestService {
         return new ManifestValidationResult(errors.isEmpty(), errors, warnings);
     }
 
+    /** 校验{@code ate}插槽{@code Marker}是否有效。 */
     private void validateSlotMarker(String templateId, TemplateSlot slot, List<String> errors) {
         try {
             Resource slotResource = resourceResolver.getResource("classpath:" + TEMPLATE_ROOT + "/" + templateId + "/" + slot.file());
@@ -319,6 +331,13 @@ public class TemplateManifestService {
             List<String> errors,
             List<String> warnings
     ) {
+        /**
+ * 返回{@code invalid}。
+ *
+ * @param errors 待处理的 {@code errors} 集合
+ * @param warnings 待处理的 {@code warnings} 集合
+ * @return 清单校验结果
+ */
         public static ManifestValidationResult invalid(List<String> errors, List<String> warnings) {
             return new ManifestValidationResult(false,
                     errors == null ? List.of() : errors,

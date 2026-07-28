@@ -13,6 +13,7 @@ record GenerationOutcomeMemoryDocument(
     private static final int MAX_USER_PROMPT_CODE_POINTS = 3_000;
     private static final int MAX_SUMMARY_CODE_POINTS = 4_500;
 
+    /** 根据输入数据创建当前对象。 */
     static GenerationOutcomeMemoryDocument from(GenerationOutcomeMemoryRequest request,
                                                 String source) {
         GenerationTaskStatus status = request.status();
@@ -33,6 +34,7 @@ record GenerationOutcomeMemoryDocument(
         );
     }
 
+    /** 压缩生成结果记忆{@code Document}以满足资源限制。 */
     private static String compact(String value, int maxCodePoints, String fallback) {
         if (value == null || value.isBlank()) {
             return fallback;

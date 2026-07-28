@@ -47,6 +47,12 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
         return request.modeIs(GenerationMode.LIGHT_EDIT);
     }
 
+    /**
+ * 执行轻量编辑生成流水线处理流程。
+ *
+ * @param request 请求参数
+ * @return 轻量编辑生成流水线
+ */
     @Override
     public GenerationPipelineOutcome execute(GenerationPipelineRequest request) {
         GenerationTaskExecution execution = request.requireExecution();
@@ -62,6 +68,7 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                 startedAt,
                 request.modeDecision()
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.throwIfCancelled();
             LightweightEditResult editResult = lightweightEditService.execute(
@@ -128,6 +135,7 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
         }
     }
 
+    /** 构建并返回结果汇总。 */
     private String buildResultSummary(String status, LightweightEditResult result) {
         List<String> operations = result.appliedOperations() == null
                 ? List.of()

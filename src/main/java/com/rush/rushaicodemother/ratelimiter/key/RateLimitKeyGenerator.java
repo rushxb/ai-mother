@@ -37,6 +37,13 @@ public class RateLimitKeyGenerator {
         this.properties = properties;
     }
 
+    /**
+ * 根据输入生成{@code Rate}限制键生成器。
+ *
+ * @param method {@code method} 对应的调用参数
+ * @param rateLimit {@code rateLimit} 对应的调用参数
+ * @return 处理后的{@code Rate}限制键生成器文本
+ */
     public String generate(Method method, RateLimit rateLimit) {
         StringBuilder key = new StringBuilder(properties.getKeyPrefix()).append(':');
         if (rateLimit.key() != null && !rateLimit.key().isBlank()) {
@@ -50,6 +57,7 @@ public class RateLimitKeyGenerator {
         };
     }
 
+    /** 追加用户{@code Or}{@code Ip}键。 */
     private String appendUserOrIpKey(StringBuilder key, HttpServletRequest request) {
         try {
             User loginUser = userService.getLoginUser(request);
@@ -73,6 +81,7 @@ public class RateLimitKeyGenerator {
         return servletRequestAttributes.getRequest();
     }
 
+    /** 返回{@code method}签名。 */
     private String methodSignature(Method method) {
         if (method == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "限流器无法解析目标方法");

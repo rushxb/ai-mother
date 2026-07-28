@@ -44,6 +44,12 @@ public final class GenerationErrorClassifier {
     private GenerationErrorClassifier() {
     }
 
+    /**
+ * 对生成错误进行分类。
+ *
+ * @param throwable 待处理的异常
+ * @return 生成错误
+ */
     public static GenerationError classify(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
@@ -65,7 +71,14 @@ public final class GenerationErrorClassifier {
         return classify(throwable == null ? null : throwable.getMessage());
     }
 
+    /**
+ * 对生成错误进行分类。
+ *
+ * @param errorMessage 错误消息
+ * @return 生成错误
+ */
     public static GenerationError classify(String errorMessage) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (StrUtil.isBlank(errorMessage)) {
             return new GenerationError(CATEGORY_UNKNOWN, GENERIC_MESSAGE, true);
         }
@@ -146,6 +159,7 @@ public final class GenerationErrorClassifier {
         return new GenerationError(CATEGORY_RUNTIME, GENERIC_MESSAGE, true);
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private static boolean containsAny(String text, String... keywords) {
         for (String keyword : keywords) {
             if (text.contains(keyword)) {

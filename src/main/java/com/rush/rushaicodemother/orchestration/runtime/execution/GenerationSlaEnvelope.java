@@ -31,6 +31,7 @@ public record GenerationSlaEnvelope(
                 modelCallTimeout, minimumOperationTimeout, budgets, reason);
     }
 
+    /** 创建生成{@code Sla}{@code Envelope}实例并完成必要的依赖和初始状态设置。 */
     public GenerationSlaEnvelope {
         profile = normalize(profile, "default");
         reason = normalize(reason, "route_profile");
@@ -56,12 +57,18 @@ public record GenerationSlaEnvelope(
                 totalTimeout, modelCallTimeout, minimumOperationTimeout,
                 firstPreviewCompletionReserve, budgets);
         EnumMap<GenerationBudgetKind, Integer> normalized = new EnumMap<>(GenerationBudgetKind.class);
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             normalized.put(kind, limits.limit(kind));
         }
         budgets = Map.copyOf(normalized);
     }
 
+    /**
+ * 将当前对象转换为限制。
+ *
+ * @return 限制
+ */
     public GenerationExecutionLimits toLimits() {
         return new GenerationExecutionLimits(
                 totalTimeout, modelCallTimeout, minimumOperationTimeout,

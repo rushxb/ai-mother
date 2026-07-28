@@ -118,6 +118,11 @@ public class GenerationBenchmarkReleaseProperties {
     @Min(1)
     private long maximumAverageCreditCost = 10L;
 
+    /**
+ * 校验各时长配置及其相互约束是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "生成质量评测的耗时门禁配置无效")
     public boolean isDurationConfigurationValid() {
         if (!positive(maximumP90Duration)

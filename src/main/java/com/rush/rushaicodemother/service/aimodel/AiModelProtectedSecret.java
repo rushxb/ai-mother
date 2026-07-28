@@ -6,6 +6,7 @@ public record AiModelProtectedSecret(
         String fingerprint,
         String keyId
 ) {
+    /** 创建 AI 模型{@code Protected}密钥实例并完成必要的依赖和初始状态设置。 */
     public AiModelProtectedSecret {
         if (reference == null || reference.isBlank()
                 || fingerprint == null || !fingerprint.matches("[a-f0-9]{64}")

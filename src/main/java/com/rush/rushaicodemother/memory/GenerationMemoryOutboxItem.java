@@ -17,6 +17,7 @@ public record GenerationMemoryOutboxItem(
         String targetCodeGenType,
         int attempts
 ) {
+    /** 将当前对象转换为记忆请求。 */
     GenerationOutcomeMemoryRequest toMemoryRequest() {
         return new GenerationOutcomeMemoryRequest(
                 taskId,

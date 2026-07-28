@@ -1,4 +1,4 @@
-package com.rush.rushaicodemother.orchestration.tool;
+package com.rush.rushaicodemother.orchestration.runtime.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
@@ -15,6 +15,18 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationModel
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationStreamingModelCallSupervisor;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelCallTimeoutException;
+import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
+import com.rush.rushaicodemother.orchestration.tool.CompletedToolCallContextCompactor;
+import com.rush.rushaicodemother.orchestration.tool.DurableToolConversationCodec;
+import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationState;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalStatus;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
+import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpoint;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ReturnBehavior;
 import dev.langchain4j.data.message.AiMessage;
@@ -43,6 +55,7 @@ import reactor.core.publisher.FluxSink;
 
 import java.util.HashSet;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -54,9 +67,9 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-/** 在做出持久的人工决策后继续现有的模型/工具对话。 */
+/** 首次生成与人工审批恢复共用的默认显式智能体运行时。 */
 @Component
-public class AiToolContinuationEngine {
+public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
 
     private static final int HEAVY_CHAT_MEMORY_MESSAGES = 12;
 
@@ -72,20 +85,42 @@ public class AiToolContinuationEngine {
     private final GenerationStreamingModelCallSupervisor modelCallSupervisor;
     private final CompletedToolCallContextCompactor completedToolCallContextCompactor;
     private final GenerationStageAdmissionService generationStageAdmissionService;
+    private final GenerationAgentTurnPolicy generationAgentTurnPolicy;
+    private final GenerationAgentConversationInitializer conversationInitializer;
 
+    /**
+     * 创建默认智能体运行时，并注入模型调用、工具治理、审批恢复和短期记忆依赖。
+     *
+     * @param chatMemoryStore 对话记忆存储
+     * @param toolManager 工具管理器
+     * @param streamingModelFactory 流式模型工厂
+     * @param toolExecutionFailurePolicy 工具执行失败策略
+     * @param toolApprovalService 工具审批服务
+     * @param toolExecutionContextService 工具执行上下文服务
+     * @param performanceMonitorService 性能监控服务
+     * @param aiToolInvocationPolicy 工具调用策略
+     * @param conversationCodec 持久会话编解码器
+     * @param modelCallSupervisor 模型调用监督器
+     * @param completedToolCallContextCompactor 已完成工具上下文压缩器
+     * @param generationStageAdmissionService 生成阶段准入服务
+     * @param generationAgentTurnPolicy 智能体轮次策略
+     * @param conversationInitializer 短期会话初始化器
+     */
     @Autowired
-    public AiToolContinuationEngine(ChatMemoryStore chatMemoryStore,
-                                    ToolManager toolManager,
-                                    StreamingModelFactory streamingModelFactory,
-                                    ToolExecutionFailurePolicy toolExecutionFailurePolicy,
-                                    ToolApprovalService toolApprovalService,
-                                    GenerationToolExecutionContextService toolExecutionContextService,
-                                    GenerationPerformanceMonitorService performanceMonitorService,
-                                    AiToolInvocationPolicy aiToolInvocationPolicy,
-                                    DurableToolConversationCodec conversationCodec,
-                                    GenerationStreamingModelCallSupervisor modelCallSupervisor,
-                                    CompletedToolCallContextCompactor completedToolCallContextCompactor,
-                                    GenerationStageAdmissionService generationStageAdmissionService) {
+    public DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
+                                         ToolManager toolManager,
+                                         StreamingModelFactory streamingModelFactory,
+                                         ToolExecutionFailurePolicy toolExecutionFailurePolicy,
+                                         ToolApprovalService toolApprovalService,
+                                         GenerationToolExecutionContextService toolExecutionContextService,
+                                         GenerationPerformanceMonitorService performanceMonitorService,
+                                         AiToolInvocationPolicy aiToolInvocationPolicy,
+                                         DurableToolConversationCodec conversationCodec,
+                                         GenerationStreamingModelCallSupervisor modelCallSupervisor,
+                                         CompletedToolCallContextCompactor completedToolCallContextCompactor,
+                                         GenerationStageAdmissionService generationStageAdmissionService,
+                                         GenerationAgentTurnPolicy generationAgentTurnPolicy,
+                                         GenerationAgentConversationInitializer conversationInitializer) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolManager = toolManager;
         this.streamingModelFactory = streamingModelFactory;
@@ -98,17 +133,19 @@ public class AiToolContinuationEngine {
         this.modelCallSupervisor = modelCallSupervisor;
         this.completedToolCallContextCompactor = completedToolCallContextCompactor;
         this.generationStageAdmissionService = generationStageAdmissionService;
+        this.generationAgentTurnPolicy = generationAgentTurnPolicy;
+        this.conversationInitializer = conversationInitializer;
     }
 
-    AiToolContinuationEngine(ChatMemoryStore chatMemoryStore,
-                             ToolManager toolManager,
-                             StreamingModelFactory streamingModelFactory,
-                             ToolExecutionFailurePolicy toolExecutionFailurePolicy,
-                              ToolApprovalService toolApprovalService,
-                              GenerationToolExecutionContextService toolExecutionContextService,
-                              AiToolInvocationPolicy aiToolInvocationPolicy,
-                              GenerationStreamingModelCallSupervisor modelCallSupervisor,
-                              GenerationStageAdmissionService generationStageAdmissionService) {
+    DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
+                                  ToolManager toolManager,
+                                  StreamingModelFactory streamingModelFactory,
+                                  ToolExecutionFailurePolicy toolExecutionFailurePolicy,
+                                  ToolApprovalService toolApprovalService,
+                                  GenerationToolExecutionContextService toolExecutionContextService,
+                                  AiToolInvocationPolicy aiToolInvocationPolicy,
+                                  GenerationStreamingModelCallSupervisor modelCallSupervisor,
+                                  GenerationStageAdmissionService generationStageAdmissionService) {
         this(chatMemoryStore, toolManager, streamingModelFactory, toolExecutionFailurePolicy,
                 toolApprovalService, toolExecutionContextService,
                 new GenerationPerformanceMonitorService(List.of()), aiToolInvocationPolicy,
@@ -116,9 +153,31 @@ public class AiToolContinuationEngine {
                  modelCallSupervisor,
                  new CompletedToolCallContextCompactor(
                          new ObjectMapper(), new ChatMemoryProperties()),
-                 generationStageAdmissionService);
+                 generationStageAdmissionService,
+                 new GenerationAgentTurnPolicy(),
+                 null);
     }
 
+    @Override
+    public Flux<GenerationStreamEvent> start(GenerationAgentExecutionRequest request) {
+        Objects.requireNonNull(request, "智能体执行请求不能为空");
+        if (conversationInitializer == null) {
+            throw new IllegalStateException("智能体短期会话初始化器不可用");
+        }
+        return Flux.create(sink -> startInitial(request, sink));
+    }
+
+    /**
+ * 返回{@code continue}执行后决策。
+ *
+ * @param approval 审批
+ * @param state 状态
+ * @param executionContext 执行上下文
+ * @param cancelChecker {@code cancelChecker} 对应的调用参数
+ * @param cancellationHandleConsumer 对应阶段使用的回调函数
+ * @return 异步响应式处理结果
+ */
+    @Override
     public Flux<GenerationStreamEvent> continueAfterDecision(
             ToolApprovalRecord approval,
             GenerationToolContinuationState state,
@@ -134,40 +193,84 @@ public class AiToolContinuationEngine {
                 approval, state, executionContext, safeCancelChecker, safeHandleConsumer, sink));
     }
 
+    private void startInitial(GenerationAgentExecutionRequest request,
+                              FluxSink<GenerationStreamEvent> sink) {
+        if (request.cancelChecker().getAsBoolean()) {
+            sink.complete();
+            return;
+        }
+        GenerationExecutionContext executionContext = request.executionContext();
+        AgentLoopState loopState = AgentLoopState.initial(request);
+        generationAgentTurnPolicy.beginAttempt(
+                executionContext,
+                request.codeGenType(),
+                request.performanceProfile()
+        );
+        InvocationContext invocationContext = invocationContext(
+                loopState,
+                List.of(UserMessage.from(request.userPrompt())),
+                executionContext.executionFence()
+        );
+        ChatMemory chatMemory = conversationInitializer.initialize(
+                request, invocationContext);
+        ContinuationMemory memory = new ContinuationMemory(
+                chatMemory, request.appId(), false);
+        aiToolInvocationPolicy.restoreLoopState(
+                executionContext.taskId(),
+                memory.messages(),
+                executionContext.successfulWorkspaceMutationCount()
+        );
+        try {
+            ToolService toolService = createToolService(loopState, executionContext);
+            StreamingChatModel model = createExecutionModel(
+                    loopState, executionContext);
+            AtomicReference<GenerationCancellationHandle> activeCall = new AtomicReference<>();
+            Consumer<GenerationCancellationHandle> registerCancellation = handle -> {
+                activeCall.set(handle);
+                request.cancellationHandleConsumer().accept(handle);
+            };
+            sink.onCancel(() -> cancel(activeCall.get()));
+            requestNextModelTurn(
+                    model, memory, toolService, invocationContext,
+                    loopState, executionContext, request.cancelChecker(),
+                    registerCancellation, sink);
+        } catch (RuntimeException failure) {
+            sink.error(failure);
+        }
+    }
+
+    /** 启动 AI 工具{@code Continuation}。 */
     private void start(ToolApprovalRecord approval,
                        GenerationToolContinuationState state,
                        GenerationExecutionContext executionContext,
                        BooleanSupplier cancelChecker,
                        Consumer<GenerationCancellationHandle> cancellationHandleConsumer,
                        FluxSink<GenerationStreamEvent> sink) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (cancelChecker.getAsBoolean()) {
             sink.complete();
             return;
         }
         ContinuationMemory memory = restoreMemory(state, approval.invocationCheckpoint());
+        AgentLoopState loopState = AgentLoopState.continuation(state);
+        generationAgentTurnPolicy.restoreAttempt(
+                executionContext,
+                state.codeGenType(),
+                state.performanceProfile(),
+                memory.messages()
+        );
         aiToolInvocationPolicy.restoreLoopState(
                 state.taskId(), memory.messages(),
                 executionContext.successfulWorkspaceMutationCount());
-        ToolService toolService = new ToolService();
-        toolService.tools(List.of((Object[]) toolManager.getToolsForCodeGen(state.codeGenType())));
-        toolService.beforeToolExecution(event -> aiToolInvocationPolicy.authorize(
-                event, state.codeGenType(), state.performanceProfile()));
-        toolService.afterToolExecution(aiToolInvocationPolicy::complete);
-        toolService.maxToolCallingRoundTrips(state.performanceProfile() == null
-                ? 10
-                : state.performanceProfile().maxToolInvocations());
-        toolService.executionErrorHandler((failure, context) -> toolExecutionFailurePolicy.handle(
-                failure, context, state.codeGenType(), state.performanceProfile()));
+        ToolService toolService = createToolService(loopState, executionContext);
         InvocationContext invocationContext = invocationContext(
-                state, memory.messages(), executionContext.executionFence());
+                loopState, memory.messages(), executionContext.executionFence());
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             resolveInterruptedToolRound(
-                    approval, state, memory, toolService, invocationContext, cancelChecker, sink);
-            StreamingChatModel model = streamingModelFactory.createExecutionModel(
-                    state.performanceProfile(),
-                    executionContext.limits().modelCallTimeout(),
-                    null,
-                    () -> executionContext.consume(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
+                    approval, loopState, memory, toolService,
+                    invocationContext, cancelChecker, sink);
+            StreamingChatModel model = createExecutionModel(loopState, executionContext);
             AtomicReference<GenerationCancellationHandle> activeCall = new AtomicReference<>();
             Consumer<GenerationCancellationHandle> registerCancellation = handle -> {
                 activeCall.set(handle);
@@ -176,18 +279,45 @@ public class AiToolContinuationEngine {
             sink.onCancel(() -> cancel(activeCall.get()));
             requestNextModelTurn(
                     model, memory, toolService, invocationContext,
-                    state, executionContext, cancelChecker, registerCancellation,
-                    sink,
-                    state.performanceProfile() == null
-                            ? 10
-                            : state.performanceProfile().maxToolInvocations());
+                    loopState, executionContext, cancelChecker, registerCancellation,
+                    sink);
         } catch (RuntimeException failure) {
             sink.error(failure);
         }
     }
 
+    private ToolService createToolService(AgentLoopState state,
+                                          GenerationExecutionContext executionContext) {
+        ToolService toolService = new ToolService();
+        toolService.tools(List.of((Object[]) toolManager.getToolsForCodeGen(state.codeGenType())));
+        toolService.beforeToolExecution(event -> {
+            generationAgentTurnPolicy.assertToolExecutionAllowed(executionContext);
+            aiToolInvocationPolicy.authorize(
+                    event, state.codeGenType(), state.performanceProfile());
+        });
+        toolService.afterToolExecution(aiToolInvocationPolicy::complete);
+        toolService.maxToolCallingRoundTrips(
+                generationAgentTurnPolicy.maximumModelResponses(
+                        state.codeGenType(), state.performanceProfile()));
+        toolService.executionErrorHandler((failure, context) -> toolExecutionFailurePolicy.handle(
+                failure, context, state.codeGenType(), state.performanceProfile()));
+        return toolService;
+    }
+
+    private StreamingChatModel createExecutionModel(
+            AgentLoopState state,
+            GenerationExecutionContext executionContext) {
+        return streamingModelFactory.createExecutionModel(
+                state.performanceProfile(),
+                executionContext.limits().modelCallTimeout(),
+                null,
+                () -> executionContext.consume(
+                        GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
+    }
+
+    /** 根据当前上下文解析{@code Interrupted}工具{@code Round}。 */
     private void resolveInterruptedToolRound(ToolApprovalRecord approval,
-                                             GenerationToolContinuationState state,
+                                             AgentLoopState state,
                                              ContinuationMemory memory,
                                              ToolService toolService,
                                              InvocationContext invocationContext,
@@ -199,6 +329,7 @@ public class AiToolContinuationEngine {
         AiMessage assistantMessage = (AiMessage) messages.get(assistantIndex);
         Set<String> completedRequestIds = completedRequestIds(messages, assistantIndex + 1);
         boolean checkpointResolved = completedRequestIds.contains(checkpoint.requestId());
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (ToolExecutionRequest request : assistantMessage.toolExecutionRequests()) {
             if (cancelChecker.getAsBoolean()) {
                 return;
@@ -209,20 +340,23 @@ public class AiToolContinuationEngine {
             ToolExecutionResult result;
             if (Objects.equals(request.id(), checkpoint.requestId())) {
                 checkpointResolved = true;
-                result = executeToolWithSpan(state, request,
+                result = executeToolWithSpan(state, invocationContext, request,
                         () -> decisionResult(approval, toolService, invocationContext, request));
             } else {
-                result = executeToolWithSpan(state, request, () -> toolService.executeTool(
-                        invocationContext, toolService.toolExecutors(), request, null, null));
+                result = executeToolWithSpan(state, invocationContext, request,
+                        () -> toolService.executeTool(
+                                invocationContext, toolService.toolExecutors(),
+                                request, null, null));
             }
             memory.add(toResultMessage(request, result));
             sink.next(toolResultEvent(request, result));
         }
         if (!checkpointResolved) {
-            throw new IllegalStateException("pending tool invocation is missing from chat memory");
+            throw new IllegalStateException("短期记忆中缺少待处理的工具调用");
         }
     }
 
+    /** 返回决策结果。 */
     private ToolExecutionResult decisionResult(ToolApprovalRecord approval,
                                                ToolService toolService,
                                                InvocationContext invocationContext,
@@ -234,18 +368,19 @@ public class AiToolContinuationEngine {
         if (approval.status() == ToolApprovalStatus.REJECTED) {
             return ToolExecutionResult.builder()
                     .isError(true)
-                    .resultText("The project owner rejected this destructive tool action. Choose a safe alternative.")
+                    .resultText("项目所有者拒绝了该破坏性工具操作，请选择安全的替代方案。")
                     .build();
         }
         if (approval.status() == ToolApprovalStatus.EXPIRED) {
             return ToolExecutionResult.builder()
                     .isError(true)
-                    .resultText("The destructive tool approval expired. Choose a safe alternative.")
+                    .resultText("破坏性工具操作的审批已过期，请选择安全的替代方案。")
                     .build();
         }
-        throw new IllegalStateException("tool approval decision is not resumable: " + approval.status());
+        throw new IllegalStateException("当前工具审批状态无法恢复执行：" + approval.status());
     }
 
+    /** 执行已审批调用处理流程。 */
     private ToolExecutionResult executeApprovedInvocation(
             ToolApprovalRecord approval,
             ToolService toolService,
@@ -276,7 +411,7 @@ public class AiToolContinuationEngine {
     private ToolExecutionResult replay(ToolApprovalRecord approval) {
         ToolExecutionOutcome outcome = approval.executionOutcome();
         if (outcome == null) {
-            throw new IllegalStateException("consumed tool invocation result is missing");
+            throw new IllegalStateException("已完成的工具调用缺少持久化结果");
         }
         return ToolExecutionResult.builder()
                 .isError(outcome.error())
@@ -284,25 +419,23 @@ public class AiToolContinuationEngine {
                 .build();
     }
 
+    /** 处理请求{@code Next}模型轮次。 */
     private void requestNextModelTurn(StreamingChatModel model,
                                       ContinuationMemory memory,
                                       ToolService toolService,
                                       InvocationContext invocationContext,
-                                      GenerationToolContinuationState state,
+                                      AgentLoopState state,
                                       GenerationExecutionContext executionContext,
                                       BooleanSupplier cancelChecker,
                                       Consumer<GenerationCancellationHandle> cancellationHandleConsumer,
-                                      FluxSink<GenerationStreamEvent> sink,
-                                      int remainingToolRounds) {
+                                      FluxSink<GenerationStreamEvent> sink) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (cancelChecker.getAsBoolean() || sink.isCancelled()) {
             sink.complete();
             return;
         }
-        if (remainingToolRounds <= 0) {
-            sink.error(new IllegalStateException("工具续轮预算已耗尽"));
-            return;
-        }
         GenerationStageAdmissionService.ModelTurnWindow modelTurnWindow;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             modelTurnWindow = generationStageAdmissionService.requireModelTurn(
                     executionContext,
@@ -319,6 +452,14 @@ public class AiToolContinuationEngine {
                 .build());
         request = aiToolInvocationPolicy.governModelTurn(
                 state.taskId(), executionContext.successfulWorkspaceMutationCount(), request);
+        GenerationAgentTurnPolicy.PreparedModelTurn preparedTurn =
+                generationAgentTurnPolicy.prepareModelTurn(
+                        executionContext,
+                        state.codeGenType(),
+                        state.performanceProfile(),
+                        request
+                );
+        request = preparedTurn.request();
         ReasoningProgressTracker reasoningProgress = new ReasoningProgressTracker(state.taskId());
         modelCallSupervisor.chat(
                 model,
@@ -330,6 +471,12 @@ public class AiToolContinuationEngine {
                 new StreamingChatResponseHandler() {
                     private final AtomicBoolean terminated = new AtomicBoolean();
 
+            /**
+ * 响应部分响应事件。
+ *
+ * @param partialResponse 部分响应
+ * @param context 执行上下文
+ */
             @Override
             public void onPartialResponse(PartialResponse partialResponse,
                                           PartialResponseContext context) {
@@ -339,6 +486,12 @@ public class AiToolContinuationEngine {
                 }
             }
 
+            /**
+ * 响应部分{@code Thinking}事件。
+ *
+ * @param partialThinking {@code partialThinking} 对应的调用参数
+ * @param context 执行上下文
+ */
             @Override
             public void onPartialThinking(PartialThinking partialThinking,
                                           PartialThinkingContext context) {
@@ -347,17 +500,29 @@ public class AiToolContinuationEngine {
                 }
             }
 
+            /**
+ * 响应{@code Complete}响应事件。
+ *
+ * @param response 响应对象
+ */
             @Override
             public void onCompleteResponse(ChatResponse response) {
+                // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
                 if (!terminated.compareAndSet(false, true) || sink.isCancelled()) {
                     return;
                 }
+                // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
                 try {
                     reasoningProgress.completeIfStarted().ifPresent(sink::next);
                     AiMessage aiMessage = response.aiMessage();
                     memory.add(aiMessage);
                     if (!aiMessage.hasToolExecutionRequests()) {
                         completeGeneration(state, sink);
+                        return;
+                    }
+                    if (!preparedTurn.toolCallsAllowed()) {
+                        sink.error(new IllegalStateException(
+                                "模型在最终收口回合违反了工具禁用约束"));
                         return;
                     }
                     boolean anyToolErrored = false;
@@ -367,6 +532,7 @@ public class AiToolContinuationEngine {
                         sink.next(toolCallEvent(toolRequest, index));
                         ToolExecutionResult result = executeToolWithSpan(
                                 state,
+                                invocationContext,
                                 toolRequest,
                                 () -> toolService.executeTool(
                                         invocationContext, toolService.toolExecutors(),
@@ -384,12 +550,17 @@ public class AiToolContinuationEngine {
                     requestNextModelTurn(
                             model, memory, toolService, invocationContext, state,
                             executionContext, cancelChecker, cancellationHandleConsumer,
-                            sink, remainingToolRounds - 1);
+                            sink);
                 } catch (RuntimeException failure) {
                     sink.error(failure);
                 }
             }
 
+            /**
+ * 响应错误事件。
+ *
+ * @param error 错误
+ */
             @Override
             public void onError(Throwable error) {
                 if (terminated.compareAndSet(false, true) && !sink.isCancelled()) {
@@ -414,20 +585,28 @@ public class AiToolContinuationEngine {
                 });
     }
 
-    private void completeGeneration(GenerationToolContinuationState state,
+    private void completeGeneration(AgentLoopState state,
                                     FluxSink<GenerationStreamEvent> sink) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("status", "transition");
+        data.put("stage", "codegen_done");
+        data.put("summary", state.continuation()
+                ? "工具审批结果已处理，代码生成阶段已完成"
+                : state.codeGenType()
+                == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.VUE_PROJECT
+                ? "代码已生成，后台正在执行构建校验"
+                : "代码已生成");
+        data.put("taskId", state.taskId());
+        if (state.projectPath() != null && !state.projectPath().isBlank()) {
+            data.put("projectPath", state.projectPath());
+        }
         sink.next(GenerationStreamEvent.generationStage(
-                "代码生成完成",
-                Map.of(
-                        "status", "transition",
-                        "stage", "codegen_done",
-                        "summary", "工具审批结果已处理，代码生成阶段已完成",
-                        "taskId", state.taskId()
-                )));
+                "代码生成完成", Map.copyOf(data)));
         sink.complete();
     }
 
-    private void completeForReservedWindow(GenerationToolContinuationState state,
+    /** 完成{@code For}{@code Reserved}窗口并持久化终态。 */
+    private void completeForReservedWindow(AgentLoopState state,
                                            GenerationModelTurnAdmissionException admission,
                                            FluxSink<GenerationStreamEvent> sink) {
         sink.next(GenerationStreamEvent.agentEvent("", Map.of(
@@ -453,7 +632,8 @@ public class AiToolContinuationEngine {
         sink.complete();
     }
 
-    private InvocationContext invocationContext(GenerationToolContinuationState state,
+    /** 返回调用上下文。 */
+    private InvocationContext invocationContext(AgentLoopState state,
                                                 List<ChatMessage> messages,
                                                 com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence executionFence) {
         UserMessage userMessage = messages.stream()
@@ -463,8 +643,8 @@ public class AiToolContinuationEngine {
                 .orElseGet(() -> UserMessage.from(state.userPrompt()));
         return InvocationContext.builder()
                 .invocationId(UUID.randomUUID())
-                .interfaceName(AiToolContinuationEngine.class.getName())
-                .methodName("continueAfterDecision")
+                .interfaceName(state.interfaceName())
+                .methodName(state.methodName())
                 .methodArguments(List.of(state.taskId()))
                 .userMessage(userMessage)
                 .chatMemoryId(state.appId())
@@ -475,6 +655,7 @@ public class AiToolContinuationEngine {
                 .build();
     }
 
+    /** 返回恢复记忆。 */
     private ContinuationMemory restoreMemory(GenerationToolContinuationState state,
                                              ToolInvocationCheckpoint checkpoint) {
         if (state.durableConversation() != null) {
@@ -494,6 +675,7 @@ public class AiToolContinuationEngine {
         return new ContinuationMemory(legacyMemory, state.appId(), false);
     }
 
+    /** 查找匹配的{@code Interrupted}{@code Assistant}消息。 */
     private int findInterruptedAssistantMessage(List<ChatMessage> messages,
                                                 ToolInvocationCheckpoint checkpoint) {
         for (int index = messages.size() - 1; index >= 0; index--) {
@@ -509,9 +691,10 @@ public class AiToolContinuationEngine {
                 return index;
             }
         }
-        throw new IllegalStateException("pending tool invocation does not match chat memory");
+        throw new IllegalStateException("待处理工具调用与短期记忆不一致");
     }
 
+    /** 完成{@code d}请求{@code Ids}并持久化终态。 */
     private Set<String> completedRequestIds(List<ChatMessage> messages, int startIndex) {
         Set<String> completed = new HashSet<>();
         for (int index = startIndex; index < messages.size(); index++) {
@@ -563,7 +746,9 @@ public class AiToolContinuationEngine {
         }
     }
 
-    private ToolExecutionResult executeToolWithSpan(GenerationToolContinuationState state,
+    /** 执行工具并跨度处理流程。 */
+    private ToolExecutionResult executeToolWithSpan(AgentLoopState state,
+                                                    InvocationContext invocationContext,
                                                     ToolExecutionRequest request,
                                                     Supplier<ToolExecutionResult> action) {
         String toolName = request == null || request.name() == null || request.name().isBlank()
@@ -579,12 +764,23 @@ public class AiToolContinuationEngine {
                 timer.success();
             }
             return result;
+        } catch (GenerationApprovalRequiredException approvalRequired) {
+            timer.failed("等待人工审批");
+            toolExecutionFailurePolicy.prepareApprovalSuspension(
+                    approvalRequired,
+                    request,
+                    state.codeGenType(),
+                    state.performanceProfile(),
+                    invocationContext == null ? null : invocationContext.userMessage()
+            );
+            throw approvalRequired;
         } catch (RuntimeException failure) {
             timer.failed(failure.getMessage());
             throw failure;
         }
     }
 
+    /** 校验并返回有效的{@code Continuation}。 */
     private void requireContinuation(ToolApprovalRecord approval,
                                      GenerationToolContinuationState state,
                                      GenerationExecutionContext executionContext) {
@@ -601,8 +797,53 @@ public class AiToolContinuationEngine {
                     && approval.status() != ToolApprovalStatus.CONSUMED
                     && approval.status() != ToolApprovalStatus.REJECTED
                     && approval.status() != ToolApprovalStatus.EXPIRED)) {
-            throw new IllegalArgumentException("tool continuation decision and checkpoint are inconsistent");
+            throw new IllegalArgumentException("工具恢复决策与检查点不一致");
         }
+    }
+
+    private record AgentLoopState(
+            String taskId,
+            Long appId,
+            String userPrompt,
+            com.rush.rushaicodemother.model.enums.CodeGenTypeEnum codeGenType,
+            com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile performanceProfile,
+            String route,
+            String projectPath,
+            String interfaceName,
+            String methodName,
+        boolean continuation
+    ) {
+        private static AgentLoopState initial(GenerationAgentExecutionRequest request) {
+            return new AgentLoopState(
+                    request.executionContext().taskId(),
+                    request.appId(),
+                    request.userPrompt(),
+                    request.codeGenType(),
+                    request.performanceProfile(),
+                    "code_generation",
+                    request.projectPath(),
+                    GenerationAgentRuntime.class.getName(),
+                    "start",
+                    false
+            );
+        }
+
+        private static AgentLoopState continuation(
+                GenerationToolContinuationState state) {
+            return new AgentLoopState(
+                    state.taskId(),
+                    state.appId(),
+                    state.userPrompt(),
+                    state.codeGenType(),
+                    state.performanceProfile(),
+                    state.route(),
+                    null,
+                    GenerationAgentRuntime.class.getName(),
+                    "continueAfterDecision",
+                    true
+            );
+        }
+
     }
 
     private final class ContinuationMemory {

@@ -24,6 +24,11 @@ public class RedisGenerationTaskDispatcher implements GenerationTaskDispatcher {
         this.repository = repository;
     }
 
+    /**
+ * 分发 Redis 生成任务{@code Dispatcher}。
+ *
+ * @param taskId 任务编号
+ */
     @Override
     public void dispatch(String taskId) {
         Instant now = Instant.now();

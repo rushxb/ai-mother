@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -143,6 +144,26 @@ class VueProjectSnapshotServiceTest {
         VueProjectSnapshot changedOutside = service.capture(projectRoot, packageJson);
 
         assertEquals(initial, changedOutside);
+    }
+
+    @Test
+    void shouldStopSnapshotScanWhenContinuationCheckRejectsWork() throws Exception {
+        VueProjectSnapshotService service = serviceWithDefaults();
+        JSONObject packageJson = packageJson("9.0.0", "vite build");
+        write("package.json", packageJson.toString());
+        write("src/main.ts", "export {};");
+        AtomicInteger checks = new AtomicInteger();
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service.capture(projectRoot, packageJson, () -> {
+                    if (checks.incrementAndGet() >= 3) {
+                        throw new IllegalStateException("快照扫描已取消");
+                    }
+                })
+        );
+
+        assertEquals(3, checks.get());
     }
 
     private VueProjectSnapshotService serviceWithDefaults() {

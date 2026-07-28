@@ -21,6 +21,7 @@ public record GenerationRecipe(
         boolean databaseRequired
 ) {
 
+    /** 创建生成{@code Recipe}实例并完成必要的依赖和初始状态设置。 */
     public GenerationRecipe {
         keywords = keywords == null ? List.of() : List.copyOf(keywords);
         modules = modules == null ? List.of() : List.copyOf(modules);
@@ -31,6 +32,11 @@ public record GenerationRecipe(
         aiFillSlots = aiFillSlots == null ? List.of() : List.copyOf(aiFillSlots);
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("id", id);

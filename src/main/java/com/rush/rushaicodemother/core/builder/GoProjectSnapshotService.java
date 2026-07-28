@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public class GoProjectSnapshotService {
 
     private static final int BUFFER_SIZE = 16 * 1024;
+    private static final Runnable NO_OP_CONTINUATION_CHECK = () -> {
+    };
     private static final Set<OpenOption> READ_NOFOLLOW_OPTIONS = Set.of(
             StandardOpenOption.READ,
             LinkOption.NOFOLLOW_LINKS
@@ -47,20 +49,33 @@ public class GoProjectSnapshotService {
         this.properties = Objects.requireNonNull(properties, "工作区文件系统配置不能为空");
     }
 
+    /** 返回{@code capture}。 */
     GoProjectSnapshot capture(Path projectRoot) throws IOException {
+        return capture(projectRoot, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 在调用方取消边界内采集 Go 项目快照。 */
+    GoProjectSnapshot capture(Path projectRoot, Runnable continuationCheck) throws IOException {
+        Runnable effectiveCheck = continuationCheck == null
+                ? NO_OP_CONTINUATION_CHECK
+                : continuationCheck;
+        effectiveCheck.run();
         Path normalizedRoot = requireProjectRoot(projectRoot);
-        List<ProjectFile> files = collectFiles(normalizedRoot);
+        List<ProjectFile> files = collectFiles(normalizedRoot, effectiveCheck);
         files.sort(Comparator.comparing(ProjectFile::relativePath));
 
         MessageDigest digest = newSha256Digest();
         for (ProjectFile file : files) {
+            effectiveCheck.run();
             updateLengthPrefixed(digest, file.relativePath().getBytes(StandardCharsets.UTF_8));
             updateLong(digest, file.size());
-            appendFileContent(digest, file);
+            appendFileContent(digest, file, effectiveCheck);
         }
+        effectiveCheck.run();
         return new GoProjectSnapshot(HexFormat.of().formatHex(digest.digest()));
     }
 
+    /** 校验并返回有效的项目根。 */
     private Path requireProjectRoot(Path projectRoot) throws IOException {
         if (projectRoot == null) {
             throw new IOException("Go 项目根目录不能为空");
@@ -73,14 +88,23 @@ public class GoProjectSnapshotService {
         return normalizedRoot;
     }
 
-    private List<ProjectFile> collectFiles(Path projectRoot) throws IOException {
+    /** 采集并汇总文件。 */
+    private List<ProjectFile> collectFiles(Path projectRoot, Runnable continuationCheck) throws IOException {
         List<ProjectFile> files = new ArrayList<>();
         AtomicInteger fileCount = new AtomicInteger();
         AtomicLong totalBytes = new AtomicLong();
         Files.walkFileTree(projectRoot, new SimpleFileVisitor<>() {
+            /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
             @Override
             public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
                     throws IOException {
+                continuationCheck.run();
                 if (attributes.isSymbolicLink() || Files.isSymbolicLink(directory)) {
                     throw new IOException("Go 项目包含不允许参与缓存的符号链接目录: "
                             + normalizePath(projectRoot.relativize(directory)));
@@ -98,8 +122,16 @@ public class GoProjectSnapshotService {
                 return FileVisitResult.CONTINUE;
             }
 
+            /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return {@code Go}项目快照
+ */
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                continuationCheck.run();
                 String relativePath = normalizePath(projectRoot.relativize(file));
                 if (attributes.isSymbolicLink() || Files.isSymbolicLink(file)) {
                     throw new IOException("Go 项目包含不允许参与缓存的符号链接文件: " + relativePath);
@@ -131,6 +163,7 @@ public class GoProjectSnapshotService {
         return files;
     }
 
+    /** 返回{@code add}对应的字节数。 */
     private long addBytes(AtomicLong totalBytes, long size) throws IOException {
         try {
             return totalBytes.updateAndGet(current -> Math.addExact(current, size));
@@ -139,7 +172,13 @@ public class GoProjectSnapshotService {
         }
     }
 
-    private void appendFileContent(MessageDigest digest, ProjectFile projectFile) throws IOException {
+    /** 追加文件内容。 */
+    private void appendFileContent(
+            MessageDigest digest,
+            ProjectFile projectFile,
+            Runnable continuationCheck
+    ) throws IOException {
+        continuationCheck.run();
         BasicFileAttributes before = readRegularFileAttributes(projectFile.path());
         if (!projectFile.matches(before)) {
             throw new IOException("Go 项目文件在快照读取前发生变化: " + projectFile.relativePath());
@@ -149,6 +188,7 @@ public class GoProjectSnapshotService {
         ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
         try (SeekableByteChannel channel = Files.newByteChannel(projectFile.path(), READ_NOFOLLOW_OPTIONS)) {
             while (true) {
+                continuationCheck.run();
                 int read = channel.read(buffer);
                 if (read < 0) {
                     break;
@@ -166,6 +206,7 @@ public class GoProjectSnapshotService {
             }
         }
 
+        continuationCheck.run();
         BasicFileAttributes after = readRegularFileAttributes(projectFile.path());
         if (bytesRead != projectFile.size() || !projectFile.matches(after)) {
             throw new IOException("Go 项目文件在快照读取期间发生变化: " + projectFile.relativePath());
@@ -184,6 +225,7 @@ public class GoProjectSnapshotService {
         return attributes;
     }
 
+    /** 添加{@code Exact}。 */
     private long addExact(long current, long increment, String relativePath) throws IOException {
         try {
             return Math.addExact(current, increment);
@@ -201,6 +243,7 @@ public class GoProjectSnapshotService {
         digest.update(ByteBuffer.allocate(Long.BYTES).putLong(value).array());
     }
 
+    /** 返回{@code new}{@code Sha256}摘要。 */
     private MessageDigest newSha256Digest() {
         try {
             return MessageDigest.getInstance("SHA-256");

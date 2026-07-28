@@ -23,6 +23,7 @@ final class VueBuildDiagnosticFormatter {
         return PublicDiagnosticSanitizer.sanitizeSingleLine(result.summary(), 600);
     }
 
+    /** 将当前对象转换为内部{@code Diagnostic}报告。 */
     static String toInternalDiagnosticReport(VueBuildResult result) {
         StringBuilder builder = new StringBuilder();
         builder.append("项目路径: ").append(result.projectPath()).append('\n');
@@ -49,6 +50,7 @@ final class VueBuildDiagnosticFormatter {
         return PublicDiagnosticSanitizer.sanitizeForPublicOutput(toInternalDiagnosticReport(result));
     }
 
+    /** 将当前对象转换为内部失败汇总。 */
     static String toInternalFailureSummary(VueBuildResult result) {
         List<String> parts = List.of(
                 "Vue 项目构建失败",
@@ -70,6 +72,7 @@ final class VueBuildDiagnosticFormatter {
         return PublicDiagnosticSanitizer.sanitizeSingleLine(toInternalFailureSummary(result), 1_200);
     }
 
+    /** 返回命令汇总。 */
     static String commandSummary(VueBuildCommandResult result, String fallback) {
         if (result == null || StrUtil.isBlank(result.command())) {
             return fallback;
@@ -91,6 +94,7 @@ final class VueBuildDiagnosticFormatter {
         return PublicDiagnosticSanitizer.sanitizeSingleLine(builder.toString(), 600);
     }
 
+    /** 将当前对象转换为内部{@code Diagnostic}{@code Block}。 */
     private static String toInternalDiagnosticBlock(VueBuildCommandResult result) {
         StringBuilder builder = new StringBuilder();
         builder.append("命令: ").append(result.command()).append('\n');
@@ -117,6 +121,7 @@ final class VueBuildDiagnosticFormatter {
         return StrUtil.sub(normalized, 0, Math.min(normalized.length(), 300));
     }
 
+    /** 从输入中提取{@code Diagnostic}{@code Snippet}。 */
     private static String extractDiagnosticSnippet(String output) {
         if (StrUtil.isBlank(output)) {
             return "";
@@ -139,6 +144,7 @@ final class VueBuildDiagnosticFormatter {
         return StrUtil.sub(normalized, 0, Math.min(normalized.length(), 2_000));
     }
 
+    /** 判断{@code Useful}{@code Diagnostic}{@code Line}是否满足约束。 */
     private static boolean isUsefulDiagnosticLine(String line) {
         String lower = line.toLowerCase(Locale.ROOT);
         return lower.contains("error")

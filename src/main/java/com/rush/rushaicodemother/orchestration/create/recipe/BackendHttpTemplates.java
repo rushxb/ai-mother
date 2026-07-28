@@ -8,6 +8,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class BackendHttpTemplates {
 
+    /** 返回后端处理器。 */
     String backendHandler(BackendRecipe recipe) {
         String route = "/" + recipe.tableName().replace("_", "-");
         String listRoute = recipe.options().pagination() ? "/list/page" : "/list";
@@ -165,6 +166,7 @@ final class BackendHttpTemplates {
         );
     }
 
+    /** 返回后端{@code Wiring}。 */
     String backendWiring(BackendRecipe recipe) {
         String varPrefix = recipe.packageName();
         return """
@@ -185,6 +187,7 @@ final class BackendHttpTemplates {
         );
     }
 
+    /** 返回批次删除处理器。 */
     private String batchDeleteHandler() {
         return """
 
@@ -207,6 +210,7 @@ final class BackendHttpTemplates {
                 """;
     }
 
+    /** 返回导入导出处理器。 */
     private String importExportHandlers(BackendRecipe recipe) {
         return """
 
@@ -240,6 +244,7 @@ final class BackendHttpTemplates {
                 """.formatted(recipe.structName());
     }
 
+    /** 返回{@code auth}{@code Helper}。 */
     private String authHelper() {
         return """
 

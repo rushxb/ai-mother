@@ -14,6 +14,12 @@ public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy
 
     private final GenerationRoutingTelemetryProperties properties;
 
+    /**
+ * 根据输入信号确定生成遥测路由策略。
+ *
+ * @param signal 输入信号
+ * @return 可选的生成遥测路由策略；不存在时返回空值
+ */
     @Override
     public Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal) {
         GenerationRoutingTelemetrySnapshot telemetry = signal.telemetry();

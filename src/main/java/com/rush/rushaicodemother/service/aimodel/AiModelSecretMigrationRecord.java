@@ -9,6 +9,7 @@ public record AiModelSecretMigrationRecord(
         boolean deleted
 ) {
 
+    /** 创建 AI 模型密钥{@code Migration}记录实例并完成必要的依赖和初始状态设置。 */
     public AiModelSecretMigrationRecord {
         if (modelId <= 0) {
             throw new IllegalArgumentException("AI model secret migration record id must be positive");

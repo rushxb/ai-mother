@@ -41,6 +41,14 @@ public class LintOrTestTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 在目标项目中运行指定的校验脚本。
+ *
+ * @param scriptName 待执行脚本名称
+ * @param relativeProjectPath 项目相对路径
+ * @param appId 应用编号
+ * @return 处理后的方法执行结果文本
+ */
     @Tool("执行项目中的 lint、test、type-check、build 等校验脚本，只允许运行 package.json 里已存在的白名单脚本。")
     public String runProjectCheck(
             @P("要执行的 script 名称，例如 lint、test、type-check、build、lint:fix")
@@ -49,9 +57,11 @@ public class LintOrTestTool extends BaseTool {
             String relativeProjectPath,
             @ToolMemoryId Long appId
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (StrUtil.isBlank(scriptName)) {
             return "错误：script 名称不能为空";
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory =
                     workspaceFileService.resolveDirectory(appId, relativeProjectPath);
@@ -93,6 +103,7 @@ public class LintOrTestTool extends BaseTool {
                 .anyMatch(prefix -> scriptName.equals(prefix) || scriptName.startsWith(prefix + ":"));
     }
 
+    /** 将当前对象转换为报告。 */
     private String toReport(ProjectCommandResult result) {
         StringBuilder builder = new StringBuilder();
         builder.append("命令: ").append(result.command()).append('\n');
@@ -111,6 +122,7 @@ public class LintOrTestTool extends BaseTool {
         return builder.toString();
     }
 
+    /** 将当前对象转换为{@code Single}{@code Line}汇总。 */
     private String toSingleLineSummary(ProjectCommandResult result) {
         StringBuilder builder = new StringBuilder(result.success() ? "成功" : "失败");
         if (result.exitCode() != null) {
@@ -140,11 +152,24 @@ public class LintOrTestTool extends BaseTool {
         return "Lint/Test 校验";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s %s", getDisplayName(), arguments.getStr("scriptName"));
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);

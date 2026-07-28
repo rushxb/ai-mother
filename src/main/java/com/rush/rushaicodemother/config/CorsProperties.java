@@ -69,6 +69,7 @@ public class CorsProperties {
                 .allMatch(SUPPORTED_METHODS::contains);
     }
 
+    /** 判断安全来源是否满足约束。 */
     private boolean isSafeOrigin(String origin) {
         if (origin == null || origin.isBlank() || origin.contains("*")) {
             return false;

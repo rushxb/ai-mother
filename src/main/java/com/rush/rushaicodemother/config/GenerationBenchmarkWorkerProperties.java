@@ -27,6 +27,11 @@ public class GenerationBenchmarkWorkerProperties {
     private Duration evidenceValidity = Duration.ofDays(1);
     private Candidate candidate = new Candidate();
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "Benchmark Worker 配置无效")
     public boolean isConfigurationValid() {
         if (!enabled) {
@@ -56,6 +61,7 @@ public class GenerationBenchmarkWorkerProperties {
                 && candidate.canaryPercentage == 0;
     }
 
+    /** 校验提示词候选配置是否有效。 */
     private boolean validPromptCandidate() {
         if (candidate.modelId != 0
                 || !PROMPT_KEY.matcher(trim(candidate.promptKey)).matches()

@@ -18,6 +18,13 @@ public class StructuredSyntaxValidationService {
     private static final Pattern GO_PACKAGE_PATTERN = Pattern.compile("(?m)^\\s*package\\s+[A-Za-z_][\\w]*\\s*$");
     private static final Pattern SQL_TABLE_PATTERN = Pattern.compile("(?is)create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?([A-Za-z_][\\w]*)\\s*\\((.*?)\\)");
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param relativePath 相对路径
+ * @param content 文件或消息内容
+ * @return {@code ate}
+ */
     public ValidationResult validate(String relativePath, String content) {
         String normalizedPath = StrUtil.blankToDefault(relativePath, "").replace('\\', '/');
         String normalizedContent = StrUtil.blankToDefault(content, "");
@@ -34,6 +41,7 @@ public class StructuredSyntaxValidationService {
         return new ValidationResult(errors.isEmpty(), errors);
     }
 
+    /** 校验{@code ate}{@code Vue}是否有效。 */
     private void validateVue(String path, String content, List<String> errors) {
         if (StrUtil.isBlank(content)) {
             return;
@@ -48,6 +56,7 @@ public class StructuredSyntaxValidationService {
         validateJavaScriptLike(path, extractScriptContent(content), errors);
     }
 
+    /** 校验{@code ate}{@code Java}{@code Script}{@code Like}是否有效。 */
     private void validateJavaScriptLike(String path, String content, List<String> errors) {
         if (StrUtil.isBlank(content)) {
             return;
@@ -61,6 +70,7 @@ public class StructuredSyntaxValidationService {
         }
     }
 
+    /** 校验{@code ate}{@code Go}是否有效。 */
     private void validateGo(String path, String content, List<String> errors) {
         if (StrUtil.isBlank(content)) {
             return;
@@ -87,12 +97,14 @@ public class StructuredSyntaxValidationService {
         }
     }
 
+    /** 校验{@code ate}{@code Balanced}{@code Delimiters}是否有效。 */
     private void validateBalancedDelimiters(String path, String content, List<String> errors) {
         ArrayDeque<Character> stack = new ArrayDeque<>();
         boolean singleQuote = false;
         boolean doubleQuote = false;
         boolean templateQuote = false;
         boolean escaped = false;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int i = 0; i < content.length(); i++) {
             char current = content.charAt(i);
             if (escaped) {
@@ -158,6 +170,7 @@ public class StructuredSyntaxValidationService {
                 || relativePath.endsWith(".tsx");
     }
 
+    /** 返回数量。 */
     private int count(String content, String needle) {
         if (StrUtil.isBlank(content) || StrUtil.isBlank(needle)) {
             return 0;

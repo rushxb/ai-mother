@@ -62,6 +62,7 @@ public class LocalEditStateStore {
         this.clock = clock;
     }
 
+    /** 加载{@code Local}编辑状态存储。 */
     EditStateSnapshot load(Long appId) {
         long nowEpochMillis = clock.millis();
         if (!properties.isEnabled() || !isValidAppId(appId)) {
@@ -75,6 +76,7 @@ public class LocalEditStateStore {
         Path stateFile = resolveStatePath(appId);
         ReentrantReadWriteLock.ReadLock readLock = persistenceLifecycleLock.readLock();
         readLock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS)) {
                 return EditStateSnapshot.empty(nowEpochMillis);
@@ -102,12 +104,15 @@ public class LocalEditStateStore {
         }
     }
 
+    /** 保存{@code Local}编辑状态存储。 */
     boolean save(Long appId, EditStateSnapshot snapshot) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (!properties.isEnabled() || !isValidAppId(appId) || snapshot == null) {
             return false;
         }
 
         byte[] content;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             content = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(snapshot);
         } catch (IOException exception) {
@@ -140,6 +145,7 @@ public class LocalEditStateStore {
         return true;
     }
 
+    /** 根据当前上下文解析状态路径。 */
     Path resolveStatePath(Long appId) {
         if (!isValidAppId(appId)) {
             throw new IllegalArgumentException("invalid edit-state app identity");
@@ -151,6 +157,7 @@ public class LocalEditStateStore {
         return stateFile;
     }
 
+    /** 返回{@code deserialize}状态。 */
     private EditStateSnapshot deserializeState(byte[] content,
                                                        Path stateFile,
                                                        Long appId,
@@ -169,6 +176,7 @@ public class LocalEditStateStore {
         }
     }
 
+    /** 读取{@code Bounded}。 */
     private byte[] readBounded(Path stateFile) throws IOException {
         try (FileChannel channel = FileChannel.open(
                 stateFile, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
@@ -191,6 +199,7 @@ public class LocalEditStateStore {
         }
     }
 
+    /** 写入{@code Atomically}。 */
     private void writeAtomically(Path target, byte[] content) throws IOException {
         Path temporaryFile = Files.createTempFile(rootDirectory, TEMP_FILE_PREFIX, TEMP_FILE_SUFFIX);
         try {
@@ -213,12 +222,15 @@ public class LocalEditStateStore {
         }
     }
 
+    /** 清理{@code Persisted}{@code States}及其关联资源。 */
     private void cleanupPersistedStates() {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (!cleanupLock.tryLock()) {
             return;
         }
         ReentrantReadWriteLock.WriteLock writeLock = persistenceLifecycleLock.writeLock();
         writeLock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (!Files.isDirectory(rootDirectory, LinkOption.NOFOLLOW_LINKS)) {
                 return;
@@ -258,6 +270,7 @@ public class LocalEditStateStore {
         }
     }
 
+    /** 返回{@code inspect}状态文件。 */
     private StateFile inspectStateFile(Path path) {
         if (path == null
                 || !STATE_FILE_PATTERN.matcher(path.getFileName().toString()).matches()
@@ -273,6 +286,7 @@ public class LocalEditStateStore {
         }
     }
 
+    /** 删除{@code Invalid}状态文件。 */
     private void deleteInvalidStateFile(Path stateFile, Long appId, String reason) {
         try {
             Files.deleteIfExists(stateFile);

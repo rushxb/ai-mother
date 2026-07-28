@@ -21,6 +21,7 @@ public final class RootModelRetryPolicy {
         this(properties, () -> ThreadLocalRandom.current().nextDouble());
     }
 
+    /** 创建根模型重试策略实例并完成必要的依赖和初始状态设置。 */
     RootModelRetryPolicy(AiModelRuntimeProperties properties, DoubleSupplier randomSource) {
         Objects.requireNonNull(properties, "AI 模型运行配置不能为空");
         this.minimumDelay = requirePositive(
@@ -37,6 +38,13 @@ public final class RootModelRetryPolicy {
         this.randomSource = Objects.requireNonNull(randomSource, "根模型重试随机源不能为空");
     }
 
+    /**
+ * 根据输入信号确定根模型重试策略。
+ *
+ * @param retryIndex 重试索引
+ * @param executionContext 执行上下文
+ * @return 根模型重试策略
+ */
     public Decision decide(long retryIndex, GenerationExecutionContext executionContext) {
         if (retryIndex < 0) {
             throw new IllegalArgumentException("根模型重试序号不能小于 0");
@@ -59,6 +67,7 @@ public final class RootModelRetryPolicy {
         return Decision.retryAfter(min(delay, affordableDelay));
     }
 
+    /** 返回{@code exponential}延迟。 */
     private Duration exponentialDelay(long retryIndex) {
         Duration delay = minimumDelay;
         for (long index = 0; index < retryIndex && delay.compareTo(maximumDelay) < 0; index++) {
@@ -70,6 +79,7 @@ public final class RootModelRetryPolicy {
         return delay;
     }
 
+    /** 返回{@code jittered}。 */
     private Duration jittered(Duration baseDelay) {
         if (jitter == 0) {
             return baseDelay;
@@ -115,6 +125,7 @@ public final class RootModelRetryPolicy {
             return new Decision(false, Duration.ZERO, rejection);
         }
 
+        /** 创建决策实例并完成必要的依赖和初始状态设置。 */
         public Decision {
             Objects.requireNonNull(delay, "根模型重试延迟不能为空");
             Objects.requireNonNull(rejection, "根模型重试拒绝原因不能为空");

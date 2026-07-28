@@ -6,6 +6,7 @@ public record GenerationTaskQueueDelivery(
         String taskId,
         long deliveryCount
 ) {
+    /** 创建生成任务{@code Queue}{@code Delivery}实例并完成必要的依赖和初始状态设置。 */
     public GenerationTaskQueueDelivery {
         if (messageId == null || messageId.isBlank()) {
             throw new IllegalArgumentException("messageId cannot be blank");

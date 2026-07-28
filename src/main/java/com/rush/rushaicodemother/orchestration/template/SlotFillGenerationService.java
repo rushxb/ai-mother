@@ -35,6 +35,14 @@ public class SlotFillGenerationService {
         return tryGenerate(app, request, null);
     }
 
+    /**
+ * 返回{@code try}{@code Generate}。
+ *
+ * @param app 应用
+ * @param request 请求参数
+ * @param session 会话
+ * @return 插槽填充生成
+ */
     public SlotFillResult tryGenerate(App app, GenerationTaskRequest request, GenerationSession session) {
         lastFailureReason.remove();
         if (app == null || request == null) {
@@ -80,6 +88,11 @@ public class SlotFillGenerationService {
         return result;
     }
 
+    /**
+ * 返回{@code consume}{@code Last}失败原因。
+ *
+ * @return 处理后的插槽填充生成文本
+ */
     public String consumeLastFailureReason() {
         String reason = lastFailureReason.get();
         lastFailureReason.remove();

@@ -46,6 +46,13 @@ public class GenerationTaskQueryService {
     private final AppPersistenceService appPersistenceService;
     private final TenantAuthorizationService tenantAuthorizationService;
 
+    /**
+ * 获取指定资源。
+ *
+ * @param taskId 任务编号
+ * @param actor 操作发起人
+ * @return 方法执行结果
+ */
     public GenerationTaskSnapshot get(String taskId, User actor) {
         requireActor(actor);
         GenerationSession session = generationSessionRegistry.getByTaskId(taskId);
@@ -81,6 +88,13 @@ public class GenerationTaskQueryService {
                 });
     }
 
+    /**
+ * 返回事件。
+ *
+ * @param taskId 任务编号
+ * @param actor 操作发起人
+ * @return 异步响应式处理结果
+ */
     public Flux<GenerationStreamEvent> events(String taskId, User actor) {
         requireActor(actor);
         GenerationSession session = generationSessionRegistry.getByTaskId(taskId);
@@ -120,6 +134,13 @@ public class GenerationTaskQueryService {
         throw eventStreamUnavailable();
     }
 
+    /**
+ * 返回事件{@code For}{@code Latest}{@code Non}{@code Terminal}应用任务。
+ *
+ * @param appId 应用编号
+ * @param actor 操作发起人
+ * @return 异步响应式处理结果
+ */
     public Flux<GenerationStreamEvent> eventsForLatestNonTerminalAppTask(Long appId, User actor) {
         requireActor(actor);
         if (appId == null || appId <= 0) {
@@ -147,6 +168,7 @@ public class GenerationTaskQueryService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND_ERROR, "Generation task does not exist"));
     }
 
+    /** 返回{@code local}快照。 */
     private GenerationTaskSnapshot localSnapshot(GenerationSession session,
                                                  DurableGenerationTaskRecord durableMetadata) {
         GenerationExecutionContext executionContext = session.executionContext();
@@ -191,6 +213,7 @@ public class GenerationTaskQueryService {
         );
     }
 
+    /** 返回安全{@code Find}持久元数据。 */
     private DurableGenerationTaskRecord safeFindDurableMetadata(String taskId) {
         try {
             return durableRepository.findByTaskId(taskId).orElse(null);

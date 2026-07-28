@@ -33,6 +33,7 @@ public class AiModelSensitiveCacheSanitizer {
         deleteSensitiveCache();
     }
 
+    /** 删除{@code Sensitive}缓存。 */
     private void deleteSensitiveCache() {
         try {
             redisTemplate.delete(RedisKeyConstant.AI_MODEL_ENABLED_LIST);

@@ -46,12 +46,19 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
         return request.modeIs(GenerationMode.AGENT_EDIT);
     }
 
+    /**
+ * 执行智能体编辑生成流水线处理流程。
+ *
+ * @param request 请求参数
+ * @return 智能体编辑生成流水线
+ */
     @Override
     public GenerationPipelineOutcome execute(GenerationPipelineRequest request) {
         GenerationTaskExecution execution = request.requireExecution();
         GenerationSession session = execution.session();
         App app = request.taskRequest().app();
         Instant startedAt = Instant.now();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.throwIfCancelled();
             AgentEditResult editResult = agentEditGenerationService.execute(
@@ -125,6 +132,7 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
         }
     }
 
+    /** 构建并返回结果汇总。 */
     private String buildResultSummary(String status, AgentEditResult result) {
         String changedFiles = result.changedFiles().stream()
                 .limit(30)

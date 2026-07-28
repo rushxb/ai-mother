@@ -44,6 +44,15 @@ public class CreateSpecNormalizer {
     private final CreateSpecDefaults defaults = new CreateSpecDefaults();
     private final CreateSpecSafetySanitizer sanitizer = new CreateSpecSafetySanitizer();
 
+    /**
+ * 规范化创建{@code Spec}规范化器。
+ *
+ * @param source 来源数据
+ * @param userMessage 用户消息
+ * @param plan 计划
+ * @param group 分组
+ * @return 创建{@code Spec}规范化器
+ */
     public NormalizedSpec normalize(CreateSpec source, String userMessage, CreateGenerationPlan plan, SlotGroup group) {
         List<String> warnings = new ArrayList<>();
         CreateSpec fallback = defaults.fromRequest(userMessage, plan, group, source == null ? "ai_spec_empty" : "ai_spec_partial");
@@ -73,6 +82,7 @@ public class CreateSpecNormalizer {
         );
     }
 
+    /** 规范化{@code Frontend}。 */
     private CreateSpec.Frontend normalizeFrontend(CreateSpec.Frontend raw, CreateSpec.Frontend fallback) {
         raw = raw == null ? fallback : raw;
         return new CreateSpec.Frontend(
@@ -99,6 +109,7 @@ public class CreateSpecNormalizer {
         );
     }
 
+    /** 规范化{@code Entities}。 */
     private List<CreateSpec.EntitySpec> normalizeEntities(List<CreateSpec.EntitySpec> raw,
                                                           List<CreateSpec.EntitySpec> fallback,
                                                           List<String> warnings) {
@@ -128,12 +139,14 @@ public class CreateSpecNormalizer {
         return result.isEmpty() ? fallback : result;
     }
 
+    /** 规范化{@code Fields}。 */
     private List<CreateSpec.FieldSpec> normalizeFields(List<CreateSpec.FieldSpec> raw,
                                                        List<CreateSpec.FieldSpec> fallback,
                                                        List<String> warnings) {
         List<CreateSpec.FieldSpec> source = raw == null || raw.isEmpty() ? fallback : raw;
         List<CreateSpec.FieldSpec> result = new ArrayList<>();
         Set<String> names = new LinkedHashSet<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (CreateSpec.FieldSpec field : source) {
             if (field == null || result.size() >= MAX_FIELDS) {
                 continue;
@@ -172,6 +185,7 @@ public class CreateSpecNormalizer {
         return result;
     }
 
+    /** 规范化后端。 */
     private CreateSpec.Backend normalizeBackend(CreateSpec.Backend raw, CreateSpec.Backend fallback) {
         raw = raw == null ? fallback : raw;
         return new CreateSpec.Backend(
@@ -190,6 +204,7 @@ public class CreateSpecNormalizer {
         );
     }
 
+    /** 规范化数据库。 */
     private CreateSpec.Database normalizeDatabase(CreateSpec.Database raw,
                                                   CreateSpec.Database fallback,
                                                   List<CreateSpec.EntitySpec> entities) {
@@ -220,6 +235,7 @@ public class CreateSpecNormalizer {
         );
     }
 
+    /** 规范化{@code Landing}。 */
     private CreateSpec.Landing normalizeLanding(CreateSpec.Landing raw,
                                                 CreateSpec.Landing fallback,
                                                 CreateSpec.Product product,
@@ -242,6 +258,7 @@ public class CreateSpecNormalizer {
         );
     }
 
+    /** 规范化{@code Constraints}。 */
     private CreateSpec.Constraints normalizeConstraints(CreateSpec.Constraints raw) {
         if (raw == null) {
             raw = new CreateSpec.Constraints(true, List.of(), List.of(), MAX_ENTITIES, MAX_FIELDS);
@@ -255,6 +272,7 @@ public class CreateSpecNormalizer {
         );
     }
 
+    /** 规范化{@code Modules}。 */
     private List<CreateSpec.ModuleSpec> normalizeModules(List<CreateSpec.ModuleSpec> raw, List<CreateSpec.ModuleSpec> fallback) {
         List<CreateSpec.ModuleSpec> source = raw == null || raw.isEmpty() ? fallback : raw;
         return source.stream()
@@ -268,6 +286,7 @@ public class CreateSpecNormalizer {
                 .toList();
     }
 
+    /** 规范化{@code Keywords}。 */
     private List<String> normalizeKeywords(List<String> raw, List<String> fallback, int maxItems) {
         List<String> values = normalizeStringList(raw, fallback, maxItems, 24);
         List<String> mapped = new ArrayList<>();
@@ -289,6 +308,7 @@ public class CreateSpecNormalizer {
         return mapped;
     }
 
+    /** 规范化{@code String}列表。 */
     private List<String> normalizeStringList(List<String> raw, List<String> fallback, int maxItems, int maxLength) {
         List<String> result = new ArrayList<>();
         if (raw != null) {
@@ -310,6 +330,7 @@ public class CreateSpecNormalizer {
         return result;
     }
 
+    /** 规范化统计。 */
     private List<CreateSpec.Stat> normalizeStats(List<CreateSpec.Stat> raw, List<CreateSpec.Stat> fallback) {
         List<CreateSpec.Stat> result = new ArrayList<>();
         for (CreateSpec.Stat item : raw == null ? List.<CreateSpec.Stat>of() : raw) {
@@ -324,6 +345,7 @@ public class CreateSpecNormalizer {
         return result;
     }
 
+    /** 规范化{@code Text}{@code Blocks}。 */
     private List<CreateSpec.TextBlock> normalizeTextBlocks(List<CreateSpec.TextBlock> raw,
                                                            List<CreateSpec.TextBlock> fallback,
                                                            int maxItems) {
@@ -340,6 +362,7 @@ public class CreateSpecNormalizer {
         return result;
     }
 
+    /** 规范化{@code Plans}。 */
     private List<CreateSpec.Plan> normalizePlans(List<CreateSpec.Plan> raw, List<CreateSpec.Plan> fallback) {
         List<CreateSpec.Plan> result = new ArrayList<>();
         for (CreateSpec.Plan item : raw == null ? List.<CreateSpec.Plan>of() : raw) {
@@ -359,6 +382,7 @@ public class CreateSpecNormalizer {
         return result;
     }
 
+    /** 规范化{@code Faqs}。 */
     private List<CreateSpec.Faq> normalizeFaqs(List<CreateSpec.Faq> raw, List<CreateSpec.Faq> fallback) {
         List<CreateSpec.Faq> result = new ArrayList<>();
         for (CreateSpec.Faq item : raw == null ? List.<CreateSpec.Faq>of() : raw) {
@@ -391,6 +415,7 @@ public class CreateSpecNormalizer {
         return safe.matches("^#[0-9a-fA-F]{6}$") ? safe : fallback;
     }
 
+    /** 响应{@code e}{@code Of}事件。 */
     private String oneOf(String value, String fallback, String... allowed) {
         for (String item : allowed) {
             if (item.equals(value)) {
@@ -412,6 +437,7 @@ public class CreateSpecNormalizer {
         return pascal.substring(0, 1).toLowerCase(Locale.ROOT) + pascal.substring(1);
     }
 
+    /** 返回{@code pascal}{@code Identifier}。 */
     private String pascalIdentifier(String value, String fallback) {
         String cleaned = identifierLike(value, fallback);
         StringBuilder result = new StringBuilder();

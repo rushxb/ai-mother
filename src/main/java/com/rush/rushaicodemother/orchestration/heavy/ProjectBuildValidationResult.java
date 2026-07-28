@@ -28,6 +28,12 @@ public record ProjectBuildValidationResult(
         failureSummary = PublicDiagnosticSanitizer.sanitizeSingleLine(failureSummary, 1_200);
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param result 待处理结果
+ * @return 项目构建校验结果
+ */
     public static ProjectBuildValidationResult fromVue(VueBuildResult result) {
         if (result == null) {
             return unavailable("frontend", "Vue 构建服务未返回结果");
@@ -43,6 +49,12 @@ public record ProjectBuildValidationResult(
         );
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param result 待处理结果
+ * @return 项目构建校验结果
+ */
     public static ProjectBuildValidationResult fromGo(GoBuildResult result) {
         if (result == null) {
             return unavailable("backend", "Go 构建测试服务未返回结果");
@@ -58,6 +70,14 @@ public record ProjectBuildValidationResult(
         );
     }
 
+    /**
+ * 返回全栈。
+ *
+ * @param projectPath 项目路径
+ * @param backend 后端
+ * @param frontend {@code frontend} 对应的调用参数
+ * @return 项目构建校验结果
+ */
     public static ProjectBuildValidationResult fullStack(
             String projectPath,
             ProjectBuildValidationResult backend,

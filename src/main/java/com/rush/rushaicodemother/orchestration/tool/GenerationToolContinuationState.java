@@ -26,9 +26,11 @@ public record GenerationToolContinuationState(
         DurableToolConversation durableConversation,
         Instant capturedAt
 ) {
-    public static final int CURRENT_SCHEMA_VERSION = 3;
+    /** v4 开始由执行快照持久化 Agent 根尝试和模型回合账本。 */
+    public static final int CURRENT_SCHEMA_VERSION = 4;
     public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
+    /** 创建生成工具{@code Continuation}状态实例并完成必要的依赖和初始状态设置。 */
     public GenerationToolContinuationState {
         if (!supportsSchemaVersion(schemaVersion)) {
             throw new IllegalArgumentException("unsupported tool continuation state schema");
@@ -94,6 +96,12 @@ public record GenerationToolContinuationState(
                 GenerationTraceContext.empty(), durableConversation, capturedAt);
     }
 
+    /**
+ * 返回{@code supports}结构版本。
+ *
+ * @param schemaVersion 结构版本
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public static boolean supportsSchemaVersion(Integer schemaVersion) {
         return schemaVersion != null
                 && schemaVersion >= MIN_SUPPORTED_SCHEMA_VERSION

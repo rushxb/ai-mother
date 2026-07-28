@@ -65,8 +65,15 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     @Value("${app.generation-benchmark.first-preview-observation-timeout:PT2S}")
     private Duration firstPreviewObservationTimeout;
 
+    /**
+ * 执行{@code Orchestrated}生成基准测试处理流程。
+ *
+ * @param task 任务
+ * @return {@code Orchestrated}生成基准测试
+ */
     @Override
     public GenerationBenchmarkRunResult execute(GenerationBenchmarkTask task) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (task == null) {
             return new GenerationBenchmarkRunResult(
                     "", "", false, false, 0, 0, 0, false, 0, "task_missing");
@@ -74,6 +81,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         Instant startedAt = Instant.now();
         GenerationBenchmarkFixture fixture = null;
         GenerationTaskRequest request;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             fixture = fixtureService.create(task);
             request = fixture.request();
@@ -231,6 +239,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         }
     }
 
+    /** 处理事件。 */
     private void handleEvent(GenerationEvent event,
                              AtomicBoolean buildObserved,
                              AtomicBoolean buildPassed,
@@ -257,6 +266,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         }
     }
 
+    /** 处理流事件。 */
     private void handleStreamEvent(GenerationStreamEvent event,
                                    AtomicBoolean buildObserved,
                                    AtomicBoolean buildPassed,
@@ -290,6 +300,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         }
     }
 
+    /** 等待{@code Terminal}完成。 */
     private DurableGenerationTaskRecord awaitTerminal(String taskId,
                                                        Duration waitTimeout) throws InterruptedException {
         if (StrUtil.isBlank(taskId)) {
@@ -338,6 +349,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 : configured;
     }
 
+    /** 处理请求{@code Cancellation}安全处理。 */
     private void requestCancellationSafely(String taskId, String reason) {
         try {
             if (!runtimeLifecycleService.requestCancellation(taskId, reason)) {
@@ -358,6 +370,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         return safeFailureReason(detail);
     }
 
+    /** 校验{@code ation}计划是否有效。 */
     private GenerationBenchmarkValidationPlan validationPlan(
             GenerationBenchmarkFixture fixture,
             String taskId,
@@ -376,6 +389,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         return plan.withWorkspace(publishedWorkspace);
     }
 
+    /** 关闭{@code Fixture}安全处理并释放资源。 */
     private void closeFixtureSafely(GenerationBenchmarkFixture fixture, String benchmarkTaskId) {
         try {
             fixture.close();
@@ -395,6 +409,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 .orElse(null);
     }
 
+    /** 返回首次预览{@code From}遥测。 */
     private Long firstPreviewFromTelemetry(GenerationPerformanceTaskVO telemetry) {
         if (telemetry == null || telemetry.getSpans() == null) {
             return null;
@@ -409,6 +424,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 .orElse(null);
     }
 
+    /** 返回首次预览{@code From}持久追踪。 */
     private Long firstPreviewFromDurableTrace(String taskId) {
         if (StrUtil.isBlank(taskId)) {
             return null;
@@ -506,6 +522,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         private final AtomicReference<Long> latencyMs = new AtomicReference<>();
         private final CountDownLatch resolved = new CountDownLatch(1);
 
+        /** 观测并记录{@code First}预览观测。 */
         private void observe(GenerationStreamEvent event) {
             if (!GenerationStreamEvent.FIRST_PREVIEW_READY.equals(event.getType())
                     || event.getData() == null) {

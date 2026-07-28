@@ -27,6 +27,14 @@ public class DependencyAnalyzeTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 返回分析依赖{@code Issue}。
+ *
+ * @param diagnosticLog {@code diagnosticLog} 对应的调用参数
+ * @param relativeProjectPath 项目相对路径
+ * @param appId 应用编号
+ * @return 处理后的依赖{@code Analyze}工具文本
+ */
     @Tool("分析构建日志、lint/test 日志或报错文本，判断是否是依赖缺失、版本错误、脚本缺失、别名配置问题，并给出下一步处理建议。")
     public String analyzeDependencyIssue(
             @P("构建失败日志、lint/test 日志或运行时报错文本")
@@ -35,9 +43,11 @@ public class DependencyAnalyzeTool extends BaseTool {
             String relativeProjectPath,
             @ToolMemoryId Long appId
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (StrUtil.isBlank(diagnosticLog)) {
             return "错误：诊断日志不能为空";
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory =
                     workspaceFileService.resolveDirectory(appId, relativeProjectPath);
@@ -68,6 +78,7 @@ public class DependencyAnalyzeTool extends BaseTool {
         }
     }
 
+    /** 加载依赖包上下文。 */
     private PackageContext loadPackageContext(
             ToolWorkspaceFileService.ToolWorkspaceDirectory projectDirectory
     ) {
@@ -84,6 +95,7 @@ public class DependencyAnalyzeTool extends BaseTool {
         );
     }
 
+    /** 处理分析日志。 */
     private void analyzeLog(String diagnosticLog, PackageContext context, List<String> findings, List<String> suggestions) {
         String log = diagnosticLog.replace("\r", "\n");
 
@@ -145,6 +157,7 @@ public class DependencyAnalyzeTool extends BaseTool {
         return context.dependencies().containsKey(packageName) || context.devDependencies().containsKey(packageName);
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String log, String... patterns) {
         for (String pattern : patterns) {
             if (log.contains(pattern)) {
@@ -154,6 +167,7 @@ public class DependencyAnalyzeTool extends BaseTool {
         return false;
     }
 
+    /** 从输入中提取{@code First}。 */
     private String extractFirst(String content, String... regexList) {
         for (String regex : regexList) {
             String value = ReUtil.get(regex, content, 1);
@@ -179,11 +193,24 @@ public class DependencyAnalyzeTool extends BaseTool {
         return "依赖问题分析";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s", getDisplayName());
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         if (StrUtil.isBlank(toolResult)) {

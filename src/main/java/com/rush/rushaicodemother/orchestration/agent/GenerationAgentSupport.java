@@ -45,6 +45,16 @@ public class GenerationAgentSupport {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GeneratedProjectContextService generatedProjectContextService;
 
+    /**
+ * 创建生成智能体支持实例并完成必要的依赖和初始状态设置。
+ *
+ * @param recipeLibrary {@code recipeLibrary} 对应的调用参数
+ * @param skillLibrary {@code skillLibrary} 对应的调用参数
+ * @param semanticIndexService 语义索引服务
+ * @param contextCompressionService 上下文压缩服务
+ * @param generationWorkspaceService 生成工作区服务
+ * @param generatedProjectContextService 处理该职责的领域服务
+ */
     public GenerationAgentSupport(
             GenerationRecipeLibrary recipeLibrary,
             GenerationSkillLibrary skillLibrary,
@@ -73,6 +83,12 @@ public class GenerationAgentSupport {
         );
     }
 
+    /**
+ * 判断{@code Complex}请求是否满足约束。
+ *
+ * @param userMessage 用户消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isComplexRequest(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         return containsAny(normalized,
@@ -82,6 +98,13 @@ public class GenerationAgentSupport {
                 "分布式", "微服务");
     }
 
+    /**
+ * 返回{@code infer}{@code Modules}。
+ *
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @return 生成智能体集合
+ */
     public List<String> inferModules(String userMessage, String projectContext) {
         String normalized = (StrUtil.blankToDefault(userMessage, "") + "\n" + StrUtil.blankToDefault(projectContext, "")).toLowerCase(Locale.ROOT);
         List<String> modules = new ArrayList<>();
@@ -133,15 +156,36 @@ public class GenerationAgentSupport {
         return skillLibrary.toPayloads(matchedSkills);
     }
 
+    /**
+ * 构建并返回项目上下文。
+ *
+ * @param app 应用
+ * @param codeGenTypeEnum {@code codeGenTypeEnum} 对应的调用参数
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @return 处理后的项目上下文文本
+ */
     public String buildProjectContext(App app, CodeGenTypeEnum codeGenTypeEnum, File rootDir) {
         return buildProjectContextPackage(app, codeGenTypeEnum, "", rootDir).projectContext();
     }
 
+    /**
+ * 根据当前上下文解析工作区根。
+ *
+ * @param app 应用
+ * @return 工作区根
+ */
     public File resolveWorkspaceRoot(App app) {
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app == null ? null : app.getCodeGenType());
         return resolveWorkspaceRoot(app, codeGenTypeEnum);
     }
 
+    /**
+ * 根据当前上下文解析工作区根。
+ *
+ * @param app 应用
+ * @param codeGenTypeEnum {@code codeGenTypeEnum} 对应的调用参数
+ * @return 工作区根
+ */
     public File resolveWorkspaceRoot(App app, CodeGenTypeEnum codeGenTypeEnum) {
         if (app == null || app.getId() == null || app.getId() <= 0) {
             return null;
@@ -156,10 +200,26 @@ public class GenerationAgentSupport {
         return workspace.exists() ? workspace.canonicalRootPath().toFile() : null;
     }
 
+    /**
+ * 采集并汇总索引{@code Recall}{@code Payloads}。
+ *
+ * @param app 应用
+ * @param userMessage 用户消息
+ * @param limit 资源上限
+ * @return 索引{@code Recall}{@code Payloads}集合
+ */
     public List<Map<String, Object>> collectIndexRecallPayloads(App app, String userMessage, int limit) {
         return collectProjectIndexRecall(app, userMessage, limit).indexHits();
     }
 
+    /**
+ * 采集并汇总项目索引{@code Recall}。
+ *
+ * @param app 应用
+ * @param userMessage 用户消息
+ * @param limit 资源上限
+ * @return 项目索引{@code Recall}
+ */
     public ProjectIndexRecall collectProjectIndexRecall(App app, String userMessage, int limit) {
         File rootDir = resolveWorkspaceRoot(app);
         if (rootDir == null) {
@@ -182,6 +242,16 @@ public class GenerationAgentSupport {
         return buildProjectContextPackage(app, codeGenTypeEnum, userMessage, rootDir, null);
     }
 
+    /**
+ * 构建并返回项目上下文依赖包。
+ *
+ * @param app 应用
+ * @param codeGenTypeEnum {@code codeGenTypeEnum} 对应的调用参数
+ * @param userMessage 用户消息
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @param indexSnapshot 索引快照
+ * @return 项目上下文依赖包
+ */
     public ProjectContextPackage buildProjectContextPackage(App app,
                                                             CodeGenTypeEnum codeGenTypeEnum,
                                                             String userMessage,
@@ -222,6 +292,7 @@ public class GenerationAgentSupport {
         return new ProjectContextPackage(intent, selectedFiles, indexedFileCount, indexedSymbolCount, indexHits, contextMode, projectContext);
     }
 
+    /** 根据当前上下文解析索引快照。 */
     private WorkspaceSemanticIndex resolveIndexSnapshot(File rootDir, WorkspaceSemanticIndex indexSnapshot) {
         Path normalizedRoot = rootDir.toPath().toAbsolutePath().normalize();
         if (indexSnapshot != null && StrUtil.isNotBlank(indexSnapshot.rootPath())) {
@@ -240,6 +311,15 @@ public class GenerationAgentSupport {
         return selectContextFiles(app, codeGenTypeEnum, "", rootDir);
     }
 
+    /**
+ * 从候选项中选择上下文文件。
+ *
+ * @param app 应用
+ * @param codeGenTypeEnum {@code codeGenTypeEnum} 对应的调用参数
+ * @param userMessage 用户消息
+ * @param rootDir {@code rootDir} 对应的调用参数
+ * @return 上下文文件集合
+ */
     public List<String> selectContextFiles(App app, CodeGenTypeEnum codeGenTypeEnum, String userMessage, File rootDir) {
         if (rootDir == null || !rootDir.exists()) {
             return List.of();
@@ -248,6 +328,7 @@ public class GenerationAgentSupport {
         return selectContextFiles(app, codeGenTypeEnum, userMessage, rootDir, index);
     }
 
+    /** 从候选项中选择上下文文件。 */
     private List<String> selectContextFiles(App app,
                                             CodeGenTypeEnum codeGenTypeEnum,
                                             String userMessage,
@@ -330,6 +411,13 @@ public class GenerationAgentSupport {
         return expandCandidates(rootDir, candidates, index);
     }
 
+    /**
+ * 构建并返回上下文模式。
+ *
+ * @param hasGeneratedCode {@code hasGeneratedCode} 对应的调用参数
+ * @param selectedFiles 待处理的 {@code selectedFiles} 集合
+ * @return 处理后的上下文模式文本
+ */
     public String buildContextMode(boolean hasGeneratedCode, List<String> selectedFiles) {
         if (!hasGeneratedCode) {
             return "new_project";
@@ -340,6 +428,7 @@ public class GenerationAgentSupport {
         return selectedFiles.size() > 4 ? "focused_update" : "minimal_patch";
     }
 
+    /** 返回{@code expand}{@code Candidates}。 */
     private List<String> expandCandidates(File rootDir,
                                           LinkedHashSet<String> candidates,
                                           WorkspaceSemanticIndex index) {
@@ -384,6 +473,7 @@ public class GenerationAgentSupport {
         return builder.toString().toLowerCase(Locale.ROOT);
     }
 
+    /** 构建并返回{@code Structured}上下文。 */
     private String buildStructuredContext(CodeGenTypeEnum codeGenTypeEnum,
                                           String intent,
                                           List<String> selectedFiles,
@@ -411,6 +501,7 @@ public class GenerationAgentSupport {
                 builder.toString().trim()));
     }
 
+    /** 判断是否应执行索引。 */
     private boolean shouldIndex(String relativePath) {
         if (StrUtil.isBlank(relativePath)) {
             return false;
@@ -424,6 +515,7 @@ public class GenerationAgentSupport {
                 "tsconfig.json", "tsconfig.app.json", "go.mod", "go.sum", "README.md").contains(normalized);
     }
 
+    /** 采集并汇总索引{@code Recall}{@code Payloads}。 */
     private List<Map<String, Object>> collectIndexRecallPayloads(WorkspaceSemanticIndex index,
                                                                  String query,
                                                                  int limit,
@@ -446,6 +538,7 @@ public class GenerationAgentSupport {
                 .toList();
     }
 
+    /** 合并{@code Selected}文件{@code Hits}。 */
     private List<Map<String, Object>> mergeSelectedFileHits(WorkspaceSemanticIndex index,
                                                             List<String> selectedFiles,
                                                             List<Map<String, Object>> hits) {
@@ -481,6 +574,7 @@ public class GenerationAgentSupport {
         return payload;
     }
 
+    /** 追加索引{@code Hits}。 */
     private void appendIndexHits(StringBuilder builder, List<Map<String, Object>> indexHits) {
         if (indexHits == null || indexHits.isEmpty()) {
             return;
@@ -503,6 +597,12 @@ public class GenerationAgentSupport {
         builder.append('\n');
     }
 
+    /**
+ * 规范化{@code Selected}文件。
+ *
+ * @param selectedFiles 待处理的 {@code selectedFiles} 集合
+ * @return {@code Selected}文件集合
+ */
     public List<String> normalizeSelectedFiles(List<String> selectedFiles) {
         if (selectedFiles == null || selectedFiles.isEmpty()) {
             return List.of();
@@ -521,6 +621,7 @@ public class GenerationAgentSupport {
         return contextCompressionService.compressProjectContext(context);
     }
 
+    /** 返回{@code infer}{@code Intent}。 */
     private String inferIntent(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "登录", "注册", "auth", "login", "signin", "signup", "用户", "账号", "权限", "角色", "token")) {
@@ -570,6 +671,7 @@ public class GenerationAgentSupport {
         }
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String value, String... keywords) {
         if (StrUtil.isBlank(value)) {
             return false;

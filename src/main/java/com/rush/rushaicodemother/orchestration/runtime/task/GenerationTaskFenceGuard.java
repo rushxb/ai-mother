@@ -31,6 +31,11 @@ public class GenerationTaskFenceGuard {
         this.clock = clock;
     }
 
+    /**
+ * 断言任务围栏仍指向当前有效执行轮次。
+ *
+ * @param taskId 任务编号
+ */
     public void assertCurrent(String taskId) {
         GenerationExecutionFence fence = executionContextService.getExecutionFence(taskId).orElse(null);
         if (fence == null) {

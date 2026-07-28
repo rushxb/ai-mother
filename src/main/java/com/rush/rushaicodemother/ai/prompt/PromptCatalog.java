@@ -7,10 +7,18 @@ public interface PromptCatalog {
 
     Optional<PromptSelection> select(PromptRolloutSubject subject);
 
+    /** 按稳定提示键和隐私安全分桶键选择发布版本。 */
+    Optional<PromptSelection> selectByKey(String promptKey, String cohortKey);
+
     Optional<PromptSelection> identify(String promptContent);
 
     PromptCatalogSnapshot snapshot();
 
+    /**
+ * 返回{@code bundle}编号。
+ *
+ * @return 处理后的提示词目录文本
+ */
     default String bundleId() {
         return snapshot().bundleId();
     }
@@ -27,6 +35,11 @@ public interface PromptCatalog {
 
         @Override
         public Optional<PromptSelection> select(PromptRolloutSubject subject) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<PromptSelection> selectByKey(String promptKey, String cohortKey) {
             return Optional.empty();
         }
 

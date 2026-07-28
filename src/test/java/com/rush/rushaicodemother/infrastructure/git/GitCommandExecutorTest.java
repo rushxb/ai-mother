@@ -5,11 +5,15 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessOutputLogPolicy;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,7 +39,8 @@ class GitCommandExecutorTest {
         );
         GitCommandExecutor executor = new GitCommandExecutor(
                 processExecutor,
-                new GenerationCommitProperties()
+                new GenerationCommitProperties(),
+                mock(GenerationExecutionContextService.class)
         );
 
         GitCommandResult result = executor.execute(
@@ -61,5 +66,50 @@ class GitCommandExecutorTest {
         assertEquals("git commit", request.displayCommand());
         assertFalse(request.displayCommand().contains("task-secret"));
         assertTrue(result.success());
+    }
+
+    @Test
+    void taskScopedCommandMustUseRemainingDeadlineAndCancellationSignal() {
+        ManagedProcessExecutor processExecutor = mock(ManagedProcessExecutor.class);
+        when(processExecutor.execute(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new ManagedProcessResult(
+                        ManagedProcessResult.Status.COMPLETED,
+                        "git status",
+                        0,
+                        "ok",
+                        "",
+                        null
+                )
+        );
+        GenerationCommitProperties properties = new GenerationCommitProperties();
+        GenerationExecutionContextService executionContextService = mock(GenerationExecutionContextService.class);
+        Duration remaining = Duration.ofMillis(40);
+        AtomicBoolean stopRequested = new AtomicBoolean(false);
+        when(executionContextService.clampTimeout("task-git", properties.getCommandTimeout()))
+                .thenReturn(remaining);
+        when(executionContextService.shouldStop("task-git"))
+                .thenAnswer(ignored -> stopRequested.get());
+        GitCommandExecutor executor = new GitCommandExecutor(
+                processExecutor,
+                properties,
+                executionContextService
+        );
+
+        executor.execute(
+                Path.of("."),
+                List.of("status", "--short"),
+                Map.of(),
+                "test",
+                "task-git"
+        );
+
+        ArgumentCaptor<ManagedProcessRequest> requestCaptor =
+                ArgumentCaptor.forClass(ManagedProcessRequest.class);
+        verify(processExecutor).execute(requestCaptor.capture());
+        ManagedProcessRequest request = requestCaptor.getValue();
+        assertEquals(remaining, request.timeout());
+        stopRequested.set(true);
+        assertTrue(request.cancellationRequested().getAsBoolean());
+        verify(executionContextService).assertCanContinue("task-git");
     }
 }

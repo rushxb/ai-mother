@@ -21,12 +21,23 @@ public class InMemoryLongTermMemoryStore implements LongTermMemoryStore {
                 .build();
     }
 
+    /**
+ * 新增或更新{@code In}记忆{@code Long}{@code Term}记忆存储。
+ *
+ * @param memory 记忆
+ */
     @Override
     public void upsert(SemanticMemory memory) {
         SemanticMemoryGovernancePolicy.validateMemory(memory);
         memories.put(memory.id(), memory);
     }
 
+    /**
+ * 搜索匹配的{@code In}记忆{@code Long}{@code Term}记忆存储。
+ *
+ * @param query 查询
+ * @return {@code In}记忆{@code Long}{@code Term}记忆存储集合
+ */
     @Override
     public List<SemanticMemoryHit> search(SemanticMemoryQuery query) {
         SemanticMemoryGovernancePolicy.validateQuery(query);
@@ -42,6 +53,12 @@ public class InMemoryLongTermMemoryStore implements LongTermMemoryStore {
                 .toList();
     }
 
+    /**
+ * 删除按应用。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ */
     @Override
     public void deleteByApplication(Long tenantId, Long appId) {
         if (tenantId == null || tenantId <= 0 || appId == null || appId <= 0) {
@@ -53,6 +70,7 @@ public class InMemoryLongTermMemoryStore implements LongTermMemoryStore {
         );
     }
 
+    /** 返回{@code cosine}。 */
     private double cosine(float[] left, float[] right) {
         if (left.length == 0 || left.length != right.length) {
             return -1.0;

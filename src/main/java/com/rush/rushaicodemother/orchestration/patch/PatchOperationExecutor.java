@@ -16,6 +16,12 @@ public class PatchOperationExecutor {
     private final PatchStructuredContentService structuredContentService;
     private final PatchBatchRollbackService rollbackService;
 
+    /**
+ * 执行补丁操作处理流程。
+ *
+ * @param operations 操作
+ * @return 补丁操作集合
+ */
     public List<String> execute(List<ValidatedPatchOperation> operations) throws IOException {
         PatchRollbackSnapshot snapshot = rollbackService.capture(
                 operations.stream().map(ValidatedPatchOperation::target).toList());
@@ -40,6 +46,7 @@ public class PatchOperationExecutor {
         return appliedFiles;
     }
 
+    /** 应用操作。 */
     private void applyOperation(ValidatedPatchOperation operation) throws IOException {
         PatchOperation patchOperation = operation.operation();
         switch (operation.action()) {
@@ -59,6 +66,7 @@ public class PatchOperationExecutor {
         }
     }
 
+    /** 覆盖写入替换内容。 */
     private void overwriteReplacement(ValidatedPatchOperation operation,
                                       boolean insertAroundMarker) throws IOException {
         PatchOperation patchOperation = operation.operation();

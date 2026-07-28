@@ -27,6 +27,12 @@ public class LocalGenerationEventStream implements GenerationEventStream {
                 .build();
     }
 
+    /**
+ * 发布当前处理结果或领域事件。
+ *
+ * @param taskId 任务编号
+ * @param event 待处理的领域事件
+ */
     @Override
     public void publish(String taskId, GenerationStreamEvent event) {
         if (!validTaskId(taskId) || event == null) {
@@ -38,6 +44,11 @@ public class LocalGenerationEventStream implements GenerationEventStream {
         }
     }
 
+    /**
+ * 完成{@code Local}生成事件流并持久化终态。
+ *
+ * @param taskId 任务编号
+ */
     @Override
     public void complete(String taskId) {
         if (!validTaskId(taskId)) {
@@ -46,11 +57,24 @@ public class LocalGenerationEventStream implements GenerationEventStream {
         eventLog(taskId).complete();
     }
 
+    /**
+ * 返回可用。
+ *
+ * @param taskId 任务编号
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean available(String taskId) {
         return validTaskId(taskId) && streams.getIfPresent(taskId) != null;
     }
 
+    /**
+ * 返回流。
+ *
+ * @param taskId 任务编号
+ * @param afterSequence 执行后序列
+ * @return 异步响应式处理结果
+ */
     @Override
     public Flux<SequencedGenerationEvent> stream(String taskId, long afterSequence) {
         if (!validTaskId(taskId)) {

@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /** OCI 容器后端具有功能范围的挂载，并且没有环境主机凭据。 */
 @Component
@@ -48,6 +49,14 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         return prepareContainer(request, normalizedWorkingDirectory, null);
     }
 
+    /**
+ * 准备后续流程所需的开发服务器。
+ *
+ * @param request 请求参数
+ * @param normalizedWorkingDirectory {@code normalizedWorkingDirectory} 对应的调用参数
+ * @param hostPort 主机端口
+ * @return 开发服务器
+ */
     @Override
     public SandboxProcessPlan prepareDevServer(
             ManagedProcessRequest request,
@@ -60,6 +69,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         return prepareContainer(request, normalizedWorkingDirectory, hostPort);
     }
 
+    /** 准备后续流程所需的容器。 */
     private SandboxProcessPlan prepareContainer(
             ManagedProcessRequest request,
             Path normalizedWorkingDirectory,
@@ -152,16 +162,58 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         );
     }
 
+    /**
+ * 处理{@code activate}。
+ *
+ * @param plan 计划
+ */
     @Override
     public void activate(SandboxProcessPlan plan) {
+        int commandCount = plan == null ? 0 : plan.activationCommands().size();
+        if (commandCount == 0) {
+            return;
+        }
+        Duration timeout;
+        try {
+            timeout = properties.getActivationTimeout().multipliedBy(commandCount);
+        } catch (ArithmeticException exception) {
+            timeout = Duration.ofNanos(Long.MAX_VALUE);
+        }
+        activate(plan, timeout, () -> false);
+    }
+
+    @Override
+    public void activate(
+            SandboxProcessPlan plan,
+            Duration remainingTimeout,
+            BooleanSupplier cancellationRequested
+    ) {
         if (plan == null || plan.activationCommands().isEmpty()) {
             return;
         }
+        if (remainingTimeout == null || remainingTimeout.isZero() || remainingTimeout.isNegative()) {
+            throw new IllegalArgumentException("容器沙箱激活剩余时限必须大于 0");
+        }
+        BooleanSupplier effectiveCancellation = cancellationRequested == null
+                ? () -> false
+                : cancellationRequested;
+        long activationStartedAt = System.nanoTime();
+        long totalTimeoutNanos = remainingTimeout.toNanos();
         for (List<String> command : plan.activationCommands()) {
-            runActivationCommand(command);
+            runActivationCommand(
+                    command,
+                    activationStartedAt,
+                    totalTimeoutNanos,
+                    effectiveCancellation
+            );
         }
     }
 
+    /**
+ * 清理容器{@code Generated}代码进程{@code Sandbox}及其关联资源。
+ *
+ * @param plan 计划
+ */
     @Override
     public void cleanup(SandboxProcessPlan plan) {
         if (plan == null || plan.cleanupResourceIds().isEmpty()) {
@@ -170,6 +222,12 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         cleanupResources(plan.backend(), plan.cleanupResourceIds());
     }
 
+    /**
+ * 清理{@code Resources}及其关联资源。
+ *
+ * @param backend 后端
+ * @param resourceIds 待处理的 {@code resourceIds} 集合
+ */
     @Override
     public void cleanupResources(String backend, List<String> resourceIds) {
         if (resourceIds == null || resourceIds.isEmpty()) {
@@ -195,8 +253,10 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         }
     }
 
+    /** 清理资源及其关联资源。 */
     private void cleanupResource(String resourceId) {
         Process process = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             process = new ProcessBuilder(
                     properties.getRuntime(), "rm", "--force", resourceId)
@@ -233,6 +293,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         }
     }
 
+    /** 返回预览{@code Gateway}{@code Activation}{@code Commands}。 */
     private List<List<String>> previewGatewayActivationCommands(
             String devServerContainerName,
             String gatewayName,
@@ -278,15 +339,40 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         );
     }
 
-    private void runActivationCommand(List<String> command) {
+    /** 运行{@code Activation}命令处理流程。 */
+    private void runActivationCommand(
+            List<String> command,
+            long activationStartedAt,
+            long totalTimeoutNanos,
+            BooleanSupplier cancellationRequested
+    ) {
         Process process = null;
         try {
             process = new ProcessBuilder(command)
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .start();
-            if (!process.waitFor(properties.getActivationTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                throw new IllegalStateException("generated-code sandbox activation timed out");
+            long commandStartedAt = System.nanoTime();
+            long commandTimeoutNanos = properties.getActivationTimeout().toNanos();
+            while (true) {
+                if (cancellationRequested.getAsBoolean()) {
+                    process.destroyForcibly();
+                    throw new IllegalStateException("容器沙箱激活已取消");
+                }
+                long now = System.nanoTime();
+                long totalRemainingNanos = totalTimeoutNanos - (now - activationStartedAt);
+                long commandRemainingNanos = commandTimeoutNanos - (now - commandStartedAt);
+                long remainingNanos = Math.min(totalRemainingNanos, commandRemainingNanos);
+                if (remainingNanos <= 0) {
+                    process.destroyForcibly();
+                    throw new IllegalStateException("容器沙箱激活超时");
+                }
+                long waitMillis = Math.max(
+                        1L,
+                        Math.min(100L, TimeUnit.NANOSECONDS.toMillis(remainingNanos))
+                );
+                if (process.waitFor(waitMillis, TimeUnit.MILLISECONDS)) {
+                    break;
+                }
             }
             String errorOutput = new String(
                     process.getErrorStream().readAllBytes(),
@@ -329,6 +415,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 : "none";
     }
 
+    /** 返回容器{@code Environment}。 */
     private Map<String, String> containerEnvironment(
             ManagedProcessRequest request,
             Path workingDirectory,
@@ -359,6 +446,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         return Map.copyOf(environment);
     }
 
+    /** 将输入映射为容器{@code Environment}值。 */
     private String mapContainerEnvironmentValue(
             String name,
             String value,
@@ -375,6 +463,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         return mapWorkspacePath(value, workingDirectory);
     }
 
+    /** 返回容器命令。 */
     private List<String> containerCommand(
             List<String> original,
             Path workingDirectory,
@@ -403,6 +492,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         return List.copyOf(command);
     }
 
+    /** 判断是否应执行挂载依赖缓存。 */
     private boolean shouldMountDependencyCache(ManagedProcessRequest request, boolean devServer) {
         if (!properties.isDependencyCacheEnabled()
                 || devServer
@@ -427,6 +517,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 && GO_COMPILATION_COMMANDS.contains(command.get(1).toLowerCase(Locale.ROOT));
     }
 
+    /** 拒绝{@code Reserved}{@code Pnpm}缓存{@code Options}并记录原因。 */
     private void rejectReservedPnpmCacheOptions(List<String> command) {
         for (int index = 2; index < command.size(); index++) {
             String argument = command.get(index);
@@ -443,6 +534,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         }
     }
 
+    /** 规范化{@code Executable}。 */
     private String normalizeExecutable(String executable) {
         String fileName;
         try {
@@ -466,6 +558,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         return fileName;
     }
 
+    /** 将输入映射为工作区路径。 */
     private String mapWorkspacePath(String value, Path workingDirectory) {
         if (value == null || value.isBlank()) {
             return value;

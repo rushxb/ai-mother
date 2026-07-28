@@ -29,6 +29,15 @@ public class GenerationRollbackRestoreService {
     private final SnapshotNamePolicy snapshotNamePolicy;
     private final GenerationTaskFenceGuard generationTaskFenceGuard;
 
+    /**
+ * 创建生成回滚恢复服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param generationWorkspaceService 生成工作区服务
+ * @param snapshotWorkspaceService 快照工作区服务
+ * @param workspaceFileSystemService 处理该职责的领域服务
+ * @param snapshotNamePolicy 快照名称策略
+ * @param generationTaskFenceGuard 生成任务围栏防护
+ */
     public GenerationRollbackRestoreService(
             GenerationWorkspaceService generationWorkspaceService,
             GenerationSnapshotWorkspaceService snapshotWorkspaceService,
@@ -53,6 +62,15 @@ public class GenerationRollbackRestoreService {
                 generationTaskFenceGuard, "generationTaskFenceGuard must not be null");
     }
 
+    /**
+ * 返回恢复{@code If}{@code Allowed}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param changePlanArtifact {@code changePlanArtifact} 对应的调用参数
+ * @param rollbackPointArtifact 回滚点制品
+ * @return 生成回滚恢复
+ */
     public GenerationArtifact restoreIfAllowed(Long appId,
                                                String taskId,
                                                GenerationArtifact changePlanArtifact,
@@ -61,6 +79,7 @@ public class GenerationRollbackRestoreService {
         return GenerationArtifact.of("rollback_restore", "Orchestrator", "Rollback restore", restore.toPayload());
     }
 
+    /** 返回恢复。 */
     RollbackRestore restore(Long appId,
                             String taskId,
                             GenerationArtifact changePlanArtifact,
@@ -111,6 +130,7 @@ public class GenerationRollbackRestoreService {
 
         Path snapshotPath;
         Path projectPath;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             snapshotPath = snapshotWorkspaceService.resolveReportedSnapshot(appId, snapshotName, snapshotPathValue);
             GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, sourceType);
@@ -130,6 +150,7 @@ public class GenerationRollbackRestoreService {
         }
 
         Path backupPath;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             backupPath = backupPath(appId, taskId);
         } catch (RuntimeException exception) {

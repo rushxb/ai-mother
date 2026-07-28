@@ -83,18 +83,31 @@ class GenerationTaskPersistenceBoundaryArchitectureTest {
     }
 
     @Test
-    void recoveryMustRemainHonestUntilVersionedCheckpointsExist() throws IOException {
+    void recoveryMustOnlyResumeVersionedEpochFencedCheckpoints() throws IOException {
         String recoveryServiceSource = readJava(
                 "orchestration", "runtime", "task", "GenerationTaskRecoveryService.java"
         );
         String recoveryPolicySource = readJava(
                 "orchestration", "runtime", "task", "GenerationTaskRecoveryPolicy.java"
         );
+        String checkpointPolicySource = readJava(
+                "orchestration", "dag", "GenerationDagCheckpointRecoveryPolicy.java"
+        );
+        String checkpointMapperSource = readJava(
+                "mapper", "GenerationOrchestrationCheckpointMapper.java"
+        );
 
         assertTrue(recoveryPolicySource.contains("worker_lease_expired_non_recoverable"));
         assertTrue(recoveryPolicySource.contains("GenerationTaskStatus.CANCELLED"));
         assertTrue(recoveryPolicySource.contains("GenerationTaskStatus.DEADLINE_EXCEEDED"));
-        assertTrue(recoveryServiceSource.contains("no versioned checkpoint exists"));
+        assertTrue(checkpointPolicySource.contains("supportsSchemaVersion"));
+        assertTrue(checkpointPolicySource.contains("AMBIGUOUS_NODE"));
+        assertTrue(recoveryServiceSource.contains(
+                "checkpoint.getExecutionEpoch() != candidate.executionEpoch()"));
+        assertTrue(recoveryServiceSource.contains("GenerationDagCheckpointRecoveryPolicy.assess(checkpoint)"));
+        assertTrue(recoveryServiceSource.contains("requeueExpiredLease(candidate"));
+        assertTrue(checkpointMapperSource.contains("executionEpoch = #{executionEpoch}"));
+        assertTrue(checkpointMapperSource.contains("checkpointVersion <= #{checkpointVersion}"));
         assertFalse(recoveryServiceSource.contains("resumeExpiredTask"));
     }
 

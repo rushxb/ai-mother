@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -96,6 +97,26 @@ class GoProjectSnapshotServiceTest {
         IOException failure = assertThrows(IOException.class, () -> service.capture(projectRoot));
 
         assertEquals("Go 项目包含不允许参与缓存的符号链接文件: linked.txt", failure.getMessage());
+    }
+
+    @Test
+    void shouldStopSnapshotScanWhenContinuationCheckRejectsWork() throws Exception {
+        GoProjectSnapshotService service = serviceWithDefaults();
+        write("go.mod", "module example");
+        write("go.sum", "");
+        write("main.go", "package main");
+        AtomicInteger checks = new AtomicInteger();
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service.capture(projectRoot, () -> {
+                    if (checks.incrementAndGet() >= 3) {
+                        throw new IllegalStateException("快照扫描已取消");
+                    }
+                })
+        );
+
+        assertEquals(3, checks.get());
     }
 
     private GoProjectSnapshotService serviceWithDefaults() {

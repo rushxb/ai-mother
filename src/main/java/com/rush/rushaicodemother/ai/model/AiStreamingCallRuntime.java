@@ -26,12 +26,28 @@ public class AiStreamingCallRuntime {
     private final AiModelTimeoutMonitor timeoutMonitor;
     private final GenerationModelTimeoutPolicy timeoutPolicy;
 
+    /**
+ * 返回HTTP客户端{@code Builder}。
+ *
+ * @return AI{@code Streaming}调用运行时
+ */
     public HttpClientBuilder httpClientBuilder() {
         return SpringRestClient.builder()
                 .streamingRequestExecutor(requestExecutor)
                 .createDefaultStreamingRequestExecutor(false);
     }
 
+    /**
+ * 返回容量{@code Controlled}。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ * @param maxOutputTokens 最大输出令牌
+ * @param delegate 被包装的委托对象
+ * @param capacityGuard 容量防护
+ * @param upstreamTimeout 上游调用超时时间
+ * @return AI{@code Streaming}调用运行时
+ */
     public StreamingChatModel capacityControlled(String provider,
                                                  String modelId,
                                                  int maxOutputTokens,

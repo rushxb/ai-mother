@@ -66,13 +66,16 @@ public final class GenerationPublicEventSanitizer {
                 .build();
     }
 
+    /** 清理工具{@code Data}中的敏感或不安全内容。 */
     private static Map<String, Object> sanitizeToolData(Map<String, Object> source) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (source == null || source.isEmpty()) {
             return Map.of();
         }
         Map<String, Object> sanitized = new LinkedHashMap<>();
         boolean previewTruncated = false;
         int copied = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (Map.Entry<String, Object> entry : source.entrySet()) {
             if (copied >= MAX_MAP_ENTRIES) {
                 sanitized.put("metadataTruncated", true);
@@ -106,6 +109,7 @@ public final class GenerationPublicEventSanitizer {
         return sanitized;
     }
 
+    /** 将当前对象转换为{@code ol}汇总。 */
     private static String toolSummary(String type, Map<String, Object> data) {
         String prefix = GenerationStreamEvent.TOOL_CALL.equals(type) ? "[调用工具]" : "[工具完成]";
         String toolName = value(data, "toolName");
@@ -128,6 +132,7 @@ public final class GenerationPublicEventSanitizer {
                 String.valueOf(data.get(key)), MAX_TOOL_TEXT_LENGTH);
     }
 
+    /** 清理映射中的敏感或不安全内容。 */
     private static Map<String, Object> sanitizeMap(Map<?, ?> source,
                                                    int depth,
                                                    int maxStringLength) {
@@ -154,7 +159,9 @@ public final class GenerationPublicEventSanitizer {
         return sanitized;
     }
 
+    /** 清理值中的敏感或不安全内容。 */
     private static Object sanitizeValue(Object value, int depth, int maxStringLength) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (value == null) {
             return null;
         }
@@ -218,6 +225,7 @@ public final class GenerationPublicEventSanitizer {
                 || compactKey.endsWith("credentials");
     }
 
+    /** 返回安全{@code String}。 */
     private static String safeString(Object value) {
         try {
             return String.valueOf(value);

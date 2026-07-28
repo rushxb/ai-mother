@@ -34,7 +34,7 @@ public class ProjectProcessTerminator {
             "esbuild", "esbuild.exe"
     );
     private static final Set<String> ALLOWED_WRAPPER_EXECUTABLE_NAMES = Set.of("cmd", "cmd.exe");
-    private static final Duration MAX_TERMINATION_GRACE_PERIOD = Duration.ofMinutes(5);
+    private static final Duration MAX_TERMINATION_GRACE_PERIOD = Duration.ofSeconds(30);
 
     private final Duration gracePeriod;
 
@@ -48,7 +48,7 @@ public class ProjectProcessTerminator {
                 || gracePeriod.isZero()
                 || gracePeriod.isNegative()
                 || gracePeriod.compareTo(MAX_TERMINATION_GRACE_PERIOD) > 0) {
-            throw new IllegalArgumentException("进程终止宽限期必须大于 0 且不超过 5 分钟");
+            throw new IllegalArgumentException("进程终止总预算必须大于 0 且不超过 30 秒");
         }
         this.gracePeriod = gracePeriod;
     }
@@ -87,6 +87,7 @@ public class ProjectProcessTerminator {
         return terminatedCount;
     }
 
+    /** 判断项目进程是否满足约束。 */
     boolean isProjectProcess(ProcessHandle.Info processInfo, Path projectDirectory) {
         if (processInfo == null || projectDirectory == null) {
             return false;
@@ -100,6 +101,7 @@ public class ProjectProcessTerminator {
                 && containsProjectPath(commandLine, projectDirectory);
     }
 
+    /** 返回{@code terminate}{@code Tree}。 */
     private boolean terminateTree(ProcessHandle root) {
         if (root == null) {
             return false;
@@ -112,10 +114,15 @@ public class ProjectProcessTerminator {
         tree.add(root);
 
         boolean hadLiveProcess = tree.stream().anyMatch(ProcessHandle::isAlive);
+        long terminationStartedAt = System.nanoTime();
+        long totalBudgetNanos = gracePeriod.toNanos();
+        Duration softTerminationBudget = Duration.ofNanos(Math.max(1L, totalBudgetNanos / 2L));
         tree.stream().filter(ProcessHandle::isAlive).forEach(this::destroyQuietly);
-        awaitExit(tree, gracePeriod);
+        awaitExit(tree, softTerminationBudget);
         tree.stream().filter(ProcessHandle::isAlive).forEach(this::destroyForciblyQuietly);
-        awaitExit(tree, gracePeriod);
+        long elapsedNanos = Math.max(0L, System.nanoTime() - terminationStartedAt);
+        long remainingNanos = Math.max(0L, totalBudgetNanos - elapsedNanos);
+        awaitExit(tree, Duration.ofNanos(remainingNanos));
 
         boolean terminated = tree.stream().noneMatch(ProcessHandle::isAlive);
         if (!terminated) {
@@ -128,36 +135,31 @@ public class ProjectProcessTerminator {
         return hadLiveProcess && terminated;
     }
 
+    /** 等待{@code Exit}完成。 */
     private void awaitExit(List<ProcessHandle> processes, Duration timeout) {
         long startedAtNanos = System.nanoTime();
         long timeoutNanos = timeout.toNanos();
-        boolean interrupted = Thread.interrupted();
-        try {
-            for (ProcessHandle process : processes) {
-                if (!process.isAlive()) {
-                    continue;
-                }
-                long elapsedNanos = System.nanoTime() - startedAtNanos;
-                long remainingNanos = timeoutNanos - elapsedNanos;
-                if (remainingNanos <= 0) {
-                    return;
-                }
-                try {
-                    process.onExit().get(remainingNanos, TimeUnit.NANOSECONDS);
-                } catch (InterruptedException exception) {
-                    interrupted = true;
-                    return;
-                } catch (Exception exception) {
-                    // 进程退出竞态、权限限制或等待超时会在后续强制终止阶段处理。
-                }
+        for (ProcessHandle process : processes) {
+            if (!process.isAlive()) {
+                continue;
             }
-        } finally {
-            if (interrupted) {
+            long elapsedNanos = System.nanoTime() - startedAtNanos;
+            long remainingNanos = timeoutNanos - elapsedNanos;
+            if (remainingNanos <= 0) {
+                return;
+            }
+            try {
+                process.onExit().get(remainingNanos, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
+                return;
+            } catch (Exception exception) {
+                // 进程退出竞态、权限限制或等待超时会在后续强制终止阶段处理。
             }
         }
     }
 
+    /** 处理{@code destroy}{@code Quietly}。 */
     private void destroyQuietly(ProcessHandle process) {
         try {
             process.destroy();
@@ -166,6 +168,7 @@ public class ProjectProcessTerminator {
         }
     }
 
+    /** 处理{@code destroy}{@code Forcibly}{@code Quietly}。 */
     private void destroyForciblyQuietly(ProcessHandle process) {
         try {
             process.destroyForcibly();
@@ -174,6 +177,7 @@ public class ProjectProcessTerminator {
         }
     }
 
+    /** 规范化项目路径。 */
     private Path normalizeProjectPath(Path projectDirectory) {
         if (projectDirectory == null) {
             throw new IllegalArgumentException("项目目录不能为空");
@@ -189,6 +193,7 @@ public class ProjectProcessTerminator {
         }
     }
 
+    /** 返回{@code contains}{@code Allowed}工具。 */
     private boolean containsAllowedTool(String command, String[] arguments, String commandLine) {
         String executableName = fileName(command);
         if (ALLOWED_EXECUTABLE_NAMES.contains(executableName)) {
@@ -220,6 +225,7 @@ public class ProjectProcessTerminator {
         return fileName.toLowerCase(Locale.ROOT);
     }
 
+    /** 返回{@code contains}项目路径。 */
     private boolean containsProjectPath(String commandLine, Path projectDirectory) {
         String normalizedCommandLine = normalizeForComparison(commandLine);
         String normalizedProjectPath = normalizeForComparison(projectDirectory.toString());
@@ -256,6 +262,7 @@ public class ProjectProcessTerminator {
                 : value.replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
+    /** 返回{@code combine}。 */
     private List<String> combine(String command, String[] arguments) {
         List<String> parts = new ArrayList<>(arguments.length + 1);
         if (command != null && !command.isBlank()) {

@@ -11,6 +11,7 @@ final class AiModelConnectionErrorMessageResolver {
     private AiModelConnectionErrorMessageResolver() {
     }
 
+    /** 根据当前上下文解析 AI 模型连接错误消息。 */
     static String resolve(Throwable throwable) {
         String diagnosticText = collectDiagnosticText(throwable);
         if (diagnosticText.isBlank()) {
@@ -36,6 +37,7 @@ final class AiModelConnectionErrorMessageResolver {
         return GENERIC_MESSAGE;
     }
 
+    /** 采集并汇总{@code Diagnostic}{@code Text}。 */
     private static String collectDiagnosticText(Throwable throwable) {
         StringBuilder text = new StringBuilder();
         Throwable current = throwable;
@@ -51,6 +53,7 @@ final class AiModelConnectionErrorMessageResolver {
         return text.toString();
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private static boolean containsAny(String text, String... keywords) {
         for (String keyword : keywords) {
             if (text.contains(keyword)) {

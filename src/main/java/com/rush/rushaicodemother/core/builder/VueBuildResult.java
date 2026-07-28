@@ -71,6 +71,7 @@ public record VueBuildResult(
                 installResult, buildResult);
     }
 
+    /** 判断当前结果是否复用了已有构建产物。 */
     static VueBuildResult reused(String projectPath) {
         VueBuildCommandResult installResult = VueBuildCommandResult.skipped(
                 "pnpm install --prefer-offline",
@@ -84,6 +85,7 @@ public record VueBuildResult(
                 installResult, buildResult);
     }
 
+    /** 返回任务{@code Reused}。 */
     static VueBuildResult taskReused(String projectPath) {
         VueBuildCommandResult installResult = VueBuildCommandResult.skipped(
                 "pnpm install --prefer-offline",
@@ -138,6 +140,11 @@ public record VueBuildResult(
         return VueBuildDiagnosticFormatter.toPublicFailureSummary(this);
     }
 
+    /**
+ * 校验{@code ation}{@code Tier}是否有效。
+ *
+ * @return 处理后的{@code ation}{@code Tier}文本
+ */
     public String validationTier() {
         return switch (stage) {
             case "reuse", "task-reuse" -> "复用";
@@ -150,6 +157,11 @@ public record VueBuildResult(
         };
     }
 
+    /**
+ * 返回修复{@code Priority}。
+ *
+ * @return 处理后的{@code Vue}构建结果文本
+ */
     public String repairPriority() {
         return switch (stage) {
             case "install", "validate-light", "build-light", "build" -> "高";
@@ -158,6 +170,11 @@ public record VueBuildResult(
         };
     }
 
+    /**
+ * 返回执行路径。
+ *
+ * @return 处理后的{@code Vue}构建结果文本
+ */
     public String executionPath() {
         return switch (stage) {
             case "reuse" -> "复用现有 dist，跳过安装和构建";

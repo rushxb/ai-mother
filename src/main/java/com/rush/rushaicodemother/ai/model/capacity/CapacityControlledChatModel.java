@@ -31,6 +31,16 @@ public final class CapacityControlledChatModel implements ChatModel {
         this(provider, modelId, configuredMaxOutputTokens, delegate, capacityGuard, null);
     }
 
+    /**
+ * 创建容量{@code Controlled}对话模型实例并完成必要的依赖和初始状态设置。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ * @param configuredMaxOutputTokens 已配置最大输出令牌
+ * @param delegate 被包装的委托对象
+ * @param capacityGuard 容量防护
+ * @param upstreamTimeout 上游调用超时时间
+ */
     public CapacityControlledChatModel(String provider,
                                        String modelId,
                                        int configuredMaxOutputTokens,
@@ -52,6 +62,12 @@ public final class CapacityControlledChatModel implements ChatModel {
         this.upstreamTimeout = upstreamTimeout;
     }
 
+    /**
+ * 返回{@code do}对话。
+ *
+ * @param request 请求参数
+ * @return 容量{@code Controlled}对话模型
+ */
     @Override
     public ChatResponse doChat(ChatRequest request) {
         try (AiModelCapacityGuard.Lease lease = capacityGuard.acquire(

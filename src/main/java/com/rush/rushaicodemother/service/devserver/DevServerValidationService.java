@@ -70,6 +70,7 @@ public class DevServerValidationService {
         devServerManager.registerErrorCollector(appId, collector);
 
         DevServerStartResult startResult = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             App app = buildAppForValidation(appId, codeGenType);
             DevServerStartOptions startOptions = new DevServerStartOptions(
@@ -126,6 +127,7 @@ public class DevServerValidationService {
         }
     }
 
+    /** 将输入映射为开始失败。 */
     private DevServerValidationResult mapStartFailure(
             String taskId,
             Long appId,
@@ -143,6 +145,7 @@ public class DevServerValidationService {
         return DevServerValidationResult.startupFailed(taskId, appId, elapsed, exception.getMessage());
     }
 
+    /** 等待错误集合窗口完成。 */
     private boolean awaitErrorCollectionWindow(String taskId,
                                                Duration duration,
                                                DevServerErrorCollector collector) {
@@ -153,6 +156,7 @@ public class DevServerValidationService {
         long pollNanos = runtimeProperties.getValidationPollInterval().toNanos();
         long startedNanos = System.nanoTime();
         long criticalStopAfterNanos = Long.MAX_VALUE;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             while (true) {
                 generationExecutionContextService.assertCanContinue(taskId);
@@ -177,6 +181,7 @@ public class DevServerValidationService {
         }
     }
 
+    /** 停止{@code Owned}会话。 */
     private void stopOwnedSession(Long appId, DevServerStartResult startResult) {
         if (startResult == null || !startResult.startedByCaller()) {
             return;
@@ -190,6 +195,7 @@ public class DevServerValidationService {
         }
     }
 
+    /** 校验{@code ate}请求是否有效。 */
     private void validateRequest(String taskId, Long appId, Long userId, CodeGenTypeEnum codeGenType) {
         if (taskId == null || taskId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Task ID cannot be blank");

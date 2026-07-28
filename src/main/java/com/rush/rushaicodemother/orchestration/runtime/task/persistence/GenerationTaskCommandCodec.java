@@ -15,6 +15,12 @@ public final class GenerationTaskCommandCodec {
     private GenerationTaskCommandCodec() {
     }
 
+    /**
+ * 将当前对象转换为{@code Json}。
+ *
+ * @param command 命令
+ * @return 处理后的{@code Json}文本
+ */
     public static String toJson(GenerationTaskCommand command) {
         try {
             return MAPPER.writeValueAsString(command);
@@ -23,6 +29,12 @@ public final class GenerationTaskCommandCodec {
         }
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param json {@code json} 对应的调用参数
+ * @return 生成任务命令{@code Codec}
+ */
     public static GenerationTaskCommand fromJson(String json) {
         try {
             return MAPPER.readValue(json, GenerationTaskCommand.class);

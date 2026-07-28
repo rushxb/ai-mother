@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -31,12 +32,25 @@ public final class GenerationExecutionContext {
     private final Clock clock;
     private final EnumMap<GenerationBudgetKind, AtomicInteger> usages;
     private final AtomicInteger successfulWorkspaceMutations;
+    private final AtomicLong agentAttemptEpoch;
+    private final AtomicInteger agentToolRoundLimit;
+    private final AtomicInteger agentModelTurnsStarted;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicReference<String> cancellationReason = new AtomicReference<>();
     private final AtomicReference<String> terminalStatus = new AtomicReference<>();
     private final AtomicReference<Instant> firstPreviewReadyAt = new AtomicReference<>();
     private final AtomicReference<GenerationExecutionFence> executionFence = new AtomicReference<>();
 
+    /**
+ * 创建生成执行上下文实例并完成必要的依赖和初始状态设置。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param startedAt {@code startedAt} 对应的调用参数
+ * @param limits 限制
+ * @param clock 业务时钟
+ */
     public GenerationExecutionContext(
             String taskId,
             Long appId,
@@ -47,12 +61,13 @@ public final class GenerationExecutionContext {
     ) {
         this(taskId, appId, userId, startedAt, defaultDeadline(startedAt, limits),
                 "legacy-default", defaultDeadline(startedAt, limits), null,
-                limits, Map.of(), 0, clock);
+                limits, Map.of(), 0, 0L, 0, 0, clock);
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("taskId 不能为空");
         }
     }
 
+    /** 创建生成执行上下文实例并完成必要的依赖和初始状态设置。 */
     private GenerationExecutionContext(String taskId,
                                        Long appId,
                                        Long userId,
@@ -64,7 +79,11 @@ public final class GenerationExecutionContext {
                                         GenerationExecutionLimits limits,
                                         Map<GenerationBudgetKind, Integer> restoredUsages,
                                         int restoredSuccessfulWorkspaceMutations,
+                                        long restoredAgentAttemptEpoch,
+                                        int restoredAgentToolRoundLimit,
+                                        int restoredAgentModelTurnsStarted,
                                         Clock clock) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("taskId 涓嶈兘涓虹┖");
         }
@@ -90,7 +109,16 @@ public final class GenerationExecutionContext {
             throw new IllegalArgumentException("恢复的成功工作区变更数不能小于 0");
         }
         this.successfulWorkspaceMutations = new AtomicInteger(restoredSuccessfulWorkspaceMutations);
+        validateRestoredAgentProgress(
+                restoredAgentAttemptEpoch,
+                restoredAgentToolRoundLimit,
+                restoredAgentModelTurnsStarted
+        );
+        this.agentAttemptEpoch = new AtomicLong(restoredAgentAttemptEpoch);
+        this.agentToolRoundLimit = new AtomicInteger(restoredAgentToolRoundLimit);
+        this.agentModelTurnsStarted = new AtomicInteger(restoredAgentModelTurnsStarted);
         this.usages = new EnumMap<>(GenerationBudgetKind.class);
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             int restored = restoredUsages == null ? 0 : restoredUsages.getOrDefault(kind, 0);
             if (restored < 0 || restored > limits.limit(kind)) {
@@ -100,6 +128,14 @@ public final class GenerationExecutionContext {
         }
     }
 
+    /**
+ * 返回恢复。
+ *
+ * @param snapshot 快照
+ * @param limits 限制
+ * @param clock 业务时钟
+ * @return 生成执行上下文
+ */
     public static GenerationExecutionContext restore(GenerationExecutionSnapshot snapshot,
                                                      GenerationExecutionLimits limits,
                                                      Clock clock) {
@@ -111,7 +147,9 @@ public final class GenerationExecutionContext {
                 snapshot.taskId(), snapshot.appId(), snapshot.userId(),
                 snapshot.startedAt(), snapshot.deadlineAt(), snapshot.slaProfile(),
                 snapshot.firstPreviewDeadlineAt(), snapshot.firstPreviewReadyAt(),
-                limits, snapshot.usages(), snapshot.successfulWorkspaceMutations(), clock);
+                limits, snapshot.usages(), snapshot.successfulWorkspaceMutations(),
+                snapshot.agentAttemptEpoch(), snapshot.agentToolRoundLimit(),
+                snapshot.agentModelTurnsStarted(), clock);
     }
 
     private static Instant defaultDeadline(Instant startedAt, GenerationExecutionLimits limits) {
@@ -187,6 +225,11 @@ public final class GenerationExecutionContext {
         }
     }
 
+    /**
+ * 更新{@code First}预览就绪的标记状态。
+ *
+ * @return {@code First}预览就绪
+ */
     public GenerationFirstPreviewMilestone markFirstPreviewReady() {
         Instant now = clock.instant();
         boolean first = firstPreviewReadyAt.compareAndSet(null, now);
@@ -220,6 +263,7 @@ public final class GenerationExecutionContext {
         return !clock.instant().isBefore(deadlineAt);
     }
 
+    /** 断言{@code Can}{@code Continue}仍满足当前执行约束。 */
     public void assertCanContinue() {
         if (cancelled.get()) {
             throw new GenerationExecutionCancelledException(cancellationReason.get());
@@ -233,6 +277,11 @@ public final class GenerationExecutionContext {
         }
     }
 
+    /**
+ * 返回{@code remaining}时长。
+ *
+ * @return 生成执行上下文
+ */
     public Duration remainingDuration() {
         Duration remaining = Duration.between(clock.instant(), deadlineAt);
         return remaining.isNegative() ? Duration.ZERO : remaining;
@@ -336,6 +385,12 @@ public final class GenerationExecutionContext {
                 && used(kind) < limit(kind);
     }
 
+    /**
+ * 返回{@code used}。
+ *
+ * @param kind 类别
+ * @return 计算或处理后的数值结果
+ */
     public int used(GenerationBudgetKind kind) {
         AtomicInteger usage = usages.get(kind);
         if (usage == null) {
@@ -348,8 +403,96 @@ public final class GenerationExecutionContext {
         return limits.limit(kind);
     }
 
+    /**
+ * 返回{@code remaining}。
+ *
+ * @param kind 类别
+ * @return 计算或处理后的数值结果
+ */
     public int remaining(GenerationBudgetKind kind) {
         return Math.max(0, limit(kind) - used(kind));
+    }
+
+    /** 为新的根模型尝试创建独立的 Agent 回合账本。 */
+    public synchronized long beginAgentAttempt(int toolRoundLimit) {
+        assertCanContinue();
+        requirePositiveToolRoundLimit(toolRoundLimit);
+        long nextEpoch;
+        try {
+            nextEpoch = Math.addExact(agentAttemptEpoch.get(), 1L);
+        } catch (ArithmeticException overflow) {
+            throw new GenerationExecutionPolicyException("Agent 尝试纪元已超出可表示范围");
+        }
+        agentAttemptEpoch.set(nextEpoch);
+        agentToolRoundLimit.set(toolRoundLimit);
+        agentModelTurnsStarted.set(0);
+        return nextEpoch;
+    }
+
+    /**
+     * 恢复审批 checkpoint 中的 Agent 回合进度。
+     * 旧 checkpoint 至少根据已校验会话恢复当前待处理工具回合。
+     */
+    public synchronized void restoreAgentAttempt(int toolRoundLimit,
+                                                 int minimumModelTurnsStarted) {
+        assertCanContinue();
+        requirePositiveToolRoundLimit(toolRoundLimit);
+        if (minimumModelTurnsStarted < 0 || minimumModelTurnsStarted > toolRoundLimit) {
+            throw new IllegalArgumentException("恢复的 Agent 模型回合数无效");
+        }
+        if (agentAttemptEpoch.get() == 0L) {
+            agentAttemptEpoch.set(1L);
+            agentToolRoundLimit.set(toolRoundLimit);
+            agentModelTurnsStarted.set(minimumModelTurnsStarted);
+            return;
+        }
+        if (agentToolRoundLimit.get() != toolRoundLimit) {
+            throw new GenerationExecutionPolicyException("审批恢复的 Agent 工具回合上限不一致");
+        }
+        agentModelTurnsStarted.updateAndGet(current ->
+                Math.max(current, minimumModelTurnsStarted));
+    }
+
+    /** 预留下一次 Agent 模型回合，并返回本次尝试内从 1 开始的序号。 */
+    public synchronized int reserveAgentModelTurn(int expectedToolRoundLimit) {
+        assertCanContinue();
+        requirePositiveToolRoundLimit(expectedToolRoundLimit);
+        if (agentAttemptEpoch.get() == 0L
+                || agentToolRoundLimit.get() != expectedToolRoundLimit) {
+            throw new GenerationExecutionPolicyException("Agent 模型回合尚未绑定到当前尝试");
+        }
+        int maximumModelTurns = Math.addExact(expectedToolRoundLimit, 1);
+        int current = agentModelTurnsStarted.get();
+        if (current >= maximumModelTurns) {
+            throw new GenerationExecutionPolicyException("Agent 模型回合预算已耗尽");
+        }
+        int reserved = current + 1;
+        agentModelTurnsStarted.set(reserved);
+        return reserved;
+    }
+
+    /** 拒绝模型在最终无工具收口回合继续触发副作用。 */
+    public synchronized void assertAgentToolExecutionAllowed() {
+        int started = agentModelTurnsStarted.get();
+        int toolLimit = agentToolRoundLimit.get();
+        if (agentAttemptEpoch.get() == 0L || toolLimit <= 0 || started <= 0) {
+            throw new GenerationExecutionPolicyException("Agent 工具调用缺少有效回合账本");
+        }
+        if (started > toolLimit) {
+            throw new GenerationExecutionPolicyException("Agent 工具回合预算已耗尽");
+        }
+    }
+
+    public long agentAttemptEpoch() {
+        return agentAttemptEpoch.get();
+    }
+
+    public int agentToolRoundLimit() {
+        return agentToolRoundLimit.get();
+    }
+
+    public int agentModelTurnsStarted() {
+        return agentModelTurnsStarted.get();
     }
 
     /** 在补丁确定落盘后记录成功工作区变更，返回累计成功操作数。 */
@@ -364,15 +507,30 @@ public final class GenerationExecutionContext {
         return successfulWorkspaceMutations.get();
     }
 
+    /**
+ * 取消生成执行上下文。
+ *
+ * @param reason 原因
+ */
     public void cancel(String reason) {
         cancellationReason.compareAndSet(null, normalizeReason(reason, "cancelled"));
         cancelled.set(true);
     }
 
+    /**
+ * 完成生成执行上下文并持久化终态。
+ *
+ * @param status 目标状态
+ */
     public void complete(String status) {
         terminalStatus.compareAndSet(null, normalizeReason(status, "completed"));
     }
 
+    /**
+ * 返回快照。
+ *
+ * @return 生成执行上下文
+ */
     public GenerationExecutionSnapshot snapshot() {
         EnumMap<GenerationBudgetKind, Integer> usageSnapshot = new EnumMap<>(GenerationBudgetKind.class);
         EnumMap<GenerationBudgetKind, Integer> limitSnapshot = new EnumMap<>(GenerationBudgetKind.class);
@@ -393,9 +551,35 @@ public final class GenerationExecutionContext {
                 cancellationReason(),
                 terminalStatus.get(),
                 successfulWorkspaceMutationCount(),
+                agentAttemptEpoch(),
+                agentToolRoundLimit(),
+                agentModelTurnsStarted(),
                 Map.copyOf(usageSnapshot),
                 Map.copyOf(limitSnapshot)
         );
+    }
+
+    /** 校验{@code ate}{@code Restored}智能体{@code Progress}是否有效。 */
+    private static void validateRestoredAgentProgress(long attemptEpoch,
+                                                       int toolRoundLimit,
+                                                       int modelTurnsStarted) {
+        if (attemptEpoch < 0 || toolRoundLimit < 0 || modelTurnsStarted < 0) {
+            throw new IllegalArgumentException("恢复的 Agent 回合账本不能包含负数");
+        }
+        if (attemptEpoch == 0L && (toolRoundLimit != 0 || modelTurnsStarted != 0)) {
+            throw new IllegalArgumentException("恢复的 Agent 回合账本缺少尝试纪元");
+        }
+        if (attemptEpoch > 0L
+                && (toolRoundLimit <= 0
+                || modelTurnsStarted > Math.addExact(toolRoundLimit, 1))) {
+            throw new IllegalArgumentException("恢复的 Agent 回合账本超出预算");
+        }
+    }
+
+    private static void requirePositiveToolRoundLimit(int toolRoundLimit) {
+        if (toolRoundLimit <= 0) {
+            throw new IllegalArgumentException("Agent 工具回合上限必须大于 0");
+        }
     }
 
     private String normalizeReason(String value, String fallback) {

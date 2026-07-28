@@ -70,6 +70,20 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                 null, null, null, null);
     }
 
+    /**
+ * 创建容量{@code Controlled}{@code Streaming}对话模型实例并完成必要的依赖和初始状态设置。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ * @param configuredMaxOutputTokens 已配置最大输出令牌
+ * @param delegate 被包装的委托对象
+ * @param capacityGuard 容量防护
+ * @param upstreamTimeout 上游调用超时时间
+ * @param firstSignalTimeout 对应操作的时间限制
+ * @param cancellationBridge {@code cancellationBridge} 对应的调用参数
+ * @param timeoutScheduler 超时调度器
+ * @param timeoutMonitor {@code timeoutMonitor} 对应的调用参数
+ */
     public CapacityControlledStreamingChatModel(
             String provider,
             String modelId,
@@ -81,6 +95,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             GenerationModelInvocationCancellationBridge cancellationBridge,
             GenerationModelTimeoutScheduler timeoutScheduler,
             AiModelTimeoutMonitor timeoutMonitor) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (provider == null || provider.isBlank() || modelId == null || modelId.isBlank()
                 || configuredMaxOutputTokens <= 0) {
             throw new IllegalArgumentException("capacity-controlled streaming model identity is invalid");
@@ -116,6 +131,13 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
         chat(request, ChatRequestOptions.EMPTY, handler);
     }
 
+    /**
+ * 处理对话。
+ *
+ * @param request 请求参数
+ * @param options 待处理的 {@code options} 集合
+ * @param handler 处理器
+ */
     @Override
     public void chat(ChatRequest request,
                      ChatRequestOptions options,
@@ -145,8 +167,15 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
         }
     }
 
+    /**
+ * 处理{@code do}对话。
+ *
+ * @param request 请求参数
+ * @param handler 处理器
+ */
     @Override
     public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (handler == null) {
             throw new IllegalArgumentException("streaming response handler is required");
         }
@@ -161,6 +190,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                 timeoutScheduler,
                 timeoutMonitor
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             lease.onLost(forwarding::onLeaseLost);
             CancellationRelay relay = cancellationRelay.get();
@@ -191,6 +221,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
         private final AtomicBoolean cancelled = new AtomicBoolean();
         private final AtomicReference<GenerationCancellationHandle> delegate = new AtomicReference<>();
 
+        /** 绑定{@code Cancellation}{@code Relay}。 */
         private void bind(GenerationCancellationHandle cancellationHandle) {
             Objects.requireNonNull(cancellationHandle, "容量租约取消句柄不能为空");
             if (cancelled.get()) {
@@ -205,6 +236,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             }
         }
 
+        /** 取消{@code Cancellation}{@code Relay}。 */
         @Override
         public void cancel() {
             if (!cancelled.compareAndSet(false, true)) {
@@ -251,11 +283,22 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             this.timeoutMonitor = timeoutMonitor;
         }
 
+        /**
+ * 响应部分响应事件。
+ *
+ * @param partialResponse 部分响应
+ */
         @Override
         public void onPartialResponse(String partialResponse) {
             forward(() -> downstream.onPartialResponse(partialResponse));
         }
 
+        /**
+ * 响应部分响应事件。
+ *
+ * @param partialResponse 部分响应
+ * @param context 执行上下文
+ */
         @Override
         public void onPartialResponse(PartialResponse partialResponse,
                                       PartialResponseContext context) {
@@ -263,11 +306,22 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                     partialResponse, responseContext(context)));
         }
 
+        /**
+ * 响应部分{@code Thinking}事件。
+ *
+ * @param partialThinking {@code partialThinking} 对应的调用参数
+ */
         @Override
         public void onPartialThinking(PartialThinking partialThinking) {
             forward(() -> downstream.onPartialThinking(partialThinking));
         }
 
+        /**
+ * 响应部分{@code Thinking}事件。
+ *
+ * @param partialThinking {@code partialThinking} 对应的调用参数
+ * @param context 执行上下文
+ */
         @Override
         public void onPartialThinking(PartialThinking partialThinking,
                                       PartialThinkingContext context) {
@@ -275,11 +329,22 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                     partialThinking, thinkingContext(context)));
         }
 
+        /**
+ * 响应部分工具调用事件。
+ *
+ * @param partialToolCall 部分工具调用
+ */
         @Override
         public void onPartialToolCall(PartialToolCall partialToolCall) {
             forward(() -> downstream.onPartialToolCall(partialToolCall));
         }
 
+        /**
+ * 响应部分工具调用事件。
+ *
+ * @param partialToolCall 部分工具调用
+ * @param context 执行上下文
+ */
         @Override
         public void onPartialToolCall(PartialToolCall partialToolCall,
                                       PartialToolCallContext context) {
@@ -287,22 +352,42 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                     partialToolCall, toolCallContext(context)));
         }
 
+        /**
+ * 响应{@code Complete}工具调用事件。
+ *
+ * @param completeToolCall {@code completeToolCall} 对应的调用参数
+ */
         @Override
         public void onCompleteToolCall(CompleteToolCall completeToolCall) {
             forward(() -> downstream.onCompleteToolCall(completeToolCall));
         }
 
+        /**
+ * 响应{@code Unmapped}原始事件事件。
+ *
+ * @param event 待处理的领域事件
+ */
         @Override
         public void onUnmappedRawEvent(Object event) {
             forward(() -> downstream.onUnmappedRawEvent(event));
         }
 
+        /**
+ * 响应{@code Complete}响应事件。
+ *
+ * @param completeResponse {@code completeResponse} 对应的调用参数
+ */
         @Override
         public void onCompleteResponse(ChatResponse completeResponse) {
             markFirstSignal();
             terminate(() -> downstream.onCompleteResponse(completeResponse), false);
         }
 
+        /**
+ * 响应错误事件。
+ *
+ * @param error 错误
+ */
         @Override
         public void onError(Throwable error) {
             terminate(() -> downstream.onError(error), false);
@@ -321,6 +406,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             return transportScope;
         }
 
+        /** 启动{@code First}{@code Signal}{@code Timer}。 */
         private void startFirstSignalTimer() {
             if (timeoutScheduler == null || firstSignalTimeout == null || terminal.get()) {
                 return;
@@ -336,6 +422,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             }
         }
 
+        /** 转发租约绑定。 */
         private void forward(Runnable callback) {
             if (terminal.get()) {
                 return;
@@ -367,6 +454,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             return true;
         }
 
+        /** 处理{@code terminate}。 */
         private void terminate(Runnable terminalCallback, boolean cancelProvider) {
             if (!terminal.compareAndSet(false, true)) {
                 return;
@@ -382,6 +470,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             terminalCallback.run();
         }
 
+        /** 响应{@code First}{@code Signal}超时事件。 */
         private void onFirstSignalTimeout() {
             if (!terminal.compareAndSet(false, true)) {
                 return;
@@ -428,9 +517,11 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             return new PartialToolCallContext(leaseAware(context.streamingHandle()));
         }
 
+        /** 返回租约{@code Aware}。 */
         private StreamingHandle leaseAware(StreamingHandle handle) {
             synchronized (leaseAwareHandles) {
                 return leaseAwareHandles.computeIfAbsent(handle, ignored -> new StreamingHandle() {
+                    /** 取消租约绑定。 */
                     @Override
                     public void cancel() {
                         try {
@@ -448,6 +539,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             }
         }
 
+        /** 取消提供方{@code Handles}。 */
         private void cancelProviderHandles() {
             List<StreamingHandle> handles;
             synchronized (leaseAwareHandles) {

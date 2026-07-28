@@ -37,18 +37,36 @@ public class DefaultUserPersistenceService implements UserPersistenceService {
 
     private final UserMapper userMapper;
 
+    /**
+ * 查找匹配的活动按编号。
+ *
+ * @param userId 用户编号
+ * @return 活动按编号
+ */
     @Override
     public User findActiveById(Long userId) {
         validateUserId(userId);
         return userMapper.selectActiveById(userId);
     }
 
+    /**
+ * 查找匹配的活动按{@code Account}。
+ *
+ * @param userAccount {@code userAccount} 对应的调用参数
+ * @return 活动按{@code Account}
+ */
     @Override
     public User findActiveByAccount(String userAccount) {
         ThrowUtils.throwIf(StrUtil.isBlank(userAccount), ErrorCode.PARAMS_ERROR, "用户账号不能为空");
         return userMapper.selectActiveByAccount(userAccount);
     }
 
+    /**
+ * 查找匹配的活动按{@code Ids}。
+ *
+ * @param userIds 待处理的 {@code userIds} 集合
+ * @return 活动按{@code Ids}集合
+ */
     @Override
     public List<User> findActiveByIds(Collection<Long> userIds) {
         if (userIds == null || userIds.isEmpty()) {
@@ -66,6 +84,12 @@ public class DefaultUserPersistenceService implements UserPersistenceService {
         return userMapper.selectActiveByIds(validUserIds);
     }
 
+    /**
+ * 返回{@code page}活动{@code Users}。
+ *
+ * @param queryRequest 查询请求
+ * @return 默认用户持久化
+ */
     @Override
     public Page<User> pageActiveUsers(UserQueryRequest queryRequest) {
         ThrowUtils.throwIf(queryRequest == null, ErrorCode.PARAMS_ERROR, "查询条件不能为空");
@@ -77,6 +101,12 @@ public class DefaultUserPersistenceService implements UserPersistenceService {
         );
     }
 
+    /**
+ * 创建用户。
+ *
+ * @param newUser {@code newUser} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public long createUser(NewUser newUser) {
         validateNewUser(newUser);
@@ -100,6 +130,15 @@ public class DefaultUserPersistenceService implements UserPersistenceService {
         }
     }
 
+    /**
+ * 更新{@code Administration}{@code Fields}。
+ *
+ * @param userId 用户编号
+ * @param userName 用户名称
+ * @param userAvatar {@code userAvatar} 对应的调用参数
+ * @param userProfile 用户配置档
+ * @param userRole 用户角色
+ */
     @Override
     public void updateAdministrationFields(Long userId,
                                            String userName,
@@ -118,6 +157,12 @@ public class DefaultUserPersistenceService implements UserPersistenceService {
         ));
     }
 
+    /**
+ * 更新密码哈希。
+ *
+ * @param userId 用户编号
+ * @param passwordHash 密码哈希
+ */
     @Override
     public void updatePasswordHash(Long userId, String passwordHash) {
         validateUserId(userId);
@@ -125,12 +170,18 @@ public class DefaultUserPersistenceService implements UserPersistenceService {
         requireUpdatedActiveUser(userMapper.updateActivePasswordHash(userId, passwordHash));
     }
 
+    /**
+ * 处理{@code logically}删除。
+ *
+ * @param userId 用户编号
+ */
     @Override
     public void logicallyDelete(Long userId) {
         validateUserId(userId);
         requireUpdatedActiveUser(userMapper.logicallyDeleteActiveUser(userId));
     }
 
+    /** 构建并返回查询{@code Wrapper}。 */
     private QueryWrapper buildQueryWrapper(UserQueryRequest queryRequest) {
         String sortField = SORT_FIELDS.resolve(queryRequest.getSortField());
         boolean ascending = "ascend".equals(queryRequest.getSortOrder());
@@ -159,6 +210,7 @@ public class DefaultUserPersistenceService implements UserPersistenceService {
         }
     }
 
+    /** 校验并返回有效的{@code Updated}活动用户。 */
     private void requireUpdatedActiveUser(int affectedRows) {
         if (affectedRows == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在或已删除");

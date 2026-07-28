@@ -110,6 +110,7 @@ public class GenerationWorkspacePublicationService {
         return publishWithMetadata(fence, executionWorkspace, metadataCommit, null);
     }
 
+    /** 发布并元数据。 */
     private GenerationWorkspacePublicationResult publishWithMetadata(
             GenerationExecutionFence fence,
             GenerationExecutionWorkspace executionWorkspace,
@@ -181,6 +182,7 @@ public class GenerationWorkspacePublicationService {
         }
     }
 
+    /** 发布{@code Locked}。 */
     private GenerationWorkspacePublicationResult publishLocked(
             GenerationExecutionFence fence,
             GenerationExecutionWorkspace executionWorkspace,
@@ -234,6 +236,7 @@ public class GenerationWorkspacePublicationService {
         GenerationWorkspacePublicationCatalog.PointerSnapshot previousPointer = null;
         boolean restoreWorkspaceOnRollback = false;
         boolean pointerActivated = false;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             validateExecutionSource(executionWorkspace, source);
             Path versionParent = publicationCatalog.prepareVersionParent(pointer);
@@ -305,6 +308,7 @@ public class GenerationWorkspacePublicationService {
         }
     }
 
+    /** 记录回滚状态相关指标或状态。 */
     private void recordRollbackState(GenerationWorkspacePublicationPointer pointer,
                                      Throwable publicationFailure,
                                      boolean rollbackComplete) {
@@ -320,6 +324,7 @@ public class GenerationWorkspacePublicationService {
         }
     }
 
+    /** 处理回滚。 */
     private void rollback(GenerationWorkspacePublicationPointer pointer,
                            GenerationWorkspacePublicationCatalog.PointerSnapshot previousPointer,
                            Path source,
@@ -358,6 +363,7 @@ public class GenerationWorkspacePublicationService {
         return acquireLock(appId, null);
     }
 
+    /** 获取锁。 */
     private PublicationLock acquireLock(Long appId,
                                         GenerationExecutionContext executionContext) throws IOException {
         Duration timeout = properties.getPublicationLockTimeout();
@@ -384,6 +390,7 @@ public class GenerationWorkspacePublicationService {
                 StandardOpenOption.WRITE,
                 LinkOption.NOFOLLOW_LINKS
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             BasicFileAttributes attributes = Files.readAttributes(
                     lockPath, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
@@ -452,6 +459,7 @@ public class GenerationWorkspacePublicationService {
         }
     }
 
+    /** 将目标时长转换为防溢出的纳秒数。 */
     private long toNanosSaturated(Duration duration) {
         try {
             return duration.toNanos();
@@ -460,6 +468,7 @@ public class GenerationWorkspacePublicationService {
         }
     }
 
+    /** 校验{@code ate}执行来源是否有效。 */
     private void validateExecutionSource(GenerationExecutionWorkspace executionWorkspace,
                                          Path source) throws IOException {
         Path normalized = source.toAbsolutePath().normalize();
@@ -496,6 +505,7 @@ public class GenerationWorkspacePublicationService {
             Objects.requireNonNull(lock, "lock");
         }
 
+        /** 关闭发布锁并释放资源。 */
         @Override
         public void close() throws IOException {
             IOException failure = null;

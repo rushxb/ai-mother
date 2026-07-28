@@ -20,6 +20,12 @@ public class GenerationBenchmarkEvidenceSignatureService {
 
     private final GenerationBenchmarkEvidenceProperties properties;
 
+    /**
+ * 返回{@code sign}。
+ *
+ * @param payload 载荷
+ * @return 处理后的生成基准测试证据签名文本
+ */
     public String sign(GenerationBenchmarkEvidencePayload payload) {
         if (payload == null || !GenerationBenchmarkEvidenceProtocol.hasCurrentAttestation(
                 payload.signatureVersion(),
@@ -30,6 +36,7 @@ public class GenerationBenchmarkEvidenceSignatureService {
         return calculate(payload);
     }
 
+    /** 计算生成基准测试证据签名。 */
     private String calculate(GenerationBenchmarkEvidencePayload payload) {
         String secret = properties.getSigningSecret();
         if (secret == null || secret.length() < 32) {
@@ -47,6 +54,13 @@ public class GenerationBenchmarkEvidenceSignatureService {
         }
     }
 
+    /**
+ * 验证生成基准测试证据签名是否符合预期。
+ *
+ * @param payload 载荷
+ * @param signature 签名
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean verify(GenerationBenchmarkEvidencePayload payload, String signature) {
         if (signature == null || !signature.matches("[0-9a-fA-F]{64}")
                 || payload == null
@@ -61,6 +75,7 @@ public class GenerationBenchmarkEvidenceSignatureService {
         return MessageDigest.isEqual(expected, supplied);
     }
 
+    /** 判断当前状态是否允许{@code onical}。 */
     String canonical(GenerationBenchmarkEvidencePayload payload) {
         if (payload == null || payload.subjectType() == null
                 || payload.evaluatedAt() == null || payload.expiresAt() == null

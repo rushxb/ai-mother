@@ -53,6 +53,7 @@ public class MilvusMemoryCollectionManager {
         this.metrics = metrics;
     }
 
+    /** 确保就绪已达到可用状态。 */
     public void ensureReady() {
         long now = System.nanoTime();
         if (fresh(now)) {
@@ -90,6 +91,11 @@ public class MilvusMemoryCollectionManager {
         lastVerifiedNanos = Long.MIN_VALUE;
     }
 
+    /**
+ * 读取{@code iness}详情。
+ *
+ * @return {@code iness}详情集合
+ */
     public Map<String, Object> readinessDetails() {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("collection", properties.getCollectionName());
@@ -109,6 +115,7 @@ public class MilvusMemoryCollectionManager {
                 && now - last < properties.getReadinessRefreshInterval().toNanos();
     }
 
+    /** 确保集合{@code Exists}已达到可用状态。 */
     private void ensureCollectionExists() {
         if (hasCollection()) {
             return;
@@ -129,6 +136,7 @@ public class MilvusMemoryCollectionManager {
         }
     }
 
+    /** 确保索引就绪已达到可用状态。 */
     private void ensureIndexReady() {
         List<String> indexes = client.listIndexes(ListIndexesReq.builder()
                 .databaseName(properties.getDatabaseName())
@@ -163,6 +171,7 @@ public class MilvusMemoryCollectionManager {
         MilvusMemorySchema.validateIndex(description);
     }
 
+    /** 确保{@code Loaded}已达到可用状态。 */
     private void ensureLoaded() {
         GetLoadStateReq stateRequest = GetLoadStateReq.builder()
                 .databaseName(properties.getDatabaseName())

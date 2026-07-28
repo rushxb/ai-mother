@@ -22,6 +22,14 @@ public class GenerationBenchmarkValidationEngine {
     private final GenerationBenchmarkWorkspaceInspector inspector;
     private final GenerationBenchmarkGraderMetricsCollector metricsCollector;
 
+    /**
+ * 创建生成基准测试校验{@code Engine}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param rules 待处理的 {@code rules} 集合
+ * @param runtimeGraders 待处理的 {@code runtimeGraders} 集合
+ * @param inspector {@code inspector} 对应的调用参数
+ * @param metricsCollector {@code metricsCollector} 对应的调用参数
+ */
     @Autowired
     public GenerationBenchmarkValidationEngine(
             List<GenerationBenchmarkValidationRule> rules,
@@ -60,6 +68,14 @@ public class GenerationBenchmarkValidationEngine {
         return prepare(task, workspace, 0L);
     }
 
+    /**
+ * 准备后续流程所需的生成基准测试校验。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ * @param userId 用户编号
+ * @return 生成基准测试校验
+ */
     public GenerationBenchmarkValidationPlan prepare(
             GenerationBenchmarkTask task,
             GenerationWorkspace workspace,
@@ -87,6 +103,12 @@ public class GenerationBenchmarkValidationEngine {
         );
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param plan 计划
+ * @return 生成基准测试校验
+ */
     public GenerationBenchmarkQualityEvidence evaluate(GenerationBenchmarkValidationPlan plan) {
         if (plan == null || plan.task() == null || plan.workspace() == null) {
             return GenerationBenchmarkQualityEvidence.empty();
@@ -115,14 +137,17 @@ public class GenerationBenchmarkValidationEngine {
         return new GenerationBenchmarkQualityEvidence(results);
     }
 
+    /** 处理{@code evaluate}运行时{@code Graders}。 */
     private void evaluateRuntimeGraders(
             GenerationBenchmarkValidationPlan plan,
             List<GenerationBenchmarkRuleResult> results
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (plan.runtimeGraders().isEmpty()) {
             return;
         }
         GenerationBenchmarkRuntimeContext context;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             context = new GenerationBenchmarkRuntimeContext(
                     plan.task(), plan.workspace(), plan.userId());
@@ -168,6 +193,7 @@ public class GenerationBenchmarkValidationEngine {
         }
     }
 
+    /** 规范化运行时{@code Results}。 */
     private List<GenerationBenchmarkRuleResult> normalizeRuntimeResults(
             GenerationBenchmarkRuntimeGrader grader,
             List<GenerationBenchmarkRuleResult> rawResults
@@ -190,6 +216,7 @@ public class GenerationBenchmarkValidationEngine {
         return List.copyOf(normalized);
     }
 
+    /** 返回{@code dimensions}。 */
     private List<GenerationBenchmarkQualityDimension> dimensions(
             GenerationBenchmarkRuntimeGrader grader
     ) {

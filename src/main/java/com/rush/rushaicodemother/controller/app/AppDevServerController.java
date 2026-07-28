@@ -37,6 +37,13 @@ public class AppDevServerController {
     private final DevServerProxyService devServerProxyService;
     private final UserService userService;
 
+    /**
+ * 启动开发服务器。
+ *
+ * @param appId 应用编号
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/dev-server/start")
     public BaseResponse<DevServerStatusVO> startDevServer(@RequestParam @Positive Long appId,
                                                           HttpServletRequest servletRequest) {
@@ -44,6 +51,13 @@ public class AppDevServerController {
         return ResultUtils.success(devServerApplicationService.start(appId, loginUser));
     }
 
+    /**
+ * 停止开发服务器。
+ *
+ * @param appId 应用编号
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/dev-server/stop")
     public BaseResponse<Boolean> stopDevServer(@RequestParam @Positive Long appId,
                                                HttpServletRequest servletRequest) {
@@ -59,6 +73,13 @@ public class AppDevServerController {
         return ResultUtils.success(devServerApplicationService.getStatus(appId, loginUser));
     }
 
+    /**
+ * 处理代理开发服务器。
+ *
+ * @param appId 应用编号
+ * @param request 请求参数
+ * @param response 响应对象
+ */
     @RequestMapping("/dev-server/proxy/{appId}/**")
     public void proxyDevServer(@PathVariable @Positive Long appId,
                                HttpServletRequest request,

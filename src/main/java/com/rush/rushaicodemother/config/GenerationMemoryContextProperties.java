@@ -27,6 +27,8 @@ public class GenerationMemoryContextProperties {
     @Max(64)
     private int maxConcurrentReads = 12;
 
+    private Duration readTimeout = Duration.ofSeconds(10);
+
     @Min(1)
     @Max(64)
     private int maxConcurrentPreparationOverlaps = 4;
@@ -39,6 +41,11 @@ public class GenerationMemoryContextProperties {
     @AssertTrue(message = "生成记忆上下文准备重叠超时必须为正数")
     public boolean isPreparationOverlapTimeoutValid() {
         return isPositive(preparationOverlapTimeout);
+    }
+
+    @AssertTrue(message = "生成记忆上下文读取超时必须为正数")
+    public boolean isReadTimeoutValid() {
+        return isPositive(readTimeout);
     }
 
     @AssertTrue(message = "生成记忆上下文执行器关闭超时必须为正数")

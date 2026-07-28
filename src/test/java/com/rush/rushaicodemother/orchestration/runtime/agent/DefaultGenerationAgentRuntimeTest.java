@@ -1,6 +1,7 @@
-package com.rush.rushaicodemother.orchestration.tool;
+package com.rush.rushaicodemother.orchestration.runtime.agent;
 
 import cn.hutool.json.JSONObject;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import com.rush.rushaicodemother.ai.tools.BaseTool;
@@ -8,8 +9,14 @@ import com.rush.rushaicodemother.ai.tools.ExitTool;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.ai.tools.ToolRiskLevel;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
+import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
+import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
@@ -17,6 +24,22 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRunti
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationStreamingModelCallSupervisor;
+import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
+import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
+import com.rush.rushaicodemother.orchestration.tool.CompletedToolCallContextCompactor;
+import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
+import com.rush.rushaicodemother.orchestration.tool.DurableToolConversation;
+import com.rush.rushaicodemother.orchestration.tool.DurableToolConversationCodec;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationState;
+import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
+import com.rush.rushaicodemother.orchestration.tool.ToolApprovalStatus;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
+import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpoint;
+import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpointFactory;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import dev.langchain4j.agent.tool.P;
@@ -25,16 +48,26 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.memory.ChatMemory;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialResponse;
+import dev.langchain4j.model.chat.response.PartialResponseContext;
+import dev.langchain4j.model.chat.response.PartialThinking;
+import dev.langchain4j.model.chat.response.PartialThinkingContext;
+import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -44,17 +77,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 
-class AiToolContinuationEngineTest {
+class DefaultGenerationAgentRuntimeTest {
 
     private static final Instant NOW = Instant.parse("2026-07-16T12:00:00Z");
     private final GenerationStreamingModelCallSupervisor modelCallSupervisor =
@@ -63,6 +100,254 @@ class AiToolContinuationEngineTest {
     @AfterEach
     void tearDown() {
         modelCallSupervisor.close();
+    }
+
+    @Test
+    void initialGenerationMustUseTheSameExplicitModelToolLoop() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        CountingSnapshotTool tool = new CountingSnapshotTool();
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{tool});
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        TwoTurnStreamingModel model = new TwoTurnStreamingModel();
+        stubExecutionModel(modelFactory, model);
+        GenerationAgentConversationInitializer initializer =
+                mock(GenerationAgentConversationInitializer.class);
+        ChatMemory initialMemory = MessageWindowChatMemory.withMaxMessages(8);
+        initialMemory.add(UserMessage.from("生成管理后台"));
+        when(initializer.initialize(any(), any())).thenReturn(initialMemory);
+        CompletedToolCallContextCompactor compactor =
+                mock(CompletedToolCallContextCompactor.class);
+        when(compactor.compact(any(ChatRequest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
+                memoryStore,
+                toolManager,
+                modelFactory,
+                mock(ToolExecutionFailurePolicy.class),
+                mock(ToolApprovalService.class),
+                new GenerationToolExecutionContextService(),
+                new GenerationPerformanceMonitorService(),
+                passthroughPolicy(),
+                new DurableToolConversationCodec(),
+                modelCallSupervisor,
+                compactor,
+                stageAdmissionService(),
+                new GenerationAgentTurnPolicy(),
+                initializer
+        );
+        GenerationExecutionContext executionContext = executionContext();
+        GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
+                11L,
+                "生成管理后台",
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationPerformanceProfile.balanced(),
+                "D:\\generated\\vue_project_11",
+                executionContext,
+                () -> false,
+                ignored -> { }
+        );
+
+        List<GenerationStreamEvent> events = engine.start(request)
+                .collectList()
+                .block();
+
+        assertEquals(1, tool.executions.get());
+        assertEquals(2, model.calls.get());
+        assertEquals(2, executionContext.used(GenerationBudgetKind.MODEL_TURN));
+        assertEquals(0, executionContext.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
+        assertEquals(2, executionContext.agentModelTurnsStarted());
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.TOOL_CALL.equals(event.getType())));
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.TOOL_RESULT.equals(event.getType())));
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.GENERATION_STAGE.equals(event.getType())
+                        && "D:\\generated\\vue_project_11".equals(
+                        event.getData().get("projectPath"))));
+    }
+
+    @Test
+    void privateThinkingMustBecomeStructuredProgressWithoutLeakingContent() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[0]);
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, new ThinkingStreamingModel());
+        GenerationAgentConversationInitializer initializer =
+                mock(GenerationAgentConversationInitializer.class);
+        ChatMemory initialMemory = MessageWindowChatMemory.withMaxMessages(8);
+        initialMemory.add(UserMessage.from("生成管理后台"));
+        when(initializer.initialize(any(), any())).thenReturn(initialMemory);
+        CompletedToolCallContextCompactor compactor =
+                mock(CompletedToolCallContextCompactor.class);
+        when(compactor.compact(any(ChatRequest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        DefaultGenerationAgentRuntime runtime = new DefaultGenerationAgentRuntime(
+                memoryStore,
+                toolManager,
+                modelFactory,
+                mock(ToolExecutionFailurePolicy.class),
+                mock(ToolApprovalService.class),
+                new GenerationToolExecutionContextService(),
+                new GenerationPerformanceMonitorService(),
+                passthroughPolicy(),
+                new DurableToolConversationCodec(),
+                modelCallSupervisor,
+                compactor,
+                stageAdmissionService(),
+                new GenerationAgentTurnPolicy(),
+                initializer
+        );
+        GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
+                11L,
+                "生成管理后台",
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationPerformanceProfile.balanced(),
+                "D:\\generated\\vue_project_11",
+                executionContext(),
+                () -> false,
+                ignored -> { }
+        );
+
+        List<GenerationStreamEvent> events = runtime.start(request)
+                .collectList()
+                .block();
+
+        assertTrue(events.stream().noneMatch(event ->
+                GenerationStreamEvent.AI_THINKING_DELTA.equals(event.getType())));
+        assertTrue(events.stream().noneMatch(event ->
+                event.toString().contains("private chain of thought")));
+        assertEquals(List.of("running", "done"), events.stream()
+                .filter(event -> GenerationStreamEvent.AGENT_EVENT.equals(event.getType()))
+                .map(event -> String.valueOf(event.getData().get("status")))
+                .toList());
+        assertTrue(events.stream().anyMatch(event ->
+                GenerationStreamEvent.AI_DELTA.equals(event.getType())
+                        && "visible answer".equals(event.getText())));
+    }
+
+    @Test
+    void initialApprovalCheckpointMustContainPromptUserMessageAndExactAgentLedger() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        GenerationExecutionContext executionContext = executionContext();
+        GenerationPreparation preparation = new GenerationPreparation(
+                CodeGenTypeEnum.VUE_PROJECT, CodeGenTypeEnum.VUE_PROJECT,
+                false, "create", "生成管理后台", List.of(),
+                new java.util.LinkedHashMap<>(), null, Map.of(), "task-1");
+        GenerationSession session = new GenerationSession(preparation, executionContext);
+        session.bindTaskRequest(new GenerationTaskRequest(
+                App.builder().id(11L).userId(7L).build(),
+                "生成管理后台",
+                User.builder().id(7L).build()));
+        session.recordRoute("heavy_generation");
+        GenerationSessionRegistry sessionRegistry = new GenerationSessionRegistry(
+                new GenerationSessionProperties());
+        sessionRegistry.put(11L, session);
+        DurableToolConversationCodec conversationCodec =
+                new DurableToolConversationCodec();
+        ToolInvocationCheckpointFactory checkpointFactory =
+                new ToolInvocationCheckpointFactory(
+                        sessionRegistry,
+                        JsonMapper.builder().findAndAddModules().build(),
+                        GenerationTraceContextBridge.NOOP,
+                        memoryStore,
+                        conversationCodec
+                );
+        ToolApprovalService approvalService = mock(ToolApprovalService.class);
+        ToolExecutionFailurePolicy failurePolicy = new ToolExecutionFailurePolicy(
+                approvalService, checkpointFactory);
+        GenerationApprovalRequiredException approvalRequired =
+                new GenerationApprovalRequiredException(
+                        "task-1",
+                        DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                        "a".repeat(64),
+                        Map.of("action", "rollbackSnapshot"));
+        GenerationPerformanceProfile profile = GenerationPerformanceProfile.balanced();
+        AiToolInvocationPolicy invocationPolicy = mock(AiToolInvocationPolicy.class);
+        when(invocationPolicy.governModelTurn(
+                any(String.class), anyInt(), any(ChatRequest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        doThrow(approvalRequired).when(invocationPolicy)
+                .authorize(any(), eq(CodeGenTypeEnum.VUE_PROJECT), eq(profile));
+        ToolManager toolManager = mock(ToolManager.class);
+        CountingSnapshotTool tool = new CountingSnapshotTool();
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{tool});
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, new ApprovalStreamingModel());
+        GenerationAgentConversationInitializer initializer =
+                mock(GenerationAgentConversationInitializer.class);
+        MessageWindowChatMemory initialMemory = MessageWindowChatMemory.builder()
+                .id(11L)
+                .chatMemoryStore(memoryStore)
+                .maxMessages(8)
+                .build();
+        initialMemory.add(SystemMessage.from("当前工程系统提示"));
+        initialMemory.add(UserMessage.from("生成管理后台"));
+        when(initializer.initialize(any(), any())).thenReturn(initialMemory);
+        CompletedToolCallContextCompactor compactor =
+                mock(CompletedToolCallContextCompactor.class);
+        when(compactor.compact(any(ChatRequest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        DefaultGenerationAgentRuntime runtime = new DefaultGenerationAgentRuntime(
+                memoryStore,
+                toolManager,
+                modelFactory,
+                failurePolicy,
+                approvalService,
+                new GenerationToolExecutionContextService(),
+                new GenerationPerformanceMonitorService(),
+                invocationPolicy,
+                conversationCodec,
+                modelCallSupervisor,
+                compactor,
+                stageAdmissionService(),
+                new GenerationAgentTurnPolicy(),
+                initializer
+        );
+        GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
+                11L,
+                "生成管理后台",
+                CodeGenTypeEnum.VUE_PROJECT,
+                profile,
+                "D:\\generated\\vue_project_11",
+                executionContext,
+                () -> false,
+                ignored -> { }
+        );
+
+        assertThrows(GenerationApprovalRequiredException.class,
+                () -> runtime.start(request).blockLast());
+
+        ArgumentCaptor<ToolInvocationCheckpoint> checkpointCaptor =
+                ArgumentCaptor.forClass(ToolInvocationCheckpoint.class);
+        verify(approvalService).requestApproval(
+                eq("task-1"),
+                eq(DestructiveToolAction.SNAPSHOT_ROLLBACK),
+                eq("a".repeat(64)),
+                any(),
+                checkpointCaptor.capture());
+        ToolInvocationCheckpoint checkpoint = checkpointCaptor.getValue();
+        GenerationToolContinuationState restored = checkpointFactory.restore(checkpoint);
+        List<ChatMessage> restoredMessages = conversationCodec.restore(
+                restored.durableConversation(), checkpoint);
+
+        assertEquals(3, restoredMessages.size());
+        assertEquals("当前工程系统提示",
+                ((SystemMessage) restoredMessages.getFirst()).text());
+        assertEquals("生成管理后台",
+                ((UserMessage) restoredMessages.get(1)).singleText());
+        assertEquals("call-approval",
+                ((AiMessage) restoredMessages.getLast())
+                        .toolExecutionRequests().getFirst().id());
+        assertEquals(1L, restored.execution().agentAttemptEpoch());
+        assertEquals(profile.maxToolInvocations(),
+                restored.execution().agentToolRoundLimit());
+        assertEquals(1, restored.execution().agentModelTurnsStarted());
+        assertEquals(0, tool.executions.get());
     }
 
     @Test
@@ -96,7 +381,7 @@ class AiToolContinuationEngineTest {
         ToolApprovalService approvalService = mock(ToolApprovalService.class);
         when(approvalService.beginExecution(approved)).thenReturn(executing);
         when(approvalService.completeExecution(any(), any())).thenReturn(consumed);
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 approvalService, new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
@@ -145,7 +430,7 @@ class AiToolContinuationEngineTest {
                 .thenReturn(new BaseTool[]{tool});
         StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
         stubExecutionModel(modelFactory, new CompletingStreamingModel());
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
@@ -188,7 +473,7 @@ class AiToolContinuationEngineTest {
         StreamingChatModel delegate = mock(StreamingChatModel.class);
         StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
         stubExecutionModel(modelFactory, delegate);
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
@@ -234,7 +519,7 @@ class AiToolContinuationEngineTest {
                 .thenReturn(new BaseTool[]{new CountingSnapshotTool()});
         StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
         stubExecutionModel(modelFactory, new SilentStreamingModel());
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor,
@@ -290,7 +575,7 @@ class AiToolContinuationEngineTest {
                 new ToolExecutionOutcome(false, "already completed"));
         ToolApprovalService approvalService = mock(ToolApprovalService.class);
         when(approvalService.beginExecution(consumed)).thenReturn(consumed);
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 approvalService, new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
@@ -329,7 +614,7 @@ class AiToolContinuationEngineTest {
         StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
         TwoTurnStreamingModel model = new TwoTurnStreamingModel();
         stubExecutionModel(modelFactory, model);
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
@@ -352,6 +637,56 @@ class AiToolContinuationEngineTest {
     }
 
     @Test
+    void approvalContinuationMustUseThePersistedToolRoundBudget() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
+                .id("call-1")
+                .name("manageSnapshot")
+                .arguments("{}")
+                .build();
+        List<ChatMessage> transcript = List.of(
+                UserMessage.from("完成当前修改"),
+                AiMessage.builder().toolExecutionRequests(List.of(pendingRequest)).build()
+        );
+        memoryStore.updateMessages(11L, transcript);
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{new CountingSnapshotTool()});
+        FinalizationStreamingModel model = new FinalizationStreamingModel();
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, model);
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
+                memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
+                mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
+        ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
+                ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
+                pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
+                "{\"taskId\":\"task-1\"}", NOW);
+        GenerationExecutionContext executionContext = executionContext();
+        GenerationPerformanceProfile oneToolRound = new GenerationPerformanceProfile(
+                GenerationPerformanceProfile.ModelTier.BALANCED,
+                false,
+                1,
+                "审批恢复预算测试"
+        );
+
+        engine.continueAfterDecision(
+                        approval(ToolApprovalStatus.REJECTED, checkpoint),
+                        state(executionContext, checkpoint, transcript, oneToolRound),
+                        executionContext,
+                        () -> false,
+                        ignored -> { })
+                .blockLast();
+
+        assertEquals(1, model.calls.get());
+        assertEquals(ToolChoice.NONE, model.request.get().toolChoice());
+        assertTrue(model.request.get().toolSpecifications().isEmpty());
+        assertEquals(1, executionContext.agentToolRoundLimit());
+        assertEquals(2, executionContext.agentModelTurnsStarted());
+    }
+
+    @Test
     void exitToolMustCompleteContinuationWithoutAnotherModelTurn() {
         InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
         ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
@@ -369,7 +704,7 @@ class AiToolContinuationEngineTest {
         ExitStreamingModel model = new ExitStreamingModel();
         StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
         stubExecutionModel(modelFactory, model);
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
                 mock(ToolApprovalService.class), new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
@@ -404,7 +739,7 @@ class AiToolContinuationEngineTest {
         ToolManager toolManager = mock(ToolManager.class);
         when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
                 .thenReturn(new BaseTool[]{new CountingSnapshotTool()});
-        AiToolContinuationEngine engine = new AiToolContinuationEngine(
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
                 memoryStore, toolManager, mock(StreamingModelFactory.class),
                 mock(ToolExecutionFailurePolicy.class), mock(ToolApprovalService.class),
                 new GenerationToolExecutionContextService(), passthroughPolicy(),
@@ -516,6 +851,18 @@ class AiToolContinuationEngineTest {
     private GenerationToolContinuationState state(GenerationExecutionContext context,
                                                   ToolInvocationCheckpoint checkpoint,
                                                   List<ChatMessage> transcript) {
+        return state(
+                context,
+                checkpoint,
+                transcript,
+                GenerationPerformanceProfile.balanced()
+        );
+    }
+
+    private GenerationToolContinuationState state(GenerationExecutionContext context,
+                                                   ToolInvocationCheckpoint checkpoint,
+                                                   List<ChatMessage> transcript,
+                                                   GenerationPerformanceProfile profile) {
         GenerationPreparation preparation = new GenerationPreparation(
                 CodeGenTypeEnum.VUE_PROJECT, CodeGenTypeEnum.VUE_PROJECT,
                 false, "create", "build a dashboard", List.of(),
@@ -529,7 +876,7 @@ class AiToolContinuationEngineTest {
         return new GenerationToolContinuationState(
                 GenerationToolContinuationState.CURRENT_SCHEMA_VERSION,
                 "task-1", 11L, 7L, "heavy_generation", "rollback to safe",
-                CodeGenTypeEnum.VUE_PROJECT, GenerationPerformanceProfile.balanced(),
+                CodeGenTypeEnum.VUE_PROJECT, profile,
                 preparation, context.limits(), context.snapshot(), durableConversation, NOW);
     }
 
@@ -567,10 +914,40 @@ class AiToolContinuationEngineTest {
         }
     }
 
+    private static final class ThinkingStreamingModel implements StreamingChatModel {
+        @Override
+        public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+            StreamingHandle handle = mock(StreamingHandle.class);
+            handler.onPartialThinking(
+                    new PartialThinking("private chain of thought"),
+                    new PartialThinkingContext(handle));
+            handler.onPartialResponse(
+                    new PartialResponse("visible answer"),
+                    new PartialResponseContext(handle));
+            handler.onCompleteResponse(ChatResponse.builder()
+                    .aiMessage(AiMessage.from("done"))
+                    .build());
+        }
+    }
+
     private static final class SilentStreamingModel implements StreamingChatModel {
         @Override
         public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
             // 由调用监督器触发受保护完成边界。
+        }
+    }
+
+    private static final class FinalizationStreamingModel implements StreamingChatModel {
+        private final AtomicInteger calls = new AtomicInteger();
+        private final AtomicReference<ChatRequest> request = new AtomicReference<>();
+
+        @Override
+        public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+            this.calls.incrementAndGet();
+            this.request.set(request);
+            handler.onCompleteResponse(ChatResponse.builder()
+                    .aiMessage(AiMessage.from("已完成"))
+                    .build());
         }
     }
 
@@ -593,6 +970,21 @@ class AiToolContinuationEngineTest {
             }
             handler.onCompleteResponse(ChatResponse.builder()
                     .aiMessage(AiMessage.from("continued after tool"))
+                    .build());
+        }
+    }
+
+    private static final class ApprovalStreamingModel implements StreamingChatModel {
+        @Override
+        public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+            handler.onCompleteResponse(ChatResponse.builder()
+                    .aiMessage(AiMessage.builder()
+                            .toolExecutionRequests(List.of(ToolExecutionRequest.builder()
+                                    .id("call-approval")
+                                    .name("manageSnapshot")
+                                    .arguments("{\"action\":\"rollbackSnapshot\"}")
+                                    .build()))
+                            .build())
                     .build());
         }
     }

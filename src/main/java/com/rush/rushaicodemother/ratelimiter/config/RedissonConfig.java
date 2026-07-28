@@ -18,6 +18,13 @@ import org.springframework.util.StringUtils;
 @EnableConfigurationProperties({RedisProperties.class, RateLimiterProperties.class})
 public class RedissonConfig {
 
+    /**
+ * 创建并配置{@code Redisson}客户端 Bean。
+ *
+ * @param redisProperties Redis 属性
+ * @param rateLimiterProperties 相关配置属性
+ * @return 配置完成的{@code Redisson}客户端 Bean
+ */
     @Bean(destroyMethod = "shutdown")
     public RedissonClient redissonClient(
             RedisProperties redisProperties,
@@ -34,6 +41,7 @@ public class RedissonConfig {
         return config;
     }
 
+    /** 返回{@code configure}{@code Single}服务器。 */
     SingleServerConfig configureSingleServer(
             Config config,
             RedisProperties redisProperties,
@@ -68,6 +76,7 @@ public class RedissonConfig {
         return singleServer;
     }
 
+    /** 拒绝{@code Unsupported}{@code Topology}并记录原因。 */
     private void rejectUnsupportedTopology(RedisProperties redisProperties) {
         if (StringUtils.hasText(redisProperties.getUrl())) {
             throw new IllegalArgumentException(

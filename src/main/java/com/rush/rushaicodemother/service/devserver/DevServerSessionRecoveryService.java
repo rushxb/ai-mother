@@ -65,12 +65,18 @@ public class DevServerSessionRecoveryService {
         this.clock = clock;
     }
 
+    /**
+ * 恢复{@code Expired}{@code Sessions}。
+ *
+ * @return 计算或处理后的数值结果
+ */
     @Scheduled(fixedDelayString = "${app.dev-server.runtime.recovery-scan-interval:15s}")
     public int recoverExpiredSessions() {
         Instant now = clock.instant();
         List<DevServerSessionRecord> candidates = registry.findExpired(
                 now, properties.getRecoveryBatchSize());
         int recovered = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (DevServerSessionRecord candidate : candidates) {
             Instant leaseUntil = clock.instant().plus(properties.getLeaseDuration());
             if (!registry.claimRecovery(

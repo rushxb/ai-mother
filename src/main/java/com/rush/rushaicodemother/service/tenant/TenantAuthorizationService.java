@@ -18,6 +18,15 @@ public class TenantAuthorizationService {
 
     private final TenantPersistenceService tenantPersistenceService;
 
+    /**
+ * 校验并返回有效的角色。
+ *
+ * @param tenantId 租户编号
+ * @param userId 用户编号
+ * @param requiredRole {@code requiredRole} 对应的调用参数
+ * @param deniedMessage {@code deniedMessage} 对应的调用参数
+ * @return 角色
+ */
     public TenantMembership requireRole(Long tenantId,
                                         Long userId,
                                         TenantRole requiredRole,

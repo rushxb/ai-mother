@@ -270,6 +270,7 @@ public class StreamingModelFactory {
         };
     }
 
+    /** 获取并返回{@code Required}启用模型按类型。 */
     private List<AiModelRuntimeConfiguration> getRequiredEnabledModelsByType(String modelType, String usage) {
         try {
             List<AiModelRuntimeConfiguration> available =
@@ -295,6 +296,7 @@ public class StreamingModelFactory {
         }
     }
 
+    /** 获取并返回路由模型。 */
     private List<AiModelRuntimeConfiguration> getRoutingModels(String usage) {
         try {
             return getRequiredEnabledModelsByType(MODEL_TYPE_ROUTING, usage);
@@ -304,6 +306,7 @@ public class StreamingModelFactory {
         }
     }
 
+    /** 创建{@code Streaming}线程池。 */
     private StreamingChatModel createStreamingPool(
             List<AiModelRuntimeConfiguration> models,
             Function<AiModelRuntimeConfiguration, StreamingChatModel> modelFactory,
@@ -350,6 +353,7 @@ public class StreamingModelFactory {
                 streamingCallRuntime.cancellationBridge());
     }
 
+    /** 根据当前上下文解析{@code First}令牌{@code Hedge}策略。 */
     FirstTokenHedgePolicy resolveFirstTokenHedgePolicy(
             List<AiModelCandidate<StreamingChatModel>> candidates,
             Duration totalTimeout) {
@@ -371,6 +375,7 @@ public class StreamingModelFactory {
         );
     }
 
+    /** 创建时间{@code Bounded}{@code Streaming}{@code Candidates}。 */
     private List<AiModelCandidate<StreamingChatModel>> createTimeBoundedStreamingCandidates(
             List<AiModelRuntimeConfiguration> models,
             Duration totalTimeout,
@@ -390,6 +395,7 @@ public class StreamingModelFactory {
         return List.copyOf(candidates);
     }
 
+    /** 创建对话线程池。 */
     private ChatModel createChatPool(
             List<AiModelRuntimeConfiguration> models,
             Function<AiModelRuntimeConfiguration, ChatModel> modelFactory,
@@ -416,6 +422,7 @@ public class StreamingModelFactory {
                 models, totalTimeout, maxRetries, enableThinking, null, null);
     }
 
+    /** 创建时间{@code Bounded}对话线程池。 */
     private ChatModel createTimeBoundedChatPool(
             List<AiModelRuntimeConfiguration> models,
             Duration totalTimeout,
@@ -447,6 +454,7 @@ public class StreamingModelFactory {
                 beforeModelTurn, beforeProviderFailoverAttempt);
     }
 
+    /** 创建执行{@code Streaming}模型。 */
     private StreamingChatModel createExecutionStreamingModel(
             GenerationPerformanceProfile profile,
             Duration totalTimeout,
@@ -474,6 +482,7 @@ public class StreamingModelFactory {
                 firstAdmission, failoverAdmission);
     }
 
+    /** 返回{@code allocate}超时{@code Slices}。 */
     static List<Duration> allocateTimeoutSlices(Duration totalTimeout, int sliceCount) {
         if (totalTimeout == null || totalTimeout.isZero() || totalTimeout.isNegative()) {
             throw new IllegalArgumentException("total timeout must be positive");
@@ -508,6 +517,7 @@ public class StreamingModelFactory {
                 dbModel, enableThinking, runtimeProperties.getGenerationTimeout());
     }
 
+    /** 创建模型{@code From}{@code Db}。 */
     private StreamingChatModel createModelFromDb(AiModelRuntimeConfiguration dbModel,
                                                   boolean enableThinking,
                                                   Duration timeout) {
@@ -550,6 +560,7 @@ public class StreamingModelFactory {
         );
     }
 
+    /** 创建对话模型{@code From}{@code Db}。 */
     private ChatModel createChatModelFromDb(AiModelRuntimeConfiguration dbModel,
                                             Duration timeout,
                                             Integer maxRetries,

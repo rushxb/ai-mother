@@ -25,6 +25,11 @@ public class FailoverLongTermMemoryStore implements LongTermMemoryStore {
         this.metrics = metrics;
     }
 
+    /**
+ * 新增或更新故障转移{@code Long}{@code Term}记忆存储。
+ *
+ * @param memory 记忆
+ */
     @Override
     public void upsert(SemanticMemory memory) {
         fallback.upsert(memory);
@@ -38,6 +43,12 @@ public class FailoverLongTermMemoryStore implements LongTermMemoryStore {
         }
     }
 
+    /**
+ * 搜索匹配的故障转移{@code Long}{@code Term}记忆存储。
+ *
+ * @param query 查询
+ * @return 故障转移{@code Long}{@code Term}记忆存储集合
+ */
     @Override
     public List<SemanticMemoryHit> search(SemanticMemoryQuery query) {
         try {
@@ -50,6 +61,12 @@ public class FailoverLongTermMemoryStore implements LongTermMemoryStore {
         }
     }
 
+    /**
+ * 删除按应用。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ */
     @Override
     public void deleteByApplication(Long tenantId, Long appId) {
         RuntimeException primaryFailure = null;

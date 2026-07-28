@@ -19,6 +19,12 @@ public enum TenantType {
         return value;
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param value 待处理值
+ * @return 租户类型
+ */
     public static TenantType fromValue(String value) {
         return Arrays.stream(values())
                 .filter(type -> type.value.equalsIgnoreCase(value))

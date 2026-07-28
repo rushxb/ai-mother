@@ -34,6 +34,12 @@ public class GenerationBenchmarkEvidenceManagementService {
     private final GenerationBenchmarkEvidenceProperties properties;
     private final Clock clock = Clock.systemUTC();
 
+    /**
+ * 接收、校验并持久化外部基准证据。
+ *
+ * @param submission 提交
+ * @return 方法执行结果
+ */
     public GenerationBenchmarkEvidenceRecord ingest(GenerationBenchmarkEvidenceSubmission submission) {
         if (submission == null || submission.subjectType() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Benchmark 证据不完整");
@@ -62,6 +68,12 @@ public class GenerationBenchmarkEvidenceManagementService {
         return evidence;
     }
 
+    /**
+ * 获取指定资源。
+ *
+ * @param evidenceId 证据编号
+ * @return 方法执行结果
+ */
     public GenerationBenchmarkEvidenceRecord get(String evidenceId) {
         String normalized = requireEvidenceId(evidenceId);
         return repository.findByEvidenceId(normalized)
@@ -69,6 +81,7 @@ public class GenerationBenchmarkEvidenceManagementService {
                         ErrorCode.NOT_FOUND_ERROR, "Benchmark 证据不存在"));
     }
 
+    /** 返回载荷。 */
     private GenerationBenchmarkEvidencePayload payload(GenerationBenchmarkEvidenceSubmission submission,
                                                        String reportSha256) {
         return new GenerationBenchmarkEvidencePayload(
@@ -101,6 +114,7 @@ public class GenerationBenchmarkEvidenceManagementService {
         }
     }
 
+    /** 校验{@code ate}{@code Environment}{@code And}时间是否有效。 */
     private void validateEnvironmentAndTime(GenerationBenchmarkEvidencePayload payload, Instant now) {
         if (!payload.datasetFingerprint().equals(datasetFingerprintService.currentFingerprint())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
@@ -153,6 +167,7 @@ public class GenerationBenchmarkEvidenceManagementService {
         return normalized;
     }
 
+    /** 校验并返回有效的证据编号。 */
     private String requireEvidenceId(String evidenceId) {
         try {
             return UUID.fromString(evidenceId == null ? "" : evidenceId.trim()).toString();

@@ -12,6 +12,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class AdminDataTemplates {
 
+    /** 返回管理端{@code Data}。 */
     String adminData(AdminRecipe recipe) {
         String dashboardClass = "dashboard-" + recipe.frontend().density() + " " + String.join(" ", recipe.frontend().styleClasses());
         return """
@@ -76,6 +77,7 @@ final class AdminDataTemplates {
         );
     }
 
+    /** 返回{@code table}{@code Columns}。 */
     String tableColumns(AdminRecipe recipe) {
         List<RecipeField> fields = recipe.fields().stream().limit(4).toList();
         StringBuilder builder = new StringBuilder("export const columns = [\n");
@@ -96,6 +98,7 @@ final class AdminDataTemplates {
         return builder.toString();
     }
 
+    /** 返回侧边栏菜单。 */
     String sidebarMenu(AdminRecipe recipe) {
         String items = recipe.frontend().navigation().isEmpty()
                 ? """
@@ -115,6 +118,7 @@ final class AdminDataTemplates {
                 """.formatted(items);
     }
 
+    /** 返回{@code statistics}。 */
     String statistics(AdminRecipe recipe) {
         String third = recipe.frontend().dataViz().contains("funnel") ? "漏斗转化" : "待处理";
         String fourth = recipe.frontend().dataViz().contains("ranking") ? "TOP 排名" : "完成率";
@@ -152,6 +156,7 @@ final class AdminDataTemplates {
                 """.formatted(escape(recipe.entityLabel()), escape(recipe.entityLabel()), escape(secondTitle), escape(thirdTitle), escape(recipe.domain()));
     }
 
+    /** 返回{@code filter}{@code Chips}。 */
     private List<String> filterChips(AdminRecipe recipe) {
         List<String> chips = new ArrayList<>();
         chips.add(recipe.entityLabel() + "状态");
@@ -179,6 +184,7 @@ final class AdminDataTemplates {
         return "[" + values.stream().map(value -> "'" + escape(value) + "'").collect(java.util.stream.Collectors.joining(", ")) + "]";
     }
 
+    /** 返回{@code visualization}{@code Blocks}。 */
     private String visualizationBlocks(AdminRecipe recipe) {
         List<String> blocks = new ArrayList<>();
         for (String viz : recipe.frontend().dataViz()) {
@@ -192,6 +198,7 @@ final class AdminDataTemplates {
         return "[\n  " + blocks.stream().distinct().limit(3).collect(java.util.stream.Collectors.joining(",\n  ")) + "\n]";
     }
 
+    /** 返回管理端{@code Rows}。 */
     private String adminRows(AdminRecipe recipe) {
         List<String> rows = new ArrayList<>();
         for (int i = 1; i <= 4; i++) {

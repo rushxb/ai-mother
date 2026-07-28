@@ -18,6 +18,16 @@ public class AgentEditPatchService {
 
     private final GenerationPatchApplyService generationPatchApplyService;
 
+    /**
+ * 应用智能体编辑补丁。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectRoot 项目根
+ * @param changePlan {@code changePlan} 对应的调用参数
+ * @param patchOperations 补丁操作
+ * @return 智能体编辑补丁
+ */
     public PatchApplyResult apply(Long appId,
                                   String taskId,
                                   Path projectRoot,

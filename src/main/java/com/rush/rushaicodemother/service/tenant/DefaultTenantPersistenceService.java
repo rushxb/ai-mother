@@ -26,6 +26,13 @@ public class DefaultTenantPersistenceService implements TenantPersistenceService
 
     private final TenantMapper tenantMapper;
 
+    /**
+ * 确保{@code Personal}租户已达到可用状态。
+ *
+ * @param userId 用户编号
+ * @param displayName {@code displayName} 对应的调用参数
+ * @return {@code Personal}租户
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Tenant ensurePersonalTenant(Long userId, String displayName) {
@@ -63,12 +70,25 @@ public class DefaultTenantPersistenceService implements TenantPersistenceService
         return tenant;
     }
 
+    /**
+ * 查找匹配的活动按编号。
+ *
+ * @param tenantId 租户编号
+ * @return 活动按编号
+ */
     @Override
     public Tenant findActiveById(Long tenantId) {
         requirePositive(tenantId, "tenantId");
         return tenantMapper.selectActiveById(tenantId);
     }
 
+    /**
+ * 查找匹配的活动成员关系。
+ *
+ * @param tenantId 租户编号
+ * @param userId 用户编号
+ * @return 活动成员关系
+ */
     @Override
     public TenantMembership findActiveMembership(Long tenantId, Long userId) {
         requirePositive(tenantId, "tenantId");

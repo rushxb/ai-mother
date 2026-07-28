@@ -49,6 +49,12 @@ public class AiModelCircuitBreaker {
         recordSuccess("unknown", modelId);
     }
 
+    /**
+ * 记录成功相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ */
     public void recordSuccess(String provider, String modelId) {
         states.invalidate(identity(provider, modelId));
     }
@@ -57,6 +63,13 @@ public class AiModelCircuitBreaker {
         recordFailure("unknown", modelId, failure);
     }
 
+    /**
+ * 记录失败相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ * @param failure 失败
+ */
     public void recordFailure(String provider, String modelId, Throwable failure) {
         String key = identity(provider, modelId);
         GenerationErrorClassifier.GenerationError error = GenerationErrorClassifier.classify(failure);
@@ -93,6 +106,7 @@ public class AiModelCircuitBreaker {
             return openedUntil == null || !now.isBefore(openedUntil);
         }
 
+        /** 记录失败相关指标或状态。 */
         private synchronized boolean recordFailure(Instant now,
                                                    int threshold,
                                                    java.time.Duration openDuration,

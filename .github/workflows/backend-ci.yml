@@ -1,0 +1,154 @@
+name: 后端持续集成
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: 单元与架构门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: 执行完整默认门禁
+        run: mvn -B -ntp verify
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: target/surefire-reports
+          if-no-files-found: ignore
+          retention-days: 14
+
+  stateful-integration-tests:
+    name: MySQL 与 Redis 集成门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-integration-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent -h 127.0.0.1 -pci-integration-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: 执行状态型集成测试
+        run: >-
+          mvn -B -ntp -Pdev,integration-test
+          "-Dtest=FlywaySchemaMigrationIntegrationTest,DevServerSessionRegistryMySqlIntegrationTest,PromptReleaseMySqlIntegrationTest,ToolApprovalMySqlIntegrationTest,SemanticMemoryOutboxMySqlIntegrationTest,RedisChatMemoryRestartIntegrationTest,RedisGenerationRuntimeIntegrationTest"
+          "-Dintegration.mysql.admin-url=jdbc:mysql://127.0.0.1:3306/?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false"
+          "-Dintegration.mysql.username=root"
+          "-Dintegration.mysql.password=ci-integration-password"
+          "-Dintegration.redis.host=127.0.0.1"
+          "-Dintegration.redis.port=6379"
+          test
+
+      - name: 上传集成测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stateful-integration-test-reports
+          path: target/surefire-reports
+          if-no-files-found: ignore
+          retention-days: 14
+
+  milvus-contract-tests:
+    name: Milvus 长期记忆契约门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: 启动隔离 Milvus
+        run: >-
+          docker compose
+          --project-name ai-mother-milvus-ci
+          --file docker/milvus/compose.ci.yml
+          up --detach --wait --wait-timeout 300
+
+      - name: 执行 Milvus 健康与长期记忆契约测试
+        run: >-
+          mvn -B -ntp -Pdev,external-test
+          "-Dtest=MilvusConnectionExternalTest,MilvusLongTermMemoryStoreExternalTest,MilvusMemorySpringWiringTest"
+          "-DmilvusUri=http://127.0.0.1:19530"
+          test
+
+      - name: 输出 Milvus 故障日志
+        if: failure()
+        run: >-
+          docker compose
+          --project-name ai-mother-milvus-ci
+          --file docker/milvus/compose.ci.yml
+          logs --no-color
+
+      - name: 上传 Milvus 测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: milvus-contract-test-reports
+          path: target/surefire-reports
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: 清理隔离 Milvus
+        if: always()
+        run: >-
+          docker compose
+          --project-name ai-mother-milvus-ci
+          --file docker/milvus/compose.ci.yml
+          down --volumes --remove-orphans

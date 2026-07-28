@@ -69,6 +69,7 @@ public class SseExceptionResponseWriter {
         }
     }
 
+    /** 判断 SSE 请求是否满足约束。 */
     private boolean isSseRequest(HttpServletRequest request) {
         if (request == null) {
             return false;

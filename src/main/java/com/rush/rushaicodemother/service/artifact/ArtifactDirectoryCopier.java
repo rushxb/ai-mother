@@ -93,6 +93,7 @@ public class ArtifactDirectoryCopier {
         copy(sourceDirectory, targetDirectory, profile, null);
     }
 
+    /** 复制制品目录{@code Copier}。 */
     private void copy(Path sourceDirectory,
                       Path targetDirectory,
                       ArtifactCopyProfile profile,
@@ -105,6 +106,7 @@ public class ArtifactDirectoryCopier {
         rejectOverlappingTrees(sourceRoot, targetRoot);
         TreeManifest sourceBefore = inspectTree(sourceRoot, profile, control);
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             check(control);
             Files.createDirectory(targetRoot);
@@ -155,11 +157,19 @@ public class ArtifactDirectoryCopier {
         }
     }
 
+    /** 复制并{@code Nio}。 */
     private void copyWithNio(Path sourceRoot,
                              Path targetRoot,
                              ArtifactCopyProfile profile,
                              CopyControl control) throws IOException {
         Files.walkFileTree(sourceRoot, new SimpleFileVisitor<>() {
+            /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
             @Override
             public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
                     throws IOException {
@@ -174,6 +184,13 @@ public class ArtifactDirectoryCopier {
                 return FileVisitResult.CONTINUE;
             }
 
+            /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return 制品目录{@code Copier}
+ */
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                 check(control);
@@ -207,6 +224,7 @@ public class ArtifactDirectoryCopier {
         }
     }
 
+    /** 校验并返回有效的{@code Existing}目录。 */
     private Path requireExistingDirectory(Path directory, String label) throws IOException {
         if (directory == null) {
             throw new ArtifactCopyException(ArtifactCopyException.Reason.INVALID_PATH, label + " must not be null");
@@ -224,6 +242,7 @@ public class ArtifactDirectoryCopier {
         return normalized.toRealPath();
     }
 
+    /** 校验并返回有效的{@code New}目标。 */
     private Path requireNewTarget(Path targetDirectory) throws IOException {
         if (targetDirectory == null) {
             throw new ArtifactCopyException(
@@ -283,6 +302,7 @@ public class ArtifactDirectoryCopier {
         );
     }
 
+    /** 返回{@code relative}{@code Display}。 */
     private String relativeDisplay(Path root, Path path) {
         try {
             Path relative = root.equals(path) ? path.getFileName() : root.relativize(path);
@@ -297,6 +317,7 @@ public class ArtifactDirectoryCopier {
         return fileName == null ? "" : fileName.toString();
     }
 
+    /** 删除{@code Tree}{@code Quietly}。 */
     private void deleteTreeQuietly(Path target, Exception primaryFailure) {
         try {
             if (target == null || !Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
@@ -313,6 +334,13 @@ public class ArtifactDirectoryCopier {
                     return FileVisitResult.CONTINUE;
                 }
 
+                /**
+ * 在目录访问完成后处理异常并收口遍历状态。
+ *
+ * @param directory 目录
+ * @param exception 待转换或处理的异常
+ * @return 方法执行结果
+ */
                 @Override
                 public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
                     if (exception != null) {
@@ -342,6 +370,13 @@ public class ArtifactDirectoryCopier {
             this.control = control;
         }
 
+        /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
         @Override
         public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
             check(control);
@@ -362,6 +397,13 @@ public class ArtifactDirectoryCopier {
             return FileVisitResult.CONTINUE;
         }
 
+        /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return 清单
+ */
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
             check(control);
@@ -416,6 +458,7 @@ public class ArtifactDirectoryCopier {
             this.cancellationRequested = cancellationRequested;
         }
 
+        /** 启动文案{@code Control}。 */
         private static CopyControl start(Duration timeout, BooleanSupplier cancellationRequested) {
             Objects.requireNonNull(timeout, "artifact copy timeout must not be null");
             if (timeout.isZero() || timeout.isNegative()) {
@@ -433,6 +476,7 @@ public class ArtifactDirectoryCopier {
             );
         }
 
+        /** 检查文案{@code Control}的当前状态。 */
         private void check() throws ArtifactCopyException {
             if (Thread.currentThread().isInterrupted()) {
                 throw new ArtifactCopyException(
@@ -483,6 +527,7 @@ public class ArtifactDirectoryCopier {
             Map<String, FileFingerprint> files,
             long totalBytes
     ) {
+        /** 返回{@code same}{@code Layout}。 */
         private boolean sameLayout(TreeManifest other) {
             if (other == null || totalBytes != other.totalBytes || !directories.equals(other.directories)) {
                 return false;

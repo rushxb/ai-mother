@@ -10,6 +10,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class UserViewConverter {
 
+    /**
+ * 将当前对象转换为用户视图。
+ *
+ * @param user 用户
+ * @return 用户视图
+ */
     public UserVO toUserView(User user) {
         if (user == null) {
             return null;
@@ -19,6 +25,12 @@ public class UserViewConverter {
         return userVO;
     }
 
+    /**
+ * 将当前对象转换为{@code Login}用户视图。
+ *
+ * @param user 用户
+ * @return {@code Login}用户视图
+ */
     public LoginUserVO toLoginUserView(User user) {
         if (user == null) {
             return null;

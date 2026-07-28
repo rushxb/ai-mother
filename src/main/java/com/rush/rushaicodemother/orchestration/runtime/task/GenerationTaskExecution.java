@@ -21,6 +21,7 @@ public record GenerationTaskExecution(
         Instant submittedAt
 ) {
 
+    /** 创建生成任务执行实例并完成必要的依赖和初始状态设置。 */
     public GenerationTaskExecution {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
             throw new IllegalArgumentException("taskId format is invalid");

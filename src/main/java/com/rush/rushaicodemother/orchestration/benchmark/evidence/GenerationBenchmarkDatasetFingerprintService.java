@@ -17,11 +17,23 @@ public class GenerationBenchmarkDatasetFingerprintService {
 
     private final GenerationBenchmarkCatalog catalog;
 
+    /**
+ * 返回当前指纹。
+ *
+ * @return 处理后的生成基准测试{@code Dataset}指纹文本
+ */
     public String currentFingerprint() {
         return fingerprint(catalog.dataset());
     }
 
+    /**
+ * 返回指纹。
+ *
+ * @param dataset {@code dataset} 对应的调用参数
+ * @return 处理后的生成基准测试{@code Dataset}指纹文本
+ */
     public String fingerprint(GenerationBenchmarkDataset dataset) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (dataset == null) {
             throw new IllegalArgumentException("评测数据集不能为空");
         }
@@ -30,6 +42,7 @@ public class GenerationBenchmarkDatasetFingerprintService {
         ReleaseCandidateFingerprint.appendField(canonical, dataset.datasetId());
         ReleaseCandidateFingerprint.appendField(canonical, dataset.version());
         ReleaseCandidateFingerprint.appendField(canonical, Integer.toString(dataset.tasks().size()));
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBenchmarkTask task : dataset.tasks()) {
             ReleaseCandidateFingerprint.appendField(canonical, task.id());
             ReleaseCandidateFingerprint.appendField(canonical, task.mode());

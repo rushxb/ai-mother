@@ -39,10 +39,20 @@ public class AiModelConfiguration {
     LocalDateTime createTime;
     LocalDateTime updateTime;
 
+    /**
+ * 启用{@code d}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean enabled() {
         return Integer.valueOf(1).equals(isEnabled);
     }
 
+    /**
+ * 返回{@code thinking}支持的。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean thinkingSupported() {
         return Integer.valueOf(1).equals(supportsThinking);
     }

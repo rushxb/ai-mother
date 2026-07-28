@@ -19,11 +19,23 @@ public final class LogExceptionSanitizer {
     private LogExceptionSanitizer() {
     }
 
+    /**
+ * 清理日志异常净化器中的敏感或不安全内容。
+ *
+ * @param throwable 待处理的异常
+ * @return 日志异常净化器
+ */
     public static Throwable sanitize(Throwable throwable) {
         Objects.requireNonNull(throwable, "throwable");
         return sanitize(throwable, new IdentityHashMap<>(), 0);
     }
 
+    /**
+ * 清理消息中的敏感或不安全内容。
+ *
+ * @param throwable 待处理的异常
+ * @return 处理后的消息文本
+ */
     public static String sanitizeMessage(Throwable throwable) {
         Objects.requireNonNull(throwable, "throwable");
         String safeMessage = sanitizeExceptionMessage(throwable.getMessage());
@@ -31,6 +43,13 @@ public final class LogExceptionSanitizer {
         return safeMessage.isBlank() ? exceptionType : exceptionType + ": " + safeMessage;
     }
 
+    /**
+ * 清理值中的敏感或不安全内容。
+ *
+ * @param value 待处理值
+ * @param maxLength {@code maxLength} 对应的调用参数
+ * @return 处理后的值文本
+ */
     public static String sanitizeValue(Object value, int maxLength) {
         if (value == null || maxLength <= 0) {
             return "";
@@ -42,6 +61,7 @@ public final class LogExceptionSanitizer {
         }
     }
 
+    /** 清理日志异常净化器中的敏感或不安全内容。 */
     private static Throwable sanitize(Throwable throwable,
                                       Map<Throwable, Boolean> visited,
                                       int depth) {

@@ -25,6 +25,16 @@ public class DefaultAppDeletionService implements AppDeletionService {
     private final AppMemoryLifecycleService memoryLifecycleService;
     private final TransactionOperations transactionOperations;
 
+    /**
+ * 创建默认应用删除服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param lifecycleDataMapper {@code lifecycleDataMapper} 对应的调用参数
+ * @param artifactLifecycleService 制品生命周期服务
+ * @param devServerManager 开发服务器管理器
+ * @param operationLockManager 操作锁管理器
+ * @param memoryLifecycleService 记忆生命周期服务
+ * @param transactionManager 事务管理器
+ */
     @Autowired
     public DefaultAppDeletionService(AppLifecycleDataMapper lifecycleDataMapper,
                                      AppArtifactLifecycleService artifactLifecycleService,
@@ -56,6 +66,11 @@ public class DefaultAppDeletionService implements AppDeletionService {
         this.transactionOperations = transactionOperations;
     }
 
+    /**
+ * 删除默认应用删除。
+ *
+ * @param appId 应用编号
+ */
     @Override
     public void delete(Long appId) {
         validateAppId(appId);
@@ -67,6 +82,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
         });
     }
 
+    /** 删除{@code Locked}。 */
     private void deleteLocked(App app) {
         Long appId = app.getId();
         devServerManager.stopDevServer(appId);
@@ -96,6 +112,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
         }
     }
 
+    /** 删除{@code Relational}{@code Data}。 */
     private void deleteRelationalData(Long appId) {
         lifecycleDataMapper.deleteGenerationModelCalls(appId);
         lifecycleDataMapper.deleteGenerationBuildLogs(appId);
@@ -112,6 +129,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
         ThrowUtils.throwIf(deletedRows != 1, ErrorCode.OPERATION_ERROR, "删除应用失败");
     }
 
+    /** 处理回滚{@code Artifacts}。 */
     private void rollbackArtifacts(AppArtifactDeletionTransaction artifactTransaction,
                                    RuntimeException deletionFailure) {
         try {

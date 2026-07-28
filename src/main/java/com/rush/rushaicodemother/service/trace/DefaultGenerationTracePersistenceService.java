@@ -25,6 +25,12 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
 
     private final GenerationTraceMapper mapper;
 
+    /**
+ * 返回{@code insert}任务。
+ *
+ * @param task 任务
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean insertTask(NewTask task) {
         requireTask(task);
@@ -54,16 +60,37 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         }
     }
 
+    /**
+ * 查找匹配的任务按任务编号。
+ *
+ * @param taskId 任务编号
+ * @return 任务按任务编号
+ */
     @Override
     public TaskRecord findTaskByTaskId(String taskId) {
         return toTaskRecord(mapper.selectTaskByTaskId(requireText(taskId, "生成任务 ID")));
     }
 
+    /**
+ * 返回锁任务按任务编号。
+ *
+ * @param taskId 任务编号
+ * @return 默认生成追踪持久化
+ */
     @Override
     public TaskRecord lockTaskByTaskId(String taskId) {
         return toTaskRecord(mapper.selectTaskByTaskIdForUpdate(requireText(taskId, "生成任务 ID")));
     }
 
+    /**
+ * 补全运行时任务追踪。
+ *
+ * @param recordId 记录编号
+ * @param task 任务
+ * @param fence 围栏
+ * @param updateTime 更新时间
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean enrichRuntimeTaskTrace(long recordId,
                                           NewTask task,
@@ -79,6 +106,14 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 updateTime) == 1;
     }
 
+    /**
+ * 推动运行中任务追踪完成状态转换。
+ *
+ * @param recordId 记录编号
+ * @param task 任务
+ * @param fence 围栏
+ * @param updateTime 更新时间
+ */
     @Override
     public void transitionRunningTaskTrace(long recordId,
                                            NewTask task,
@@ -104,6 +139,15 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         );
     }
 
+    /**
+ * 更新运行中任务阶段。
+ *
+ * @param recordId 记录编号
+ * @param stage 阶段
+ * @param stageMessage 阶段消息
+ * @param fence 围栏
+ * @param updateTime 更新时间
+ */
     @Override
     public void updateRunningTaskStage(long recordId,
                                        String stage,
@@ -120,6 +164,14 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         );
     }
 
+    /**
+ * 更新任务记忆汇总。
+ *
+ * @param recordId 记录编号
+ * @param memorySummary 记忆汇总
+ * @param fence 围栏
+ * @param updateTime 更新时间
+ */
     @Override
     public void updateTaskMemorySummary(long recordId,
                                         String memorySummary,
@@ -134,6 +186,16 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         );
     }
 
+    /**
+ * 完成运行中任务并持久化终态。
+ *
+ * @param recordId 记录编号
+ * @param status 目标状态
+ * @param endTime {@code endTime} 对应的调用参数
+ * @param durationMs 待处理的 {@code durationMs} 集合
+ * @param errorMessage 错误消息
+ * @param fence 围栏
+ */
     @Override
     public void completeRunningTask(long recordId,
                                     GenerationTaskStatus status,
@@ -157,6 +219,11 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         );
     }
 
+    /**
+ * 处理{@code insert}构建日志。
+ *
+ * @param buildLog 构建日志
+ */
     @Override
     public void insertBuildLog(NewBuildLog buildLog) {
         requireBuildLog(buildLog);
@@ -176,6 +243,12 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         requireOneAffectedRow(mapper.insertBuildLog(entity), "记录生成构建日志");
     }
 
+    /**
+ * 返回{@code insert}模型调用。
+ *
+ * @param modelCall 模型调用
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean insertModelCall(NewModelCall modelCall) {
         requireModelCall(modelCall);
@@ -212,12 +285,25 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         }
     }
 
+    /**
+ * 查找匹配的模型调用按调用编号。
+ *
+ * @param callId 调用编号
+ * @return 模型调用按调用编号
+ */
     @Override
     public ModelCallRecord findModelCallByCallId(String callId) {
         GenerationModelCall entity = mapper.selectModelCallByCallId(requireText(callId, "模型调用 ID"));
         return entity == null ? null : toModelCallRecord(entity);
     }
 
+    /**
+ * 列出符合条件的{@code Recent}任务按应用编号。
+ *
+ * @param appId 应用编号
+ * @param limit 资源上限
+ * @return {@code Recent}任务按应用编号集合
+ */
     @Override
     public List<TaskRecord> listRecentTasksByAppId(long appId, int limit) {
         requirePositive(appId, "应用 ID");
@@ -226,6 +312,13 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 .toList();
     }
 
+    /**
+ * 列出符合条件的{@code Recent}构建{@code Logs}按应用编号。
+ *
+ * @param appId 应用编号
+ * @param limit 资源上限
+ * @return {@code Recent}构建{@code Logs}按应用编号集合
+ */
     @Override
     public List<BuildLogRecord> listRecentBuildLogsByAppId(long appId, int limit) {
         requirePositive(appId, "应用 ID");
@@ -234,6 +327,13 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 .toList();
     }
 
+    /**
+ * 列出符合条件的构建{@code Logs}按任务编号。
+ *
+ * @param taskId 任务编号
+ * @param limit 资源上限
+ * @return 构建{@code Logs}按任务编号集合
+ */
     @Override
     public List<BuildLogRecord> listBuildLogsByTaskId(String taskId, int limit) {
         return safeList(mapper.selectBuildLogsByTaskId(requireText(taskId, "生成任务 ID"), limit)).stream()
@@ -241,6 +341,7 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 .toList();
     }
 
+    /** 将当前对象转换为任务记录。 */
     private TaskRecord toTaskRecord(GenerationTask entity) {
         if (entity == null) {
             return null;
@@ -266,6 +367,7 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         );
     }
 
+    /** 将当前对象转换为模型调用记录。 */
     private ModelCallRecord toModelCallRecord(GenerationModelCall entity) {
         GenerationModelUsageSource usageSource;
         GenerationModelCallStatus status;

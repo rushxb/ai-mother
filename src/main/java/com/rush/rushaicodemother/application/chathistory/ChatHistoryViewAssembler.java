@@ -14,6 +14,12 @@ import java.util.List;
 @Component
 public class ChatHistoryViewAssembler {
 
+    /**
+ * 将当前对象转换为{@code Cursor}页面。
+ *
+ * @param slice 分页切片
+ * @return {@code Cursor}页面
+ */
     public ChatHistoryCursorPageVO toCursorPage(ChatHistorySlice slice) {
         List<ChatHistoryVO> records = slice.records().stream()
                 .map(this::toUserView)
@@ -29,6 +35,12 @@ public class ChatHistoryViewAssembler {
                 .build();
     }
 
+    /**
+ * 将当前对象转换为管理端页面。
+ *
+ * @param sourcePage 来源分页数据
+ * @return 管理端页面
+ */
     public Page<ChatHistoryAdminVO> toAdminPage(Page<ChatHistory> sourcePage) {
         Page<ChatHistoryAdminVO> targetPage = new Page<>(
                 sourcePage.getPageNumber(),

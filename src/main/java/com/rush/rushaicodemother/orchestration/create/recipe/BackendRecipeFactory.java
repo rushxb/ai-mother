@@ -14,6 +14,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class BackendRecipeFactory {
 
+    /** 创建后端{@code Recipe}。 */
     BackendRecipe create(String userMessage, CreateSpec spec) {
         CreateSpec.EntitySpec entity = spec.entities() == null || spec.entities().isEmpty()
                 ? new CreateSpec.EntitySpec(inferEntityName(userMessage), inferEntityLabel(userMessage), List.of(

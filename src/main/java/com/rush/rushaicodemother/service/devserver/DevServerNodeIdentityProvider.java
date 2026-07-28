@@ -18,6 +18,11 @@ public class DevServerNodeIdentityProvider {
     private final String nodeId;
     private final String ownerId;
 
+    /**
+ * 创建开发服务器节点{@code Identity}提供方实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ */
     public DevServerNodeIdentityProvider(DevServerRuntimeProperties properties) {
         String configuredNodeId = normalize(properties == null ? null : properties.getNodeId());
         this.nodeId = truncate(configuredNodeId == null ? resolveHostName() : configuredNodeId,
@@ -41,6 +46,7 @@ public class DevServerNodeIdentityProvider {
         return ownerId;
     }
 
+    /** 根据当前上下文解析主机名称。 */
     private String resolveHostName() {
         try {
             String hostName = normalize(InetAddress.getLocalHost().getHostName());

@@ -21,6 +21,11 @@ public record GenerationOrchestrationRequest(
         String taskId
 ) {
 
+    /**
+ * 根据当前上下文解析记忆上下文。
+ *
+ * @return 处理后的记忆上下文文本
+ */
     public String resolveMemoryContext() {
         return deferredMemoryContextSupplier == null
                 ? memoryContext

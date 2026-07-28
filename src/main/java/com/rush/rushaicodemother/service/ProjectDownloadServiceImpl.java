@@ -57,6 +57,13 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
             ".cache"
     );
 
+    /**
+ * 处理{@code download}项目{@code As}{@code Zip}。
+ *
+ * @param projectPath 项目路径
+ * @param downloadFileName {@code downloadFileName} 对应的调用参数
+ * @param response 响应对象
+ */
     @Override
     public void downloadProjectAsZip(String projectPath,
                                      String downloadFileName,
@@ -84,6 +91,7 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
         }
     }
 
+    /** 根据当前上下文解析项目根。 */
     private Path resolveProjectRoot(String projectPath) {
         try {
             Path declaredRoot = Path.of(projectPath).toAbsolutePath().normalize();
@@ -107,6 +115,7 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
         response.setHeader("Cache-Control", "no-store");
     }
 
+    /** 判断路径{@code Allowed}是否满足约束。 */
     private boolean isPathAllowed(Path projectRoot, Path candidate) {
         Path normalizedCandidate = candidate.toAbsolutePath().normalize();
         if (!normalizedCandidate.startsWith(projectRoot)) {
@@ -135,6 +144,13 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
             this.zipOutputStream = zipOutputStream;
         }
 
+        /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
         @Override
         public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
                 throws IOException {
@@ -148,6 +164,13 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
                     : FileVisitResult.SKIP_SUBTREE;
         }
 
+        /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return 项目{@code Zip}{@code Visitor}
+ */
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
             if (Files.isSymbolicLink(file)
@@ -164,6 +187,7 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
             return FileVisitResult.CONTINUE;
         }
 
+        /** 写入条目。 */
         private void writeEntry(Path realFile, BasicFileAttributes attributes) throws IOException {
             String entryName = projectRoot.relativize(realFile)
                     .toString()

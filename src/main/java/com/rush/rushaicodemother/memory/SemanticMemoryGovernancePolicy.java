@@ -60,11 +60,24 @@ public final class SemanticMemoryGovernancePolicy {
     private SemanticMemoryGovernancePolicy() {
     }
 
+    /**
+ * 清理内容中的敏感或不安全内容。
+ *
+ * @param content 文件或消息内容
+ * @return 处理后的内容文本
+ */
     public static String sanitizeContent(String content) {
         String sanitized = PublicDiagnosticSanitizer.sanitizeForPublicOutput(content, MAX_CONTENT_CHARS);
         return truncateUtf8(sanitized, MAX_CONTENT_UTF8_BYTES);
     }
 
+    /**
+ * 返回{@code govern}元数据。
+ *
+ * @param metadata 元数据
+ * @param content 文件或消息内容
+ * @return 语义记忆{@code Governance}策略集合
+ */
     public static Map<String, Object> governMetadata(Map<String, Object> metadata, String content) {
         Map<String, Object> governed = new LinkedHashMap<>();
         governed.put("schemaVersion", "v2");
@@ -87,17 +100,33 @@ public final class SemanticMemoryGovernancePolicy {
         return Map.copyOf(governed);
     }
 
+    /**
+ * 校验{@code ate}记忆是否有效。
+ *
+ * @param memory 记忆
+ * @param expectedDimension {@code expectedDimension} 对应的调用参数
+ */
     public static void validateMemory(SemanticMemory memory, int expectedDimension) {
         validateStoredMemory(memory);
         validateVector(memory.embedding(), expectedDimension);
     }
 
+    /**
+ * 校验{@code ate}记忆是否有效。
+ *
+ * @param memory 记忆
+ */
     public static void validateMemory(SemanticMemory memory) {
         validateStoredMemory(memory);
         float[] embedding = memory.embedding();
         validateVector(embedding, embedding.length);
     }
 
+    /**
+ * 校验{@code ate}{@code Stored}记忆是否有效。
+ *
+ * @param memory 记忆
+ */
     public static void validateStoredMemory(SemanticMemory memory) {
         if (memory == null
                 || memory.id() == null || !MEMORY_ID.matcher(memory.id()).matches()
@@ -121,6 +150,12 @@ public final class SemanticMemoryGovernancePolicy {
         }
     }
 
+    /**
+ * 校验{@code ate}查询是否有效。
+ *
+ * @param query 查询
+ * @param expectedDimension {@code expectedDimension} 对应的调用参数
+ */
     public static void validateQuery(SemanticMemoryQuery query, int expectedDimension) {
         if (query == null
                 || !positive(query.tenantId())
@@ -133,6 +168,11 @@ public final class SemanticMemoryGovernancePolicy {
         validateVector(query.embedding(), expectedDimension);
     }
 
+    /**
+ * 校验{@code ate}查询是否有效。
+ *
+ * @param query 查询
+ */
     public static void validateQuery(SemanticMemoryQuery query) {
         if (query == null) {
             throw new IllegalArgumentException("invalid semantic memory query");
@@ -141,6 +181,11 @@ public final class SemanticMemoryGovernancePolicy {
         validateQuery(query, embedding.length);
     }
 
+    /**
+ * 校验{@code ate}元数据是否有效。
+ *
+ * @param metadata 元数据
+ */
     public static void validateMetadata(Map<String, Object> metadata) {
         if (metadata == null || metadata.size() > MAX_METADATA_KEYS
                 || !PERSISTED_METADATA_KEYS.containsAll(metadata.keySet())
@@ -154,6 +199,13 @@ public final class SemanticMemoryGovernancePolicy {
         }
     }
 
+    /**
+ * 按资源上限截断{@code Utf8}。
+ *
+ * @param value 待处理值
+ * @param maxBytes 最大字节数
+ * @return 处理后的{@code Utf8}文本
+ */
     public static String truncateUtf8(String value, int maxBytes) {
         if (value == null || value.isEmpty() || maxBytes <= 0) {
             return "";
@@ -183,6 +235,7 @@ public final class SemanticMemoryGovernancePolicy {
         return value == null ? 0 : value.getBytes(StandardCharsets.UTF_8).length;
     }
 
+    /** 校验{@code ate}向量是否有效。 */
     private static void validateVector(float[] vector, int expectedDimension) {
         if (expectedDimension <= 0 || vector == null || vector.length != expectedDimension) {
             throw new IllegalArgumentException("semantic memory embedding dimension mismatch");
@@ -205,7 +258,9 @@ public final class SemanticMemoryGovernancePolicy {
         return SOURCE.matcher(candidate).matches() ? candidate : "generation_task";
     }
 
+    /** 返回标量。 */
     private static Object scalar(Object value) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (value == null) {
             return null;
         }
@@ -237,6 +292,7 @@ public final class SemanticMemoryGovernancePolicy {
                 : truncateCodePoints(normalized, MAX_METADATA_STRING_CHARS);
     }
 
+    /** 持久化{@code ed}标量。 */
     private static boolean persistedScalar(Object value) {
         if (value instanceof Boolean || value instanceof Byte || value instanceof Short
                 || value instanceof Integer || value instanceof Long) {

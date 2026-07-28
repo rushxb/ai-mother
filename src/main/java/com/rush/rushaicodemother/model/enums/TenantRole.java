@@ -27,6 +27,12 @@ public enum TenantRole {
         return requiredRole != null && authorityLevel >= requiredRole.authorityLevel;
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param value 待处理值
+ * @return 租户角色
+ */
     public static TenantRole fromValue(String value) {
         return Arrays.stream(values())
                 .filter(role -> role.value.equalsIgnoreCase(value))

@@ -37,6 +37,14 @@ public class CodeGraphAstParser {
         this.syntaxValidationService = syntaxValidationService;
     }
 
+    /**
+ * 解析代码{@code Graph}{@code Ast}{@code Parser}。
+ *
+ * @param relativePath 相对路径
+ * @param content 文件或消息内容
+ * @param knownFiles 待处理的 {@code knownFiles} 集合
+ * @return 代码{@code Graph}{@code Ast}{@code Parser}
+ */
     public CodeGraphFileNode parse(String relativePath, String content, Set<String> knownFiles) {
         String normalizedPath = normalizePath(relativePath);
         String extension = normalizeExtension(FileUtil.extName(normalizedPath));
@@ -54,6 +62,7 @@ public class CodeGraphAstParser {
         return new CodeGraphFileNode(normalizedPath, extension, imports, symbols, validation.errors());
     }
 
+    /** 解析{@code Java}{@code Script}{@code Like}。 */
     private void parseJavaScriptLike(String relativePath,
                                      String content,
                                      Set<String> knownFiles,
@@ -73,6 +82,7 @@ public class CodeGraphAstParser {
         }
     }
 
+    /** 添加{@code Js}{@code Imports}。 */
     private void addJsImports(String relativePath,
                               String content,
                               Set<String> knownFiles,
@@ -87,6 +97,7 @@ public class CodeGraphAstParser {
         }
     }
 
+    /** 解析{@code Go}。 */
     private void parseGo(String relativePath,
                          String content,
                          Set<String> knownFiles,
@@ -112,6 +123,7 @@ public class CodeGraphAstParser {
         addSymbolMatches(relativePath, content, SQL_COLUMN, "sql_column", symbols);
     }
 
+    /** 添加导入。 */
     private void addImport(String sourceFile,
                            String importedPath,
                            String kind,
@@ -129,6 +141,7 @@ public class CodeGraphAstParser {
         ));
     }
 
+    /** 根据当前上下文解析导入。 */
     private String resolveImport(String sourceFile, String importedPath, Set<String> knownFiles) {
         if (StrUtil.isBlank(sourceFile) || StrUtil.isBlank(importedPath) || knownFiles.isEmpty()) {
             return "";
@@ -140,6 +153,7 @@ public class CodeGraphAstParser {
         return resolveGoInternalImport(normalizedImport, knownFiles);
     }
 
+    /** 根据当前上下文解析{@code Java}{@code Script}导入。 */
     private String resolveJavaScriptImport(String sourceFile, String importedPath, Set<String> knownFiles) {
         try {
             Path base;
@@ -169,6 +183,7 @@ public class CodeGraphAstParser {
         return "";
     }
 
+    /** 根据当前上下文解析{@code Go}内部导入。 */
     private String resolveGoInternalImport(String importedPath, Set<String> knownFiles) {
         int internalIndex = importedPath.indexOf("/internal/");
         String internalPath;
@@ -189,6 +204,7 @@ public class CodeGraphAstParser {
                 .orElse("");
     }
 
+    /** 规范化{@code Known}文件。 */
     private Set<String> normalizeKnownFiles(Set<String> knownFiles) {
         if (knownFiles == null || knownFiles.isEmpty()) {
             return Set.of();
@@ -227,6 +243,7 @@ public class CodeGraphAstParser {
         }
     }
 
+    /** 添加{@code Matches}。 */
     private void addMatches(String content, Pattern pattern, LinkedHashSet<String> values) {
         var matcher = pattern.matcher(StrUtil.blankToDefault(content, ""));
         while (matcher.find()) {
@@ -237,6 +254,7 @@ public class CodeGraphAstParser {
         }
     }
 
+    /** 返回{@code infer}{@code Js}{@code Symbol}类别。 */
     private String inferJsSymbolKind(String content, String symbolName) {
         String normalized = StrUtil.blankToDefault(content, "");
         if (normalized.contains("function " + symbolName)) {

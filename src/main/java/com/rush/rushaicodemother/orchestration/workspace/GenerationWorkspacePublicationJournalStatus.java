@@ -21,6 +21,12 @@ public enum GenerationWorkspacePublicationJournalStatus {
         return value;
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param value 待处理值
+ * @return 生成工作区发布日志状态
+ */
     public static GenerationWorkspacePublicationJournalStatus fromValue(String value) {
         return Arrays.stream(values())
                 .filter(status -> status.value.equals(value))

@@ -13,6 +13,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class MemoryExecutionConfiguration {
     public static final String MEMORY_TASK_EXECUTOR = "memoryTaskExecutor";
 
+    /** 创建并配置线程池任务执行器 Bean。 */
     @Bean(name = MEMORY_TASK_EXECUTOR)
     ThreadPoolTaskExecutor memoryTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

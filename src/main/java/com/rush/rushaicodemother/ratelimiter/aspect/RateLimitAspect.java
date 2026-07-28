@@ -27,6 +27,12 @@ public class RateLimitAspect {
         this.enforcer = enforcer;
     }
 
+    /**
+ * 处理{@code enforce}{@code Rate}限制。
+ *
+ * @param joinPoint {@code joinPoint} 对应的调用参数
+ * @param rateLimit {@code rateLimit} 对应的调用参数
+ */
     @Before("@annotation(rateLimit)")
     public void enforceRateLimit(JoinPoint joinPoint, RateLimit rateLimit) {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();

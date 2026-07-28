@@ -95,6 +95,11 @@ class AiModelProvenanceFactoryTest {
             }
 
             @Override
+            public Optional<PromptSelection> selectByKey(String promptKey, String cohortKey) {
+                return Optional.of(selection);
+            }
+
+            @Override
             public Optional<PromptSelection> identify(String promptContent) {
                 return "system-v1".equals(promptContent) ? Optional.of(selection) : Optional.empty();
             }

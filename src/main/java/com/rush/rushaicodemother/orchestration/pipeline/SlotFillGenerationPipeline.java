@@ -56,6 +56,12 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
         return GenerationRoute.CREATE;
     }
 
+    /**
+ * 返回{@code supports}。
+ *
+ * @param request 请求参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean supports(GenerationPipelineRequest request) {
         CodeGenTypeEnum type = request.codeGenType();
@@ -67,6 +73,12 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 && !request.workspace().exists();
     }
 
+    /**
+ * 执行插槽填充生成流水线处理流程。
+ *
+ * @param request 请求参数
+ * @return 插槽填充生成流水线
+ */
     @Override
     public GenerationPipelineOutcome execute(GenerationPipelineRequest request) {
         GenerationTaskExecution execution = request.requireExecution();
@@ -128,13 +140,17 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
         }
     }
 
+    /** 运行创建生成处理流程。 */
     private GenerationPipelineOutcome runCreateGeneration(GenerationPipelineRequest request,
                                                            String taskId,
                                                            Instant startedAt,
                                                            GenerationSession session) {
         App app = request.taskRequest().app();
+        int initialWorkspaceMutations = successfulWorkspaceMutationCount(session);
+        SlotFillResult result = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            SlotFillResult result = slotFillGenerationService.tryGenerate(app, request.taskRequest(), session);
+            result = slotFillGenerationService.tryGenerate(app, request.taskRequest(), session);
             session.throwIfCancelled();
             if (result == null) {
                 String diagnosticReason = StrUtil.blankToDefault(
@@ -183,9 +199,8 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                     );
             session.throwIfCancelled();
             if (!validationOutcome.success()) {
-                return handoffCreateGeneration(
-                        taskId, startedAt, "create_validation_handoff",
-                        CREATE_VALIDATION_FAILURE_REASON, validationOutcome.reason(), telemetry(result));
+                return finishValidationFailure(
+                        request, taskId, startedAt, validationOutcome.reason(), telemetry(result));
             }
             return finishSuccessfulCreateGeneration(
                     taskId,
@@ -202,12 +217,24 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                     failure.getMessage(), failure.getClass().getSimpleName());
             log.error("CREATE 模板路径执行失败，appId: {}, taskId: {}",
                     app.getId(), taskId, LogExceptionSanitizer.sanitize(failure));
+            if (result != null || hasNewWorkspaceMutations(session, initialWorkspaceMutations)) {
+                return finishTerminalCreateGeneration(
+                        request,
+                        taskId,
+                        session,
+                        GenerationTerminalOutcome.FAILED,
+                        CREATE_VALIDATION_FAILURE_REASON,
+                        "CREATE 写入后处理",
+                        diagnosticReason
+                );
+            }
             return handoffCreateGeneration(
                     taskId, startedAt, "create_template_runtime",
                     CREATE_FAILURE_REASON, diagnosticReason, Map.of());
         }
     }
 
+    /** 返回{@code handoff}创建生成。 */
     private GenerationPipelineOutcome handoffCreateGeneration(String taskId,
                                                                Instant startedAt,
                                                                String spanStage,
@@ -236,6 +263,50 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 route(), GenerationTaskStatus.SUCCESS, null, resultSummary);
     }
 
+    /** 构建修复预算耗尽后结束 CREATE，避免再次执行整条重型生成链路。 */
+    private GenerationPipelineOutcome finishValidationFailure(
+            GenerationPipelineRequest request,
+            String taskId,
+            Instant startedAt,
+            String diagnosticReason,
+            Map<String, Object> createTelemetry
+    ) {
+        String safeDiagnostic = LogExceptionSanitizer.sanitizeValue(diagnosticReason, 1_000);
+        generationPerformanceMonitorService.recordSpan(
+                taskId,
+                "create_post_generation_validation",
+                GenerationSpanCategory.VALIDATION,
+                "failed",
+                Duration.between(startedAt, Instant.now()),
+                safeDiagnostic
+        );
+        Map<String, Object> validationTelemetry = new LinkedHashMap<>(createTelemetry);
+        validationTelemetry.put("validationFailed", true);
+        validationTelemetry.put("fallback", false);
+        generationPerformanceMonitorService.recordCreateTelemetry(taskId, validationTelemetry);
+        generationPerformanceMonitorService.finishTask(taskId, GenerationTaskStatus.FAILED.getValue());
+        generationEventPublisher.publishSafely(
+                request.taskRequest(),
+                GenerationEventType.TASK_FAILED,
+                GenerationTerminalOutcome.FAILED.eventMessage(),
+                Map.of(
+                        "taskId", taskId,
+                        "route", route(),
+                        "reason", CREATE_VALIDATION_FAILURE_REASON,
+                        "status", GenerationTaskStatus.FAILED.getValue()
+                )
+        );
+        return GenerationPipelineOutcome.completed(
+                route(),
+                GenerationTaskStatus.FAILED,
+                CREATE_VALIDATION_FAILURE_REASON,
+                buildFailureResultSummary(
+                        "CREATE 构建验证与自动修复",
+                        "项目构建或运行时验证未通过，自动修复预算已用尽"
+                )
+        );
+    }
+
     private GenerationPipelineOutcome finishInitializationFailure(GenerationPipelineRequest request,
                                                                    String taskId,
                                                                    GenerationSession session,
@@ -247,6 +318,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 request, taskId, session, outcome, terminalReason(outcome), stage, failure.getMessage());
     }
 
+    /** 完成{@code Terminal}创建生成并收口相关状态。 */
     private GenerationPipelineOutcome finishTerminalCreateGeneration(GenerationPipelineRequest request,
                                                                       String taskId,
                                                                       GenerationSession session,
@@ -259,7 +331,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
             session.emitStopped();
         } else {
             session.emit(GenerationStreamEvent.generationError(
-                    terminalMessage(outcome),
+                    terminalMessage(outcome, reason),
                     Map.of("taskId", taskId, "route", route(), "reason", reason)
             ));
         }
@@ -281,10 +353,23 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
         };
     }
 
-    private String terminalMessage(GenerationTerminalOutcome outcome) {
-        return outcome == GenerationTerminalOutcome.DEADLINE_EXCEEDED
-                ? "CREATE 生成已超过最大执行时间，请稍后重试"
+    private String terminalMessage(GenerationTerminalOutcome outcome, String reason) {
+        if (outcome == GenerationTerminalOutcome.DEADLINE_EXCEEDED) {
+            return "CREATE 生成已超过最大执行时间，请稍后重试";
+        }
+        return CREATE_VALIDATION_FAILURE_REASON.equals(reason)
+                ? "CREATE 项目验证失败，请稍后重试"
                 : CREATE_FAILURE_MESSAGE;
+    }
+
+    private int successfulWorkspaceMutationCount(GenerationSession session) {
+        return session == null || session.executionContext() == null
+                ? 0
+                : session.executionContext().successfulWorkspaceMutationCount();
+    }
+
+    private boolean hasNewWorkspaceMutations(GenerationSession session, int initialWorkspaceMutations) {
+        return successfulWorkspaceMutationCount(session) > initialWorkspaceMutations;
     }
 
     private String buildSuccessResultSummary(SlotFillResult result) {
@@ -305,6 +390,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 + "\n失败原因：" + StrUtil.blankToDefault(safeDiagnostic, CREATE_FAILURE_MESSAGE);
     }
 
+    /** 返回遥测。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> telemetry(SlotFillResult result) {
         if (result == null || result.metadata() == null) {

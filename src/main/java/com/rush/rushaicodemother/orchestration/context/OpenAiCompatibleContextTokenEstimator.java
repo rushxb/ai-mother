@@ -27,6 +27,12 @@ public class OpenAiCompatibleContextTokenEstimator implements AiContextTokenEsti
         this.safetyMargin = safetyMargin;
     }
 
+    /**
+ * 估算{@code Open}AI{@code Compatible}上下文令牌{@code Estimator}。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public int estimate(String text) {
         if (text == null || text.isEmpty()) {
@@ -49,6 +55,7 @@ public class OpenAiCompatibleContextTokenEstimator implements AiContextTokenEsti
         return truncate(text, maximumTokens, true);
     }
 
+    /** 按资源上限截断{@code Open}AI{@code Compatible}上下文令牌{@code Estimator}。 */
     private String truncate(String text, int maximumTokens, boolean fromEnd) {
         if (text == null || text.isEmpty() || maximumTokens <= 0) {
             return "";
@@ -74,6 +81,7 @@ public class OpenAiCompatibleContextTokenEstimator implements AiContextTokenEsti
         return best;
     }
 
+    /** 创建{@code Estimator}。 */
     private static TokenCountEstimator createEstimator(AiContextPackBudgetProperties properties) {
         Objects.requireNonNull(properties, "properties");
         try {

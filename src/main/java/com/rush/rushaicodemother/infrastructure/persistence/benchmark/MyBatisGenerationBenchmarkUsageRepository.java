@@ -16,6 +16,12 @@ public class MyBatisGenerationBenchmarkUsageRepository implements GenerationBenc
 
     private final GenerationBenchmarkUsageMapper mapper;
 
+    /**
+ * 查找匹配的按任务编号。
+ *
+ * @param taskId 任务编号
+ * @return 按任务编号
+ */
     @Override
     public GenerationBenchmarkUsage findByTaskId(String taskId) {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {

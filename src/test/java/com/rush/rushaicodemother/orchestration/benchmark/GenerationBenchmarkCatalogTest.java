@@ -232,6 +232,12 @@ class GenerationBenchmarkCatalogTest {
             }
 
             @Override
+            public java.util.Optional<com.rush.rushaicodemother.ai.prompt.PromptSelection> selectByKey(
+                    String promptKey, String cohortKey) {
+                return java.util.Optional.empty();
+            }
+
+            @Override
             public java.util.Optional<com.rush.rushaicodemother.ai.prompt.PromptSelection> identify(
                     String promptContent) {
                 return java.util.Optional.empty();

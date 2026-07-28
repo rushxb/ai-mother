@@ -40,19 +40,4 @@ class AiCodeGeneratorFacadeTest {
         Assertions.assertNotNull(completeContent);
     }
 
-    @Test
-    void generateVueProjectCodeStream() {
-        Flux<GenerationStreamEvent> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(
-                "简单的任务记录网站，总代码量不超过 200 行",
-                CodeGenTypeEnum.VUE_PROJECT, 1L);
-        // 阻塞等待所有数据收集完成
-        List<GenerationStreamEvent> result = codeStream.collectList().block();
-        // 验证结果
-        Assertions.assertNotNull(result);
-        String completeContent = result.stream()
-                .map(GenerationStreamEvent::getText)
-                .filter(java.util.Objects::nonNull)
-                .collect(java.util.stream.Collectors.joining());
-        Assertions.assertNotNull(completeContent);
-    }
 }

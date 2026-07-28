@@ -5,6 +5,11 @@ public final class ToolPolicyViolationException extends RuntimeException {
 
     private final String violationCode;
 
+    /**
+ * 创建工具策略{@code Violation}异常实例并完成必要的依赖和初始状态设置。
+ *
+ * @param violationCode {@code violationCode} 对应的调用参数
+ */
     public ToolPolicyViolationException(String violationCode) {
         super("AI tool invocation rejected by central policy", null, false, false);
         if (violationCode == null || !violationCode.matches("[a-z0-9_]{1,64}")) {

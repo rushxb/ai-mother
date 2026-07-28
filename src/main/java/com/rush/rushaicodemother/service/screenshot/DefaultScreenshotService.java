@@ -37,6 +37,14 @@ public final class DefaultScreenshotService implements ScreenshotService {
     private final Clock clock;
     private final Supplier<String> fileIdSupplier;
 
+    /**
+ * 创建默认截图服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param screenshotRenderer 网页截图渲染器
+ * @param objectStorageService 对象存储服务
+ * @param screenshotProperties 截图配置属性
+ * @param deploymentProperties 部署配置属性
+ */
     public DefaultScreenshotService(WebPageScreenshotRenderer screenshotRenderer,
                                     ObjectStorageService objectStorageService,
                                     ScreenshotProperties screenshotProperties,
@@ -70,6 +78,12 @@ public final class DefaultScreenshotService implements ScreenshotService {
         return true;
     }
 
+    /**
+ * 根据输入生成{@code And}{@code Upload}截图。
+ *
+ * @param webUrl Web地址
+ * @return 处理后的{@code And}{@code Upload}截图文本
+ */
     @Override
     public String generateAndUploadScreenshot(String webUrl) {
         URI targetUri = requireTrustedDeploymentUri(webUrl);
@@ -94,6 +108,7 @@ public final class DefaultScreenshotService implements ScreenshotService {
         }
     }
 
+    /** 校验并返回有效的{@code Trusted}部署{@code Uri}。 */
     private URI requireTrustedDeploymentUri(String webUrl) {
         if (webUrl == null || webUrl.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "截图的网址不能为空");
@@ -120,6 +135,7 @@ public final class DefaultScreenshotService implements ScreenshotService {
         }
     }
 
+    /** 判断路径{@code Under}部署根是否满足约束。 */
     private boolean isPathUnderDeploymentRoot(String targetPath) {
         String basePath = deploymentRoot.getPath();
         if (basePath == null || basePath.isEmpty()) {
@@ -142,6 +158,7 @@ public final class DefaultScreenshotService implements ScreenshotService {
                 || normalizedRawPath.contains("%5c");
     }
 
+    /** 创建工作区。 */
     private Path createWorkspace() {
         Path root = screenshotProperties.getWorkDirectory().toAbsolutePath().normalize();
         try {
@@ -158,6 +175,7 @@ public final class DefaultScreenshotService implements ScreenshotService {
         }
     }
 
+    /** 校验并返回有效的工作区截图。 */
     private Path requireWorkspaceScreenshot(Path screenshotFile, Path workspace) {
         if (screenshotFile == null) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成网页截图失败");
@@ -181,6 +199,7 @@ public final class DefaultScreenshotService implements ScreenshotService {
         return "screenshots/" + datePath + "/" + fileId + ".jpg";
     }
 
+    /** 删除工作区。 */
     private void deleteWorkspace(Path workspace) {
         try {
             Files.walkFileTree(workspace, new SimpleFileVisitor<>() {
@@ -190,6 +209,13 @@ public final class DefaultScreenshotService implements ScreenshotService {
                     return FileVisitResult.CONTINUE;
                 }
 
+                /**
+ * 在目录访问完成后处理异常并收口遍历状态。
+ *
+ * @param directory 目录
+ * @param exception 待转换或处理的异常
+ * @return 方法执行结果
+ */
                 @Override
                 public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
                     if (exception != null) {

@@ -91,6 +91,8 @@ class ToolInvocationCheckpointFactoryTest {
                 clock
         );
         GenerationPerformanceProfile profile = GenerationPerformanceProfile.qualityFirst();
+        executionContext.beginAgentAttempt(profile.maxToolInvocations());
+        executionContext.reserveAgentModelTurn(profile.maxToolInvocations());
 
         ToolInvocationCheckpoint checkpoint = factory.capture(
                 "task-1", request.id(), request.name(), request.arguments(),
@@ -102,6 +104,10 @@ class ToolInvocationCheckpointFactoryTest {
         assertEquals(profile, restored.performanceProfile());
         assertEquals(preparation, restored.preparation());
         assertEquals(executionContext.snapshot(), restored.execution());
+        assertEquals(1L, restored.execution().agentAttemptEpoch());
+        assertEquals(profile.maxToolInvocations(),
+                restored.execution().agentToolRoundLimit());
+        assertEquals(1, restored.execution().agentModelTurnsStarted());
         assertEquals(traceContext, restored.traceContext());
         assertEquals(transcript, conversationCodec.restore(
                 restored.durableConversation(), checkpoint));

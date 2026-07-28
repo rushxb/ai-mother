@@ -194,6 +194,24 @@ class GenerationRuntimeConfigurationFingerprintServiceTest {
     }
 
     @Test
+    void generationRoutingPolicyMustEnterReleaseConfigurationFingerprint() {
+        String baseline = service.currentFingerprint();
+
+        environment.setProperty(
+                "app.generation-routing.telemetry.cold-load-timeout",
+                "200ms"
+        );
+        String coldLoadChanged = service.currentFingerprint();
+        assertNotEquals(baseline, coldLoadChanged);
+
+        environment.setProperty(
+                "app.generation-routing.telemetry.high-failure-rate",
+                "0.7"
+        );
+        assertNotEquals(coldLoadChanged, service.currentFingerprint());
+    }
+
+    @Test
     void replaySafeCheckpointElisionMustEnterReleaseConfigurationFingerprint() {
         String baseline = service.currentFingerprint();
 

@@ -41,6 +41,13 @@ public class GenerationToolLoopGuard {
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final Cache<String, TaskState> states;
 
+    /**
+ * 创建生成工具循环防护实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param objectMapper {@code objectMapper} 对应的调用参数
+ * @param metricsCollector {@code metricsCollector} 对应的调用参数
+ */
     public GenerationToolLoopGuard(AiToolLoopGuardProperties properties,
                                    ObjectMapper objectMapper,
                                    GenerationOrchestrationMetricsCollector metricsCollector) {
@@ -56,6 +63,12 @@ public class GenerationToolLoopGuard {
                 .build();
     }
 
+    /**
+ * 处理执行前调用。
+ *
+ * @param taskId 任务编号
+ * @param request 请求参数
+ */
     public void beforeInvocation(String taskId, ToolExecutionRequest request) {
         if (taskId == null || taskId.isBlank() || request == null) {
             throw new IllegalArgumentException("工具循环治理缺少任务或调用信息");
@@ -75,6 +88,14 @@ public class GenerationToolLoopGuard {
         }
     }
 
+    /**
+ * 完成调用并持久化终态。
+ *
+ * @param taskId 任务编号
+ * @param request 请求参数
+ * @param result 待处理结果
+ * @param failed 失败
+ */
     public void completeInvocation(String taskId,
                                    ToolExecutionRequest request,
                                    String result,
@@ -97,11 +118,13 @@ public class GenerationToolLoopGuard {
 
     /** 从审批检查点携带的已校验会话重建状态，避免恢复到其他节点后重复原循环。 */
     public void restore(String taskId, List<ChatMessage> messages) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (taskId == null || taskId.isBlank() || messages == null) {
             return;
         }
         TaskState restored = new TaskState();
         Map<String, ToolExecutionRequest> requestsById = new HashMap<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (ChatMessage message : messages) {
             if (message instanceof AiMessage aiMessage && aiMessage.hasToolExecutionRequests()) {
                 for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
@@ -133,6 +156,7 @@ public class GenerationToolLoopGuard {
         return DigestUtil.sha256Hex(toolName + "\u0000" + canonicalArguments(arguments));
     }
 
+    /** 判断当前状态是否允许{@code onical}参数。 */
     private String canonicalArguments(String arguments) {
         try {
             JsonNode parsed = objectMapper.readTree(arguments == null || arguments.isBlank() ? "{}" : arguments);
@@ -142,6 +166,7 @@ public class GenerationToolLoopGuard {
         }
     }
 
+    /** 判断当前状态是否允许{@code onical}节点。 */
     private JsonNode canonicalNode(JsonNode node) {
         if (node == null || node.isNull() || node.isValueNode()) {
             return node;
@@ -186,6 +211,7 @@ public class GenerationToolLoopGuard {
         private final Map<String, String> pendingByRequest = new HashMap<>();
         private int noProgressCalls;
 
+        /** 返回执行前。 */
         private synchronized String before(String requestKey,
                                            String signature,
                                            int maxIdenticalCalls,

@@ -31,6 +31,11 @@ public record ManualSnapshot(
         createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("key", key);

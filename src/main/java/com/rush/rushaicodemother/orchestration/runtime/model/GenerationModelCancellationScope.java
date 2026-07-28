@@ -22,6 +22,11 @@ public final class GenerationModelCancellationScope implements GenerationCancell
     private final AtomicInteger state = new AtomicInteger(ACTIVE);
     private final Set<GenerationCancellationHandle> handles = ConcurrentHashMap.newKeySet();
 
+    /**
+ * 注册生成模型{@code Cancellation}作用域。
+ *
+ * @param handle 句柄
+ */
     public void register(GenerationCancellationHandle handle) {
         if (handle == null) {
             throw new IllegalArgumentException("模型取消句柄不能为空");
@@ -41,6 +46,7 @@ public final class GenerationModelCancellationScope implements GenerationCancell
         }
     }
 
+    /** 取消生成模型{@code Cancellation}作用域。 */
     @Override
     public void cancel() {
         if (!state.compareAndSet(ACTIVE, CANCELLED)) {
@@ -50,6 +56,7 @@ public final class GenerationModelCancellationScope implements GenerationCancell
         handles.clear();
     }
 
+    /** 完成生成模型{@code Cancellation}作用域并持久化终态。 */
     public void complete() {
         if (state.compareAndSet(ACTIVE, COMPLETED)) {
             handles.clear();
@@ -60,6 +67,7 @@ public final class GenerationModelCancellationScope implements GenerationCancell
         return state.get() == CANCELLED;
     }
 
+    /** 取消安全处理。 */
     private void cancelSafely(GenerationCancellationHandle handle) {
         try {
             handle.cancel();

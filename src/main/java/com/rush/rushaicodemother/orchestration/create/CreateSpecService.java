@@ -48,10 +48,25 @@ public class CreateSpecService {
         this.executionContextService = executionContextService;
     }
 
+    /**
+ * 根据输入生成创建{@code Spec}。
+ *
+ * @param userMessage 用户消息
+ * @param plan 计划
+ * @return 创建{@code Spec}
+ */
     public SpecResult generate(String userMessage, CreateGenerationPlan plan) {
         return generateInternal(userMessage, plan, aggregateGroupOrNull(plan), null);
     }
 
+    /**
+ * 根据输入生成{@code Managed}。
+ *
+ * @param taskId 任务编号
+ * @param userMessage 用户消息
+ * @param plan 计划
+ * @return {@code Managed}
+ */
     public SpecResult generateManaged(String taskId,
                                       String userMessage,
                                       CreateGenerationPlan plan) {
@@ -72,10 +87,12 @@ public class CreateSpecService {
         return generateInternal(userMessage, plan, group, null);
     }
 
+    /** 根据输入生成内部。 */
     private SpecResult generateInternal(String userMessage,
                                         CreateGenerationPlan plan,
                                         SlotGroup group,
                                         String taskId) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (plan == null || group == null) {
             CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(
                     defaults.fromRequest(userMessage, plan, group, "create_spec_invalid_context"),
@@ -105,6 +122,7 @@ public class CreateSpecService {
                     false
             );
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             AiCreateSpecService service = executionContext == null
                     ? serviceFactory.createService()
@@ -149,6 +167,7 @@ public class CreateSpecService {
         );
     }
 
+    /** 返回{@code local}{@code Spec}。 */
     private SpecResult localSpec(String userMessage,
                                  CreateGenerationPlan plan,
                                  SlotGroup group,
@@ -168,6 +187,7 @@ public class CreateSpecService {
         );
     }
 
+    /** 根据当前上下文解析执行上下文。 */
     private GenerationExecutionContext resolveExecutionContext(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             return null;
@@ -180,6 +200,7 @@ public class CreateSpecService {
                         "CREATE 规格调用没有活动的任务执行上下文，taskId=" + taskId));
     }
 
+    /** 创建服务。 */
     private AiCreateSpecService createService(
             GenerationExecutionContext context,
             Duration timeout
@@ -207,6 +228,7 @@ public class CreateSpecService {
         return String.join("; ", modules);
     }
 
+    /** 返回{@code aggregate}分组。 */
     private SlotGroup aggregateGroup(CreateGenerationPlan plan) {
         List<String> templateIds = plan.slotGroups().stream()
                 .filter(group -> group != null && StrUtil.isNotBlank(group.templateId()))
@@ -230,6 +252,7 @@ public class CreateSpecService {
             CreateSpecValidationResult validation,
             boolean modelAttempted
     ) {
+        /** 创建{@code Spec}结果实例并完成必要的依赖和初始状态设置。 */
         public SpecResult {
             reason = StrUtil.blankToDefault(
                     reason,

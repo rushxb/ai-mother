@@ -47,6 +47,7 @@ public class HeavyGenerationPreparationService {
         return buildGenerationPreparation(taskId, intent, routingPlan);
     }
 
+    /** 返回{@code recognize}生成{@code Intent}。 */
     private GenerationIntent recognizeGenerationIntent(String taskId, App app, String userMessage) {
         HeavyGenerationIntentDecision decision = taskId == null || taskId.isBlank()
                 ? heavyGenerationIntentAssembler.assemble(app, userMessage)
@@ -67,6 +68,7 @@ public class HeavyGenerationPreparationService {
                 routingPrompt -> CodeGenTypeEnum.max(intent.currentType(), intent.targetType()));
     }
 
+    /** 构建并返回生成{@code Preparation}。 */
     private GenerationPreparation buildGenerationPreparation(String taskId,
                                                              GenerationIntent intent,
                                                              GenerationRoutingPlan routingPlan) {
@@ -77,7 +79,7 @@ public class HeavyGenerationPreparationService {
         try (MemoryContextHandle memoryContext = memoryContextOverlapExecutor.start(
                 taskId,
                 () -> generationMemoryContextService.buildGenerationMemoryContext(
-                        intent.app(), intent.generationMessage(), targetType))) {
+                        taskId, intent.app(), intent.generationMessage(), targetType))) {
             orchestrationResult = generationOrchestrator.prepare(
                     new GenerationOrchestrationRequest(
                             intent.app(),
@@ -108,7 +110,9 @@ public class HeavyGenerationPreparationService {
         return preparation;
     }
 
+    /** 绑定工具执行上下文。 */
     private void bindToolExecutionContext(App app, GenerationPreparation preparation) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (app == null || app.getId() == null || preparation == null) {
             return;
         }
@@ -128,6 +132,7 @@ public class HeavyGenerationPreparationService {
         if (generationWorkspaceService == null) {
             return;
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             generationToolExecutionContextService.bindWorkspace(
                     app.getId(),

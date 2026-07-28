@@ -15,6 +15,11 @@ public class LocalGenerationTaskDispatcher implements GenerationTaskDispatcher {
         this.executionService = executionService;
     }
 
+    /**
+ * 分发{@code Local}生成任务{@code Dispatcher}。
+ *
+ * @param taskId 任务编号
+ */
     @Override
     public void dispatch(String taskId) {
         GenerationTaskDispatchResult result = executionService.schedule(taskId, null);

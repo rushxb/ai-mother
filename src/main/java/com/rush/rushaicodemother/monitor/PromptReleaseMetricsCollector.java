@@ -46,6 +46,13 @@ public class PromptReleaseMetricsCollector {
         return new PromptReleaseMetricsCollector();
     }
 
+    /**
+ * 记录{@code Refresh}相关指标或状态。
+ *
+ * @param status 目标状态
+ * @param duration 目标时长
+ * @param revision 修订版本
+ */
     public void recordRefresh(String status, Duration duration, long revision) {
         if (meterRegistry == null) {
             return;
@@ -64,6 +71,12 @@ public class PromptReleaseMetricsCollector {
                 .register(meterRegistry)).record(nonNegative(duration));
     }
 
+    /**
+ * 记录变更相关指标或状态。
+ *
+ * @param action 动作
+ * @param status 目标状态
+ */
     public void recordMutation(String action, String status) {
         if (meterRegistry == null) {
             return;

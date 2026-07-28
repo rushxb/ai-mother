@@ -41,6 +41,12 @@ public class ProxyHeaderPolicy {
             "content-length"
     );
 
+    /**
+ * 判断是否应执行转发请求请求头。
+ *
+ * @param headerName 请求头名称
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean shouldForwardRequestHeader(String headerName) {
         String normalizedName = normalize(headerName);
         return !normalizedName.isEmpty()
@@ -50,6 +56,12 @@ public class ProxyHeaderPolicy {
                 && !normalizedName.startsWith("proxy-");
     }
 
+    /**
+ * 判断是否应执行转发响应请求头。
+ *
+ * @param headerName 请求头名称
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean shouldForwardResponseHeader(String headerName) {
         String normalizedName = normalize(headerName);
         return !normalizedName.isEmpty()

@@ -42,6 +42,13 @@ public class SemanticAppMemoryLifecycleService implements AppMemoryLifecycleServ
         this.clock = clock;
     }
 
+    /**
+ * 处理调度应用记忆删除。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ * @param requestedByUserId 目标资源编号
+ */
     @Override
     public void scheduleApplicationMemoryDeletion(Long tenantId,
                                                   Long appId,

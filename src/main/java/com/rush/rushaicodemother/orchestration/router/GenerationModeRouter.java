@@ -26,6 +26,14 @@ public class GenerationModeRouter {
         this(decisionEngine, (appId, userId) -> GenerationRoutingTelemetrySnapshot.unavailable());
     }
 
+    /**
+ * 为生成模式{@code Router}选择处理路由。
+ *
+ * @param request 请求参数
+ * @param codeGenType 代码生成类型
+ * @param workspace 工作区
+ * @return 生成模式{@code Router}
+ */
     public GenerationModeDecision route(GenerationTaskRequest request,
                                         CodeGenTypeEnum codeGenType,
                                         GenerationWorkspace workspace) {

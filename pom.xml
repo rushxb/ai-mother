@@ -71,6 +71,12 @@
                 <excludedGroups>external</excludedGroups>
             </properties>
         </profile>
+        <profile>
+            <id>external-test</id>
+            <properties>
+                <excludedGroups>integration</excludedGroups>
+            </properties>
+        </profile>
     </profiles>
     <dependencies>
         <dependency>

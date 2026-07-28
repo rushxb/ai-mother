@@ -42,6 +42,14 @@ public class GenerationAgentProductivityGuard {
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final Cache<String, TaskState> states;
 
+    /**
+ * 创建生成智能体{@code Productivity}防护实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ * @param toolManager 工具管理器
+ * @param executionContextService 执行上下文服务
+ * @param metricsCollector {@code metricsCollector} 对应的调用参数
+ */
     public GenerationAgentProductivityGuard(
             AiAgentProductivityProperties properties,
             ToolManager toolManager,
@@ -136,6 +144,7 @@ public class GenerationAgentProductivityGuard {
         states.put(taskId, restored);
     }
 
+    /** 返回{@code force}工作区动作。 */
     private ChatRequest forceWorkspaceAction(ChatRequest request, Decision decision) {
         boolean hasMutation = decision.successfulWorkspaceMutations() > 0;
         List<ToolSpecification> tools = request.toolSpecifications().stream()
@@ -159,6 +168,7 @@ public class GenerationAgentProductivityGuard {
                 .build();
     }
 
+    /** 返回{@code allowed}{@code During}{@code Forced}动作。 */
     private boolean allowedDuringForcedAction(ToolSpecification specification,
                                               boolean hasMutation) {
         if (specification == null || specification.name() == null) {
@@ -175,6 +185,7 @@ public class GenerationAgentProductivityGuard {
                 || EXIT_TOOL.equals(specification.name());
     }
 
+    /** 创建包含指令的新对象。 */
     private List<ChatMessage> withDirective(List<ChatMessage> messages, String directive) {
         List<ChatMessage> governed = new ArrayList<>(messages);
         for (int index = 0; index < governed.size(); index++) {
@@ -253,12 +264,14 @@ public class GenerationAgentProductivityGuard {
             }
         }
 
+        /** 返回执行前模型轮次。 */
         private synchronized Decision beforeModelTurn(
                 int successfulWorkspaceMutations,
                 int maxReadOnlyCalls,
                 int maxModelTurns,
                 int forcedTurnsBeforeFinalize
         ) {
+            // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
             if (!initialized) {
                 initialized = true;
                 mutationCheckpoint = successfulWorkspaceMutations;
@@ -294,6 +307,7 @@ public class GenerationAgentProductivityGuard {
             );
         }
 
+        /** 处理恢复{@code Round}。 */
         private synchronized void restoreRound(
                 List<ToolExecutionRequest> requests,
                 Map<String, ToolExecutionResultMessage> resultsById,
@@ -302,6 +316,7 @@ public class GenerationAgentProductivityGuard {
             int roundCalls = 0;
             int roundReadOnlyCalls = 0;
             boolean completedMutationAttempt = false;
+            // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
             for (ToolExecutionRequest request : requests) {
                 if (request == null || request.name() == null || EXIT_TOOL.equals(request.name())) {
                     continue;

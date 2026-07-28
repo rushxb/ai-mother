@@ -10,7 +10,14 @@ public final class GenerationDagCheckpointRecoveryPolicy {
     private GenerationDagCheckpointRecoveryPolicy() {
     }
 
+    /**
+ * 返回{@code assess}。
+ *
+ * @param task 任务
+ * @return 生成{@code Dag}检查点恢复策略
+ */
     public static Assessment assess(GenerationOrchestrationTask task) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (task == null) {
             return rejected(Disposition.INVALID, "生成 DAG 检查点不存在");
         }
@@ -32,6 +39,7 @@ public final class GenerationDagCheckpointRecoveryPolicy {
             return rejected(Disposition.AMBIGUOUS_NODE,
                     "执行中的生成 DAG 节点没有幂等契约，不能自动重派");
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (Map.Entry<String, String> entry : nodeStatuses.entrySet()) {
             if (!hasText(entry.getKey()) || !"done".equals(entry.getValue())) {
                 return rejected(Disposition.INVALID, "生成 DAG 检查点包含未知节点状态");
@@ -59,6 +67,7 @@ public final class GenerationDagCheckpointRecoveryPolicy {
         return accepted(Disposition.NODE_BOUNDARY_RESUME, "生成 DAG 可从已完成节点边界恢复");
     }
 
+    /** 返回{@code assess}完成。 */
     private static Assessment assessCompleted(GenerationOrchestrationTask task,
                                               Map<String, String> nodeStatuses) {
         if (!"completed".equals(task.getStatus())

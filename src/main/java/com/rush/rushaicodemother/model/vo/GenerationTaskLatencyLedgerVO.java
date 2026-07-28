@@ -30,6 +30,12 @@ public record GenerationTaskLatencyLedgerVO(
         List<CategoryLatencyVO> categories
 ) {
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param ledger {@code ledger} 对应的调用参数
+ * @return 生成任务{@code Latency}{@code Ledger}视图对象
+ */
     public static GenerationTaskLatencyLedgerVO from(GenerationTaskLatencyLedger ledger) {
         return new GenerationTaskLatencyLedgerVO(
                 ledger.taskId(), ledger.appId(), ledger.userId(), ledger.route(),

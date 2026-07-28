@@ -17,6 +17,13 @@ public class AiReleaseAuditService {
 
     private final AiReleaseAuditMapper mapper;
 
+    /**
+ * 记录模型启用相关指标或状态。
+ *
+ * @param evidence 证据
+ * @param operatorUserId 目标资源编号
+ * @param modelId 模型编号
+ */
     public void recordModelEnable(GenerationBenchmarkEvidenceRecord evidence,
                                   long operatorUserId,
                                   long modelId) {

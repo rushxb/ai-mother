@@ -23,6 +23,13 @@ public class FileDirReadTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 读取{@code Dir}。
+ *
+ * @param relativeDirPath {@code relativeDirPath} 对应的调用参数
+ * @param appId 应用编号
+ * @return 处理后的{@code Dir}文本
+ */
     @Tool("读取目录结构，获取指定目录下的所有文件和子目录信息")
     public String readDir(
             @P("目录的相对路径，为空则读取整个项目结构")
@@ -69,6 +76,12 @@ public class FileDirReadTool extends BaseTool {
         return "读取目录";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeDirPath = arguments.getStr("relativeDirPath");

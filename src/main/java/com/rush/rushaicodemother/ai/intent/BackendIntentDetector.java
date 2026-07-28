@@ -74,6 +74,7 @@ public class BackendIntentDetector {
      * @return 检测结果
      */
     public BackendIntentResult detectIntent(String userMessage) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (userMessage == null || userMessage.isBlank()) {
             return BackendIntentResult.none();
         }

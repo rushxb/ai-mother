@@ -42,7 +42,9 @@ public record GenerationTaskCommand(
     public static final int CURRENT_SCHEMA_VERSION = 4;
     public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
+    /** 创建生成任务命令实例并完成必要的依赖和初始状态设置。 */
     public GenerationTaskCommand {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (!supportsSchemaVersion(schemaVersion)) {
             throw new IllegalArgumentException("unsupported generation task command schema");
         }
@@ -171,6 +173,15 @@ public record GenerationTaskCommand(
                 GenerationTraceContext.empty(), submittedAt, deadlineAt);
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param taskId 任务编号
+ * @param request 请求参数
+ * @param submittedAt {@code submittedAt} 对应的调用参数
+ * @param slaEnvelope {@code slaEnvelope} 对应的调用参数
+ * @return 生成任务命令
+ */
     public static GenerationTaskCommand from(String taskId,
                                              GenerationPipelineRequest request,
                                              Instant submittedAt,
@@ -178,6 +189,16 @@ public record GenerationTaskCommand(
         return from(taskId, request, submittedAt, slaEnvelope, GenerationTraceContext.empty());
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param taskId 任务编号
+ * @param request 请求参数
+ * @param submittedAt {@code submittedAt} 对应的调用参数
+ * @param slaEnvelope {@code slaEnvelope} 对应的调用参数
+ * @param traceContext 追踪上下文
+ * @return 生成任务命令
+ */
     public static GenerationTaskCommand from(String taskId,
                                              GenerationPipelineRequest request,
                                              Instant submittedAt,
@@ -211,6 +232,11 @@ public record GenerationTaskCommand(
         );
     }
 
+    /**
+ * 返回模式决策。
+ *
+ * @return 生成任务命令
+ */
     public GenerationModeDecision modeDecision() {
         return new GenerationModeDecision(
                 mode,
@@ -223,6 +249,14 @@ public record GenerationTaskCommand(
         );
     }
 
+    /**
+ * 返回恢复。
+ *
+ * @param app 应用
+ * @param user 用户
+ * @param workspace 工作区
+ * @return 生成任务命令
+ */
     public GenerationPipelineRequest restore(App app,
                                              User user,
                                              GenerationWorkspace workspace) {
@@ -246,6 +280,12 @@ public record GenerationTaskCommand(
         return mode.route();
     }
 
+    /**
+ * 返回{@code supports}结构版本。
+ *
+ * @param schemaVersion 结构版本
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public static boolean supportsSchemaVersion(Integer schemaVersion) {
         return schemaVersion != null
                 && schemaVersion >= MIN_SUPPORTED_SCHEMA_VERSION

@@ -46,7 +46,14 @@ public class DevServerPreviewRoutingService {
         this.clock = clock;
     }
 
+    /**
+ * 查找匹配的当前。
+ *
+ * @param appId 应用编号
+ * @return 可选的当前；不存在时返回空值
+ */
     public Optional<DevServerPreviewSession> findCurrent(Long appId) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (appId == null || appId <= 0) {
             return Optional.empty();
         }
@@ -90,6 +97,12 @@ public class DevServerPreviewRoutingService {
         ));
     }
 
+    /**
+ * 校验并返回有效的运行中{@code Route}。
+ *
+ * @param appId 应用编号
+ * @return 运行中{@code Route}
+ */
     public DevServerPreviewRoute requireRunningRoute(Long appId) {
         DevServerPreviewSession session = findCurrent(appId)
                 .filter(DevServerPreviewSession::running)

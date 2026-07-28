@@ -74,6 +74,7 @@ public class GenerationEditRouteService {
     public GenerationEditRouteResult route(App app,
                                            String userMessage,
                                            GenerationWorkspace workspace) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (app == null || app.getId() == null) {
             return GenerationEditRouteResult.heavyGeneration("应用参数无效");
         }

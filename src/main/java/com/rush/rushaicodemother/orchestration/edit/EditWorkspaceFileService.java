@@ -43,11 +43,25 @@ public class EditWorkspaceFileService {
 
     private final EditLocatorProperties properties;
 
+    /**
+ * 根据当前上下文解析{@code Editable}文件。
+ *
+ * @param workspace 工作区
+ * @param relativePath 相对路径
+ * @return 可选的{@code Editable}文件；不存在时返回空值
+ */
     public Optional<EditWorkspaceFile> resolveEditableFile(GenerationWorkspace workspace, String relativePath) {
         return resolveRegularFile(workspace, relativePath)
                 .filter(file -> isEditablePath(workspace, file.relativePath()));
     }
 
+    /**
+ * 根据当前上下文解析{@code Indexable}文件。
+ *
+ * @param workspace 工作区
+ * @param relativePath 相对路径
+ * @return 可选的{@code Indexable}文件；不存在时返回空值
+ */
     public Optional<EditWorkspaceFile> resolveIndexableFile(GenerationWorkspace workspace, String relativePath) {
         return resolveRegularFile(workspace, relativePath)
                 .filter(file -> isIndexablePath(workspace, file.relativePath()));
@@ -61,7 +75,15 @@ public class EditWorkspaceFileService {
         return scanFiles(workspace, relativeDirectory, false);
     }
 
+    /**
+ * 读取{@code Utf8}。
+ *
+ * @param workspace 工作区
+ * @param file 文件
+ * @return 可选的{@code Utf8}；不存在时返回空值
+ */
     public Optional<String> readUtf8(GenerationWorkspace workspace, EditWorkspaceFile file) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (file == null) {
             return Optional.empty();
         }
@@ -69,6 +91,7 @@ public class EditWorkspaceFileService {
         if (currentFile.isEmpty() || !currentFile.get().absolutePath().equals(file.absolutePath())) {
             return Optional.empty();
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path path = currentFile.get().absolutePath();
             Set<java.nio.file.OpenOption> openOptions = Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
@@ -96,6 +119,13 @@ public class EditWorkspaceFileService {
         }
     }
 
+    /**
+ * 判断{@code Indexable}路径是否满足约束。
+ *
+ * @param workspace 工作区
+ * @param relativePath 相对路径
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isIndexablePath(GenerationWorkspace workspace, String relativePath) {
         if (!isEditablePath(workspace, relativePath)) {
             return false;
@@ -104,6 +134,7 @@ public class EditWorkspaceFileService {
         return INDEXABLE_EXTENSIONS.contains(extension);
     }
 
+    /** 返回{@code scan}文件。 */
     private List<EditWorkspaceFile> scanFiles(GenerationWorkspace workspace,
                                               String relativeDirectory,
                                               boolean indexableOnly) {
@@ -115,9 +146,17 @@ public class EditWorkspaceFileService {
 
         List<EditWorkspaceFile> files = new ArrayList<>();
         int[] scannedFileCount = {0};
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path realRoot = root.get().toRealPath();
             Files.walkFileTree(startDirectory.get(), new SimpleFileVisitor<>() {
+                /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
                 @Override
                 public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
                     if (!directory.equals(startDirectory.get()) && isHiddenPath(root.get(), directory, workspace)) {
@@ -134,6 +173,13 @@ public class EditWorkspaceFileService {
                     return FileVisitResult.CONTINUE;
                 }
 
+                /**
+ * 返回访问文件。
+ *
+ * @param path 目标路径
+ * @param attributes 属性
+ * @return 编辑工作区文件
+ */
                 @Override
                 public FileVisitResult visitFile(Path path, BasicFileAttributes attributes) {
                     scannedFileCount[0]++;
@@ -160,6 +206,13 @@ public class EditWorkspaceFileService {
                     return FileVisitResult.CONTINUE;
                 }
 
+                /**
+ * 返回访问文件失败。
+ *
+ * @param file 文件
+ * @param exception 待转换或处理的异常
+ * @return 编辑工作区文件
+ */
                 @Override
                 public FileVisitResult visitFileFailed(Path file, IOException exception) {
                     log.debug("Skip unreadable edit workspace path: {}", file, LogExceptionSanitizer.sanitize(exception));
@@ -174,6 +227,7 @@ public class EditWorkspaceFileService {
         return List.copyOf(files);
     }
 
+    /** 根据当前上下文解析常规文件。 */
     private Optional<EditWorkspaceFile> resolveRegularFile(GenerationWorkspace workspace, String relativePath) {
         Optional<Path> root = workspaceRoot(workspace);
         Optional<Path> resolved = resolvePath(root.orElse(null), relativePath, workspace);
@@ -197,6 +251,7 @@ public class EditWorkspaceFileService {
         }
     }
 
+    /** 根据当前上下文解析目录。 */
     private Optional<Path> resolveDirectory(GenerationWorkspace workspace, String relativeDirectory) {
         Optional<Path> root = workspaceRoot(workspace);
         if (root.isEmpty()) {
@@ -216,10 +271,13 @@ public class EditWorkspaceFileService {
         return Optional.of(directory);
     }
 
+    /** 根据当前上下文解析路径。 */
     private Optional<Path> resolvePath(Path root, String relativePath, GenerationWorkspace workspace) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (root == null || StrUtil.isBlank(relativePath) || relativePath.indexOf('\0') >= 0) {
             return Optional.empty();
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path suppliedPath = Path.of(relativePath.trim().replace('\\', '/'));
             if (suppliedPath.isAbsolute()) {
@@ -248,6 +306,7 @@ public class EditWorkspaceFileService {
         }
     }
 
+    /** 返回工作区根。 */
     private Optional<Path> workspaceRoot(GenerationWorkspace workspace) {
         if (workspace == null || !workspace.exists() || workspace.canonicalRootPath() == null) {
             return Optional.empty();
@@ -259,6 +318,7 @@ public class EditWorkspaceFileService {
         return Optional.of(root);
     }
 
+    /** 判断{@code Editable}路径是否满足约束。 */
     private boolean isEditablePath(GenerationWorkspace workspace, String relativePath) {
         if (workspace == null || StrUtil.isBlank(relativePath)) {
             return false;
@@ -274,6 +334,7 @@ public class EditWorkspaceFileService {
         return editableExtensions != null && editableExtensions.contains(extension);
     }
 
+    /** 判断{@code Hidden}路径是否满足约束。 */
     private boolean isHiddenPath(Path root, Path path, GenerationWorkspace workspace) {
         Path relativePath = root.relativize(path);
         for (Path segment : relativePath) {

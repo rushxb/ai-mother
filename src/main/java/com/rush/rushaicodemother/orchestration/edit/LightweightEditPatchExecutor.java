@@ -32,6 +32,22 @@ public class LightweightEditPatchExecutor {
     private final GenerationEventPublisher generationEventPublisher;
     private final WorkspaceSemanticIndexService workspaceSemanticIndexService;
 
+    /**
+ * 在有界重试策略下应用补丁操作。
+ *
+ * @param request 请求参数
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param projectRoot 项目根
+ * @param userMessage 用户消息
+ * @param projectContext 项目上下文
+ * @param editResult 编辑结果
+ * @param patchOperations 补丁操作
+ * @param runtimeErrorRepair 运行时错误修复回调
+ * @param editSnapshot 编辑快照
+ * @param managedModelCalls 受生命周期管理的模型调用集合
+ * @return 方法执行结果
+ */
     public LightweightEditAttempt applyWithRetry(GenerationTaskRequest request,
                                                  Long appId,
                                                  String taskId,
@@ -56,6 +72,7 @@ public class LightweightEditPatchExecutor {
                         "reason", applyResult.reason(),
                         "rejectedOperations", applyResult.rejectedOperations()
                 ));
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             EditResult retryEditResult = managedModelCalls
                     ? lightweightEditAiService.retryAfterPatchRejection(
@@ -92,6 +109,13 @@ public class LightweightEditPatchExecutor {
                 appId, taskId, projectRoot, patchOperations, executionContext);
     }
 
+    /**
+ * 刷新索引{@code If}{@code Applied}。
+ *
+ * @param projectRoot 项目根
+ * @param patchOperations 补丁操作
+ * @param applyResult {@code applyResult} 对应的调用参数
+ */
     public void refreshIndexIfApplied(Path projectRoot,
                                       List<PatchOperation> patchOperations,
                                       PatchApplyResult applyResult) {
@@ -101,6 +125,12 @@ public class LightweightEditPatchExecutor {
         refreshIndex(projectRoot, changedFiles(patchOperations));
     }
 
+    /**
+ * 刷新索引。
+ *
+ * @param projectRoot 项目根
+ * @param relativePaths 待处理的 {@code relativePaths} 集合
+ */
     public void refreshIndex(Path projectRoot, List<String> relativePaths) {
         if (projectRoot == null || relativePaths == null || relativePaths.isEmpty()) {
             return;
@@ -108,6 +138,12 @@ public class LightweightEditPatchExecutor {
         workspaceSemanticIndexService.refreshFilesIndex(projectRoot, relativePaths);
     }
 
+    /**
+ * 返回变更文件。
+ *
+ * @param patchOperations 补丁操作
+ * @return 轻量编辑补丁集合
+ */
     public List<String> changedFiles(List<PatchOperation> patchOperations) {
         if (patchOperations == null || patchOperations.isEmpty()) {
             return List.of();
@@ -119,6 +155,12 @@ public class LightweightEditPatchExecutor {
                 .toList();
     }
 
+    /**
+ * 返回{@code diagnostic}。
+ *
+ * @param applyResult {@code applyResult} 对应的调用参数
+ * @return 处理后的轻量编辑补丁文本
+ */
     public String diagnostic(PatchApplyResult applyResult) {
         if (applyResult == null) {
             return "补丁结果不可用";
@@ -130,6 +172,7 @@ public class LightweightEditPatchExecutor {
         return reason + "，拒绝操作: " + applyResult.rejectedOperations();
     }
 
+    /** 判断是否应执行重试。 */
     private boolean shouldRetry(PatchApplyResult applyResult) {
         if (applyResult == null || !"rejected".equals(applyResult.status())) {
             return false;

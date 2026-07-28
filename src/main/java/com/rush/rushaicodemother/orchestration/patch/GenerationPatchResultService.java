@@ -19,6 +19,15 @@ import java.util.Set;
 @Component
 public class GenerationPatchResultService {
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param changePlanArtifact {@code changePlanArtifact} 对应的调用参数
+ * @param diffSummaryArtifact {@code diffSummaryArtifact} 对应的调用参数
+ * @return 生成补丁结果
+ */
     public PatchResult evaluate(Long appId,
                                 String taskId,
                                 GenerationArtifact changePlanArtifact,
@@ -60,6 +69,12 @@ public class GenerationPatchResultService {
         );
     }
 
+    /**
+ * 渲染{@code Text}。
+ *
+ * @param result 待处理结果
+ * @return 处理后的{@code Text}文本
+ */
     public String renderText(PatchResult result) {
         if (result == null) {
             return "Patch 应用结果不可用";
@@ -97,6 +112,7 @@ public class GenerationPatchResultService {
         return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
     }
 
+    /** 规范化文件。 */
     private List<String> normalizeFiles(Object value) {
         if (value instanceof Collection<?> collection) {
             return ChangePlan.normalizeFilePaths(collection.stream()

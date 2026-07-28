@@ -22,6 +22,7 @@ final class MobileVueRecipeTemplates {
                 """;
     }
 
+    /** 返回{@code mobile}{@code Mock}{@code Data}。 */
     String mobileMockData(BasicRecipe recipe) {
         return """
                 export interface Banner {

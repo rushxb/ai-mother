@@ -15,6 +15,11 @@ public class TemplateDevServerNodeRouteResolver implements DevServerNodeRouteRes
 
     private final String baseUrlTemplate;
 
+    /**
+ * 创建模板开发服务器节点{@code Route}解析器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ */
     public TemplateDevServerNodeRouteResolver(DevServerInternalRoutingProperties properties) {
         Objects.requireNonNull(properties, "properties");
         if (!properties.isBaseUrlTemplateValid()) {
@@ -23,6 +28,12 @@ public class TemplateDevServerNodeRouteResolver implements DevServerNodeRouteRes
         this.baseUrlTemplate = properties.getBaseUrlTemplate().trim();
     }
 
+    /**
+ * 根据当前上下文解析模板开发服务器节点{@code Route}。
+ *
+ * @param nodeId 节点编号
+ * @return 模板开发服务器节点{@code Route}
+ */
     @Override
     public URI resolve(String nodeId) {
         String normalizedNodeId = nodeId == null ? "" : nodeId.trim();

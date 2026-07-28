@@ -26,6 +26,11 @@ public class RedisCacheManagerConfig {
 
     private final RedisCacheProperties properties;
 
+    /**
+ * 创建并配置缓存管理器 Bean。
+ *
+ * @return 配置完成的缓存管理器 Bean
+ */
     @Bean
     public CacheManager cacheManager() {
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()

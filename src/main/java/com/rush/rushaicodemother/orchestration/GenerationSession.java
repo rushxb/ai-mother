@@ -91,6 +91,11 @@ public final class GenerationSession {
         }
     }
 
+    /**
+ * 返回任务编号。
+ *
+ * @return 处理后的生成会话文本
+ */
     public String taskId() {
         if (executionContext != null) {
             return executionContext.taskId();
@@ -164,6 +169,13 @@ public final class GenerationSession {
         return taskRequestRef.get();
     }
 
+    /**
+ * 绑定追踪上下文。
+ *
+ * @param generationTraceService 生成追踪服务
+ * @param appId 应用编号
+ * @param userId 用户编号
+ */
     public void bindTraceContext(GenerationTraceService generationTraceService, Long appId, Long userId) {
         this.traceServiceRef.set(generationTraceService);
         this.appId = appId;
@@ -181,6 +193,11 @@ public final class GenerationSession {
         return sink.asFlux();
     }
 
+    /**
+ * 发送生成会话事件。
+ *
+ * @param event 待处理的领域事件
+ */
     public void emit(GenerationStreamEvent event) {
         if (completed.get()) {
             return;
@@ -204,6 +221,7 @@ public final class GenerationSession {
         publishToSharedStream(publicEvent);
     }
 
+    /** 完成生成会话并持久化终态。 */
     public void complete() {
         completionStarted.set(true);
         completed.set(true);
@@ -214,6 +232,11 @@ public final class GenerationSession {
         completeSharedStream();
     }
 
+    /**
+ * 处理错误。
+ *
+ * @param throwable 待处理的异常
+ */
     public void error(Throwable throwable) {
         if (!tryBeginCompletion()) {
             return;
@@ -280,10 +303,20 @@ public final class GenerationSession {
         return executionContext == null ? 0 : executionContext.remaining(kind);
     }
 
+    /**
+ * 取消{@code Signal}。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public Flux<Void> cancelSignal() {
         return cancelSink.asMono().flux();
     }
 
+    /**
+ * 处理集合{@code Cancellation}句柄。
+ *
+ * @param cancellationHandle {@code cancellationHandle} 对应的调用参数
+ */
     public void setCancellationHandle(GenerationCancellationHandle cancellationHandle) {
         GenerationCancellationHandle idempotentHandle = idempotent(cancellationHandle);
         cancellationHandleRef.set(idempotentHandle);
@@ -292,6 +325,7 @@ public final class GenerationSession {
         }
     }
 
+    /** 返回{@code idempotent}。 */
     private GenerationCancellationHandle idempotent(GenerationCancellationHandle cancellationHandle) {
         if (cancellationHandle == null) {
             return null;
@@ -304,6 +338,7 @@ public final class GenerationSession {
         };
     }
 
+    /** 发布{@code To}{@code Shared}流。 */
     private void publishToSharedStream(GenerationStreamEvent event) {
         String currentTaskId = taskId();
         if (generationEventStream == null || currentTaskId == null || currentTaskId.isBlank()) {
@@ -322,6 +357,7 @@ public final class GenerationSession {
         }
     }
 
+    /** 完成{@code Shared}流并持久化终态。 */
     private void completeSharedStream() {
         String currentTaskId = taskId();
         if (generationEventStream == null || currentTaskId == null || currentTaskId.isBlank()) {
@@ -340,6 +376,7 @@ public final class GenerationSession {
         }
     }
 
+    /** 处理{@code throw}{@code If}{@code Cancelled}。 */
     public void throwIfCancelled() {
         if (isCancelled()) {
             throw new GenerationStoppedException();
@@ -349,6 +386,7 @@ public final class GenerationSession {
         }
     }
 
+    /** 发送{@code Stopped}事件。 */
     public void emitStopped() {
         emit(GenerationStreamEvent.generationStopped("\n\n[系统] 已停止本次生成\n\n", Map.of(
                 "message", "已停止本次生成"

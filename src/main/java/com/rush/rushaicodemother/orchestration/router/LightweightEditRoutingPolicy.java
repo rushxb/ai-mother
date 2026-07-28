@@ -19,6 +19,12 @@ public class LightweightEditRoutingPolicy implements GenerationRoutingPolicy {
             "对齐", "边距", "宽度", "高度"
     );
 
+    /**
+ * 根据输入信号确定轻量编辑路由策略。
+ *
+ * @param signal 输入信号
+ * @return 可选的轻量编辑路由策略；不存在时返回空值
+ */
     @Override
     public Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal) {
         if (!signal.existingWorkspace()

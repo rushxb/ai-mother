@@ -30,6 +30,13 @@ public class InternalDevServerProxyController {
     private final DevServerPreviewRoutingService previewRoutingService;
     private final DevServerProxyService proxyService;
 
+    /**
+ * 处理代理。
+ *
+ * @param appId 应用编号
+ * @param request 请求参数
+ * @param response 响应对象
+ */
     @RequestMapping("/proxy/{appId}/**")
     public void proxy(@PathVariable @Positive Long appId,
                       HttpServletRequest request,

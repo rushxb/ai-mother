@@ -51,10 +51,16 @@ public class GenerationDurationProfileService {
         return profileCache.get(normalizedRoute, this::loadProfile);
     }
 
+    /**
+ * 处理{@code invalidate}。
+ *
+ * @param route 代理路由
+ */
     public void invalidate(String route) {
         profileCache.invalidate(normalizeRoute(route));
     }
 
+    /** 加载配置档。 */
     private GenerationDurationProfile loadProfile(String route) {
         GenerationDurationSamples samples = sampleRepository.loadRecentSuccessfulSamples(
                 route, properties.getTaskSampleLimit(), properties.getSpanSampleLimit());
@@ -73,6 +79,7 @@ public class GenerationDurationProfileService {
         );
     }
 
+    /** 构建并返回阶段{@code Profiles}。 */
     private List<GenerationStageDurationProfile> buildStageProfiles(
             List<GenerationStageDurationSample> samples,
             long maximumDurationMs
@@ -127,6 +134,7 @@ public class GenerationDurationProfileService {
         return sortedValues.get(Math.max(0, Math.min(index, sortedValues.size() - 1)));
     }
 
+    /** 规范化{@code Route}。 */
     private String normalizeRoute(String route) {
         if (route == null || route.isBlank()) {
             throw new IllegalArgumentException("route cannot be blank");

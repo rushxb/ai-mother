@@ -13,6 +13,7 @@ final class IpAddressParser {
     private IpAddressParser() {
     }
 
+    /** 解析{@code Ip}{@code Address}{@code Parser}。 */
     static Optional<ParsedIpAddress> parse(String value) {
         if (value == null) {
             return Optional.empty();
@@ -38,6 +39,7 @@ final class IpAddressParser {
         }
     }
 
+    /** 解析{@code Ipv4}。 */
     private static byte[] parseIpv4(String candidate) {
         String[] segments = candidate.split("\\.", -1);
         if (segments.length != 4) {
@@ -63,6 +65,7 @@ final class IpAddressParser {
         return bytes;
     }
 
+    /** 解析{@code Ipv6}。 */
     private static byte[] parseIpv6(String candidate) {
         if (!candidate.matches("[0-9A-Fa-f:.]+")) {
             return null;

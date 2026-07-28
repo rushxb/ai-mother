@@ -28,6 +28,11 @@ public final class ReasoningProgressTracker {
         this.taskId = normalize(taskId);
     }
 
+    /**
+ * 启动{@code If}{@code Needed}。
+ *
+ * @return 可选的{@code If}{@code Needed}；不存在时返回空值
+ */
     public Optional<GenerationStreamEvent> startIfNeeded() {
         if (!started.compareAndSet(false, true)) {
             return Optional.empty();
@@ -35,6 +40,11 @@ public final class ReasoningProgressTracker {
         return Optional.of(event("running", "正在分析需求并制定执行策略"));
     }
 
+    /**
+ * 完成{@code If}已启动并持久化终态。
+ *
+ * @return 可选的{@code If}已启动；不存在时返回空值
+ */
     public Optional<GenerationStreamEvent> completeIfStarted() {
         if (!started.get() || !terminal.compareAndSet(false, true)) {
             return Optional.empty();
@@ -42,6 +52,11 @@ public final class ReasoningProgressTracker {
         return Optional.of(event("done", "分析完成，正在生成可见结果"));
     }
 
+    /**
+ * 将{@code If}已启动标记为失败并记录原因。
+ *
+ * @return 可选的{@code If}已启动；不存在时返回空值
+ */
     public Optional<GenerationStreamEvent> failIfStarted() {
         if (!started.get() || !terminal.compareAndSet(false, true)) {
             return Optional.empty();
@@ -49,6 +64,7 @@ public final class ReasoningProgressTracker {
         return Optional.of(event("failed", "分析阶段未完成，正在执行恢复策略"));
     }
 
+    /** 返回事件。 */
     private GenerationStreamEvent event(String status, String summary) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agent", AGENT);

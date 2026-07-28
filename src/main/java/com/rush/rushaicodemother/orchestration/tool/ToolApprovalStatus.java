@@ -21,6 +21,12 @@ public enum ToolApprovalStatus {
         return value;
     }
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param value 待处理值
+ * @return 工具审批状态
+ */
     public static ToolApprovalStatus fromValue(String value) {
         for (ToolApprovalStatus status : values()) {
             if (status.value.equals(value)) {

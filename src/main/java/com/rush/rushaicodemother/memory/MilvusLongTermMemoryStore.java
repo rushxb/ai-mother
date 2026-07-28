@@ -61,9 +61,15 @@ public class MilvusLongTermMemoryStore implements LongTermMemoryStore {
         this.metrics = metrics;
     }
 
+    /**
+ * 新增或更新 Milvus{@code Long}{@code Term}记忆存储。
+ *
+ * @param memory 记忆
+ */
     @Override
     public void upsert(SemanticMemory memory) {
         long started = System.nanoTime();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             SemanticMemoryGovernancePolicy.validateMemory(memory, embeddingService.dimension());
             validateEmbeddingIdentity();
@@ -102,9 +108,16 @@ public class MilvusLongTermMemoryStore implements LongTermMemoryStore {
         }
     }
 
+    /**
+ * 搜索匹配的 Milvus{@code Long}{@code Term}记忆存储。
+ *
+ * @param query 查询
+ * @return Milvus{@code Long}{@code Term}记忆存储集合
+ */
     @Override
     public List<SemanticMemoryHit> search(SemanticMemoryQuery query) {
         long started = System.nanoTime();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             SemanticMemoryGovernancePolicy.validateQuery(query, embeddingService.dimension());
             validateEmbeddingIdentity();
@@ -159,6 +172,12 @@ public class MilvusLongTermMemoryStore implements LongTermMemoryStore {
         }
     }
 
+    /**
+ * 删除按应用。
+ *
+ * @param tenantId 租户编号
+ * @param appId 应用编号
+ */
     @Override
     public void deleteByApplication(Long tenantId, Long appId) {
         long started = System.nanoTime();
@@ -184,7 +203,9 @@ public class MilvusLongTermMemoryStore implements LongTermMemoryStore {
         }
     }
 
+    /** 将当前对象转换为命中。 */
     private SemanticMemoryHit toHit(SearchResp.SearchResult result, SemanticMemoryQuery query) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (result == null || result.getEntity() == null || result.getId() == null
                 || result.getScore() == null || !Double.isFinite(result.getScore())) {
             throw new IllegalArgumentException("Milvus search row is incomplete");
@@ -220,6 +241,7 @@ public class MilvusLongTermMemoryStore implements LongTermMemoryStore {
         return new SemanticMemoryHit(memory, result.getScore());
     }
 
+    /** 解析元数据。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseMetadata(Object value) {
         if (value == null) {
@@ -234,6 +256,7 @@ public class MilvusLongTermMemoryStore implements LongTermMemoryStore {
         return Map.copyOf(metadata);
     }
 
+    /** 返回{@code filter}。 */
     private String filter(SemanticMemoryQuery query) {
         List<String> clauses = new ArrayList<>();
         clauses.add(MilvusMemorySchema.TENANT_ID + " == " + query.tenantId());

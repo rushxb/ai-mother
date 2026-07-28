@@ -13,6 +13,12 @@ public class VueSecurityReviewService {
     private static final Pattern TARGET_BLANK_WITHOUT_REL = Pattern.compile("target\\s*=\\s*[\"']_blank[\"'](?![^>]*rel\\s*=)", Pattern.CASE_INSENSITIVE);
     private static final Pattern EXTERNAL_URL = Pattern.compile("https?://[^\\s\"'`)]+", Pattern.CASE_INSENSITIVE);
 
+    /**
+ * 返回{@code review}。
+ *
+ * @param content 文件或消息内容
+ * @return {@code Vue}{@code Security}{@code Review}
+ */
     public SecurityReviewResult review(String content) {
         String source = StrUtil.blankToDefault(content, "");
         String lower = source.toLowerCase();

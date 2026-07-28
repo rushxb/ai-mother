@@ -22,6 +22,13 @@ public record GenerationTaskProgressEstimate(
         Long deadlineSlackMs,
         Instant computedAt
 ) {
+    /**
+ * 返回{@code unavailable}。
+ *
+ * @param elapsedMs 待处理的 {@code elapsedMs} 集合
+ * @param computedAt {@code computedAt} 对应的调用参数
+ * @return 生成任务{@code Progress}{@code Estimate}
+ */
     public static GenerationTaskProgressEstimate unavailable(long elapsedMs, Instant computedAt) {
         return new GenerationTaskProgressEstimate(
                 false, elapsedMs, null, null, null, null, null, null,

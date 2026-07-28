@@ -34,6 +34,12 @@ public class CompletedToolCallContextCompactor {
     private final ObjectMapper objectMapper;
     private final int maximumArgumentsChars;
 
+    /**
+ * 创建完成工具调用上下文{@code Compactor}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param objectMapper {@code objectMapper} 对应的调用参数
+ * @param properties 配置属性
+ */
     public CompletedToolCallContextCompactor(ObjectMapper objectMapper,
                                              ChatMemoryProperties properties) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "JSON 解析器不能为空");
@@ -44,6 +50,12 @@ public class CompletedToolCallContextCompactor {
         }
     }
 
+    /**
+ * 压缩完成工具调用上下文{@code Compactor}以满足资源限制。
+ *
+ * @param request 请求参数
+ * @return 完成工具调用上下文{@code Compactor}
+ */
     public ChatRequest compact(ChatRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("模型请求不能为空");
@@ -55,12 +67,15 @@ public class CompletedToolCallContextCompactor {
         return request.toBuilder().messages(compactedMessages).build();
     }
 
+    /** 压缩完成工具调用上下文{@code Compactor}以满足资源限制。 */
     List<ChatMessage> compact(List<ChatMessage> messages) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (messages == null || messages.isEmpty()) {
             return messages;
         }
         List<ChatMessage> compacted = new ArrayList<>(messages.size());
         boolean changed = false;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int messageIndex = 0; messageIndex < messages.size(); messageIndex++) {
             ChatMessage message = messages.get(messageIndex);
             if (!(message instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
@@ -86,6 +101,7 @@ public class CompletedToolCallContextCompactor {
         return changed ? List.copyOf(compacted) : messages;
     }
 
+    /** 返回{@code successful}请求{@code Ids}。 */
     private Set<String> successfulRequestIds(List<ChatMessage> messages, int resultStartIndex) {
         Set<String> requestIds = new HashSet<>();
         for (int index = resultStartIndex; index < messages.size(); index++) {
@@ -100,6 +116,7 @@ public class CompletedToolCallContextCompactor {
         return requestIds;
     }
 
+    /** 压缩请求以满足资源限制。 */
     private ToolExecutionRequest compactRequest(ToolExecutionRequest request,
                                                 Set<String> successfulRequestIds) {
         if (request == null
@@ -117,6 +134,7 @@ public class CompletedToolCallContextCompactor {
         return request.toBuilder().arguments(compactedArguments).build();
     }
 
+    /** 压缩参数以满足资源限制。 */
     private String compactArguments(String toolName, String arguments) {
         try {
             JsonNode parsed = objectMapper.readTree(arguments);
@@ -146,6 +164,7 @@ public class CompletedToolCallContextCompactor {
         return compacted;
     }
 
+    /** 压缩{@code Write}文件以满足资源限制。 */
     private ObjectNode compactWriteFiles(ObjectNode source) {
         JsonNode filesNode = source.get("files");
         if (!(filesNode instanceof ArrayNode sourceFiles) || sourceFiles.isEmpty()) {

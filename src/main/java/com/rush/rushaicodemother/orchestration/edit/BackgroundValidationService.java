@@ -53,6 +53,7 @@ public class BackgroundValidationService {
             String userMessage) {
         log.info("开始后台验证，taskId: {}, appId: {}, validationLevel: {}", taskId, appId, validationPlan.level());
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             // 创建最小的请求对象用于事件发布
             GenerationTaskRequest request = createMinimalRequest(appId, userId, userMessage);
@@ -179,6 +180,7 @@ public class BackgroundValidationService {
             devServerManager.stopDevServer(appId);
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             // 调用 VueProjectBuilder 执行实际构建
             VueBuildResult buildResult = vueProjectBuilder.buildProjectWithResult(projectPath, taskId);

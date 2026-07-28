@@ -1,15 +1,11 @@
 package com.rush.rushaicodemother.core;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
-import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorService;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
 import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
-import com.rush.rushaicodemother.ai.model.message.ToolExecutedMessage;
-import com.rush.rushaicodemother.ai.model.message.ToolRequestMessage;
-import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.core.parser.CodeParserExecutor;
@@ -17,10 +13,10 @@ import com.rush.rushaicodemother.core.saver.CodeFileSaverExecutor;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
-import com.rush.rushaicodemother.orchestration.progress.ReasoningProgressTracker;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentExecutionRequest;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
@@ -32,7 +28,6 @@ import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelCanc
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.model.RootModelRetryExecutor;
-import com.rush.rushaicodemother.orchestration.runtime.model.RootModelRetryPolicy;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -40,12 +35,10 @@ import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.InternalServerException;
 import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.exception.TimeoutException;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.service.TokenStream;
-import dev.langchain4j.service.tool.ToolExecution;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -76,7 +69,6 @@ import java.util.function.Supplier;
 @Slf4j
 public class AiCodeGeneratorFacade {
 
-    private static final int MAX_STREAM_RETRIES = 3;
     private static final String MODEL_ADMISSION_MODE = "code_generation";
 
     private final AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
@@ -87,7 +79,20 @@ public class AiCodeGeneratorFacade {
     private final GenerationStageAdmissionService generationStageAdmissionService;
     private final GenerationModelTimeoutPolicy modelTimeoutPolicy;
     private final GenerationModelInvocationCancellationBridge modelCancellationBridge;
+    private final GenerationAgentRuntime generationAgentRuntime;
 
+    /**
+ * 创建 AI 代码生成器{@code Facade}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param aiCodeGeneratorServiceFactory AI 代码生成器服务工厂
+ * @param codeFileSaverExecutor {@code codeFileSaverExecutor} 对应的调用参数
+ * @param generationWorkspaceService 生成工作区服务
+ * @param performanceMonitorService 处理该职责的领域服务
+ * @param rootModelRetryExecutor 根模型重试执行器
+ * @param generationStageAdmissionService 生成阶段准入服务
+ * @param modelTimeoutPolicy 模型超时策略
+ * @param modelCancellationBridge {@code modelCancellationBridge} 对应的调用参数
+ */
     @Autowired
     public AiCodeGeneratorFacade(AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory,
                                  CodeFileSaverExecutor codeFileSaverExecutor,
@@ -96,7 +101,8 @@ public class AiCodeGeneratorFacade {
                                  RootModelRetryExecutor rootModelRetryExecutor,
                                  GenerationStageAdmissionService generationStageAdmissionService,
                                  GenerationModelTimeoutPolicy modelTimeoutPolicy,
-                                 GenerationModelInvocationCancellationBridge modelCancellationBridge) {
+                                 GenerationModelInvocationCancellationBridge modelCancellationBridge,
+                                 GenerationAgentRuntime generationAgentRuntime) {
         this.aiCodeGeneratorServiceFactory = aiCodeGeneratorServiceFactory;
         this.codeFileSaverExecutor = codeFileSaverExecutor;
         this.generationWorkspaceService = generationWorkspaceService;
@@ -105,47 +111,8 @@ public class AiCodeGeneratorFacade {
         this.generationStageAdmissionService = generationStageAdmissionService;
         this.modelTimeoutPolicy = modelTimeoutPolicy;
         this.modelCancellationBridge = modelCancellationBridge;
-    }
-
-    public AiCodeGeneratorFacade(AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory,
-                                 CodeFileSaverExecutor codeFileSaverExecutor,
-                                 GenerationWorkspaceService generationWorkspaceService,
-                                 GenerationPerformanceMonitorService performanceMonitorService,
-                                 RootModelRetryExecutor rootModelRetryExecutor,
-                                 GenerationStageAdmissionService generationStageAdmissionService) {
-        this(
-                aiCodeGeneratorServiceFactory,
-                codeFileSaverExecutor,
-                generationWorkspaceService,
-                performanceMonitorService,
-                rootModelRetryExecutor,
-                generationStageAdmissionService,
-                GenerationModelTimeoutPolicy.defaults(),
-                new GenerationModelInvocationCancellationBridge()
-        );
-    }
-
-    public AiCodeGeneratorFacade(AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory,
-                                 CodeFileSaverExecutor codeFileSaverExecutor,
-                                 GenerationWorkspaceService generationWorkspaceService,
-                                 GenerationPerformanceMonitorService performanceMonitorService,
-                                 AiModelRuntimeProperties runtimeProperties,
-                                 AiModelMetricsCollector aiModelMetricsCollector,
-                                 GenerationStageAdmissionService generationStageAdmissionService) {
-        this(
-                aiCodeGeneratorServiceFactory,
-                codeFileSaverExecutor,
-                generationWorkspaceService,
-                performanceMonitorService,
-                new RootModelRetryExecutor(
-                        performanceMonitorService,
-                         aiModelMetricsCollector,
-                         new RootModelRetryPolicy(runtimeProperties)
-                ),
-                generationStageAdmissionService,
-                new GenerationModelTimeoutPolicy(runtimeProperties),
-                new GenerationModelInvocationCancellationBridge()
-        );
+        this.generationAgentRuntime = Objects.requireNonNull(
+                generationAgentRuntime, "显式智能体运行时不能为空");
     }
 
     /**
@@ -249,16 +216,16 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成类型不能为空");
         }
-        Objects.requireNonNull(handleConsumer, "handleConsumer");
+        Objects.requireNonNull(handleConsumer, "取消句柄消费者不能为空");
         GenerationExecutionFence executionFence = executionContext == null
                 ? null
                 : executionContext.executionFence();
-        Supplier<AiCodeGeneratorService> serviceSupplier = modelServiceSupplier(
-                appId, codeGenTypeEnum, profile, executionContext);
         return switch (codeGenTypeEnum) {
             case HTML -> processSimpleTokenStream(
                     cancellationScope -> requestSimpleTokenStream(
-                            serviceSupplier, codeGenTypeEnum, userMessage, cancellationScope),
+                            modelServiceSupplier(
+                                    appId, codeGenTypeEnum, profile, executionContext),
+                            codeGenTypeEnum, userMessage, cancellationScope),
                     codeGenTypeEnum,
                     appId,
                     cancelChecker,
@@ -268,7 +235,9 @@ public class AiCodeGeneratorFacade {
             );
             case MULTI_FILE -> processSimpleTokenStream(
                     cancellationScope -> requestSimpleTokenStream(
-                            serviceSupplier, codeGenTypeEnum, userMessage, cancellationScope),
+                            modelServiceSupplier(
+                                    appId, codeGenTypeEnum, profile, executionContext),
+                            codeGenTypeEnum, userMessage, cancellationScope),
                     codeGenTypeEnum,
                     appId,
                     cancelChecker,
@@ -276,39 +245,21 @@ public class AiCodeGeneratorFacade {
                     executionContext,
                     executionFence
             );
-            case VUE_PROJECT -> processTokenStreamWithRetry(
-                    cancellationScope -> requestTokenStream(
-                            serviceSupplier, codeGenTypeEnum, appId, userMessage,
-                            executionFence, cancellationScope),
-                    codeGenTypeEnum,
-                    appId,
-                    cancelChecker,
-                    handleConsumer,
-                    executionContext,
-                    executionFence
-            );
-            case BACKEND_PROJECT -> processTokenStreamWithRetry(
-                    cancellationScope -> requestTokenStream(
-                            serviceSupplier, codeGenTypeEnum, appId, userMessage,
-                            executionFence, cancellationScope),
-                    codeGenTypeEnum,
-                    appId,
-                    cancelChecker,
-                    handleConsumer,
-                    executionContext,
-                    executionFence
-            );
-            case FULL_STACK_PROJECT -> processTokenStreamWithRetry(
-                    cancellationScope -> requestTokenStream(
-                            serviceSupplier, codeGenTypeEnum, appId, userMessage,
-                            executionFence, cancellationScope),
-                    codeGenTypeEnum,
-                    appId,
-                    cancelChecker,
-                    handleConsumer,
-                    executionContext,
-                    executionFence
-            );
+            case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> {
+                if (executionContext == null || executionFence == null) {
+                    throw new IllegalStateException("工程项目生成必须使用受管执行上下文");
+                }
+                yield processAgentRuntimeWithRetry(
+                        userMessage,
+                        codeGenTypeEnum,
+                        appId,
+                        cancelChecker,
+                        handleConsumer,
+                        profile,
+                        executionContext,
+                        executionFence
+                );
+            }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
@@ -421,6 +372,7 @@ public class AiCodeGeneratorFacade {
         return observeFirstModelSignal(stream, executionContext);
     }
 
+    /** 停止{@code Cancelled}流。 */
     private boolean stopCancelledStream(FluxSink<GenerationStreamEvent> sink,
                                         BooleanSupplier cancelChecker,
                                         GenerationModelCancellationScope cancellationScope) {
@@ -473,170 +425,44 @@ public class AiCodeGeneratorFacade {
      * @param appId               应用 ID
      * @return Flux<String> 流式响应
      */
-    private Flux<GenerationStreamEvent> processTokenStreamWithRetry(
-                                                                    Function<GenerationModelCancellationScope,
-                                                                            TokenStream> tokenStreamSupplier,
-                                                                    CodeGenTypeEnum codeGenType,
-                                                                    Long appId,
-                                                                    BooleanSupplier cancelChecker,
-                                                                    Consumer<GenerationCancellationHandle> handleConsumer,
-                                                                    GenerationExecutionContext executionContext,
-                                                                    GenerationExecutionFence executionFence) {
-        Objects.requireNonNull(handleConsumer, "handleConsumer");
-        int maxRetries = executionContext == null
-                ? MAX_STREAM_RETRIES
-                : Math.max(0, executionContext.limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT) - 1);
+    private Flux<GenerationStreamEvent> processAgentRuntimeWithRetry(
+            String userMessage,
+            CodeGenTypeEnum codeGenType,
+            Long appId,
+            BooleanSupplier cancelChecker,
+            Consumer<GenerationCancellationHandle> handleConsumer,
+            GenerationPerformanceProfile profile,
+            GenerationExecutionContext executionContext,
+            GenerationExecutionFence executionFence) {
+        Objects.requireNonNull(generationAgentRuntime, "显式智能体运行时不能为空");
+        Objects.requireNonNull(executionContext, "生成执行上下文不能为空");
+        GenerationWorkspace workspace = resolveCallbackWorkspace(
+                executionFence, appId, codeGenType, false);
+        GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
+                appId,
+                userMessage,
+                codeGenType,
+                profile,
+                workspace.canonicalRootPath().toString(),
+                executionContext,
+                cancelChecker,
+                handleConsumer
+        );
+        int maxRetries = Math.max(
+                0,
+                executionContext.limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT) - 1
+        );
         Flux<GenerationStreamEvent> stream = rootModelRetryExecutor.execute(() -> {
-            GenerationStageAdmissionService.ModelTurnWindow attemptWindow =
-                    reserveModelAttempt(executionContext, codeGenType);
+            reserveModelAttempt(executionContext, codeGenType);
             AtomicBoolean emittedAnyEvent = new AtomicBoolean(false);
-            AtomicBoolean firstModelActivity = new AtomicBoolean(false);
-            GenerationModelCancellationScope cancellationScope =
-                    new GenerationModelCancellationScope();
-            int initialWorkspaceMutations = executionContext == null
-                    ? 0
-                    : executionContext.successfulWorkspaceMutationCount();
-            ReasoningProgressTracker reasoningProgress = new ReasoningProgressTracker(
-                    executionContext == null ? "" : executionContext.taskId()
-            );
-            Flux<GenerationStreamEvent> attemptStream = Flux.<GenerationStreamEvent>create(sink -> {
-                AtomicReference<StreamingHandle> activeStreamingHandle = new AtomicReference<>();
-                sink.onCancel(cancellationScope::cancel);
-                try {
-                    handleConsumer.accept(cancellationScope);
-                    if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                        return;
-                    }
-                    TokenStream tokenStream = Objects.requireNonNull(
-                            tokenStreamSupplier.apply(cancellationScope), "模型流不能为空");
-                    TokenStream configuredStream = tokenStream.onPartialResponseWithContext((partialResponse, context) -> {
-                            firstModelActivity.set(true);
-                            registerStreamingHandle(
-                                    context.streamingHandle(), activeStreamingHandle, cancellationScope);
-                            if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                                return;
-                            }
-                            reasoningProgress.completeIfStarted().ifPresent(sink::next);
-                            emittedAnyEvent.set(true);
-                            sink.next(GenerationStreamEvent.aiDelta(partialResponse.text()));
-                        })
-                        .onPartialThinkingWithContext((partialThinking, context) -> {
-                            firstModelActivity.set(true);
-                            registerStreamingHandle(
-                                    context.streamingHandle(), activeStreamingHandle, cancellationScope);
-                            if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                                return;
-                            }
-                            emittedAnyEvent.set(true);
-                            reasoningProgress.startIfNeeded().ifPresent(sink::next);
-                        })
-                        .onPartialToolCallWithContext((partialToolCall, context) -> {
-                            firstModelActivity.set(true);
-                            registerStreamingHandle(
-                                    context.streamingHandle(), activeStreamingHandle, cancellationScope);
-                            if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                                return;
-                            }
-                        })
-                        .onIntermediateResponse(response -> {
-                            firstModelActivity.set(true);
-                            if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                                return;
-                            }
-                            reasoningProgress.completeIfStarted().ifPresent(sink::next);
-                            if (publishToolCallEvents(response, sink::next)) {
-                                emittedAnyEvent.set(true);
-                            }
-                        })
-                        .onToolExecuted((ToolExecution toolExecution) -> {
-                            firstModelActivity.set(true);
-                            if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                                return;
-                            }
-                            reasoningProgress.completeIfStarted().ifPresent(sink::next);
-                            recordToolExecution(executionContext, toolExecution);
-                            emittedAnyEvent.set(true);
-                            ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
-                            sink.next(GenerationStreamEvent.toolResult(
-                                    toolExecution.result(),
-                                    toolExecutionMetadata(toolExecutedMessage)
-                            ));
-                        })
-                        .onCompleteResponse((ChatResponse response) -> {
-                            firstModelActivity.set(true);
-                            if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                                return;
-                            }
-                            reasoningProgress.completeIfStarted().ifPresent(sink::next);
-                            GenerationWorkspace workspace = resolveCallbackWorkspace(
-                                    executionFence, appId, codeGenType, false);
-                            String projectPath = workspace.canonicalRootPath().toString();
-                            String summary = codeGenType == CodeGenTypeEnum.VUE_PROJECT
-                                    ? "代码已生成，后台正在执行构建校验"
-                                    : "代码已生成";
-                            sink.next(GenerationStreamEvent.generationStage("代码生成完成", Map.of(
-                                    "status", "transition",
-                                    "stage", "codegen_done",
-                                    "projectPath", projectPath,
-                                    "summary", summary
-                            )));
-                            cancellationScope.complete();
-                            sink.complete();
-                        })
-                        .onError((Throwable error) -> {
-                            if (stopCancelledStream(sink, cancelChecker, cancellationScope)) {
-                                return;
-                            }
-                            cancellationScope.complete();
-                            GenerationModelTurnAdmissionException modelTurnAdmission =
-                                    findModelTurnAdmission(error);
-                            if (modelTurnAdmission != null) {
-                                reasoningProgress.completeIfStarted().ifPresent(sink::next);
-                                sink.error(modelTurnAdmission);
-                                return;
-                            }
-                            reasoningProgress.failIfStarted().ifPresent(sink::next);
-                            GenerationApprovalRequiredException approvalSignal = findApprovalRequired(error);
-                            if (approvalSignal != null) {
-                                sink.error(approvalSignal);
-                                return;
-                            }
-                            log.error("{} 流式生成失败，appId: {}", codeGenType.getValue(), appId, LogExceptionSanitizer.sanitize(error));
-                            GenerationApprovalRequiredException approvalRequired = findApprovalRequired(error);
-                            if (approvalRequired != null) {
-                                sink.error(approvalRequired);
-                                return;
-                            }
-                            if (emittedAnyEvent.get()) {
-                                sink.error(new NonRetriableStreamException(error));
-                                return;
-                            }
-                            sink.error(error);
-                        })
-                        ;
-                    try (GenerationModelInvocationCancellationBridge.ScopeBinding ignored =
-                                 modelCancellationBridge.activate(cancellationScope)) {
-                        configuredStream.start();
-                    }
-                } catch (RuntimeException failure) {
-                    cancellationScope.cancel();
-                    sink.error(failure);
-                }
-            });
-            Flux<GenerationStreamEvent> boundedStream = applyModelAttemptTimeout(
-                    attemptStream,
-                    attemptWindow,
-                    executionContext,
-                    firstModelActivity::get
-            )
-                    .doOnError(ignored -> cancellationScope.cancel())
-                    .doOnCancel(cancellationScope::cancel);
-            return boundedStream
+            int initialWorkspaceMutations =
+                    executionContext.successfulWorkspaceMutationCount();
+            return generationAgentRuntime.start(request)
+                    .doOnNext(ignored -> emittedAnyEvent.set(true))
                     .onErrorResume(error -> {
                         GenerationModelTurnAdmissionException admission =
                                 findModelTurnAdmission(error);
                         if (admission == null
-                                || executionContext == null
                                 || executionContext.successfulWorkspaceMutationCount()
                                 <= initialWorkspaceMutations) {
                             return Flux.error(error);
@@ -648,13 +474,18 @@ public class AiCodeGeneratorFacade {
                                 admission
                         );
                     })
-                    .onErrorMap(error -> shouldPreventRootReplay(error, emittedAnyEvent.get())
+                    .onErrorMap(error -> shouldPreventRootReplay(
+                            error,
+                            emittedAnyEvent.get()
+                                    || hasNewWorkspaceMutations(
+                                    executionContext, initialWorkspaceMutations))
                             ? new NonRetriableStreamException(error)
                             : error);
         }, maxRetries, executionContext, this::isRetriableStreamError);
         return observeFirstModelSignal(stream, executionContext);
     }
 
+    /** 观测并记录{@code First}模型{@code Signal}。 */
     private Flux<GenerationStreamEvent> observeFirstModelSignal(
             Flux<GenerationStreamEvent> stream,
             GenerationExecutionContext executionContext
@@ -685,6 +516,7 @@ public class AiCodeGeneratorFacade {
         });
     }
 
+    /** 返回{@code reserve}模型尝试。 */
     private GenerationStageAdmissionService.ModelTurnWindow reserveModelAttempt(
             GenerationExecutionContext executionContext,
             CodeGenTypeEnum codeGenType) {
@@ -701,11 +533,13 @@ public class AiCodeGeneratorFacade {
         return window;
     }
 
+    /** 应用模型尝试超时。 */
     private Flux<GenerationStreamEvent> applyModelAttemptTimeout(
             Flux<GenerationStreamEvent> stream,
             GenerationStageAdmissionService.ModelTurnWindow attemptWindow,
             GenerationExecutionContext executionContext,
             BooleanSupplier firstModelActivity) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (attemptWindow == null) {
             return stream;
         }
@@ -745,6 +579,7 @@ public class AiCodeGeneratorFacade {
                 });
     }
 
+    /** 返回完成窗口事件。 */
     private Flux<GenerationStreamEvent> completionWindowEvents(
             CodeGenTypeEnum codeGenType,
             Long appId,
@@ -783,32 +618,22 @@ public class AiCodeGeneratorFacade {
         );
     }
 
-    private boolean shouldPreventRootReplay(Throwable error, boolean emittedAnyEvent) {
-        return emittedAnyEvent
+    private boolean shouldPreventRootReplay(Throwable error, boolean attemptMadeProgress) {
+        return attemptMadeProgress
                 && !(error instanceof NonRetriableStreamException)
                 && findApprovalRequired(error) == null
                 && findModelTurnAdmission(error) == null;
     }
 
-    private void recordToolExecution(GenerationExecutionContext executionContext,
-                                     ToolExecution toolExecution) {
-        if (executionContext == null || toolExecution == null) {
-            return;
-        }
-        ToolExecutionRequest request = toolExecution.request();
-        String toolName = request == null || request.name() == null || request.name().isBlank()
-                ? "unknown"
-                : request.name().replaceAll("[^A-Za-z0-9_.-]", "_");
-        performanceMonitorService.recordSpan(
-                executionContext.taskId(),
-                "tool_" + toolName,
-                GenerationSpanCategory.TOOL,
-                toolExecution.hasFailed() ? "failed" : "success",
-                toolExecution.duration(),
-                ""
-        );
+    /** 工作区一旦发生成功变更，根模型调用不得重放，以免重复执行副作用。 */
+    private boolean hasNewWorkspaceMutations(GenerationExecutionContext executionContext,
+                                             int initialWorkspaceMutations) {
+        return executionContext != null
+                && executionContext.successfulWorkspaceMutationCount()
+                > initialWorkspaceMutations;
     }
 
+    /** 注册{@code Streaming}句柄。 */
     private void registerStreamingHandle(StreamingHandle streamingHandle,
                                          AtomicReference<StreamingHandle> activeStreamingHandle,
                                          GenerationModelCancellationScope cancellationScope) {
@@ -821,6 +646,7 @@ public class AiCodeGeneratorFacade {
         }
     }
 
+    /** 取消{@code Streaming}。 */
     private void cancelStreaming(StreamingHandle streamingHandle) {
         if (streamingHandle == null || streamingHandle.isCancelled()) {
             return;
@@ -828,43 +654,11 @@ public class AiCodeGeneratorFacade {
         try {
             streamingHandle.cancel();
         } catch (RuntimeException exception) {
-            log.warn("Failed to cancel active AI stream", LogExceptionSanitizer.sanitize(exception));
+            log.warn("取消活动模型流失败", LogExceptionSanitizer.sanitize(exception));
         }
     }
 
-    private boolean publishToolCallEvents(ChatResponse response,
-                                          Consumer<GenerationStreamEvent> eventConsumer) {
-        if (response == null || response.aiMessage() == null) {
-            return false;
-        }
-        java.util.List<ToolExecutionRequest> toolRequests = response.aiMessage().toolExecutionRequests();
-        if (toolRequests == null || toolRequests.isEmpty()) {
-            return false;
-        }
-        for (int index = 0; index < toolRequests.size(); index++) {
-            ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolRequests.get(index));
-            eventConsumer.accept(GenerationStreamEvent.toolCall(
-                    toolRequestMessage.getName(),
-                    Map.of(
-                            "toolName", Objects.toString(toolRequestMessage.getName(), ""),
-                            "arguments", Objects.toString(toolRequestMessage.getArguments(), ""),
-                            "requestId", Objects.toString(toolRequestMessage.getId(), ""),
-                            "toolIndex", index
-                    )
-            ));
-        }
-        return true;
-    }
-
-    private Map<String, Object> toolExecutionMetadata(ToolExecutedMessage toolExecutedMessage) {
-        return Map.of(
-                "toolName", Objects.toString(toolExecutedMessage.getName(), ""),
-                "arguments", Objects.toString(toolExecutedMessage.getArguments(), ""),
-                "result", Objects.toString(toolExecutedMessage.getResult(), ""),
-                "requestId", Objects.toString(toolExecutedMessage.getId(), "")
-        );
-    }
-
+    /** 判断{@code Retriable}流错误是否满足约束。 */
     private boolean isRetriableStreamError(Throwable error) {
         if (error == null) {
             return false;
@@ -872,7 +666,8 @@ public class AiCodeGeneratorFacade {
         if (error instanceof NonRetriableStreamException) {
             return false;
         }
-        if (error instanceof RateLimitException || error instanceof InternalServerException
+        if (error instanceof GenerationModelCallTimeoutException
+                || error instanceof RateLimitException || error instanceof InternalServerException
                 || error instanceof TimeoutException || error instanceof java.util.concurrent.TimeoutException) {
             return true;
         }
@@ -883,6 +678,7 @@ public class AiCodeGeneratorFacade {
         return false;
     }
 
+    /** 查找匹配的审批{@code Required}。 */
     private GenerationApprovalRequiredException findApprovalRequired(Throwable error) {
         Throwable current = error;
         while (current != null) {
@@ -894,6 +690,7 @@ public class AiCodeGeneratorFacade {
         return null;
     }
 
+    /** 查找匹配的模型轮次准入。 */
     private GenerationModelTurnAdmissionException findModelTurnAdmission(Throwable error) {
         Throwable current = error;
         while (current != null) {
@@ -927,6 +724,7 @@ public class AiCodeGeneratorFacade {
                 : generationWorkspaceService.resolve(appId, codeGenType);
     }
 
+    /** 返回模型服务提供器。 */
     private Supplier<AiCodeGeneratorService> modelServiceSupplier(
             Long appId,
             CodeGenTypeEnum codeGenType,
@@ -950,6 +748,7 @@ public class AiCodeGeneratorFacade {
         );
     }
 
+    /** 返回请求{@code Simple}令牌流。 */
     private TokenStream requestSimpleTokenStream(
             Supplier<AiCodeGeneratorService> serviceSupplier,
             CodeGenTypeEnum codeGenType,
@@ -970,35 +769,4 @@ public class AiCodeGeneratorFacade {
         };
     }
 
-    private TokenStream requestTokenStream(Supplier<AiCodeGeneratorService> serviceSupplier,
-                                            CodeGenTypeEnum codeGenType,
-                                            Long appId,
-                                            String userMessage,
-                                            GenerationExecutionFence executionFence,
-                                            GenerationModelCancellationScope cancellationScope) {
-        AiCodeGeneratorService service = serviceSupplier.get();
-        if (executionFence == null) {
-            return switch (codeGenType) {
-                case VUE_PROJECT -> service.generateVueProjectCodeStream(appId, userMessage);
-                case BACKEND_PROJECT -> service.generateBackendProjectCodeStream(appId, userMessage);
-                case FULL_STACK_PROJECT -> service.generateFullStackProjectCodeStream(appId, userMessage);
-                default -> throw new BusinessException(ErrorCode.PARAMS_ERROR,
-                        "Tool-enabled streaming generation type is unsupported");
-            };
-        }
-        InvocationParameters parameters = InvocationParameters.from(Map.of(
-                com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService
-                        .EXECUTION_FENCE_PARAMETER,
-                executionFence,
-                GenerationModelCancellationScope.INVOCATION_PARAMETER,
-                cancellationScope
-        ));
-        return switch (codeGenType) {
-            case VUE_PROJECT -> service.generateVueProjectCodeStream(appId, userMessage, parameters);
-            case BACKEND_PROJECT -> service.generateBackendProjectCodeStream(appId, userMessage, parameters);
-            case FULL_STACK_PROJECT -> service.generateFullStackProjectCodeStream(appId, userMessage, parameters);
-            default -> throw new BusinessException(ErrorCode.PARAMS_ERROR,
-                    "Tool-enabled streaming generation type is unsupported");
-        };
-    }
 }

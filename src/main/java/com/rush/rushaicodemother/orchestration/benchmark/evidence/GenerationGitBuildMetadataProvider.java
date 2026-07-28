@@ -23,6 +23,11 @@ public class GenerationGitBuildMetadataProvider {
         this.resource = resource;
     }
 
+    /**
+ * 返回当前。
+ *
+ * @return 生成{@code Git}构建元数据提供方
+ */
     public BuildMetadata current() {
         if (!resource.exists()) {
             throw unavailable("发布制品缺少 Git 构建元数据");

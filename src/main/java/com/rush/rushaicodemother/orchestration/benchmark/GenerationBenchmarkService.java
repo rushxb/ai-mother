@@ -19,6 +19,11 @@ public class GenerationBenchmarkService {
         return runner.run(orchestratedExecutor);
     }
 
+    /**
+ * 运行发布门禁处理流程。
+ *
+ * @return 发布门禁
+ */
     public GenerationBenchmarkReleaseAssessment runReleaseGate() {
         GenerationBenchmarkReport report = runEndToEndCatalog();
         reportValidator.validate(report);

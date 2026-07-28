@@ -44,6 +44,7 @@ public class GenerationWorkspacePublicationReconciler {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    /** 对账并修复{@code Pending}状态。 */
     @Scheduled(fixedDelayString =
             "${app.artifact-lifecycle.publication-reconciliation-scan-interval:30s}")
     public void reconcilePending() {
@@ -55,9 +56,11 @@ public class GenerationWorkspacePublicationReconciler {
         }
     }
 
+    /** 对账并修复批次状态。 */
     int reconcileBatch() {
         Instant now = clock.instant();
         int completed = 0;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationWorkspacePublicationJournalEntry entry : journalRepository.claimPending(
                 now,
                 properties.getPublicationReconciliationBatchSize(),

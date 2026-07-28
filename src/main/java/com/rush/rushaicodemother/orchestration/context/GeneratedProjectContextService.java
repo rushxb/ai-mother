@@ -38,12 +38,21 @@ public class GeneratedProjectContextService {
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final GenerationProjectContextProperties properties;
 
+    /**
+ * 读取{@code Selected}文件。
+ *
+ * @param rootDirectory 工作区根目录
+ * @param relativePaths 待处理的 {@code relativePaths} 集合
+ * @return {@code Selected}文件集合
+ */
     public List<ProjectFileContext> readSelectedFiles(Path rootDirectory, List<String> relativePaths) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (rootDirectory == null || relativePaths == null || relativePaths.isEmpty()) {
             return List.of();
         }
         int remainingChars = properties.getMaxTotalContextChars();
         List<ProjectFileContext> contexts = new ArrayList<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String relativePath : normalize(relativePaths)) {
             if (remainingChars <= 0 || !isIndexableProjectFile(relativePath)) {
                 continue;
@@ -73,12 +82,26 @@ public class GeneratedProjectContextService {
         return List.copyOf(contexts);
     }
 
+    /**
+ * 返回绑定{@code Assembled}上下文。
+ *
+ * @param context 执行上下文
+ * @return 处理后的{@code Generated}项目上下文文本
+ */
     public String boundAssembledContext(String context) {
         String safeContext = context == null ? "" : context;
         return truncate(safeContext, properties.getMaxTotalContextChars(), TOTAL_TRUNCATION_MARKER)
                 .content();
     }
 
+    /**
+ * 构建并返回{@code Selected}文件{@code Sections}。
+ *
+ * @param rootDirectory 工作区根目录
+ * @param relativePaths 待处理的 {@code relativePaths} 集合
+ * @param usedContextChars 待处理的 {@code usedContextChars} 集合
+ * @return 处理后的{@code Selected}文件{@code Sections}文本
+ */
     public String buildSelectedFileSections(Path rootDirectory,
                                             List<String> relativePaths,
                                             int usedContextChars) {
@@ -88,6 +111,7 @@ public class GeneratedProjectContextService {
             return "";
         }
         StringBuilder sections = new StringBuilder();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (ProjectFileContext fileContext : readSelectedFiles(rootDirectory, relativePaths)) {
             String separator = sections.isEmpty() ? "" : "\n\n";
             String fence = selectFence(fileContext.content());
@@ -112,6 +136,7 @@ public class GeneratedProjectContextService {
         return sections.toString();
     }
 
+    /** 规范化{@code Generated}项目上下文。 */
     private List<String> normalize(List<String> relativePaths) {
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
         for (String relativePath : relativePaths) {
@@ -155,6 +180,7 @@ public class GeneratedProjectContextService {
         return String.valueOf(delimiter).repeat(Math.min(backtickLength, tildeLength));
     }
 
+    /** 返回{@code longest}{@code Run}。 */
     private int longestRun(String content, char target) {
         int longest = 0;
         int current = 0;
@@ -173,6 +199,7 @@ public class GeneratedProjectContextService {
         return truncate(content, maxChars, TRUNCATION_MARKER);
     }
 
+    /** 按资源上限截断{@code Generated}项目上下文。 */
     private BoundedContent truncate(String content, int maxChars, String marker) {
         String safeContent = content == null ? "" : content;
         if (safeContent.length() <= maxChars) {

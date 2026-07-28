@@ -12,6 +12,8 @@ import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManage
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.workspace.ReportedWorkspaceResolutionException;
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 生成成功后只提交本次生成工作区变更，输出本地 Git commit 元数据。
@@ -35,21 +39,35 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class GenerationCommitService {
 
+    private static final Duration LOCK_POLICY_CHECK_INTERVAL = Duration.ofMillis(100);
+
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GitCommandExecutor gitCommandExecutor;
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final GitTransactionResourceManager transactionResourceManager;
     private final GenerationWorkspaceService generationWorkspaceService;
+    private final GenerationExecutionContextService executionContextService;
     private final ReentrantLock[] repositoryLocks;
     private final int maxFilesPerCommit;
     private final int maxPathspecBytes;
 
+    /**
+ * 创建生成提交服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param metricsCollector {@code metricsCollector} 对应的调用参数
+ * @param gitCommandExecutor {@code gitCommandExecutor} 对应的调用参数
+ * @param workspaceFileSystemService 处理该职责的领域服务
+ * @param transactionResourceManager 事务资源管理器
+ * @param generationWorkspaceService 生成工作区服务
+ * @param properties 配置属性
+ */
     public GenerationCommitService(
             GenerationOrchestrationMetricsCollector metricsCollector,
             GitCommandExecutor gitCommandExecutor,
             WorkspaceFileSystemService workspaceFileSystemService,
             GitTransactionResourceManager transactionResourceManager,
             GenerationWorkspaceService generationWorkspaceService,
+            GenerationExecutionContextService executionContextService,
             GenerationCommitProperties properties
     ) {
         this.metricsCollector = Objects.requireNonNull(metricsCollector, "metricsCollector must not be null");
@@ -66,6 +84,10 @@ public class GenerationCommitService {
                 generationWorkspaceService,
                 "generationWorkspaceService must not be null"
         );
+        this.executionContextService = Objects.requireNonNull(
+                executionContextService,
+                "executionContextService must not be null"
+        );
         Objects.requireNonNull(properties, "properties must not be null");
         this.repositoryLocks = createLocks(properties.getLockStripes());
         this.maxFilesPerCommit = requirePositiveLimit(
@@ -78,6 +100,14 @@ public class GenerationCommitService {
         );
     }
 
+    /**
+ * 提交并返回{@code If}{@code Allowed}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param diffSummaryArtifact {@code diffSummaryArtifact} 对应的调用参数
+ * @return 生成提交
+ */
     public GenerationArtifact commitIfAllowed(
             Long appId,
             String taskId,
@@ -88,11 +118,20 @@ public class GenerationCommitService {
         return GenerationArtifact.of("generation_commit", "Orchestrator", "生成结果本地 Git 提交", result.toPayload());
     }
 
+    /**
+ * 提交并返回。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param diffSummaryArtifact {@code diffSummaryArtifact} 对应的调用参数
+ * @return 生成提交
+ */
     public GenerationCommitResult commit(
             Long appId,
             String taskId,
             GenerationArtifact diffSummaryArtifact
     ) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (appId == null || appId <= 0) {
             return GenerationCommitResult.skipped(appId, taskId, "", "", "", "invalid_app_id");
         }
@@ -131,6 +170,7 @@ public class GenerationCommitService {
         }
 
         Path projectPath;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             projectPath = requireSafeProjectPath(appId, currentPathValue);
         } catch (ProjectPathException exception) {
@@ -146,6 +186,8 @@ public class GenerationCommitService {
 
         try {
             return commitChangedFiles(appId, taskId, projectPath, changedFileSelection.files());
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (Exception exception) {
             log.warn(
                     "生成结果本地 Git 提交失败，appId: {}, taskId: {}, exceptionType: {}",
@@ -164,6 +206,12 @@ public class GenerationCommitService {
         }
     }
 
+    /**
+ * 渲染{@code Text}。
+ *
+ * @param result 待处理结果
+ * @return 处理后的{@code Text}文本
+ */
     public String renderText(GenerationCommitResult result) {
         if (result == null) {
             return "生成结果本地 Git 提交结果不可用";
@@ -177,13 +225,14 @@ public class GenerationCommitService {
         return "生成结果本地 Git 提交已跳过: " + result.reason();
     }
 
+    /** 提交并返回变更文件。 */
     private GenerationCommitResult commitChangedFiles(
             Long appId,
             String taskId,
             Path projectPath,
             List<String> changedFiles
     ) throws IOException {
-        GitCommandResult gitRootResult = runGit(projectPath, List.of("rev-parse", "--show-toplevel"));
+        GitCommandResult gitRootResult = runGit(taskId, projectPath, List.of("rev-parse", "--show-toplevel"));
         if (!gitRootResult.success()) {
             if (gitRootResult.interrupted()) {
                 return interruptedResult(appId, taskId, projectPath);
@@ -216,14 +265,14 @@ public class GenerationCommitService {
                     taskId,
                     projectPath.toString(),
                     "",
-                    currentBranch(gitRoot),
+                    currentBranch(taskId, gitRoot),
                     "no_committable_files"
             );
         }
 
         ReentrantLock repositoryLock = lockFor(gitRoot);
         try {
-            repositoryLock.lockInterruptibly();
+            acquireRepositoryLock(repositoryLock, taskId);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return GenerationCommitResult.failed(
@@ -235,6 +284,7 @@ public class GenerationCommitService {
                     "git_commit_interrupted"
             );
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             return commitWithRepositoryLock(
                     appId,
@@ -248,6 +298,7 @@ public class GenerationCommitService {
         }
     }
 
+    /** 提交并返回并仓储锁。 */
     private GenerationCommitResult commitWithRepositoryLock(
             Long appId,
             String taskId,
@@ -256,6 +307,7 @@ public class GenerationCommitService {
             List<String> gitRelativeFiles
     ) throws IOException {
         GitCommandResult gitDirectoryResult = runGit(
+                taskId,
                 gitRoot,
                 List.of("rev-parse", "--absolute-git-dir")
         );
@@ -278,13 +330,14 @@ public class GenerationCommitService {
                     appId,
                     taskId,
                     projectPath.toString(),
-                    headCommit(gitRoot),
-                    currentBranch(gitRoot),
+                    headCommit(taskId, gitRoot),
+                    currentBranch(taskId, gitRoot),
                     "git_directory_unavailable"
             );
         }
 
         GitTransactionResources transactionResources;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             transactionResources = transactionResourceManager.create(
                     gitDirectory,
@@ -296,16 +349,17 @@ public class GenerationCommitService {
                     appId,
                     taskId,
                     projectPath.toString(),
-                    headCommit(gitRoot),
-                    currentBranch(gitRoot),
+                    headCommit(taskId, gitRoot),
+                    currentBranch(taskId, gitRoot),
                     mapTransactionResourceFailure(exception)
             );
         }
         Map<String, String> transactionEnvironment = Map.of(
                 "GIT_INDEX_FILE", transactionResources.temporaryIndex().toString()
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            GitCommandResult indexResult = prepareTemporaryIndex(gitRoot, transactionEnvironment);
+            GitCommandResult indexResult = prepareTemporaryIndex(taskId, gitRoot, transactionEnvironment);
             if (!indexResult.success()) {
                 return failedCommandResult(
                         appId,
@@ -318,6 +372,7 @@ public class GenerationCommitService {
             }
 
             GitCommandResult stageResult = runGit(
+                    taskId,
                     gitRoot,
                     List.of(
                             "add",
@@ -339,6 +394,7 @@ public class GenerationCommitService {
             }
 
             GitCommandResult stagedResult = runGit(
+                    taskId,
                     gitRoot,
                     List.of(
                             "diff",
@@ -370,8 +426,8 @@ public class GenerationCommitService {
                         appId,
                         taskId,
                         projectPath.toString(),
-                        headCommit(gitRoot),
-                        currentBranch(gitRoot),
+                        headCommit(taskId, gitRoot),
+                        currentBranch(taskId, gitRoot),
                         mapTransactionResourceFailure(exception)
                 );
             }
@@ -380,13 +436,14 @@ public class GenerationCommitService {
                         appId,
                         taskId,
                         projectPath.toString(),
-                        headCommit(gitRoot),
-                        currentBranch(gitRoot),
+                        headCommit(taskId, gitRoot),
+                        currentBranch(taskId, gitRoot),
                         "no_git_changes_after_stage"
                 );
             }
 
             GitCommandResult commitResult = runGit(
+                    taskId,
                     gitRoot,
                     List.of(
                             "-c",
@@ -410,6 +467,7 @@ public class GenerationCommitService {
                 );
             }
             GitCommandResult mainIndexSyncResult = runGit(
+                    taskId,
                     gitRoot,
                     List.of(
                             "add",
@@ -432,8 +490,8 @@ public class GenerationCommitService {
                     appId,
                     taskId,
                     projectPath.toString(),
-                    headCommit(gitRoot),
-                    currentBranch(gitRoot),
+                    headCommit(taskId, gitRoot),
+                    currentBranch(taskId, gitRoot),
                     stagedFiles
             );
         } finally {
@@ -442,18 +500,20 @@ public class GenerationCommitService {
     }
 
     private GitCommandResult prepareTemporaryIndex(
+            String taskId,
             Path gitRoot,
             Map<String, String> transactionEnvironment
     ) {
-        GitCommandResult headResult = runGit(gitRoot, List.of("rev-parse", "--verify", "HEAD"));
+        GitCommandResult headResult = runGit(taskId, gitRoot, List.of("rev-parse", "--verify", "HEAD"));
         if (!headResult.commandCompleted()) {
             return headResult;
         }
         return headResult.success()
-                ? runGit(gitRoot, List.of("read-tree", "HEAD"), transactionEnvironment)
-                : runGit(gitRoot, List.of("read-tree", "--empty"), transactionEnvironment);
+                ? runGit(taskId, gitRoot, List.of("read-tree", "HEAD"), transactionEnvironment)
+                : runGit(taskId, gitRoot, List.of("read-tree", "--empty"), transactionEnvironment);
     }
 
+    /** 构造表示命令执行失败的结果。 */
     private GenerationCommitResult failedCommandResult(
             Long appId,
             String taskId,
@@ -477,8 +537,8 @@ public class GenerationCommitService {
                 appId,
                 taskId,
                 projectPath.toString(),
-                headCommit(gitRoot),
-                currentBranch(gitRoot),
+                headCommit(taskId, gitRoot),
+                currentBranch(taskId, gitRoot),
                 reason
         );
     }
@@ -498,8 +558,10 @@ public class GenerationCommitService {
         );
     }
 
+    /** 校验并返回有效的安全项目路径。 */
     private Path requireSafeProjectPath(Long appId, String currentPathValue) throws ProjectPathException {
         Path reportedPath;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             reportedPath = Path.of(currentPathValue).toAbsolutePath().normalize();
         } catch (RuntimeException exception) {
@@ -507,6 +569,7 @@ public class GenerationCommitService {
         }
 
         GenerationWorkspace workspace;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             workspace = generationWorkspaceService.resolveReportedWorkspace(appId, reportedPath);
         } catch (ReportedWorkspaceResolutionException exception) {
@@ -532,6 +595,7 @@ public class GenerationCommitService {
         }
     }
 
+    /** 返回变更文件。 */
     private ChangedFileSelection changedFiles(Map<String, Object> diffPayload) {
         LinkedHashSet<String> files = new LinkedHashSet<>();
         for (String payloadKey : List.of("addedFiles", "modifiedFiles", "deletedFiles")) {
@@ -542,6 +606,7 @@ public class GenerationCommitService {
         return new ChangedFileSelection(List.copyOf(files), false);
     }
 
+    /** 添加{@code Normalized}文件。 */
     private boolean addNormalizedFiles(LinkedHashSet<String> files, Object value) {
         if (value instanceof Collection<?> collection) {
             for (Object item : collection) {
@@ -562,6 +627,7 @@ public class GenerationCommitService {
         return files.size() > maxFilesPerCommit;
     }
 
+    /** 规范化{@code Relative}文件。 */
     private String normalizeRelativeFile(Object value) {
         if (value == null) {
             return "";
@@ -586,6 +652,7 @@ public class GenerationCommitService {
         }
     }
 
+    /** 将当前对象转换为{@code Git}{@code Relative}文件。 */
     private List<String> toGitRelativeFiles(
             Path gitRoot,
             Path projectPath,
@@ -613,21 +680,22 @@ public class GenerationCommitService {
         return "AI generation app " + appId + " task " + StrUtil.sub(normalizedTaskId, 0, 120);
     }
 
-    private String headCommit(Path gitRoot) {
-        GitCommandResult result = runGit(gitRoot, List.of("rev-parse", "HEAD"));
+    private String headCommit(String taskId, Path gitRoot) {
+        GitCommandResult result = runGit(taskId, gitRoot, List.of("rev-parse", "HEAD"));
         return result.success() ? result.stdout().trim() : "";
     }
 
-    private String currentBranch(Path gitRoot) {
-        GitCommandResult result = runGit(gitRoot, List.of("rev-parse", "--abbrev-ref", "HEAD"));
+    private String currentBranch(String taskId, Path gitRoot) {
+        GitCommandResult result = runGit(taskId, gitRoot, List.of("rev-parse", "--abbrev-ref", "HEAD"));
         return result.success() ? result.stdout().trim() : "";
     }
 
-    private GitCommandResult runGit(Path workingDirectory, List<String> arguments) {
-        return runGit(workingDirectory, arguments, Map.of());
+    private GitCommandResult runGit(String taskId, Path workingDirectory, List<String> arguments) {
+        return runGit(taskId, workingDirectory, arguments, Map.of());
     }
 
     private GitCommandResult runGit(
+            String taskId,
             Path workingDirectory,
             List<String> arguments,
             Map<String, String> environment
@@ -636,10 +704,31 @@ public class GenerationCommitService {
                 workingDirectory,
                 arguments,
                 environment,
-                "generation-commit"
+                "generation-commit",
+                taskId
         );
     }
 
+    private void acquireRepositoryLock(ReentrantLock repositoryLock, String taskId)
+            throws InterruptedException {
+        while (true) {
+            executionContextService.assertCanContinue(taskId);
+            if (repositoryLock.tryLock(
+                    LOCK_POLICY_CHECK_INTERVAL.toMillis(),
+                    TimeUnit.MILLISECONDS
+            )) {
+                try {
+                    executionContextService.assertCanContinue(taskId);
+                    return;
+                } catch (RuntimeException | Error exception) {
+                    repositoryLock.unlock();
+                    throw exception;
+                }
+            }
+        }
+    }
+
+    /** 根据当前上下文解析{@code Exact}目录。 */
     private Path resolveExactDirectory(String value, Path expectedDirectory) {
         if (StrUtil.isBlank(value)) {
             return null;
@@ -673,6 +762,7 @@ public class GenerationCommitService {
                 && taskId.equals(stringValue(diffPayload.get("taskId")));
     }
 
+    /** 返回{@code long}值。 */
     private Long longValue(Object value) {
         if (value instanceof Number number) {
             return number.longValue();
@@ -705,6 +795,7 @@ public class GenerationCommitService {
         return repositoryLocks[Math.floorMod(gitRoot.toString().hashCode(), repositoryLocks.length)];
     }
 
+    /** 创建{@code Locks}。 */
     private ReentrantLock[] createLocks(int stripeCount) {
         if (stripeCount <= 0) {
             throw new IllegalArgumentException("Git 仓库提交锁条带数必须大于 0");

@@ -37,6 +37,14 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
     private final DeploymentKeyPolicy deploymentKeyPolicy;
     private final ArtifactPathMover artifactPathMover;
 
+    /**
+ * 创建{@code Local}应用制品生命周期服务实例并完成必要的依赖和初始状态设置。
+ *
+ * @param storageProperties 存储属性
+ * @param deploymentKeyPolicy 部署键策略
+ * @param artifactDirectoryCopier {@code artifactDirectoryCopier} 对应的调用参数
+ * @param artifactPathMover {@code artifactPathMover} 对应的调用参数
+ */
     public LocalAppArtifactLifecycleService(
             CodeStorageProperties storageProperties,
             DeploymentKeyPolicy deploymentKeyPolicy,
@@ -60,6 +68,12 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         );
     }
 
+    /**
+ * 校验并返回有效的{@code Generated}目录。
+ *
+ * @param app 应用
+ * @return 解析后的{@code Generated}目录路径
+ */
     @Override
     public Path requireGeneratedDirectory(App app) {
         Path generatedDirectory = resolveGeneratedDirectory(app);
@@ -70,6 +84,12 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         return toRealPath(generatedDirectory, "应用生成目录解析失败");
     }
 
+    /**
+ * 复制{@code Generated}制品。
+ *
+ * @param sourceApp 来源应用
+ * @param targetApp 目标应用
+ */
     @Override
     public void copyGeneratedArtifact(App sourceApp, App targetApp) {
         Path sourceDirectory = requireGeneratedDirectory(sourceApp);
@@ -84,6 +104,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 COPY_STAGING_PREFIX + targetApp.getId() + "-" + UUID.randomUUID(),
                 "复制暂存目录"
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             artifactDirectoryCopier.copy(sourceDirectory, stagingDirectory, ArtifactCopyProfile.GENERATED_SOURCE);
             artifactPathMover.move(stagingDirectory, targetDirectory);
@@ -103,6 +124,13 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         }
     }
 
+    /**
+ * 准备后续流程所需的部署。
+ *
+ * @param sourceDirectory 来源目录
+ * @param deployKey 部署键
+ * @return 部署
+ */
     @Override
     public DeploymentArtifactTransaction prepareDeployment(Path sourceDirectory, String deployKey) {
         validateDeployKey(deployKey);
@@ -120,6 +148,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 DEPLOY_BACKUP_PREFIX + deployKey + "-" + transactionId,
                 "部署备份目录"
         );
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             artifactDirectoryCopier.copy(safeSourceDirectory, stagingDirectory, ArtifactCopyProfile.DEPLOYMENT);
             return new LocalDeploymentArtifactTransaction(stagingDirectory, targetDirectory, backupDirectory);
@@ -139,6 +168,12 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         }
     }
 
+    /**
+ * 准备后续流程所需的删除。
+ *
+ * @param app 应用
+ * @return 删除
+ */
     @Override
     public AppArtifactDeletionTransaction prepareDeletion(App app) {
         ThrowUtils.throwIf(app == null || app.getId() == null || app.getId() <= 0,
@@ -184,6 +219,11 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         return new LocalAppArtifactDeletionTransaction(deletionTargets);
     }
 
+    /**
+ * 删除{@code Generated}制品。
+ *
+ * @param app 应用
+ */
     @Override
     public void deleteGeneratedArtifact(App app) {
         if (app == null || app.getId() == null || app.getId() <= 0 || app.getCodeGenType() == null
@@ -210,6 +250,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 ErrorCode.PARAMS_ERROR, "源应用与目标应用代码类型不一致");
     }
 
+    /** 校验并返回有效的{@code Deployable}来源目录。 */
     private Path requireDeployableSourceDirectory(Path sourceDirectory) {
         ThrowUtils.throwIf(sourceDirectory == null, ErrorCode.PARAMS_ERROR, "部署源目录不能为空");
         Path root = requireSafeRoot(outputRoot, "应用生成根目录");
@@ -224,6 +265,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         return realSource;
     }
 
+    /** 校验并返回有效的安全根。 */
     private Path requireSafeRoot(Path configuredRoot, String label) {
         try {
             if (Files.exists(configuredRoot, LinkOption.NOFOLLOW_LINKS)) {
@@ -268,6 +310,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         return new BusinessException(errorCode, operationMessage + ": " + exception.getMessage(), exception);
     }
 
+    /** 将当前对象转换为{@code Real}路径。 */
     private Path toRealPath(Path path, String failureMessage) {
         try {
             return path.toRealPath();
@@ -276,6 +319,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         }
     }
 
+    /** 删除目录{@code If}{@code Exists}。 */
     private void deleteDirectoryIfExists(Path target, String label) {
         try {
             deleteTree(target);
@@ -285,6 +329,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         }
     }
 
+    /** 删除{@code Tree}。 */
     private void deleteTree(Path target) throws IOException {
         if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             return;
@@ -300,6 +345,13 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 return FileVisitResult.CONTINUE;
             }
 
+            /**
+ * 在目录访问完成后处理异常并收口遍历状态。
+ *
+ * @param directory 目录
+ * @param exception 待转换或处理的异常
+ * @return 方法执行结果
+ */
             @Override
             public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
                 if (exception != null) {
@@ -311,6 +363,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         });
     }
 
+    /** 删除{@code Quietly}。 */
     private void deleteQuietly(Path target, String label) {
         try {
             deleteTree(target);
@@ -330,6 +383,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             this.deletionTargets = List.copyOf(deletionTargets);
         }
 
+        /** 处理{@code activate}。 */
         @Override
         public synchronized void activate() {
             ThrowUtils.throwIf(committed, ErrorCode.OPERATION_ERROR, "应用产物删除事务已提交");
@@ -354,6 +408,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             }
         }
 
+        /** 处理提交。 */
         @Override
         public synchronized void commit() {
             ThrowUtils.throwIf(!activated, ErrorCode.OPERATION_ERROR, "应用产物删除事务尚未激活");
@@ -361,6 +416,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 return;
             }
             RuntimeException firstFailure = null;
+            // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
             for (DeletionTarget deletionTarget : movedTargets) {
                 try {
                     deleteTree(deletionTarget.quarantinePath());
@@ -386,6 +442,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             movedTargets.clear();
         }
 
+        /** 处理回滚。 */
         @Override
         public synchronized void rollback() {
             if (committed) {
@@ -399,6 +456,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             movedTargets.clear();
         }
 
+        /** 处理恢复执行后{@code Activation}失败。 */
         private void restoreAfterActivationFailure(Exception activationFailure) {
             RuntimeException restoreFailure = restoreMovedTargets();
             movedTargets.clear();
@@ -417,6 +475,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "隔离应用产物失败", activationFailure);
         }
 
+        /** 返回恢复{@code Moved}{@code Targets}。 */
         private RuntimeException restoreMovedTargets() {
             RuntimeException firstFailure = null;
             for (int index = movedTargets.size() - 1; index >= 0; index--) {
@@ -465,6 +524,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             this.backupDirectory = backupDirectory;
         }
 
+        /** 处理{@code activate}。 */
         @Override
         public synchronized void activate() {
             ThrowUtils.throwIf(committed, ErrorCode.OPERATION_ERROR, "部署目录事务已提交");
@@ -492,6 +552,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             }
         }
 
+        /** 处理提交。 */
         @Override
         public synchronized void commit() {
             ThrowUtils.throwIf(!activated, ErrorCode.OPERATION_ERROR, "部署目录事务尚未激活");
@@ -503,6 +564,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             deleteQuietly(stagingDirectory, "部署暂存目录");
         }
 
+        /** 处理回滚。 */
         @Override
         public synchronized void rollback() {
             if (committed) {
@@ -523,6 +585,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
             }
         }
 
+        /** 处理恢复{@code Backup}执行后{@code Activation}失败。 */
         private void restoreBackupAfterActivationFailure(Exception activationFailure) throws IOException {
             try {
                 if (Files.exists(backupDirectory, LinkOption.NOFOLLOW_LINKS)

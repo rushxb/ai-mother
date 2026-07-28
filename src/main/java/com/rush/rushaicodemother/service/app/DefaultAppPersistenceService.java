@@ -34,6 +34,12 @@ public class DefaultAppPersistenceService implements AppPersistenceService {
 
     private final AppMapper appMapper;
 
+    /**
+ * 创建{@code Prepared}。
+ *
+ * @param newApp {@code newApp} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     @Override
     public long createPrepared(NewApp newApp) {
         ThrowUtils.throwIf(newApp == null, ErrorCode.PARAMS_ERROR, "应用创建参数不能为空");
@@ -61,12 +67,24 @@ public class DefaultAppPersistenceService implements AppPersistenceService {
         return entity.getId();
     }
 
+    /**
+ * 查找匹配的活动按编号。
+ *
+ * @param appId 应用编号
+ * @return 活动按编号
+ */
     @Override
     public App findActiveById(Long appId) {
         validateAppId(appId);
         return appMapper.selectActiveById(appId);
     }
 
+    /**
+ * 返回{@code page}活动{@code Apps}。
+ *
+ * @param queryRequest 查询请求
+ * @return 默认应用持久化
+ */
     @Override
     public Page<App> pageActiveApps(AppQueryRequest queryRequest) {
         ThrowUtils.throwIf(queryRequest == null, ErrorCode.PARAMS_ERROR, "查询条件不能为空");
@@ -78,6 +96,13 @@ public class DefaultAppPersistenceService implements AppPersistenceService {
         );
     }
 
+    /**
+ * 更新名称。
+ *
+ * @param appId 应用编号
+ * @param appName 应用名称
+ * @param editTime 编辑时间
+ */
     @Override
     public void updateName(Long appId, String appName, LocalDateTime editTime) {
         validateAppId(appId);
@@ -88,6 +113,15 @@ public class DefaultAppPersistenceService implements AppPersistenceService {
         );
     }
 
+    /**
+ * 更新{@code Administration}{@code Fields}。
+ *
+ * @param appId 应用编号
+ * @param appName 应用名称
+ * @param cover {@code cover} 对应的调用参数
+ * @param priority {@code priority} 对应的调用参数
+ * @param editTime 编辑时间
+ */
     @Override
     public void updateAdministrationFields(Long appId,
                                            String appName,
@@ -109,6 +143,12 @@ public class DefaultAppPersistenceService implements AppPersistenceService {
         );
     }
 
+    /**
+ * 更新开发服务器端口。
+ *
+ * @param appId 应用编号
+ * @param port 端口
+ */
     @Override
     public void updateDevServerPort(Long appId, int port) {
         validateAppId(appId);
@@ -119,6 +159,7 @@ public class DefaultAppPersistenceService implements AppPersistenceService {
         );
     }
 
+    /** 构建并返回查询{@code Wrapper}。 */
     private QueryWrapper buildQueryWrapper(AppQueryRequest queryRequest) {
         String sortField = SORT_FIELDS.resolve(queryRequest.getSortField());
         boolean ascending = "ascend".equals(queryRequest.getSortOrder());

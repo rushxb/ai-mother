@@ -21,6 +21,11 @@ public class GenerationOutcomeMemoryService {
         this.outboxProperties = outboxProperties;
     }
 
+    /**
+ * 处理记录。
+ *
+ * @param request 请求参数
+ */
     public void remember(GenerationOutcomeMemoryRequest request) {
         if (request == null || durableOutboxEnabled()) {
             return;

@@ -24,6 +24,11 @@ public class SemanticGenerationFeedbackSignalPublisher implements GenerationFeed
 
     private final GenerationSemanticMemoryService semanticMemoryService;
 
+    /**
+ * 发布当前处理结果或领域事件。
+ *
+ * @param signal 输入信号
+ */
     @Override
     public void publish(GenerationFeedbackSignal signal) {
         if (signal == null || signal.tenantId() == null || signal.appId() == null
@@ -47,6 +52,7 @@ public class SemanticGenerationFeedbackSignalPublisher implements GenerationFeed
         }
     }
 
+    /** 返回内容。 */
     private String content(GenerationFeedbackSignal signal) {
         StringBuilder builder = new StringBuilder();
         builder.append("User feedback for generated application task.\n");
@@ -75,6 +81,7 @@ public class SemanticGenerationFeedbackSignalPublisher implements GenerationFeed
         return metadata;
     }
 
+    /** 返回{@code rating}{@code Bucket}。 */
     private String ratingBucket(int rating) {
         if (rating <= 2) {
             return "negative";

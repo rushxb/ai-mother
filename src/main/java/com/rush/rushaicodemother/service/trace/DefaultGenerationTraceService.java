@@ -86,6 +86,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         return startTask(command, true);
     }
 
+    /** 启动任务。 */
     private GenerationTaskTraceStartResult startTask(GenerationTaskStartCommand command,
                                                       boolean allowRunningTransition) {
         NewTask task = normalizeStartCommand(command);
@@ -128,6 +129,13 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         return GenerationTaskTraceStartResult.TRANSITIONED;
     }
 
+    /**
+ * 更新阶段。
+ *
+ * @param taskId 任务编号
+ * @param stage 阶段
+ * @param stageMessage 阶段消息
+ */
     @Override
     @Transactional
     public void updateStage(String taskId, String stage, String stageMessage) {
@@ -148,6 +156,12 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 executionFence(normalizedTaskId), LocalDateTime.now(clock));
     }
 
+    /**
+ * 更新记忆汇总。
+ *
+ * @param taskId 任务编号
+ * @param memorySummary 记忆汇总
+ */
     @Override
     @Transactional
     public void updateMemorySummary(String taskId, String memorySummary) {
@@ -162,6 +176,13 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 executionFence(normalizedTaskId), LocalDateTime.now(clock));
     }
 
+    /**
+ * 完成任务并持久化终态。
+ *
+ * @param taskId 任务编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ */
     @Override
     @Transactional
     public void completeTask(String taskId, GenerationTaskStatus status, String errorMessage) {
@@ -194,8 +215,17 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 normalizedTaskId, status.getValue(), durationMs);
     }
 
+    /**
+ * 记录事件相关指标或状态。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param event 待处理的领域事件
+ */
     @Override
     public void recordEvent(String taskId, Long appId, Long userId, GenerationStreamEvent event) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (event == null || !GenerationStreamEvent.BUILD_RESULT.equals(event.getType())) {
             return;
         }
@@ -231,6 +261,11 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         persistenceService.insertBuildLog(buildLog);
     }
 
+    /**
+ * 记录模型调用相关指标或状态。
+ *
+ * @param command 命令
+ */
     @Override
     @Transactional
     public void recordModelCall(GenerationModelCallCommand command) {
@@ -247,6 +282,13 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         }
     }
 
+    /**
+ * 列出符合条件的{@code Recent}任务按应用编号。
+ *
+ * @param appId 应用编号
+ * @param limit 资源上限
+ * @return {@code Recent}任务按应用编号集合
+ */
     @Override
     public List<GenerationTaskTrace> listRecentTasksByAppId(Long appId, int limit) {
         long normalizedAppId = requirePositiveId(appId, "应用 ID");
@@ -257,6 +299,13 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 .toList();
     }
 
+    /**
+ * 列出符合条件的{@code Recent}构建{@code Logs}按应用编号。
+ *
+ * @param appId 应用编号
+ * @param limit 资源上限
+ * @return {@code Recent}构建{@code Logs}按应用编号集合
+ */
     @Override
     public List<GenerationBuildTrace> listRecentBuildLogsByAppId(Long appId, int limit) {
         long normalizedAppId = requirePositiveId(appId, "应用 ID");
@@ -264,6 +313,13 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 normalizedAppId, normalizeLimit(limit)));
     }
 
+    /**
+ * 列出符合条件的构建{@code Logs}按任务编号。
+ *
+ * @param taskId 任务编号
+ * @param limit 资源上限
+ * @return 构建{@code Logs}按任务编号集合
+ */
     @Override
     public List<GenerationBuildTrace> listBuildLogsByTaskId(String taskId, int limit) {
         String normalizedTaskId = requireText(taskId, MAX_TASK_ID_LENGTH, "生成任务 ID");
@@ -271,6 +327,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 normalizedTaskId, normalizeLimit(limit)));
     }
 
+    /** 规范化开始命令。 */
     private NewTask normalizeStartCommand(GenerationTaskStartCommand command) {
         if (command == null) {
             throw invalid("生成任务 trace 命令不能为空");
@@ -294,11 +351,14 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         );
     }
 
+    /** 规范化模型调用。 */
     private NewModelCall normalizeModelCall(GenerationModelCallCommand command) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (command == null) {
             throw invalid("模型调用命令不能为空");
         }
         String callId;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             callId = UUID.fromString(command.callId()).toString();
         } catch (RuntimeException exception) {
@@ -386,6 +446,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 && existing.userId() == requested.userId();
     }
 
+    /** 返回{@code same}任务载荷。 */
     private boolean sameTaskPayload(TaskRecord existing, NewTask requested) {
         return existing.taskId().equals(requested.taskId())
                 && existing.appId() == requested.appId()
@@ -410,6 +471,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         return operationFailed("生成任务 ID 已被不同请求占用或当前状态不允许迁移，taskId=" + taskId);
     }
 
+    /** 返回{@code same}模型调用载荷。 */
     private boolean sameModelCallPayload(ModelCallRecord existing, NewModelCall requested) {
         return existing.callId().equals(requested.callId())
                 && existing.taskId().equals(requested.taskId())
@@ -465,6 +527,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         return value;
     }
 
+    /** 校验{@code ate}令牌用量是否有效。 */
     private void validateTokenUsage(Integer promptTokens,
                                     Integer completionTokens,
                                     Integer totalTokens,
@@ -498,6 +561,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         return value;
     }
 
+    /** 校验并返回有效的{@code Text}。 */
     private String requireText(String value, int maxLength, String fieldName) {
         String normalized = nullableText(value);
         if (normalized == null) {
@@ -529,6 +593,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         return value == null ? null : String.valueOf(value);
     }
 
+    /** 返回{@code boolean}值。 */
     private Boolean booleanValue(Object value) {
         if (value instanceof Boolean booleanValue) {
             return booleanValue;

@@ -20,6 +20,7 @@ public record GenerationBenchmarkWorkerResult(
 ) {
     public static final int CURRENT_SCHEMA_VERSION = 2;
 
+    /** 创建生成基准测试工作器结果实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkWorkerResult {
         subjectKey = subjectKey == null ? "" : subjectKey;
         candidateFingerprint = candidateFingerprint == null ? "" : candidateFingerprint;

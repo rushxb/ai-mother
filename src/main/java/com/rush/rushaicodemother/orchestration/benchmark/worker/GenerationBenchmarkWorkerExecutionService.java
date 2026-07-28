@@ -39,6 +39,11 @@ public class GenerationBenchmarkWorkerExecutionService {
     private final GenerationBenchmarkEvidenceManagementService managementService;
     private final GenerationBenchmarkWorkerResultWriter resultWriter;
 
+    /**
+ * 执行生成基准测试工作器执行处理流程。
+ *
+ * @return 生成基准测试工作器执行
+ */
     public GenerationBenchmarkWorkerResult execute() {
         requireCompleteRuntimeGrading();
         resultWriter.prepare();
@@ -51,6 +56,7 @@ public class GenerationBenchmarkWorkerExecutionService {
         GenerationBenchmarkReport report;
         long candidatePhysicalRequestCount;
         invocationTracker.begin(candidate);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             assessment = benchmarkService.runReleaseGate();
             report = assessment.report();
@@ -107,6 +113,7 @@ public class GenerationBenchmarkWorkerExecutionService {
         }
     }
 
+    /** 校验并返回有效的稳定执行{@code Identity}。 */
     private void requireStableExecutionIdentity(
             GenerationBenchmarkEvidenceCandidateIdentity before,
             GenerationBenchmarkEvidenceCandidateIdentity after,
@@ -120,6 +127,7 @@ public class GenerationBenchmarkWorkerExecutionService {
         }
     }
 
+    /** 返回结果。 */
     private GenerationBenchmarkWorkerResult result(
             GenerationBenchmarkWorkerResult.Status status,
             GenerationBenchmarkEvidenceCandidateIdentity identity,

@@ -6,6 +6,12 @@ public final class GenerationAgentLoopException extends RuntimeException {
     private final String reasonCode;
     private final String toolName;
 
+    /**
+ * 创建生成智能体循环异常实例并完成必要的依赖和初始状态设置。
+ *
+ * @param reasonCode 原因代码
+ * @param toolName 工具名称
+ */
     public GenerationAgentLoopException(String reasonCode, String toolName) {
         super("AI 工具调用连续重复且未产生新进展", null, false, false);
         if (reasonCode == null || !reasonCode.matches("[a-z_]{1,64}")) {

@@ -26,6 +26,14 @@ public class AgentEditContextCollector {
     private final EditContextPackageBuilder editContextPackageBuilder;
     private final WorkspaceCodeGraphService codeGraphService;
 
+    /**
+ * 采集并汇总智能体编辑上下文。
+ *
+ * @param workspace 工作区
+ * @param userMessage 用户消息
+ * @param codeGenType 代码生成类型
+ * @return 智能体编辑上下文
+ */
     public AgentEditReadResult collect(GenerationWorkspace workspace, String userMessage, CodeGenTypeEnum codeGenType) {
         List<EditFileCandidate> candidates = editFileLocatorService.locate(workspace, userMessage, codeGenType);
         EditContextPackage contextPackage = editContextPackageBuilder.build(workspace, candidates);
@@ -65,6 +73,7 @@ public class AgentEditContextCollector {
         );
     }
 
+    /** 返回{@code infer}{@code Intent}。 */
     private String inferIntent(String userMessage) {
         String message = StrUtil.blankToDefault(userMessage, "").toLowerCase();
         if (message.contains("bug") || message.contains("报错") || message.contains("error") || message.contains("失败")) {
@@ -79,6 +88,7 @@ public class AgentEditContextCollector {
         return "code_edit";
     }
 
+    /** 返回{@code infer}{@code Risk}{@code Level}。 */
     private String inferRiskLevel(String userMessage, EditContextPackage contextPackage) {
         String message = StrUtil.blankToDefault(userMessage, "").toLowerCase();
         int fileCount = contextPackage == null ? 0 : contextPackage.fileCount();

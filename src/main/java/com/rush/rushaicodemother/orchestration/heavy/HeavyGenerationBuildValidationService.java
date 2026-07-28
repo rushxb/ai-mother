@@ -45,6 +45,15 @@ public class HeavyGenerationBuildValidationService {
     private final GenerationProjectBuildValidationService projectBuildValidationService;
     private final GenerationStageAdmissionService generationStageAdmissionService;
 
+    /**
+ * 运行并{@code Auto}{@code Repair}处理流程。
+ *
+ * @param appId 应用编号
+ * @param loginUser 当前登录用户
+ * @param preparation {@code preparation} 对应的调用参数
+ * @param session 会话
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean runWithAutoRepair(Long appId,
                                      User loginUser,
                                      GenerationPreparation preparation,
@@ -98,6 +107,7 @@ public class HeavyGenerationBuildValidationService {
                     appId, preparation, session, validationFailure.publicSummary());
             return false;
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int round = 1; round <= availableRepairRounds; round++) {
             session.throwIfCancelled();
             if (!generationStageAdmissionService.allowRepair(
@@ -184,6 +194,7 @@ public class HeavyGenerationBuildValidationService {
         return false;
     }
 
+    /** 执行构建处理流程。 */
     private ProjectBuildValidationResult executeBuild(
             Long appId,
             GenerationPreparation preparation,
@@ -234,11 +245,13 @@ public class HeavyGenerationBuildValidationService {
         return generationWorkspaceService.resolve(appId, targetType);
     }
 
+    /** 校验{@code ate}运行时{@code If}{@code Needed}是否有效。 */
     private DevServerValidationResult validateRuntimeIfNeeded(Long appId,
                                                               User loginUser,
                                                               GenerationPreparation preparation,
                                                               GenerationSession session,
                                                               String stageMessage) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (preparation.targetType() != CodeGenTypeEnum.VUE_PROJECT
                 && preparation.targetType() != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return null;
@@ -252,6 +265,7 @@ public class HeavyGenerationBuildValidationService {
         GenerationPerformanceMonitorService.SpanTimer span =
                 generationPerformanceMonitorService.startSpan(preparation.taskId(), "dev_server_validation", GenerationSpanCategory.VALIDATION);
         DevServerValidationResult dsResult;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (session.executionContext() == null || session.executionContext().executionFence() == null) {
                 dsResult = devServerValidationService.validate(
@@ -298,6 +312,7 @@ public class HeavyGenerationBuildValidationService {
             String repairDiagnostic
     ) {
 
+        /** 构建并返回校验失败。 */
         private static ValidationFailure build(ProjectBuildValidationResult result) {
             String summary = result.failureSummary();
             String diagnostic = """
@@ -351,6 +366,7 @@ public class HeavyGenerationBuildValidationService {
         }
     }
 
+    /** 发送构建结果事件。 */
     private void emitBuildResult(GenerationSession session,
                                  GenerationPreparation preparation,
                                  ProjectBuildValidationResult buildResult,

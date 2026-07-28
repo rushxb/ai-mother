@@ -13,6 +13,7 @@ public class GenerationTraceParentRegistry {
 
     private final ConcurrentMap<String, TraceContext> activeParents = new ConcurrentHashMap<>();
 
+    /** 注册生成追踪父级注册器。 */
     Registration register(String taskId, TraceContext context) {
         if (taskId == null || taskId.isBlank() || context == null) {
             return Registration.NOOP;

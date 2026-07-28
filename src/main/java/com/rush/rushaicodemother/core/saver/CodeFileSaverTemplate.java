@@ -29,6 +29,13 @@ public abstract class CodeFileSaverTemplate<T> {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final WorkspaceFileSystemService workspaceFileSystemService;
 
+    /**
+ * 创建代码文件{@code Saver}模板实例并完成必要的依赖和初始状态设置。
+ *
+ * @param resultType 结果类型
+ * @param generationWorkspaceService 生成工作区服务
+ * @param workspaceFileSystemService 处理该职责的领域服务
+ */
     protected CodeFileSaverTemplate(
             Class<T> resultType,
             GenerationWorkspaceService generationWorkspaceService,
@@ -88,6 +95,7 @@ public abstract class CodeFileSaverTemplate<T> {
         return workspace.canonicalRootPath().toFile();
     }
 
+    /** 校验并返回有效的{@code Matching}工作区。 */
     private GenerationWorkspace requireMatchingWorkspace(GenerationWorkspace workspace, Long appId) {
         if (!Objects.equals(appId, workspace.appId())
                 || workspace.codeGenType() != codeGenType()

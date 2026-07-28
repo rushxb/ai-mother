@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 @Component
 final class BackendServiceTemplate {
 
+    /** 返回后端服务。 */
     String backendService(BackendRecipe recipe) {
         String imports = recipe.options().pagination()
                 ? """

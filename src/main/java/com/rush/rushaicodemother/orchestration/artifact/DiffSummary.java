@@ -29,6 +29,7 @@ public record DiffSummary(
         LocalDateTime createdAt
 ) {
 
+    /** 创建{@code Diff}汇总实例并完成必要的依赖和初始状态设置。 */
     public DiffSummary {
         schemaVersion = StrUtil.blankToDefault(schemaVersion, "v1");
         provider = StrUtil.blankToDefault(provider, "local_snapshot");
@@ -41,6 +42,19 @@ public record DiffSummary(
         createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
     }
 
+    /**
+ * 创建{@code d}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param basePath 基础路径
+ * @param currentPath 当前路径
+ * @param addedFiles 待处理的 {@code addedFiles} 集合
+ * @param modifiedFiles 待处理的 {@code modifiedFiles} 集合
+ * @param deletedFiles 待处理的 {@code deletedFiles} 集合
+ * @param modifiedDetails 待处理的 {@code modifiedDetails} 集合
+ * @return {@code d}
+ */
     public static DiffSummary created(Long appId,
                                       String taskId,
                                       String basePath,
@@ -69,6 +83,16 @@ public record DiffSummary(
         );
     }
 
+    /**
+ * 返回{@code skipped}。
+ *
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param basePath 基础路径
+ * @param currentPath 当前路径
+ * @param reason 原因
+ * @return {@code Diff}汇总
+ */
     public static DiffSummary skipped(Long appId,
                                       String taskId,
                                       String basePath,
@@ -94,6 +118,11 @@ public record DiffSummary(
         );
     }
 
+    /**
+ * 将当前对象转换为载荷。
+ *
+ * @return 载荷集合
+ */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", schemaVersion);

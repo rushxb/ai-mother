@@ -6,6 +6,8 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,6 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -40,6 +46,7 @@ class NodeModulesIntegrityServiceTest {
     private DependencyInstallProperties properties;
     private ManagedProcessExecutor processExecutor;
     private NodeToolchain nodeToolchain;
+    private GenerationExecutionContextService executionContextService;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -58,7 +65,10 @@ class NodeModulesIntegrityServiceTest {
         properties.setMaxOutputLength(1024);
         processExecutor = mock(ManagedProcessExecutor.class);
         nodeToolchain = mock(NodeToolchain.class);
+        executionContextService = mock(GenerationExecutionContextService.class);
         when(nodeToolchain.nodeExecutable()).thenReturn("node");
+        when(executionContextService.clampTimeout(nullable(String.class), any(Duration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         when(processExecutor.execute(any())).thenReturn(completed(0));
     }
 
@@ -78,12 +88,13 @@ class NodeModulesIntegrityServiceTest {
         });
         NodeModulesIntegrityService service = createService(false);
 
-        assertTrue(service.isComplete(projectDirectory));
+        assertTrue(service.isComplete(projectDirectory, "task-integrity"));
         assertEquals("node", capturedRequest.get().command().getFirst());
         assertEquals(properties.getRuntimeValidationTimeout(), capturedRequest.get().timeout());
         assertEquals(NodeProcessEnvironment.overrides(false), capturedRequest.get().environment());
         assertEquals(NodeProcessEnvironment.variablesToRemove(),
                 capturedRequest.get().environmentVariablesToRemove());
+        verify(executionContextService).assertCanContinue("task-integrity");
     }
 
     @Test
@@ -100,7 +111,7 @@ class NodeModulesIntegrityServiceTest {
         ));
         NodeModulesIntegrityService service = createService(false);
 
-        assertFalse(service.isComplete(projectDirectory));
+        assertFalse(service.isComplete(projectDirectory, "task-integrity"));
     }
 
     @Test
@@ -108,7 +119,7 @@ class NodeModulesIntegrityServiceTest {
         Path packageDirectory = createCorruptedRollupPackage();
         NodeModulesIntegrityService service = createService(true);
 
-        assertFalse(service.isComplete(projectDirectory));
+        assertFalse(service.isComplete(projectDirectory, "task-integrity"));
 
         service.cleanCorruptedNativePackages(projectDirectory);
         assertFalse(Files.exists(packageDirectory));
@@ -189,8 +200,46 @@ class NodeModulesIntegrityServiceTest {
         }
         NodeModulesIntegrityService service = createService(false);
 
-        assertFalse(service.isComplete(projectDirectory));
+        assertFalse(service.isComplete(projectDirectory, "task-integrity"));
         verify(processExecutor, never()).execute(any());
+    }
+
+    @Test
+    void managedRuntimeProbeMustUseRemainingDeadlineAndCancellationSignal() {
+        Duration remaining = Duration.ofMillis(40);
+        AtomicBoolean stopRequested = new AtomicBoolean(false);
+        when(executionContextService.clampTimeout(
+                eq("task-deadline"), eq(properties.getRuntimeValidationTimeout())))
+                .thenReturn(remaining);
+        when(executionContextService.shouldStop("task-deadline"))
+                .thenAnswer(ignored -> stopRequested.get());
+        AtomicReference<ManagedProcessRequest> capturedRequest = new AtomicReference<>();
+        when(processExecutor.execute(any())).thenAnswer(invocation -> {
+            ManagedProcessRequest request = invocation.getArgument(0);
+            capturedRequest.set(request);
+            return completed(0);
+        });
+        NodeModulesIntegrityService service = createService(false);
+
+        assertTrue(service.isComplete(projectDirectory, "task-deadline"));
+
+        assertEquals(remaining, capturedRequest.get().timeout());
+        stopRequested.set(true);
+        assertTrue(capturedRequest.get().cancellationRequested().getAsBoolean());
+        verify(executionContextService).assertCanContinue("task-deadline");
+    }
+
+    @Test
+    void managedRuntimeProbeMustNotSwallowDeadlineReachedAfterProcessExit() {
+        doThrow(new GenerationDeadlineExceededException("task-expired"))
+                .when(executionContextService)
+                .assertCanContinue("task-expired");
+        NodeModulesIntegrityService service = createService(false);
+
+        assertThrows(
+                GenerationDeadlineExceededException.class,
+                () -> service.isComplete(projectDirectory, "task-expired")
+        );
     }
 
     private Path createCorruptedRollupPackage() throws IOException {
@@ -207,6 +256,7 @@ class NodeModulesIntegrityServiceTest {
                 properties,
                 processExecutor,
                 nodeToolchain,
+                executionContextService,
                 windows
         );
     }

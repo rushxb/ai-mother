@@ -43,7 +43,13 @@ public class VisualEditorBootstrapInjector {
             </script>
             """.formatted(MAX_SCRIPT_LENGTH);
 
+    /**
+ * 处理{@code inject}。
+ *
+ * @param projectDirectory 项目目录
+ */
     public void inject(Path projectDirectory) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (projectDirectory == null) {
             return;
         }
@@ -53,6 +59,7 @@ public class VisualEditorBootstrapInjector {
             return;
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path realProjectDirectory = projectDirectory.toRealPath();
             Path realIndexHtml = indexHtml.toRealPath();
@@ -80,6 +87,7 @@ public class VisualEditorBootstrapInjector {
         }
     }
 
+    /** 处理{@code atomic}{@code Replace}。 */
     private void atomicReplace(Path target, String content) throws IOException {
         Path tempFile = Files.createTempFile(target.getParent(), ".visual-editor-", ".tmp");
         boolean moved = false;

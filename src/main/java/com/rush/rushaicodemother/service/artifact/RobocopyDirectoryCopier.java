@@ -34,6 +34,14 @@ public class RobocopyDirectoryCopier {
         this.properties = properties;
     }
 
+    /**
+ * 复制{@code Robocopy}目录{@code Copier}。
+ *
+ * @param sourceRoot 来源根
+ * @param targetRoot 目标根
+ * @param excludedDirectories 待处理的 {@code excludedDirectories} 集合
+ * @param excludedFiles 待处理的 {@code excludedFiles} 集合
+ */
     public void copy(
             Path sourceRoot,
             Path targetRoot,
@@ -50,6 +58,16 @@ public class RobocopyDirectoryCopier {
         );
     }
 
+    /**
+ * 复制{@code Robocopy}目录{@code Copier}。
+ *
+ * @param sourceRoot 来源根
+ * @param targetRoot 目标根
+ * @param excludedDirectories 待处理的 {@code excludedDirectories} 集合
+ * @param excludedFiles 待处理的 {@code excludedFiles} 集合
+ * @param timeout 超时时间
+ * @param cancellationRequested {@code cancellationRequested} 对应的调用参数
+ */
     public void copy(
             Path sourceRoot,
             Path targetRoot,
@@ -109,6 +127,7 @@ public class RobocopyDirectoryCopier {
         }
     }
 
+    /** 返回心跳{@code Within}。 */
     private Duration heartbeatWithin(Duration timeout) {
         Duration configured = properties.getHeartbeatInterval();
         if (configured.compareTo(timeout) < 0) {
@@ -121,6 +140,7 @@ public class RobocopyDirectoryCopier {
         return Duration.ofNanos(Math.max(1L, timeoutNanos / 2L));
     }
 
+    /** 构建并返回命令。 */
     List<String> buildCommand(
             Path sourceRoot,
             Path targetRoot,

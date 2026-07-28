@@ -5,6 +5,7 @@ package com.rush.rushaicodemother.service.devserver;
  */
 public record DevServerStartResult(int port, boolean startedByCaller) {
 
+    /** 创建开发服务器开始结果实例并完成必要的依赖和初始状态设置。 */
     public DevServerStartResult {
         if (port < 1 || port > 65535) {
             throw new IllegalArgumentException("Dev Server 端口无效");

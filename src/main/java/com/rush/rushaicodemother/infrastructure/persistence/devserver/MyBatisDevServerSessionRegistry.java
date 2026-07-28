@@ -29,6 +29,15 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
 
     private final DevServerSessionMapper mapper;
 
+    /**
+ * 以原子方式声明{@code Starting}。
+ *
+ * @param registration {@code registration} 对应的调用参数
+ * @param now 当前时间
+ * @param leaseUntil {@code leaseUntil} 对应的调用参数
+ * @param maxServersPerUser {@code maxServersPerUser} 对应的调用参数
+ * @return {@code Starting}
+ */
     @Override
     @Transactional
     public DevServerSessionClaimResult claimStarting(
@@ -48,6 +57,7 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
         }
 
         DevServerSessionEntity entity = startingEntity(registration, now, leaseUntil);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (mapper.insert(entity) > 0) {
                 return DevServerSessionClaimResult.ACQUIRED;
@@ -70,6 +80,12 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
                 : DevServerSessionClaimResult.ACTIVE_SESSION_EXISTS;
     }
 
+    /**
+ * 查找匹配的按应用编号。
+ *
+ * @param appId 应用编号
+ * @return 可选的按应用编号；不存在时返回空值
+ */
     @Override
     public Optional<DevServerSessionRecord> findByAppId(Long appId) {
         if (appId == null || appId <= 0) {
@@ -78,6 +94,17 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
         return Optional.ofNullable(mapper.selectByAppId(appId)).map(this::toRecord);
     }
 
+    /**
+ * 记录{@code Starting}{@code Resources}相关指标或状态。
+ *
+ * @param appId 应用编号
+ * @param leaseOwner 租约所有者
+ * @param sandboxBackend {@code sandboxBackend} 对应的调用参数
+ * @param cleanupResourceIds 待处理的 {@code cleanupResourceIds} 集合
+ * @param now 当前时间
+ * @param leaseUntil {@code leaseUntil} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean recordStartingResources(Long appId, String leaseOwner, String sandboxBackend,
                                            List<String> cleanupResourceIds, Instant now, Instant leaseUntil) {
@@ -91,6 +118,17 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
         ) > 0;
     }
 
+    /**
+ * 更新运行中的标记状态。
+ *
+ * @param appId 应用编号
+ * @param leaseOwner 租约所有者
+ * @param sandboxBackend {@code sandboxBackend} 对应的调用参数
+ * @param cleanupResourceIds 待处理的 {@code cleanupResourceIds} 集合
+ * @param now 当前时间
+ * @param leaseUntil {@code leaseUntil} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean markRunning(Long appId, String leaseOwner, String sandboxBackend,
                                List<String> cleanupResourceIds, Instant now, Instant leaseUntil) {
@@ -104,28 +142,69 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
         ) > 0;
     }
 
+    /**
+ * 返回{@code renew}。
+ *
+ * @param appId 应用编号
+ * @param leaseOwner 租约所有者
+ * @param now 当前时间
+ * @param leaseUntil {@code leaseUntil} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean renew(Long appId, String leaseOwner, Instant now, Instant leaseUntil) {
         return mapper.renew(appId, leaseOwner, toDateTime(now), toDateTime(leaseUntil)) > 0;
     }
 
+    /**
+ * 返回请求{@code Stop}。
+ *
+ * @param appId 应用编号
+ * @param requestedAt {@code requestedAt} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean requestStop(Long appId, Instant requestedAt) {
         return mapper.requestStop(appId, toDateTime(requestedAt)) > 0;
     }
 
+    /**
+ * 更新{@code Stopping}的标记状态。
+ *
+ * @param appId 应用编号
+ * @param leaseOwner 租约所有者
+ * @param now 当前时间
+ * @param leaseUntil {@code leaseUntil} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean markStopping(Long appId, String leaseOwner, Instant now, Instant leaseUntil) {
         return mapper.markStopping(
                 appId, leaseOwner, toDateTime(now), toDateTime(leaseUntil)) > 0;
     }
 
+    /**
+ * 更新{@code Stopped}的标记状态。
+ *
+ * @param appId 应用编号
+ * @param leaseOwner 租约所有者
+ * @param stoppedAt {@code stoppedAt} 对应的调用参数
+ * @param reason 原因
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean markStopped(Long appId, String leaseOwner, Instant stoppedAt, String reason) {
         return mapper.markStopped(
                 appId, leaseOwner, toDateTime(stoppedAt), truncate(reason, MAX_REASON_LENGTH)) > 0;
     }
 
+    /**
+ * 查找匹配的{@code Expired}。
+ *
+ * @param now 当前时间
+ * @param limit 资源上限
+ * @return {@code Expired}集合
+ */
     @Override
     public List<DevServerSessionRecord> findExpired(Instant now, int limit) {
         if (limit <= 0) {
@@ -134,6 +213,16 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
         return mapper.selectExpired(toDateTime(now), limit).stream().map(this::toRecord).toList();
     }
 
+    /**
+ * 以原子方式声明恢复。
+ *
+ * @param candidate 候选
+ * @param nodeId 节点编号
+ * @param recoveryOwner 恢复所有者
+ * @param now 当前时间
+ * @param leaseUntil {@code leaseUntil} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean claimRecovery(DevServerSessionRecord candidate, String nodeId, String recoveryOwner,
                                  Instant now, Instant leaseUntil) {
@@ -143,6 +232,7 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
         ) > 0;
     }
 
+    /** 启动{@code ing}{@code Entity}。 */
     private DevServerSessionEntity startingEntity(
             DevServerSessionRegistration registration,
             Instant now,
@@ -165,6 +255,7 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
                 .build();
     }
 
+    /** 将当前对象转换为记录。 */
     private DevServerSessionRecord toRecord(DevServerSessionEntity entity) {
         return new DevServerSessionRecord(
                 entity.getAppId(),
@@ -189,6 +280,7 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
         return state.isActive();
     }
 
+    /** 返回{@code encode}资源{@code Ids}。 */
     private String encodeResourceIds(List<String> resourceIds) {
         if (resourceIds == null || resourceIds.isEmpty()) {
             return null;
@@ -215,6 +307,7 @@ public class MyBatisDevServerSessionRegistry implements DevServerSessionRegistry
                 .toList();
     }
 
+    /** 校验{@code ate}{@code Registration}是否有效。 */
     private void validateRegistration(DevServerSessionRegistration registration,
                                       Instant now,
                                       Instant leaseUntil,

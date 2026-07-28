@@ -37,6 +37,11 @@ public class GenerationStageAdmissionProperties {
     /** 为发布、生命周期持久性、收费和终端事件提供时间保护。 */
     private Duration terminalizationReserve = Duration.ofSeconds(10);
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "generation stage admission durations must all be greater than zero")
     public boolean isConfigurationValid() {
         return Stream.of(

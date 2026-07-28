@@ -30,6 +30,16 @@ public class FrontendPatchImportPolicy {
 
     private final PatchWorkspaceFileService workspaceFileService;
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param projectRoot 项目根
+ * @param action 动作
+ * @param operation 操作
+ * @param normalizedPath {@code normalizedPath} 对应的调用参数
+ * @param target 目标对象
+ * @return 处理后的{@code ate}文本
+ */
     public String validate(Path projectRoot,
                            String action,
                            PatchOperation operation,
@@ -60,6 +70,7 @@ public class FrontendPatchImportPolicy {
         }
     }
 
+    /** 返回预览内容{@code Change}。 */
     private ImportContentChange previewContentChange(String action,
                                                      PatchOperation operation,
                                                      PatchWorkspaceTarget target) throws IOException {
@@ -84,6 +95,7 @@ public class FrontendPatchImportPolicy {
         };
     }
 
+    /** 读取{@code Declared}依赖包。 */
     private Set<String> readDeclaredPackages(Path projectRoot) throws IOException {
         PatchWorkspaceTarget packageJsonTarget = workspaceFileService.resolve(projectRoot, "package.json");
         if (!workspaceFileService.exists(packageJsonTarget)
@@ -104,6 +116,7 @@ public class FrontendPatchImportPolicy {
         }
     }
 
+    /** 从输入中提取{@code Bare}导入依赖包。 */
     private Set<String> extractBareImportPackages(String content) {
         Set<String> packages = new LinkedHashSet<>();
         if (StrUtil.isBlank(content)) {
@@ -125,6 +138,7 @@ public class FrontendPatchImportPolicy {
         }
     }
 
+    /** 返回{@code bare}依赖包名称。 */
     private String barePackageName(String specifier) {
         if (StrUtil.isBlank(specifier)
                 || specifier.startsWith(".")

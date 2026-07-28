@@ -31,6 +31,14 @@ public class AppNameEnrichmentService {
         this.taskExecutor = taskExecutor;
     }
 
+    /**
+ * 处理调度。
+ *
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @param initPrompt {@code initPrompt} 对应的调用参数
+ * @param initialName {@code initialName} 对应的调用参数
+ */
     public void schedule(Long appId, Long userId, String initPrompt, String initialName) {
         if (appId == null || appId <= 0 || userId == null || userId <= 0
                 || StrUtil.isBlank(initPrompt)
@@ -45,6 +53,7 @@ public class AppNameEnrichmentService {
         }
     }
 
+    /** 补全应用名称补全。 */
     private void enrich(Long appId, Long userId, String initPrompt, String initialName) {
         MonitorContext previousContext = MonitorContextHolder.getContext();
         try {

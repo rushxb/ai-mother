@@ -45,6 +45,16 @@ public class AiModelMetricsCollector {
         recordRequest(DEFAULT_PROVIDER, userId, appId, taskId, modelName, status);
     }
 
+    /**
+ * 记录请求相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param userId 用户编号
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param modelName 模型名称
+ * @param status 目标状态
+ */
     public void recordRequest(String provider,
                               String userId,
                               String appId,
@@ -64,6 +74,16 @@ public class AiModelMetricsCollector {
         recordError(DEFAULT_PROVIDER, userId, appId, taskId, modelName, errorMessage);
     }
 
+    /**
+ * 记录错误相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param userId 用户编号
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param modelName 模型名称
+ * @param errorMessage 错误消息
+ */
     public void recordError(String provider,
                             String userId,
                             String appId,
@@ -88,6 +108,17 @@ public class AiModelMetricsCollector {
         recordTokenUsage(DEFAULT_PROVIDER, userId, appId, taskId, modelName, tokenType, tokenCount);
     }
 
+    /**
+ * 记录令牌用量相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param userId 用户编号
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param modelName 模型名称
+ * @param tokenType 令牌类型
+ * @param tokenCount 令牌数量
+ */
     public void recordTokenUsage(String provider,
                                  String userId,
                                  String appId,
@@ -115,6 +146,16 @@ public class AiModelMetricsCollector {
         recordResponseTime(DEFAULT_PROVIDER, userId, appId, taskId, modelName, duration);
     }
 
+    /**
+ * 记录响应时间相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param userId 用户编号
+ * @param appId 应用编号
+ * @param taskId 任务编号
+ * @param modelName 模型名称
+ * @param duration 目标时长
+ */
     public void recordResponseTime(String provider,
                                    String userId,
                                    String appId,
@@ -130,6 +171,13 @@ public class AiModelMetricsCollector {
                 .record(nonNegative(duration));
     }
 
+    /**
+ * 记录追踪持久化失败相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param modelName 模型名称
+ * @param outcome 结果
+ */
     public void recordTracePersistenceFailure(String provider, String modelName, String outcome) {
         Counter.builder("ai_model_trace_persistence_failures_total")
                 .description("AI model provenance persistence failure count")
@@ -140,6 +188,15 @@ public class AiModelMetricsCollector {
                 .increment();
     }
 
+    /**
+ * 记录故障转移相关指标或状态。
+ *
+ * @param fromProvider {@code fromProvider} 对应的调用参数
+ * @param fromModel {@code fromModel} 对应的调用参数
+ * @param toProvider {@code toProvider} 对应的调用参数
+ * @param toModel {@code toModel} 对应的调用参数
+ * @param errorCategory {@code errorCategory} 对应的调用参数
+ */
     public void recordFailover(String fromProvider,
                                String fromModel,
                                String toProvider,
@@ -156,6 +213,15 @@ public class AiModelMetricsCollector {
                 .increment();
     }
 
+    /**
+ * 记录{@code Hedge}相关指标或状态。
+ *
+ * @param primaryProvider {@code primaryProvider} 对应的调用参数
+ * @param primaryModel {@code primaryModel} 对应的调用参数
+ * @param hedgeProvider {@code hedgeProvider} 对应的调用参数
+ * @param hedgeModel {@code hedgeModel} 对应的调用参数
+ * @param outcome 结果
+ */
     public void recordHedge(String primaryProvider,
                             String primaryModel,
                             String hedgeProvider,
@@ -172,6 +238,13 @@ public class AiModelMetricsCollector {
                 .increment();
     }
 
+    /**
+ * 记录根模型尝试相关指标或状态。
+ *
+ * @param outcome 结果
+ * @param failure 失败
+ * @param duration 目标时长
+ */
     public void recordRootModelAttempt(String outcome,
                                        Throwable failure,
                                        Duration duration) {
@@ -192,6 +265,13 @@ public class AiModelMetricsCollector {
                 .record(nonNegative(duration));
     }
 
+    /**
+ * 记录根模型重试相关指标或状态。
+ *
+ * @param outcome 结果
+ * @param failure 失败
+ * @param delay 延迟
+ */
     public void recordRootModelRetry(String outcome,
                                      Throwable failure,
                                      Duration delay) {
@@ -212,6 +292,13 @@ public class AiModelMetricsCollector {
                 .record(nonNegative(delay));
     }
 
+    /**
+ * 记录模型超时相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param modelName 模型名称
+ * @param timeoutKind 超时类别
+ */
     public void recordModelTimeout(String provider,
                                    String modelName,
                                    String timeoutKind) {
@@ -224,6 +311,15 @@ public class AiModelMetricsCollector {
                 .increment();
     }
 
+    /**
+ * 记录容量准入相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param modelName 模型名称
+ * @param gate 门禁
+ * @param outcome 结果
+ * @param duration 目标时长
+ */
     public void recordCapacityAdmission(String provider,
                                         String modelName,
                                         String gate,
@@ -249,6 +345,13 @@ public class AiModelMetricsCollector {
                 .record(nonNegative(duration));
     }
 
+    /**
+ * 记录容量租约事件相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param modelName 模型名称
+ * @param outcome 结果
+ */
     public void recordCapacityLeaseEvent(String provider,
                                          String modelName,
                                          String outcome) {

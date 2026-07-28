@@ -83,8 +83,14 @@ public class GenerationPipelineExecutor {
         );
     }
 
+    /**
+ * 执行生成流水线处理流程。
+ *
+ * @param request 请求参数
+ */
     public void execute(GenerationPipelineRequest request) {
         GenerationTaskExecution execution = request.requireExecution();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             generationTaskRuntimeLifecycleService.activate(execution.executionFence());
             generationPerformanceMonitorService.recordSpan(
@@ -152,6 +158,7 @@ public class GenerationPipelineExecutor {
                 ));
     }
 
+    /** 返回回退。 */
     private GenerationPipelineRequest fallback(GenerationPipelineRequest request,
                                                GenerationPipeline failedPipeline,
                                                String pipelineReason) {
@@ -202,6 +209,7 @@ public class GenerationPipelineExecutor {
                 : sanitized;
     }
 
+    /** 完成{@code Managed}任务并持久化终态。 */
     private void completeManagedTask(GenerationPipelineRequest request,
                                      GenerationPipelineOutcome outcome) {
         GenerationTaskExecution execution = request.requireExecution();
@@ -252,6 +260,7 @@ public class GenerationPipelineExecutor {
         finalizeRuntime(request, execution, session, status, outcome.reason());
     }
 
+    /** 将{@code Managed}任务标记为失败并记录原因。 */
     private void failManagedTask(GenerationPipelineRequest request, Throwable failure) {
         GenerationTaskExecution execution = request.requireExecution();
         GenerationSession session = execution.session();
@@ -305,6 +314,7 @@ public class GenerationPipelineExecutor {
         finalizeRuntime(request, execution, session, outcome.taskStatus(), terminalReason);
     }
 
+    /** 处理记录结果。 */
     private void rememberOutcome(GenerationPipelineRequest request,
                                  GenerationTaskStatus status,
                                  String resultSummary) {
@@ -349,6 +359,7 @@ public class GenerationPipelineExecutor {
         };
     }
 
+    /** 处理{@code finalize}运行时。 */
     private void finalizeRuntime(GenerationPipelineRequest request,
                                  GenerationTaskExecution execution,
                                  GenerationSession session,

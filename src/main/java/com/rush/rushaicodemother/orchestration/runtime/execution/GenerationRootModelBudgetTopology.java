@@ -8,6 +8,7 @@ final class GenerationRootModelBudgetTopology {
     private GenerationRootModelBudgetTopology() {
     }
 
+    /** 返回{@code supports}。 */
     static boolean supports(GenerationMode mode,
                             int maxRootModelAttempts,
                             int maxRepairRounds) {

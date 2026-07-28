@@ -78,6 +78,14 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         return task != null;
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ * @param baseline {@code baseline} 对应的调用参数
+ * @return {@code Generated}工作区{@code Security}基准测试规则
+ */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,
@@ -90,6 +98,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         if (paths.size() > MAX_SCANNED_FILES) {
             violations.add("security_scan_file_count_exceeded");
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String relativePath : paths.stream().limit(MAX_SCANNED_FILES).toList()) {
             String normalizedPath = relativePath.toLowerCase(Locale.ROOT);
             if (isSensitiveFile(normalizedPath)) {
@@ -126,6 +135,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         );
     }
 
+    /** 处理{@code inspect}依赖包清单。 */
     private void inspectPackageManifest(
             Path root,
             String relativePath,
@@ -152,6 +162,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         }
     }
 
+    /** 处理{@code inspect}{@code Dependencies}。 */
     private void inspectDependencies(JSONObject dependencies, Set<String> violations) {
         if (dependencies == null) {
             return;
@@ -167,6 +178,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         }
     }
 
+    /** 处理{@code inspect}来源。 */
     private void inspectSource(String source, Set<String> violations) {
         if (source == null || source.isBlank()) {
             return;
@@ -191,6 +203,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         }
     }
 
+    /** 返回{@code contains}{@code Hardcoded}密钥{@code Assignment}。 */
     private boolean containsHardcodedSecretAssignment(String source) {
         Matcher matcher = SECRET_ASSIGNMENT.matcher(source);
         while (matcher.find()) {
@@ -214,6 +227,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
                 || value.contains("import.meta.env");
     }
 
+    /** 判断{@code Sensitive}文件是否满足约束。 */
     private boolean isSensitiveFile(String normalizedPath) {
         String fileName = normalizedPath.substring(normalizedPath.lastIndexOf('/') + 1);
         if (fileName.equals(".env") || fileName.startsWith(".env.")) {

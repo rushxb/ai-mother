@@ -22,6 +22,13 @@ public class FileReadTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 读取文件。
+ *
+ * @param relativeFilePath {@code relativeFilePath} 对应的调用参数
+ * @param appId 应用编号
+ * @return 处理后的文件文本
+ */
     @Tool("读取指定路径的文件内容")
     public String readFile(
             @P("文件的相对路径")
@@ -58,6 +65,12 @@ public class FileReadTool extends BaseTool {
         return "读取文件";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");

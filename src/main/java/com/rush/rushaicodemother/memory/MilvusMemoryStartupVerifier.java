@@ -19,6 +19,7 @@ public class MilvusMemoryStartupVerifier implements SmartInitializingSingleton {
         this.collectionManager = collectionManager;
     }
 
+    /** 在 Spring 单例 Bean 初始化完成后执行启动校验。 */
     @Override
     public void afterSingletonsInstantiated() {
         if (properties.isVerifyOnStartup()) {

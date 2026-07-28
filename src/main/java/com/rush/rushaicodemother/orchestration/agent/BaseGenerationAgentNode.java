@@ -21,6 +21,15 @@ public abstract class BaseGenerationAgentNode implements GenerationAgentNode {
         this(key, agentName, stage, dependencies, GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT);
     }
 
+    /**
+ * 创建基础生成智能体节点实例并完成必要的依赖和初始状态设置。
+ *
+ * @param key 键
+ * @param agentName 智能体名称
+ * @param stage 阶段
+ * @param dependencies 待处理的 {@code dependencies} 集合
+ * @param replayPolicy {@code replayPolicy} 对应的调用参数
+ */
     protected BaseGenerationAgentNode(String key,
                                       String agentName,
                                       String stage,
@@ -60,6 +69,15 @@ public abstract class BaseGenerationAgentNode implements GenerationAgentNode {
         return replayPolicy;
     }
 
+    /**
+ * 返回制品{@code String}值。
+ *
+ * @param context 执行上下文
+ * @param artifactKey 制品键
+ * @param payloadKey 载荷键
+ * @param defaultValue 默认值
+ * @return 处理后的基础生成智能体节点文本
+ */
     protected String artifactStringValue(GenerationAgentContext context,
                                          String artifactKey,
                                          String payloadKey,
@@ -71,6 +89,14 @@ public abstract class BaseGenerationAgentNode implements GenerationAgentNode {
         return String.valueOf(value);
     }
 
+    /**
+ * 返回制品{@code Boolean}值。
+ *
+ * @param context 执行上下文
+ * @param artifactKey 制品键
+ * @param payloadKey 载荷键
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     protected boolean artifactBooleanValue(GenerationAgentContext context,
                                            String artifactKey,
                                            String payloadKey) {

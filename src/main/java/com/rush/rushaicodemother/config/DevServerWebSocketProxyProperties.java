@@ -31,18 +31,34 @@ public class DevServerWebSocketProxyProperties {
         return validSize(sendBufferSize) && validSize(maxMessageSize);
     }
 
+    /**
+ * 返回发送缓冲区大小对应的字节数。
+ *
+ * @return 计算或处理后的数值结果
+ */
     public int sendBufferSizeBytes() {
         return Math.toIntExact(sendBufferSize.toBytes());
     }
 
+    /**
+ * 返回最大消息大小对应的字节数。
+ *
+ * @return 计算或处理后的数值结果
+ */
     public int maxMessageSizeBytes() {
         return Math.toIntExact(maxMessageSize.toBytes());
     }
 
+    /**
+ * 返回发送时间限制对应的毫秒数。
+ *
+ * @return 计算或处理后的数值结果
+ */
     public int sendTimeLimitMillis() {
         return Math.toIntExact(sendTimeLimit.toMillis());
     }
 
+    /** 判断给定时长或数值是否为正数。 */
     private boolean positive(Duration value) {
         if (value == null || value.isZero() || value.isNegative()) {
             return false;

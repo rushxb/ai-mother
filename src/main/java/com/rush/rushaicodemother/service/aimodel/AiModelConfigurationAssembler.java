@@ -18,6 +18,13 @@ public class AiModelConfigurationAssembler {
 
     private final AiModelSecretService secretService;
 
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param command 命令
+ * @param operatorUserId 目标资源编号
+ * @return AI 模型配置{@code Assembler}
+ */
     public AiModelConfiguration fromCreateCommand(AiModelManagementService.CreateCommand command,
                                                    Long operatorUserId) {
         if (command == null) {
@@ -44,8 +51,16 @@ public class AiModelConfigurationAssembler {
                 .build();
     }
 
+    /**
+ * 应用{@code Update}。
+ *
+ * @param existing {@code existing} 对应的调用参数
+ * @param command 命令
+ * @return {@code Update}
+ */
     public AiModelConfiguration applyUpdate(AiModelConfiguration existing,
                                             AiModelManagementService.UpdateCommand command) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (existing == null || command == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型更新参数不完整");
         }
@@ -102,6 +117,7 @@ public class AiModelConfigurationAssembler {
         return builder.build();
     }
 
+    /** 判断是否存在{@code Editable}{@code Field}。 */
     private boolean hasEditableField(AiModelManagementService.UpdateCommand command) {
         return command.modelName() != null
                 || command.provider() != null
@@ -119,6 +135,7 @@ public class AiModelConfigurationAssembler {
                 || StrUtil.isNotBlank(command.protocol());
     }
 
+    /** 合并{@code Protocol}。 */
     private String mergeProtocol(String configJson, String protocol) {
         if (StrUtil.isBlank(protocol)) {
             return configJson;

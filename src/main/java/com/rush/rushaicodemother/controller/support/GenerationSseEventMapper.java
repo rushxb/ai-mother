@@ -21,6 +21,11 @@ public class GenerationSseEventMapper {
 
     private final Duration heartbeatInterval;
 
+    /**
+ * 创建生成 SSE 事件映射器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ */
     public GenerationSseEventMapper(GenerationSseProperties properties) {
         if (properties == null || properties.getHeartbeatInterval() == null
                 || properties.getHeartbeatInterval().isZero()
@@ -30,6 +35,12 @@ public class GenerationSseEventMapper {
         this.heartbeatInterval = properties.getHeartbeatInterval();
     }
 
+    /**
+ * 将输入映射为生成 SSE 事件。
+ *
+ * @param events 事件
+ * @return 异步响应式处理结果
+ */
     public Flux<ServerSentEvent<String>> map(Flux<GenerationStreamEvent> events) {
         if (events == null) {
             throw new IllegalArgumentException("generation event stream cannot be null");
@@ -67,6 +78,7 @@ public class GenerationSseEventMapper {
         return withHeartbeats(wireEvents);
     }
 
+    /** 将输入映射为{@code Sequenced}条目。 */
     private ServerSentEvent<String> mapSequencedEntry(SequencedGenerationEvent entry) {
         if (entry == null) {
             return null;

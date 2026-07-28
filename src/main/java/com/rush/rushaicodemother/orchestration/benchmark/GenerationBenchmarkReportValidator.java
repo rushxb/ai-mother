@@ -22,7 +22,13 @@ public class GenerationBenchmarkReportValidator {
         this.runner = runner;
     }
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param report 报告
+ */
     public void validate(GenerationBenchmarkReport report) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (report == null) {
             throw invalid("生成质量评测报告不能为空");
         }
@@ -30,6 +36,7 @@ public class GenerationBenchmarkReportValidator {
             throw invalid("生成质量评测报告版本不受支持");
         }
         Map<String, String> expectedModes = new HashMap<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBenchmarkTask task : catalog.tasks()) {
             expectedModes.put(task.id(), task.mode());
         }

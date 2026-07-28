@@ -17,6 +17,7 @@ public class GenerationReleaseProvenanceReadinessVerifier implements SmartInitia
     private final Environment environment;
     private final GenerationReleaseProvenanceProvider provenanceProvider;
 
+    /** 在 Spring 单例 Bean 初始化完成后执行启动校验。 */
     @Override
     public void afterSingletonsInstantiated() {
         if (environment.acceptsProfiles(PRODUCTION)) {

@@ -35,6 +35,11 @@ public class DevServerInternalRoutingProperties {
     @Max(1_000_000)
     private int replayCacheMaxEntries = 10_000;
 
+    /**
+ * 判断基础地址模板是否有效。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "Dev Server internal base URL template must be a safe HTTP(S) URL containing {nodeId}")
     public boolean isBaseUrlTemplateValid() {
         if (baseUrlTemplate == null || !baseUrlTemplate.contains(NODE_ID_PLACEHOLDER)) {

@@ -21,6 +21,12 @@ public final class NodeProcessEnvironment {
     private NodeProcessEnvironment() {
     }
 
+    /**
+ * 返回{@code overrides}。
+ *
+ * @param continuousIntegration {@code continuousIntegration} 对应的调用参数
+ * @return 节点进程{@code Environment}集合
+ */
     public static Map<String, String> overrides(boolean continuousIntegration) {
         Map<String, String> environment = new LinkedHashMap<>();
         environment.put("NO_UPDATE_NOTIFIER", "1");

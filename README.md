@@ -339,6 +339,14 @@ docker run --rm -d --name ai-mother-redis-it -p 56379:6379 redis:7-alpine
 docker stop ai-mother-redis-it
 ```
 
+Milvus 长期记忆契约使用与 CI 相同的隔离服务，验证数据面健康以及真实写入、召回和按应用删除：
+
+```powershell
+docker compose --project-name ai-mother-milvus-it --file docker/milvus/compose.ci.yml up --detach --wait --wait-timeout 300
+.\mvnw.cmd -Pdev,external-test '-Dtest=MilvusConnectionExternalTest,MilvusLongTermMemoryStoreExternalTest,MilvusMemorySpringWiringTest' '-DmilvusUri=http://127.0.0.1:19530' test
+docker compose --project-name ai-mother-milvus-it --file docker/milvus/compose.ci.yml down --volumes --remove-orphans
+```
+
 ### 前端
 
 ```powershell

@@ -12,6 +12,8 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +28,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,7 +50,7 @@ class GenerationCommitServiceTest {
         Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_26"));
         Files.writeString(projectRoot.resolve("index.html"), "<html></html>\n");
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
-        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString()))
+        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString(), anyString()))
                 .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
         GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
@@ -60,6 +63,27 @@ class GenerationCommitServiceTest {
         assertEquals("failed", result.status());
         assertEquals("git_commit_exception", result.reason());
         assertFalse(result.toPayload().toString().contains("secret-value"));
+    }
+
+    @Test
+    void shouldNotSwallowGenerationDeadlineFromGitCommand() throws Exception {
+        Path tempRoot = cleanTestRoot("deadline-propagation");
+        Path outputRoot = tempRoot.resolve("code_output");
+        Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_40"));
+        Files.writeString(projectRoot.resolve("index.html"), "<html></html>\n");
+        GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
+        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString(), anyString()))
+                .thenThrow(new GenerationDeadlineExceededException("task-40"));
+        GenerationCommitService service = SnapshotServiceTestFixture.commitService(
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                gitExecutor,
+                outputRoot
+        );
+
+        assertThrows(
+                GenerationDeadlineExceededException.class,
+                () -> service.commit(40L, "task-40", diffArtifact(40L, projectRoot, "index.html"))
+        );
     }
 
     @Test
@@ -166,7 +190,7 @@ class GenerationCommitServiceTest {
         Path outputRoot = tempRoot.resolve("code_output");
         Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_24"));
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
-        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString()))
+        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString(), anyString()))
                 .thenReturn(gitResult(ManagedProcessResult.Status.INTERRUPTED, null, "", "interrupted"));
         GenerationCommitService service = SnapshotServiceTestFixture.commitService(new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()), gitExecutor, outputRoot);
 
@@ -179,7 +203,7 @@ class GenerationCommitServiceTest {
         assertEquals("failed", result.status());
         assertEquals("git_commit_interrupted", result.reason());
         verify(gitExecutor, times(1))
-                .execute(any(Path.class), anyList(), anyMap(), anyString());
+                .execute(any(Path.class), anyList(), anyMap(), anyString(), anyString());
     }
 
     @Test
@@ -189,7 +213,7 @@ class GenerationCommitServiceTest {
         Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_25"));
         Path gitDirectory = Files.createDirectories(projectRoot.resolve(".git"));
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
-        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString()))
+        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString(), anyString()))
                 .thenReturn(gitResult(
                         ManagedProcessResult.Status.COMPLETED,
                         0,
@@ -219,7 +243,7 @@ class GenerationCommitServiceTest {
         assertEquals("failed", result.status());
         assertEquals("git_commit_interrupted", result.reason());
         verify(gitExecutor, times(3))
-                .execute(any(Path.class), anyList(), anyMap(), anyString());
+                .execute(any(Path.class), anyList(), anyMap(), anyString(), anyString());
     }
 
     @Test
@@ -382,7 +406,7 @@ class GenerationCommitServiceTest {
         Path outputRoot = tempRoot.resolve("code_output");
         Path projectRoot = Files.createDirectories(outputRoot.resolve("vue_project_35"));
         GitCommandExecutor gitExecutor = mock(GitCommandExecutor.class);
-        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString()))
+        when(gitExecutor.execute(any(Path.class), anyList(), anyMap(), anyString(), anyString()))
                 .thenReturn(new GitCommandResult(
                         ManagedProcessResult.Status.START_FAILED,
                         null,
@@ -490,7 +514,10 @@ class GenerationCommitServiceTest {
         );
         GenerationCommitProperties properties = new GenerationCommitProperties();
         properties.setCommandTimeout(Duration.ofSeconds(30));
-        return new GitCommandExecutor(processExecutor, properties);
+        GenerationExecutionContextService executionContextService = mock(GenerationExecutionContextService.class);
+        when(executionContextService.clampTimeout(anyString(), any(Duration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        return new GitCommandExecutor(processExecutor, properties, executionContextService);
     }
 
     private GenerationArtifact diffArtifact(Long appId, Path projectRoot, String changedFile) {

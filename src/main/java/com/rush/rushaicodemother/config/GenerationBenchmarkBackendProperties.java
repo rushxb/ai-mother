@@ -34,6 +34,11 @@ public class GenerationBenchmarkBackendProperties {
             "benchmark-backend-runtime"
     ).toAbsolutePath().normalize();
 
+    /**
+ * 校验当前配置项组合是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "生成基准测试后端运行时评分配置无效")
     public boolean isConfigurationValid() {
         return positive(startupTimeout)

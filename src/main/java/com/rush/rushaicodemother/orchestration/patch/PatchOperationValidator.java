@@ -34,12 +34,21 @@ public class PatchOperationValidator {
     private final PatchStructuredContentService structuredContentService;
     private final FrontendPatchImportPolicy frontendImportPolicy;
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param projectRoot 项目根
+ * @param changePlan {@code changePlan} 对应的调用参数
+ * @param operations 操作
+ * @return {@code ate}
+ */
     public PatchValidationResult validate(Path projectRoot,
                                           ChangePlan changePlan,
                                           List<PatchOperation> operations) {
         List<ValidatedPatchOperation> validOperations = new ArrayList<>();
         List<String> rejectedOperations = new ArrayList<>();
         Set<String> seenPaths = new LinkedHashSet<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (PatchOperation operation : operations) {
             String action = operation == null ? "" : operation.action();
             String normalizedPath = normalizePath(operation == null ? "" : operation.relativePath());
@@ -84,6 +93,7 @@ public class PatchOperationValidator {
         return new PatchValidationResult(validOperations, rejectedOperations);
     }
 
+    /** 校验{@code ate}目标是否有效。 */
     private String validateTarget(String action,
                                   PatchOperation operation,
                                   PatchWorkspaceTarget target) {
@@ -96,9 +106,11 @@ public class PatchOperationValidator {
         }
     }
 
+    /** 校验{@code ate}目标安全处理是否有效。 */
     private String validateTargetSafely(String action,
                                         PatchOperation operation,
                                         PatchWorkspaceTarget target) throws IOException {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (PatchOperation.ACTION_ADD.equals(action)) {
             if (operation.content() == null) {
                 return "content_missing";
@@ -144,6 +156,7 @@ public class PatchOperationValidator {
         return "unsupported_action";
     }
 
+    /** 校验{@code ate}替换内容是否有效。 */
     private String validateReplacement(PatchOperation operation,
                                        PatchWorkspaceTarget target,
                                        String contentMissingReason,
@@ -171,6 +184,7 @@ public class PatchOperationValidator {
         return "";
     }
 
+    /** 校验{@code ate}{@code Structured}操作是否有效。 */
     private String validateStructuredOperation(String action,
                                                PatchOperation operation,
                                                PatchWorkspaceTarget target,
@@ -191,6 +205,7 @@ public class PatchOperationValidator {
         return "";
     }
 
+    /** 判断{@code Planned}是否满足约束。 */
     private boolean isPlanned(ChangePlan changePlan, String action, String path) {
         return switch (action) {
             case PatchOperation.ACTION_ADD -> changePlan.addFiles().contains(path);

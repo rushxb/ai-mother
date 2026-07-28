@@ -52,6 +52,7 @@ public class TemplateNodeModulesPreWarmRunner {
         this.workspaceFileSystemService = workspaceFileSystemService;
     }
 
+    /** 响应应用就绪事件。 */
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
         if (!properties.isEnabled() || shuttingDown.get()) {
@@ -81,11 +82,14 @@ public class TemplateNodeModulesPreWarmRunner {
         );
     }
 
+    /** 处理进入前{@code Warm}模板。 */
     private void preWarmTemplate(String templateId) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (shuttingDown.get()) {
             return;
         }
         Path tempDirectory = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             tempDirectory = Files.createTempDirectory("template-prewarm-" + templateId + "-")
                     .toAbsolutePath()
@@ -131,6 +135,7 @@ public class TemplateNodeModulesPreWarmRunner {
         }
     }
 
+    /** 处理{@code shutdown}。 */
     @PreDestroy
     void shutdown() {
         List<Path> directoriesToDelete;
@@ -145,6 +150,7 @@ public class TemplateNodeModulesPreWarmRunner {
         }
     }
 
+    /** 删除{@code Temp}目录。 */
     private void deleteTempDirectory(Path directory) {
         if (directory == null || !Files.exists(directory)) {
             return;

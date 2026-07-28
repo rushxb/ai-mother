@@ -31,6 +31,12 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         this.routingSupport = routingSupport;
     }
 
+    /**
+ * 执行{@code Planner}智能体节点处理流程。
+ *
+ * @param context 执行上下文
+ * @return {@code Planner}智能体节点
+ */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         String userMessage = StrUtil.blankToDefault(context.getRequest().userMessage(), "");
@@ -109,6 +115,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         );
     }
 
+    /** 构建并返回{@code Api}{@code Contract}载荷。 */
     private Map<String, Object> buildApiContractPayload(GenerationAgentContext context, String userMessage) {
         boolean frontendFirstUpgrade = context.getRequest().hasGeneratedCode()
                 && context.getRequest().currentType() == CodeGenTypeEnum.VUE_PROJECT
@@ -137,6 +144,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         return payload;
     }
 
+    /** 返回{@code infer}{@code Contract}{@code Domain}。 */
     private Map<String, Object> inferContractDomain(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "商品", "产品", "product")) {
@@ -198,6 +206,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         );
     }
 
+    /** 返回{@code domain}载荷。 */
     private Map<String, Object> domainPayload(String moduleName,
                                               String entityName,
                                               String tableName,
@@ -236,6 +245,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         return Map.of("method", method, "path", path, "action", action);
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String value, String... keywords) {
         for (String keyword : keywords) {
             if (value.contains(keyword)) {

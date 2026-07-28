@@ -25,6 +25,11 @@ public class GoBuildResultRegistry {
     private final ConcurrentMap<CacheKey, CompletableFuture<GoBuildResult>> inFlight =
             new ConcurrentHashMap<>();
 
+    /**
+ * 创建{@code Go}构建结果注册器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ */
     public GoBuildResultRegistry(ProjectCommandProperties properties) {
         Objects.requireNonNull(properties, "项目命令配置不能为空");
         int maxEntries = properties.getRecentBuildResultMaxEntries();
@@ -36,6 +41,7 @@ public class GoBuildResultRegistry {
         });
     }
 
+    /** 执行{@code Go}构建结果注册器处理流程。 */
     GoBuildResult execute(
             String taskId,
             Path projectRoot,
@@ -58,6 +64,7 @@ public class GoBuildResultRegistry {
             return result.success() ? GoBuildResult.reused(projectRoot.toString()) : result;
         }
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (Boolean.TRUE.equals(successfulResults.get(key))) {
                 GoBuildResult reused = GoBuildResult.reused(projectRoot.toString());
@@ -86,6 +93,7 @@ public class GoBuildResultRegistry {
         return inFlight.size();
     }
 
+    /** 等待{@code Go}构建结果注册器完成。 */
     private GoBuildResult await(CompletableFuture<GoBuildResult> future) {
         try {
             return requireResult(future.join());
@@ -98,6 +106,7 @@ public class GoBuildResultRegistry {
         return Objects.requireNonNull(result, "Go 构建执行结果不能为空");
     }
 
+    /** 返回{@code propagate}。 */
     private RuntimeException propagate(Throwable failure) {
         if (failure instanceof RuntimeException runtimeException) {
             return runtimeException;

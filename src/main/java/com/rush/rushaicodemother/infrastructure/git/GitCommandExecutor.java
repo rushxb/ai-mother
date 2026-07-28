@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessOutputLogPolicy;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -32,20 +33,43 @@ public class GitCommandExecutor {
 
     private final ManagedProcessExecutor processExecutor;
     private final GenerationCommitProperties properties;
+    private final GenerationExecutionContextService executionContextService;
 
     public GitCommandExecutor(
             ManagedProcessExecutor processExecutor,
-            GenerationCommitProperties properties
+            GenerationCommitProperties properties,
+            GenerationExecutionContextService executionContextService
     ) {
         this.processExecutor = processExecutor;
         this.properties = properties;
+        this.executionContextService = executionContextService;
     }
 
+    /**
+ * 执行{@code Git}命令处理流程。
+ *
+ * @param workingDirectory {@code workingDirectory} 对应的调用参数
+ * @param arguments 参数
+ * @param additionalEnvironment {@code additionalEnvironment} 对应的调用参数
+ * @param logContext 日志上下文
+ * @return {@code Git}命令
+ */
     public GitCommandResult execute(
             Path workingDirectory,
             List<String> arguments,
             Map<String, String> additionalEnvironment,
             String logContext
+    ) {
+        return execute(workingDirectory, arguments, additionalEnvironment, logContext, null);
+    }
+
+    /** 在生成任务边界内执行 Git 命令。 */
+    public GitCommandResult execute(
+            Path workingDirectory,
+            List<String> arguments,
+            Map<String, String> additionalEnvironment,
+            String logContext,
+            String taskId
     ) {
         List<String> command = new ArrayList<>(List.of(
                 "git",
@@ -70,22 +94,29 @@ public class GitCommandExecutor {
         environment.put("GIT_CONFIG_NOSYSTEM", "1");
         environment.put("GIT_CONFIG_GLOBAL", isolatedConfigRoot.resolve("global").toString());
         environment.put("XDG_CONFIG_HOME", isolatedConfigRoot.resolve("xdg").toString());
-        ManagedProcessResult result = processExecutor.execute(
-                ManagedProcessRequest.builder()
+        boolean taskScoped = taskId != null && !taskId.isBlank();
+        ManagedProcessRequest.ManagedProcessRequestBuilder requestBuilder = ManagedProcessRequest.builder()
                         .workingDirectory(workingDirectory)
                         .command(command)
                         .displayCommand(displayCommand(arguments))
                         .environment(environment)
-                        .timeout(properties.getCommandTimeout())
+                        .timeout(taskScoped
+                                ? executionContextService.clampTimeout(taskId, properties.getCommandTimeout())
+                                : properties.getCommandTimeout())
                         .heartbeatInterval(properties.getHeartbeatInterval())
                         .outputDrainTimeout(properties.getOutputDrainTimeout())
                         .maxOutputLength(properties.getMaxOutputLength())
                         .redirectErrorStream(false)
                         .outputLogPolicy(ManagedProcessOutputLogPolicy.SUMMARY)
                         .logCategory("git-command")
-                        .logContext(logContext)
-                        .build()
-        );
+                        .logContext(logContext);
+        if (taskScoped) {
+            requestBuilder.cancellationRequested(() -> executionContextService.shouldStop(taskId));
+        }
+        ManagedProcessResult result = processExecutor.execute(requestBuilder.build());
+        if (taskScoped) {
+            executionContextService.assertCanContinue(taskId);
+        }
         return new GitCommandResult(
                 result.status(),
                 result.exitCode(),
@@ -95,6 +126,14 @@ public class GitCommandExecutor {
         );
     }
 
+    /**
+ * 执行{@code Git}命令处理流程。
+ *
+ * @param workingDirectory {@code workingDirectory} 对应的调用参数
+ * @param arguments 参数
+ * @param logContext 日志上下文
+ * @return {@code Git}命令
+ */
     public GitCommandResult execute(
             Path workingDirectory,
             List<String> arguments,
@@ -103,6 +142,7 @@ public class GitCommandExecutor {
         return execute(workingDirectory, arguments, Map.of(), logContext);
     }
 
+    /** 返回{@code display}命令。 */
     private String displayCommand(List<String> arguments) {
         if (arguments == null || arguments.isEmpty()) {
             return "git";

@@ -38,11 +38,25 @@ public class GenerationRoutingSupport {
         this.generationAgentSupport = generationAgentSupport;
     }
 
+    /**
+ * 为目标类型选择处理路由。
+ *
+ * @param request 请求参数
+ * @return 目标类型
+ */
     public CodeGenTypeEnum routeTargetType(GenerationOrchestrationRequest request) {
         return routeTargetType(request, isComplexRequest(request == null ? null : request.userMessage()));
     }
 
+    /**
+ * 为目标类型选择处理路由。
+ *
+ * @param request 请求参数
+ * @param complex {@code complex} 对应的调用参数
+ * @return 目标类型
+ */
     public CodeGenTypeEnum routeTargetType(GenerationOrchestrationRequest request, boolean complex) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (request == null) {
             return CodeGenTypeEnum.HTML;
         }
@@ -71,6 +85,7 @@ public class GenerationRoutingSupport {
         if (request.routingFunction() == null) {
             return complex ? CodeGenTypeEnum.VUE_PROJECT : request.currentType();
         }
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             String routingPrompt = "请根据以下需求判断最适合的生成模式：\n" + request.userMessage();
             CodeGenTypeEnum routedType = request.routingFunction().apply(routingPrompt);
@@ -82,6 +97,13 @@ public class GenerationRoutingSupport {
         return complex ? CodeGenTypeEnum.VUE_PROJECT : request.currentType();
     }
 
+    /**
+ * 校验并返回有效的{@code s}构建校验。
+ *
+ * @param request 请求参数
+ * @param targetType 目标类型
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean requiresBuildValidation(GenerationOrchestrationRequest request, CodeGenTypeEnum targetType) {
         if (request == null || targetType == null) {
             return false;
@@ -102,6 +124,12 @@ public class GenerationRoutingSupport {
         return request.currentType() != null && request.currentType().canUpgradeTo(targetType);
     }
 
+    /**
+ * 判断是否应执行{@code Use}重型路径。
+ *
+ * @param request 请求参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean shouldUseHeavyPath(GenerationOrchestrationRequest request) {
         CodeGenTypeEnum targetType = routeTargetType(request);
         return requiresBuildValidation(request, targetType);
@@ -111,6 +139,7 @@ public class GenerationRoutingSupport {
         return generationAgentSupport.isComplexRequest(userMessage);
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     private boolean containsAny(String value, List<String> keywords) {
         if (StrUtil.isBlank(value)) {
             return false;

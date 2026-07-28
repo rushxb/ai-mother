@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class VueProjectScriptResolver {
 
+    /** 根据当前上下文解析{@code Vue}项目{@code Script}。 */
     VueProjectScripts resolve(JSONObject packageJson) {
         JSONObject scripts = packageJson == null ? null : packageJson.getJSONObject("scripts");
         String lightBuildScript = firstAvailableScript(scripts, "pure-build", "build-only");
@@ -24,6 +25,7 @@ public class VueProjectScriptResolver {
         );
     }
 
+    /** 返回首次可用{@code Script}。 */
     private String firstAvailableScript(JSONObject scripts, String... names) {
         if (scripts == null) {
             return null;

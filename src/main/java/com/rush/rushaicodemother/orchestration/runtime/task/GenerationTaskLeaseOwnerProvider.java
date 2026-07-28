@@ -26,6 +26,7 @@ public class GenerationTaskLeaseOwnerProvider {
         return ownerId;
     }
 
+    /** 根据当前上下文解析主机名称。 */
     private String resolveHostName() {
         try {
             return normalize(InetAddress.getLocalHost().getHostName());

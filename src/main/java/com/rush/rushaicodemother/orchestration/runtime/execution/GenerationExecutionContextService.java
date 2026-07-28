@@ -35,6 +35,14 @@ public class GenerationExecutionContextService {
         this.clock = clock;
     }
 
+    /**
+ * 启动生成执行上下文。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userId 用户编号
+ * @return 生成执行上下文
+ */
     public GenerationExecutionContext start(String taskId, Long appId, Long userId) {
         GenerationExecutionContext context = new GenerationExecutionContext(
                 taskId,
@@ -60,6 +68,13 @@ public class GenerationExecutionContextService {
         return context;
     }
 
+    /**
+ * 返回恢复。
+ *
+ * @param snapshot 快照
+ * @param limits 限制
+ * @return 生成执行上下文
+ */
     public GenerationExecutionContext restore(GenerationExecutionSnapshot snapshot,
                                               GenerationExecutionLimits limits) {
         GenerationExecutionContext context = GenerationExecutionContext.restore(snapshot, limits, clock);
@@ -78,6 +93,12 @@ public class GenerationExecutionContextService {
         return context;
     }
 
+    /**
+ * 获取并返回按任务编号。
+ *
+ * @param taskId 任务编号
+ * @return 可选的生成执行上下文；不存在时返回空值
+ */
     public Optional<GenerationExecutionContext> getByTaskId(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             return Optional.empty();
@@ -85,6 +106,12 @@ public class GenerationExecutionContextService {
         return Optional.ofNullable(contextsByTaskId.get(taskId));
     }
 
+    /**
+ * 获取并返回按应用编号。
+ *
+ * @param appId 应用编号
+ * @return 可选的生成执行上下文；不存在时返回空值
+ */
     public Optional<GenerationExecutionContext> getByAppId(Long appId) {
         if (appId == null) {
             return Optional.empty();
@@ -93,6 +120,12 @@ public class GenerationExecutionContextService {
         return taskId == null ? Optional.empty() : getByTaskId(taskId);
     }
 
+    /**
+ * 绑定执行围栏。
+ *
+ * @param taskId 任务编号
+ * @param fence 围栏
+ */
     public void bindExecutionFence(String taskId, GenerationExecutionFence fence) {
         GenerationExecutionContext context = getByTaskId(taskId)
                 .orElseThrow(() -> new GenerationExecutionPolicyException(
@@ -144,14 +177,32 @@ public class GenerationExecutionContextService {
         getByTaskId(taskId).ifPresent(GenerationExecutionContext::assertCanContinue);
     }
 
+    /**
+ * 取消按任务编号。
+ *
+ * @param taskId 任务编号
+ * @param reason 原因
+ */
     public void cancelByTaskId(String taskId, String reason) {
         getByTaskId(taskId).ifPresent(context -> context.cancel(reason));
     }
 
+    /**
+ * 取消按应用编号。
+ *
+ * @param appId 应用编号
+ * @param reason 原因
+ */
     public void cancelByAppId(Long appId, String reason) {
         getByAppId(appId).ifPresent(context -> context.cancel(reason));
     }
 
+    /**
+ * 完成生成执行上下文并收口相关状态。
+ *
+ * @param taskId 任务编号
+ * @param status 目标状态
+ */
     public void finish(String taskId, String status) {
         GenerationExecutionContext context = contextsByTaskId.remove(taskId);
         if (context == null) {
@@ -190,6 +241,12 @@ public class GenerationExecutionContextService {
         }
     }
 
+    /**
+ * 完成按应用编号并收口相关状态。
+ *
+ * @param appId 应用编号
+ * @param status 目标状态
+ */
     public void finishByAppId(Long appId, String status) {
         if (appId == null) {
             return;

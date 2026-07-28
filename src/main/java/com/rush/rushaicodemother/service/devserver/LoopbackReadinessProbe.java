@@ -13,6 +13,12 @@ public class LoopbackReadinessProbe {
     private static final String LOOPBACK_ADDRESS = "127.0.0.1";
     private static final int CONNECT_TIMEOUT_MILLIS = 200;
 
+    /**
+ * 判断就绪是否满足约束。
+ *
+ * @param port 端口
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isReady(int port) {
         if (port < 1 || port > 65535) {
             return false;

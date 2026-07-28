@@ -26,6 +26,12 @@ public class ToolPathSupport {
     private final GenerationToolExecutionContextService toolExecutionContextService;
     private final GenerationWorkspaceService generationWorkspaceService;
 
+    /**
+ * 创建工具路径支持实例并完成必要的依赖和初始状态设置。
+ *
+ * @param toolExecutionContextService 工具执行上下文服务
+ * @param generationWorkspaceService 生成工作区服务
+ */
     public ToolPathSupport(
             GenerationToolExecutionContextService toolExecutionContextService,
             GenerationWorkspaceService generationWorkspaceService
@@ -40,6 +46,7 @@ public class ToolPathSupport {
         );
     }
 
+    /** 根据当前上下文解析项目根。 */
     Path resolveProjectRoot(Long appId) {
         if (appId == null || appId <= 0) {
             throw new ToolInputException("应用 ID 无效，无法定位项目工作区");
@@ -69,6 +76,7 @@ public class ToolPathSupport {
         }
     }
 
+    /** 根据当前上下文解析路径。 */
     Path resolvePath(String path, Long appId) {
         Path projectRoot = resolveProjectRoot(appId);
         if (path == null || path.isBlank()) {
@@ -95,6 +103,7 @@ public class ToolPathSupport {
         return taskId.trim();
     }
 
+    /** 规范化{@code Relative}路径。 */
     String normalizeRelativePath(String relativePath) {
         if (relativePath == null || relativePath.isBlank()) {
             throw new ToolInputException("文件路径不能为空");
@@ -119,6 +128,7 @@ public class ToolPathSupport {
         }
     }
 
+    /** 确保{@code Within}项目已达到可用状态。 */
     void ensureWithinProject(Path projectRoot, Path targetPath) {
         if (projectRoot == null || targetPath == null) {
             throw new ToolInputException("项目路径不能为空");
@@ -135,6 +145,7 @@ public class ToolPathSupport {
                 .orElseThrow(() -> new ToolInputException("工具执行上下文不存在，无法定位项目工作区"));
     }
 
+    /** 拒绝{@code Symbolic}{@code Links}并记录原因。 */
     private void rejectSymbolicLinks(Path projectRoot, Path targetPath) {
         Path currentPath = projectRoot.toAbsolutePath().normalize();
         Path relativePath = currentPath.relativize(targetPath.toAbsolutePath().normalize());

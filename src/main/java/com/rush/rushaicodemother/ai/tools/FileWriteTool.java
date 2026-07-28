@@ -33,6 +33,14 @@ public class FileWriteTool extends BaseTool {
         this.workspaceFileService = workspaceFileService;
     }
 
+    /**
+ * 写入文件。
+ *
+ * @param relativeFilePath {@code relativeFilePath} 对应的调用参数
+ * @param content 文件或消息内容
+ * @param appId 应用编号
+ * @return 处理后的文件文本
+ */
     @Tool("写入文件到指定路径")
     public String writeFile(
             @P("文件的相对路径")
@@ -41,6 +49,7 @@ public class FileWriteTool extends BaseTool {
             String content,
             @ToolMemoryId Long appId
     ) {
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (content == null) {
                 throw new ToolInputException("文件内容不能为 null");
@@ -97,6 +106,12 @@ public class FileWriteTool extends BaseTool {
         return "写入文件";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");

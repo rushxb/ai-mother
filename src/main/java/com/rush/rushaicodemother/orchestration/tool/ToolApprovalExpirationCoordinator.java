@@ -18,6 +18,7 @@ public class ToolApprovalExpirationCoordinator {
     private final GenerationToolContinuationScheduler continuationScheduler;
     private final AiToolApprovalProperties properties;
 
+    /** 处理{@code expire}{@code And}{@code Resume}。 */
     @Scheduled(fixedDelayString = "${app.ai-tool-approval.expiration-scan-interval:1m}")
     public void expireAndResume() {
         toolApprovalService.expireApprovals();

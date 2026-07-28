@@ -33,6 +33,14 @@ public class CreateRecipeRendererService {
         return templateId != null && renderersByTemplate.containsKey(templateId);
     }
 
+    /**
+ * 渲染创建{@code Recipe}渲染器。
+ *
+ * @param userMessage 用户消息
+ * @param group 分组
+ * @param spec {@code spec} 对应的调用参数
+ * @return 创建{@code Recipe}渲染器
+ */
     public RecipeRenderResult render(String userMessage, SlotGroup group, CreateSpec spec) {
         if (group == null || spec == null) {
             return RecipeRenderResult.empty();
@@ -49,6 +57,7 @@ public class CreateRecipeRendererService {
         return result;
     }
 
+    /** 返回索引{@code Renderers}。 */
     private Map<String, CreateRecipeRenderer> indexRenderers(List<CreateRecipeRenderer> renderers) {
         if (renderers == null || renderers.isEmpty()) {
             throw new IllegalArgumentException("At least one CREATE recipe renderer must be configured");

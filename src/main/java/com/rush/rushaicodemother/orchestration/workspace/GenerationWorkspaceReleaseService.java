@@ -19,6 +19,13 @@ public class GenerationWorkspaceReleaseService {
     private final GenerationWorkspacePublicationMetadataService publicationMetadataService;
     private final GenerationPreviewMilestoneService previewMilestoneService;
 
+    /**
+ * 释放生成工作区发布。
+ *
+ * @param session 会话
+ * @param targetType 目标类型
+ * @return 生成工作区发布
+ */
     public GenerationWorkspacePublicationResult release(
             GenerationSession session,
             CodeGenTypeEnum targetType
@@ -42,6 +49,7 @@ public class GenerationWorkspaceReleaseService {
         return result;
     }
 
+    /** 发布{@code First}预览安全处理。 */
     private void publishFirstPreviewSafely(GenerationSession session, CodeGenTypeEnum targetType) {
         try {
             if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {

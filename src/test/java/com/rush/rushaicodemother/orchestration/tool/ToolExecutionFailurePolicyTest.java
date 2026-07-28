@@ -80,9 +80,7 @@ class ToolExecutionFailurePolicyTest {
                 CodeGenTypeEnum.VUE_PROJECT,
                 GenerationPerformanceProfile.balanced());
 
-        assertEquals(
-                "Tool execution failed. Inspect the inputs and choose a safe alternative.",
-                result.text());
+        assertEquals("工具执行失败，请检查输入并选择安全的替代方案。", result.text());
     }
 
     @Test

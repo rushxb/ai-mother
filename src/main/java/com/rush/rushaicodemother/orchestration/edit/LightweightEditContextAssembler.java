@@ -26,6 +26,13 @@ public class LightweightEditContextAssembler {
     private final EditValidationPolicyService editValidationPolicyService;
     private final DevServerManager devServerManager;
 
+    /**
+ * 汇总相关数据并组装轻量编辑上下文{@code Assembler}。
+ *
+ * @param workspace 工作区
+ * @param userMessage 用户消息
+ * @return 轻量编辑上下文{@code Assembler}
+ */
     public LightweightEditContext assemble(GenerationWorkspace workspace, String userMessage) {
         if (workspace == null) {
             return LightweightEditContext.noCandidates();
@@ -46,6 +53,15 @@ public class LightweightEditContextAssembler {
         );
     }
 
+    /**
+ * 返回{@code rebuild}执行后校验失败。
+ *
+ * @param workspace 工作区
+ * @param userMessage 用户消息
+ * @param validationResult 校验结果
+ * @param fallbackContext 回退上下文
+ * @return 处理后的轻量编辑上下文{@code Assembler}文本
+ */
     public String rebuildAfterValidationFailure(GenerationWorkspace workspace,
                                                 String userMessage,
                                                 BackgroundValidationService.ValidationResult validationResult,
@@ -69,6 +85,7 @@ public class LightweightEditContextAssembler {
         return StrUtil.blankToDefault(fallbackContext, "");
     }
 
+    /** 构建并返回项目上下文。 */
     private String buildProjectContext(EditContextPackage contextPackage,
                                        Long appId,
                                        String userMessage) {
@@ -92,6 +109,7 @@ public class LightweightEditContextAssembler {
         return builder.toString();
     }
 
+    /** 追加候选{@code Reasons}。 */
     private void appendCandidateReasons(StringBuilder builder,
                                         List<EditFileCandidate> candidates) {
         builder.append("候选文件定位依据:\n");
@@ -112,6 +130,7 @@ public class LightweightEditContextAssembler {
         builder.append('\n');
     }
 
+    /** 构建并返回{@code Recent}开发服务器输出。 */
     private String buildRecentDevServerOutput(Long appId, String userMessage) {
         if (appId == null || !editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage)) {
             return "";
@@ -130,6 +149,7 @@ public class LightweightEditContextAssembler {
         return "最近 Dev Server 输出（用于复现和定位用户报错）:\n" + String.join("\n", usefulLines);
     }
 
+    /** 判断{@code Useful}{@code Diagnostic}{@code Line}是否满足约束。 */
     private boolean isUsefulDiagnosticLine(String line) {
         if (line == null) {
             return false;

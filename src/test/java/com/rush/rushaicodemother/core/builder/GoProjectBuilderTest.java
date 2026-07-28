@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.core.builder;
 import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,7 +14,10 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -48,6 +52,18 @@ class GoProjectBuilderTest {
     }
 
     @Test
+    void shouldNotSwallowDeadlineWhileScanningBuildSnapshot() throws Exception {
+        prepareValidProject();
+        when(snapshotService.capture(eq(projectRoot), any(Runnable.class)))
+                .thenThrow(new GenerationDeadlineExceededException("task-expired"));
+
+        assertThrows(
+                GenerationDeadlineExceededException.class,
+                () -> builder.buildProjectWithResult(projectRoot.toString(), "task-expired")
+        );
+    }
+
+    @Test
     void shouldRejectProjectWithoutLockedDependenciesBeforeConsumingBudget() throws Exception {
         Files.writeString(projectRoot.resolve("go.mod"), "module example");
 
@@ -63,7 +79,7 @@ class GoProjectBuilderTest {
     void shouldConsumeOneBudgetUnitBeforeRunningTests() throws Exception {
         Files.writeString(projectRoot.resolve("go.mod"), "module example");
         Files.writeString(projectRoot.resolve("go.sum"), "");
-        when(snapshotService.capture(projectRoot)).thenReturn(snapshot);
+        when(snapshotService.capture(eq(projectRoot), any(Runnable.class))).thenReturn(snapshot);
         when(commandService.executeTests(projectRoot, "task-go")).thenReturn(new ProjectCommandResult(
                 ProjectCommandResult.Status.SUCCESS,
                 "go test -mod=readonly -count=1 -trimpath -buildvcs=false ./...",
@@ -83,7 +99,7 @@ class GoProjectBuilderTest {
     @Test
     void shouldReuseSuccessfulStableSnapshotWithinSameTask() throws Exception {
         prepareValidProject();
-        when(snapshotService.capture(projectRoot)).thenReturn(snapshot);
+        when(snapshotService.capture(eq(projectRoot), any(Runnable.class))).thenReturn(snapshot);
         when(commandService.executeTests(projectRoot, "task-reuse")).thenReturn(successfulCommand());
 
         GoBuildResult first = builder.buildProjectWithResult(projectRoot.toString(), "task-reuse");
@@ -102,7 +118,8 @@ class GoProjectBuilderTest {
     void shouldInvalidateCacheWhenSourceSnapshotChanges() throws Exception {
         prepareValidProject();
         GoProjectSnapshot changed = new GoProjectSnapshot("snapshot-b");
-        when(snapshotService.capture(projectRoot)).thenReturn(snapshot, snapshot, changed, changed);
+        when(snapshotService.capture(eq(projectRoot), any(Runnable.class)))
+                .thenReturn(snapshot, snapshot, changed, changed);
         when(commandService.executeTests(projectRoot, "task-change")).thenReturn(successfulCommand());
 
         GoBuildResult first = builder.buildProjectWithResult(projectRoot.toString(), "task-change");
@@ -119,7 +136,7 @@ class GoProjectBuilderTest {
     @Test
     void shouldNeverCacheFailedBuildResult() throws Exception {
         prepareValidProject();
-        when(snapshotService.capture(projectRoot)).thenReturn(snapshot);
+        when(snapshotService.capture(eq(projectRoot), any(Runnable.class))).thenReturn(snapshot);
         when(commandService.executeTests(projectRoot, "task-failed"))
                 .thenReturn(failedCommand(), successfulCommand());
 
@@ -136,7 +153,7 @@ class GoProjectBuilderTest {
     void shouldRejectSuccessWhenSourceChangesDuringBuild() throws Exception {
         prepareValidProject();
         GoProjectSnapshot changed = new GoProjectSnapshot("snapshot-b");
-        when(snapshotService.capture(projectRoot)).thenReturn(snapshot, changed);
+        when(snapshotService.capture(eq(projectRoot), any(Runnable.class))).thenReturn(snapshot, changed);
         when(commandService.executeTests(projectRoot, "task-unstable")).thenReturn(successfulCommand());
 
         GoBuildResult result = builder.buildProjectWithResult(projectRoot.toString(), "task-unstable");
@@ -149,7 +166,7 @@ class GoProjectBuilderTest {
     @Test
     void shouldNotReuseSuccessfulResultAcrossTasks() throws Exception {
         prepareValidProject();
-        when(snapshotService.capture(projectRoot)).thenReturn(snapshot);
+        when(snapshotService.capture(eq(projectRoot), any(Runnable.class))).thenReturn(snapshot);
         when(commandService.executeTests(projectRoot, "task-one")).thenReturn(successfulCommand());
         when(commandService.executeTests(projectRoot, "task-two")).thenReturn(successfulCommand());
 

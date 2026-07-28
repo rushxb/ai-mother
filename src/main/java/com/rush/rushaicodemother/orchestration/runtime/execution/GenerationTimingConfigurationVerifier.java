@@ -18,6 +18,7 @@ public class GenerationTimingConfigurationVerifier implements SmartInitializingS
     private final GenerationRuntimeProperties runtimeProperties;
     private final GenerationStageAdmissionProperties stageAdmissionProperties;
 
+    /** 在 Spring 单例 Bean 初始化完成后执行启动校验。 */
     @Override
     public void afterSingletonsInstantiated() {
         Duration minimumModelTurn = stageAdmissionProperties.getModelTurnMinimum();
@@ -48,6 +49,7 @@ public class GenerationTimingConfigurationVerifier implements SmartInitializingS
         }
     }
 
+    /** 校验{@code ate}配置档是否有效。 */
     private void validateProfile(String propertyPrefix,
                                  GenerationSlaProperties.Profile profile,
                                  Duration minimumModelTurn,
@@ -63,6 +65,7 @@ public class GenerationTimingConfigurationVerifier implements SmartInitializingS
         }
     }
 
+    /** 校验{@code ate}{@code Legacy}运行时是否有效。 */
     private void validateLegacyRuntime(Duration minimumModelTurn,
                                        Duration minimumTaskWindow,
                                        List<String> violations) {

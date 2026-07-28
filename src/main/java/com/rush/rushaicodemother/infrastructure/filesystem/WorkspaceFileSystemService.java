@@ -48,6 +48,8 @@ public class WorkspaceFileSystemService {
 
     private static final int BUFFER_SIZE = 16 * 1024;
     private static final int MUTATION_LOCK_STRIPES = 64;
+    private static final Runnable NO_OP_CONTINUATION_CHECK = () -> {
+    };
     private static final String INTERACTIVE_TEMP_FILE_PREFIX = ".app-code-";
     private static final Set<String> IGNORED_DIRECTORY_NAMES = Set.of(
             ".git", ".idea", ".vscode", "node_modules", "dist", "build", "target", "coverage",
@@ -88,9 +90,17 @@ public class WorkspaceFileSystemService {
 
     /** 扫描一次项目并为下游消费者返回稳定的相对路径元数据。 */
     public WorkspaceScan scanProject(Path rootDirectory) throws IOException {
+        return scanProject(rootDirectory, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 在调用方取消边界内扫描项目。 */
+    public WorkspaceScan scanProject(Path rootDirectory, Runnable continuationCheck) throws IOException {
+        Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
+        effectiveCheck.run();
         Path root = requireExistingDirectory(rootDirectory);
-        ScanCollector collector = new ScanCollector(root);
+        ScanCollector collector = new ScanCollector(root, effectiveCheck);
         Files.walkFileTree(root, collector);
+        effectiveCheck.run();
         collector.files.sort(Comparator.comparing(WorkspaceFileMetadata::relativePath));
         return new WorkspaceScan(root, collector.files, collector.totalBytes);
     }
@@ -154,6 +164,7 @@ public class WorkspaceFileSystemService {
         Path target = resolveRelativeFile(root, expectedFile.relativePath());
         ReentrantLock lock = mutationLockFor(target);
         lock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             requireMatchingFile(target, expectedFile);
             Path temporary = interactiveTemporarySibling(target);
@@ -220,6 +231,7 @@ public class WorkspaceFileSystemService {
         return readUtf8File(scan.root(), file, effectiveReadLimit(requestedMaxBytes));
     }
 
+    /** 读取{@code Utf8}文件。 */
     private String readUtf8File(Path rootDirectory, WorkspaceFileMetadata file, long effectiveLimit) throws IOException {
         Path root = requireExistingDirectory(rootDirectory);
         Path absolutePath = resolveRelativeFile(root, file.relativePath());
@@ -290,6 +302,7 @@ public class WorkspaceFileSystemService {
         createDirectoriesWithinRoot(root, parent);
         ReentrantLock lock = mutationLockFor(target);
         lock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && Files.isSymbolicLink(target)) {
                 throw failure(WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK,
@@ -316,9 +329,20 @@ public class WorkspaceFileSystemService {
 
     /** 比较两个扫描的文件，而不将任一完整文件加载到内存中。 */
     public boolean contentEquals(WorkspaceScan leftScan,
+                                  WorkspaceFileMetadata left,
+                                  WorkspaceScan rightScan,
+                                  WorkspaceFileMetadata right) throws IOException {
+        return contentEquals(leftScan, left, rightScan, right, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 在调用方取消边界内比较两个扫描文件。 */
+    public boolean contentEquals(WorkspaceScan leftScan,
                                  WorkspaceFileMetadata left,
                                  WorkspaceScan rightScan,
-                                 WorkspaceFileMetadata right) throws IOException {
+                                 WorkspaceFileMetadata right,
+                                 Runnable continuationCheck) throws IOException {
+        Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
+        effectiveCheck.run();
         if (left.size() != right.size()) {
             return false;
         }
@@ -329,8 +353,9 @@ public class WorkspaceFileSystemService {
         boolean equal;
         try (SeekableByteChannel leftChannel = Files.newByteChannel(leftPath, READ_NOFOLLOW_OPTIONS);
              SeekableByteChannel rightChannel = Files.newByteChannel(rightPath, READ_NOFOLLOW_OPTIONS)) {
-            equal = channelsEqual(leftChannel, rightChannel);
+            equal = channelsEqual(leftChannel, rightChannel, effectiveCheck);
         }
+        effectiveCheck.run();
         BasicFileAttributes leftAfter = readRegularFileAttributes(leftPath);
         BasicFileAttributes rightAfter = readRegularFileAttributes(rightPath);
         if (!sameIdentity(leftBefore, leftAfter) || !sameIdentity(rightBefore, rightAfter)) {
@@ -341,6 +366,17 @@ public class WorkspaceFileSystemService {
 
     /** 创建完整的目录副本，而不暴露部分复制的目标。 */
     public WorkspaceCopyResult copyDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
+        return copyDirectory(sourceDirectory, targetDirectory, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 在调用方取消边界内创建完整目录副本。 */
+    public WorkspaceCopyResult copyDirectory(
+            Path sourceDirectory,
+            Path targetDirectory,
+            Runnable continuationCheck
+    ) throws IOException {
+        Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
+        effectiveCheck.run();
         Path source = requireExistingDirectory(sourceDirectory);
         Path target = normalizeRequiredPath(targetDirectory);
         rejectOverlappingDirectories(source, target);
@@ -355,7 +391,8 @@ public class WorkspaceFileSystemService {
 
         Path staging = temporarySibling(target, "copy");
         try {
-            WorkspaceCopyResult staged = copyTree(source, staging);
+            WorkspaceCopyResult staged = copyTree(source, staging, effectiveCheck);
+            effectiveCheck.run();
             moveWithoutReplace(staging, target);
             return new WorkspaceCopyResult(target, staged.fileCount(), staged.totalBytes());
         } catch (WorkspaceFileSystemException exception) {
@@ -374,8 +411,9 @@ public class WorkspaceFileSystemService {
         rejectOverlappingDirectories(source, target);
         Path staging = temporarySibling(target, "restore");
         Path displaced = temporarySibling(target, "previous");
-        WorkspaceCopyResult staged = copyTree(source, staging);
+        WorkspaceCopyResult staged = copyTree(source, staging, NO_OP_CONTINUATION_CHECK);
         boolean targetMoved = false;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             moveWithoutReplace(target, displaced);
             targetMoved = true;
@@ -447,6 +485,12 @@ public class WorkspaceFileSystemService {
         return List.copyOf(directories);
     }
 
+    /**
+ * 判断目录是否满足约束。
+ *
+ * @param directory 目录
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean isDirectory(Path directory) throws IOException {
         if (directory == null) {
             return false;
@@ -483,6 +527,12 @@ public class WorkspaceFileSystemService {
         return file;
     }
 
+    /**
+ * 确保目录已达到可用状态。
+ *
+ * @param directory 目录
+ * @return 解析后的目录路径
+ */
     public Path ensureDirectory(Path directory) throws IOException {
         Path normalized = normalizeRequiredPath(directory);
         validateExistingAncestors(normalized);
@@ -490,11 +540,18 @@ public class WorkspaceFileSystemService {
         return requireExistingDirectory(normalized);
     }
 
-    private WorkspaceCopyResult copyTree(Path source, Path target) throws IOException {
+    /** 复制{@code Tree}。 */
+    private WorkspaceCopyResult copyTree(
+            Path source,
+            Path target,
+            Runnable continuationCheck
+    ) throws IOException {
+        continuationCheck.run();
         Files.createDirectory(target);
-        CopyCollector collector = new CopyCollector(source, target);
+        CopyCollector collector = new CopyCollector(source, target, continuationCheck);
         try {
             Files.walkFileTree(source, collector);
+            continuationCheck.run();
             return new WorkspaceCopyResult(target, collector.fileCount, collector.totalBytes);
         } catch (IOException exception) {
             deleteTreeIfExists(target);
@@ -502,10 +559,13 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    /** 复制文件。 */
     private void copyFile(Path source,
                           Path target,
                           BasicFileAttributes before,
                           CopyCollector collector) throws IOException {
+        collector.continuationCheck.run();
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (before.size() > properties.getMaxFileBytes()) {
             throw failure(WorkspaceFileSystemException.Reason.FILE_TOO_LARGE, "工作区文件超过快照单文件上限");
         }
@@ -519,6 +579,7 @@ public class WorkspaceFileSystemService {
             ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
             long copied = 0L;
             while (true) {
+                collector.continuationCheck.run();
                 int bytesRead = input.read(buffer);
                 if (bytesRead < 0) {
                     break;
@@ -536,6 +597,7 @@ public class WorkspaceFileSystemService {
                 throw failure(WorkspaceFileSystemException.Reason.FILE_CHANGED, "工作区文件在复制期间发生变化");
             }
         }
+        collector.continuationCheck.run();
         BasicFileAttributes after = readRegularFileAttributes(source);
         if (!sameIdentity(before, after)) {
             throw failure(WorkspaceFileSystemException.Reason.FILE_CHANGED, "工作区文件在复制期间发生变化");
@@ -545,6 +607,7 @@ public class WorkspaceFileSystemService {
         collector.fileCount++;
     }
 
+    /** 校验并返回有效的{@code Matching}文件。 */
     private BasicFileAttributes requireMatchingFile(Path absolutePath, WorkspaceFileMetadata expected)
             throws IOException {
         BasicFileAttributes actual;
@@ -566,6 +629,7 @@ public class WorkspaceFileSystemService {
         return actual;
     }
 
+    /** 读取常规文件属性。 */
     private BasicFileAttributes readRegularFileAttributes(Path file) throws IOException {
         BasicFileAttributes attributes;
         try {
@@ -589,6 +653,7 @@ public class WorkspaceFileSystemService {
         return attributes;
     }
 
+    /** 校验并返回有效的{@code Existing}目录。 */
     private Path requireExistingDirectory(Path directory) throws IOException {
         Path normalized = normalizeRequiredPath(directory);
         ensureNoSymbolicLinkSegments(normalized);
@@ -610,6 +675,7 @@ public class WorkspaceFileSystemService {
         return candidate;
     }
 
+    /** 根据当前上下文解析{@code Relative}路径。 */
     private Path resolveRelativePath(Path root, String relativePath) throws WorkspaceFileSystemException {
         if (relativePath == null || relativePath.isBlank()) {
             throw failure(WorkspaceFileSystemException.Reason.INVALID_PATH, "工作区相对路径不能为空");
@@ -635,6 +701,7 @@ public class WorkspaceFileSystemService {
         return candidate;
     }
 
+    /** 创建{@code Directories}{@code Within}根。 */
     private void createDirectoriesWithinRoot(Path root, Path directory) throws IOException {
         Path normalized = directory.toAbsolutePath().normalize();
         if (!normalized.startsWith(root)) {
@@ -660,6 +727,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    /** 校验{@code ate}{@code Existing}{@code Ancestors}是否有效。 */
     private void validateExistingAncestors(Path path) throws IOException {
         Path cursor = path;
         while (cursor != null && !Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
@@ -679,6 +747,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    /** 确保{@code No}{@code Symbolic}{@code Link}{@code Segments}已达到可用状态。 */
     private void ensureNoSymbolicLinkSegments(Path path) throws IOException {
         if (path == null) {
             return;
@@ -711,6 +780,7 @@ public class WorkspaceFileSystemService {
         return target.getParent().resolve("." + target.getFileName() + "." + purpose + "-" + UUID.randomUUID());
     }
 
+    /** 移动{@code Without}{@code Replace}。 */
     private void moveWithoutReplace(Path source, Path target) throws IOException {
         int maxAttempts = properties.getPublishMaxAttempts();
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -726,6 +796,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    /** 移动{@code Without}{@code Replace}{@code Once}。 */
     private void moveWithoutReplaceOnce(Path source, Path target) throws IOException {
         try {
             moveOperation.move(source, target, StandardCopyOption.ATOMIC_MOVE);
@@ -734,6 +805,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    /** 移动{@code Replacing}。 */
     private void moveReplacing(Path source, Path target) throws IOException {
         try {
             moveOperation.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -742,6 +814,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    /** 等待{@code Publish}重试完成。 */
     private void awaitPublishRetry(AccessDeniedException accessDeniedException) throws IOException {
         try {
             Thread.sleep(properties.getPublishRetryDelayMillis());
@@ -755,6 +828,7 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    /** 删除{@code Tree}{@code If}{@code Exists}。 */
     private void deleteTreeIfExists(Path root) throws IOException {
         if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
             return;
@@ -766,6 +840,13 @@ public class WorkspaceFileSystemService {
                 return FileVisitResult.CONTINUE;
             }
 
+            /**
+ * 在目录访问完成后处理异常并收口遍历状态。
+ *
+ * @param directory 目录
+ * @param exception 待转换或处理的异常
+ * @return 方法执行结果
+ */
             @Override
             public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
                 if (exception != null) {
@@ -782,10 +863,16 @@ public class WorkspaceFileSystemService {
         Path move(Path source, Path target, CopyOption... options) throws IOException;
     }
 
-    private boolean channelsEqual(SeekableByteChannel left, SeekableByteChannel right) throws IOException {
+    /** 返回{@code channels}{@code Equal}。 */
+    private boolean channelsEqual(
+            SeekableByteChannel left,
+            SeekableByteChannel right,
+            Runnable continuationCheck
+    ) throws IOException {
         ByteBuffer leftBuffer = ByteBuffer.allocate(BUFFER_SIZE);
         ByteBuffer rightBuffer = ByteBuffer.allocate(BUFFER_SIZE);
         while (true) {
+            continuationCheck.run();
             int leftRead = fillBuffer(left, leftBuffer);
             int rightRead = fillBuffer(right, rightBuffer);
             if (leftRead != rightRead) {
@@ -804,6 +891,11 @@ public class WorkspaceFileSystemService {
         }
     }
 
+    private Runnable effectiveContinuationCheck(Runnable continuationCheck) {
+        return continuationCheck == null ? NO_OP_CONTINUATION_CHECK : continuationCheck;
+    }
+
+    /** 返回填充缓冲区。 */
     private int fillBuffer(SeekableByteChannel channel, ByteBuffer buffer) throws IOException {
         buffer.clear();
         int total = 0;
@@ -860,6 +952,7 @@ public class WorkspaceFileSystemService {
         return locks;
     }
 
+    /** 返回安全{@code Add}。 */
     private long safeAdd(long left,
                          long right,
                          WorkspaceFileSystemException.Reason reason,
@@ -895,6 +988,7 @@ public class WorkspaceFileSystemService {
         return fileName != null && IGNORED_DIRECTORY_NAMES.contains(fileName.toString().toLowerCase(Locale.ROOT));
     }
 
+    /** 判断是否应执行{@code Ignore}{@code Scan}文件。 */
     private boolean shouldIgnoreScanFile(Path file) {
         Path fileNamePath = file.getFileName();
         if (fileNamePath == null) {
@@ -923,12 +1017,18 @@ public class WorkspaceFileSystemService {
                                         long lastModifiedTime,
                                         Object fileKey) {
 
+        /** 创建工作区文件元数据实例并完成必要的依赖和初始状态设置。 */
         public WorkspaceFileMetadata {
             if (relativePath == null || relativePath.isBlank()) {
                 throw new IllegalArgumentException("relativePath must not be blank");
             }
         }
 
+        /**
+ * 返回文件名称。
+ *
+ * @return 处理后的工作区文件元数据文本
+ */
         public String fileName() {
             Path path = Path.of(relativePath);
             Path fileName = path.getFileName();
@@ -983,6 +1083,7 @@ public class WorkspaceFileSystemService {
             this.filter = filter;
         }
 
+        /** 列出符合条件的目录。 */
         private List<WorkspaceTreeNode> listDirectory(Path directory, int childDepth) throws IOException {
             List<WorkspaceTreeNode> nodes = new ArrayList<>();
             try (DirectoryStream<Path> children = Files.newDirectoryStream(directory)) {
@@ -1042,15 +1143,25 @@ public class WorkspaceFileSystemService {
     private final class ScanCollector extends SimpleFileVisitor<Path> {
 
         private final Path root;
+        private final Runnable continuationCheck;
         private final List<WorkspaceFileMetadata> files = new ArrayList<>();
         private long totalBytes;
 
-        private ScanCollector(Path root) {
+        private ScanCollector(Path root, Runnable continuationCheck) {
             this.root = root;
+            this.continuationCheck = continuationCheck;
         }
 
+        /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
         @Override
         public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
+            continuationCheck.run();
             if (attributes.isSymbolicLink() || Files.isSymbolicLink(directory)) {
                 return directory.equals(root) ? unsafeRoot() : FileVisitResult.SKIP_SUBTREE;
             }
@@ -1065,8 +1176,16 @@ public class WorkspaceFileSystemService {
             return FileVisitResult.CONTINUE;
         }
 
+        /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return {@code Scan}
+ */
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+            continuationCheck.run();
             if (attributes.isSymbolicLink() || Files.isSymbolicLink(file)
                     || !attributes.isRegularFile() || shouldIgnoreScanFile(file)) {
                 return FileVisitResult.CONTINUE;
@@ -1095,16 +1214,26 @@ public class WorkspaceFileSystemService {
 
         private final Path sourceRoot;
         private final Path targetRoot;
+        private final Runnable continuationCheck;
         private int fileCount;
         private long totalBytes;
 
-        private CopyCollector(Path sourceRoot, Path targetRoot) {
+        private CopyCollector(Path sourceRoot, Path targetRoot, Runnable continuationCheck) {
             this.sourceRoot = sourceRoot;
             this.targetRoot = targetRoot;
+            this.continuationCheck = continuationCheck;
         }
 
+        /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
         @Override
         public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
+            continuationCheck.run();
             if (attributes.isSymbolicLink() || Files.isSymbolicLink(directory)) {
                 return directory.equals(sourceRoot) ? unsafeRoot() : FileVisitResult.SKIP_SUBTREE;
             }
@@ -1122,8 +1251,16 @@ public class WorkspaceFileSystemService {
             return FileVisitResult.CONTINUE;
         }
 
+        /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return 文案
+ */
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+            continuationCheck.run();
             if (attributes.isSymbolicLink() || Files.isSymbolicLink(file) || !attributes.isRegularFile()) {
                 return FileVisitResult.CONTINUE;
             }

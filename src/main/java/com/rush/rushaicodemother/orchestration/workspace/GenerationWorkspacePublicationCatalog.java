@@ -48,6 +48,13 @@ public class GenerationWorkspacePublicationCatalog {
         this.storageProperties = Objects.requireNonNull(storageProperties, "storageProperties");
     }
 
+    /**
+ * 查找匹配的当前。
+ *
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @return 可选的当前；不存在时返回空值
+ */
     public Optional<GenerationWorkspacePublicationPointer> findCurrent(
             Long appId,
             CodeGenTypeEnum codeGenType
@@ -71,10 +78,23 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /**
+ * 查找匹配的当前工作区。
+ *
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @return 可选的当前工作区；不存在时返回空值
+ */
     public Optional<Path> findCurrentWorkspace(Long appId, CodeGenTypeEnum codeGenType) {
         return findCurrent(appId, codeGenType).map(this::resolveWorkspace);
     }
 
+    /**
+ * 根据当前上下文解析工作区。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ * @return 解析后的工作区路径
+ */
     public Path resolveWorkspace(GenerationWorkspacePublicationPointer pointer) {
         Objects.requireNonNull(pointer, "pointer");
         try {
@@ -117,6 +137,12 @@ public class GenerationWorkspacePublicationCatalog {
         return versionWorkspacePath(pointer, false);
     }
 
+    /**
+ * 返回锁路径。
+ *
+ * @param appId 应用编号
+ * @return 解析后的生成工作区发布目录路径
+ */
     public Path lockPath(Long appId) {
         if (appId == null || appId <= 0) {
             throw new IllegalArgumentException("appId must be positive");
@@ -133,6 +159,13 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /**
+ * 返回快照。
+ *
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @return 生成工作区发布目录
+ */
     public PointerSnapshot snapshot(Long appId, CodeGenTypeEnum codeGenType) {
         Path pointerPath = pointerPath(appId, codeGenType, true);
         try {
@@ -148,12 +181,23 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /**
+ * 处理{@code activate}。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ */
     public void activate(GenerationWorkspacePublicationPointer pointer) {
         Objects.requireNonNull(pointer, "pointer");
         Path pointerPath = pointerPath(pointer.appId(), pointer.codeGenType(), true);
         writeAtomically(pointerPath, serialize(pointer).getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+ * 写入所有者{@code Marker}。
+ *
+ * @param workspace 工作区
+ * @param pointer {@code pointer} 对应的调用参数
+ */
     public void writeOwnerMarker(Path workspace,
                                  GenerationWorkspacePublicationPointer pointer) {
         Objects.requireNonNull(pointer, "pointer");
@@ -172,6 +216,7 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /** 校验{@code ate}{@code Published}版本是否有效。 */
     void validatePublishedVersion(Path workspace,
                                   GenerationWorkspacePublicationPointer pointer) throws IOException {
         Objects.requireNonNull(pointer, "pointer");
@@ -187,6 +232,13 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /**
+ * 处理恢复。
+ *
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @param snapshot 快照
+ */
     public void restore(Long appId,
                         CodeGenTypeEnum codeGenType,
                         PointerSnapshot snapshot) {
@@ -209,6 +261,7 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /** 返回版本工作区路径。 */
     private Path versionWorkspacePath(GenerationWorkspacePublicationPointer pointer,
                                       boolean prepareParents) {
         Path typeRoot = prepareParents
@@ -224,6 +277,7 @@ public class GenerationWorkspacePublicationCatalog {
         return workspace;
     }
 
+    /** 返回{@code pointer}路径。 */
     private Path pointerPath(Long appId, CodeGenTypeEnum codeGenType, boolean prepareParent) {
         validateIdentity(appId, codeGenType);
         try {
@@ -252,7 +306,9 @@ public class GenerationWorkspacePublicationCatalog {
         return root(PUBLICATION_ROOT_NAME, create);
     }
 
+    /** 返回根。 */
     private Path root(String childName, boolean create) {
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path outputRoot = storageProperties.outputRoot();
             if (create) {
@@ -290,6 +346,7 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /** 确保{@code Direct}子级已达到可用状态。 */
     private Path ensureDirectChild(Path parent, String childName) throws IOException {
         if (childName == null || childName.isBlank()
                 || childName.contains("/") || childName.contains("\\")
@@ -313,7 +370,9 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /** 写入{@code Atomically}。 */
     private void writeAtomically(Path target, byte[] content) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (content == null || content.length == 0 || content.length > MAX_MANIFEST_BYTES) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "publication manifest content is invalid");
@@ -325,6 +384,7 @@ public class GenerationWorkspacePublicationCatalog {
         }
         Path temporary = parent.resolve(target.getFileName() + ".tmp-" + UUID.randomUUID()).normalize();
         ensureDirectChildPath(parent, temporary);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Files.write(temporary, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
@@ -361,6 +421,7 @@ public class GenerationWorkspacePublicationCatalog {
                 + "executionEpoch=" + pointer.executionEpoch() + '\n';
     }
 
+    /** 解析生成工作区发布目录。 */
     private GenerationWorkspacePublicationPointer parse(byte[] content,
                                                         Long expectedAppId,
                                                         CodeGenTypeEnum expectedCodeGenType) {
@@ -389,6 +450,7 @@ public class GenerationWorkspacePublicationCatalog {
         }
     }
 
+    /** 解析{@code Fields}。 */
     private Map<String, String> parseFields(String value, Set<String> allowedFields) {
         Map<String, String> fields = new LinkedHashMap<>();
         String normalized = value.replace("\r\n", "\n");
@@ -467,6 +529,7 @@ public class GenerationWorkspacePublicationCatalog {
     }
 
     public record PointerSnapshot(boolean existed, byte[] content) {
+        /** 创建{@code Pointer}快照实例并完成必要的依赖和初始状态设置。 */
         public PointerSnapshot {
             content = content == null ? new byte[0] : content.clone();
             if (existed && (content.length == 0 || content.length > MAX_MANIFEST_BYTES)) {

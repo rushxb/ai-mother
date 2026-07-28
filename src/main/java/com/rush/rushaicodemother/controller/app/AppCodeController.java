@@ -38,6 +38,13 @@ public class AppCodeController {
     private final UserService userService;
     private final AppCodeDownloadApplicationService downloadApplicationService;
 
+    /**
+ * 列出符合条件的应用代码文件。
+ *
+ * @param appId 应用编号
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @GetMapping("/code/files")
     public BaseResponse<List<AppCodeFileTreeVO>> listAppCodeFiles(@RequestParam @Positive Long appId,
                                                                   HttpServletRequest servletRequest) {
@@ -54,6 +61,13 @@ public class AppCodeController {
         return ResultUtils.success(appService.getAppCodeFileContent(appId, filePath, loginUser));
     }
 
+    /**
+ * 保存应用代码文件。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/code/file/save")
     public BaseResponse<Boolean> saveAppCodeFile(@Valid @RequestBody AppCodeFileSaveRequest request,
                                                  HttpServletRequest servletRequest) {
@@ -61,6 +75,13 @@ public class AppCodeController {
         return ResultUtils.success(appService.saveAppCodeFile(request, loginUser));
     }
 
+    /**
+ * 处理{@code download}应用代码。
+ *
+ * @param appId 应用编号
+ * @param servletRequest 当前 HTTP 请求
+ * @param response 响应对象
+ */
     @GetMapping("/download/{appId}")
     public void downloadAppCode(@PathVariable @Positive Long appId,
                                 HttpServletRequest servletRequest,

@@ -15,6 +15,16 @@ public class LightweightEditTaskLifecycleService {
 
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
 
+    /**
+ * 启动轻量编辑任务生命周期。
+ *
+ * @param taskId 任务编号
+ * @param app 应用
+ * @param user 用户
+ * @param codeGenType 代码生成类型
+ * @param userMessage 用户消息
+ * @param requiresBuild {@code requiresBuild} 对应的调用参数
+ */
     public void start(String taskId,
                       App app,
                       User user,

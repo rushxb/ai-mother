@@ -32,6 +32,11 @@ public class CreateSpecTaskExecutor {
         this.permits = null;
     }
 
+    /**
+ * 创建{@code Spec}任务执行器实例并完成必要的依赖和初始状态设置。
+ *
+ * @param properties 配置属性
+ */
     @Autowired
     public CreateSpecTaskExecutor(GenerationTaskExecutorProperties properties) {
         Objects.requireNonNull(properties, "生成任务执行器配置不能为空");
@@ -44,6 +49,13 @@ public class CreateSpecTaskExecutor {
                 Thread.ofVirtual().name("create-spec-", 0).factory());
     }
 
+    /**
+ * 校验并提交当前请求。
+ *
+ * @param monitorContext {@code monitorContext} 对应的调用参数
+ * @param task 任务
+ * @return 异步处理结果
+ */
     public <T> Future<T> submit(MonitorContext monitorContext, Callable<T> task) {
         Objects.requireNonNull(task, "CREATE 规格任务不能为空");
         MonitorContext contextSnapshot = copy(monitorContext);
@@ -71,6 +83,7 @@ public class CreateSpecTaskExecutor {
         }
     }
 
+    /** 返回调用并上下文。 */
     private <T> T callWithContext(MonitorContext context, Callable<T> task) throws Exception {
         MonitorContext previousContext = MonitorContextHolder.getContext();
         if (context == null) {
@@ -96,6 +109,7 @@ public class CreateSpecTaskExecutor {
         return new MonitorContext(context.getUserId(), context.getAppId(), context.getTaskId());
     }
 
+    /** 处理{@code shutdown}。 */
     @PreDestroy
     void shutdown() {
         if (executor == null || !shuttingDown.compareAndSet(false, true)) {

@@ -13,6 +13,7 @@ final class RecipeValueSupport {
     private RecipeValueSupport() {
     }
 
+    /** 返回{@code infer}{@code Industry}。 */
     static String inferIndustry(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "健身", "私教", "瑜伽", "运动")) return "健身运营";
@@ -22,6 +23,7 @@ final class RecipeValueSupport {
         return "业务";
     }
 
+    /** 返回{@code infer}品牌。 */
     static String inferBrand(String userMessage, String fallback) {
         if (containsAny(userMessage, "健身", "私教")) return "FitPilot";
         if (containsAny(userMessage, "教育", "课程")) return "知行云";
@@ -29,6 +31,7 @@ final class RecipeValueSupport {
         return fallback;
     }
 
+    /** 返回{@code infer}{@code Entity}名称。 */
     static String inferEntityName(String userMessage) {
         if (containsAny(userMessage, "课程")) return "Course";
         if (containsAny(userMessage, "商品", "产品")) return "Product";
@@ -38,6 +41,7 @@ final class RecipeValueSupport {
         return "Record";
     }
 
+    /** 返回{@code infer}{@code Entity}{@code Label}。 */
     static String inferEntityLabel(String userMessage) {
         if (containsAny(userMessage, "课程")) return "课程";
         if (containsAny(userMessage, "商品", "产品")) return "商品";
@@ -47,6 +51,7 @@ final class RecipeValueSupport {
         return "业务记录";
     }
 
+    /** 返回{@code contains}{@code Any}。 */
     static boolean containsAny(String value, String... keywords) {
         String normalized = StrUtil.blankToDefault(value, "").toLowerCase(Locale.ROOT);
         for (String keyword : keywords) {
@@ -79,6 +84,7 @@ final class RecipeValueSupport {
         return pascal.substring(0, 1).toLowerCase(Locale.ROOT) + pascal.substring(1);
     }
 
+    /** 返回{@code pascal}。 */
     static String pascal(String value) {
         String cleaned = IDENTIFIER_CLEANUP.matcher(StrUtil.blankToDefault(value, "")).replaceAll("_");
         StringBuilder result = new StringBuilder();
@@ -107,6 +113,7 @@ final class RecipeValueSupport {
         return snake(packageName) + "s";
     }
 
+    /** 返回{@code field}{@code Label}。 */
     static String fieldLabel(String field) {
         return switch (field) {
             case "name", "title" -> "名称";

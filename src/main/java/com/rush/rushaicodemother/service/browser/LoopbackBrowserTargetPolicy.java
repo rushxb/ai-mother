@@ -9,6 +9,12 @@ public final class LoopbackBrowserTargetPolicy {
     private LoopbackBrowserTargetPolicy() {
     }
 
+    /**
+ * 校验并返回有效的{@code Allowed}。
+ *
+ * @param candidate 候选
+ * @return {@code Allowed}
+ */
     public static URI requireAllowed(URI candidate) {
         if (!isAllowed(candidate)) {
             throw new IllegalArgumentException("browser automation target must be a normalized loopback HTTP URI");
@@ -16,6 +22,12 @@ public final class LoopbackBrowserTargetPolicy {
         return candidate.normalize();
     }
 
+    /**
+ * 判断{@code Allowed}是否满足约束。
+ *
+ * @param candidate 候选
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public static boolean isAllowed(URI candidate) {
         if (candidate == null
                 || !candidate.isAbsolute()
@@ -44,6 +56,13 @@ public final class LoopbackBrowserTargetPolicy {
                 && !normalizedPath.contains("%5c");
     }
 
+    /**
+ * 返回{@code same}来源。
+ *
+ * @param left {@code left} 对应的调用参数
+ * @param right {@code right} 对应的调用参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public static boolean sameOrigin(URI left, URI right) {
         return isAllowed(left)
                 && isAllowed(right)

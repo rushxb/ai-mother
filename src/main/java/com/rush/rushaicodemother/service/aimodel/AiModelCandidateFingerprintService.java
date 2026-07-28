@@ -7,6 +7,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class AiModelCandidateFingerprintService {
 
+    /**
+ * 返回指纹。
+ *
+ * @param configuration 配置
+ * @return 处理后的AI 模型候选指纹文本
+ */
     public String fingerprint(AiModelConfiguration configuration) {
         if (configuration == null || configuration.getId() == null) {
             throw new IllegalArgumentException("AI model candidate is incomplete");

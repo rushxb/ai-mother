@@ -25,6 +25,13 @@ public class AppDeploymentController {
     private final AppService appService;
     private final UserService userService;
 
+    /**
+ * 返回部署应用。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/deploy")
     public BaseResponse<String> deployApp(@Valid @RequestBody AppDeployRequest request,
                                           HttpServletRequest servletRequest) {
@@ -32,6 +39,13 @@ public class AppDeploymentController {
         return ResultUtils.success(appService.deployApp(request.getAppId(), loginUser));
     }
 
+    /**
+ * 同步并返回应用部署。
+ *
+ * @param request 请求参数
+ * @param servletRequest 当前 HTTP 请求
+ * @return 统一封装的接口响应
+ */
     @PostMapping("/deploy/sync")
     public BaseResponse<String> syncAppDeployment(@Valid @RequestBody AppDeployRequest request,
                                                   HttpServletRequest servletRequest) {

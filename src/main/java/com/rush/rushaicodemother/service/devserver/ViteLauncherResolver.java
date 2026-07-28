@@ -89,7 +89,16 @@ public class ViteLauncherResolver {
                 previewPathFactory, "previewPathFactory must not be null");
     }
 
+    /**
+ * 根据当前上下文解析{@code Vite}{@code Launcher}。
+ *
+ * @param projectDirectory 项目目录
+ * @param port 端口
+ * @param appId 应用编号
+ * @return {@code Vite}{@code Launcher}集合
+ */
     public List<String> resolve(Path projectDirectory, int port, Long appId) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (projectDirectory == null || port < 1 || port > 65535
                 || appId == null || appId <= 0) {
             throw new DevServerStartException(
@@ -104,6 +113,7 @@ public class ViteLauncherResolver {
         }
 
         Path viteEntry = nodeModules.resolve("vite/bin/vite.js").normalize();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Path realNodeModules = nodeModules.toRealPath();
             Path realViteEntry = viteEntry.toRealPath();

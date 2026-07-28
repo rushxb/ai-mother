@@ -100,6 +100,7 @@ app:
   generation-memory-context:
     parallel-reads-enabled: ${GENERATION_MEMORY_CONTEXT_PARALLEL_READS_ENABLED:false}
     max-concurrent-reads: ${GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_READS:12}
+    read-timeout: ${GENERATION_MEMORY_CONTEXT_READ_TIMEOUT:10s}
     preparation-overlap-enabled: ${GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_ENABLED:false}
     max-concurrent-preparation-overlaps: ${GENERATION_MEMORY_CONTEXT_MAX_CONCURRENT_PREPARATION_OVERLAPS:4}
     preparation-overlap-timeout: ${GENERATION_MEMORY_CONTEXT_PREPARATION_OVERLAP_TIMEOUT:30s}
@@ -306,7 +307,11 @@ app:
       high-load-ratio: ${GENERATION_ROUTING_HIGH_LOAD_RATIO:0.8}
       slow-average-duration: ${GENERATION_ROUTING_SLOW_AVERAGE_DURATION:10m}
       cache-ttl: ${GENERATION_ROUTING_TELEMETRY_CACHE_TTL:30s}
+      cold-load-timeout: ${GENERATION_ROUTING_TELEMETRY_COLD_LOAD_TIMEOUT:100ms}
+      stale-retention: ${GENERATION_ROUTING_TELEMETRY_STALE_RETENTION:10m}
+      shutdown-timeout: ${GENERATION_ROUTING_TELEMETRY_SHUTDOWN_TIMEOUT:5s}
       max-cached-applications: ${GENERATION_ROUTING_MAX_CACHED_APPLICATIONS:10000}
+      max-concurrent-loads: ${GENERATION_ROUTING_TELEMETRY_MAX_CONCURRENT_LOADS:4}
   generation-task-queue:
     transport: ${GENERATION_TASK_QUEUE_TRANSPORT:local}
     stream-key: ${GENERATION_TASK_QUEUE_STREAM_KEY:generation:tasks}

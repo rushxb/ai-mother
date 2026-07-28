@@ -10,6 +10,7 @@ public record SemanticMemoryOutboxBacklog(
         long deadLetter,
         Instant oldestPendingAt
 ) {
+    /** 创建语义记忆事务发件箱积压量实例并完成必要的依赖和初始状态设置。 */
     public SemanticMemoryOutboxBacklog {
         if (pending < 0 || retrying < 0 || leased < 0 || deadLetter < 0) {
             throw new IllegalArgumentException("semantic-memory outbox counts must be non-negative");

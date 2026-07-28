@@ -88,6 +88,13 @@ public interface AppConstant {
     String SCREENSHOT_ROOT_DIR = resolveRuntimePath("code.screenshot-root-dir", TMP_ROOT_DIR + "/screenshots");
 
 
+    /**
+ * 根据当前上下文解析运行时路径。
+ *
+ * @param key 键
+ * @param defaultValue 默认值
+ * @return 处理后的运行时路径文本
+ */
     static String resolveRuntimePath(String key, String defaultValue) {
         String overrideValue = System.getProperty(key);
         if (overrideValue == null || overrideValue.isBlank()) {

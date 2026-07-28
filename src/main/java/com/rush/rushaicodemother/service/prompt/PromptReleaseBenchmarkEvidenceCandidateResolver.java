@@ -28,6 +28,12 @@ public class PromptReleaseBenchmarkEvidenceCandidateResolver
         return candidate instanceof GenerationBenchmarkEvidenceCandidate.PromptRelease;
     }
 
+    /**
+ * 根据当前上下文解析提示词发布基准测试证据候选。
+ *
+ * @param candidate 候选
+ * @return 提示词发布基准测试证据候选
+ */
     @Override
     public GenerationBenchmarkEvidenceCandidateIdentity resolve(
             GenerationBenchmarkEvidenceCandidate candidate) {
@@ -47,6 +53,7 @@ public class PromptReleaseBenchmarkEvidenceCandidateResolver
         );
     }
 
+    /** 校验{@code ate}候选是否有效。 */
     private void validateCandidate(String promptKey, PromptReleaseSpec release) {
         if (promptKey.isBlank() || release == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Prompt 候选不完整");

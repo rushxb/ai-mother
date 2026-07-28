@@ -18,6 +18,7 @@ public class GenerationBenchmarkBrowserReadinessVerifier {
         this.screenshotProperties = screenshotProperties;
     }
 
+    /** 验证生成基准测试浏览器就绪状态是否符合预期。 */
     @PostConstruct
     public void verify() {
         if (!benchmarkProperties.isEnabled()) {

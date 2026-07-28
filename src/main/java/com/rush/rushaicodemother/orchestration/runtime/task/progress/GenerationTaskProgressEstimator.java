@@ -40,6 +40,16 @@ public class GenerationTaskProgressEstimator {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    /**
+ * 估算生成任务{@code Progress}{@code Estimator}。
+ *
+ * @param route 代理路由
+ * @param status 目标状态
+ * @param submittedAt {@code submittedAt} 对应的调用参数
+ * @param deadlineAt {@code deadlineAt} 对应的调用参数
+ * @param currentStage 当前阶段
+ * @return 生成任务{@code Progress}{@code Estimator}
+ */
     public GenerationTaskProgressEstimate estimate(String route,
                                                     String status,
                                                     Instant submittedAt,
@@ -97,6 +107,7 @@ public class GenerationTaskProgressEstimator {
                 null, null, null, false, null, now);
     }
 
+    /** 根据当前上下文解析配置档。 */
     private ProfileDecision resolveProfile(String route, String currentStage) {
         GenerationDurationProfile profile = safeProfile(route);
         if (profile != null && profile.taskSampleSize() >= properties.getMinimumHistoricalSamples()
@@ -117,6 +128,7 @@ public class GenerationTaskProgressEstimator {
                 profile == null ? null : findStageProfile(profile, currentStage));
     }
 
+    /** 返回安全配置档。 */
     private GenerationDurationProfile safeProfile(String route) {
         if (route == null || route.isBlank()) {
             return null;
@@ -143,6 +155,7 @@ public class GenerationTaskProgressEstimator {
                 .orElse(null);
     }
 
+    /** 计算{@code Progress}。 */
     private int calculateProgress(String status, long elapsedMs, long estimatedTotalMs) {
         if (estimatedTotalMs <= 0) {
             return 0;

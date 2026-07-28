@@ -15,6 +15,12 @@ public class TenantProvisioningService {
 
     private final TenantPersistenceService tenantPersistenceService;
 
+    /**
+ * 确保{@code Personal}租户已达到可用状态。
+ *
+ * @param user 用户
+ * @return {@code Personal}租户
+ */
     public Tenant ensurePersonalTenant(User user) {
         if (user == null || user.getId() == null || user.getId() <= 0) {
             throw new IllegalArgumentException("user identity is required for tenant provisioning");
@@ -27,6 +33,12 @@ public class TenantProvisioningService {
         return tenantPersistenceService.ensurePersonalTenant(userId, displayName);
     }
 
+    /**
+ * 校验并返回有效的{@code Personal}租户编号。
+ *
+ * @param user 用户
+ * @return 计算或处理后的数值结果
+ */
     public Long requirePersonalTenantId(User user) {
         Tenant tenant = ensurePersonalTenant(user);
         if (tenant.getId() == null || tenant.getId() <= 0) {

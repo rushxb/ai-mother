@@ -56,6 +56,11 @@ public class GenerationTaskQueueProperties {
     @Max(500)
     private int redispatchBatchSize = 100;
 
+    /**
+ * 校验各时长配置及其相互约束是否合法。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "generation task queue durations must be positive and visibility must exceed heartbeat")
     public boolean isDurationConfigurationValid() {
         return positive(pollTimeout)

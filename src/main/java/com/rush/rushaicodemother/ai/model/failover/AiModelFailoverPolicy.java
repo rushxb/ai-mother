@@ -18,6 +18,7 @@ final class AiModelFailoverPolicy {
     private AiModelFailoverPolicy() {
     }
 
+    /** 对 AI 模型故障转移策略进行分类。 */
     static Decision classify(Throwable failure) {
         GenerationErrorClassifier.GenerationError generic =
                 GenerationErrorClassifier.classify(failure);
@@ -44,6 +45,7 @@ final class AiModelFailoverPolicy {
         };
     }
 
+    /** 对{@code Typed}进行分类。 */
     private static Decision classifyTyped(Throwable failure, String fallbackCategory) {
         if (failure instanceof AuthenticationException) {
             return new Decision(false, GenerationErrorClassifier.CATEGORY_MODEL_AUTH);
@@ -71,6 +73,7 @@ final class AiModelFailoverPolicy {
         return null;
     }
 
+    /** 对HTTP状态进行分类。 */
     private static Decision classifyHttpStatus(int statusCode, String fallbackCategory) {
         if (statusCode == 401 || statusCode == 403) {
             return new Decision(false, GenerationErrorClassifier.CATEGORY_MODEL_AUTH);

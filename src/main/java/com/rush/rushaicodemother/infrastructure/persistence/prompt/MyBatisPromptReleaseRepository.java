@@ -37,6 +37,11 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
 
     private final AiPromptReleaseMapper mapper;
 
+    /**
+ * 加载当前。
+ *
+ * @return 当前
+ */
     @Override
     @Transactional(readOnly = true)
     public PromptReleaseState loadCurrent() {
@@ -52,6 +57,12 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
         return new PromptReleaseState(bundleRevision, releases);
     }
 
+    /**
+ * 发布当前处理结果或领域事件。
+ *
+ * @param mutation 变更
+ * @return 方法执行结果
+ */
     @Override
     @Transactional
     public PromptReleaseRecord publish(PromptReleaseMutation mutation) {
@@ -83,6 +94,13 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
         return toRecord(release);
     }
 
+    /**
+ * 查找匹配的历史。
+ *
+ * @param promptKey 提示词键
+ * @param revision 修订版本
+ * @return 可选的历史；不存在时返回空值
+ */
     @Override
     public Optional<PromptReleaseHistoryEntry> findHistory(String promptKey, long revision) {
         if (promptKey == null || promptKey.isBlank() || revision <= 0) {
@@ -92,6 +110,13 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
                 .map(this::toHistoryEntry);
     }
 
+    /**
+ * 列出符合条件的历史。
+ *
+ * @param promptKey 提示词键
+ * @param limit 资源上限
+ * @return 历史集合
+ */
     @Override
     public List<PromptReleaseHistoryEntry> listHistory(String promptKey, int limit) {
         if (promptKey == null || promptKey.isBlank() || limit <= 0) {
@@ -102,6 +127,7 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
                 .toList();
     }
 
+    /** 将当前对象转换为{@code Entity}。 */
     private AiPromptReleaseEntity toEntity(PromptReleaseMutation mutation,
                                             long revision,
                                             LocalDateTime timestamp,
@@ -120,6 +146,7 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
                 .build();
     }
 
+    /** 将当前对象转换为历史{@code Entity}。 */
     private AiPromptReleaseHistoryEntity toHistoryEntity(PromptReleaseMutation mutation,
                                                           long revision,
                                                           LocalDateTime timestamp) {
@@ -139,6 +166,7 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
                 .build();
     }
 
+    /** 将当前对象转换为记录。 */
     private PromptReleaseRecord toRecord(AiPromptReleaseEntity entity) {
         if (entity == null || entity.getPromptKey() == null || entity.getPromptKey().isBlank()
                 || entity.getStableVersion() == null || entity.getStableVersion().isBlank()
@@ -160,6 +188,7 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
         );
     }
 
+    /** 将当前对象转换为历史条目。 */
     private PromptReleaseHistoryEntry toHistoryEntry(AiPromptReleaseHistoryEntity entity) {
         if (entity == null || entity.getRevision() == null || entity.getPromptKey() == null
                 || entity.getStableVersion() == null || entity.getCanaryPercentage() == null
@@ -190,7 +219,9 @@ public class MyBatisPromptReleaseRepository implements PromptReleaseRepository {
         );
     }
 
+    /** 校验{@code ate}变更是否有效。 */
     private void validateMutation(PromptReleaseMutation mutation) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (mutation == null || mutation.promptKey() == null
                 || !KEY_PATTERN.matcher(mutation.promptKey()).matches()
                 || mutation.release() == null || mutation.expectedRevision() < 0

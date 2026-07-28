@@ -17,6 +17,12 @@ public class MyBatisGenerationFeedbackRepository implements GenerationFeedbackRe
 
     private final GenerationFeedbackMapper mapper;
 
+    /**
+ * 新增或更新{@code My}{@code Batis}生成反馈。
+ *
+ * @param feedback 反馈
+ * @return {@code My}{@code Batis}生成反馈
+ */
     @Override
     @Transactional
     public GenerationFeedback upsert(GenerationFeedback feedback) {
@@ -24,6 +30,12 @@ public class MyBatisGenerationFeedbackRepository implements GenerationFeedbackRe
         return mapper.selectByTaskIdAndUserId(feedback.getTaskId(), feedback.getUserId());
     }
 
+    /**
+ * 计算{@code marize}按应用编号的汇总值。
+ *
+ * @param appId 应用编号
+ * @return {@code marize}按应用编号
+ */
     @Override
     public GenerationFeedbackSummary summarizeByAppId(Long appId) {
         if (appId == null || appId <= 0) {

@@ -15,6 +15,12 @@ import java.util.Map;
 @Service
 public class CreatePatchMergeService {
 
+    /**
+ * 合并创建补丁{@code Merge}。
+ *
+ * @param operations 操作
+ * @return 创建补丁{@code Merge}
+ */
     public SlotPatchPlan merge(List<PatchOperation> operations) {
         if (operations == null || operations.isEmpty()) {
             return new SlotPatchPlan(List.of(), 0, 0);
@@ -33,6 +39,7 @@ public class CreatePatchMergeService {
         return new SlotPatchPlan(merged, operations.size(), merged.size());
     }
 
+    /** 合并{@code Same}文件。 */
     private List<PatchOperation> mergeSameFile(List<PatchOperation> operations) {
         if (operations.size() <= 1) {
             return operations;
@@ -74,6 +81,7 @@ public class CreatePatchMergeService {
                 && StrUtil.equals(left.newContent(), right.newContent());
     }
 
+    /** 合并{@code Sql}{@code Append}。 */
     private PatchOperation mergeSqlAppend(PatchOperation operation, List<PatchOperation> merged) {
         List<PatchOperation> previousSqlAppends = merged.stream()
                 .filter(existing -> PatchOperation.ACTION_APPEND_SQL_MIGRATION.equals(existing.action()))

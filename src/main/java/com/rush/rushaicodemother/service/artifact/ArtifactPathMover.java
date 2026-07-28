@@ -57,6 +57,7 @@ public class ArtifactPathMover {
         }
     }
 
+    /** 移动{@code Once}。 */
     private void moveOnce(Path source, Path target) throws IOException {
         try {
             moveOperation.move(source, target, StandardCopyOption.ATOMIC_MOVE);
@@ -65,6 +66,7 @@ public class ArtifactPathMover {
         }
     }
 
+    /** 等待重试完成。 */
     private void awaitRetry(AccessDeniedException accessDeniedException) throws IOException {
         try {
             Thread.sleep(properties.getPublishRetryDelayMillis());

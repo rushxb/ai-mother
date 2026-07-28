@@ -29,6 +29,12 @@ public class AppViewAssembler {
     private final UserDirectoryService userDirectoryService;
     private final AppDatabaseResourceService appDatabaseResourceService;
 
+    /**
+ * 将当前对象转换为视图。
+ *
+ * @param app 应用
+ * @return 视图
+ */
     public AppVO toView(App app) {
         AppVO appVO = copyBaseFields(app);
         if (appVO == null) {
@@ -46,6 +52,12 @@ public class AppViewAssembler {
         return appVO;
     }
 
+    /**
+ * 将当前对象转换为视图列表。
+ *
+ * @param apps 应用列表
+ * @return 视图列表集合
+ */
     public List<AppVO> toViewList(List<App> apps) {
         if (apps == null || apps.isEmpty()) {
             return new ArrayList<>();
@@ -81,6 +93,7 @@ public class AppViewAssembler {
         return userDirectoryService.findActiveUserViews(userIds);
     }
 
+    /** 汇总相关数据并组装视图。 */
     private AppVO assembleView(App app,
                                Map<Long, UserVO> userVOMap,
                                Map<Long, AppDatabaseResourceVO> databaseResourceMap) {

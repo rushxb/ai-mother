@@ -28,6 +28,13 @@ public class ProjectTemplateBootstrapper {
         );
     }
 
+    /**
+ * 返回{@code bootstrap}。
+ *
+ * @param templateId 模板编号
+ * @param targetDirectory 目标目录
+ * @return 项目模板{@code Bootstrapper}
+ */
     public BootstrapOutcome bootstrap(String templateId, Path targetDirectory)
             throws Exception {
         Path target = normalizeTarget(targetDirectory);
@@ -40,6 +47,7 @@ public class ProjectTemplateBootstrapper {
         }
     }
 
+    /** 返回{@code bootstrap}{@code Under}锁。 */
     private BootstrapOutcome bootstrapUnderLock(String templateId, Path target)
             throws Exception {
         if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {

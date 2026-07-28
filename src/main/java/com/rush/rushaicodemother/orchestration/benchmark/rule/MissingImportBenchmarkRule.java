@@ -45,11 +45,23 @@ public class MissingImportBenchmarkRule implements GenerationBenchmarkValidation
         return GenerationBenchmarkQualityDimension.FUNCTIONAL;
     }
 
+    /**
+ * 返回{@code supports}。
+ *
+ * @param task 任务
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return task != null && TASK_ID.equals(task.id());
     }
 
+    /**
+ * 准备后续流程所需的{@code Missing}导入基准测试规则。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ */
     @Override
     public void prepare(GenerationBenchmarkTask task, GenerationWorkspace workspace) {
         inspector.writeUtf8(workspace.frontendRootPath(), PROBE_PATH, """
@@ -59,6 +71,14 @@ public class MissingImportBenchmarkRule implements GenerationBenchmarkValidation
                 """);
     }
 
+    /**
+ * 返回{@code evaluate}。
+ *
+ * @param task 任务
+ * @param workspace 工作区
+ * @param baseline {@code baseline} 对应的调用参数
+ * @return {@code Missing}导入基准测试规则
+ */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,

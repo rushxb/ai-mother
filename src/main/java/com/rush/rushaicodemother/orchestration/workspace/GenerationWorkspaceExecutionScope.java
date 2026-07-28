@@ -23,6 +23,14 @@ public class GenerationWorkspaceExecutionScope {
     private final ConcurrentMap<GenerationExecutionFence, ScopeState> states = new ConcurrentHashMap<>();
     private final ThreadLocal<GenerationExecutionFence> currentFence = new ThreadLocal<>();
 
+    /**
+ * 注册生成工作区执行作用域。
+ *
+ * @param fence 围栏
+ * @param appId 应用编号
+ * @param baseCodeGenType 基础代码生成类型
+ * @param materializer {@code materializer} 对应的调用参数
+ */
     public void register(GenerationExecutionFence fence,
                          Long appId,
                          CodeGenTypeEnum baseCodeGenType,
@@ -41,6 +49,14 @@ public class GenerationWorkspaceExecutionScope {
         }
     }
 
+    /**
+ * 校验并返回有效的生成工作区执行作用域。
+ *
+ * @param fence 围栏
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @return 生成工作区执行作用域
+ */
     public GenerationExecutionWorkspace require(GenerationExecutionFence fence,
                                                 Long appId,
                                                 CodeGenTypeEnum codeGenType) {
@@ -54,6 +70,13 @@ public class GenerationWorkspaceExecutionScope {
         );
     }
 
+    /**
+ * 返回当前。
+ *
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @return 可选的生成工作区执行作用域；不存在时返回空值
+ */
     public Optional<GenerationExecutionWorkspace> current(Long appId, CodeGenTypeEnum codeGenType) {
         GenerationExecutionFence fence = currentFence.get();
         if (fence == null) {
@@ -62,6 +85,14 @@ public class GenerationWorkspaceExecutionScope {
         return Optional.of(require(fence, appId, codeGenType));
     }
 
+    /**
+ * 查找匹配的生成工作区执行作用域。
+ *
+ * @param fence 围栏
+ * @param appId 应用编号
+ * @param codeGenType 代码生成类型
+ * @return 可选的生成工作区执行作用域；不存在时返回空值
+ */
     public Optional<GenerationExecutionWorkspace> find(GenerationExecutionFence fence,
                                                        Long appId,
                                                        CodeGenTypeEnum codeGenType) {
@@ -75,6 +106,12 @@ public class GenerationWorkspaceExecutionScope {
         return Optional.of(require(fence, appId, codeGenType));
     }
 
+    /**
+ * 运行生成工作区执行作用域处理流程。
+ *
+ * @param fence 围栏
+ * @param action 动作
+ */
     public void run(GenerationExecutionFence fence, Runnable action) {
         with(fence, () -> {
             action.run();
@@ -82,6 +119,13 @@ public class GenerationWorkspaceExecutionScope {
         });
     }
 
+    /**
+ * 创建包含生成工作区执行作用域的新对象。
+ *
+ * @param fence 围栏
+ * @param action 动作
+ * @return 生成工作区执行作用域
+ */
     public <T> T with(GenerationExecutionFence fence, Supplier<T> action) {
         Objects.requireNonNull(fence, "fence");
         Objects.requireNonNull(action, "action");
@@ -101,6 +145,11 @@ public class GenerationWorkspaceExecutionScope {
         }
     }
 
+    /**
+ * 清理生成工作区执行作用域。
+ *
+ * @param fence 围栏
+ */
     public void clear(GenerationExecutionFence fence) {
         if (fence != null) {
             states.remove(fence);

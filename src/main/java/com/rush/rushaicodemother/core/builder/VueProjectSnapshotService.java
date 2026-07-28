@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class VueProjectSnapshotService {
 
     private static final int BUFFER_SIZE = 16 * 1024;
+    private static final Runnable NO_OP_CONTINUATION_CHECK = () -> {
+    };
 
     private final WorkspaceFileSystemProperties properties;
 
@@ -38,7 +40,22 @@ public class VueProjectSnapshotService {
         this.properties = properties;
     }
 
+    /** 返回{@code capture}。 */
     VueProjectSnapshot capture(Path projectRoot, JSONObject packageJson) throws IOException {
+        return capture(projectRoot, packageJson, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 在调用方取消边界内采集 Vue 项目快照。 */
+    VueProjectSnapshot capture(
+            Path projectRoot,
+            JSONObject packageJson,
+            Runnable continuationCheck
+    ) throws IOException {
+        Runnable effectiveCheck = continuationCheck == null
+                ? NO_OP_CONTINUATION_CHECK
+                : continuationCheck;
+        effectiveCheck.run();
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (!Files.isDirectory(projectRoot, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(projectRoot)) {
             throw new IOException("Vue 项目根目录无效或为符号链接");
         }
@@ -51,16 +68,32 @@ public class VueProjectSnapshotService {
 
         AtomicInteger visitedFileCount = new AtomicInteger();
         Files.walkFileTree(projectRoot, new SimpleFileVisitor<>() {
+            /**
+ * 在访问目录内容前执行安全校验和资源边界判断。
+ *
+ * @param directory 目录
+ * @param attributes 属性
+ * @return 方法执行结果
+ */
             @Override
             public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                effectiveCheck.run();
                 if (!directory.equals(projectRoot) && shouldSkipDirectory(projectRoot.relativize(directory))) {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
                 return FileVisitResult.CONTINUE;
             }
 
+            /**
+ * 返回访问文件。
+ *
+ * @param file 文件
+ * @param attributes 属性
+ * @return {@code Vue}项目快照
+ */
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                effectiveCheck.run();
                 if (attributes.isSymbolicLink() || Files.isSymbolicLink(file) || !attributes.isRegularFile()) {
                     return FileVisitResult.CONTINUE;
                 }
@@ -77,16 +110,20 @@ public class VueProjectSnapshotService {
                     return FileVisitResult.CONTINUE;
                 }
                 if (isDependencyFile(classificationPath)) {
-                    appendFileFingerprint(dependencyEntries, normalizedPath, file, attributes.size());
+                    appendFileFingerprint(
+                            dependencyEntries, normalizedPath, file, attributes.size(), effectiveCheck);
                 } else if (isPresentationFile(classificationPath)) {
-                    appendFileFingerprint(presentationEntries, normalizedPath, file, attributes.size());
+                    appendFileFingerprint(
+                            presentationEntries, normalizedPath, file, attributes.size(), effectiveCheck);
                 } else if (isCriticalFile(classificationPath)) {
-                    appendFileFingerprint(criticalEntries, normalizedPath, file, attributes.size());
+                    appendFileFingerprint(
+                            criticalEntries, normalizedPath, file, attributes.size(), effectiveCheck);
                 }
                 return FileVisitResult.CONTINUE;
             }
         });
 
+        effectiveCheck.run();
         return new VueProjectSnapshot(
                 hashEntries(dependencyEntries),
                 hashEntries(criticalEntries),
@@ -94,6 +131,7 @@ public class VueProjectSnapshotService {
         );
     }
 
+    /** 追加依赖包依赖指纹。 */
     private void appendPackageDependencyFingerprint(List<String> entries, JSONObject packageJson) {
         appendJsonSectionFingerprint(entries, "dependencies", packageJson.get("dependencies"));
         appendJsonSectionFingerprint(entries, "devDependencies", packageJson.get("devDependencies"));
@@ -115,6 +153,7 @@ public class VueProjectSnapshotService {
         entries.add(sectionName + ':' + canonicalJson(value));
     }
 
+    /** 判断当前状态是否允许{@code onical}{@code Json}。 */
     private String canonicalJson(Object value) {
         if (value instanceof JSONObject object) {
             List<String> keys = new ArrayList<>(object.keySet());
@@ -138,7 +177,14 @@ public class VueProjectSnapshotService {
         return JSONUtil.toJsonStr(value);
     }
 
-    private void appendFileFingerprint(List<String> entries, String normalizedPath, Path file, long declaredSize)
+    /** 追加文件指纹。 */
+    private void appendFileFingerprint(
+            List<String> entries,
+            String normalizedPath,
+            Path file,
+            long declaredSize,
+            Runnable continuationCheck
+    )
             throws IOException {
         long maxFileBytes = properties.getMaxFileBytes();
         if (declaredSize > maxFileBytes) {
@@ -150,7 +196,12 @@ public class VueProjectSnapshotService {
         byte[] buffer = new byte[BUFFER_SIZE];
         try (InputStream inputStream = Files.newInputStream(file)) {
             int read;
-            while ((read = inputStream.read(buffer)) >= 0) {
+            while (true) {
+                continuationCheck.run();
+                read = inputStream.read(buffer);
+                if (read < 0) {
+                    break;
+                }
                 if (read == 0) {
                     continue;
                 }
@@ -161,6 +212,7 @@ public class VueProjectSnapshotService {
                 digest.update(buffer, 0, read);
             }
         }
+        continuationCheck.run();
         entries.add(normalizedPath + ':' + bytesRead + ':' + HexFormat.of().formatHex(digest.digest()));
     }
 
@@ -174,6 +226,7 @@ public class VueProjectSnapshotService {
         return HexFormat.of().formatHex(digest.digest());
     }
 
+    /** 返回{@code new}{@code Sha256}摘要。 */
     private MessageDigest newSha256Digest() {
         try {
             return MessageDigest.getInstance("SHA-256");
@@ -186,6 +239,7 @@ public class VueProjectSnapshotService {
         return relativePath.toString().replace('\\', '/');
     }
 
+    /** 判断是否应执行{@code Skip}目录。 */
     private boolean shouldSkipDirectory(Path relativePath) {
         String normalized = normalizePath(relativePath).toLowerCase(Locale.ROOT);
         return isDirectoryToken(normalized, "node_modules")
@@ -218,6 +272,7 @@ public class VueProjectSnapshotService {
                 || normalizedPath.equals(".pnpmfile.cjs");
     }
 
+    /** 判断{@code Presentation}文件是否满足约束。 */
     private boolean isPresentationFile(String normalizedPath) {
         return normalizedPath.equals("index.html")
                 || normalizedPath.startsWith("public/")
@@ -239,6 +294,7 @@ public class VueProjectSnapshotService {
                 || normalizedPath.endsWith(".bmp");
     }
 
+    /** 判断{@code Critical}文件是否满足约束。 */
     private boolean isCriticalFile(String normalizedPath) {
         if (normalizedPath.startsWith("vite.config.")
                 || normalizedPath.startsWith("vue.config.")

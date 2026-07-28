@@ -45,6 +45,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         this.properties = properties;
     }
 
+    /** 启动 Redis 生成任务{@code Queue}。 */
     @Override
     public void start() {
         if (!running.compareAndSet(false, true)) {
@@ -58,6 +59,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
                 .start(this::heartbeatLoop);
     }
 
+    /** 停止 Redis 生成任务{@code Queue}。 */
     @Override
     public void stop() {
         running.set(false);
@@ -86,6 +88,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         return Integer.MAX_VALUE - 100;
     }
 
+    /** 处理{@code consume}循环。 */
     private void consumeLoop() {
         while (running.get()) {
             try {
@@ -101,6 +104,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         }
     }
 
+    /** 处理心跳循环。 */
     private void heartbeatLoop() {
         while (running.get()) {
             try {
@@ -120,6 +124,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         }
     }
 
+    /** 处理 Redis 生成任务{@code Queue}。 */
     private void process(List<GenerationTaskQueueDelivery> deliveries) {
         if (deliveries == null) {
             return;
@@ -129,6 +134,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         }
     }
 
+    /** 处理 Redis 生成任务{@code Queue}。 */
     void process(GenerationTaskQueueDelivery delivery) {
         AtomicBoolean completedBeforeRegistration = new AtomicBoolean(false);
         try {
@@ -153,6 +159,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         }
     }
 
+    /** 处理重试。 */
     private void handleRetry(GenerationTaskQueueDelivery delivery, String reason) {
         if (delivery.deliveryCount() < properties.getMaxDeliveryAttempts()) {
             return;
@@ -176,6 +183,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         queue.heartbeat(List.copyOf(activeDeliveries.values()));
     }
 
+    /** 处理{@code acknowledge}安全处理。 */
     private void acknowledgeSafely(GenerationTaskQueueDelivery delivery) {
         try {
             queue.acknowledge(delivery);
@@ -185,6 +193,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         }
     }
 
+    /** 处理{@code pause}执行后失败。 */
     private void pauseAfterFailure() {
         try {
             Thread.sleep(Math.min(1000L, properties.getPollTimeout().toMillis()));

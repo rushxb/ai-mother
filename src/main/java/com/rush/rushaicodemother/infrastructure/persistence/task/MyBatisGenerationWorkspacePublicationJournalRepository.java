@@ -32,6 +32,13 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
     private final GenerationWorkspacePublicationJournalMapper mapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
 
+    /**
+ * 准备后续流程所需的{@code My}{@code Batis}生成工作区发布日志。
+ *
+ * @param candidate 候选
+ * @param preparedAt {@code preparedAt} 对应的调用参数
+ * @return {@code My}{@code Batis}生成工作区发布日志
+ */
     @Override
     @Transactional
     public GenerationWorkspacePublicationJournalEntry prepare(
@@ -67,6 +74,12 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
         return existing;
     }
 
+    /**
+ * 更新{@code Filesystem}{@code Activated}的标记状态。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ * @param activatedAt {@code activatedAt} 对应的调用参数
+ */
     @Override
     public void markFilesystemActivated(GenerationWorkspacePublicationPointer pointer,
                                         Instant activatedAt) {
@@ -78,6 +91,12 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
                 GenerationWorkspacePublicationJournalStatus.FILESYSTEM_ACTIVATED);
     }
 
+    /**
+ * 更新{@code Committed}的标记状态。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ * @param committedAt {@code committedAt} 对应的调用参数
+ */
     @Override
     public void markCommitted(GenerationWorkspacePublicationPointer pointer, Instant committedAt) {
         requirePointer(pointer);
@@ -112,6 +131,15 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
                 reason, supersededAt);
     }
 
+    /**
+ * 以原子方式声明{@code Pending}。
+ *
+ * @param now 当前时间
+ * @param limit 资源上限
+ * @param maxAttempts 待处理的 {@code maxAttempts} 集合
+ * @param retryDelay 重试延迟
+ * @return {@code Pending}集合
+ */
     @Override
     @Transactional
     public List<GenerationWorkspacePublicationJournalEntry> claimPending(
@@ -145,6 +173,13 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
         return List.copyOf(claimed);
     }
 
+    /**
+ * 记录{@code Reconciliation}失败相关指标或状态。
+ *
+ * @param pointer {@code pointer} 对应的调用参数
+ * @param error 错误
+ * @param failedAt {@code failedAt} 对应的调用参数
+ */
     @Override
     public void recordReconciliationFailure(GenerationWorkspacePublicationPointer pointer,
                                             String error,
@@ -179,6 +214,7 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
         requireChanged(changed, pointer, status);
     }
 
+    /** 校验并返回有效的变更。 */
     private void requireChanged(int changed,
                                 GenerationWorkspacePublicationPointer pointer,
                                 GenerationWorkspacePublicationJournalStatus expectedStatus) {
@@ -199,6 +235,7 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
                 || status == GenerationWorkspacePublicationJournalStatus.ROLLBACK_REQUIRED;
     }
 
+    /** 将当前对象转换为条目。 */
     private GenerationWorkspacePublicationJournalEntry toEntry(GenerationTask task,
                                                                 boolean required) {
         if (task == null || task.getPublicationStatus() == null) {

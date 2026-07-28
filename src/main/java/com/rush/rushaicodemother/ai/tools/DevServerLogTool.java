@@ -34,6 +34,13 @@ public class DevServerLogTool extends BaseTool {
     private final DevServerAppTargetLookup appTargetLookup;
     private final DevServerManager devServerManager;
 
+    /**
+ * 返回{@code manage}开发服务器。
+ *
+ * @param action 动作
+ * @param appId 应用编号
+ * @return 处理后的开发服务器日志工具文本
+ */
     @Tool("启动、重启、查看或停止本地 Dev Server，返回启动状态、回环访问地址和最近输出，适合排查白屏、热更新失败与启动失败。")
     public String manageDevServer(
             @P("操作类型：startDevServer、restartDevServer、getDevServerStatus、stopDevServer")
@@ -61,6 +68,7 @@ public class DevServerLogTool extends BaseTool {
         }
     }
 
+    /** 启动服务器。 */
     private String startServer(Long appId, boolean restart) {
         App app = appTargetLookup.requireTarget(appId);
         Long ownerId = app.getUserId();
@@ -84,6 +92,7 @@ public class DevServerLogTool extends BaseTool {
         return "Dev Server 已停止，端口: " + runningPort;
     }
 
+    /** 渲染状态。 */
     private String renderStatus(String title, Long appId, Integer fallbackPort) {
         Integer runningPort = devServerManager.getPort(appId);
         Integer reportPort = runningPort != null ? runningPort : fallbackPort;
@@ -126,11 +135,24 @@ public class DevServerLogTool extends BaseTool {
         return "开发服务器日志";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         return String.format("[工具调用] %s %s", getDisplayName(), arguments.getStr("action"));
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);

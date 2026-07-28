@@ -11,6 +11,13 @@ public class AiModelTimeoutMonitor {
 
     private final AiModelMetricsCollector metricsCollector;
 
+    /**
+ * 记录 AI 模型超时{@code Monitor}相关指标或状态。
+ *
+ * @param provider 提供方
+ * @param modelId 模型编号
+ * @param failure 失败
+ */
     public void record(String provider,
                        String modelId,
                        GenerationModelCallTimeoutException failure) {

@@ -9,6 +9,7 @@ public record DevServerWebSocketUpstream(
         Map<String, String> headers
 ) {
 
+    /** 创建开发服务器 WebSocket{@code Upstream}实例并完成必要的依赖和初始状态设置。 */
     public DevServerWebSocketUpstream {
         if (targetUri == null
                 || !("ws".equalsIgnoreCase(targetUri.getScheme())

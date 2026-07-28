@@ -44,11 +44,20 @@ public class DevServerPortAllocator {
         this.nextCandidate = rangeStart;
     }
 
+    /**
+ * 返回{@code reserve}。
+ *
+ * @param appId 应用编号
+ * @param preferredPort {@code preferredPort} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     public int reserve(Long appId, Integer preferredPort) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (appId == null || appId <= 0) {
             throw new IllegalArgumentException("应用 ID 必须大于 0");
         }
         allocationLock.lock();
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Integer existingPort = appPorts.get(appId);
             if (existingPort != null) {
@@ -77,6 +86,11 @@ public class DevServerPortAllocator {
         }
     }
 
+    /**
+ * 释放开发服务器端口{@code Allocator}。
+ *
+ * @param appId 应用编号
+ */
     public void release(Long appId) {
         if (appId == null) {
             return;
@@ -92,6 +106,7 @@ public class DevServerPortAllocator {
         }
     }
 
+    /** 清理开发服务器端口{@code Allocator}。 */
     public void clear() {
         allocationLock.lock();
         try {

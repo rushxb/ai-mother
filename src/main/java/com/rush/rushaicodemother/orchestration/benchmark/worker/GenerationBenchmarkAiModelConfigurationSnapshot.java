@@ -38,6 +38,11 @@ public class GenerationBenchmarkAiModelConfigurationSnapshot
     private final AiModelConfigurationPolicy configurationPolicy;
     private volatile List<AiModelConfiguration> frozen;
 
+    /**
+ * 启用{@code d}模型。
+ *
+ * @return {@code d}模型集合
+ */
     @Override
     public List<AiModelConfiguration> enabledModels() {
         List<AiModelConfiguration> current = frozen;
@@ -52,6 +57,7 @@ public class GenerationBenchmarkAiModelConfigurationSnapshot
         }
     }
 
+    /** 加载快照。 */
     private List<AiModelConfiguration> loadSnapshot() {
         List<AiModelConfiguration> models = new ArrayList<>(
                 persistenceService.findEnabled(null));
@@ -75,6 +81,7 @@ public class GenerationBenchmarkAiModelConfigurationSnapshot
         return List.copyOf(models);
     }
 
+    /** 处理{@code prioritize}候选{@code Within}类型。 */
     private void prioritizeCandidateWithinType(List<AiModelConfiguration> models,
                                                AiModelConfiguration candidate) {
         if (candidate == null) {

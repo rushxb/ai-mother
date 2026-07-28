@@ -23,6 +23,12 @@ public record GenerationTaskStatusVO(
         Map<String, Integer> limits,
         GenerationTaskProgressVO progress
 ) {
+    /**
+ * 根据输入数据创建当前对象。
+ *
+ * @param snapshot 快照
+ * @return 生成任务状态视图对象
+ */
     public static GenerationTaskStatusVO from(GenerationTaskSnapshot snapshot) {
         return new GenerationTaskStatusVO(
                 snapshot.taskId(), snapshot.appId(), snapshot.route(), snapshot.status(),

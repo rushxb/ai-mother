@@ -31,6 +31,13 @@ public class GenerationReleaseEvidenceVerifier {
     private final GenerationBenchmarkEvidenceProperties properties;
     private final Clock clock = Clock.systemUTC();
 
+    /**
+ * 校验并返回有效的{@code Passed}。
+ *
+ * @param evidenceId 证据编号
+ * @param candidate 候选
+ * @return {@code Passed}
+ */
     public GenerationBenchmarkEvidenceRecord requirePassed(
             String evidenceId,
             GenerationBenchmarkEvidenceCandidate candidate) {
@@ -78,6 +85,7 @@ public class GenerationReleaseEvidenceVerifier {
         return evidence;
     }
 
+    /** 校验并返回有效的证据编号。 */
     private String requireEvidenceId(String evidenceId) {
         try {
             return UUID.fromString(evidenceId == null ? "" : evidenceId.trim()).toString();

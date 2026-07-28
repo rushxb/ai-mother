@@ -32,10 +32,18 @@ public final class SeleniumWebPageScreenshotRenderer implements WebPageScreensho
         this.properties = properties;
     }
 
+    /**
+ * 渲染{@code Selenium}Web页面截图渲染器。
+ *
+ * @param targetUri {@code targetUri} 对应的调用参数
+ * @param workspace 工作区
+ * @return 解析后的{@code Selenium}Web页面截图渲染器路径
+ */
     @Override
     public Path render(URI targetUri, Path workspace) {
         Path normalizedWorkspace = requireSafeWorkspace(workspace);
         WebDriver driver = null;
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             driver = driverFactory.createScreenshotDriver();
             driver.get(targetUri.toASCIIString());
@@ -71,6 +79,7 @@ public final class SeleniumWebPageScreenshotRenderer implements WebPageScreensho
         }
     }
 
+    /** 校验并返回有效的安全工作区。 */
     private Path requireSafeWorkspace(Path workspace) {
         if (workspace == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "截图工作目录不能为空");
@@ -93,6 +102,7 @@ public final class SeleniumWebPageScreenshotRenderer implements WebPageScreensho
         }
     }
 
+    /** 关闭驱动并释放资源。 */
     private void closeDriver(WebDriver driver) {
         if (driver == null) {
             return;

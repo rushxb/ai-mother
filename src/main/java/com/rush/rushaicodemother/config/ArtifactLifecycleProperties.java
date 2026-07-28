@@ -103,6 +103,11 @@ public class ArtifactLifecycleProperties {
         return maxTotalBytes >= maxFileBytes;
     }
 
+    /**
+ * 判断发布锁超时是否有效。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "publication lock timeout must be positive")
     public boolean isPublicationLockTimeoutValid() {
         return publicationLockTimeout != null

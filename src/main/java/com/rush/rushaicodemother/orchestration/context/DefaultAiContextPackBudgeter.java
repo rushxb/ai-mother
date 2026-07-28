@@ -50,8 +50,15 @@ public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
         this.clock = clock;
     }
 
+    /**
+ * 应用默认 AI 上下文{@code Pack}{@code Budgeter}。
+ *
+ * @param contextPack {@code contextPack} 对应的调用参数
+ * @return 默认 AI 上下文{@code Pack}{@code Budgeter}
+ */
     @Override
     public AiContextPack apply(AiContextPack contextPack) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (contextPack == null || contextPack.empty()) {
             return contextPack;
         }
@@ -73,6 +80,7 @@ public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
                 .sorted(Comparator.comparingDouble(this::selectionScore).reversed()
                         .thenComparingInt(AiContextPackSection::priority))
                 .toList();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (AiContextPackSection candidate : candidates) {
             if (candidate.type() == AiContextPackSectionType.SEMANTIC_MEMORY
                     && semanticCount >= properties.getMaxSemanticMemorySections()) {
@@ -86,6 +94,7 @@ public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
         return copy(contextPack, selected);
     }
 
+    /** 规范化{@code Section}。 */
     private AiContextPackSection normalizeSection(AiContextPackSection section) {
         Map<String, Object> metadata = new LinkedHashMap<>(section.metadata());
         if (section.type() == AiContextPackSectionType.SEMANTIC_MEMORY) {
@@ -108,6 +117,7 @@ public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
                 section.type(), section.title(), content, section.priority(), Map.copyOf(metadata));
     }
 
+    /** 添加{@code If}{@code Fits}。 */
     private boolean addIfFits(AiContextPack source,
                               List<AiContextPackSection> selected,
                               AiContextPackSection candidate,
@@ -131,6 +141,7 @@ public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
                 properties.getMaxSectionTokens()
         );
         AiContextPackSection best = null;
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         while (low <= high) {
             int middle = (low + high) >>> 1;
             AiContextPackSection shortened = withContent(candidate,
@@ -176,6 +187,7 @@ public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
                 || section.type() == AiContextPackSectionType.USAGE_RULE;
     }
 
+    /** 按资源上限截断默认 AI 上下文{@code Pack}{@code Budgeter}。 */
     private String truncate(String content, int maxTokens) {
         if (content == null || content.isEmpty() || maxTokens <= 0) {
             return "";
@@ -202,6 +214,7 @@ public class DefaultAiContextPackBudgeter implements AiContextPackBudgeter {
         return tokenEstimator.truncate(TRUNCATION_MARKER, maxTokens);
     }
 
+    /** 按资源上限截断{@code Preserving}{@code Boundary}。 */
     private String truncatePreservingBoundary(BoundarySplit boundary, int maxTokens) {
         String minimum = joinBoundary("", boundary.suffix());
         int minimumTokens = tokenEstimator.estimate(minimum);

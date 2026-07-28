@@ -35,6 +35,7 @@ public class GenerationPreviewMilestoneService {
         return publishReady(session, targetType, "build", "首个可用构建产物已就绪");
     }
 
+    /** 发布就绪。 */
     private boolean publishReady(
             GenerationSession session,
             CodeGenTypeEnum targetType,
@@ -70,6 +71,7 @@ public class GenerationPreviewMilestoneService {
         return true;
     }
 
+    /** 记录遥测相关指标或状态。 */
     private void recordTelemetry(GenerationExecutionContext context,
                                  GenerationFirstPreviewMilestone milestone,
                                  String route,

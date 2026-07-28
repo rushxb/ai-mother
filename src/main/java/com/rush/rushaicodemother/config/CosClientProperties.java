@@ -36,6 +36,11 @@ public class CosClientProperties {
                 && hasText(bucket);
     }
 
+    /**
+ * 判断主机是否有效。
+ *
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @AssertTrue(message = "COS host 必须是合法的 http/https 根地址")
     public boolean isHostValid() {
         if (!hasText(host)) {

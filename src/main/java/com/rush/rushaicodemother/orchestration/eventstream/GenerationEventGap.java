@@ -9,6 +9,7 @@ public record GenerationEventGap(
 
     public static final String STATUS_SNAPSHOT_RECOVERY = "status_snapshot";
 
+    /** 创建生成事件{@code Gap}实例并完成必要的依赖和初始状态设置。 */
     public GenerationEventGap {
         if (requestedSeq < 0) {
             throw new IllegalArgumentException("requested generation event sequence cannot be negative");

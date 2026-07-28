@@ -88,6 +88,7 @@ public class AgentEditGenerationService {
         return executeInternal(taskId, request, modeDecision, workspace, true);
     }
 
+    /** 执行内部处理流程。 */
     private AgentEditResult executeInternal(String taskId,
                                             GenerationTaskRequest request,
                                             GenerationModeDecision modeDecision,
@@ -116,6 +117,7 @@ public class AgentEditGenerationService {
                 userMessage, userMessage, true, "agent_edit",
                 GenerationRoute.AGENT_EDIT, AppConstant.GENERATING_STAGE_UPDATE);
 
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             AgentEditReadResult readResult = read(request, workspace, userMessage, codeGenType, taskId);
             if (readResult.isEmpty()) {
@@ -200,6 +202,7 @@ public class AgentEditGenerationService {
         }
     }
 
+    /** 读取智能体编辑生成。 */
     private AgentEditReadResult read(GenerationTaskRequest request,
                                      GenerationWorkspace workspace,
                                      String userMessage,
@@ -228,6 +231,7 @@ public class AgentEditGenerationService {
         return readResult;
     }
 
+    /** 返回{@code understand}。 */
     private AgentEditUnderstanding understand(GenerationTaskRequest request, String taskId, AgentEditReadResult readResult) {
         Instant startedAt = Instant.now();
         AgentEditUnderstanding understanding = understandingService.understand(readResult);
@@ -252,6 +256,7 @@ public class AgentEditGenerationService {
         return understanding;
     }
 
+    /** 返回计划。 */
     private EditChangePlan plan(GenerationTaskRequest request,
                                 String taskId,
                                 AgentEditReadResult readResult,
@@ -281,6 +286,7 @@ public class AgentEditGenerationService {
         return changePlan;
     }
 
+    /** 返回编辑并AI。 */
     private EditResult editWithAi(String taskId,
                                   String userMessage,
                                   String projectContext,
@@ -308,6 +314,7 @@ public class AgentEditGenerationService {
         }
     }
 
+    /** 应用{@code And}{@code Verify}。 */
     private ApplyAndVerifyOutcome applyAndVerify(GenerationTaskRequest request,
                                                  App app,
                                                  User loginUser,
@@ -379,6 +386,7 @@ public class AgentEditGenerationService {
         return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, reason, List.of(), "failed", repairRounds);
     }
 
+    /** 构建并返回项目上下文。 */
     private String buildProjectContext(AgentEditReadResult readResult, AgentEditUnderstanding understanding) {
         StringBuilder builder = new StringBuilder();
         builder.append("AGENT_EDIT Read 结果:\n");
@@ -413,6 +421,7 @@ public class AgentEditGenerationService {
                 + "，验证: " + (outcome.validationResult() == null ? "未执行" : outcome.validationResult().status());
     }
 
+    /** 构建并返回失败汇总。 */
     private String buildFailureSummary(ApplyAndVerifyOutcome outcome) {
         if (outcome == null) {
             return "AGENT_EDIT 失败";

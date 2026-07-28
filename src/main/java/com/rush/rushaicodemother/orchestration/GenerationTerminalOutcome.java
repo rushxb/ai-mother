@@ -45,6 +45,13 @@ public enum GenerationTerminalOutcome {
         return eventMessage;
     }
 
+    /**
+ * 根据当前上下文解析生成{@code Terminal}结果。
+ *
+ * @param session 会话
+ * @param throwable 待处理的异常
+ * @return 生成{@code Terminal}结果
+ */
     public static GenerationTerminalOutcome resolve(GenerationSession session, Throwable throwable) {
         if (session != null && session.executionContext() != null) {
             var context = session.executionContext();

@@ -34,6 +34,7 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
     private final ExecutorService deadlineActionExecutor;
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
 
+    /** 创建{@code Scheduled}生成任务{@code Watchdog}实例并完成必要的依赖和初始状态设置。 */
     public ScheduledGenerationTaskWatchdog() {
         this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable ->
                 Thread.ofPlatform()
@@ -44,6 +45,13 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
                 Thread.ofVirtual().name("generation-task-deadline-action-", 0).factory());
     }
 
+    /**
+ * 返回{@code watch}。
+ *
+ * @param execution 执行
+ * @param interruptRunningTask {@code interruptRunningTask} 对应的调用参数
+ * @return {@code Scheduled}生成任务{@code Watchdog}
+ */
     @Override
     public Registration watch(GenerationTaskExecution execution, Runnable interruptRunningTask) {
         Objects.requireNonNull(execution, "execution");
@@ -77,6 +85,7 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
             this.interruptRunningTask = interruptRunningTask;
         }
 
+        /** 处理{@code arm}。 */
         private void arm() {
             GenerationExecutionContext context = execution.executionContext();
             if (state.get() != RegistrationState.ACTIVE || context.isCompleted() || shuttingDown.get()) {
@@ -94,6 +103,7 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
             }
         }
 
+        /** 检查截止时间的当前状态。 */
         private void checkDeadline() {
             GenerationExecutionContext context = execution.executionContext();
             if (state.get() != RegistrationState.ACTIVE || context.isCompleted() || shuttingDown.get()) {
@@ -114,6 +124,7 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
             dispatchDeadlineAction(this::cancelSession);
         }
 
+        /** 分发截止时间动作。 */
         private void dispatchDeadlineAction(Runnable action) {
             try {
                 deadlineActionExecutor.execute(action);
@@ -125,6 +136,7 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
             }
         }
 
+        /** 取消会话。 */
         private void cancelSession() {
             try {
                 execution.session().cancel(DEADLINE_REASON);
@@ -134,6 +146,7 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
             }
         }
 
+        /** 处理{@code interrupt}工作器。 */
         private void interruptWorker() {
             try {
                 interruptRunningTask.run();
@@ -143,6 +156,7 @@ public class ScheduledGenerationTaskWatchdog implements GenerationTaskWatchdog {
             }
         }
 
+        /** 关闭截止时间{@code Registration}并释放资源。 */
         @Override
         public void close() {
             if (!state.compareAndSet(RegistrationState.ACTIVE, RegistrationState.CLOSED)) {

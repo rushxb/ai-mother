@@ -40,6 +40,14 @@ public class EditFileLocatorService {
     private final EditWorkspaceFileService workspaceFileService;
     private final EditLocatorProperties properties;
 
+    /**
+ * 返回{@code locate}。
+ *
+ * @param workspace 工作区
+ * @param userMessage 用户消息
+ * @param codeGenType 代码生成类型
+ * @return 编辑文件{@code Locator}集合
+ */
     public List<EditFileCandidate> locate(GenerationWorkspace workspace,
                                           String userMessage,
                                           CodeGenTypeEnum codeGenType) {
@@ -59,6 +67,7 @@ public class EditFileLocatorService {
         return List.copyOf(candidates);
     }
 
+    /** 追加{@code Unique}。 */
     private void appendUnique(List<EditFileCandidate> target,
                               Set<String> seenPaths,
                               GenerationWorkspace workspace,
@@ -96,6 +105,7 @@ public class EditFileLocatorService {
         );
     }
 
+    /** 从输入中提取路径{@code Candidates}。 */
     private List<EditFileCandidate> extractPathCandidates(GenerationWorkspace workspace, String userMessage) {
         if (StrUtil.isBlank(userMessage)) {
             return List.of();
@@ -111,6 +121,7 @@ public class EditFileLocatorService {
         return candidates;
     }
 
+    /** 从输入中提取{@code Bare}文件名称{@code Candidates}。 */
     private List<EditFileCandidate> extractBareFileNameCandidates(GenerationWorkspace workspace, String userMessage) {
         if (StrUtil.isBlank(userMessage)) {
             return List.of();
@@ -131,6 +142,7 @@ public class EditFileLocatorService {
                 .toList();
     }
 
+    /** 获取并返回{@code Recent}{@code Modified}文件。 */
     private List<EditFileCandidate> getRecentModifiedFiles(GenerationWorkspace workspace, String userMessage) {
         if (StrUtil.isBlank(userMessage)) {
             return List.of();
@@ -154,6 +166,7 @@ public class EditFileLocatorService {
         return candidates;
     }
 
+    /** 搜索匹配的按语义索引。 */
     private List<EditFileCandidate> searchBySemanticIndex(GenerationWorkspace workspace, String userMessage) {
         if (StrUtil.isBlank(userMessage)) {
             return List.of();
@@ -177,6 +190,7 @@ public class EditFileLocatorService {
         return candidates;
     }
 
+    /** 获取并返回回退文件。 */
     private List<EditFileCandidate> getFallbackFiles(GenerationWorkspace workspace, CodeGenTypeEnum codeGenType) {
         if (codeGenType == null) {
             return List.of();

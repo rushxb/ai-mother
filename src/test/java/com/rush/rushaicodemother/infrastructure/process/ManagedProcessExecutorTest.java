@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -300,6 +301,46 @@ class ManagedProcessExecutorTest {
                 List.of("prepare", "start", "activate", "lifecycle-started", "lifecycle-finished", "cleanup"),
                 events
         );
+    }
+
+    @Test
+    void sandboxActivationTimeMustCountTowardTotalTimeout() {
+        FakeProcess process = FakeProcess.running();
+        when(processTerminator.terminate(process)).thenAnswer(invocation -> {
+            process.destroyForcibly();
+            return true;
+        });
+        GeneratedCodeProcessSandbox sandbox = new GeneratedCodeProcessSandbox() {
+            @Override
+            public SandboxProcessPlan prepare(ManagedProcessRequest request, Path directory) {
+                return new SandboxProcessPlan(
+                        "test-sandbox",
+                        directory,
+                        request.command(),
+                        request.environment(),
+                        request.environmentVariablesToRemove(),
+                        "activation-timeout"
+                );
+            }
+
+            @Override
+            public void activate(SandboxProcessPlan plan) {
+                LockSupport.parkNanos(Duration.ofMillis(60).toNanos());
+            }
+        };
+        ManagedProcessExecutor executor = new ManagedProcessExecutor(
+                processTerminator,
+                builder -> process,
+                sandbox
+        );
+
+        ManagedProcessResult result = executor.execute(requestBuilder()
+                .timeout(Duration.ofMillis(40))
+                .build());
+
+        assertEquals(ManagedProcessResult.Status.TIMED_OUT, result.status());
+        assertFalse(process.isAlive());
+        verify(processTerminator).terminate(process);
     }
 
     @Test

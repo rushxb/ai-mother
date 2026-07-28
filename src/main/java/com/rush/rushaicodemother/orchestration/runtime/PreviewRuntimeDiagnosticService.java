@@ -14,6 +14,13 @@ import java.util.Locale;
 @Component
 public class PreviewRuntimeDiagnosticService {
 
+    /**
+ * 返回分析。
+ *
+ * @param url 地址
+ * @param report 报告
+ * @return 预览运行时{@code Diagnostic}
+ */
     public RuntimeDiagnosticResult analyze(String url, String report) {
         String normalizedReport = report == null ? "" : report;
         String lower = normalizedReport.toLowerCase(Locale.ROOT);
@@ -47,6 +54,12 @@ public class PreviewRuntimeDiagnosticService {
         );
     }
 
+    /**
+ * 返回{@code skipped}。
+ *
+ * @param reason 原因
+ * @return 预览运行时{@code Diagnostic}
+ */
     public RuntimeDiagnosticResult skipped(String reason) {
         return new RuntimeDiagnosticResult(
                 "skipped",

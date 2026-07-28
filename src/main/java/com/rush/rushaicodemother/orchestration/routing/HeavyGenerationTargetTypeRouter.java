@@ -40,6 +40,16 @@ public class HeavyGenerationTargetTypeRouter {
     private final GenerationExecutionContextService executionContextService;
     private final GenerationPerformanceMonitorService performanceMonitorService;
 
+    /**
+ * 创建重型生成目标类型{@code Router}实例并完成必要的依赖和初始状态设置。
+ *
+ * @param routingServiceFactory 路由服务工厂
+ * @param backendIntentDetector {@code backendIntentDetector} 对应的调用参数
+ * @param deterministicRouter {@code deterministicRouter} 对应的调用参数
+ * @param runtimeProperties 运行时属性
+ * @param executionContextService 执行上下文服务
+ * @param performanceMonitorService 处理该职责的领域服务
+ */
     public HeavyGenerationTargetTypeRouter(
             AiCodeGenTypeRoutingServiceFactory routingServiceFactory,
             BackendIntentDetector backendIntentDetector,
@@ -62,11 +72,22 @@ public class HeavyGenerationTargetTypeRouter {
                 performanceMonitorService, "生成性能监控服务不能为空");
     }
 
+    /**
+ * 根据当前上下文解析重型生成目标类型{@code Router}。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param userMessage 用户消息
+ * @param currentType 当前类型
+ * @param hasGeneratedCode {@code hasGeneratedCode} 对应的调用参数
+ * @return 重型生成目标类型{@code Router}
+ */
     public CodeGenTypeEnum resolve(String taskId,
                                    Long appId,
                                    String userMessage,
                                    CodeGenTypeEnum currentType,
                                    boolean hasGeneratedCode) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (currentType == null) {
             throw new IllegalArgumentException("当前代码生成类型不能为空");
         }
@@ -99,6 +120,7 @@ public class HeavyGenerationTargetTypeRouter {
         return routeWithModel(taskId, appId, routingPrompt, currentType, hasGeneratedCode, intent);
     }
 
+    /** 为并模型选择处理路由。 */
     private CodeGenTypeEnum routeWithModel(
             String taskId,
             Long appId,
@@ -112,6 +134,7 @@ public class HeavyGenerationTargetTypeRouter {
                 ? null
                 : performanceMonitorService.startSpan(
                         taskId, MODEL_ROUTING_STAGE, GenerationSpanCategory.MODEL);
+        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             AiCodeGenTypeRoutingService routingService;
             if (context == null) {
@@ -171,6 +194,7 @@ public class HeavyGenerationTargetTypeRouter {
                         "HEAVY 类型路由没有活动的任务执行上下文，taskId=" + taskId));
     }
 
+    /** 返回{@code preserve}{@code Existing}能力。 */
     private CodeGenTypeEnum preserveExistingCapabilities(CodeGenTypeEnum currentType,
                                                          CodeGenTypeEnum requestedType,
                                                          boolean hasGeneratedCode) {
@@ -197,6 +221,7 @@ public class HeavyGenerationTargetTypeRouter {
                 || type == CodeGenTypeEnum.VUE_PROJECT;
     }
 
+    /** 记录{@code Local}{@code Route}相关指标或状态。 */
     private void recordLocalRoute(
             String taskId,
             BackendIntentDetector.BackendIntentResult intent,

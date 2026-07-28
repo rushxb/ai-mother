@@ -8,6 +8,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class AdminDashboardTemplate {
 
+    /** 返回管理端{@code Dashboard}视图。 */
     String adminDashboardView(AdminRecipe recipe) {
         return """
                 <template>

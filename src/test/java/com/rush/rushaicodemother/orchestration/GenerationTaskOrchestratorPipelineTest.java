@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -13,11 +14,14 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
+
+import java.time.Instant;
 
 import java.nio.file.Path;
 import java.util.Set;
@@ -38,8 +42,12 @@ class GenerationTaskOrchestratorPipelineTest {
         GenerationSessionRegistry registry = new GenerationSessionRegistry(new GenerationSessionProperties());
         GenerationModeDecision decision = lightEditDecision();
         when(router.route(context.request(), CodeGenTypeEnum.VUE_PROJECT, context.workspace())).thenReturn(decision);
+        Instant submittedAt = Instant.parse("2026-07-20T10:00:00Z");
         GenerationTaskResult expected = new GenerationTaskResult(
-                "task-1", "lightweight_edit", context.workspace(), Flux.empty());
+                new GenerationTaskSubmissionReceipt(
+                        "task-1", 1L, "lightweight_edit", GenerationTaskStatus.QUEUED,
+                        submittedAt, submittedAt.plusSeconds(600)),
+                context.workspace(), Flux.empty());
         when(submissionService.submit(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.eq(GenerationTaskIdempotency.none()))).thenReturn(expected);

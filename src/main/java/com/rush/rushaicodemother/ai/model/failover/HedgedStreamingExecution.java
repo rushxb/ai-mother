@@ -55,6 +55,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
     private boolean hedgeOutcomeRecorded;
     private boolean terminal;
 
+    /** 创建{@code Hedged}{@code Streaming}执行实例并完成必要的依赖和初始状态设置。 */
     HedgedStreamingExecution(
             List<AiModelCandidate<StreamingChatModel>> candidates,
             List<Integer> candidateOrder,
@@ -81,6 +82,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         this.cancellationScope = cancellationScope;
     }
 
+    /** 启动{@code Hedged}{@code Streaming}执行。 */
     void start() {
         GenerationCancellationAwareStreamingHandler.registerIfSupported(downstream, this);
         Attempt primary;
@@ -94,6 +96,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         startAttempt(primary);
     }
 
+    /** 处理调度{@code Hedge}。 */
     private void scheduleHedge() {
         GenerationCancellationHandle scheduled;
         try {
@@ -115,6 +118,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         }
     }
 
+    /** 创建包含{@code Monitor}上下文的新对象。 */
     private Runnable withMonitorContext(Runnable task) {
         MonitorContext current = MonitorContextHolder.getContext();
         if (current == null) {
@@ -140,6 +144,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         };
     }
 
+    /** 处理{@code launch}{@code Hedge}。 */
     private void launchHedge() {
         Attempt shadow;
         synchronized (stateLock) {
@@ -154,6 +159,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         startAttempt(shadow);
     }
 
+    /** 启动尝试。 */
     private void startAttempt(Attempt attempt) {
         if (attempt == null || !attempt.canStart()) {
             return;
@@ -192,6 +198,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         }
     }
 
+    /** 转发{@code ing}处理器。 */
     private StreamingChatResponseHandler forwardingHandler(Attempt attempt) {
         return new GenerationCancellationAwareStreamingHandler() {
             @Override
@@ -199,44 +206,87 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
                 attempt.registerCancellationHandle(cancellationHandle);
             }
 
+            /**
+ * 响应部分响应事件。
+ *
+ * @param partialResponse 部分响应
+ */
             @Override
             public void onPartialResponse(String partialResponse) {
                 attempt.forward(() -> downstream.onPartialResponse(partialResponse));
             }
 
+            /**
+ * 响应部分响应事件。
+ *
+ * @param partialResponse 部分响应
+ * @param context 执行上下文
+ */
             @Override
             public void onPartialResponse(PartialResponse partialResponse,
                                           PartialResponseContext context) {
                 attempt.forward(() -> downstream.onPartialResponse(partialResponse, context));
             }
 
+            /**
+ * 响应部分{@code Thinking}事件。
+ *
+ * @param partialThinking {@code partialThinking} 对应的调用参数
+ */
             @Override
             public void onPartialThinking(PartialThinking partialThinking) {
                 attempt.forward(() -> downstream.onPartialThinking(partialThinking));
             }
 
+            /**
+ * 响应部分{@code Thinking}事件。
+ *
+ * @param partialThinking {@code partialThinking} 对应的调用参数
+ * @param context 执行上下文
+ */
             @Override
             public void onPartialThinking(PartialThinking partialThinking,
                                           PartialThinkingContext context) {
                 attempt.forward(() -> downstream.onPartialThinking(partialThinking, context));
             }
 
+            /**
+ * 响应部分工具调用事件。
+ *
+ * @param partialToolCall 部分工具调用
+ */
             @Override
             public void onPartialToolCall(PartialToolCall partialToolCall) {
                 attempt.forward(() -> downstream.onPartialToolCall(partialToolCall));
             }
 
+            /**
+ * 响应部分工具调用事件。
+ *
+ * @param partialToolCall 部分工具调用
+ * @param context 执行上下文
+ */
             @Override
             public void onPartialToolCall(PartialToolCall partialToolCall,
                                           PartialToolCallContext context) {
                 attempt.forward(() -> downstream.onPartialToolCall(partialToolCall, context));
             }
 
+            /**
+ * 响应{@code Complete}工具调用事件。
+ *
+ * @param completeToolCall {@code completeToolCall} 对应的调用参数
+ */
             @Override
             public void onCompleteToolCall(CompleteToolCall completeToolCall) {
                 attempt.forward(() -> downstream.onCompleteToolCall(completeToolCall));
             }
 
+            /**
+ * 响应{@code Unmapped}原始事件事件。
+ *
+ * @param event 待处理的领域事件
+ */
             @Override
             public void onUnmappedRawEvent(Object event) {
                 attempt.forward(() -> downstream.onUnmappedRawEvent(event));
@@ -247,6 +297,11 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
                 attempt.complete(completeResponse);
             }
 
+            /**
+ * 响应错误事件。
+ *
+ * @param error 错误
+ */
             @Override
             public void onError(Throwable error) {
                 attempt.fail(error == null
@@ -256,6 +311,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         };
     }
 
+    /** 以原子方式争抢并记录首个有效响应。 */
     private boolean claimWinner(Attempt attempt) {
         List<Attempt> losers;
         GenerationCancellationHandle timer;
@@ -283,6 +339,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         return true;
     }
 
+    /** 完成{@code Hedged}{@code Streaming}执行并持久化终态。 */
     private void complete(Attempt attempt, ChatResponse response) {
         boolean claimed = claimWinner(attempt);
         synchronized (stateLock) {
@@ -296,6 +353,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         downstream.onCompleteResponse(response);
     }
 
+    /** 将{@code Hedged}{@code Streaming}执行标记为失败并记录原因。 */
     private void fail(Attempt attempt, boolean outputObserved, Throwable failure) {
         Attempt nextAttempt = null;
         FailureTerminal terminalAction = null;
@@ -378,6 +436,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         downstream.onError(action.failure());
     }
 
+    /** 创建包含{@code Suppressed}的新对象。 */
     private Throwable withSuppressed(Throwable terminalFailure) {
         for (FailureRecord record : failures) {
             Throwable candidateFailure = record.failure();
@@ -395,6 +454,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
                 .orElse(null);
     }
 
+    /** 返回{@code next}{@code Unstarted}{@code Position}{@code Locked}。 */
     private int nextUnstartedPositionLocked() {
         for (int position = 0; position < candidateOrder.size(); position++) {
             if (!startedPositions.contains(position)) {
@@ -404,6 +464,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         return -1;
     }
 
+    /** 返回{@code reserve}尝试{@code Locked}。 */
     private Attempt reserveAttemptLocked(int orderPosition, boolean speculative) {
         if (terminal || winner != null || !startedPositions.add(orderPosition)) {
             return null;
@@ -440,6 +501,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         }
     }
 
+    /** 记录{@code Hedge}相关指标或状态。 */
     private void recordHedge(String outcome) {
         if (metrics == null) {
             return;
@@ -455,6 +517,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         );
     }
 
+    /** 取消{@code Hedged}{@code Streaming}执行。 */
     @Override
     public void cancel() {
         List<Attempt> active;
@@ -485,6 +548,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         }
     }
 
+    /** 处理安全{@code Cancel}。 */
     private void safeCancel(GenerationCancellationHandle handle, String operation) {
         if (handle == null) {
             return;
@@ -529,6 +593,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
             return speculative;
         }
 
+        /** 转发尝试。 */
         private synchronized void forward(Runnable callback) {
             if (finished || cancelled) {
                 return;
@@ -539,6 +604,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
             }
         }
 
+        /** 完成尝试并持久化终态。 */
         private void complete(ChatResponse response) {
             synchronized (this) {
                 if (finished || cancelled) {
@@ -550,6 +616,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
             HedgedStreamingExecution.this.complete(this, response);
         }
 
+        /** 将尝试标记为失败并记录原因。 */
         private void fail(Throwable failure) {
             boolean observed;
             synchronized (this) {
@@ -563,6 +630,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
             HedgedStreamingExecution.this.fail(this, observed, failure);
         }
 
+        /** 注册{@code Cancellation}句柄。 */
         private void registerCancellationHandle(GenerationCancellationHandle handle) {
             if (handle == null) {
                 throw new IllegalArgumentException("供应商取消句柄不能为空");
@@ -584,6 +652,7 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
             }
         }
 
+        /** 取消尝试。 */
         @Override
         public void cancel() {
             GenerationCancellationHandle active;

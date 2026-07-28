@@ -8,6 +8,7 @@ public record PromptReleaseState(
         long revision,
         Map<String, PromptReleaseRecord> releases
 ) {
+    /** 创建提示词发布状态实例并完成必要的依赖和初始状态设置。 */
     public PromptReleaseState {
         if (revision < 0) {
             throw new IllegalArgumentException("prompt release revision cannot be negative");

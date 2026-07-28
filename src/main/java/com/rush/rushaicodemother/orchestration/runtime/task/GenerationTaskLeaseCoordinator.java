@@ -60,10 +60,23 @@ public class GenerationTaskLeaseCoordinator {
         this.clock = clock;
     }
 
+    /**
+ * 提交并返回记录。
+ *
+ * @param command 命令
+ * @return 生成任务租约协调器
+ */
     public GenerationTaskSubmissionRecord submissionRecord(GenerationTaskCommand command) {
         return submissionRecord(command, GenerationTaskIdempotency.none());
     }
 
+    /**
+ * 提交并返回记录。
+ *
+ * @param command 命令
+ * @param idempotency {@code idempotency} 对应的调用参数
+ * @return 生成任务租约协调器
+ */
     public GenerationTaskSubmissionRecord submissionRecord(GenerationTaskCommand command,
                                                            GenerationTaskIdempotency idempotency) {
         if (command == null) {
@@ -79,6 +92,12 @@ public class GenerationTaskLeaseCoordinator {
         );
     }
 
+    /**
+ * 返回{@code reserve}{@code Queued}。
+ *
+ * @param taskId 任务编号
+ * @return 可选的生成任务租约协调器；不存在时返回空值
+ */
     public Optional<GenerationExecutionFence> reserveQueued(String taskId) {
         Instant now = clock.instant();
         Optional<GenerationTaskLease> claimed = repository.reserveQueued(
@@ -87,6 +106,11 @@ public class GenerationTaskLeaseCoordinator {
         return claimed.map(GenerationTaskLease::fence);
     }
 
+    /**
+ * 处理{@code activate}。
+ *
+ * @param fence 围栏
+ */
     public void activate(GenerationExecutionFence fence) {
         GenerationTaskLease lease = requireTrackedLease(fence);
         Instant now = clock.instant();
@@ -112,9 +136,11 @@ public class GenerationTaskLeaseCoordinator {
         throw new GenerationExecutionPolicyException("generation task worker lease was lost");
     }
 
+    /** 处理心跳{@code Tracked}任务。 */
     public void heartbeatTrackedTasks() {
         Instant now = clock.instant();
         Instant leaseUntil = now.plus(properties.getLeaseDuration());
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (Map.Entry<String, GenerationTaskLease> entry : Map.copyOf(trackedLeases).entrySet()) {
             String taskId = entry.getKey();
             GenerationTaskLease lease = entry.getValue();
@@ -147,6 +173,11 @@ public class GenerationTaskLeaseCoordinator {
         }
     }
 
+    /**
+ * 释放生成任务租约协调器。
+ *
+ * @param fence 围栏
+ */
     public void release(GenerationExecutionFence fence) {
         if (fence == null) {
             return;
@@ -157,6 +188,13 @@ public class GenerationTaskLeaseCoordinator {
         }
     }
 
+    /**
+ * 释放{@code Claim}{@code To}{@code Queue}。
+ *
+ * @param fence 围栏
+ * @param reason 原因
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean releaseClaimToQueue(GenerationExecutionFence fence, String reason) {
         GenerationTaskLease lease = requireTrackedLease(fence);
         boolean released = repository.releaseClaimToQueue(lease, clock.instant(), reason);
@@ -166,6 +204,13 @@ public class GenerationTaskLeaseCoordinator {
         return released;
     }
 
+    /**
+ * 返回{@code suspend}{@code For}审批。
+ *
+ * @param fence 围栏
+ * @param stageMessage 阶段消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean suspendForApproval(GenerationExecutionFence fence, String stageMessage) {
         GenerationTaskLease lease = requireTrackedLease(fence);
         boolean suspended = repository.suspendForApproval(lease, stageMessage, clock.instant());
@@ -175,6 +220,12 @@ public class GenerationTaskLeaseCoordinator {
         return suspended;
     }
 
+    /**
+ * 返回{@code requeue}执行后审批。
+ *
+ * @param taskId 任务编号
+ * @return 可选的生成任务租约协调器；不存在时返回空值
+ */
     public Optional<GenerationExecutionFence> requeueAfterApproval(String taskId) {
         Instant now = clock.instant();
         Optional<GenerationTaskLease> claimed = repository.requeueAfterApproval(
@@ -183,6 +234,13 @@ public class GenerationTaskLeaseCoordinator {
         return claimed.map(GenerationTaskLease::fence);
     }
 
+    /**
+ * 返回恢复{@code Waiting}执行后{@code Dispatch}失败。
+ *
+ * @param fence 围栏
+ * @param stageMessage 阶段消息
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     public boolean restoreWaitingAfterDispatchFailure(GenerationExecutionFence fence,
                                                       String stageMessage) {
         GenerationTaskLease lease = requireTrackedLease(fence);
@@ -220,6 +278,14 @@ public class GenerationTaskLeaseCoordinator {
         trackedLeases.replace(fence.taskId(), lease, renewal.lease());
     }
 
+    /**
+ * 完成{@code Owned}并持久化终态。
+ *
+ * @param fence 围栏
+ * @param status 目标状态
+ * @param reason 原因
+ * @param completedAt 完成时间
+ */
     public void completeOwned(GenerationExecutionFence fence,
                               GenerationTaskStatus status,
                               String reason,
@@ -235,6 +301,7 @@ public class GenerationTaskLeaseCoordinator {
         return trackedLeases.size();
     }
 
+    /** 校验并返回有效的{@code Tracked}租约。 */
     private GenerationTaskLease requireTrackedLease(GenerationExecutionFence fence) {
         if (fence == null) {
             throw new IllegalArgumentException("generation execution fence cannot be null");

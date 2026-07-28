@@ -21,6 +21,13 @@ public class VueProjectBuildTool extends BaseTool {
     private final VueProjectBuilder vueProjectBuilder;
     private final ToolPathSupport toolPathSupport;
 
+    /**
+ * 执行 Vue 项目构建并返回诊断结果。
+ *
+ * @param relativeProjectPath 项目相对路径
+ * @param appId 应用编号
+ * @return 处理后的方法执行结果文本
+ */
     @Tool("执行本地 Vue 项目构建，返回 pnpm install 和 pnpm run build 的详细结果。生成完成后、构建失败后、或用户反馈项目有问题时必须优先调用此工具。")
     public String buildVueProject(
             @P("可选，相对于当前项目根目录的子目录。为空时默认构建整个项目根目录")
@@ -53,6 +60,12 @@ public class VueProjectBuildTool extends BaseTool {
         return "本地构建诊断";
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeProjectPath = arguments.getStr("relativeProjectPath");
@@ -62,6 +75,13 @@ public class VueProjectBuildTool extends BaseTool {
         return String.format("[工具调用] %s %s", getDisplayName(), relativeProjectPath);
     }
 
+    /**
+ * 将工具执行结果整理为模型可消费的文本。
+ *
+ * @param arguments 参数
+ * @param toolResult 工具结果
+ * @return 处理后的方法执行结果文本
+ */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 320);

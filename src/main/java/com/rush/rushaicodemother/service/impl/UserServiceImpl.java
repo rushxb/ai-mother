@@ -45,9 +45,17 @@ public class UserServiceImpl implements UserService {
     private final UserViewConverter userViewConverter;
     private final TenantProvisioningService tenantProvisioningService;
 
+    /**
+ * 创建用户。
+ *
+ * @param request 请求参数
+ * @param adminUserId 管理端用户编号
+ * @return 计算或处理后的数值结果
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public long createUser(UserAddRequest request, Long adminUserId) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (adminUserId == null || adminUserId <= 0) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "缺少有效的管理员身份");
         }
@@ -78,6 +86,11 @@ public class UserServiceImpl implements UserService {
         return userId;
     }
 
+    /**
+ * 更新用户。
+ *
+ * @param request 请求参数
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateUser(UserUpdateRequest request) {
@@ -98,6 +111,11 @@ public class UserServiceImpl implements UserService {
         );
     }
 
+    /**
+ * 删除用户。
+ *
+ * @param userId 用户编号
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteUser(Long userId) {
@@ -107,6 +125,14 @@ public class UserServiceImpl implements UserService {
         userPersistenceService.logicallyDelete(userId);
     }
 
+    /**
+ * 返回用户{@code Register}。
+ *
+ * @param userAccount {@code userAccount} 对应的调用参数
+ * @param userPassword 用户密码
+ * @param checkPassword {@code checkPassword} 对应的调用参数
+ * @return 计算或处理后的数值结果
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
@@ -125,6 +151,14 @@ public class UserServiceImpl implements UserService {
         return userId;
     }
 
+    /**
+ * 返回用户{@code Login}。
+ *
+ * @param userAccount {@code userAccount} 对应的调用参数
+ * @param userPassword 用户密码
+ * @param request 请求参数
+ * @return 用户服务{@code Impl}
+ */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public LoginUserVO userLogin(String userAccount, String userPassword, HttpServletRequest request) {
@@ -151,6 +185,12 @@ public class UserServiceImpl implements UserService {
         return userViewConverter.toLoginUserView(user);
     }
 
+    /**
+ * 获取并返回{@code Login}用户。
+ *
+ * @param request 请求参数
+ * @return 用户服务{@code Impl}
+ */
     @Override
     public User getLoginUser(HttpServletRequest request) {
         HttpSession session = request.getSession(false);
@@ -177,6 +217,12 @@ public class UserServiceImpl implements UserService {
         return getLoginUser(request).getId();
     }
 
+    /**
+ * 返回用户{@code Logout}。
+ *
+ * @param request 请求参数
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
     @Override
     public boolean userLogout(HttpServletRequest request) {
         HttpSession session = request.getSession(false);
@@ -187,6 +233,7 @@ public class UserServiceImpl implements UserService {
         return true;
     }
 
+    /** 判断是否存在{@code h}密码。 */
     private String hashPassword(String userPassword) {
         validatePasswordLength(userPassword);
         try {
@@ -202,6 +249,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    /** 校验{@code ate}{@code Registration}是否有效。 */
     private void validateRegistration(String userAccount, String userPassword, String checkPassword) {
         if (StrUtil.hasBlank(userAccount, userPassword, checkPassword)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
@@ -213,6 +261,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    /** 校验{@code ate}{@code Login}是否有效。 */
     private void validateLogin(String userAccount, String userPassword) {
         if (StrUtil.hasBlank(userAccount, userPassword)) {
             throw invalidCredentialsException();
@@ -223,6 +272,7 @@ public class UserServiceImpl implements UserService {
         validatePasswordLength(userPassword);
     }
 
+    /** 校验{@code ate}{@code Account}是否有效。 */
     private void validateAccount(String userAccount) {
         if (userAccount.length() < MIN_ACCOUNT_LENGTH) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号长度不能少于 4 位");
@@ -238,6 +288,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    /** 规范化{@code Initial}额度。 */
     private long normalizeInitialCredit(Long creditBalance) {
         if (creditBalance == null) {
             return 0L;
@@ -255,6 +306,7 @@ public class UserServiceImpl implements UserService {
                 || request.getUserRole() != null;
     }
 
+    /** 校验{@code ate}密码{@code Length}是否有效。 */
     private void validatePasswordLength(String userPassword) {
         if (userPassword == null || userPassword.length() < MIN_PASSWORD_LENGTH) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码长度不能少于 8 位");
@@ -268,6 +320,7 @@ public class UserServiceImpl implements UserService {
         userPersistenceService.updatePasswordHash(userId, hashPassword(rawPassword));
     }
 
+    /** 根据当前上下文解析会话用户编号。 */
     private Long resolveSessionUserId(HttpSession session) {
         if (session == null) {
             return null;

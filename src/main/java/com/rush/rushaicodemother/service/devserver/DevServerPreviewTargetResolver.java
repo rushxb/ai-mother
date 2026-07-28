@@ -14,6 +14,14 @@ public class DevServerPreviewTargetResolver {
         this.pathFactory = pathFactory;
     }
 
+    /**
+ * 返回HTTP目标。
+ *
+ * @param route 代理路由
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @return 开发服务器预览目标
+ */
     public URI httpTarget(DevServerPreviewRoute route, String path, String queryString) {
         requireRoute(route);
         String upstreamPath = route.local()
@@ -22,6 +30,14 @@ public class DevServerPreviewTargetResolver {
         return route.httpTarget(upstreamPath, queryString);
     }
 
+    /**
+ * 返回 WebSocket 目标。
+ *
+ * @param route 代理路由
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @return 开发服务器预览目标
+ */
     public URI webSocketTarget(DevServerPreviewRoute route, String path, String queryString) {
         requireRoute(route);
         String upstreamPath = route.local()
@@ -30,6 +46,15 @@ public class DevServerPreviewTargetResolver {
         return route.webSocketTarget(upstreamPath, queryString);
     }
 
+    /**
+ * 返回{@code local}HTTP目标。
+ *
+ * @param appId 应用编号
+ * @param port 端口
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @return 开发服务器预览目标
+ */
     public URI localHttpTarget(Long appId, int port, String path, String queryString) {
         return DevServerPreviewRoute.local(appId, "local", port).httpTarget(
                 pathFactory.localUpstreamPath(appId, path),
@@ -37,6 +62,15 @@ public class DevServerPreviewTargetResolver {
         );
     }
 
+    /**
+ * 返回{@code local}WebSocket 目标。
+ *
+ * @param appId 应用编号
+ * @param port 端口
+ * @param path 目标路径
+ * @param queryString 原始查询字符串
+ * @return 开发服务器预览目标
+ */
     public URI localWebSocketTarget(Long appId, int port, String path, String queryString) {
         return DevServerPreviewRoute.local(appId, "local", port).webSocketTarget(
                 pathFactory.localUpstreamPath(appId, path),

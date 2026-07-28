@@ -12,6 +12,12 @@ public class BgeMemoryEmbeddingService implements MemoryEmbeddingService {
 
     private final EmbeddingModel model = new BgeSmallZhV15QuantizedEmbeddingModel();
 
+    /**
+ * 返回{@code embed}。
+ *
+ * @param text {@code text} 对应的调用参数
+ * @return {@code Bge}记忆向量化
+ */
     @Override
     public float[] embed(String text) {
         return model.embed(text == null ? "" : text).content().vector();

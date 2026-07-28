@@ -16,6 +16,7 @@ public class DevServerWebSocketRequestParser {
         return parse(request, DevServerPreviewPaths.INTERNAL_PROXY_PREFIX);
     }
 
+    /** 解析开发服务器 WebSocket 请求{@code Parser}。 */
     private DevServerWebSocketRequest parse(HttpServletRequest request, String routePrefix) {
         if (request == null || request.getRequestURI() == null) {
             throw new IllegalArgumentException("Preview WebSocket request is missing");
@@ -42,6 +43,7 @@ public class DevServerWebSocketRequestParser {
         return new DevServerWebSocketRequest(appId, targetPath, request.getQueryString());
     }
 
+    /** 返回移除上下文路径。 */
     private String stripContextPath(String requestUri, String contextPath) {
         if (contextPath == null || contextPath.isBlank() || "/".equals(contextPath)) {
             return requestUri;

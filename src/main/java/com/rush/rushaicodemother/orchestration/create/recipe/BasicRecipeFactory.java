@@ -12,6 +12,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class BasicRecipeFactory {
 
+    /** 创建{@code Basic}{@code Recipe}。 */
     BasicRecipe create(String userMessage, CreateSpec spec) {
         String brand = firstNonBlank(spec.product() == null ? null : spec.product().brandName(), inferBrand(userMessage, "Nexa Studio"));
         CreateSpec.Landing landing = spec.content() == null ? null : spec.content().landing();

@@ -31,6 +31,7 @@ public class VueBuildStateStore {
             ".ai-code-presentation.stamp"
     );
 
+    /** 读取{@code Vue}构建状态存储。 */
     synchronized VueBuildState read(Path projectRoot) {
         Path stateFile = projectRoot.resolve(STATE_FILE_NAME);
         if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(stateFile)) {
@@ -66,6 +67,7 @@ public class VueBuildStateStore {
         return STATE_FILE_NAME.equals(normalizedRelativePath) || LEGACY_STATE_FILES.contains(normalizedRelativePath);
     }
 
+    /** 写入{@code Vue}构建状态存储。 */
     private void write(Path projectRoot, VueBuildState state) throws IOException {
         Path stateFile = projectRoot.resolve(STATE_FILE_NAME);
         Path temporaryFile = Files.createTempFile(projectRoot, ".ai-code-build-state-", ".tmp");
@@ -89,6 +91,7 @@ public class VueBuildStateStore {
         }
     }
 
+    /** 移动{@code Atomically}。 */
     private void moveAtomically(Path source, Path target) throws IOException {
         try {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -97,6 +100,7 @@ public class VueBuildStateStore {
         }
     }
 
+    /** 移除{@code Legacy}状态文件。 */
     private void removeLegacyStateFiles(Path projectRoot) {
         for (String legacyFileName : LEGACY_STATE_FILES) {
             try {

@@ -31,6 +31,11 @@ public class MicrometerGenerationSpanSink implements GenerationSpanSink {
         this(tracer, new GenerationTraceParentRegistry());
     }
 
+    /**
+ * 记录{@code Micrometer}生成跨度{@code Sink}相关指标或状态。
+ *
+ * @param observation 观测
+ */
     @Override
     public void record(GenerationSpanObservation observation) {
         if (observation == null) {

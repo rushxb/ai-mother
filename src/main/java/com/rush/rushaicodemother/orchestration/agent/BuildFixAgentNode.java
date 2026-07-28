@@ -22,6 +22,12 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
                 GenerationNodeReplayPolicy.REPLAY_SAFE);
     }
 
+    /**
+ * 执行构建{@code Fix}智能体节点处理流程。
+ *
+ * @param context 执行上下文
+ * @return 构建{@code Fix}智能体节点
+ */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         boolean requiresBuild = artifactBooleanValue(context, "generation_spec", "requiresBuild");

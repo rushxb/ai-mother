@@ -30,9 +30,18 @@ public class AgentEditBackendValidationService {
     private final PatchWorkspaceFileService workspaceFileService;
     private final PatchExecutionProperties patchExecutionProperties;
 
+    /**
+ * 校验{@code ate}是否有效。
+ *
+ * @param taskId 任务编号
+ * @param workspace 工作区
+ * @param patchOperations 补丁操作
+ * @return {@code ate}
+ */
     public BackgroundValidationService.ValidationResult validate(String taskId,
                                                                  GenerationWorkspace workspace,
                                                                  List<PatchOperation> patchOperations) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (workspace == null || patchOperations == null || patchOperations.isEmpty()) {
             return BackgroundValidationService.ValidationResult.skipped(taskId, "无后端补丁需要验证");
         }
@@ -45,6 +54,7 @@ public class AgentEditBackendValidationService {
         }
 
         List<String> errors = new ArrayList<>();
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (PatchOperation operation : patchOperations) {
             if (operation == null || PatchOperation.ACTION_DELETE.equals(operation.action())) {
                 continue;
@@ -91,6 +101,7 @@ public class AgentEditBackendValidationService {
         return BackgroundValidationService.ValidationResult.success(taskId, "后端轻量验证通过");
     }
 
+    /** 校验{@code ate}{@code Go}是否有效。 */
     private void validateGo(String relativePath, String content, List<String> errors) {
         String normalizedContent = StrUtil.blankToDefault(content, "");
         String trimmed = normalizedContent.stripLeading();
@@ -115,6 +126,7 @@ public class AgentEditBackendValidationService {
         }
     }
 
+    /** 返回{@code balanced}。 */
     private boolean balanced(String content, char open, char close) {
         int depth = 0;
         for (int index = 0; index < content.length(); index++) {

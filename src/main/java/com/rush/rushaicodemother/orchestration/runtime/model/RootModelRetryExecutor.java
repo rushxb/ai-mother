@@ -47,6 +47,15 @@ public class RootModelRetryExecutor {
         this.retryPolicy = Objects.requireNonNull(retryPolicy, "根模型重试策略不能为空");
     }
 
+    /**
+ * 执行根模型重试处理流程。
+ *
+ * @param attemptSupplier 尝试提供器
+ * @param maxRetries 待处理的 {@code maxRetries} 集合
+ * @param executionContext 执行上下文
+ * @param retriableError {@code retriableError} 对应的调用参数
+ * @return 异步响应式处理结果
+ */
     public <T> Flux<T> execute(Supplier<Flux<T>> attemptSupplier,
                                int maxRetries,
                                GenerationExecutionContext executionContext,
@@ -69,6 +78,7 @@ public class RootModelRetryExecutor {
         return retry(attempt, maxRetries, executionContext, retriableError);
     }
 
+    /** 返回重试。 */
     private <T> Flux<T> retry(Flux<T> attempt,
                               int maxRetries,
                               GenerationExecutionContext executionContext,
@@ -158,6 +168,7 @@ public class RootModelRetryExecutor {
                         recorded, "cancelled", null, startedAt, executionContext));
     }
 
+    /** 记录尝试{@code Once}相关指标或状态。 */
     private void recordAttemptOnce(AtomicBoolean recorded,
                                    String outcome,
                                    Throwable failure,
@@ -188,6 +199,7 @@ public class RootModelRetryExecutor {
         }
     }
 
+    /** 记录重试{@code Wait}相关指标或状态。 */
     private void recordRetryWait(GenerationExecutionContext executionContext,
                                  String outcome,
                                  Throwable failure,

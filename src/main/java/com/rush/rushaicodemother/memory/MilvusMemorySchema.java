@@ -47,6 +47,7 @@ final class MilvusMemorySchema {
     private MilvusMemorySchema() {
     }
 
+    /** 创建结构。 */
     static CreateCollectionReq.CollectionSchema createSchema(int dimension) {
         CreateCollectionReq.CollectionSchema schema = CreateCollectionReq.CollectionSchema.builder()
                 .enableDynamicField(false)
@@ -80,7 +81,9 @@ final class MilvusMemorySchema {
                 .build();
     }
 
+    /** 校验{@code ate}集合是否有效。 */
     static void validateCollection(DescribeCollectionResp description, int dimension) {
+        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (description == null || description.getCollectionSchema() == null) {
             throw incompatible("collection description or schema is absent");
         }
@@ -104,6 +107,7 @@ final class MilvusMemorySchema {
         if (actualFields == null || actualFields.size() != expected.size()) {
             throw incompatible("field set does not match schema v" + SCHEMA_VERSION);
         }
+        // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (CreateCollectionReq.FieldSchema actual : actualFields) {
             FieldContract contract = expected.remove(actual.getName());
             if (contract == null) {
@@ -116,6 +120,7 @@ final class MilvusMemorySchema {
         }
     }
 
+    /** 校验{@code ate}索引是否有效。 */
     static void validateIndex(DescribeIndexResp description) {
         DescribeIndexResp.IndexDesc index = description == null
                 ? null : description.getIndexDescByFieldName(VECTOR);
@@ -152,6 +157,7 @@ final class MilvusMemorySchema {
                 .build();
     }
 
+    /** 返回{@code expected}{@code Fields}。 */
     private static Map<String, FieldContract> expectedFields(int dimension) {
         Map<String, FieldContract> fields = new LinkedHashMap<>();
         fields.put(ID, new FieldContract(DataType.VarChar, ID_LENGTH, null, true, false));
@@ -184,6 +190,7 @@ final class MilvusMemorySchema {
             boolean primary,
             boolean nullable
     ) {
+        /** 校验{@code ate}是否有效。 */
         private void validate(CreateCollectionReq.FieldSchema actual) {
             boolean actualPrimary = Boolean.TRUE.equals(actual.getIsPrimaryKey());
             boolean actualNullable = Boolean.TRUE.equals(actual.getIsNullable());

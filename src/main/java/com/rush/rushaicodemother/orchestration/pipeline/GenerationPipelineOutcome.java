@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 
 /** 生成管线返回给统一任务执行器的结果。 */
 public record GenerationPipelineOutcome(
@@ -8,7 +9,8 @@ public record GenerationPipelineOutcome(
         String route,
         GenerationTaskStatus terminalStatus,
         String reason,
-        String resultSummary
+        String resultSummary,
+        GenerationCompletionEvidenceSet completionEvidence
 ) {
 
     /** 创建生成流水线结果实例并完成必要的依赖和初始状态设置。 */
@@ -23,6 +25,9 @@ public record GenerationPipelineOutcome(
         route = route.trim();
         reason = normalize(reason);
         resultSummary = normalize(resultSummary);
+        completionEvidence = completionEvidence == null
+                ? GenerationCompletionEvidenceSet.empty()
+                : completionEvidence;
         if (disposition == GenerationPipelineDisposition.COMPLETED
                 && (terminalStatus == null || !terminalStatus.isTerminal())) {
             throw new IllegalArgumentException("已完成的生成管线必须提供终态");
@@ -46,22 +51,43 @@ public record GenerationPipelineOutcome(
         }
     }
 
+
+    /** 兼容既有非成功结果和测试构造；成功结果应使用携带证据的工厂方法。 */
+    public GenerationPipelineOutcome(GenerationPipelineDisposition disposition,
+                                     String route,
+                                     GenerationTaskStatus terminalStatus,
+                                     String reason,
+                                     String resultSummary) {
+        this(disposition, route, terminalStatus, reason, resultSummary,
+                GenerationCompletionEvidenceSet.empty());
+    }
+
     public static GenerationPipelineOutcome completed(String route,
                                                        GenerationTaskStatus status,
                                                        String reason,
                                                        String resultSummary) {
+        return completed(route, status, reason, resultSummary, GenerationCompletionEvidenceSet.empty());
+    }
+
+    public static GenerationPipelineOutcome completed(String route,
+                                                       GenerationTaskStatus status,
+                                                       String reason,
+                                                       String resultSummary,
+                                                       GenerationCompletionEvidenceSet completionEvidence) {
         return new GenerationPipelineOutcome(
-                GenerationPipelineDisposition.COMPLETED, route, status, reason, resultSummary);
+                GenerationPipelineDisposition.COMPLETED, route, status, reason, resultSummary, completionEvidence);
     }
 
     public static GenerationPipelineOutcome running(String route) {
         return new GenerationPipelineOutcome(
-                GenerationPipelineDisposition.RUNNING, route, null, null, null);
+                GenerationPipelineDisposition.RUNNING, route, null, null, null,
+                GenerationCompletionEvidenceSet.empty());
     }
 
     public static GenerationPipelineOutcome fallback(String route, String reason) {
         return new GenerationPipelineOutcome(
-                GenerationPipelineDisposition.FALLBACK, route, null, reason, null);
+                GenerationPipelineDisposition.FALLBACK, route, null, reason, null,
+                GenerationCompletionEvidenceSet.empty());
     }
 
     private static String normalize(String value) {

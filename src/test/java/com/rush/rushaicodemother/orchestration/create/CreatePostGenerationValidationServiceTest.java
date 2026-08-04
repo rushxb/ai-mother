@@ -6,6 +6,9 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationBuildValidationService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
@@ -84,6 +87,46 @@ class CreatePostGenerationValidationServiceTest {
         verify(contextService, never()).clearContext(11L, fence.taskId());
     }
 
+    @Test
+    void plannedCreateValidationMustPassFrozenPolicyToHeavyValidation() {
+        GenerationToolExecutionContextService contextService =
+                mock(GenerationToolExecutionContextService.class);
+        HeavyGenerationBuildValidationService buildValidationService =
+                mock(HeavyGenerationBuildValidationService.class);
+        CreatePostGenerationValidationService service = new CreatePostGenerationValidationService(
+                contextService, buildValidationService);
+        GenerationSession session = new GenerationSession(null);
+        User user = new User();
+        GenerationExecutionPlan executionPlan = mock(GenerationExecutionPlan.class);
+        when(executionPlan.validationGraph()).thenReturn(
+                GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.BUILD));
+        when(buildValidationService.runWithAutoRepair(
+                eq(13L),
+                eq(user),
+                any(),
+                eq(session),
+                any(GenerationVerificationPolicy.class)))
+                .thenReturn(true);
+
+        CreatePostGenerationValidationService.ValidationOutcome outcome = service.validate(
+                13L,
+                user,
+                CodeGenTypeEnum.VUE_PROJECT,
+                "创建仪表盘",
+                "task-planned-create",
+                null,
+                session,
+                executionPlan
+        );
+
+        assertTrue(outcome.success());
+        verify(buildValidationService).runWithAutoRepair(
+                eq(13L),
+                eq(user),
+                any(),
+                eq(session),
+                any(GenerationVerificationPolicy.class));
+    }
     @Test
     void backendCreateMustExecutePostGenerationBuildValidation() {
         GenerationToolExecutionContextService contextService =

@@ -34,7 +34,7 @@ public class AgentEditRoutingPolicy implements GenerationRoutingPolicy {
         return Optional.of(GenerationModeDecision.of(
                 GenerationMode.AGENT_EDIT,
                 0.82,
-                "Request involves features, cross-file work, APIs, databases, dependencies, build errors or bug fixes",
+                "请求涉及功能开发、跨文件修改、接口、数据库、依赖、构建错误或缺陷修复",
                 FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
                 ExpectedValidationLevel.BUILD,
                 GenerationRoutingDecisionCode.AGENT_EDIT_COMPLEXITY

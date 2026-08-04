@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import org.junit.jupiter.api.Test;
 
@@ -82,6 +83,16 @@ class GenerationSessionTest {
         assertFalse(session.isActive());
     }
 
+    @Test
+    void executionPlanCanBeBoundOnceAndReadDuringExecution() {
+        GenerationSession session = new GenerationSession(null);
+        GenerationExecutionPlan plan = mock(GenerationExecutionPlan.class);
+
+        session.bindExecutionPlan(plan);
+        session.bindExecutionPlan(plan);
+
+        assertSame(plan, session.executionPlan());
+    }
     @Test
     void taskRequestCanBeRecoveredByStopDrivenTerminalization() {
         GenerationSession session = new GenerationSession(null);

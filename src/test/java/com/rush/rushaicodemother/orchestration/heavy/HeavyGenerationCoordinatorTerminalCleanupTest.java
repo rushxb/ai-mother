@@ -131,7 +131,7 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
                 11L, fixture.preparation(), fixture.session());
         order.verify(finalizationService).emitCommitResultIfAvailable(
                 11L, fixture.preparation(), fixture.session());
-        order.verify(workspaceReleaseService).release(
+        order.verify(workspaceReleaseService).releaseVerified(
                 fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
         verify(finalizationSpan).success();
     }

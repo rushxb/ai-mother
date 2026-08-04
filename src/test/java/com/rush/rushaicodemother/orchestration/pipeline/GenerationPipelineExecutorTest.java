@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -87,7 +88,8 @@ class GenerationPipelineExecutorTest {
                         GenerationRoute.LIGHTWEIGHT_EDIT,
                         GenerationTaskStatus.SUCCESS,
                         null,
-                        "任务状态：成功\n结果摘要：标题已更新"));
+                        "任务状态：成功\n结果摘要：标题已更新",
+                        successfulCompletionEvidence()));
 
         executor(List.of(pipeline)).execute(request);
 
@@ -129,13 +131,14 @@ class GenerationPipelineExecutorTest {
                         route,
                         GenerationTaskStatus.SUCCESS,
                         null,
-                        "任务状态：成功"
+                        "任务状态：成功",
+                        successfulCompletionEvidence()
                 )
         );
 
         executor(List.of(pipeline)).execute(request);
 
-        verify(workspaceReleaseService).release(
+        verify(workspaceReleaseService).releaseVerified(
                 request.requireExecution().session(), CodeGenTypeEnum.VUE_PROJECT);
     }
 
@@ -375,7 +378,8 @@ class GenerationPipelineExecutorTest {
                         GenerationRoute.LIGHTWEIGHT_EDIT,
                         GenerationTaskStatus.SUCCESS,
                         null,
-                        "任务状态：成功"));
+                        "任务状态：成功",
+                        successfulCompletionEvidence()));
         GenerationExecutionContextService cleanupService = mock(GenerationExecutionContextService.class);
         GenerationPipelineExecutor executor = new GenerationPipelineExecutor(
                 List.of(pipeline), eventPublisher, sessionRegistry, cleanupService,
@@ -389,6 +393,39 @@ class GenerationPipelineExecutorTest {
                 GenerationTaskStatus.SUCCESS.getValue());
         verify(cleanupService, never()).finish(
                 request.execution().taskId(), GenerationTaskStatus.SUCCESS.getValue());
+    }
+
+    @Test
+    void successWithoutCompletionEvidenceMustFailClosedBeforeWorkspaceRelease() {
+        GenerationPipelineRequest request = request(
+                "task-empty-success", GenerationMode.LIGHT_EDIT, FallbackPolicy.NONE);
+        GenerationPipeline pipeline = pipeline(
+                GenerationRoute.LIGHTWEIGHT_EDIT,
+                GenerationMode.LIGHT_EDIT,
+                ignored -> GenerationPipelineOutcome.completed(
+                        GenerationRoute.LIGHTWEIGHT_EDIT,
+                        GenerationTaskStatus.SUCCESS,
+                        null,
+                        "任务状态：成功"
+                )
+        );
+
+        executor(List.of(pipeline)).execute(request);
+
+        assertEquals("failed", request.execution().executionContext().snapshot().terminalStatus());
+        verify(workspaceReleaseService, never()).releaseVerified(
+                request.execution().session(), CodeGenTypeEnum.VUE_PROJECT);
+        verify(taskLifecycleService, never()).completeGenerationAndCharge(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.eq(GenerationTaskStatus.SUCCESS),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString());
+    }
+
+    private GenerationCompletionEvidenceSet successfulCompletionEvidence() {
+        return GenerationCompletionEvidenceSet.successfulMutation(
+                ExpectedValidationLevel.BUILD, "pipeline_executor_test", 1);
     }
 
     private GenerationPipelineExecutor executor(List<GenerationPipeline> pipelines) {

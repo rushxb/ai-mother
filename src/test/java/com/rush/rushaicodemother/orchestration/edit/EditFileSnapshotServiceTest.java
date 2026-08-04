@@ -55,6 +55,78 @@ class EditFileSnapshotServiceTest {
     }
 
     @Test
+    void uncommittedTransactionShouldRollbackAutomaticallyOnClose() throws Exception {
+        Path tempDir = workspace("transaction-auto-rollback");
+        Path target = tempDir.resolve("src/App.vue");
+        Files.createDirectories(target.getParent());
+        Files.writeString(target, "before", StandardCharsets.UTF_8);
+        GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
+        EditFileSnapshotService snapshotService = service(
+                new PatchExecutionProperties(), fenceGuard);
+
+        try (EditWorkspaceTransaction transaction = snapshotService.beginTransaction(
+                "task-transaction", tempDir,
+                List.of(PatchOperation.modify("src/App.vue", "after")))) {
+            Files.writeString(target, "after", StandardCharsets.UTF_8);
+        }
+
+        assertEquals("before", Files.readString(target, StandardCharsets.UTF_8));
+        verify(fenceGuard).assertCurrent("task-transaction");
+        FileUtil.del(tempDir.toFile());
+    }
+
+    @Test
+    void committedTransactionShouldKeepValidatedChanges() throws Exception {
+        Path tempDir = workspace("transaction-commit");
+        Path target = tempDir.resolve("src/App.vue");
+        Files.createDirectories(target.getParent());
+        Files.writeString(target, "before", StandardCharsets.UTF_8);
+        GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
+        EditFileSnapshotService snapshotService = service(
+                new PatchExecutionProperties(), fenceGuard);
+
+        try (EditWorkspaceTransaction transaction = snapshotService.beginTransaction(
+                "task-commit", tempDir,
+                List.of(PatchOperation.modify("src/App.vue", "after")))) {
+            Files.writeString(target, "after", StandardCharsets.UTF_8);
+            transaction.commit();
+            transaction.commit();
+            assertEquals(EditWorkspaceTransaction.State.COMMITTED, transaction.state());
+        }
+
+        assertEquals("after", Files.readString(target, StandardCharsets.UTF_8));
+        FileUtil.del(tempDir.toFile());
+    }
+
+    @Test
+    void rollbackShouldCoverFilesAddedByLaterRepairRounds() throws Exception {
+        Path tempDir = workspace("transaction-repair-round");
+        Path original = tempDir.resolve("src/App.vue");
+        Files.createDirectories(original.getParent());
+        Files.writeString(original, "before", StandardCharsets.UTF_8);
+        EditFileSnapshotService snapshotService = service(new PatchExecutionProperties());
+
+        try (EditWorkspaceTransaction transaction = snapshotService.beginTransaction(
+                "task-repair", tempDir,
+                List.of(PatchOperation.modify("src/App.vue", "after")))) {
+            transaction.include(List.of(PatchOperation.add("src/Repair.vue", "repair")));
+            Files.writeString(original, "after", StandardCharsets.UTF_8);
+            Files.writeString(tempDir.resolve("src/Repair.vue"), "repair", StandardCharsets.UTF_8);
+
+            EditFileSnapshotService.RestoreResult first = transaction.rollback();
+            EditFileSnapshotService.RestoreResult second = transaction.rollback();
+
+            assertEquals(first, second);
+            assertEquals(EditWorkspaceTransaction.State.ROLLED_BACK, transaction.state());
+            assertThrows(IllegalStateException.class, transaction::commit);
+        }
+
+        assertEquals("before", Files.readString(original, StandardCharsets.UTF_8));
+        assertFalse(Files.exists(tempDir.resolve("src/Repair.vue")));
+        FileUtil.del(tempDir.toFile());
+    }
+
+    @Test
     void restoreFailureMustUseStableReason() throws Exception {
         Path tempDir = workspace("restore-failure");
         Path target = tempDir.resolve("blocked/secret-file.txt");

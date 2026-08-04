@@ -32,7 +32,7 @@ public class CreateHeavyExpertRoutingPolicy implements GenerationRoutingPolicy {
         return Optional.of(GenerationModeDecision.of(
                 GenerationMode.HEAVY_EXPERT,
                 0.84,
-                "First generation request exceeds current CREATE template coverage; use expert mode",
+                "首次生成需求超出当前创建模板覆盖范围，采用专家模式",
                 FallbackPolicy.NONE,
                 ExpectedValidationLevel.EXPERT,
                 GenerationRoutingDecisionCode.CREATE_TEMPLATE_COVERAGE_GAP

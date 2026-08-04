@@ -217,14 +217,14 @@ public class GenerationTaskController {
         }
         String normalized = lastEventId.trim();
         if (!normalized.matches("\\d{1,19}")) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Last-Event-ID must be a non-negative sequence");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Last-Event-ID 必须是非负序号");
         }
         try {
             return Math.max(querySequence, Long.parseLong(normalized));
         } catch (NumberFormatException invalidSequence) {
             throw new BusinessException(
                     ErrorCode.PARAMS_ERROR,
-                    "Last-Event-ID exceeds the supported sequence range",
+                    "Last-Event-ID 超出支持的序号范围",
                     invalidSequence
             );
         }

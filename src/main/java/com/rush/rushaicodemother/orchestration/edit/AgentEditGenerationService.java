@@ -19,6 +19,8 @@ import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexServi
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -63,7 +65,7 @@ public class AgentEditGenerationService {
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         return executeInternal(
                 generateTaskId(), request, modeDecision,
-                generationWorkspaceService.resolve(app, codeGenType), false);
+                generationWorkspaceService.resolve(app, codeGenType), false, null);
     }
 
     /** 使用提交运行时分配的任务标识执行 AGENT_EDIT。 */
@@ -85,7 +87,16 @@ public class AgentEditGenerationService {
                                    GenerationTaskRequest request,
                                    GenerationModeDecision modeDecision,
                                    GenerationWorkspace workspace) {
-        return executeInternal(taskId, request, modeDecision, workspace, true);
+        return execute(taskId, request, modeDecision, workspace, null);
+    }
+
+    /** 针对持久工作进程冻结的执行计划运行 AGENT_EDIT。 */
+    public AgentEditResult execute(String taskId,
+                                   GenerationTaskRequest request,
+                                   GenerationModeDecision modeDecision,
+                                   GenerationWorkspace workspace,
+                                   GenerationExecutionPlan executionPlan) {
+        return executeInternal(taskId, request, modeDecision, workspace, true, executionPlan);
     }
 
     /** 执行内部处理流程。 */
@@ -93,13 +104,18 @@ public class AgentEditGenerationService {
                                             GenerationTaskRequest request,
                                             GenerationModeDecision modeDecision,
                                             GenerationWorkspace workspace,
-                                            boolean managedModelCalls) {
+                                            boolean managedModelCalls,
+                                            GenerationExecutionPlan executionPlan) {
         requireTaskId(taskId);
         App app = request.app();
         User loginUser = request.loginUser();
         String userMessage = request.message();
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         requireWorkspace(app, codeGenType, workspace);
+        GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.resolve(
+                executionPlan,
+                modeDecision == null ? null : modeDecision.expectedValidationLevel()
+        );
         Instant startedAt = Instant.now();
 
         performanceMonitorService.startTask(
@@ -134,61 +150,67 @@ public class AgentEditGenerationService {
             }
             EditChangePlan changePlan = plan(request, taskId, readResult, understanding, codeGenType, editResult, patchOperations);
             Path projectRoot = workspace.canonicalRootPath();
-            EditFileSnapshotService.EditFileSnapshot snapshot = editFileSnapshotService.capture(projectRoot, patchOperations);
-
-            ApplyAndVerifyOutcome outcome = applyAndVerify(
-                    request, app, loginUser, taskId, workspace, projectRoot,
-                    changePlan, patchOperations, userMessage, 0
-            );
-            int repairRounds = 0;
-            if (!outcome.success()) {
-                AgentEditRepairService.RepairAttempt repairAttempt = managedModelCalls
-                        ? repairService.repair(
-                        taskId, userMessage, projectContext,
-                        outcome.validationResult(), outcome.applyResult())
-                        : repairService.repair(
-                        userMessage, projectContext,
-                        outcome.validationResult(), outcome.applyResult());
-                if (!repairAttempt.patchOperations().isEmpty()) {
-                    repairRounds = 1;
-                    editFileSnapshotService.captureMissing(snapshot, repairAttempt.patchOperations());
-                    EditChangePlan repairPlan = plan(
-                            request, taskId, readResult, understanding, codeGenType,
-                            repairAttempt.editResult(), repairAttempt.patchOperations()
-                    );
-                    outcome = applyAndVerify(
-                            request, app, loginUser, taskId, workspace, projectRoot,
-                            repairPlan, repairAttempt.patchOperations(), userMessage, repairRounds
-                    );
-                    patchOperations = repairAttempt.patchOperations();
-                    editResult = repairAttempt.editResult();
-                    changePlan = repairPlan;
+            try (EditWorkspaceTransaction workspaceTransaction = editFileSnapshotService.beginTransaction(
+                    taskId, projectRoot, patchOperations)) {
+                ApplyAndVerifyOutcome outcome = applyAndVerify(
+                        request, app, loginUser, taskId, workspace, projectRoot,
+                        changePlan, patchOperations, userMessage, verificationPolicy, 0
+                );
+                int repairRounds = 0;
+                if (!outcome.success()) {
+                    AgentEditRepairService.RepairAttempt repairAttempt = managedModelCalls
+                            ? repairService.repair(
+                            taskId, userMessage, projectContext,
+                            outcome.validationResult(), outcome.applyResult())
+                            : repairService.repair(
+                            userMessage, projectContext,
+                            outcome.validationResult(), outcome.applyResult());
+                    if (!repairAttempt.patchOperations().isEmpty()) {
+                        repairRounds = 1;
+                        workspaceTransaction.include(repairAttempt.patchOperations());
+                        EditChangePlan repairPlan = plan(
+                                request, taskId, readResult, understanding, codeGenType,
+                                repairAttempt.editResult(), repairAttempt.patchOperations()
+                        );
+                        outcome = applyAndVerify(
+                                request, app, loginUser, taskId, workspace, projectRoot,
+                                repairPlan, repairAttempt.patchOperations(), userMessage,
+                                verificationPolicy, repairRounds
+                        );
+                        patchOperations = repairAttempt.patchOperations();
+                        editResult = repairAttempt.editResult();
+                        changePlan = repairPlan;
+                    }
                 }
-            }
-            performanceMonitorService.recordRuntimeTelemetry(taskId, Map.of(
-                    "modelName", "routing_chat_model",
-                    "toolCallCount", 0,
-                    "toolDurationMs", 0,
-                    "repairRounds", repairRounds
-            ));
-            if (!outcome.success()) {
-            EditFileSnapshotService.RestoreResult restoreResult =
-                    editFileSnapshotService.restore(taskId, snapshot);
-                generationEventPublisher.publish(request, GenerationEventType.EDIT_ROLLBACK, "AGENT_EDIT 验证失败，已尝试回滚快照", Map.of(
-                        "taskId", taskId,
-                        "status", restoreResult.status(),
-                        "restoredFiles", restoreResult.restoredFiles(),
-                        "failedFiles", restoreResult.failedFiles()
+                performanceMonitorService.recordRuntimeTelemetry(taskId, Map.of(
+                        "modelName", "routing_chat_model",
+                        "toolCallCount", 0,
+                        "toolDurationMs", 0,
+                        "repairRounds", repairRounds
                 ));
-                return fail(request, app, loginUser, taskId, buildFailureSummary(outcome), repairRounds, restoreResult);
-            }
+                if (!outcome.success()) {
+                    EditFileSnapshotService.RestoreResult restoreResult = workspaceTransaction.rollback();
+                    generationEventPublisher.publish(request, GenerationEventType.EDIT_ROLLBACK,
+                            "AGENT_EDIT 验证未通过，已回滚本次编辑", Map.of(
+                                    "taskId", taskId,
+                                    "status", restoreResult.status(),
+                                    "restoredFiles", restoreResult.restoredFiles(),
+                                    "failedFiles", restoreResult.failedFiles()
+                            ));
+                    return fail(request, app, loginUser, taskId,
+                            buildFailureSummary(outcome), repairRounds, restoreResult);
+                }
 
-            List<String> changedFiles = patchOperations.stream().map(PatchOperation::relativePath).toList();
-            workspaceSemanticIndexService.refreshFilesIndex(projectRoot, changedFiles);
-            editStatePersistenceService.recordEditResult(app.getId(), taskId, patchOperations, true);
-            String summary = buildSuccessSummary(editResult, changePlan, outcome);
-            chatHistoryService.addChatMessage(app.getId(), summary, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-            return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, summary, changedFiles, "success", repairRounds);
+                List<String> changedFiles = patchOperations.stream().map(PatchOperation::relativePath).toList();
+                workspaceSemanticIndexService.refreshFilesIndex(projectRoot, changedFiles);
+                editStatePersistenceService.recordEditResult(app.getId(), taskId, patchOperations, true);
+                String summary = buildSuccessSummary(editResult, changePlan, outcome);
+                chatHistoryService.addChatMessage(
+                        app.getId(), summary, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                workspaceTransaction.commit();
+                return new AgentEditResult(
+                        taskId, GenerationRoute.AGENT_EDIT, summary, changedFiles, "success", repairRounds);
+            }
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;
         } catch (Exception e) {
@@ -324,6 +346,7 @@ public class AgentEditGenerationService {
                                                  EditChangePlan changePlan,
                                                  List<PatchOperation> patchOperations,
                                                  String userMessage,
+                                                 GenerationVerificationPolicy verificationPolicy,
                                                  int repairRound) {
         Instant editStartedAt = Instant.now();
         PatchApplyResult applyResult = patchService.apply(app.getId(), taskId, projectRoot, changePlan, patchOperations);
@@ -348,7 +371,14 @@ public class AgentEditGenerationService {
 
         Instant verifyStartedAt = Instant.now();
         BackgroundValidationService.ValidationResult validationResult = verificationService.verify(
-                taskId, app.getId(), loginUser, workspace, patchOperations, changePlan, userMessage
+                taskId,
+                app.getId(),
+                loginUser,
+                workspace,
+                patchOperations,
+                changePlan,
+                userMessage,
+                verificationPolicy
         );
         boolean valid = validationResult != null && validationResult.isSuccess();
         generationEventPublisher.publish(request, GenerationEventType.AGENT_EDIT_VERIFY, "AGENT_EDIT Verify 阶段完成", Map.of(

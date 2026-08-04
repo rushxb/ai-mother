@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.core.handler.GenerationPublicEventSanitizer;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
@@ -39,6 +40,7 @@ public final class GenerationSession {
     private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
     private final AtomicReference<GenerationCancellationHandle> cancellationHandleRef = new AtomicReference<>();
     private final AtomicReference<GenerationTaskRequest> taskRequestRef = new AtomicReference<>();
+    private final AtomicReference<GenerationExecutionPlan> executionPlanRef = new AtomicReference<>();
     private final AtomicReference<String> routeRef = new AtomicReference<>();
     private final AtomicReference<GenerationExecutionWorkspace> executionWorkspaceRef = new AtomicReference<>();
     private Long appId;
@@ -134,6 +136,24 @@ public final class GenerationSession {
         return executionWorkspaceRef.get();
     }
 
+    /** 绑定任务提交时冻结的执行计划；同一会话不允许切换为另一份计划。 */
+    public void bindExecutionPlan(GenerationExecutionPlan executionPlan) {
+        if (executionPlan == null) {
+            return;
+        }
+        GenerationExecutionPlan existing = executionPlanRef.get();
+        if (existing == null) {
+            executionPlanRef.compareAndSet(null, executionPlan);
+            existing = executionPlanRef.get();
+        }
+        if (existing != executionPlan && !existing.equals(executionPlan)) {
+            throw new IllegalStateException("生成会话执行计划已绑定，不能重复替换");
+        }
+    }
+
+    public GenerationExecutionPlan executionPlan() {
+        return executionPlanRef.get();
+    }
     /** 记录当前选择的路线；回退可以在保留任务标识的同时更新它。 */
     public void recordRoute(String route) {
         if (route == null || route.isBlank()) {

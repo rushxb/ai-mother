@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
+import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
@@ -10,10 +11,13 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlanner;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
@@ -22,6 +26,7 @@ import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceCo
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -34,10 +39,12 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Set;
 
+import static com.rush.rushaicodemother.testing.GenerationReleaseSmoke.TAG;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
@@ -56,6 +63,7 @@ class GenerationTaskSubmissionServiceTest {
     private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
     private GenerationEventStream eventStream;
     private GenerationSlaPolicy generationSlaPolicy;
+    private GenerationExecutionPlanner executionPlanner;
     private GenerationTraceContextBridge traceContextBridge;
 
     @BeforeEach
@@ -65,6 +73,7 @@ class GenerationTaskSubmissionServiceTest {
         runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
         eventStream = mock(GenerationEventStream.class);
         traceContextBridge = mock(GenerationTraceContextBridge.class);
+        executionPlanner = mock(GenerationExecutionPlanner.class);
         when(admissionService.admit(any(GenerationTaskCommand.class), any(GenerationTaskIdempotency.class)))
                 .thenAnswer(invocation -> {
                     GenerationTaskCommand command = invocation.getArgument(0);
@@ -84,6 +93,16 @@ class GenerationTaskSubmissionServiceTest {
                 runtimeProperties.toLimits().budgets(),
                 "test"
         );
+        when(executionPlanner.plan(any(GenerationPipelineRequest.class)))
+                .thenAnswer(invocation -> plan(invocation.getArgument(0)));
+    }
+
+    @Test
+    void invalidSubmissionInputMustUseChineseMessage() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> service("task-invalid").submit(null));
+
+        assertTrue(exception.getMessage().matches(".*[\\u4e00-\\u9fff].*"));
     }
 
     @Test
@@ -92,7 +111,8 @@ class GenerationTaskSubmissionServiceTest {
         when(eventStream.stream("task-submit-1")).thenReturn((Flux) expectedStream);
         GenerationTaskSubmissionService service = service("task-submit-1");
 
-        GenerationTaskResult result = service.submit(request(1L));
+        GenerationPipelineRequest request = request(1L);
+        GenerationTaskResult result = service.submit(request);
 
         ArgumentCaptor<GenerationTaskCommand> commandCaptor =
                 ArgumentCaptor.forClass(GenerationTaskCommand.class);
@@ -114,6 +134,8 @@ class GenerationTaskSubmissionServiceTest {
         assertEquals("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
                 command.traceContext().traceparent());
         assertEquals("lightweight_edit", command.route());
+        assertEquals(command.executionPlan().sla(), command.slaEnvelope());
+        verify(executionPlanner).plan(request);
         assertEquals("task-submit-1", result.taskId());
         assertEquals(GenerationTaskStatus.QUEUED, result.submission().status());
         assertEquals(NOW, result.submission().submittedAt());
@@ -122,6 +144,7 @@ class GenerationTaskSubmissionServiceTest {
     }
 
     @Test
+    @Tag(TAG)
     void idempotentReplayMustReturnOriginalTaskWithoutDispatchOrCompensation() {
         GenerationTaskIdempotency idempotency =
                 new GenerationTaskIdempotency("a".repeat(64), "b".repeat(64));
@@ -193,7 +216,7 @@ class GenerationTaskSubmissionServiceTest {
                                                     GenerationEventPublisher recentPublisher) {
         return new GenerationTaskSubmissionService(
                 () -> taskId,
-                generationSlaPolicy,
+                executionPlanner,
                 dispatcher,
                 admissionService,
                 runtimeLifecycleService,
@@ -203,6 +226,30 @@ class GenerationTaskSubmissionServiceTest {
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
+    private GenerationExecutionPlan plan(GenerationPipelineRequest request) {
+        GenerationSlaEnvelope sla = generationSlaPolicy.resolve(
+                request.modeDecision(), request.codeGenType());
+        GenerationPerformanceProfile modelProfile = GenerationPerformanceProfile.balanced();
+        return new GenerationExecutionPlan(
+                request.modeDecision(),
+                modelProfile,
+                new GenerationExecutionPlan.ContextBudget(
+                        2_000, 1_500, 800, 64, 6, "gpt-4o", 1.15),
+                new GenerationExecutionPlan.ToolPolicy(
+                        modelProfile.maxToolInvocations(),
+                        sla.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
+                        true,
+                        true),
+                GenerationExecutionPlan.ValidationGraph.forLevel(
+                        request.modeDecision().expectedValidationLevel()),
+                new GenerationExecutionPlan.RepairBudget(
+                        sla.toLimits().limit(GenerationBudgetKind.REPAIR_ROUND), true),
+                new GenerationExecutionPlan.CommitPolicy(true, true),
+                new GenerationExecutionPlan.PreviewPolicy(
+                        sla.firstPreviewTimeout(), sla.firstPreviewCompletionReserve()),
+                sla
+        );
+    }
     private GenerationPipelineRequest request(Long appId) {
         App app = new App();
         app.setId(appId);

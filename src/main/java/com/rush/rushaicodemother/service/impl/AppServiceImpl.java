@@ -17,11 +17,12 @@ import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
-import com.rush.rushaicodemother.orchestration.event.GenerationEvent;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.experience.GenerationExperienceEventMapper;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotencyService;
@@ -35,7 +36,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +51,7 @@ public class AppServiceImpl implements AppService {
     private final PromptOptimizerServiceFactory promptOptimizerServiceFactory;
     private final GenerationTaskOrchestrator generationTaskOrchestrator;
     private final GenerationEventPublisher generationEventPublisher;
+    private final GenerationExperienceEventMapper generationExperienceEventMapper;
     private final GenerationTaskQueryService generationTaskQueryService;
     private final GenerationTaskIdempotencyService generationTaskIdempotencyService;
     private final AppDatabaseResourceService appDatabaseResourceService;
@@ -95,9 +96,11 @@ public class AppServiceImpl implements AppService {
         GenerationTaskIdempotency idempotency = generationTaskIdempotencyService.resolve(
                 idempotencyKey, appId, message);
         App app = getGenerationApp(appId, loginUser);
-        enableDatabaseForGenerationIfNeeded(app, message);
+        GenerationResourceRequirements resourceRequirements =
+                GenerationResourceRequirements.ofDatabaseRequirement(
+                        appDatabaseResourceService.shouldEnableForPrompt(message));
         return generationTaskOrchestrator.start(
-                new GenerationTaskRequest(app, message, loginUser), idempotency);
+                new GenerationTaskRequest(app, message, loginUser, resourceRequirements), idempotency);
     }
 
     private App getGenerationApp(Long appId, User loginUser) {
@@ -112,12 +115,6 @@ public class AppServiceImpl implements AppService {
         return app;
     }
 
-    private void enableDatabaseForGenerationIfNeeded(App app, String message) {
-        if (appDatabaseResourceService.shouldEnableForPrompt(message)) {
-            appDatabaseResourceService.enableDatabase(app);
-        }
-    }
-
     /**
  * 获取并返回生成流。
  *
@@ -129,20 +126,10 @@ public class AppServiceImpl implements AppService {
     public Flux<GenerationStreamEvent> getGenerationStream(Long appId, User loginUser) {
         App app = getOwnedApp(appId, loginUser);
         Flux<GenerationStreamEvent> recentStructuredEvents = Flux.fromIterable(generationEventPublisher.recent(app.getId()))
-                .map(this::toGenerationStreamEvent);
+                .handle((event, sink) -> generationExperienceEventMapper.map(event).ifPresent(sink::next));
         return recentStructuredEvents.concatWith(
                 generationTaskQueryService.eventsForLatestNonTerminalAppTask(app.getId(), loginUser)
         );
-    }
-
-    private GenerationStreamEvent toGenerationStreamEvent(GenerationEvent event) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        if (event.data() != null) {
-            data.putAll(event.data());
-        }
-        data.put("eventType", event.type() == null ? "" : event.type().getValue());
-        data.put("occurredAt", event.occurredAt() == null ? "" : event.occurredAt().toString());
-        return GenerationStreamEvent.agentEvent(StrUtil.blankToDefault(event.message(), ""), data);
     }
 
     /**

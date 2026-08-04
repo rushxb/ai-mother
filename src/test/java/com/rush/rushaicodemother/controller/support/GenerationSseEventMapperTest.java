@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.controller.support;
 import com.rush.rushaicodemother.config.GenerationSseProperties;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
+import com.rush.rushaicodemother.orchestration.experience.GenerationExperienceEventMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
@@ -61,6 +62,48 @@ class GenerationSseEventMapperTest {
         assertEquals(GenerationStreamEvent.AI_DELTA, mapped.get(1).event());
         assertEquals("14", mapped.getLast().id());
         assertEquals("done", mapped.getLast().event());
+    }
+
+    @Test
+    void sequencedInternalAgentEventsMustUseStableProgressContractAndPreserveSequenceGapsAfterDeduplication() {
+        List<ServerSentEvent<String>> mapped = mapper.mapSequenced(Flux.just(
+                        SequencedGenerationEvent.event(20L, GenerationStreamEvent.agentEvent("", Map.of(
+                                "agent", "Planner",
+                                "stage", "planning",
+                                "status", "running",
+                                "reason", "private-route"
+                        ))),
+                        SequencedGenerationEvent.event(21L, GenerationStreamEvent.aiDelta("visible")),
+                        SequencedGenerationEvent.event(22L, GenerationStreamEvent.agentEvent("", Map.of(
+                                "agent", "Context",
+                                "stage", "planning",
+                                "status", "done"
+                        ))),
+                        SequencedGenerationEvent.event(23L, GenerationStreamEvent.agentEvent("", Map.of(
+                                "agent", "Code",
+                                "stage", "codegen",
+                                "status", "running"
+                        ))),
+                        SequencedGenerationEvent.complete(24L)
+                ))
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        assertNotNull(mapped);
+        assertEquals(4, mapped.size());
+        assertEquals(List.of("20", "21", "23", "24"), mapped.stream()
+                .map(ServerSentEvent::id)
+                .toList());
+        assertEquals(GenerationStreamEvent.GENERATION_STAGE, mapped.getFirst().event());
+        assertTrue(mapped.getFirst().data().contains("正在确认修改范围"));
+        assertEquals(GenerationStreamEvent.AI_DELTA, mapped.get(1).event());
+        assertEquals(GenerationStreamEvent.GENERATION_STAGE, mapped.get(2).event());
+        assertTrue(mapped.get(2).data().contains("正在生成或修改代码"));
+        assertEquals("done", mapped.getLast().event());
+        assertTrue(mapped.stream().noneMatch(event -> event.data() != null
+                && (event.data().contains("Planner")
+                || event.data().contains("Context")
+                || event.data().contains("private-route"))));
     }
 
     @Test
@@ -127,9 +170,73 @@ class GenerationSseEventMapperTest {
         assertEquals("done", mapped.getLast().event());
     }
 
+
+    @Test
+    void internalAgentEventsMustBecomeDeduplicatedUserProgressWithoutLeakingAgentDetails() {
+        List<ServerSentEvent<String>> mapped = mapper.map(Flux.just(
+                        GenerationStreamEvent.agentEvent("", Map.of(
+                                "agent", "Planner",
+                                "stage", "planning",
+                                "status", "running",
+                                "reason", "internal-route"
+                        )),
+                        GenerationStreamEvent.aiDelta("visible"),
+                        GenerationStreamEvent.agentEvent("", Map.of(
+                                "agent", "Context",
+                                "stage", "planning",
+                                "status", "done",
+                                "node", "context"
+                        )),
+                        GenerationStreamEvent.agentEvent("", Map.of(
+                                "agent", "Code",
+                                "stage", "codegen",
+                                "status", "running"
+                        ))
+                ))
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        assertNotNull(mapped);
+        List<ServerSentEvent<String>> progressEvents = mapped.stream()
+                .filter(event -> GenerationStreamEvent.GENERATION_STAGE.equals(event.event()))
+                .toList();
+        assertEquals(2, progressEvents.size());
+        assertTrue(progressEvents.getFirst().data().contains("正在确认修改范围"));
+        assertTrue(progressEvents.getLast().data().contains("正在生成或修改代码"));
+        assertTrue(mapped.stream().noneMatch(event -> event.data() != null
+                && (event.data().contains("Planner")
+                || event.data().contains("Context")
+                || event.data().contains("internal-route"))));
+    }
+
+    @Test
+    void approvalEventMustRetainDecisionIdentityButUsePublicChineseLabels() {
+        List<ServerSentEvent<String>> mapped = mapper.map(Flux.just(
+                        GenerationStreamEvent.agentEvent("", Map.of(
+                                "agent", "PermissionPolicy",
+                                "stage", "approval",
+                                "status", "approval_required",
+                                "taskId", "task-1",
+                                "action", "delete_file",
+                                "approvalId", "approval-1",
+                                "reason", "private-policy"
+                        ))
+                ))
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        assertNotNull(mapped);
+        String payload = mapped.getFirst().data();
+        assertEquals(GenerationStreamEvent.AGENT_EVENT, mapped.getFirst().event());
+        assertTrue(payload.contains("操作确认"));
+        assertTrue(payload.contains("需要你确认"));
+        assertTrue(payload.contains("approval-1"));
+        assertFalse(payload.contains("PermissionPolicy"));
+        assertFalse(payload.contains("private-policy"));
+    }
     private GenerationSseEventMapper mapperWithHeartbeat(Duration heartbeatInterval) {
         GenerationSseProperties properties = new GenerationSseProperties();
         properties.setHeartbeatInterval(heartbeatInterval);
-        return new GenerationSseEventMapper(properties);
+        return new GenerationSseEventMapper(properties, new GenerationExperienceEventMapper());
     }
 }

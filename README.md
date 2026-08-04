@@ -56,6 +56,7 @@
 ### AI 应用生成
 
 - 通过自然语言描述创建应用，并使用 SSE 实时返回生成过程
+- SSE 主进度统一为理解、规划、实现、可预览、校验、待确认和已交付七个用户阶段，不暴露内部 Agent 和路由细节
 - 支持原生 HTML、原生多文件、Vue 工程、后端工程和全栈工程模式
 - 根据需求复杂度选择或升级生成模式，避免后续编辑导致工程能力降级
 - 支持提示词优化、连续对话修改、停止生成和历史记录查询
@@ -87,6 +88,29 @@
 - Maven Enforcer 约束 Java 版本与依赖边界
 - Vue/Go 等内置项目模板和模板依赖预热
 - 单元测试、回归测试和外部依赖测试分组
+
+### 用户进度公共契约
+
+生成链路的公共 SSE 边界由 `orchestration/experience` 模块统一映射。客户端主进度只依赖 `generation_stage` v1 的有限阶段，内部 `agent_event` 仅供诊断使用；审批场景仅保留完成用户决策所需的最小字段。
+
+```text
+understanding → planning → implementing → preview_ready → verifying
+                                      └→ awaiting_approval
+verifying → delivered
+```
+
+后端在映射后继续执行公共字段脱敏和单订阅阶段去重，前端只将 `ai_delta` 追加到 AI 回答正文，从而避免工程节点、Agent 名称和内部原因干扰用户。
+
+### 生成完成证据门禁
+
+生成任务进入成功终态前统一执行完成证据校验。同步流水线、Heavy 最终化和 Agent Runtime 均不能仅凭流程返回或模型停止调用工具判定成功，而必须满足：
+
+- 已形成可机器校验的意图覆盖证据；
+- 已确认有效工作区变更，或提供带非空原因的结构化“无需修改”证明；
+- 已完成冻结执行计划要求的 FAST、BUILD 或 EXPERT 验证步骤；
+- 会话未取消、未超时，执行上下文仍可继续，且持久任务栅栏与租约仍属于当前执行。
+
+证据不足时链路失败关闭，不发布工作区、不提交成功终态、不按成功计费，也不发送完成事件。内部证据、验证步骤和租约诊断仅保留在服务端制品、日志与测试中；用户侧仍只看到 `verifying`、`delivered` 等稳定公共阶段。
 
 ## 技术栈
 
@@ -318,6 +342,9 @@ pnpm dev
 # 运行默认测试集
 .\mvnw.cmd test
 
+# 运行生成主链路发布冒烟
+.\mvnw.cmd -Pgeneration-release-smoke test
+
 # 编译
 .\mvnw.cmd -DskipTests compile
 
@@ -331,7 +358,7 @@ pnpm dev
 java -jar target/rush-ai-code-mother-0.0.1-SNAPSHOT.jar
 ```
 
-默认测试会排除标记为 `external` 和 `integration` 的测试，避免本地测试意外访问真实第三方服务。Redis 持久化契约可使用隔离实例显式验证：
+生成主链路发布冒烟是无外部模型、Redis、MySQL 依赖的进程内门禁，固定覆盖创建、轻量编辑、复杂编辑、取消、审批、幂等和 SSE 续传七类场景。默认测试仍会运行这些用例，并额外排除标记为 `external` 和 `integration` 的测试，避免本地测试意外访问真实第三方服务。Redis 持久化契约可使用隔离实例显式验证：
 
 ```powershell
 docker run --rm -d --name ai-mother-redis-it -p 56379:6379 redis:7-alpine
@@ -475,6 +502,7 @@ pnpm preview
 | `GENERATION_BENCHMARK_MAXIMUM_P99_FIRST_PREVIEW_LATENCY` | `5m` | 全数据集首预览 p99 尾延迟上限 |
 | `AI_LOG_REQUESTS` | `false` | 是否记录生成模型请求 |
 | `AI_LOG_RESPONSES` | `false` | 是否记录生成模型响应 |
+| `GENERATION_ROUTING_SHADOW_ENABLED` | `false` | 开启后仅执行结构化意图 Challenger 并记录对比指标，不改变主路由；完成 Benchmark 验证前不得开启生产切流。 |
 | `AI_LOCAL_FIRST_HEAVY_ROUTING_ENABLED` | `true` | HEAVY 目标类型是否优先使用高置信本地规则；关闭后恢复为所有 HEAVY 请求调用类型路由模型 |
 | `AI_FIRST_TOKEN_HEDGE_ENABLED` | `false` | 是否为任务级限时流式请求启用首 Token 对冲 |
 | `AI_FIRST_TOKEN_HEDGE_DELAY` | `3s` | 主候选无输出时启动单个影子候选前的等待时间，范围 `250ms` 至 `30s` |

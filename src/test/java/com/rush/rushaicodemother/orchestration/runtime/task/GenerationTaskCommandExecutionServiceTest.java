@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
+import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
@@ -11,14 +12,17 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionFactory;
 import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionCode;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
@@ -40,6 +44,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -64,7 +69,9 @@ class GenerationTaskCommandExecutionServiceTest {
     void scheduledWorkerRunnableMustBeTheTraceWrappedCommand() {
         String taskId = "task-traced-worker";
         Instant submittedAt = Instant.now().minusSeconds(1);
-        Instant deadlineAt = submittedAt.plusSeconds(600);
+        GenerationSlaEnvelope sla = executionPlanSla();
+        Instant deadlineAt = sla.totalDeadline(submittedAt);
+        GenerationExecutionPlan executionPlan = executionPlan(sla);
         GenerationTraceContext traceContext = new GenerationTraceContext(
                 "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", null);
         GenerationTaskCommand command = new GenerationTaskCommand(
@@ -82,16 +89,21 @@ class GenerationTaskCommandExecutionServiceTest {
                 ExpectedValidationLevel.BUILD,
                 "",
                 GenerationRoutingDecisionCode.UNKNOWN,
-                null,
+                sla,
                 traceContext,
                 submittedAt,
-                deadlineAt
+                deadlineAt,
+                com.rush.rushaicodemother.orchestration.GenerationResourceRequirements.none(),
+                com.rush.rushaicodemother.orchestration.intent.IntentProfile.unknown(),
+                executionPlan
         );
 
         DurableGenerationTaskRepository repository = mock(DurableGenerationTaskRepository.class);
         AppPersistenceService appPersistenceService = mock(AppPersistenceService.class);
         UserPersistenceService userPersistenceService = mock(UserPersistenceService.class);
         TenantAuthorizationService tenantAuthorizationService = mock(TenantAuthorizationService.class);
+        GenerationTaskResourceProvisioningService resourceProvisioningService =
+                mock(GenerationTaskResourceProvisioningService.class);
         GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
         GenerationExecutionContextService executionContextService = mock(GenerationExecutionContextService.class);
         GenerationSessionFactory sessionFactory = mock(GenerationSessionFactory.class);
@@ -154,6 +166,7 @@ class GenerationTaskCommandExecutionServiceTest {
                 appPersistenceService,
                 userPersistenceService,
                 tenantAuthorizationService,
+                resourceProvisioningService,
                 workspaceService,
                 executionContextService,
                 runtimeProperties,
@@ -176,6 +189,7 @@ class GenerationTaskCommandExecutionServiceTest {
         assertEquals(taskId, executionCaptor.getValue().taskId());
         assertEquals(fence, executionCaptor.getValue().executionFence());
         assertSame(wrappedRunnable, runnableCaptor.getValue());
+        assertSame(executionPlan, session.executionPlan());
         verify(performanceMonitorService).startTask(
                 taskId,
                 command.appId(),
@@ -242,6 +256,8 @@ class GenerationTaskCommandExecutionServiceTest {
         AppPersistenceService appPersistenceService = mock(AppPersistenceService.class);
         UserPersistenceService userPersistenceService = mock(UserPersistenceService.class);
         TenantAuthorizationService tenantAuthorizationService = mock(TenantAuthorizationService.class);
+        GenerationTaskResourceProvisioningService resourceProvisioningService =
+                mock(GenerationTaskResourceProvisioningService.class);
         GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
         GenerationExecutionContextService executionContextService = mock(GenerationExecutionContextService.class);
         GenerationSessionFactory sessionFactory = mock(GenerationSessionFactory.class);
@@ -278,6 +294,7 @@ class GenerationTaskCommandExecutionServiceTest {
                 appPersistenceService,
                 userPersistenceService,
                 tenantAuthorizationService,
+                resourceProvisioningService,
                 workspaceService,
                 executionContextService,
                 new GenerationRuntimeProperties(),
@@ -325,6 +342,8 @@ class GenerationTaskCommandExecutionServiceTest {
         AppPersistenceService appPersistenceService = mock(AppPersistenceService.class);
         UserPersistenceService userPersistenceService = mock(UserPersistenceService.class);
         TenantAuthorizationService tenantAuthorizationService = mock(TenantAuthorizationService.class);
+        GenerationTaskResourceProvisioningService resourceProvisioningService =
+                mock(GenerationTaskResourceProvisioningService.class);
         GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
         GenerationExecutionWorkspaceService executionWorkspaceService =
                 mock(GenerationExecutionWorkspaceService.class);
@@ -391,6 +410,7 @@ class GenerationTaskCommandExecutionServiceTest {
                 appPersistenceService,
                 userPersistenceService,
                 tenantAuthorizationService,
+                resourceProvisioningService,
                 workspaceService,
                 executionWorkspaceService,
                 workspaceExecutionScope,
@@ -408,7 +428,12 @@ class GenerationTaskCommandExecutionServiceTest {
 
         assertEquals(GenerationTaskDispatchResult.SCHEDULED, service.schedule(taskId, null));
         assertTrue(toolContextService.getContext(command.appId()).isEmpty());
-        verify(executionWorkspaceService).register(fence, command.appId(), command.codeGenType());
+        org.mockito.InOrder resourceOrder = inOrder(
+                resourceProvisioningService, executionWorkspaceService);
+        resourceOrder.verify(resourceProvisioningService).provision(
+                eq(command), eq(app), any(GenerationExecutionContext.class));
+        resourceOrder.verify(executionWorkspaceService).register(
+                fence, command.appId(), command.codeGenType());
         verify(workspaceSpan).close(eq("success"), any(String.class));
         verify(taskExecutor).execute(any(GenerationTaskExecution.class), any(Runnable.class));
         org.mockito.InOrder performanceOrder = inOrder(performanceMonitorService);
@@ -428,6 +453,54 @@ class GenerationTaskCommandExecutionServiceTest {
         );
     }
 
+    private GenerationExecutionPlan executionPlan(GenerationSlaEnvelope sla) {
+        com.rush.rushaicodemother.orchestration.router.GenerationModeDecision decision =
+                new com.rush.rushaicodemother.orchestration.router.GenerationModeDecision(
+                        GenerationMode.AGENT_EDIT,
+                        0.9,
+                        "test",
+                        FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
+                        ExpectedValidationLevel.BUILD,
+                        "",
+                        GenerationRoutingDecisionCode.UNKNOWN);
+        GenerationPerformanceProfile profile = GenerationPerformanceProfile.balanced();
+        return new GenerationExecutionPlan(
+                decision,
+                profile,
+                new GenerationExecutionPlan.ContextBudget(
+                        2_000, 1_500, 800, 64, 6, "gpt-4o", 1.15),
+                new GenerationExecutionPlan.ToolPolicy(
+                        profile.maxToolInvocations(),
+                        sla.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
+                        true,
+                        true),
+                GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.BUILD),
+                new GenerationExecutionPlan.RepairBudget(
+                        sla.toLimits().limit(GenerationBudgetKind.REPAIR_ROUND), true),
+                new GenerationExecutionPlan.CommitPolicy(true, true),
+                new GenerationExecutionPlan.PreviewPolicy(
+                        sla.firstPreviewTimeout(), sla.firstPreviewCompletionReserve()),
+                sla
+        );
+    }
+
+    private GenerationSlaEnvelope executionPlanSla() {
+        EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
+        for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
+            budgets.put(kind, 2);
+        }
+        budgets.put(GenerationBudgetKind.TOOL_WRITE, 8);
+        return new GenerationSlaEnvelope(
+                "test",
+                Duration.ofMinutes(1),
+                Duration.ofSeconds(15),
+                Duration.ofMinutes(10),
+                Duration.ofMinutes(2),
+                Duration.ofMillis(500),
+                Map.copyOf(budgets),
+                "测试执行计划恢复"
+        );
+    }
     private DurableGenerationTaskRecord taskRecord(GenerationTaskCommand command) {
         return new DurableGenerationTaskRecord(
                 command.taskId(),

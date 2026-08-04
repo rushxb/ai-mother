@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.model.vo.GenerationTaskStatusVO;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
+import com.rush.rushaicodemother.orchestration.experience.GenerationExperienceEventMapper;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
@@ -24,6 +25,7 @@ import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.feedback.GenerationFeedbackService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.rush.rushaicodemother.testing.GenerationReleaseSmoke.TAG;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -76,7 +79,7 @@ class GenerationTaskControllerTest {
         GenerationSseProperties sseProperties = new GenerationSseProperties();
         controller = new GenerationTaskController(
                 appService, userService, queryService, controlService,
-                new GenerationSseEventMapper(sseProperties), toolApprovalService,
+                new GenerationSseEventMapper(sseProperties, new GenerationExperienceEventMapper()), toolApprovalService,
                 toolContinuationScheduler, generationFeedbackService);
         actor = User.builder().id(7L).build();
         when(userService.getLoginUser(any(HttpServletRequest.class))).thenReturn(actor);
@@ -121,6 +124,7 @@ class GenerationTaskControllerTest {
     }
 
     @Test
+    @Tag(TAG)
     void destructiveToolApprovalMustBeTaskScopedAndOwnershipChecked() throws Exception {
         when(queryService.get("task-api-1", actor)).thenReturn(snapshot("running", false));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
@@ -166,6 +170,7 @@ class GenerationTaskControllerTest {
     }
 
     @Test
+    @Tag(TAG)
     void getAndCancelMustDelegateThroughTaskScopedAuthorizationServices() throws Exception {
         GenerationTaskSnapshot running = snapshot("running", false);
         GenerationTaskSnapshot cancelling = snapshot("cancelling", true);
@@ -199,6 +204,7 @@ class GenerationTaskControllerTest {
     }
 
     @Test
+    @Tag(TAG)
     void eventsMustResumeFromNewestCursorAndExposeSequencedSseIds() {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(userService.getLoginUser(request)).thenReturn(actor);

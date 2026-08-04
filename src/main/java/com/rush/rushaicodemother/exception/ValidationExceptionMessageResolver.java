@@ -22,6 +22,18 @@ import java.util.Comparator;
 @Component
 public class ValidationExceptionMessageResolver {
 
+    private static final String UNKNOWN_PARAMETER = "未知参数";
+    private static final String ARGUMENT_PARAMETER = "参数";
+    private static final String INVALID_VALUE_REASON = "参数值无效";
+    private static final String TYPE_MISMATCH_REASON = "类型不匹配";
+    private static final String REQUIRED_REASON = "不能为空";
+
+    private final UserFacingMessageResolver userFacingMessageResolver;
+
+    public ValidationExceptionMessageResolver(UserFacingMessageResolver userFacingMessageResolver) {
+        this.userFacingMessageResolver = userFacingMessageResolver;
+    }
+
     /**
  * 根据当前上下文解析校验异常消息。
  *
@@ -75,8 +87,8 @@ public class ValidationExceptionMessageResolver {
  * @return 处理后的校验异常消息文本
  */
     public String resolve(MethodArgumentTypeMismatchException exception) {
-        String parameterName = normalize(exception.getName(), "unknown");
-        return parameterError(parameterName, "type mismatch");
+        String parameterName = normalize(exception.getName(), UNKNOWN_PARAMETER);
+        return parameterError(parameterName, TYPE_MISMATCH_REASON);
     }
 
     /**
@@ -87,24 +99,24 @@ public class ValidationExceptionMessageResolver {
  */
     public String resolve(ServletRequestBindingException exception) {
         if (exception instanceof MissingServletRequestParameterException missingParameter) {
-            return parameterError(missingParameter.getParameterName(), "is required");
+            return parameterError(missingParameter.getParameterName(), REQUIRED_REASON);
         }
         if (exception instanceof MissingPathVariableException missingPathVariable) {
-            return parameterError(missingPathVariable.getVariableName(), "is required");
+            return parameterError(missingPathVariable.getVariableName(), REQUIRED_REASON);
         }
         return ErrorCode.PARAMS_ERROR.getMessage();
     }
 
     private String formatFieldError(FieldError fieldError) {
         return parameterError(fieldError.getField(),
-                normalize(fieldError.getDefaultMessage(), "invalid value"));
+                normalizeReason(fieldError.getDefaultMessage()));
     }
 
     private String formatConstraintViolation(ConstraintViolation<?> violation) {
         String propertyPath = propertyPath(violation);
         int separatorIndex = propertyPath.lastIndexOf('.');
         String parameterName = separatorIndex >= 0 ? propertyPath.substring(separatorIndex + 1) : propertyPath;
-        String reason = normalize(violation.getMessage(), "invalid value");
+        String reason = normalizeReason(violation.getMessage());
         if (!StringUtils.hasText(parameterName)) {
             return ErrorCode.PARAMS_ERROR.getMessage() + ": " + reason;
         }
@@ -112,11 +124,11 @@ public class ValidationExceptionMessageResolver {
     }
 
     private String formatParameterValidationResult(ParameterValidationResult result) {
-        String parameterName = normalize(result.getMethodParameter().getParameterName(), "argument");
+        String parameterName = normalize(result.getMethodParameter().getParameterName(), ARGUMENT_PARAMETER);
         String reason = result.getResolvableErrors().stream()
                 .findFirst()
                 .map(this::resolveDefaultMessage)
-                .orElse("invalid value");
+                .orElse(INVALID_VALUE_REASON);
         return parameterError(parameterName, reason);
     }
 
@@ -125,7 +137,7 @@ public class ValidationExceptionMessageResolver {
     }
 
     private String resolveDefaultMessage(MessageSourceResolvable error) {
-        return normalize(error.getDefaultMessage(), "invalid value");
+        return normalizeReason(error.getDefaultMessage());
     }
 
     private String propertyPath(ConstraintViolation<?> violation) {
@@ -134,6 +146,14 @@ public class ValidationExceptionMessageResolver {
 
     private String parameterError(String parameterName, String reason) {
         return ErrorCode.PARAMS_ERROR.getMessage() + ": " + parameterName + " " + reason;
+    }
+
+    /**
+     * 校验框架的默认消息可能随依赖或区域设置变为英文；用户边界统一降级为稳定中文。
+     */
+    private String normalizeReason(String reason) {
+        String normalized = normalize(reason, INVALID_VALUE_REASON);
+        return userFacingMessageResolver.containsChinese(normalized) ? normalized : INVALID_VALUE_REASON;
     }
 
     private String normalize(String value, String fallback) {

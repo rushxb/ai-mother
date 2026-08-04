@@ -131,6 +131,8 @@ Origin 必须包含协议和主机，不得包含路径、查询参数、片段�
 - `GENERATION_ROUTING_TELEMETRY_CACHE_TTL`、`GENERATION_ROUTING_TELEMETRY_STALE_RETENTION`：路由遥测异步刷新周期与最大陈旧期，默认 `30s`、`10m`。刷新期间继续返回旧快照；刷新失败只在快照未超过最大陈旧期时保留旧值，禁止用瞬时故障覆盖已有质量风险信号，也禁止无限使用陈旧数据。
 - `GENERATION_ROUTING_TELEMETRY_MAX_CONCURRENT_LOADS`、`GENERATION_ROUTING_TELEMETRY_SHUTDOWN_TIMEOUT`：单实例后台遥测数据库加载并发和关闭等待上限，默认 `4`、`5s`。容量耗尽时冷请求立即降级、已有请求继续使用旧快照，不创建无界后台任务。
 - 路由遥测通过 `generation_routing_telemetry_operations_total` 与 `generation_routing_telemetry_operation_duration_seconds` 观测，标签固定为 `phase=snapshot|load` 和有限 `status`。发布前必须检查冷加载 `timeout`、后台 `saturated/failed` 比例以及 taskId 返回延迟，不能用异步化掩盖数据库长期故障。
+- `GENERATION_ROUTING_SHADOW_ENABLED`：结构化意图 Challenger 的影子路由开关，默认 `false`。开启后只对 Champion 与 Challenger 做旁路比较，不替换主路由、不改变任务执行模式；Challenger 或指标写入失败必须被隔离，不得影响主请求。生产启用前必须完成离线 Benchmark、额外模型或计算成本评估与容量验证，当前配置不表示允许主流量切换。
+- 影子路由通过 `generation_routing_shadow_decisions_total` 观测，标签仅包含 `status`、Champion/Challenger 路由与决策码、意图操作类型、语义复杂度和一致性。严禁记录原始 prompt、文件内容、应用 ID、用户 ID 或其他业务标识；相同路由模式即视为一致，具体决策码仍单独保留用于归因。
 - `AI_MODEL_SECRET_ACTIVE_KEY_ID`：当前 AI 模型凭据 KEK 的稳定版本标识，只允许字母、数字、点、下划线和连字符。轮换时必须使用新 ID，禁止复用旧 ID 表示不同密钥材料。
 - `AI_MODEL_SECRET_ACTIVE_KEY`：Base64 编码的 32 字节 AES-256 KEK，由 Secret Manager/KMS 注入；数据库不保存该值。
 - `AI_MODEL_SECRET_FINGERPRINT_KEY`：Base64 编码的独立 32 字节 HMAC-SHA256 密钥，必须与 KEK 不同并跨 KEK 轮换保持稳定，使 Benchmark 候选指纹不受随机密文影响。

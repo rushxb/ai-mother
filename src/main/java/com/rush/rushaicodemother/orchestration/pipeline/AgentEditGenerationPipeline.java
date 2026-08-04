@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditGenerationService;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditResult;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -61,8 +62,18 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.throwIfCancelled();
-            AgentEditResult editResult = agentEditGenerationService.execute(
-                    execution.taskId(), request.taskRequest(), request.modeDecision(), request.workspace());
+            AgentEditResult editResult = request.executionPlan() == null
+                    ? agentEditGenerationService.execute(
+                            execution.taskId(),
+                            request.taskRequest(),
+                            request.modeDecision(),
+                            request.workspace())
+                    : agentEditGenerationService.execute(
+                            execution.taskId(),
+                            request.taskRequest(),
+                            request.modeDecision(),
+                            request.workspace(),
+                            request.executionPlan());
             if (editResult == null) {
                 return GenerationPipelineOutcome.fallback(route(), "agent_edit_not_applicable");
             }
@@ -111,7 +122,11 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                     route(),
                     GenerationTaskStatus.SUCCESS,
                     null,
-                    buildResultSummary("成功", editResult)
+                    buildResultSummary("成功", editResult),
+                    GenerationCompletionEvidenceSet.successfulMutation(
+                            request.modeDecision().expectedValidationLevel(),
+                            route(),
+                            editResult.changedFiles().size())
             );
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;

@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationAgentCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.agent.DefaultGenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentConversationInitializer;
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentPromptResolver;
@@ -89,6 +90,7 @@ class ProductionAiWiringTest {
                     AiModelCircuitBreakerProperties.class,
                     AiModelCircuitBreaker.class,
                     GenerationExecutionContextService.class,
+                    GenerationAgentCompletionPolicy.class,
                     GenerationAgentTurnPolicy.class,
                     GenerationToolExecutionContextService.class,
                     DurableToolConversationCodec.class,

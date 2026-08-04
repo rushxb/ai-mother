@@ -2,11 +2,14 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.config.PatchExecutionProperties;
+import com.rush.rushaicodemother.core.builder.GoBuildResult;
+import com.rush.rushaicodemother.core.builder.GoProjectBuilder;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceException;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceFileService;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceTarget;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 应用编辑补丁后对后端文件执行有界的、轻量级的验证。
@@ -29,6 +33,7 @@ public class AgentEditBackendValidationService {
 
     private final PatchWorkspaceFileService workspaceFileService;
     private final PatchExecutionProperties patchExecutionProperties;
+    private final GoProjectBuilder goProjectBuilder;
 
     /**
  * 校验{@code ate}是否有效。
@@ -41,6 +46,23 @@ public class AgentEditBackendValidationService {
     public BackgroundValidationService.ValidationResult validate(String taskId,
                                                                  GenerationWorkspace workspace,
                                                                  List<PatchOperation> patchOperations) {
+        return validateInternal(taskId, workspace, patchOperations, false);
+    }
+
+    /** 按编辑验证计划执行后端静态检查，并在需要时追加 Go 构建门禁。 */
+    public BackgroundValidationService.ValidationResult validate(String taskId,
+                                                                 GenerationWorkspace workspace,
+                                                                 List<PatchOperation> patchOperations,
+                                                                 EditValidationPlan validationPlan) {
+        Objects.requireNonNull(validationPlan, "编辑验证计划不能为空");
+        return validateInternal(taskId, workspace, patchOperations, validationPlan.requiresBuild());
+    }
+
+    private BackgroundValidationService.ValidationResult validateInternal(
+            String taskId,
+            GenerationWorkspace workspace,
+            List<PatchOperation> patchOperations,
+            boolean buildRequired) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (workspace == null || patchOperations == null || patchOperations.isEmpty()) {
             return BackgroundValidationService.ValidationResult.skipped(taskId, "无后端补丁需要验证");
@@ -98,7 +120,37 @@ public class AgentEditBackendValidationService {
         if (!errors.isEmpty()) {
             return BackgroundValidationService.ValidationResult.failed(taskId, "后端轻量验证失败: " + String.join("; ", errors));
         }
-        return BackgroundValidationService.ValidationResult.success(taskId, "后端轻量验证通过");
+        if (!buildRequired) {
+            return BackgroundValidationService.ValidationResult.success(taskId, "后端轻量验证通过");
+        }
+        return executeBuildValidation(taskId, backendRoot);
+    }
+
+    /** 静态检查通过后执行真实 Go 构建，确保 BUILD 计划不会退化为语法检查。 */
+    private BackgroundValidationService.ValidationResult executeBuildValidation(String taskId, Path backendRoot) {
+        try {
+            GoBuildResult buildResult = goProjectBuilder.buildProjectWithResult(backendRoot.toString(), taskId);
+            if (buildResult.success()) {
+                return BackgroundValidationService.ValidationResult.success(
+                        taskId,
+                        "后端构建验证通过: " + buildResult.publicSummary()
+                );
+            }
+            return BackgroundValidationService.ValidationResult.failed(
+                    taskId,
+                    "后端构建验证失败 [" + buildResult.stage() + "]: " + buildResult.publicSummary()
+            );
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            log.error("后端构建验证执行异常，taskId: {}",
+                    safeDiagnosticValue(taskId, "unknown"),
+                    LogExceptionSanitizer.sanitize(exception));
+            return BackgroundValidationService.ValidationResult.failed(
+                    taskId,
+                    "后端构建验证执行异常，请稍后重试"
+            );
+        }
     }
 
     /** 校验{@code ate}{@code Go}是否有效。 */

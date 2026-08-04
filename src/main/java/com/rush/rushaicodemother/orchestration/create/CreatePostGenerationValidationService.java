@@ -11,6 +11,9 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationBuildValidationService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
@@ -51,13 +54,39 @@ public class CreatePostGenerationValidationService {
                                       String taskId,
                                       SlotFillResult result,
                                       GenerationSession session) {
+        return validate(
+                appId,
+                loginUser,
+                codeGenType,
+                userMessage,
+                taskId,
+                result,
+                session,
+                null
+        );
+    }
+
+    /** 按任务提交时冻结的验证计划执行 CREATE 生成后门禁。 */
+    public ValidationOutcome validate(Long appId,
+                                      User loginUser,
+                                      CodeGenTypeEnum codeGenType,
+                                      String userMessage,
+                                      String taskId,
+                                      SlotFillResult result,
+                                      GenerationSession session,
+                                      GenerationExecutionPlan executionPlan) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT
                 && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT
                 && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return ValidationOutcome.skipped("non_project_create");
         }
-        GenerationPreparation preparation = createRepairPreparation(codeGenType, userMessage, taskId, result);
+        GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.resolve(
+                executionPlan,
+                ExpectedValidationLevel.BUILD
+        );
+        GenerationPreparation preparation = verificationPolicy.enforceValidationFloor(
+                createRepairPreparation(codeGenType, userMessage, taskId, result));
         GenerationExecutionFence executionFence = executionFence(session);
         GenerationExecutionWorkspace executionWorkspace = session == null
                 ? null
@@ -70,12 +99,11 @@ public class CreatePostGenerationValidationService {
                     "taskId", taskId,
                     "route", "create"
             )));
-            boolean passed = heavyGenerationBuildValidationService.runWithAutoRepair(
-                    appId,
-                    loginUser,
-                    preparation,
-                    session
-            );
+            boolean passed = executionPlan == null
+                    ? heavyGenerationBuildValidationService.runWithAutoRepair(
+                            appId, loginUser, preparation, session)
+                    : heavyGenerationBuildValidationService.runWithAutoRepair(
+                            appId, loginUser, preparation, session, verificationPolicy);
             return new ValidationOutcome(passed, true, passed ? "" : "create_post_generation_validation_failed");
         } finally {
             if (executionFence == null) {

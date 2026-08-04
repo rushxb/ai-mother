@@ -1,6 +1,15 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
+import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
+import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
+import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
+import com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -14,9 +23,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GenerationTaskCommandCodecTest {
 
@@ -34,7 +45,10 @@ class GenerationTaskCommandCodecTest {
                 GenerationMode.CREATE, 0.95, "template first", FallbackPolicy.NONE,
                 ExpectedValidationLevel.BUILD, "",
                 GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST, envelope, traceContext,
-                submittedAt, envelope.totalDeadline(submittedAt));
+                submittedAt, envelope.totalDeadline(submittedAt),
+                GenerationResourceRequirements.ofDatabaseRequirement(true),
+                profile(),
+                plan(envelope));
 
         GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(
                 GenerationTaskCommandCodec.toJson(command));
@@ -46,6 +60,10 @@ class GenerationTaskCommandCodecTest {
         assertEquals(2, restored.slaEnvelope().toLimits().limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
         assertEquals(100L, restored.tenantId());
         assertEquals(traceContext, restored.traceContext());
+        assertEquals(GenerationResourceRequirements.ofDatabaseRequirement(true),
+                restored.resourceRequirements());
+        assertEquals(profile(), restored.intentProfile());
+        assertEquals(plan(envelope), restored.executionPlan());
     }
 
     @Test
@@ -64,6 +82,52 @@ class GenerationTaskCommandCodecTest {
         assertNull(restored.slaEnvelope());
         assertNull(restored.tenantId());
         assertEquals(GenerationTraceContext.empty(), restored.traceContext());
+        assertEquals(GenerationResourceRequirements.none(), restored.resourceRequirements());
+        assertEquals(IntentProfile.unknown(), restored.intentProfile());
+        assertNull(restored.executionPlan());
+    }
+
+    @Test
+    void schemaSixCommandWithoutExecutionPlanRemainsReadable() {
+        String json = """
+                {"schemaVersion":6,"taskId":"schema-six-task","appId":1,"userId":2,"tenantId":3,
+                "userPrompt":"legacy","codeGenType":"VUE_PROJECT","mode":"AGENT_EDIT",
+                "routingConfidence":0.7,"routingReason":"legacy","fallbackPolicy":"NONE",
+                "expectedValidationLevel":"BUILD","fallbackReason":"",
+                "submittedAt":"2026-07-17T00:00:00Z","deadlineAt":"2026-07-17T00:10:00Z"}
+                """;
+
+        GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(json);
+
+        assertEquals(6, restored.schemaVersion());
+        assertNull(restored.executionPlan());
+    }
+
+    @Test
+    void commandMustRejectExecutionPlanWhoseRouteDriftsFromPersistedRoute() {
+        Instant submittedAt = Instant.parse("2026-07-17T00:00:00Z");
+        GenerationSlaEnvelope envelope = envelope();
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> command(submittedAt, envelope, GenerationMode.AGENT_EDIT, plan(envelope)));
+
+        assertEquals("执行计划路由与命令路由不一致", exception.getMessage());
+    }
+
+    @Test
+    void commandMustRejectExecutionPlanWhoseSlaDriftsFromPersistedEnvelope() {
+        Instant submittedAt = Instant.parse("2026-07-17T00:00:00Z");
+        GenerationSlaEnvelope persistedEnvelope = envelope("persisted");
+        GenerationExecutionPlan executionPlan = plan(envelope("planned"));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> command(
+                        submittedAt,
+                        persistedEnvelope,
+                        GenerationMode.CREATE,
+                        executionPlan));
+
+        assertEquals("执行计划 SLA 与命令 SLA 不一致", exception.getMessage());
     }
 
     @Test
@@ -92,13 +156,74 @@ class GenerationTaskCommandCodecTest {
                 restored.slaEnvelope().firstPreviewCompletionReserve());
     }
 
+    private GenerationTaskCommand command(
+            Instant submittedAt,
+            GenerationSlaEnvelope envelope,
+            GenerationMode mode,
+            GenerationExecutionPlan executionPlan) {
+        return new GenerationTaskCommand(
+                GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                "task-consistency", 1L, 2L, 100L, "build app", CodeGenTypeEnum.VUE_PROJECT,
+                mode, 0.95, "template first", FallbackPolicy.NONE,
+                ExpectedValidationLevel.BUILD, "",
+                GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST, envelope,
+                GenerationTraceContext.empty(), submittedAt, envelope.totalDeadline(submittedAt),
+                GenerationResourceRequirements.none(), profile(), executionPlan
+        );
+    }
+
+    private IntentProfile profile() {
+        return new IntentProfile(
+                IntentOperationType.CREATE,
+                Set.of(IntentAffectedScope.FRONTEND, IntentAffectedScope.DATABASE),
+                IntentSemanticComplexity.MEDIUM,
+                true,
+                true,
+                IntentDestructiveRisk.LOW,
+                8,
+                IntentValidationRisk.HIGH,
+                0.91
+        );
+    }
+
+    private GenerationExecutionPlan plan(GenerationSlaEnvelope envelope) {
+        return new GenerationExecutionPlan(
+                new com.rush.rushaicodemother.orchestration.router.GenerationModeDecision(
+                        GenerationMode.CREATE,
+                        0.95,
+                        "template first",
+                        FallbackPolicy.NONE,
+                        ExpectedValidationLevel.BUILD,
+                        "",
+                        GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST),
+                GenerationPerformanceProfile.speedFirst(),
+                new GenerationExecutionPlan.ContextBudget(2_000, 1_500, 800, 64, 6, "gpt-4o", 1.15),
+                new GenerationExecutionPlan.ToolPolicy(
+                        15,
+                        envelope.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
+                        true,
+                        true),
+                GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.BUILD),
+                new GenerationExecutionPlan.RepairBudget(
+                        envelope.toLimits().limit(GenerationBudgetKind.REPAIR_ROUND), true),
+                new GenerationExecutionPlan.CommitPolicy(true, true),
+                new GenerationExecutionPlan.PreviewPolicy(
+                        envelope.firstPreviewTimeout(), envelope.firstPreviewCompletionReserve()),
+                envelope
+        );
+    }
+
     private GenerationSlaEnvelope envelope() {
+        return envelope("create-test");
+    }
+
+    private GenerationSlaEnvelope envelope(String profile) {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             budgets.put(kind, 2);
         }
         return new GenerationSlaEnvelope(
-                "create-test", Duration.ofMinutes(1), Duration.ofSeconds(45), Duration.ofMinutes(10),
+                profile, Duration.ofMinutes(1), Duration.ofSeconds(45), Duration.ofMinutes(10),
                 Duration.ofMinutes(2), Duration.ofMillis(500), Map.copyOf(budgets), "test");
     }
 }

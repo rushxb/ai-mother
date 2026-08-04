@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -45,23 +46,9 @@ public class LightweightRuntimeValidationService {
     }
 
     /**
- * 校验{@code ate}并{@code Retries}是否有效。
- *
- * @param request 请求参数
- * @param app 应用
- * @param loginUser 当前登录用户
- * @param taskId 任务编号
- * @param workspace 工作区
- * @param userMessage 用户消息
- * @param projectContext 项目上下文
- * @param editResult 编辑结果
- * @param patchOperations 补丁操作
- * @param applyResult {@code applyResult} 对应的调用参数
- * @param validationPlan 校验计划
- * @param editSnapshot 编辑快照
- * @param managedModelCalls 受生命周期管理的模型调用集合
- * @return {@code ate}并{@code Retries}
- */
+     * 兼容旧调用方的原始快照入口；新主链路应传递编辑事务，避免快照所有权外泄。
+     */
+    @Deprecated(forRemoval = false)
     public LightweightRuntimeValidationOutcome validateWithRetries(
             GenerationTaskRequest request,
             App app,
@@ -76,13 +63,102 @@ public class LightweightRuntimeValidationService {
             EditValidationPlan validationPlan,
             EditFileSnapshotService.EditFileSnapshot editSnapshot,
             boolean managedModelCalls) {
+        return validateWithRetries(
+                request,
+                app,
+                loginUser,
+                taskId,
+                workspace,
+                userMessage,
+                projectContext,
+                editResult,
+                patchOperations,
+                applyResult,
+                validationPlan,
+                editSnapshot,
+                managedModelCalls,
+                GenerationVerificationPolicy.legacy()
+        );
+    }
+
+    /**
+     * 兼容显式验证策略下的原始快照入口。
+     */
+    @Deprecated(forRemoval = false)
+    public LightweightRuntimeValidationOutcome validateWithRetries(
+            GenerationTaskRequest request,
+            App app,
+            User loginUser,
+            String taskId,
+            GenerationWorkspace workspace,
+            String userMessage,
+            String projectContext,
+            EditResult editResult,
+            List<PatchOperation> patchOperations,
+            PatchApplyResult applyResult,
+            EditValidationPlan validationPlan,
+            EditFileSnapshotService.EditFileSnapshot editSnapshot,
+            boolean managedModelCalls,
+            GenerationVerificationPolicy verificationPolicy) {
+        return validateWithRetriesInternal(
+                request, app, loginUser, taskId, workspace, userMessage, projectContext,
+                editResult, patchOperations, applyResult, validationPlan,
+                operations -> {
+                    if (editSnapshot != null) {
+                        editFileSnapshotService.captureMissing(editSnapshot, operations);
+                    }
+                },
+                managedModelCalls, verificationPolicy);
+    }
+
+    /** 按冻结计划的最低门槛，在同一编辑事务内执行验证和后续修复。 */
+    public LightweightRuntimeValidationOutcome validateWithRetries(
+            GenerationTaskRequest request,
+            App app,
+            User loginUser,
+            String taskId,
+            GenerationWorkspace workspace,
+            String userMessage,
+            String projectContext,
+            EditResult editResult,
+            List<PatchOperation> patchOperations,
+            PatchApplyResult applyResult,
+            EditValidationPlan validationPlan,
+            EditWorkspaceTransaction workspaceTransaction,
+            boolean managedModelCalls,
+            GenerationVerificationPolicy verificationPolicy) {
+        if (workspaceTransaction == null) {
+            throw new IllegalArgumentException("编辑工作区事务不能为空");
+        }
+        return validateWithRetriesInternal(
+                request, app, loginUser, taskId, workspace, userMessage, projectContext,
+                editResult, patchOperations, applyResult, validationPlan,
+                workspaceTransaction::include, managedModelCalls, verificationPolicy);
+    }
+
+    private LightweightRuntimeValidationOutcome validateWithRetriesInternal(
+            GenerationTaskRequest request,
+            App app,
+            User loginUser,
+            String taskId,
+            GenerationWorkspace workspace,
+            String userMessage,
+            String projectContext,
+            EditResult editResult,
+            List<PatchOperation> patchOperations,
+            PatchApplyResult applyResult,
+            EditValidationPlan validationPlan,
+            EditSnapshotScope snapshotScope,
+            boolean managedModelCalls,
+            GenerationVerificationPolicy verificationPolicy) {
         BackgroundValidationService.ValidationResult validationResult = executeValidation(
                 taskId, app, loginUser, workspace, patchOperations, validationPlan, userMessage);
         int repairRound = 2;
         while (!validationResult.isSuccess() && repairRound <= MAX_RUNTIME_REPAIR_ROUNDS) {
             RuntimeRepairAttempt repairAttempt = retryRepair(
                     request, app, loginUser, taskId, workspace, userMessage, projectContext,
-                    validationPlan, validationResult, editSnapshot, repairRound, managedModelCalls);
+                    validationPlan, validationResult, snapshotScope, repairRound, managedModelCalls,
+                    verificationPolicy);
             if (repairAttempt.unavailable()) {
                 break;
             }
@@ -104,7 +180,6 @@ public class LightweightRuntimeValidationService {
                 validationResult
         );
     }
-
     /** 在所属任务纪元内同步执行发布门。 */
     public BackgroundValidationService.ValidationResult validateOnce(
             String taskId,
@@ -163,9 +238,10 @@ public class LightweightRuntimeValidationService {
                                              String projectContext,
                                              EditValidationPlan previousValidationPlan,
                                              BackgroundValidationService.ValidationResult previousValidationResult,
-                                             EditFileSnapshotService.EditFileSnapshot editSnapshot,
+                                             EditSnapshotScope snapshotScope,
                                              int round,
-                                             boolean managedModelCalls) {
+                                             boolean managedModelCalls,
+                                             GenerationVerificationPolicy verificationPolicy) {
         generationEventPublisher.publishSafely(request, GenerationEventType.REPAIR_START,
                 "修复后验证失败，开始自动二次修复", Map.of(
                         "taskId", taskId,
@@ -189,7 +265,7 @@ public class LightweightRuntimeValidationService {
             if (retryOperations.isEmpty()) {
                 return RuntimeRepairAttempt.failed(previousValidationResult);
             }
-            editFileSnapshotService.captureMissing(editSnapshot, retryOperations);
+            snapshotScope.include(retryOperations);
 
             Path projectRoot = workspace.canonicalRootPath();
             PatchApplyResult retryApplyResult = patchExecutor.applyOnce(
@@ -208,8 +284,9 @@ public class LightweightRuntimeValidationService {
             }
             patchExecutor.refreshIndexIfApplied(projectRoot, retryOperations, retryApplyResult);
 
-            EditValidationPlan retryValidationPlan = editValidationPolicyService.determineValidationPlan(
-                    retryOperations, workspace.codeGenType(), retryEditResult.validation(), userMessage);
+            EditValidationPlan retryValidationPlan = verificationPolicy.enforceEditMinimum(
+                    editValidationPolicyService.determineValidationPlan(
+                            retryOperations, workspace.codeGenType(), retryEditResult.validation(), userMessage));
             BackgroundValidationService.ValidationResult retryValidationResult = executeValidation(
                     taskId, app, loginUser, workspace,
                     retryOperations, retryValidationPlan, userMessage);
@@ -249,6 +326,10 @@ public class LightweightRuntimeValidationService {
         return result;
     }
 
+    @FunctionalInterface
+    private interface EditSnapshotScope {
+        void include(List<PatchOperation> patchOperations) throws PatchWorkspaceException;
+    }
     private record RuntimeRepairAttempt(
             boolean success,
             boolean unavailable,

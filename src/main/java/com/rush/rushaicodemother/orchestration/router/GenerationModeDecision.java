@@ -30,7 +30,7 @@ public record GenerationModeDecision(
             decisionCode = GenerationRoutingDecisionCode.UNKNOWN;
         }
         confidence = Math.max(0, Math.min(1, confidence));
-        reason = StrUtil.blankToDefault(reason, "router_reason_unknown");
+        reason = StrUtil.blankToDefault(reason, "路由原因未知");
         fallbackReason = StrUtil.blankToDefault(fallbackReason, "");
     }
 

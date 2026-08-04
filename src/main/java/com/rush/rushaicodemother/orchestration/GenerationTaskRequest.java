@@ -9,6 +9,18 @@ import com.rush.rushaicodemother.model.entity.User;
 public record GenerationTaskRequest(
         App app,
         String message,
-        User loginUser
+        User loginUser,
+        GenerationResourceRequirements resourceRequirements
 ) {
+
+    public GenerationTaskRequest {
+        if (resourceRequirements == null) {
+            resourceRequirements = GenerationResourceRequirements.none();
+        }
+    }
+
+    /** 保留不含资源需求的兼容构造器。 */
+    public GenerationTaskRequest(App app, String message, User loginUser) {
+        this(app, message, loginUser, GenerationResourceRequirements.none());
+    }
 }

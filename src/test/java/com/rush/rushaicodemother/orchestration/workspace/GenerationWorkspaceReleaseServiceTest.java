@@ -52,7 +52,7 @@ class GenerationWorkspaceReleaseServiceTest {
         GenerationWorkspaceReleaseService service = fixture.service(milestoneService);
 
         GenerationWorkspacePublicationResult actual =
-                service.release(fixture.session(), CodeGenTypeEnum.BACKEND_PROJECT);
+                service.releaseVerified(fixture.session(), CodeGenTypeEnum.BACKEND_PROJECT);
 
         assertSame(fixture.result(), actual);
         InOrder order = inOrder(fixture.publicationService(), milestoneService);
@@ -69,7 +69,7 @@ class GenerationWorkspaceReleaseServiceTest {
         GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
         GenerationWorkspaceReleaseService service = fixture.service(milestoneService);
 
-        service.release(fixture.session(), targetType);
+        service.releaseVerified(fixture.session(), targetType);
 
         verify(milestoneService).publishRuntimeReady(fixture.session(), targetType);
     }
@@ -83,7 +83,7 @@ class GenerationWorkspaceReleaseServiceTest {
                 fixture.session(), fixture.metadataService())).thenThrow(publicationFailure);
 
         IllegalStateException actual = assertThrows(IllegalStateException.class,
-                () -> fixture.service(milestoneService).release(
+                () -> fixture.service(milestoneService).releaseVerified(
                         fixture.session(), CodeGenTypeEnum.VUE_PROJECT));
 
         assertSame(publicationFailure, actual);
@@ -101,8 +101,8 @@ class GenerationWorkspaceReleaseServiceTest {
         );
         GenerationWorkspaceReleaseService service = fixture.service(milestoneService);
 
-        service.release(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
-        service.release(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+        service.releaseVerified(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+        service.releaseVerified(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
 
         assertNotNull(fixture.session().executionContext().firstPreviewReadyAt());
         verify(eventPublisher, times(1)).publishSafely(
@@ -121,7 +121,7 @@ class GenerationWorkspaceReleaseServiceTest {
                 .thenThrow(new IllegalStateException("里程碑通知失败"));
 
         GenerationWorkspacePublicationResult actual = fixture.service(milestoneService)
-                .release(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+                .releaseVerified(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
 
         assertSame(fixture.result(), actual);
     }

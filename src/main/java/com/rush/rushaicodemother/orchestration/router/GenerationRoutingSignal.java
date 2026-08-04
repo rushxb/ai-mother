@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.router;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
 import java.util.List;
@@ -14,42 +15,41 @@ public record GenerationRoutingSignal(
         CodeGenTypeEnum codeGenType,
         GenerationWorkspace workspace,
         String normalizedMessage,
-        GenerationRoutingTelemetrySnapshot telemetry
+        GenerationRoutingTelemetrySnapshot telemetry,
+        IntentProfile intentProfile
 ) {
 
-    /**
- * 根据输入数据创建当前对象。
- *
- * @param request 请求参数
- * @param codeGenType 代码生成类型
- * @param workspace 工作区
- * @return 生成路由{@code Signal}
- */
+    public GenerationRoutingSignal {
+        normalizedMessage = StrUtil.blankToDefault(normalizedMessage, "");
+        telemetry = telemetry == null ? GenerationRoutingTelemetrySnapshot.unavailable() : telemetry;
+        intentProfile = intentProfile == null ? IntentProfile.unknown() : intentProfile;
+    }
+
     public static GenerationRoutingSignal from(GenerationTaskRequest request,
                                                CodeGenTypeEnum codeGenType,
                                                GenerationWorkspace workspace) {
         return from(request, codeGenType, workspace, GenerationRoutingTelemetrySnapshot.unavailable());
     }
 
-    /**
- * 根据输入数据创建当前对象。
- *
- * @param request 请求参数
- * @param codeGenType 代码生成类型
- * @param workspace 工作区
- * @param telemetry 遥测
- * @return 生成路由{@code Signal}
- */
     public static GenerationRoutingSignal from(GenerationTaskRequest request,
                                                CodeGenTypeEnum codeGenType,
                                                GenerationWorkspace workspace,
                                                GenerationRoutingTelemetrySnapshot telemetry) {
+        return from(request, codeGenType, workspace, telemetry, IntentProfile.unknown());
+    }
+
+    public static GenerationRoutingSignal from(GenerationTaskRequest request,
+                                               CodeGenTypeEnum codeGenType,
+                                               GenerationWorkspace workspace,
+                                               GenerationRoutingTelemetrySnapshot telemetry,
+                                               IntentProfile intentProfile) {
         return new GenerationRoutingSignal(
                 request,
                 codeGenType,
                 workspace,
                 StrUtil.blankToDefault(request == null ? null : request.message(), "").toLowerCase(Locale.ROOT),
-                telemetry == null ? GenerationRoutingTelemetrySnapshot.unavailable() : telemetry
+                telemetry,
+                intentProfile
         );
     }
 
@@ -61,12 +61,6 @@ public record GenerationRoutingSignal(
         return workspace != null && workspace.exists();
     }
 
-    /**
- * 返回{@code contains}{@code Any}。
- *
- * @param keywords 待处理的 {@code keywords} 集合
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     public boolean containsAny(List<String> keywords) {
         if (keywords == null || keywords.isEmpty()) {
             return false;
@@ -74,11 +68,6 @@ public record GenerationRoutingSignal(
         return keywords.stream().anyMatch(normalizedMessage::contains);
     }
 
-    /**
- * 返回{@code looks}{@code Like}{@code Small}{@code Single}文件编辑。
- *
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     public boolean looksLikeSmallSingleFileEdit() {
         if (StrUtil.isBlank(normalizedMessage) || normalizedMessage.length() > 160) {
             return false;

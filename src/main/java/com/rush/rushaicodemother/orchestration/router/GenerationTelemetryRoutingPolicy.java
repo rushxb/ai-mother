@@ -30,7 +30,7 @@ public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy
             return Optional.of(GenerationModeDecision.of(
                     GenerationMode.HEAVY_EXPERT,
                     0.78,
-                    "Historical failures or explicit low ratings require quality-first expert routing",
+                    "历史任务失败率或明确低评分较高，采用质量优先的专家模式",
                     FallbackPolicy.NONE,
                     ExpectedValidationLevel.EXPERT,
                     GenerationRoutingDecisionCode.TELEMETRY_QUALITY_ESCALATION
@@ -42,7 +42,7 @@ public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy
             return Optional.of(GenerationModeDecision.of(
                     GenerationMode.AGENT_EDIT,
                     0.72,
-                    "Generation capacity is saturated and historical duration is high; use bounded agent edit mode",
+                    "生成容量已饱和且历史耗时较高，采用有界智能体编辑模式",
                     FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
                     ExpectedValidationLevel.BUILD,
                     GenerationRoutingDecisionCode.TELEMETRY_SATURATION_CONTAINMENT

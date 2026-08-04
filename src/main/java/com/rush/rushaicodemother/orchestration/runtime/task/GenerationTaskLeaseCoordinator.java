@@ -83,7 +83,7 @@ public class GenerationTaskLeaseCoordinator {
             throw new IllegalArgumentException("generation task command cannot be null");
         }
         if (idempotency == null) {
-            throw new IllegalArgumentException("generation task idempotency cannot be null");
+            throw new IllegalArgumentException("生成任务幂等信息不能为空");
         }
         return new GenerationTaskSubmissionRecord(
                 command.taskId(), command.appId(), command.userId(), command.tenantId(), command.route(),

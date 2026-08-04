@@ -37,7 +37,7 @@ public class GenerationRoutingDecisionEngine {
  * @return 生成路由决策
  */
     public GenerationModeDecision decide(GenerationRoutingSignal signal) {
-        Objects.requireNonNull(signal, "signal");
+        Objects.requireNonNull(signal, "生成路由信号不能为空");
         return policies.stream()
                 .map(policy -> policy.decide(signal))
                 .filter(java.util.Optional::isPresent)
@@ -50,7 +50,7 @@ public class GenerationRoutingDecisionEngine {
         return GenerationModeDecision.of(
                 GenerationMode.AGENT_EDIT,
                 0.62,
-                "Existing workspace did not match lightweight routing signals; use code-understanding edit mode",
+                "现有工作区未命中轻量路由信号，采用具备代码理解能力的智能体编辑模式",
                 FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
                 ExpectedValidationLevel.BUILD,
                 GenerationRoutingDecisionCode.DEFAULT_AGENT_EDIT

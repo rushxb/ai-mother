@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.config.PatchExecutionProperties;
+import com.rush.rushaicodemother.core.builder.GoBuildResult;
+import com.rush.rushaicodemother.core.builder.GoProjectBuilder;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceFileService;
@@ -19,6 +21,10 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AgentEditBackendValidationServiceTest {
 
@@ -184,8 +190,76 @@ class AgentEditBackendValidationServiceTest {
         assertEquals("后端补丁数量超过校验上限", result.message());
     }
 
+    @Test
+    void frozenBuildPlanShouldRunGoBuildAfterStaticChecksPass() throws Exception {
+        Path root = workspaceRoot("planned-build");
+        Files.writeString(root.resolve("go.mod"), "module example.com/app\n");
+        Files.writeString(root.resolve("go.sum"), "");
+        Files.writeString(root.resolve("main.go"), "package main\nfunc main() {}\n");
+        GoProjectBuilder goProjectBuilder = mock(GoProjectBuilder.class);
+        when(goProjectBuilder.buildProjectWithResult(root.toAbsolutePath().normalize().toString(), "task-build"))
+                .thenReturn(new GoBuildResult(
+                        true,
+                        "done",
+                        root.toString(),
+                        "Go 项目构建测试通过",
+                        null
+                ));
+        AgentEditBackendValidationService service = service(new PatchExecutionProperties(), goProjectBuilder);
+
+        BackgroundValidationService.ValidationResult result = service.validate(
+                "task-build",
+                workspace(root, CodeGenTypeEnum.BACKEND_PROJECT),
+                List.of(PatchOperation.modify("main.go", "ignored")),
+                new EditValidationPlan(
+                        EditValidationPlan.ValidationLevel.BUILD_REQUIRED,
+                        "执行计划最低验证门槛: BUILD",
+                        List.of("main.go"),
+                        false
+                )
+        );
+
+        assertEquals("success", result.status());
+        assertTrue(result.message().contains("后端构建验证通过"));
+        verify(goProjectBuilder).buildProjectWithResult(
+                root.toAbsolutePath().normalize().toString(), "task-build");
+    }
+
+    @Test
+    void fastPlanShouldNotRunGoBuild() throws Exception {
+        Path root = workspaceRoot("planned-fast");
+        Files.writeString(root.resolve("main.go"), "package main\nfunc main() {}\n");
+        GoProjectBuilder goProjectBuilder = mock(GoProjectBuilder.class);
+        AgentEditBackendValidationService service = service(new PatchExecutionProperties(), goProjectBuilder);
+
+        BackgroundValidationService.ValidationResult result = service.validate(
+                "task-fast",
+                workspace(root, CodeGenTypeEnum.BACKEND_PROJECT),
+                List.of(PatchOperation.modify("main.go", "ignored")),
+                new EditValidationPlan(
+                        EditValidationPlan.ValidationLevel.FAST_CHECK,
+                        "执行计划最低验证门槛: FAST",
+                        List.of("main.go"),
+                        false
+                )
+        );
+
+        assertEquals("success", result.status());
+        verify(goProjectBuilder, never()).buildProjectWithResult(
+                root.toAbsolutePath().normalize().toString(), "task-fast");
+    }
     private AgentEditBackendValidationService service(PatchExecutionProperties properties) {
-        return new AgentEditBackendValidationService(new PatchWorkspaceFileService(properties), properties);
+        return service(properties, mock(GoProjectBuilder.class));
+    }
+
+    private AgentEditBackendValidationService service(
+            PatchExecutionProperties properties,
+            GoProjectBuilder goProjectBuilder) {
+        return new AgentEditBackendValidationService(
+                new PatchWorkspaceFileService(properties),
+                properties,
+                goProjectBuilder
+        );
     }
 
     private Path workspaceRoot(String name) throws IOException {

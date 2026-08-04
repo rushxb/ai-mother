@@ -28,7 +28,6 @@ public class LightweightEditPatchExecutor {
     private final GenerationPatchApplyService generationPatchApplyService;
     private final LightweightEditAiService lightweightEditAiService;
     private final LightweightEditOperationConverter operationConverter;
-    private final EditFileSnapshotService editFileSnapshotService;
     private final GenerationEventPublisher generationEventPublisher;
     private final WorkspaceSemanticIndexService workspaceSemanticIndexService;
 
@@ -43,8 +42,7 @@ public class LightweightEditPatchExecutor {
  * @param projectContext 项目上下文
  * @param editResult 编辑结果
  * @param patchOperations 补丁操作
- * @param runtimeErrorRepair 运行时错误修复回调
- * @param editSnapshot 编辑快照
+ * @param workspaceTransaction 编辑工作区事务
  * @param managedModelCalls 受生命周期管理的模型调用集合
  * @return 方法执行结果
  */
@@ -56,8 +54,7 @@ public class LightweightEditPatchExecutor {
                                                  String projectContext,
                                                  EditResult editResult,
                                                  List<PatchOperation> patchOperations,
-                                                 boolean runtimeErrorRepair,
-                                                 EditFileSnapshotService.EditFileSnapshot editSnapshot,
+                                                 EditWorkspaceTransaction workspaceTransaction,
                                                  boolean managedModelCalls) {
         PatchApplyResult applyResult = applyOnce(
                 appId, taskId, projectRoot, patchOperations, "lightweight_edit");
@@ -85,9 +82,7 @@ public class LightweightEditPatchExecutor {
             if (retryOperations.isEmpty()) {
                 return new LightweightEditAttempt(editResult, patchOperations, applyResult);
             }
-            if (runtimeErrorRepair) {
-                editFileSnapshotService.captureMissing(editSnapshot, retryOperations);
-            }
+            workspaceTransaction.include(retryOperations);
             PatchApplyResult retryApplyResult = applyOnce(
                     appId, taskId, projectRoot, retryOperations, "lightweight_edit_retry");
             return new LightweightEditAttempt(retryEditResult, retryOperations, retryApplyResult);

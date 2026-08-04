@@ -34,11 +34,11 @@ public class GenerationTaskIdempotencyService {
         if (keyBytes.length == 0 || keyBytes.length > MAX_KEY_BYTES || !isVisibleAscii(rawKey)) {
             throw new BusinessException(
                     ErrorCode.PARAMS_ERROR,
-                    "Idempotency-Key must contain 1 to 255 visible ASCII characters"
+                    "Idempotency-Key 必须由 1 至 255 个可见 ASCII 字符组成"
             );
         }
         if (appId == null || appId <= 0 || message == null) {
-            throw new IllegalArgumentException("generation submission fingerprint identity is incomplete");
+            throw new IllegalArgumentException("生成任务提交指纹信息不完整");
         }
 
         MessageDigest requestDigest = sha256();
@@ -72,7 +72,7 @@ public class GenerationTaskIdempotencyService {
         try {
             return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+            throw new IllegalStateException("SHA-256 摘要算法不可用", impossible);
         }
     }
 

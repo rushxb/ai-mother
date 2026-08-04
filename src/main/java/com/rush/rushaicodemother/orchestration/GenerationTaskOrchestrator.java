@@ -8,7 +8,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
-import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
@@ -63,13 +63,14 @@ public class GenerationTaskOrchestrator {
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
-        GenerationModeDecision decision = generationModeRouter.route(request, codeGenType, workspace);
+        GenerationRouteSelection routeSelection = generationModeRouter.select(request, codeGenType, workspace);
 
         return generationTaskSubmissionService.submit(new GenerationPipelineRequest(
                 request,
                 codeGenType,
                 workspace,
-                decision
+                routeSelection.intentProfile(),
+                routeSelection.decision()
         ), idempotency);
     }
 

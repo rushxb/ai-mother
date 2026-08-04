@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.ai.PromptOptimizerServiceFactory;
 import com.rush.rushaicodemother.application.app.AppAccessPolicy;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.experience.GenerationExperienceEventMapper;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotencyService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
@@ -63,6 +64,7 @@ final class AppServiceImplTestFixture {
                 promptOptimizerServiceFactory,
                 generationTaskOrchestrator,
                 generationEventPublisher,
+                new GenerationExperienceEventMapper(),
                 generationTaskQueryService,
                 generationTaskIdempotencyService,
                 appDatabaseResourceService,
@@ -90,6 +92,10 @@ final class AppServiceImplTestFixture {
 
     AppDatabaseResourceService databaseResourceService() {
         return appDatabaseResourceService;
+    }
+
+    GenerationTaskIdempotencyService idempotencyService() {
+        return generationTaskIdempotencyService;
     }
 
 }

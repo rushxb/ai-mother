@@ -4,10 +4,12 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 智能体编辑Verification服务实现。
@@ -39,20 +41,43 @@ public class AgentEditVerificationService {
                                                                List<PatchOperation> patchOperations,
                                                                EditChangePlan changePlan,
                                                                String userMessage) {
-        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
-        if (workspace.codeGenType() == CodeGenTypeEnum.BACKEND_PROJECT) {
-            return backendValidationService.validate(taskId, workspace, patchOperations);
-        }
-        if (workspace.codeGenType() == CodeGenTypeEnum.FULL_STACK_PROJECT && touchesOnlyBackend(patchOperations)) {
-            return backendValidationService.validate(taskId, workspace, patchOperations);
-        }
+        return verify(
+                taskId,
+                appId,
+                loginUser,
+                workspace,
+                patchOperations,
+                changePlan,
+                userMessage,
+                GenerationVerificationPolicy.legacy()
+        );
+    }
+
+    /** 按冻结执行计划的最低门槛执行 AGENT_EDIT 验证。 */
+    public BackgroundValidationService.ValidationResult verify(String taskId,
+                                                               Long appId,
+                                                               User loginUser,
+                                                               GenerationWorkspace workspace,
+                                                               List<PatchOperation> patchOperations,
+                                                               EditChangePlan changePlan,
+                                                               String userMessage,
+                                                               GenerationVerificationPolicy verificationPolicy) {
+        Objects.requireNonNull(verificationPolicy, "生成验证策略不能为空");
         EditValidationPlan validationPlan = editValidationPolicyService.determineValidationPlan(
                 patchOperations,
                 workspace.codeGenType(),
                 null,
                 userMessage
         );
-        EditValidationPlan synchronousPlan = upgradeForAgentEdit(validationPlan, changePlan);
+        EditValidationPlan synchronousPlan = verificationPolicy.enforceEditMinimum(
+                upgradeForAgentEdit(validationPlan, changePlan));
+        // 后端专用验证同样消费统一验证门槛，BUILD 计划必须执行真实 Go 构建。
+        if (workspace.codeGenType() == CodeGenTypeEnum.BACKEND_PROJECT) {
+            return backendValidationService.validate(taskId, workspace, patchOperations, synchronousPlan);
+        }
+        if (workspace.codeGenType() == CodeGenTypeEnum.FULL_STACK_PROJECT && touchesOnlyBackend(patchOperations)) {
+            return backendValidationService.validate(taskId, workspace, patchOperations, synchronousPlan);
+        }
         BackgroundValidationService.ValidationResult frontendResult = backgroundValidationService.executeValidation(
                 taskId,
                 appId,
@@ -65,7 +90,12 @@ public class AgentEditVerificationService {
         if (workspace.codeGenType() != CodeGenTypeEnum.FULL_STACK_PROJECT || !touchesBackend(patchOperations)) {
             return frontendResult;
         }
-        BackgroundValidationService.ValidationResult backendResult = backendValidationService.validate(taskId, workspace, patchOperations);
+        BackgroundValidationService.ValidationResult backendResult = backendValidationService.validate(
+                taskId,
+                workspace,
+                patchOperations,
+                synchronousPlan
+        );
         if (!frontendResult.isSuccess()) {
             return frontendResult;
         }

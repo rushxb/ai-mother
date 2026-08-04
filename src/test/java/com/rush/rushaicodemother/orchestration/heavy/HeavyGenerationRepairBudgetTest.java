@@ -20,6 +20,9 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -64,6 +67,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -308,13 +312,47 @@ class HeavyGenerationRepairBudgetTest {
                     generationService, failureRecoveryService, builder,
                     validationService, appId);
 
-            assertTrue(buildService.runWithAutoRepair(appId, user, preparation, session));
+            GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.planned(
+                    GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.EXPERT));
+
+            assertTrue(buildService.runWithAutoRepair(
+                    appId, user, preparation, session, verificationPolicy));
             verify(validationService).validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT);
         } finally {
             FileUtil.del(projectPath.toFile());
         }
     }
 
+    @Test
+    void buildPlanMustSkipDevServerRuntimeValidation() throws Exception {
+        long appId = 870_010L;
+        String taskId = "build-plan-skips-runtime";
+        Path projectPath = projectPath(appId);
+        HeavyGenerationExecutionService generationService = mock(HeavyGenerationExecutionService.class);
+        HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
+        VueProjectBuilder builder = mock(VueProjectBuilder.class);
+        DevServerValidationService validationService = mock(DevServerValidationService.class);
+        GenerationPreparation preparation = preparation(taskId);
+        GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
+        User user = User.builder().id(7L).build();
+        when(builder.buildProjectWithResult(projectPath.toString(), taskId)).thenReturn(
+                new VueBuildResult(true, "done", projectPath.toString(), "build passed", null, null));
+
+        try {
+            createRepairableProject(projectPath);
+            HeavyGenerationBuildValidationService buildService = buildService(
+                    generationService, failureRecoveryService, builder,
+                    validationService, appId);
+            GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.planned(
+                    GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.BUILD));
+
+            assertTrue(buildService.runWithAutoRepair(
+                    appId, user, preparation, session, verificationPolicy));
+            verifyNoInteractions(validationService);
+        } finally {
+            FileUtil.del(projectPath.toFile());
+        }
+    }
     @Test
     void failedDevServerValidationMustEnterRepairLoopWithStructuredDiagnostic() throws Exception {
         long appId = 870_008L;

@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.create.CreatePostGenerationValidationService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
@@ -188,22 +189,33 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                     )
             ));
             CreatePostGenerationValidationService.ValidationOutcome validationOutcome =
-                    createPostGenerationValidationService.validate(
-                            app.getId(),
-                            request.taskRequest().loginUser(),
-                            request.codeGenType(),
-                            request.taskRequest().message(),
-                            taskId,
-                            result,
-                            session
-                    );
+                    request.executionPlan() == null
+                            ? createPostGenerationValidationService.validate(
+                                    app.getId(),
+                                    request.taskRequest().loginUser(),
+                                    request.codeGenType(),
+                                    request.taskRequest().message(),
+                                    taskId,
+                                    result,
+                                    session)
+                            : createPostGenerationValidationService.validate(
+                                    app.getId(),
+                                    request.taskRequest().loginUser(),
+                                    request.codeGenType(),
+                                    request.taskRequest().message(),
+                                    taskId,
+                                    result,
+                                    session,
+                                    request.executionPlan());
             session.throwIfCancelled();
             if (!validationOutcome.success()) {
                 return finishValidationFailure(
                         request, taskId, startedAt, validationOutcome.reason(), telemetry(result));
             }
             return finishSuccessfulCreateGeneration(
+                    request,
                     taskId,
+                    result,
                     buildSuccessResultSummary(result)
             );
         } catch (RuntimeException failure) {
@@ -256,11 +268,22 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
         return GenerationPipelineOutcome.fallback(route(), fallbackReason);
     }
 
-    private GenerationPipelineOutcome finishSuccessfulCreateGeneration(String taskId,
-                                                                        String resultSummary) {
+    private GenerationPipelineOutcome finishSuccessfulCreateGeneration(
+            GenerationPipelineRequest request,
+            String taskId,
+            SlotFillResult result,
+            String resultSummary
+    ) {
         generationPerformanceMonitorService.finishTask(taskId, GenerationTaskStatus.SUCCESS.getValue());
         return GenerationPipelineOutcome.completed(
-                route(), GenerationTaskStatus.SUCCESS, null, resultSummary);
+                route(),
+                GenerationTaskStatus.SUCCESS,
+                null,
+                resultSummary,
+                GenerationCompletionEvidenceSet.successfulMutation(
+                        request.modeDecision().expectedValidationLevel(),
+                        route(),
+                        result == null ? 0 : result.patchOperationCount()));
     }
 
     /** 构建修复预算耗尽后结束 CREATE，避免再次执行整条重型生成链路。 */

@@ -18,6 +18,7 @@ import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -49,6 +50,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class HeavyGenerationExecutionServiceTest {
@@ -128,6 +130,56 @@ class HeavyGenerationExecutionServiceTest {
         assertEquals("planner_artifact", plannedEvent.getValue().getData().get("complexitySource"));
         assertEquals(Boolean.TRUE, legacyEvent.getValue().getData().get("complexRequest"));
         assertEquals("conservative_fallback", legacyEvent.getValue().getData().get("complexitySource"));
+    }
+
+    @Test
+    void frozenExecutionPlanMustProvideInitialModelProfileWithoutRuntimeReselection() {
+        GenerationPerformanceSelector selector = mock(GenerationPerformanceSelector.class);
+        GenerationPerformanceProfile plannedProfile = GenerationPerformanceProfile.qualityFirst();
+        HeavyGenerationExecutionService service = spy(new HeavyGenerationExecutionService(
+                mock(AiCodeGeneratorFacade.class),
+                mock(ChatHistoryService.class),
+                mock(GenerationAppStateService.class),
+                mock(GenerationMemoryContextService.class),
+                mock(GenerationOrchestrationMetricsCollector.class),
+                selector,
+                mock(HeavyGenerationFailureRecoveryService.class),
+                mock(HeavyGenerationSessionCompletionService.class),
+                new GenerationWorkspaceService(new CodeStorageProperties()),
+                mock(StreamHandlerExecutor.class),
+                mock(com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime.class),
+                mock(GenerationStageAdmissionService.class),
+                new GenerationRuntimeProperties()
+        ));
+        GenerationArtifact generationSpec = GenerationArtifact.of(
+                "generation_spec", "Code", "生成规范", Map.of("requiresBuild", false));
+        GenerationPreparation preparation = new GenerationPreparation(
+                CodeGenTypeEnum.VUE_PROJECT,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false,
+                AppConstant.GENERATING_STAGE_CREATE,
+                "生成管理页面",
+                List.of(),
+                Map.of("generation_spec", generationSpec),
+                null,
+                Map.of(),
+                "planned-profile"
+        );
+        GenerationSession session = new GenerationSession(preparation);
+        GenerationExecutionPlan plan = mock(GenerationExecutionPlan.class);
+        when(plan.modelProfile()).thenReturn(plannedProfile);
+        session.bindExecutionPlan(plan);
+        User user = User.builder().id(7L).build();
+        doNothing().when(service).executeGenerationRound(
+                any(), same(user), eq(CodeGenTypeEnum.VUE_PROJECT), any(), same(session),
+                any(StringBuilder.class), any(long[].class), same(plannedProfile));
+
+        service.runGenerationWithAutoRepair(41L, user, preparation, session);
+
+        verifyNoInteractions(selector);
+        verify(service).executeGenerationRound(
+                eq(41L), same(user), eq(CodeGenTypeEnum.VUE_PROJECT), eq("生成管理页面"), same(session),
+                any(StringBuilder.class), any(long[].class), same(plannedProfile));
     }
 
     @Test

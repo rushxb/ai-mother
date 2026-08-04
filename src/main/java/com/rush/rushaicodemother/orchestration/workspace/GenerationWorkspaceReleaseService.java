@@ -20,13 +20,13 @@ public class GenerationWorkspaceReleaseService {
     private final GenerationPreviewMilestoneService previewMilestoneService;
 
     /**
- * 释放生成工作区发布。
+ * 发布已经通过验证的生成工作区。
  *
  * @param session 会话
  * @param targetType 目标类型
  * @return 生成工作区发布
  */
-    public GenerationWorkspacePublicationResult release(
+    public GenerationWorkspacePublicationResult releaseVerified(
             GenerationSession session,
             CodeGenTypeEnum targetType
     ) {
@@ -49,6 +49,17 @@ public class GenerationWorkspaceReleaseService {
         return result;
     }
 
+    /**
+     * 兼容旧调用入口；新主链路必须通过 {@link #releaseVerified(GenerationSession, CodeGenTypeEnum)}
+     * 明确表达只有验证通过的工作区才允许发布。
+     */
+    @Deprecated(forRemoval = false)
+    public GenerationWorkspacePublicationResult release(
+            GenerationSession session,
+            CodeGenTypeEnum targetType
+    ) {
+        return releaseVerified(session, targetType);
+    }
     /** 发布{@code First}预览安全处理。 */
     private void publishFirstPreviewSafely(GenerationSession session, CodeGenTypeEnum targetType) {
         try {

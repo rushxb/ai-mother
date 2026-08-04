@@ -138,6 +138,7 @@ class DefaultGenerationAgentRuntimeTest {
                 initializer
         );
         GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
         GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
                 11L,
                 "生成管理后台",
@@ -207,7 +208,7 @@ class DefaultGenerationAgentRuntimeTest {
                 CodeGenTypeEnum.VUE_PROJECT,
                 GenerationPerformanceProfile.balanced(),
                 "D:\\generated\\vue_project_11",
-                executionContext(),
+                executionContextWithMutation(),
                 () -> false,
                 ignored -> { }
         );
@@ -386,6 +387,7 @@ class DefaultGenerationAgentRuntimeTest {
                 approvalService, new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
         GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
 
         List<GenerationStreamEvent> events = engine.continueAfterDecision(
                         approved,
@@ -440,6 +442,7 @@ class DefaultGenerationAgentRuntimeTest {
                 "{\"taskId\":\"task-1\"}", NOW);
 
         GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
         engine.continueAfterDecision(
                         approval(ToolApprovalStatus.REJECTED, checkpoint),
                         state(executionContext, checkpoint, memoryStore.getMessages(11L)), executionContext,
@@ -482,6 +485,7 @@ class DefaultGenerationAgentRuntimeTest {
                 pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
                 "{\"taskId\":\"task-1\"}", NOW);
         GenerationExecutionContext executionContext = expiringExecutionContext();
+        assumeWorkspaceMutation(executionContext);
 
         List<GenerationStreamEvent> events = engine.continueAfterDecision(
                         approval(ToolApprovalStatus.REJECTED, checkpoint),
@@ -529,6 +533,7 @@ class DefaultGenerationAgentRuntimeTest {
                 pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
                 "{\"taskId\":\"task-1\"}", NOW);
         GenerationExecutionContext executionContext = shortWindowExecutionContext();
+        assumeWorkspaceMutation(executionContext);
 
         List<GenerationStreamEvent> events = engine.continueAfterDecision(
                         approval(ToolApprovalStatus.REJECTED, checkpoint),
@@ -580,6 +585,7 @@ class DefaultGenerationAgentRuntimeTest {
                 approvalService, new GenerationToolExecutionContextService(),
                 passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
         GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
 
         engine.continueAfterDecision(
                         consumed, state(executionContext, checkpoint, memoryStore.getMessages(11L)), executionContext,
@@ -623,6 +629,7 @@ class DefaultGenerationAgentRuntimeTest {
                 pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
                 "{\"taskId\":\"task-1\"}", NOW);
         GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
 
         engine.continueAfterDecision(
                         approval(ToolApprovalStatus.REJECTED, checkpoint),
@@ -664,6 +671,7 @@ class DefaultGenerationAgentRuntimeTest {
                 pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
                 "{\"taskId\":\"task-1\"}", NOW);
         GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
         GenerationPerformanceProfile oneToolRound = new GenerationPerformanceProfile(
                 GenerationPerformanceProfile.ModelTier.BALANCED,
                 false,
@@ -713,6 +721,7 @@ class DefaultGenerationAgentRuntimeTest {
                 pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
                 "{\"taskId\":\"task-1\"}", NOW);
         GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
 
         engine.continueAfterDecision(
                         approval(ToolApprovalStatus.REJECTED, checkpoint),
@@ -783,6 +792,17 @@ class DefaultGenerationAgentRuntimeTest {
         when(policy.governModelTurn(any(String.class), anyInt(), any(ChatRequest.class)))
                 .thenAnswer(invocation -> invocation.getArgument(2));
         return policy;
+    }
+
+    /** 本组用例聚焦模型循环行为，预置已由工具网关确认的工作区变更。 */
+    private void assumeWorkspaceMutation(GenerationExecutionContext executionContext) {
+        executionContext.recordSuccessfulWorkspaceMutations(1);
+    }
+
+    private GenerationExecutionContext executionContextWithMutation() {
+        GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
+        return executionContext;
     }
 
     private GenerationExecutionContext executionContext() {

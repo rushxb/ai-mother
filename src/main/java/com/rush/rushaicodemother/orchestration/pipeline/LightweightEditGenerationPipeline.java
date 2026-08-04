@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditResult;
 import com.rush.rushaicodemother.orchestration.edit.LightweightEditService;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -71,8 +72,14 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             session.throwIfCancelled();
-            LightweightEditResult editResult = lightweightEditService.execute(
-                    execution.taskId(), request.taskRequest(), request.workspace());
+            LightweightEditResult editResult = request.executionPlan() == null
+                    ? lightweightEditService.execute(
+                            execution.taskId(), request.taskRequest(), request.workspace())
+                    : lightweightEditService.execute(
+                            execution.taskId(),
+                            request.taskRequest(),
+                            request.workspace(),
+                            request.executionPlan());
             if (editResult == null) {
                 return GenerationPipelineOutcome.fallback(route(), "lightweight_edit_not_applicable");
             }

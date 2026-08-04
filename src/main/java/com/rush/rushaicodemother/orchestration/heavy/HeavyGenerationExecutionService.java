@@ -19,6 +19,7 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
@@ -97,8 +98,10 @@ public class HeavyGenerationExecutionService {
         String complexitySource = plannedComplexity.isPresent()
                 ? "planner_artifact"
                 : "conservative_fallback";
-        GenerationPerformanceProfile profile = generationPerformanceSelector.select(
-                isFirstGeneration, isComplex, preparation.targetType());
+        GenerationExecutionPlan executionPlan = session.executionPlan();
+        GenerationPerformanceProfile profile = executionPlan == null
+                ? generationPerformanceSelector.select(isFirstGeneration, isComplex, preparation.targetType())
+                : executionPlan.modelProfile();
 
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int round = 0; round <= maxGenerationRepairRounds; round++) {

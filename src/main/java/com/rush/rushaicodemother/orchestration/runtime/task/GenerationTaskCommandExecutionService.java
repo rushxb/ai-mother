@@ -51,6 +51,7 @@ public class GenerationTaskCommandExecutionService {
     private final AppPersistenceService appPersistenceService;
     private final UserPersistenceService userPersistenceService;
     private final TenantAuthorizationService tenantAuthorizationService;
+    private final GenerationTaskResourceProvisioningService resourceProvisioningService;
     private final GenerationWorkspaceService workspaceService;
     private final GenerationExecutionWorkspaceService executionWorkspaceService;
     private final GenerationWorkspaceExecutionScope workspaceExecutionScope;
@@ -71,6 +72,7 @@ public class GenerationTaskCommandExecutionService {
             AppPersistenceService appPersistenceService,
             UserPersistenceService userPersistenceService,
             TenantAuthorizationService tenantAuthorizationService,
+            GenerationTaskResourceProvisioningService resourceProvisioningService,
             GenerationWorkspaceService workspaceService,
             GenerationExecutionContextService executionContextService,
             GenerationRuntimeProperties runtimeProperties,
@@ -87,6 +89,7 @@ public class GenerationTaskCommandExecutionService {
                 appPersistenceService,
                 userPersistenceService,
                 tenantAuthorizationService,
+                resourceProvisioningService,
                 workspaceService,
                 null,
                 null,
@@ -178,7 +181,7 @@ public class GenerationTaskCommandExecutionService {
             try {
                 tenantAuthorizationService.requireRole(
                         task.tenantId(), user.getId(), TenantRole.DEVELOPER,
-                        "Generation actor is no longer authorized for this tenant");
+                        "生成任务执行人已无当前租户的操作权限");
             } catch (BusinessException noLongerAuthorized) {
                 claimReleased = true;
                 runtimeLifecycleService.completeOwned(executionFence, GenerationTaskStatus.FAILED,
@@ -217,6 +220,8 @@ public class GenerationTaskCommandExecutionService {
                     command.submittedAt(),
                     command.modeDecision()
             );
+
+            resourceProvisioningService.provision(command, app, executionContext);
 
             if (executionWorkspaceService != null) {
                 GenerationPerformanceMonitorService.SpanTimer workspaceSpan =
@@ -265,6 +270,7 @@ public class GenerationTaskCommandExecutionService {
                         session.bindExecutionWorkspace(executionWorkspace);
                     }
                     session.bindTaskRequest(request.taskRequest());
+                    session.bindExecutionPlan(request.executionPlan());
                     session.recordRoute(command.route());
                     sessionRegistry.put(command.appId(), session);
                     sessionRegistered = true;

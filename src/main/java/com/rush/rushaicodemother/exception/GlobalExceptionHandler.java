@@ -36,6 +36,7 @@ public class GlobalExceptionHandler {
 
     private final SseExceptionResponseWriter sseExceptionResponseWriter;
     private final ValidationExceptionMessageResolver validationExceptionMessageResolver;
+    private final UserFacingMessageResolver userFacingMessageResolver;
 
     /**
  * 返回{@code guardrail}异常处理器。
@@ -69,7 +70,8 @@ public class GlobalExceptionHandler {
     public BaseResponse<?> businessExceptionHandler(BusinessException exception,
                                                     HttpServletRequest request,
                                                     HttpServletResponse response) {
-        String safeMessage = normalizeMessage(exception.getMessage(), defaultMessageFor(exception.getCode()));
+        String safeMessage = userFacingMessageResolver.resolve(
+                exception.getMessage(), defaultMessageFor(exception.getCode()));
         log.warn("Business request failed [{}]: {}", exception.getCode(), safeMessage);
         return respond(request, response, exception.getCode(), safeMessage);
     }
@@ -233,7 +235,7 @@ public class GlobalExceptionHandler {
                                     HttpServletResponse response,
                                     int errorCode,
                                     String errorMessage) {
-        String safeMessage = normalizeMessage(errorMessage, defaultMessageFor(errorCode));
+        String safeMessage = userFacingMessageResolver.resolve(errorMessage, defaultMessageFor(errorCode));
         if (sseExceptionResponseWriter.writeIfApplicable(request, response, errorCode, safeMessage)) {
             return null;
         }
@@ -264,10 +266,6 @@ public class GlobalExceptionHandler {
             }
         }
         return ErrorCode.OPERATION_ERROR.getMessage();
-    }
-
-    private String normalizeMessage(String message, String fallback) {
-        return StringUtils.hasText(message) ? message.trim() : fallback;
     }
 
 }

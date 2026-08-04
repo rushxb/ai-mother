@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -97,6 +98,7 @@ class GenerationTaskAdmissionServiceTest {
                 () -> fixture.service().admit(command(), IDEMPOTENCY));
 
         assertEquals(ErrorCode.CONFLICT_ERROR.getCode(), conflict.getCode());
+        assertTrue(conflict.getMessage().matches(".*[\\u4e00-\\u9fff].*"));
         verifyNoInteractions(fixture.aiModelRuntimeService(), fixture.concurrencyPolicy(), fixture.reservationPolicy(),
                 fixture.creditService(), fixture.lifecycleService());
     }

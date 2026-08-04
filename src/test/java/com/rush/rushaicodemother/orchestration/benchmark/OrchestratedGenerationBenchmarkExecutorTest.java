@@ -17,6 +17,7 @@ import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -82,14 +83,9 @@ class OrchestratedGenerationBenchmarkExecutorTest {
             );
             performanceMonitorService.recordCreateTelemetry(taskId, Map.of("aiCallCount", 2));
             performanceMonitorService.finishTask(taskId, "success");
-            return new GenerationTaskResult(
-                    taskId,
-                    "create",
-                    null,
-                    Flux.just(
+            return generationResult(taskId, "create", Flux.just(
                             firstPreview(450),
-                            GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))
-            );
+                            GenerationStreamEvent.buildResult("build ok", Map.of("success", true))));
         });
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
 
@@ -107,12 +103,10 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void shouldNotCountBuildTaskAsBuildPassedWithoutBuildEvidence() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+        when(orchestrator.start(any())).thenReturn(generationResult(
                 "bench-task-2",
                 "create",
-                null,
-                Flux.just(firstPreview(500), GenerationStreamEvent.agentEvent("done", Map.of()))
-        ));
+                Flux.just(firstPreview(500), GenerationStreamEvent.agentEvent("done", Map.of()))));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
 
         GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
@@ -134,7 +128,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                     "failed",
                     Map.of("reason", "provider-api-key=secret-value")
             );
-            return new GenerationTaskResult("bench-task-3", "agent_edit", null, Flux.never());
+            return generationResult("bench-task-3", "agent_edit", Flux.never());
         });
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
 
@@ -154,8 +148,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
             GenerationTaskRequest request = invocation.getArgument(0);
             eventPublisher.publish(request, GenerationEventType.VALIDATION_RESULT, "validated", Map.of("status", "success"));
             eventPublisher.publish(request, GenerationEventType.TASK_DONE, "done", Map.of());
-            return new GenerationTaskResult(
-                    "bench-task-4", "agent_edit", null, Flux.just(firstPreview(350)));
+            return generationResult("bench-task-4", "agent_edit", Flux.just(firstPreview(350)));
         });
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
 
@@ -170,12 +163,10 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void shouldNotExposeRawStreamFailureDetails() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+        when(orchestrator.start(any())).thenReturn(generationResult(
                 "bench-task-5",
                 "create",
-                null,
-                Flux.error(new IllegalStateException("provider-api-key=secret-value"))
-        ));
+                Flux.error(new IllegalStateException("provider-api-key=secret-value"))));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
 
         GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
@@ -207,12 +198,9 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void shouldAttachDeterministicQualityEvidenceToRunResult() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
-                "bench-task-quality", "agent_edit", null,
-                Flux.just(
+        when(orchestrator.start(any())).thenReturn(generationResult("bench-task-quality", "agent_edit", Flux.just(
                         firstPreview(400),
-                        GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))
-        ));
+                        GenerationStreamEvent.buildResult("build ok", Map.of("success", true)))));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
         GenerationBenchmarkQualityEvidence evidence = new GenerationBenchmarkQualityEvidence(java.util.List.of(
                 GenerationBenchmarkRuleResult.passed(
@@ -235,12 +223,10 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @ValueSource(strings = {"CREATE", "LIGHT_EDIT", "AGENT_EDIT", "HEAVY_EXPERT"})
     void shouldCaptureFirstPreviewForEveryGenerationMode(String mode) {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+        when(orchestrator.start(any())).thenReturn(generationResult(
                 "bench-preview-" + mode.toLowerCase(),
                 mode.toLowerCase(),
-                null,
-                Flux.just(firstPreview(0))
-        ));
+                Flux.just(firstPreview(0))));
 
         GenerationBenchmarkRunResult result = executor(orchestrator).execute(
                 new GenerationBenchmarkTask(
@@ -254,8 +240,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void successfulTaskWithoutPreviewMustRemainExplicitlyUnobserved() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
-                "bench-preview-missing", "create", null, Flux.empty()));
+        when(orchestrator.start(any())).thenReturn(generationResult("bench-preview-missing", "create", Flux.empty()));
 
         GenerationBenchmarkRunResult result = executor(orchestrator).execute(
                 new GenerationBenchmarkTask(
@@ -269,12 +254,10 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void shouldDrainDelayedTaskStreamAfterDurableTerminalState() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
+        when(orchestrator.start(any())).thenReturn(generationResult(
                 "bench-preview-delayed",
                 "create",
-                null,
-                Flux.just(firstPreview(321)).delaySubscription(Duration.ofMillis(20))
-        ));
+                Flux.just(firstPreview(321)).delaySubscription(Duration.ofMillis(20))));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
         ReflectionTestUtils.setField(
                 executor, "firstPreviewObservationTimeout", Duration.ofMillis(200));
@@ -289,8 +272,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void shouldRecoverFirstPreviewFromDurableTraceAcrossWorkerInstances() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
-                "bench-preview-trace", "create", null, Flux.empty()));
+        when(orchestrator.start(any())).thenReturn(generationResult("bench-preview-trace", "create", Flux.empty()));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
         when(spanQueryService.findByTaskId(
                 "bench-preview-trace", GenerationSpanQueryService.MAX_LIMIT)).thenReturn(java.util.List.of(
@@ -318,8 +300,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void timeoutMustRequestDurableCancellationAndCleanupOnlyAfterTerminalState() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
-                "bench-timeout", "create", null, Flux.never()));
+        when(orchestrator.start(any())).thenReturn(generationResult("bench-timeout", "create", Flux.never()));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
         ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(15));
         ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(100));
@@ -363,8 +344,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     @Test
     void nonTerminalTaskAfterCancellationGraceMustKeepFixtureForDeferredCleanup() {
         GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
-        when(orchestrator.start(any())).thenReturn(new GenerationTaskResult(
-                "bench-stuck", "create", null, Flux.never()));
+        when(orchestrator.start(any())).thenReturn(generationResult("bench-stuck", "create", Flux.never()));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
         ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(10));
         ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(10));
@@ -416,6 +396,23 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         ReflectionTestUtils.setField(executor, "terminalPollInterval", Duration.ofMillis(1));
         ReflectionTestUtils.setField(executor, "firstPreviewObservationTimeout", Duration.ofMillis(20));
         return executor;
+    }
+
+    private GenerationTaskResult generationResult(
+            String taskId,
+            String route,
+            Flux<GenerationStreamEvent> contentFlux
+    ) {
+        Instant submittedAt = Instant.parse("2026-07-28T00:00:00Z");
+        GenerationTaskSubmissionReceipt submission = new GenerationTaskSubmissionReceipt(
+                taskId,
+                101L,
+                route,
+                GenerationTaskStatus.QUEUED,
+                submittedAt,
+                submittedAt.plusSeconds(60)
+        );
+        return new GenerationTaskResult(submission, null, contentFlux);
     }
 
     private GenerationStreamEvent firstPreview(long elapsedMs) {

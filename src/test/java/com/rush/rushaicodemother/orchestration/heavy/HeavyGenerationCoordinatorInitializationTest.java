@@ -122,6 +122,10 @@ class HeavyGenerationCoordinatorInitializationTest {
         );
         org.mockito.Mockito.lenient().when(sessionRegistry.lock(APP_ID)).thenReturn(new Object());
         org.mockito.Mockito.lenient().when(taskIdGenerator.nextId()).thenReturn(TASK_ID);
+        Instant startedAt = Instant.parse("2026-07-28T00:00:00Z");
+        org.mockito.Mockito.lenient().when(executionContext.startedAt()).thenReturn(startedAt);
+        org.mockito.Mockito.lenient().when(executionContext.deadlineAt())
+                .thenReturn(startedAt.plusSeconds(60));
 
         App app = new App();
         app.setId(APP_ID);

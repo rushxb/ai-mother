@@ -2,50 +2,88 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
-/**
- * 生成流水线请求参数。
- */
+/** 生成流水线请求参数。 */
 public record GenerationPipelineRequest(
         GenerationTaskRequest taskRequest,
         CodeGenTypeEnum codeGenType,
         GenerationWorkspace workspace,
+        IntentProfile intentProfile,
         GenerationModeDecision modeDecision,
+        GenerationExecutionPlan executionPlan,
         GenerationTaskExecution execution
 ) {
+
+    public GenerationPipelineRequest {
+        intentProfile = intentProfile == null ? IntentProfile.unknown() : intentProfile;
+        if (executionPlan != null && !executionPlan.route().equals(modeDecision)) {
+            throw new IllegalArgumentException("执行计划路由必须与流水线路由决策一致");
+        }
+    }
+
+    /** 兼容尚未携带执行计划的调用方。 */
+    public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
+                                     CodeGenTypeEnum codeGenType,
+                                     GenerationWorkspace workspace,
+                                     IntentProfile intentProfile,
+                                     GenerationModeDecision modeDecision,
+                                     GenerationTaskExecution execution) {
+        this(taskRequest, codeGenType, workspace, intentProfile, modeDecision, null, execution);
+    }
 
     public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
                                      CodeGenTypeEnum codeGenType,
                                      GenerationWorkspace workspace,
                                      GenerationModeDecision modeDecision) {
-        this(taskRequest, codeGenType, workspace, modeDecision, null);
+        this(taskRequest, codeGenType, workspace, IntentProfile.unknown(), modeDecision, null, null);
+    }
+
+    public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
+                                     CodeGenTypeEnum codeGenType,
+                                     GenerationWorkspace workspace,
+                                     IntentProfile intentProfile,
+                                     GenerationModeDecision modeDecision) {
+        this(taskRequest, codeGenType, workspace, intentProfile, modeDecision, null, null);
+    }
+
+    public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
+                                     CodeGenTypeEnum codeGenType,
+                                     GenerationWorkspace workspace,
+                                     GenerationModeDecision modeDecision,
+                                     GenerationTaskExecution execution) {
+        this(taskRequest, codeGenType, workspace, IntentProfile.unknown(), modeDecision, null, execution);
     }
 
     public boolean modeIs(GenerationMode mode) {
         return modeDecision != null && modeDecision.mode() == mode;
     }
 
-    /**
- * 校验并返回有效的执行。
- *
- * @return 执行
- */
     public GenerationTaskExecution requireExecution() {
         if (execution == null) {
-            throw new IllegalStateException("generation task execution is not bound");
+            throw new IllegalStateException("生成任务尚未绑定执行上下文");
         }
         return execution;
     }
 
     public GenerationPipelineRequest withExecution(GenerationTaskExecution taskExecution) {
-        return new GenerationPipelineRequest(taskRequest, codeGenType, workspace, modeDecision, taskExecution);
+        return new GenerationPipelineRequest(
+                taskRequest, codeGenType, workspace, intentProfile, modeDecision, executionPlan, taskExecution);
+    }
+
+    public GenerationPipelineRequest withExecutionPlan(GenerationExecutionPlan plan) {
+        return new GenerationPipelineRequest(
+                taskRequest, codeGenType, workspace, intentProfile, modeDecision, plan, execution);
     }
 
     public GenerationPipelineRequest withModeDecision(GenerationModeDecision decision) {
-        return new GenerationPipelineRequest(taskRequest, codeGenType, workspace, decision, execution);
+        GenerationExecutionPlan updatedPlan = executionPlan == null ? null : executionPlan.withRoute(decision);
+        return new GenerationPipelineRequest(
+                taskRequest, codeGenType, workspace, intentProfile, decision, updatedPlan, execution);
     }
 }

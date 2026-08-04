@@ -30,6 +30,25 @@ class GenerationTelemetryRoutingPolicyTest {
 
         assertEquals(GenerationMode.HEAVY_EXPERT, decision.mode());
         assertEquals(ExpectedValidationLevel.EXPERT, decision.expectedValidationLevel());
+        assertChineseMessage(decision.reason());
+    }
+
+    @Test
+    void saturatedCapacityShouldUseChineseContainmentReason() {
+        GenerationRoutingTelemetryProperties properties = new GenerationRoutingTelemetryProperties();
+        GenerationTelemetryRoutingPolicy policy = new GenerationTelemetryRoutingPolicy(properties);
+        GenerationRoutingSignal signal = signal(
+                new GenerationRoutingTelemetrySnapshot(
+                        1, 0, 700_000L, 0, 0, 0,
+                        0, 4, 0, 4, 32, Instant.now(), true
+                ),
+                "请综合评估现有系统的模块边界、数据流转、异常处理和可扩展性，并在不改变对外行为的前提下优化内部协作方式，补充必要的边界校验、故障恢复和回归验证策略。".repeat(3)
+        );
+
+        GenerationModeDecision decision = policy.decide(signal).orElseThrow();
+
+        assertEquals(GenerationMode.AGENT_EDIT, decision.mode());
+        assertChineseMessage(decision.reason());
     }
 
     @Test
@@ -47,11 +66,16 @@ class GenerationTelemetryRoutingPolicyTest {
     }
 
     private GenerationRoutingSignal signal(GenerationRoutingTelemetrySnapshot telemetry) {
+        return signal(telemetry,
+                "Implement a cross-file user management feature with API and database changes");
+    }
+
+    private GenerationRoutingSignal signal(GenerationRoutingTelemetrySnapshot telemetry, String message) {
         App app = App.builder().id(10L).userId(7L).codeGenType("vue_project").build();
         User user = User.builder().id(7L).build();
         GenerationTaskRequest request = new GenerationTaskRequest(
                 app,
-                "Implement a cross-file user management feature with API and database changes",
+                message,
                 user
         );
         Path root = Path.of("target/test-routing-workspace");
@@ -67,5 +91,10 @@ class GenerationTelemetryRoutingPolicyTest {
                 Set.of()
         );
         return GenerationRoutingSignal.from(request, CodeGenTypeEnum.VUE_PROJECT, workspace, telemetry);
+    }
+
+    private void assertChineseMessage(String message) {
+        assertTrue(message != null && message.matches(".*[\\u4e00-\\u9fff].*"),
+                () -> "用户可见文案必须包含中文: " + message);
     }
 }

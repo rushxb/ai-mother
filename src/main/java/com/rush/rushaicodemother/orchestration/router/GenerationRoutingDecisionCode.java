@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.orchestration.router;
 
-/** 执行策略和遥测使用的稳定的机器可读原因。 */
+/** 执行策略和遥测使用的稳定机器可读原因。 */
 public enum GenerationRoutingDecisionCode {
 
     CREATE_TEMPLATE_COVERAGE_GAP,
@@ -11,6 +11,11 @@ public enum GenerationRoutingDecisionCode {
     AGENT_EDIT_COMPLEXITY,
     LIGHT_EDIT_SCOPE,
     DEFAULT_AGENT_EDIT,
+    INTENT_PROFILE_CREATE,
+    INTENT_PROFILE_COMPLEX_CREATE,
+    INTENT_PROFILE_LIGHT_EDIT,
+    INTENT_PROFILE_AGENT_EDIT,
+    INTENT_PROFILE_HEAVY_EDIT,
     FALLBACK_HEAVY_EXPERT,
     UNKNOWN
 }

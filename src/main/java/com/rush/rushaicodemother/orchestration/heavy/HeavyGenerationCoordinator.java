@@ -35,6 +35,7 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationState;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspaceService;
@@ -171,8 +172,11 @@ public class HeavyGenerationCoordinator {
             preparation = heavyGenerationPreparationService.prepare(taskId, app, request.message());
             executionContext.assertCanContinue();
             assertConsistentTaskIdentity(taskId, preparation);
-            preparation = preparation.enforceValidationFloor(
-                    pipelineRequest.modeDecision().expectedValidationLevel());
+            GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.resolve(
+                    pipelineRequest.executionPlan(),
+                    pipelineRequest.modeDecision().expectedValidationLevel()
+            );
+            preparation = verificationPolicy.enforceValidationFloor(preparation);
             generationPerformanceMonitorService.recordSpan(
                     taskId,
                     "heavy_prepare",
@@ -184,6 +188,7 @@ public class HeavyGenerationCoordinator {
             session = openGenerationSession(
                     app.getId(), request.message(), loginUser, preparation, request, executionContext,
                     managedExecution == null ? null : managedExecution.session());
+            session.bindExecutionPlan(pipelineRequest.executionPlan());
             if (executionWorkspaceService != null
                     && managedExecution != null && managedExecution.executionFence() != null) {
                 GenerationExecutionWorkspace targetWorkspace = executionWorkspaceService.require(
@@ -307,7 +312,7 @@ public class HeavyGenerationCoordinator {
             }
             if (session.isCancelled()) {
                 finishCancelledGeneration(appId, session, preparation);
-            } else if (preparation.requiresBuildValidation()) {
+            } else if (verificationPolicy(session).requiresBuildValidation(preparation)) {
                 runBuildValidation(appId, loginUser, preparation, session, request);
             } else {
                 runFinalization(appId, preparation, session, request);
@@ -530,7 +535,7 @@ public class HeavyGenerationCoordinator {
                 finishCancelledGeneration(appId, session, preparation);
                 return;
             }
-            if (preparation.requiresBuildValidation()) {
+            if (verificationPolicy(session).requiresBuildValidation(preparation)) {
                 runBuildValidation(appId, loginUser, preparation, session, request);
             } else {
                 runFinalization(appId, preparation, session, request);
@@ -583,6 +588,12 @@ public class HeavyGenerationCoordinator {
         return session.executionContext().executionFence();
     }
 
+    private GenerationVerificationPolicy verificationPolicy(GenerationSession session) {
+        if (session == null || session.executionPlan() == null) {
+            return GenerationVerificationPolicy.legacy();
+        }
+        return GenerationVerificationPolicy.planned(session.executionPlan().validationGraph());
+    }
     /** 运行构建校验处理流程。 */
     private void runBuildValidation(Long appId,
                                     User loginUser,
@@ -600,7 +611,12 @@ public class HeavyGenerationCoordinator {
         try {
             session.throwIfCancelled();
             boolean buildSucceeded = heavyGenerationBuildValidationService.runWithAutoRepair(
-                    appId, loginUser, preparation, session);
+                    appId,
+                    loginUser,
+                    preparation,
+                    session,
+                    verificationPolicy(session)
+            );
             if (buildSucceeded) {
                 buildSpan.success();
                 runFinalizationSteps(appId, preparation, session);
@@ -658,9 +674,10 @@ public class HeavyGenerationCoordinator {
         try {
             session.throwIfCancelled();
             heavyGenerationFinalizationService.emitDiffSummaryIfAvailable(appId, preparation, session);
+            heavyGenerationFinalizationService.requireCompletionEvidence(preparation, session);
             heavyGenerationFinalizationService.emitCommitResultIfAvailable(appId, preparation, session);
             if (workspaceReleaseService != null) {
-                workspaceReleaseService.release(session, preparation.targetType());
+                workspaceReleaseService.releaseVerified(session, preparation.targetType());
             }
             finalizeSpan.success();
         } catch (Exception e) {

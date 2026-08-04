@@ -32,7 +32,9 @@ class GenerationTaskIdempotencyServiceTest {
     @Test
     void absentKeyMustDisableIdempotencyWhileMalformedKeysAreRejected() {
         assertEquals(GenerationTaskIdempotency.none(), service.resolve(null, 11L, "build dashboard"));
-        assertThrows(BusinessException.class, () -> service.resolve("", 11L, "build dashboard"));
+        BusinessException malformed = assertThrows(BusinessException.class,
+                () -> service.resolve("", 11L, "build dashboard"));
+        assertTrue(malformed.getMessage().matches(".*[\\u4e00-\\u9fff].*"));
         assertThrows(BusinessException.class,
                 () -> service.resolve("contains whitespace", 11L, "build dashboard"));
         assertThrows(BusinessException.class,

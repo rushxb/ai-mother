@@ -34,7 +34,7 @@ public class LightweightEditRoutingPolicy implements GenerationRoutingPolicy {
         return Optional.of(GenerationModeDecision.of(
                 GenerationMode.LIGHT_EDIT,
                 0.86,
-                "Request is limited to copy, color, style or small single-file edits",
+                "请求仅涉及文案、颜色、样式或小范围单文件修改",
                 FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
                 ExpectedValidationLevel.FAST,
                 GenerationRoutingDecisionCode.LIGHT_EDIT_SCOPE

@@ -32,7 +32,7 @@ public class ExplicitHeavyExpertRoutingPolicy implements GenerationRoutingPolicy
         return Optional.of(GenerationModeDecision.of(
                 GenerationMode.HEAVY_EXPERT,
                 0.9,
-                "User explicitly requested full refactor or expert handling",
+                "用户明确要求完整重构或专家级处理",
                 FallbackPolicy.NONE,
                 ExpectedValidationLevel.EXPERT,
                 GenerationRoutingDecisionCode.EXPLICIT_HEAVY_EXPERT

@@ -5,12 +5,14 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
+import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionService;
@@ -41,7 +43,9 @@ class GenerationTaskOrchestratorPipelineTest {
         GenerationTaskSubmissionService submissionService = mock(GenerationTaskSubmissionService.class);
         GenerationSessionRegistry registry = new GenerationSessionRegistry(new GenerationSessionProperties());
         GenerationModeDecision decision = lightEditDecision();
-        when(router.route(context.request(), CodeGenTypeEnum.VUE_PROJECT, context.workspace())).thenReturn(decision);
+        IntentProfile intentProfile = IntentProfile.unknown();
+        when(router.select(context.request(), CodeGenTypeEnum.VUE_PROJECT, context.workspace()))
+                .thenReturn(new GenerationRouteSelection(intentProfile, decision));
         Instant submittedAt = Instant.parse("2026-07-20T10:00:00Z");
         GenerationTaskResult expected = new GenerationTaskResult(
                 new GenerationTaskSubmissionReceipt(
@@ -62,6 +66,7 @@ class GenerationTaskOrchestratorPipelineTest {
         verify(submissionService).submit(
                 captor.capture(), org.mockito.ArgumentMatchers.eq(GenerationTaskIdempotency.none()));
         assertEquals(decision, captor.getValue().modeDecision());
+        assertEquals(intentProfile, captor.getValue().intentProfile());
         assertEquals(context.workspace(), captor.getValue().workspace());
         assertEquals(null, captor.getValue().execution());
     }
@@ -116,7 +121,7 @@ class GenerationTaskOrchestratorPipelineTest {
 
     private GenerationModeDecision lightEditDecision() {
         return GenerationModeDecision.of(
-                GenerationMode.LIGHT_EDIT, 0.9, "test route",
+                GenerationMode.LIGHT_EDIT, 0.9, "测试路由",
                 FallbackPolicy.NONE, ExpectedValidationLevel.FAST);
     }
 

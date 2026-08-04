@@ -49,8 +49,8 @@ public class GenerationTaskAdmissionService {
     @Transactional(rollbackFor = Exception.class)
     public GenerationTaskAdmissionResult admit(GenerationTaskCommand command,
                                                GenerationTaskIdempotency idempotency) {
-        Objects.requireNonNull(command, "command");
-        Objects.requireNonNull(idempotency, "idempotency");
+        Objects.requireNonNull(command, "生成任务命令不能为空");
+        Objects.requireNonNull(idempotency, "生成任务幂等信息不能为空");
         int currentNonTerminalTasks = admissionRepository.lockUserAndCountNonTerminalTasks(command.userId());
         if (idempotency.present()) {
             GenerationTaskIdempotencyRecord existing = admissionRepository.findByIdempotencyKey(
@@ -60,7 +60,7 @@ public class GenerationTaskAdmissionService {
                 if (!Objects.equals(existing.requestFingerprint(), idempotency.requestFingerprint())) {
                     throw new BusinessException(
                             ErrorCode.CONFLICT_ERROR,
-                            "Idempotency-Key has already been used for a different generation request"
+                            "Idempotency-Key 已被其他生成请求使用"
                     );
                 }
                 return GenerationTaskAdmissionResult.reused(existing.submission());

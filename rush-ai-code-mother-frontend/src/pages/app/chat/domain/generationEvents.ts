@@ -112,3 +112,77 @@ export const getEventRecord = (data: GenerationEventData | undefined, key: strin
   const value = data?.[key]
   return isRecord(value) ? value : undefined
 }
+
+export type UserProgressStage =
+  | 'understanding'
+  | 'planning'
+  | 'implementing'
+  | 'preview_ready'
+  | 'verifying'
+  | 'awaiting_approval'
+  | 'delivered'
+
+export interface UserProgressEvent {
+  stage: UserProgressStage
+  message: string
+  phase: 'codegen' | 'build' | 'done'
+  terminal: boolean
+}
+
+const userProgressDefaults: Readonly<Record<UserProgressStage, Omit<UserProgressEvent, 'stage'>>> = {
+  understanding: { message: '已理解你的需求', phase: 'codegen', terminal: false },
+  planning: { message: '正在确认修改范围', phase: 'codegen', terminal: false },
+  implementing: { message: '正在生成或修改代码', phase: 'codegen', terminal: false },
+  preview_ready: { message: '已可预览', phase: 'build', terminal: false },
+  verifying: { message: '正在做质量校验', phase: 'build', terminal: false },
+  awaiting_approval: { message: '需要你确认', phase: 'codegen', terminal: false },
+  delivered: { message: '已完成交付', phase: 'done', terminal: true },
+}
+
+const isUserProgressStage = (value: unknown): value is UserProgressStage => {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(userProgressDefaults, value)
+}
+
+const progressFromStage = (stage: UserProgressStage, message?: unknown): UserProgressEvent => {
+  const defaults = userProgressDefaults[stage]
+  return {
+    stage,
+    message: typeof message === 'string' && message.trim() ? message.trim() : defaults.message,
+    phase: defaults.phase,
+    terminal: defaults.terminal,
+  }
+}
+
+/** 将新版用户阶段、审批事件和必要的旧协议里程碑统一为稳定主进度。 */
+export const resolveUserProgressEvent = (
+  event: GenerationStreamEvent,
+): UserProgressEvent | undefined => {
+  if (event.type === 'generation_stage') {
+    const stage = event.data?.stage
+    if (
+      event.data?.audience === 'user' &&
+      event.data?.contractVersion === 1 &&
+      isUserProgressStage(stage)
+    ) {
+      return progressFromStage(stage, event.data?.message ?? event.text)
+    }
+    if (stage === 'codegen_done') {
+      return progressFromStage('verifying')
+    }
+  }
+  if (event.type === 'agent_event') {
+    const stage = event.data?.userProgressStage
+    if (isUserProgressStage(stage)) {
+      return progressFromStage(stage, event.data?.userProgressMessage)
+    }
+    // 兼容旧后端：不再把内部智能体名称用作用户主进度。
+    return progressFromStage('implementing')
+  }
+  if (event.type === 'first_preview_ready') {
+    return progressFromStage('preview_ready')
+  }
+  if (event.type === 'build_result' || event.type === 'dev_server_validation') {
+    return progressFromStage('verifying')
+  }
+  return undefined
+}

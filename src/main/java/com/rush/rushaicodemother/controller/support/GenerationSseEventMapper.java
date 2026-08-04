@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.config.GenerationSseProperties;
 import com.rush.rushaicodemother.core.handler.GenerationPublicEventSanitizer;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
+import com.rush.rushaicodemother.orchestration.experience.GenerationExperienceEventMapper;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -12,6 +13,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** 将域生成事件映射到共享 SSE 有线格式。 */
 @Component
@@ -20,42 +22,43 @@ public class GenerationSseEventMapper {
     public static final String GENERATION_GAP_EVENT = "generation_gap";
 
     private final Duration heartbeatInterval;
+    private final GenerationExperienceEventMapper experienceEventMapper;
 
     /**
- * 创建生成 SSE 事件映射器实例并完成必要的依赖和初始状态设置。
- *
- * @param properties 配置属性
- */
-    public GenerationSseEventMapper(GenerationSseProperties properties) {
+     * 创建生成 SSE 事件映射器实例并完成必要的依赖和初始状态设置。
+     *
+     * @param properties 配置属性
+     * @param experienceEventMapper 用户体验事件映射器
+     */
+    public GenerationSseEventMapper(GenerationSseProperties properties,
+                                    GenerationExperienceEventMapper experienceEventMapper) {
         if (properties == null || properties.getHeartbeatInterval() == null
                 || properties.getHeartbeatInterval().isZero()
                 || properties.getHeartbeatInterval().isNegative()) {
             throw new IllegalArgumentException("generation SSE heartbeat interval must be positive");
         }
+        if (experienceEventMapper == null) {
+            throw new IllegalArgumentException("generation experience event mapper cannot be null");
+        }
         this.heartbeatInterval = properties.getHeartbeatInterval();
+        this.experienceEventMapper = experienceEventMapper;
     }
 
     /**
- * 将输入映射为生成 SSE 事件。
- *
- * @param events 事件
- * @return 异步响应式处理结果
- */
+     * 将输入映射为生成 SSE 事件。
+     *
+     * @param events 事件
+     * @return 异步响应式处理结果
+     */
     public Flux<ServerSentEvent<String>> map(Flux<GenerationStreamEvent> events) {
         if (events == null) {
             throw new IllegalArgumentException("generation event stream cannot be null");
         }
-        Flux<ServerSentEvent<String>> domainEvents = events
-                .<GenerationStreamEvent>handle((event, sink) -> {
-                    GenerationStreamEvent publicEvent = GenerationPublicEventSanitizer.sanitize(event);
-                    if (publicEvent != null) {
-                        sink.next(publicEvent);
-                    }
-                })
+        Flux<ServerSentEvent<String>> domainEvents = publicEvents(events)
                 .map(event -> ServerSentEvent.<String>builder()
-                .event(event.getType())
-                .data(JSONUtil.toJsonStr(event))
-                .build());
+                        .event(event.getType())
+                        .data(JSONUtil.toJsonStr(event))
+                        .build());
         return withHeartbeats(domainEvents)
                 .concatWith(Mono.just(ServerSentEvent.<String>builder()
                         .event("done")
@@ -68,30 +71,48 @@ public class GenerationSseEventMapper {
         if (events == null) {
             throw new IllegalArgumentException("sequenced generation event stream cannot be null");
         }
-        Flux<ServerSentEvent<String>> wireEvents = events
-                .<ServerSentEvent<String>>handle((entry, sink) -> {
-                    ServerSentEvent<String> mapped = mapSequencedEntry(entry);
-                    if (mapped != null) {
-                        sink.next(mapped);
-                    }
-                });
+        Flux<ServerSentEvent<String>> wireEvents = Flux.defer(() -> {
+            AtomicReference<String> lastUserStage = new AtomicReference<>();
+            return events.<ServerSentEvent<String>>handle((entry, sink) -> {
+                ServerSentEvent<String> mapped = mapSequencedEntry(entry, lastUserStage);
+                if (mapped != null) {
+                    sink.next(mapped);
+                }
+            });
+        });
         return withHeartbeats(wireEvents);
     }
 
+    private Flux<GenerationStreamEvent> publicEvents(Flux<GenerationStreamEvent> events) {
+        // 去重状态严格归属于单次订阅，避免跨任务串扰和无界全局缓存。
+        return Flux.defer(() -> {
+            AtomicReference<String> lastUserStage = new AtomicReference<>();
+            return events.<GenerationStreamEvent>handle((event, sink) -> {
+                GenerationStreamEvent publicEvent = toPublicEvent(event);
+                if (publicEvent != null && !isRepeatedUserStage(publicEvent, lastUserStage)) {
+                    sink.next(publicEvent);
+                }
+            });
+        });
+    }
+
     /** 将输入映射为{@code Sequenced}条目。 */
-    private ServerSentEvent<String> mapSequencedEntry(SequencedGenerationEvent entry) {
+    private ServerSentEvent<String> mapSequencedEntry(SequencedGenerationEvent entry,
+                                                       AtomicReference<String> lastUserStage) {
         if (entry == null) {
             return null;
         }
         String id = Long.toString(entry.sequence());
         return switch (entry.kind()) {
             case EVENT -> {
-                GenerationStreamEvent publicEvent = GenerationPublicEventSanitizer.sanitize(entry.event());
-                yield publicEvent == null ? null : ServerSentEvent.<String>builder()
-                        .id(id)
-                        .event(publicEvent.getType())
-                        .data(JSONUtil.toJsonStr(publicEvent))
-                        .build();
+                GenerationStreamEvent publicEvent = toPublicEvent(entry.event());
+                yield publicEvent == null || isRepeatedUserStage(publicEvent, lastUserStage)
+                        ? null
+                        : ServerSentEvent.<String>builder()
+                                .id(id)
+                                .event(publicEvent.getType())
+                                .data(JSONUtil.toJsonStr(publicEvent))
+                                .build();
             }
             case GAP -> ServerSentEvent.<String>builder()
                     .id(id)
@@ -108,6 +129,22 @@ public class GenerationSseEventMapper {
                     .data("")
                     .build();
         };
+    }
+
+    private GenerationStreamEvent toPublicEvent(GenerationStreamEvent event) {
+        return experienceEventMapper.map(event)
+                .map(GenerationPublicEventSanitizer::sanitize)
+                .orElse(null);
+    }
+
+    private boolean isRepeatedUserStage(GenerationStreamEvent event,
+                                        AtomicReference<String> lastUserStage) {
+        String stage = experienceEventMapper.userProgressStageCode(event);
+        if (stage.isBlank()) {
+            return false;
+        }
+        String previous = lastUserStage.getAndSet(stage);
+        return stage.equals(previous);
     }
 
     private Flux<ServerSentEvent<String>> withHeartbeats(Flux<ServerSentEvent<String>> wireEvents) {

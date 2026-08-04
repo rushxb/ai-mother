@@ -167,9 +167,10 @@ class AppServiceImplRegressionTest {
 
         assertNotNull(events);
         assertEquals(1, events.size());
-        assertEquals(GenerationStreamEvent.AGENT_EVENT, events.get(0).getType());
-        assertEquals("AGENT_EDIT Plan 阶段完成", events.get(0).getText());
-        assertEquals("agent_edit_plan", events.get(0).getData().get("eventType"));
+        assertEquals(GenerationStreamEvent.GENERATION_STAGE, events.get(0).getType());
+        assertEquals("正在确认修改范围", events.get(0).getText());
+        assertEquals("planning", events.get(0).getData().get("stage"));
+        assertFalse(events.get(0).getData().containsKey("scope"));
     }
 
     private HeavyGenerationFailureRecoveryService newFailureRecoveryService(

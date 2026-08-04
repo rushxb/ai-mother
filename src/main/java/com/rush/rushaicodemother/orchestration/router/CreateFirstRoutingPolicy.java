@@ -26,7 +26,7 @@ public class CreateFirstRoutingPolicy implements GenerationRoutingPolicy {
         return Optional.of(GenerationModeDecision.of(
                 GenerationMode.CREATE,
                 0.95,
-                "Workspace does not exist; use CREATE template-first mode for faster first preview",
+                "工作区尚不存在，采用模板优先的创建模式以更快生成首次预览",
                 FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
                 ExpectedValidationLevel.BUILD,
                 GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST

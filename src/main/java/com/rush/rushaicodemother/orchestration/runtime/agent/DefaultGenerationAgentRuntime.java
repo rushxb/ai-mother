@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationAgentCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.progress.ReasoningProgressTracker;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
@@ -87,6 +88,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
     private final GenerationStageAdmissionService generationStageAdmissionService;
     private final GenerationAgentTurnPolicy generationAgentTurnPolicy;
     private final GenerationAgentConversationInitializer conversationInitializer;
+    private final GenerationAgentCompletionPolicy generationAgentCompletionPolicy;
 
     /**
      * 创建默认智能体运行时，并注入模型调用、工具治理、审批恢复和短期记忆依赖。
@@ -106,7 +108,6 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
      * @param generationAgentTurnPolicy 智能体轮次策略
      * @param conversationInitializer 短期会话初始化器
      */
-    @Autowired
     public DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
                                          ToolManager toolManager,
                                          StreamingModelFactory streamingModelFactory,
@@ -121,6 +122,30 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                          GenerationStageAdmissionService generationStageAdmissionService,
                                          GenerationAgentTurnPolicy generationAgentTurnPolicy,
                                          GenerationAgentConversationInitializer conversationInitializer) {
+        this(chatMemoryStore, toolManager, streamingModelFactory, toolExecutionFailurePolicy,
+                toolApprovalService, toolExecutionContextService, performanceMonitorService,
+                aiToolInvocationPolicy, conversationCodec, modelCallSupervisor,
+                completedToolCallContextCompactor, generationStageAdmissionService,
+                generationAgentTurnPolicy, conversationInitializer,
+                new GenerationAgentCompletionPolicy());
+    }
+
+    @Autowired
+    public DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
+                                         ToolManager toolManager,
+                                         StreamingModelFactory streamingModelFactory,
+                                         ToolExecutionFailurePolicy toolExecutionFailurePolicy,
+                                         ToolApprovalService toolApprovalService,
+                                         GenerationToolExecutionContextService toolExecutionContextService,
+                                         GenerationPerformanceMonitorService performanceMonitorService,
+                                         AiToolInvocationPolicy aiToolInvocationPolicy,
+                                         DurableToolConversationCodec conversationCodec,
+                                         GenerationStreamingModelCallSupervisor modelCallSupervisor,
+                                         CompletedToolCallContextCompactor completedToolCallContextCompactor,
+                                         GenerationStageAdmissionService generationStageAdmissionService,
+                                         GenerationAgentTurnPolicy generationAgentTurnPolicy,
+                                         GenerationAgentConversationInitializer conversationInitializer,
+                                         GenerationAgentCompletionPolicy generationAgentCompletionPolicy) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolManager = toolManager;
         this.streamingModelFactory = streamingModelFactory;
@@ -135,6 +160,8 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
         this.generationStageAdmissionService = generationStageAdmissionService;
         this.generationAgentTurnPolicy = generationAgentTurnPolicy;
         this.conversationInitializer = conversationInitializer;
+        this.generationAgentCompletionPolicy = Objects.requireNonNull(
+                generationAgentCompletionPolicy, "智能体完成判定策略不能为空");
     }
 
     DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
@@ -443,7 +470,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                     state.route()
             );
         } catch (GenerationModelTurnAdmissionException admission) {
-            completeForReservedWindow(state, admission, sink);
+            completeForReservedWindow(state, executionContext, admission, sink);
             return;
         }
         ChatRequest request = completedToolCallContextCompactor.compact(ChatRequest.builder()
@@ -517,7 +544,10 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                     AiMessage aiMessage = response.aiMessage();
                     memory.add(aiMessage);
                     if (!aiMessage.hasToolExecutionRequests()) {
-                        completeGeneration(state, sink);
+                        handleCompletionAttempt(
+                                model, memory, toolService, invocationContext, state,
+                                executionContext, preparedTurn, cancelChecker,
+                                cancellationHandleConsumer, sink);
                         return;
                     }
                     if (!preparedTurn.toolCallsAllowed()) {
@@ -544,7 +574,10 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                         returnBehaviors.add(toolService.returnBehavior(toolRequest.name()));
                     }
                     if (ToolService.shouldReturnImmediately(anyToolErrored, returnBehaviors)) {
-                        completeGeneration(state, sink);
+                        handleCompletionAttempt(
+                                model, memory, toolService, invocationContext, state,
+                                executionContext, preparedTurn, cancelChecker,
+                                cancellationHandleConsumer, sink);
                         return;
                     }
                     requestNextModelTurn(
@@ -574,7 +607,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                         state.route(),
                                         modelTurnWindow
                                 );
-                        completeForReservedWindow(state, admission, sink);
+                        completeForReservedWindow(state, executionContext, admission, sink);
                         return;
                     }
                     reasoningProgress.failIfStarted().ifPresent(sink::next);
@@ -583,6 +616,33 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
             }
 
                 });
+    }
+
+    /** 根据工作区变更证据判定结束、纠偏重试或失败关闭。 */
+    private void handleCompletionAttempt(StreamingChatModel model,
+                                         ContinuationMemory memory,
+                                         ToolService toolService,
+                                         InvocationContext invocationContext,
+                                         AgentLoopState state,
+                                         GenerationExecutionContext executionContext,
+                                         GenerationAgentTurnPolicy.PreparedModelTurn preparedTurn,
+                                         BooleanSupplier cancelChecker,
+                                         Consumer<GenerationCancellationHandle> cancellationHandleConsumer,
+                                         FluxSink<GenerationStreamEvent> sink) {
+        GenerationAgentCompletionPolicy.AgentCompletionDecision decision =
+                generationAgentCompletionPolicy.evaluate(executionContext, preparedTurn);
+        if (decision.completable()) {
+            completeGeneration(state, sink);
+            return;
+        }
+        if (!decision.retryable()) {
+            sink.error(decision.toException());
+            return;
+        }
+        memory.add(UserMessage.from(decision.message()));
+        requestNextModelTurn(
+                model, memory, toolService, invocationContext, state,
+                executionContext, cancelChecker, cancellationHandleConsumer, sink);
     }
 
     private void completeGeneration(AgentLoopState state,
@@ -607,8 +667,16 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
 
     /** 完成{@code For}{@code Reserved}窗口并持久化终态。 */
     private void completeForReservedWindow(AgentLoopState state,
+                                           GenerationExecutionContext executionContext,
                                            GenerationModelTurnAdmissionException admission,
                                            FluxSink<GenerationStreamEvent> sink) {
+        if (executionContext.successfulWorkspaceMutationCount() <= 0) {
+            sink.error(new GenerationAgentCompletionPolicy.AgentCompletionDecision(
+                    false, false,
+                    "模型调用已进入预留收口窗口，但尚未产生有效工作区变更，不能标记代码生成完成")
+                    .toException());
+            return;
+        }
         sink.next(GenerationStreamEvent.agentEvent("", Map.of(
                 "agent", "DeadlinePolicy",
                 "stage", "model_turn_admission",

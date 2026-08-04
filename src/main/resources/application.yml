@@ -298,6 +298,8 @@ app:
     shutdown-timeout: ${GENERATION_TASK_EXECUTOR_SHUTDOWN_TIMEOUT:30s}
     queue-policy-check-interval: ${GENERATION_TASK_QUEUE_POLICY_CHECK_INTERVAL:250ms}
   generation-routing:
+    shadow:
+      enabled: ${GENERATION_ROUTING_SHADOW_ENABLED:false}
     telemetry:
       task-sample-limit: ${GENERATION_ROUTING_TASK_SAMPLE_LIMIT:20}
       minimum-task-samples: ${GENERATION_ROUTING_MINIMUM_TASK_SAMPLES:4}

@@ -39,6 +39,14 @@ public class EditFileSnapshotService {
  * @param patchOperations 补丁操作
  * @return 编辑文件快照
  */
+    /** 开启一次以原始文件快照为边界的编辑工作区事务。 */
+    public EditWorkspaceTransaction beginTransaction(
+            String taskId,
+            Path projectRoot,
+            List<PatchOperation> patchOperations) throws PatchWorkspaceException {
+        return new EditWorkspaceTransaction(taskId, this, capture(projectRoot, patchOperations));
+    }
+
     public EditFileSnapshot capture(Path projectRoot,
                                     List<PatchOperation> patchOperations) throws PatchWorkspaceException {
         Path realRoot = workspaceFileService.resolveProjectRoot(projectRoot);

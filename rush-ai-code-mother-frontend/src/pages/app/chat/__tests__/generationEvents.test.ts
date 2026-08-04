@@ -8,6 +8,7 @@ import {
   parseGenerationEventSequence,
   parseGenerationStreamEvent,
   parseLegacyGenerationDelta,
+  resolveUserProgressEvent,
 } from '../domain/generationEvents'
 
 const messageEvent = (data: unknown, lastEventId = '') => ({ data, lastEventId } as MessageEvent)
@@ -61,6 +62,44 @@ describe('generation event protocol', () => {
     })))).toBeUndefined()
   })
 
+  it('resolves stable user progress without exposing internal agent names', () => {
+    expect(resolveUserProgressEvent({
+      type: 'generation_stage',
+      text: '正在确认修改范围',
+      data: {
+        audience: 'user',
+        contractVersion: 1,
+        stage: 'planning',
+        message: '正在确认修改范围',
+      },
+    })).toEqual({
+      stage: 'planning',
+      message: '正在确认修改范围',
+      phase: 'codegen',
+      terminal: false,
+    })
+
+    expect(resolveUserProgressEvent({
+      type: 'agent_event',
+      data: { agent: 'DeadlinePolicy', stage: 'model_turn_admission' },
+    })?.message).toBe('正在生成或修改代码')
+  })
+
+  it('maps approval and preview milestones to user-facing progress', () => {
+    expect(resolveUserProgressEvent({
+      type: 'agent_event',
+      data: {
+        userProgressStage: 'awaiting_approval',
+        userProgressMessage: '需要你确认',
+      },
+    })?.stage).toBe('awaiting_approval')
+    expect(resolveUserProgressEvent({ type: 'first_preview_ready' })).toEqual({
+      stage: 'preview_ready',
+      message: '已可预览',
+      phase: 'build',
+      terminal: false,
+    })
+  })
   it.each([
     '',
     'not-json',

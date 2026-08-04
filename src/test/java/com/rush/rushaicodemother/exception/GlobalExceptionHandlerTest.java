@@ -53,7 +53,8 @@ class GlobalExceptionHandlerTest {
     void setUp() {
         exceptionHandler = new GlobalExceptionHandler(
                 new SseExceptionResponseWriter(new ObjectMapper()),
-                new ValidationExceptionMessageResolver());
+                new ValidationExceptionMessageResolver(new UserFacingMessageResolver()),
+                new UserFacingMessageResolver());
         mockMvc = MockMvcBuilders.standaloneSetup(new ExceptionTestController())
                 .setControllerAdvice(exceptionHandler)
                 .build();
@@ -67,7 +68,7 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ErrorCode.PARAMS_ERROR.getCode()))
                 .andExpect(jsonPath("$.data").doesNotExist())
-                .andExpect(jsonPath("$.message", containsString("name")));
+                .andExpect(jsonPath("$.message").value("请求参数错误: name 参数值无效"));
     }
 
     @Test
@@ -117,7 +118,7 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/number").param("id", "not-a-number"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ErrorCode.PARAMS_ERROR.getCode()))
-                .andExpect(jsonPath("$.message", containsString("id")));
+                .andExpect(jsonPath("$.message").value("请求参数错误: id 类型不匹配"));
     }
 
     @Test
@@ -125,7 +126,7 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/number"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ErrorCode.PARAMS_ERROR.getCode()))
-                .andExpect(jsonPath("$.message", containsString("id")));
+                .andExpect(jsonPath("$.message").value("请求参数错误: id 不能为空"));
     }
 
     @Test
@@ -133,15 +134,16 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/number").param("id", "0"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ErrorCode.PARAMS_ERROR.getCode()))
-                .andExpect(jsonPath("$.message", containsString("id")));
+                .andExpect(jsonPath("$.message").value("请求参数错误: id 参数值无效"));
     }
 
     @Test
-    void shouldPreserveBusinessErrorCodeAndSafeMessage() throws Exception {
+    void shouldPreserveBusinessErrorCodeAndReplaceEnglishMessage() throws Exception {
         mockMvc.perform(get("/test/business"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()))
-                .andExpect(jsonPath("$.message").value("Access denied for this operation"));
+                .andExpect(jsonPath("$.message").value(ErrorCode.NO_AUTH_ERROR.getMessage()))
+                .andExpect(content().string(not(containsString("Access denied for this operation"))));
     }
 
     @Test
@@ -198,7 +200,7 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void shouldExtractReadableGuardrailMessageThroughPublicHandler() {
+    void shouldReplaceEnglishGuardrailMessageAtPublicBoundary() {
         InputGuardrailException exception = new InputGuardrailException(
                 "PromptSafetyGuardrail failed with this message: Prompt exceeds the allowed length");
 
@@ -206,7 +208,7 @@ class GlobalExceptionHandlerTest {
                 exception, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), response.getCode());
-        assertEquals("Prompt exceeds the allowed length", response.getMessage());
+        assertEquals(ErrorCode.PARAMS_ERROR.getMessage(), response.getMessage());
     }
 
     @Test

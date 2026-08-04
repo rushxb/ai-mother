@@ -5,8 +5,8 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
-import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
-import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlanner;
 import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskIdGenerator;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
@@ -23,7 +23,7 @@ import java.time.Instant;
 public class GenerationTaskSubmissionService {
 
     private final GenerationTaskIdGenerator generationTaskIdGenerator;
-    private final GenerationSlaPolicy generationSlaPolicy;
+    private final GenerationExecutionPlanner generationExecutionPlanner;
     private final GenerationTaskDispatcher taskDispatcher;
     private final GenerationTaskAdmissionService taskAdmissionService;
     private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
@@ -34,46 +34,46 @@ public class GenerationTaskSubmissionService {
 
     @Autowired
     public GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
-                                           GenerationSlaPolicy generationSlaPolicy,
+                                           GenerationExecutionPlanner generationExecutionPlanner,
                                            GenerationTaskDispatcher taskDispatcher,
                                            GenerationTaskAdmissionService taskAdmissionService,
                                            GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
                                            GenerationEventStream generationEventStream,
                                            GenerationEventPublisher generationEventPublisher,
                                            GenerationTraceContextBridge traceContextBridge) {
-        this(generationTaskIdGenerator, generationSlaPolicy, taskDispatcher, taskAdmissionService,
+        this(generationTaskIdGenerator, generationExecutionPlanner, taskDispatcher, taskAdmissionService,
                 generationTaskRuntimeLifecycleService, generationEventStream, generationEventPublisher,
                 traceContextBridge, Clock.systemUTC());
     }
 
     GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
-                                    GenerationSlaPolicy generationSlaPolicy,
+                                    GenerationExecutionPlanner generationExecutionPlanner,
                                     GenerationTaskDispatcher taskDispatcher,
                                     GenerationTaskAdmissionService taskAdmissionService,
                                     GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
                                     GenerationEventStream generationEventStream,
                                     Clock clock) {
-        this(generationTaskIdGenerator, generationSlaPolicy, taskDispatcher, taskAdmissionService,
+        this(generationTaskIdGenerator, generationExecutionPlanner, taskDispatcher, taskAdmissionService,
                 generationTaskRuntimeLifecycleService, generationEventStream, null,
                 GenerationTraceContextBridge.NOOP, clock);
     }
 
     GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
-                                    GenerationSlaPolicy generationSlaPolicy,
+                                    GenerationExecutionPlanner generationExecutionPlanner,
                                     GenerationTaskDispatcher taskDispatcher,
                                     GenerationTaskAdmissionService taskAdmissionService,
                                      GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
                                      GenerationEventStream generationEventStream,
                                      GenerationTraceContextBridge traceContextBridge,
                                      Clock clock) {
-        this(generationTaskIdGenerator, generationSlaPolicy, taskDispatcher, taskAdmissionService,
+        this(generationTaskIdGenerator, generationExecutionPlanner, taskDispatcher, taskAdmissionService,
                 generationTaskRuntimeLifecycleService, generationEventStream, null,
                 traceContextBridge, clock);
     }
 
     /** 创建生成任务提交服务实例并完成必要的依赖和初始状态设置。 */
     GenerationTaskSubmissionService(GenerationTaskIdGenerator generationTaskIdGenerator,
-                                    GenerationSlaPolicy generationSlaPolicy,
+                                    GenerationExecutionPlanner generationExecutionPlanner,
                                     GenerationTaskDispatcher taskDispatcher,
                                     GenerationTaskAdmissionService taskAdmissionService,
                                     GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
@@ -82,7 +82,7 @@ public class GenerationTaskSubmissionService {
                                     GenerationTraceContextBridge traceContextBridge,
                                     Clock clock) {
         this.generationTaskIdGenerator = generationTaskIdGenerator;
-        this.generationSlaPolicy = generationSlaPolicy;
+        this.generationExecutionPlanner = generationExecutionPlanner;
         this.taskDispatcher = taskDispatcher;
         this.taskAdmissionService = taskAdmissionService;
         this.generationTaskRuntimeLifecycleService = generationTaskRuntimeLifecycleService;
@@ -115,27 +115,27 @@ public class GenerationTaskSubmissionService {
                                        GenerationTaskIdempotency idempotency) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (request == null || request.taskRequest() == null) {
-            throw new IllegalArgumentException("generation pipeline request cannot be null");
+            throw new IllegalArgumentException("生成流水线请求不能为空");
         }
         if (idempotency == null) {
-            throw new IllegalArgumentException("generation task idempotency cannot be null");
+            throw new IllegalArgumentException("生成任务幂等信息不能为空");
         }
         if (request.taskRequest().app() == null || request.taskRequest().app().getId() == null
                 || request.taskRequest().app().getTenantId() == null
                 || request.taskRequest().app().getTenantId() <= 0
                 || request.taskRequest().loginUser() == null
                 || request.taskRequest().loginUser().getId() == null) {
-            throw new IllegalArgumentException("generation task identity is incomplete");
+            throw new IllegalArgumentException("生成任务身份信息不完整");
         }
         String taskId = generationTaskIdGenerator.nextId();
         Instant submittedAt = clock.instant();
-        GenerationSlaEnvelope slaEnvelope = generationSlaPolicy.resolve(
-                request.modeDecision(), request.codeGenType());
+        GenerationExecutionPlan executionPlan = generationExecutionPlanner.plan(request);
+        GenerationPipelineRequest plannedRequest = request.withExecutionPlan(executionPlan);
         GenerationTaskCommand command = GenerationTaskCommand.from(
                 taskId,
-                request,
+                plannedRequest,
                 submittedAt,
-                slaEnvelope,
+                executionPlan.sla(),
                 traceContextBridge.capture()
         );
         GenerationTaskAdmissionResult admission = null;

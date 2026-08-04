@@ -12,6 +12,8 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -60,6 +62,7 @@ public class GenerationPipelineExecutor {
     private final GenerationWorkspaceReleaseService workspaceReleaseService;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationOutcomeMemoryService generationOutcomeMemoryService;
+    private final GenerationCompletionPolicy generationCompletionPolicy;
 
     /** 在发布之前创建的重点测试的兼容性构造函数成为强制性的。 */
     public GenerationPipelineExecutor(
@@ -79,7 +82,34 @@ public class GenerationPipelineExecutor {
                 generationPerformanceMonitorService,
                 null,
                 null,
-                null
+                null,
+                new GenerationCompletionPolicy()
+        );
+    }
+
+    /** 兼容既有测试构造器；Spring 使用包含完成门禁的完整构造器。 */
+    public GenerationPipelineExecutor(
+            List<GenerationPipeline> generationPipelines,
+            GenerationEventPublisher generationEventPublisher,
+            GenerationSessionRegistry generationSessionRegistry,
+            GenerationExecutionContextService generationExecutionContextService,
+            GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+            GenerationPerformanceMonitorService generationPerformanceMonitorService,
+            GenerationWorkspaceReleaseService workspaceReleaseService,
+            GenerationTaskLifecycleService generationTaskLifecycleService,
+            GenerationOutcomeMemoryService generationOutcomeMemoryService
+    ) {
+        this(
+                generationPipelines,
+                generationEventPublisher,
+                generationSessionRegistry,
+                generationExecutionContextService,
+                generationTaskRuntimeLifecycleService,
+                generationPerformanceMonitorService,
+                workspaceReleaseService,
+                generationTaskLifecycleService,
+                generationOutcomeMemoryService,
+                new GenerationCompletionPolicy()
         );
     }
 
@@ -217,8 +247,14 @@ public class GenerationPipelineExecutor {
         GenerationTaskStatus status = outcome.terminalStatus();
         if (status == GenerationTaskStatus.SUCCESS) {
             session.throwIfCancelled();
+            GenerationExecutionPlan.ValidationGraph validationGraph = request.executionPlan() == null
+                    ? GenerationExecutionPlan.ValidationGraph.forLevel(
+                            request.modeDecision().expectedValidationLevel())
+                    : request.executionPlan().validationGraph();
+            generationCompletionPolicy.requireCompletable(
+                    session, validationGraph, outcome.completionEvidence());
             if (workspaceReleaseService != null) {
-                workspaceReleaseService.release(
+                workspaceReleaseService.releaseVerified(
                         session,
                         session.executionWorkspace() == null
                                 ? request.codeGenType()

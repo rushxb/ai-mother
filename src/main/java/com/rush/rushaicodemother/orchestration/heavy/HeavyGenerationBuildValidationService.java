@@ -15,6 +15,8 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
@@ -25,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 重型生成构建校验服务实现。
@@ -58,6 +61,22 @@ public class HeavyGenerationBuildValidationService {
                                      User loginUser,
                                      GenerationPreparation preparation,
                                      GenerationSession session) {
+        return runWithAutoRepair(
+                appId,
+                loginUser,
+                preparation,
+                session,
+                GenerationVerificationPolicy.legacy()
+        );
+    }
+
+    /** 按统一验证策略执行构建、运行时验证和自动修复。 */
+    public boolean runWithAutoRepair(Long appId,
+                                     User loginUser,
+                                     GenerationPreparation preparation,
+                                     GenerationSession session,
+                                     GenerationVerificationPolicy verificationPolicy) {
+        Objects.requireNonNull(verificationPolicy, "生成验证策略不能为空");
         GenerationWorkspace workspace = resolveExecutionWorkspace(appId, preparation.targetType(), session);
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
@@ -90,12 +109,15 @@ public class HeavyGenerationBuildValidationService {
                     loginUser,
                     preparation,
                     session,
+                    verificationPolicy,
                     "构建通过，正在验证 Dev Server 运行时..."
             );
             if (session.isCancelled()) {
                 return false;
             }
             if (runtimeResult == null || runtimeResult.isPassed()) {
+                GenerationVerificationEvidenceRecorder.recordPassed(
+                        preparation, verificationPolicy, "heavy_build_validation");
                 return true;
             }
             validationFailure = ValidationFailure.runtime(runtimeResult);
@@ -172,6 +194,7 @@ public class HeavyGenerationBuildValidationService {
                         loginUser,
                         preparation,
                         session,
+                        verificationPolicy,
                         "修复后构建通过，正在验证 Dev Server 运行时..."
                 );
                 if (session.isCancelled()) {
@@ -180,6 +203,8 @@ public class HeavyGenerationBuildValidationService {
                 if (runtimeResult == null || runtimeResult.isPassed()) {
                     generationOrchestrationMetricsCollector.recordAutoRepair(
                             orchestrationMode(preparation), repairStage, "success");
+                    GenerationVerificationEvidenceRecorder.recordPassed(
+                            preparation, verificationPolicy, "heavy_build_repair_validation");
                     return true;
                 }
                 validationFailure = ValidationFailure.runtime(runtimeResult);
@@ -250,10 +275,10 @@ public class HeavyGenerationBuildValidationService {
                                                               User loginUser,
                                                               GenerationPreparation preparation,
                                                               GenerationSession session,
+                                                              GenerationVerificationPolicy verificationPolicy,
                                                               String stageMessage) {
-        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
-        if (preparation.targetType() != CodeGenTypeEnum.VUE_PROJECT
-                && preparation.targetType() != CodeGenTypeEnum.FULL_STACK_PROJECT) {
+        // BUILD 只执行构建门禁；EXPERT 才进入现有 Dev Server 运行时验证。
+        if (!verificationPolicy.requiresRuntimeValidation(preparation.targetType())) {
             return null;
         }
         generationStageAdmissionService.requireRuntimeValidation(

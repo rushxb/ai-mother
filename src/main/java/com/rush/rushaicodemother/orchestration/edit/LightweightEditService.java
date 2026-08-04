@@ -13,6 +13,9 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -44,6 +47,7 @@ public class LightweightEditService {
     private final ChatHistoryService chatHistoryService;
     private final EditValidationPolicyService editValidationPolicyService;
     private final EditStatePersistenceService editStatePersistenceService;
+    private final EditFileSnapshotService editFileSnapshotService;
 
     /**
      * 执行轻量级编辑，或者当请求必须使用重度路由时返回 {@code null}。
@@ -57,7 +61,7 @@ public class LightweightEditService {
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         return executeInternal(
                 generateTaskId(), request,
-                generationWorkspaceService.resolve(app, codeGenType), false);
+                generationWorkspaceService.resolve(app, codeGenType), false, null);
     }
 
     /** 使用提交运行时分配的任务标识执行轻量级编辑。 */
@@ -74,14 +78,23 @@ public class LightweightEditService {
     public LightweightEditResult execute(String taskId,
                                          GenerationTaskRequest request,
                                          GenerationWorkspace workspace) {
-        return executeInternal(taskId, request, workspace, true);
+        return execute(taskId, request, workspace, null);
+    }
+
+    /** 针对持久工作进程冻结的执行计划运行轻量编辑。 */
+    public LightweightEditResult execute(String taskId,
+                                         GenerationTaskRequest request,
+                                         GenerationWorkspace workspace,
+                                         GenerationExecutionPlan executionPlan) {
+        return executeInternal(taskId, request, workspace, true, executionPlan);
     }
 
     /** 执行内部处理流程。 */
     private LightweightEditResult executeInternal(String taskId,
                                                    GenerationTaskRequest request,
                                                    GenerationWorkspace workspace,
-                                                   boolean managedModelCalls) {
+                                                   boolean managedModelCalls,
+                                                   GenerationExecutionPlan executionPlan) {
         requireTaskId(taskId);
         if (request == null || request.app() == null || request.loginUser() == null) {
             return null;
@@ -97,6 +110,10 @@ public class LightweightEditService {
         }
 
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.resolve(
+                executionPlan,
+                ExpectedValidationLevel.FAST
+        );
         if (codeGenType == null) {
             return null;
         }
@@ -143,91 +160,92 @@ public class LightweightEditService {
 
             Path projectRoot = workspace.canonicalRootPath();
             boolean runtimeErrorRepair = editValidationPolicyService.isRuntimeErrorRepairRequest(userMessage);
-            EditFileSnapshotService.EditFileSnapshot editSnapshot = runtimeErrorRepair
-                    ? runtimeValidationService.captureSnapshot(projectRoot, patchOperations)
-                    : null;
-
-            LightweightEditAttempt editAttempt = patchExecutor.applyWithRetry(
-                    request,
-                    app.getId(),
-                    taskId,
-                    projectRoot,
-                    userMessage,
-                    editContext.projectContext(),
-                    editResult,
-                    patchOperations,
-                    runtimeErrorRepair,
-                    editSnapshot,
-                    managedModelCalls
-            );
-            editResult = editAttempt.editResult();
-            patchOperations = editAttempt.patchOperations();
-            PatchApplyResult applyResult = editAttempt.applyResult();
-            publishPatchResult(request, taskId, applyResult);
-            patchExecutor.refreshIndexIfApplied(projectRoot, patchOperations, applyResult);
-
-            EditValidationPlan validationPlan = editValidationPolicyService.determineValidationPlan(
-                    patchOperations, codeGenType, editResult.validation(), userMessage);
-            boolean editSuccess = applyResult != null && "applied".equals(applyResult.status());
-            if (!runtimeErrorRepair) {
-                editStatePersistenceService.recordEditResult(
-                        app.getId(), taskId, patchOperations, editSuccess);
-            }
-
-            if (validationPlan.requiresBackgroundValidation() && editSuccess && runtimeErrorRepair) {
-                LightweightRuntimeValidationOutcome validationOutcome = runtimeValidationService.validateWithRetries(
+            try (EditWorkspaceTransaction workspaceTransaction = editFileSnapshotService.beginTransaction(
+                    taskId, projectRoot, patchOperations)) {
+                LightweightEditAttempt editAttempt = patchExecutor.applyWithRetry(
                         request,
-                        app,
-                        loginUser,
+                        app.getId(),
                         taskId,
-                        workspace,
+                        projectRoot,
                         userMessage,
                         editContext.projectContext(),
                         editResult,
                         patchOperations,
-                        applyResult,
-                        validationPlan,
-                        editSnapshot,
+                        workspaceTransaction,
                         managedModelCalls
                 );
-                editResult = validationOutcome.editResult();
-                patchOperations = validationOutcome.patchOperations();
-                applyResult = validationOutcome.applyResult();
-                validationPlan = validationOutcome.validationPlan();
-                if (!validationOutcome.success()) {
-                    return handleRuntimeValidationFailure(
+                editResult = editAttempt.editResult();
+                patchOperations = editAttempt.patchOperations();
+                PatchApplyResult applyResult = editAttempt.applyResult();
+                publishPatchResult(request, taskId, applyResult);
+                patchExecutor.refreshIndexIfApplied(projectRoot, patchOperations, applyResult);
+
+                EditValidationPlan validationPlan = verificationPolicy.enforceEditMinimum(
+                        editValidationPolicyService.determineValidationPlan(
+                                patchOperations, codeGenType, editResult.validation(), userMessage));
+                boolean editSuccess = applyResult != null && "applied".equals(applyResult.status());
+                if (!runtimeErrorRepair) {
+                    editStatePersistenceService.recordEditResult(
+                            app.getId(), taskId, patchOperations, editSuccess);
+                }
+
+                if (validationPlan.requiresBackgroundValidation() && editSuccess && runtimeErrorRepair) {
+                    LightweightRuntimeValidationOutcome validationOutcome = runtimeValidationService.validateWithRetries(
                             request,
                             app,
                             loginUser,
                             taskId,
+                            workspace,
                             userMessage,
+                            editContext.projectContext(),
+                            editResult,
                             patchOperations,
+                            applyResult,
                             validationPlan,
-                            validationOutcome.validationResult(),
-                            editSnapshot,
-                            projectRoot
+                            workspaceTransaction,
+                            managedModelCalls,
+                            verificationPolicy
                     );
+                    editResult = validationOutcome.editResult();
+                    patchOperations = validationOutcome.patchOperations();
+                    applyResult = validationOutcome.applyResult();
+                    validationPlan = validationOutcome.validationPlan();
+                    if (!validationOutcome.success()) {
+                        return handleRuntimeValidationFailure(
+                                request,
+                                app,
+                                loginUser,
+                                taskId,
+                                patchOperations,
+                                validationPlan,
+                                validationOutcome.validationResult(),
+                                workspaceTransaction,
+                                projectRoot
+                        );
+                    }
+                    editStatePersistenceService.recordEditResult(
+                            app.getId(), taskId, patchOperations, true);
+                } else if (validationPlan.requiresBackgroundValidation() && editSuccess) {
+                    BackgroundValidationService.ValidationResult validationResult =
+                            runtimeValidationService.validateOnce(
+                            taskId, app, loginUser, workspace, patchOperations, validationPlan, userMessage);
+                    if (!validationResult.isSuccess()) {
+                        return handlePublicationValidationFailure(
+                                request, app, loginUser, taskId, patchOperations,
+                                validationPlan, validationResult, workspaceTransaction, projectRoot);
+                    }
                 }
-                editStatePersistenceService.recordEditResult(
-                        app.getId(), taskId, patchOperations, true);
-            } else if (validationPlan.requiresBackgroundValidation() && editSuccess) {
-                BackgroundValidationService.ValidationResult validationResult =
-                        runtimeValidationService.validateOnce(
-                        taskId, app, loginUser, workspace, patchOperations, validationPlan, userMessage);
-                if (!validationResult.isSuccess()) {
-                    return handlePublicationValidationFailure(
-                            request, app, loginUser, taskId, patchOperations,
-                            validationPlan, validationResult);
-                }
-            }
 
-            if (!editSuccess) {
-                return handlePatchFailure(
-                        request, app, loginUser, taskId, userMessage,
-                        patchOperations, applyResult, runtimeErrorRepair);
+                if (!editSuccess) {
+                    return handlePatchFailure(
+                            request, app, loginUser, taskId, userMessage,
+                            patchOperations, applyResult, runtimeErrorRepair, workspaceTransaction, projectRoot);
+                }
+                LightweightEditResult result = completeSuccess(
+                        request, app, loginUser, taskId, editResult, applyResult, validationPlan);
+                workspaceTransaction.commit();
+                return result;
             }
-            return completeSuccess(
-                    request, app, loginUser, taskId, editResult, applyResult, validationPlan);
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;
         } catch (Exception exception) {
@@ -259,20 +277,20 @@ public class LightweightEditService {
         }
     }
 
-    /** 处理运行时校验失败。 */
+    /** 处理运行时校验失败，并将整个编辑事务恢复到首次修改前。 */
     private LightweightEditResult handleRuntimeValidationFailure(
             GenerationTaskRequest request,
             App app,
             User loginUser,
             String taskId,
-            String userMessage,
             List<PatchOperation> patchOperations,
             EditValidationPlan validationPlan,
             BackgroundValidationService.ValidationResult validationResult,
-            EditFileSnapshotService.EditFileSnapshot editSnapshot,
+            EditWorkspaceTransaction workspaceTransaction,
             Path projectRoot) {
-        EditFileSnapshotService.RestoreResult restoreResult = runtimeValidationService.rollback(
-                request, app.getId(), taskId, editSnapshot, projectRoot);
+        EditFileSnapshotService.RestoreResult restoreResult = rollbackWorkspace(
+                request, taskId, "运行时修复验证失败，已回滚本次编辑",
+                workspaceTransaction, projectRoot);
         String validationMessage = validationResult == null
                 ? "验证服务未返回结果"
                 : StrUtil.blankToDefault(validationResult.message(), "验证未通过");
@@ -292,7 +310,7 @@ public class LightweightEditService {
         return buildFailedResult(taskId, failedMessage);
     }
 
-    /** 处理补丁失败。 */
+    /** 处理补丁失败，确保重试过程中产生的部分修改不会泄漏到工作区。 */
     private LightweightEditResult handlePatchFailure(GenerationTaskRequest request,
                                                      App app,
                                                      User loginUser,
@@ -300,7 +318,12 @@ public class LightweightEditService {
                                                      String userMessage,
                                                      List<PatchOperation> patchOperations,
                                                      PatchApplyResult applyResult,
-                                                     boolean runtimeErrorRepair) {
+                                                     boolean runtimeErrorRepair,
+                                                     EditWorkspaceTransaction workspaceTransaction,
+                                                     Path projectRoot) {
+        EditFileSnapshotService.RestoreResult restoreResult = rollbackWorkspace(
+                request, taskId, "补丁未成功应用，已恢复事务开始前状态",
+                workspaceTransaction, projectRoot);
         String failedMessage = "补丁未应用: " + patchExecutor.diagnostic(applyResult);
         if (runtimeErrorRepair) {
             editStatePersistenceService.recordEditResult(
@@ -313,12 +336,13 @@ public class LightweightEditService {
                         "taskId", taskId,
                         "status", applyResult == null ? "missing" : applyResult.status(),
                         "reason", applyResult == null ? "patch_result_missing" : applyResult.reason(),
-                        "rejectedOperations", applyResult == null ? List.of() : applyResult.rejectedOperations()
+                        "rejectedOperations", applyResult == null ? List.of() : applyResult.rejectedOperations(),
+                        "rollbackStatus", restoreResult.status()
                 ));
         return buildFailedResult(taskId, failedMessage);
     }
 
-    /** 处理发布校验失败。 */
+    /** 处理发布校验失败，只有通过校验的编辑才允许提交事务。 */
     private LightweightEditResult handlePublicationValidationFailure(
             GenerationTaskRequest request,
             App app,
@@ -326,11 +350,16 @@ public class LightweightEditService {
             String taskId,
             List<PatchOperation> patchOperations,
             EditValidationPlan validationPlan,
-            BackgroundValidationService.ValidationResult validationResult) {
+            BackgroundValidationService.ValidationResult validationResult,
+            EditWorkspaceTransaction workspaceTransaction,
+            Path projectRoot) {
+        EditFileSnapshotService.RestoreResult restoreResult = rollbackWorkspace(
+                request, taskId, "发布验证未通过，已回滚本次编辑",
+                workspaceTransaction, projectRoot);
         String validationMessage = validationResult == null
-                ? "validation service returned no result"
-                : StrUtil.blankToDefault(validationResult.message(), "validation failed");
-        String failedMessage = "Publication validation failed: " + validationMessage;
+                ? "验证服务未返回结果"
+                : StrUtil.blankToDefault(validationResult.message(), "验证未通过");
+        String failedMessage = "发布验证未通过: " + validationMessage;
         editStatePersistenceService.recordEditResult(
                 app.getId(), taskId, patchOperations, false);
         chatHistoryService.addChatMessage(
@@ -338,19 +367,44 @@ public class LightweightEditService {
         generationEventPublisher.publishSafely(
                 request,
                 GenerationEventType.TASK_FAILED,
-                "Lightweight edit was not published because validation failed",
+                "轻量编辑因验证失败未发布",
                 Map.of(
                         "taskId", taskId,
                         "status", validationResult == null ? "failed" : validationResult.status(),
                         "message", validationMessage,
                         "validationLevel", validationPlan == null
                                 ? "unknown"
-                                : validationPlan.level().name()
+                                : validationPlan.level().name(),
+                        "rollbackStatus", restoreResult.status()
                 )
         );
         return buildFailedResult(taskId, failedMessage);
     }
 
+    /** 回滚编辑事务并同步恢复语义索引，随后发布统一回滚事件。 */
+    private EditFileSnapshotService.RestoreResult rollbackWorkspace(
+            GenerationTaskRequest request,
+            String taskId,
+            String message,
+            EditWorkspaceTransaction workspaceTransaction,
+            Path projectRoot) {
+        EditFileSnapshotService.RestoreResult restoreResult = workspaceTransaction.rollback();
+        if (!restoreResult.restoredFiles().isEmpty()) {
+            patchExecutor.refreshIndex(projectRoot, restoreResult.restoredFiles());
+        }
+        generationEventPublisher.publishSafely(
+                request,
+                GenerationEventType.EDIT_ROLLBACK,
+                message,
+                Map.of(
+                        "taskId", taskId,
+                        "status", restoreResult.status(),
+                        "restoredFiles", restoreResult.restoredFiles(),
+                        "failedFiles", restoreResult.failedFiles()
+                )
+        );
+        return restoreResult;
+    }
     /** 完成成功并持久化终态。 */
     private LightweightEditResult completeSuccess(GenerationTaskRequest request,
                                                   App app,

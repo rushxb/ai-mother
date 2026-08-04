@@ -58,11 +58,11 @@ public class InternalDevServerProxyController {
     private String extractTargetPath(Long appId, HttpServletRequest request) {
         Object mappedPathAttribute = request.getAttribute(HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE);
         ThrowUtils.throwIf(!(mappedPathAttribute instanceof String),
-                ErrorCode.PARAMS_ERROR, "Internal Preview path is invalid");
+                ErrorCode.PARAMS_ERROR, "内部预览路径无效");
         String mappedPath = (String) mappedPathAttribute;
         String expectedPrefix = PROXY_ROUTE_PREFIX + appId;
         ThrowUtils.throwIf(!mappedPath.startsWith(expectedPrefix),
-                ErrorCode.PARAMS_ERROR, "Internal Preview path is invalid");
+                ErrorCode.PARAMS_ERROR, "内部预览路径无效");
         String targetPath = mappedPath.substring(expectedPrefix.length());
         return targetPath.isEmpty() ? "/" : targetPath;
     }

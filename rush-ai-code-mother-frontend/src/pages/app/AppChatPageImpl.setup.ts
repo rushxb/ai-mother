@@ -87,6 +87,7 @@ import {
   parseGenerationEventGap,
   parseGenerationEventSequence,
   parseLegacyGenerationDelta,
+  resolveUserProgressEvent,
   type GenerationStreamEvent,
 } from './chat/domain/generationEvents'
 import { canTransitionGenerationPhase, type GenerationPhase } from './chat/domain/generationState'
@@ -176,7 +177,7 @@ export default defineComponent({
       }
       generationPhase.value = nextPhase
     }
-    const currentAgentStageText = ref('')
+    const currentUserProgressText = ref('')
 
     const generationSteps = [
       { key: 'codegen', label: '生成代码', index: 0 },
@@ -320,8 +321,8 @@ export default defineComponent({
       if (stoppingGeneration.value) {
         return '停止中'
       }
-      if (currentAgentStageText.value && generationPhase.value === 'codegen') {
-        return currentAgentStageText.value
+      if (currentUserProgressText.value && ['codegen', 'build'].includes(generationPhase.value)) {
+        return currentUserProgressText.value
       }
       if (generationPhase.value === 'build') {
         return '构建校验中'
@@ -382,8 +383,8 @@ export default defineComponent({
       if (stoppingGeneration.value) {
         return '正在终止本次生成'
       }
-      if (currentAgentStageText.value && generationPhase.value === 'codegen') {
-        return '智能体正在并行拆解需求、准备上下文并规划生成策略'
+      if (currentUserProgressText.value && ['codegen', 'build'].includes(generationPhase.value)) {
+        return currentUserProgressText.value
       }
       if (stage === 'build' || generationPhase.value === 'build') {
         return '代码已写入，正在后台执行依赖安装和构建校验'
@@ -588,7 +589,7 @@ export default defineComponent({
       setGenerationPhase('idle')
       isGenerating.value = false
       stoppingGeneration.value = false
-      currentAgentStageText.value = ''
+      currentUserProgressText.value = ''
       stopGenerationPolling()
       stopStreamingFilePreview(true)
       closeActiveEventSource()
@@ -643,7 +644,7 @@ export default defineComponent({
       if (!appGenerating) {
         isGenerating.value = false
         stoppingGeneration.value = false
-        currentAgentStageText.value = ''
+        currentUserProgressText.value = ''
         if (generationPhase.value !== 'failed') {
           setGenerationPhase('idle')
         }
@@ -657,7 +658,7 @@ export default defineComponent({
             : 'codegen',
       )
       if (generationPhase.value !== 'codegen') {
-        currentAgentStageText.value = ''
+        currentUserProgressText.value = ''
       }
       const generatingMessage = appInfo.value?.generatingMessage || ''
       const pendingAiMessageIndex = findPendingAiMessageIndex()
@@ -749,7 +750,7 @@ export default defineComponent({
     const refreshAfterGeneration = async () => {
       isGenerating.value = false
       stoppingGeneration.value = false
-      currentAgentStageText.value = ''
+      currentUserProgressText.value = ''
       setGenerationPhase(latestGenerationFailed.value ? 'failed' : 'done')
       await loadChatHistory()
       updatePreview()
@@ -1565,25 +1566,36 @@ export default defineComponent({
           if (!streamEvent) {
             return
           }
-          appendGeneratedText(streamEvent.text)
+          if (streamEvent.type === 'ai_delta') {
+            appendGeneratedText(streamEvent.text)
+          }
           void fileOperationQueue.enqueue({ streamEvent, sessionVersion: generationSessionVersion })
+          const userProgress = resolveUserProgressEvent(streamEvent)
+          if (userProgress) {
+            setGenerationPhase(userProgress.phase)
+            currentUserProgressText.value = userProgress.message
+            if (appInfo.value && !userProgress.terminal) {
+              appInfo.value = {
+                ...appInfo.value,
+                isGenerating: 1,
+                generatingStage: userProgress.phase,
+                generatingMessage: userProgress.message,
+              }
+            }
+          }
           if (streamEvent.type === 'agent_event') {
             upsertAgentEvent(aiMessage, streamEvent)
-            setGenerationPhase('codegen')
-            const agentName = getEventString(streamEvent.data, 'agent') || '智能体'
-            currentAgentStageText.value = `${agentName}处理中`
             aiMessage.loading = true
             return
           }
           if (streamEvent.type === 'first_preview_ready') {
             setGenerationPhase('build')
-            currentAgentStageText.value = ''
             if (appInfo.value) {
               appInfo.value = {
                 ...appInfo.value,
                 isGenerating: 1,
                 generatingStage: 'build',
-                generatingMessage: '首个可运行预览已就绪，后台正在继续质量校验',
+                generatingMessage: userProgress?.message || '已可预览',
               }
             }
             startGenerationPolling()
@@ -1596,7 +1608,6 @@ export default defineComponent({
             const stage = getEventString(streamEvent.data, 'stage') || 'unknown'
             if (stage === 'codegen_done') {
               setGenerationPhase('build')
-              currentAgentStageText.value = ''
               if (appInfo.value) {
                 appInfo.value = {
                   ...appInfo.value,
@@ -1619,7 +1630,6 @@ export default defineComponent({
             const stage = getEventString(streamEvent.data, 'stage') || 'unknown'
             if (stage === 'codegen_done') {
               setGenerationPhase('build')
-              currentAgentStageText.value = ''
               if (appInfo.value) {
                 appInfo.value = {
                   ...appInfo.value,
@@ -1658,13 +1668,13 @@ export default defineComponent({
           }
           if (streamEvent.type === 'repair_start') {
             setGenerationPhase('repair')
-            currentAgentStageText.value = ''
+            currentUserProgressText.value = ''
             message.info(`自动修复第 ${getEventNumber(streamEvent.data, 'round') || 1} 轮开始`)
             return
           }
           if (streamEvent.type === 'generation_error') {
             setGenerationPhase('failed')
-            currentAgentStageText.value = ''
+            currentUserProgressText.value = ''
             aiMessage.generationFailed = true
             aiMessage.loading = false
             const errorMessage =
@@ -1691,6 +1701,7 @@ export default defineComponent({
         eventSource.addEventListener('generation_stage', handleGenerationEvent)
         eventSource.addEventListener('first_preview_ready', handleGenerationEvent)
         eventSource.addEventListener('build_result', handleGenerationEvent)
+        eventSource.addEventListener('dev_server_validation', handleGenerationEvent)
         eventSource.addEventListener('repair_start', handleGenerationEvent)
         eventSource.addEventListener('generation_error', handleGenerationEvent)
         eventSource.addEventListener('generation_stopped', handleGenerationEvent)
@@ -2721,7 +2732,7 @@ export default defineComponent({
       devServerStarting.value = false
       activeWorkspaceTab.value = 'preview'
       setGenerationPhase('idle')
-      currentAgentStageText.value = ''
+      currentUserProgressText.value = ''
 
       loadingFiles.value = false
       loadingFileContent.value = false

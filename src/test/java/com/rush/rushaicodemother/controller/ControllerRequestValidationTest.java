@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.GlobalExceptionHandler;
 import com.rush.rushaicodemother.exception.SseExceptionResponseWriter;
 import com.rush.rushaicodemother.exception.ValidationExceptionMessageResolver;
+import com.rush.rushaicodemother.exception.UserFacingMessageResolver;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.aimodel.AiModelManagementService;
@@ -137,7 +138,8 @@ class ControllerRequestValidationTest {
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(
                         new SseExceptionResponseWriter(new ObjectMapper()),
-                        new ValidationExceptionMessageResolver()
+                        new ValidationExceptionMessageResolver(new UserFacingMessageResolver()),
+                        new UserFacingMessageResolver()
                 ))
                 .build();
     }

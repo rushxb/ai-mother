@@ -4,17 +4,21 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.attempt.completion.HeavyGenerationCompletionEvidenceFactory;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchResultService;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.review.OrphanFileReviewService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -25,7 +29,6 @@ import java.util.Map;
  * 重型生成Finalization服务实现。
  */
 @Service
-@RequiredArgsConstructor
 public class HeavyGenerationFinalizationService {
 
     private final GenerationCommitService generationCommitService;
@@ -34,6 +37,69 @@ public class HeavyGenerationFinalizationService {
     private final GenerationPatchResultService generationPatchResultService;
     private final OrphanFileReviewService orphanFileReviewService;
     private final GenerationWorkspaceService generationWorkspaceService;
+    private final GenerationCompletionPolicy generationCompletionPolicy;
+
+    /** Spring 使用的完整构造器，完成门禁必须参与正式收尾链路。 */
+    @Autowired
+    public HeavyGenerationFinalizationService(
+            GenerationCommitService generationCommitService,
+            GenerationDiffSummaryService generationDiffSummaryService,
+            GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector,
+            GenerationPatchResultService generationPatchResultService,
+            OrphanFileReviewService orphanFileReviewService,
+            GenerationWorkspaceService generationWorkspaceService,
+            GenerationCompletionPolicy generationCompletionPolicy
+    ) {
+        this.generationCommitService = generationCommitService;
+        this.generationDiffSummaryService = generationDiffSummaryService;
+        this.generationOrchestrationMetricsCollector = generationOrchestrationMetricsCollector;
+        this.generationPatchResultService = generationPatchResultService;
+        this.orphanFileReviewService = orphanFileReviewService;
+        this.generationWorkspaceService = generationWorkspaceService;
+        this.generationCompletionPolicy = generationCompletionPolicy;
+    }
+
+    /** 兼容既有非 Spring 测试；正式运行由完整构造器注入持久任务栅栏检查。 */
+    public HeavyGenerationFinalizationService(
+            GenerationCommitService generationCommitService,
+            GenerationDiffSummaryService generationDiffSummaryService,
+            GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector,
+            GenerationPatchResultService generationPatchResultService,
+            OrphanFileReviewService orphanFileReviewService,
+            GenerationWorkspaceService generationWorkspaceService
+    ) {
+        this(
+                generationCommitService,
+                generationDiffSummaryService,
+                generationOrchestrationMetricsCollector,
+                generationPatchResultService,
+                orphanFileReviewService,
+                generationWorkspaceService,
+                new GenerationCompletionPolicy()
+        );
+    }
+
+    /**
+     * 在提交和发布工作区前校验结构化完成证据，证据不足时失败关闭。
+     */
+    public void requireCompletionEvidence(
+            GenerationPreparation preparation,
+            GenerationSession session
+    ) {
+        GenerationExecutionPlan executionPlan = session.executionPlan();
+        GenerationExecutionPlan.ValidationGraph validationGraph = executionPlan != null
+                ? executionPlan.validationGraph()
+                : GenerationExecutionPlan.ValidationGraph.forLevel(
+                        preparation.requiresBuildValidation()
+                                ? ExpectedValidationLevel.BUILD
+                                : ExpectedValidationLevel.FAST
+                );
+        generationCompletionPolicy.requireCompletable(
+                session,
+                validationGraph,
+                HeavyGenerationCompletionEvidenceFactory.collect(preparation, session)
+        );
+    }
 
     /**
  * 发送{@code Diff}汇总{@code If}可用事件。

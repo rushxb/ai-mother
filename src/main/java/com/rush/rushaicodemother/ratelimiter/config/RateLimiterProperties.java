@@ -22,6 +22,20 @@ import java.util.List;
 @ConfigurationProperties(prefix = "app.rate-limiter")
 public class RateLimiterProperties {
 
+    /** 限流 Redis 键前缀；多环境通过 Redis database 编号隔离，不依赖前缀区分。 */
+    public static final String KEY_PREFIX = "rate_limit";
+
+    public static final Duration LIMITER_IDLE_TTL = Duration.ofHours(1);
+    public static final int FORWARDED_HEADER_MAX_LENGTH = 4096;
+    public static final int FORWARDED_FOR_MAX_HOPS = 32;
+    public static final int CONNECTION_MINIMUM_IDLE_SIZE = 1;
+    public static final int CONNECTION_POOL_SIZE = 10;
+    public static final Duration IDLE_CONNECTION_TIMEOUT = Duration.ofSeconds(30);
+    public static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
+    public static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(3);
+    public static final int RETRY_ATTEMPTS = 3;
+    public static final Duration RETRY_INTERVAL = Duration.ofMillis(1500);
+
     /**
      * 是否延迟建立 Redisson 连接。默认延迟连接，使进程启动不与 Redis 的瞬时可用性耦合；
      * 实际限流请求仍然使用 Redis，并在 Redis 不可用时失败关闭。
@@ -30,10 +44,10 @@ public class RateLimiterProperties {
 
     @NotBlank
     @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9:_-]{0,63}")
-    private String keyPrefix = "rate_limit";
+    private String keyPrefix = KEY_PREFIX;
 
     @NotNull
-    private Duration limiterIdleTtl = Duration.ofHours(1);
+    private Duration limiterIdleTtl = LIMITER_IDLE_TTL;
 
     /**
      * 允许提供转发头的直接或中间代理 CIDR。默认不信任任何代理。
@@ -43,33 +57,33 @@ public class RateLimiterProperties {
 
     @Min(256)
     @Max(16384)
-    private int forwardedHeaderMaxLength = 4096;
+    private int forwardedHeaderMaxLength = FORWARDED_HEADER_MAX_LENGTH;
 
     @Min(1)
     @Max(128)
-    private int forwardedForMaxHops = 32;
+    private int forwardedForMaxHops = FORWARDED_FOR_MAX_HOPS;
 
     @Min(1)
-    private int connectionMinimumIdleSize = 1;
+    private int connectionMinimumIdleSize = CONNECTION_MINIMUM_IDLE_SIZE;
 
     @Min(1)
-    private int connectionPoolSize = 10;
+    private int connectionPoolSize = CONNECTION_POOL_SIZE;
 
     @NotNull
-    private Duration idleConnectionTimeout = Duration.ofSeconds(30);
+    private Duration idleConnectionTimeout = IDLE_CONNECTION_TIMEOUT;
 
     @NotNull
-    private Duration connectTimeout = Duration.ofSeconds(5);
+    private Duration connectTimeout = CONNECT_TIMEOUT;
 
     @NotNull
-    private Duration responseTimeout = Duration.ofSeconds(3);
+    private Duration responseTimeout = RESPONSE_TIMEOUT;
 
     @Min(0)
     @Max(10)
-    private int retryAttempts = 3;
+    private int retryAttempts = RETRY_ATTEMPTS;
 
     @NotNull
-    private Duration retryInterval = Duration.ofMillis(1500);
+    private Duration retryInterval = RETRY_INTERVAL;
 
     /**
  * 校验当前配置项组合是否合法。

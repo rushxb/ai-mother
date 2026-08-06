@@ -80,6 +80,38 @@ public class GenerationTask implements Serializable {
     @Column("qualityGate")
     private String qualityGate;
 
+    /** 实际使用的思考档位；NULL 表示未采集。 */
+    @Column("thinkingMode")
+    private String thinkingMode;
+
+    /** 有效变更文件数；NULL 表示未采集。 */
+    @Column("changedFileCount")
+    private Integer changedFileCount;
+
+    /** 是否免修复通过构建；NULL 表示未采集。 */
+    @Column("firstBuildPassed")
+    private Integer firstBuildPassed;
+
+    /** 实际修复轮次；NULL 表示未采集。 */
+    @Column("repairRounds")
+    private Integer repairRounds;
+
+    /** 提交到可预览耗时毫秒；NULL 表示未采集。 */
+    @Column("firstPreviewMillis")
+    private Long firstPreviewMillis;
+
+    /** 失败分类；NULL 表示未采集。 */
+    @Column("failureCategory")
+    private String failureCategory;
+
+    /** 交付后被追加改修的时间；NULL 表示未发生或未采集。 */
+    @Column("reworkedAt")
+    private LocalDateTime reworkedAt;
+
+    /** 经验已蒸馏时间；NULL 且满足条件则待蒸馏。 */
+    @Column("distilledAt")
+    private LocalDateTime distilledAt;
+
     @Column("orchestrationMode")
     private String orchestrationMode;
 

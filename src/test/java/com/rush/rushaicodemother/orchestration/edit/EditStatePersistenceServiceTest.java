@@ -148,7 +148,9 @@ class EditStatePersistenceServiceTest {
         service.recordEditResult(1L, "task_1", List.of(operation("src/App.vue")), true);
 
         assertThat(service.getRecentModifiedFiles(1L, 10)).containsExactly("src/App.vue");
-        assertThat(store.resolveStatePath(1L)).doesNotExist();
+        // 父路径是普通文件时 Files.notExists 返回 false（无法「确认」不存在），
+        // 因此不能用 doesNotExist()；用 isRegularFile 断言「确实没有落盘」。
+        assertThat(Files.isRegularFile(store.resolveStatePath(1L))).isFalse();
     }
 
     @Test

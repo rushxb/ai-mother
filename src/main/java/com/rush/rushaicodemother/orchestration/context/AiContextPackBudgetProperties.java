@@ -7,51 +7,59 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** 上下文包的有界令牌估计策略。 */
+/** 上下文包的有界令牌估计固定策略。 */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.ai-context-pack")
 public class AiContextPackBudgetProperties {
 
-    @Min(256)
-    @Max(32_000)
-    private int generationMaxTokens = 2_000;
+    public static final int GENERATION_MAX_TOKENS = 2_000;
+    public static final int REPAIR_MAX_TOKENS = 1_500;
+    public static final String TOKENIZER_MODEL = "gpt-4o";
+    public static final double TOKEN_SAFETY_MARGIN = 1.15;
+    public static final int MAX_SECTION_TOKENS = 800;
+    public static final int MINIMUM_SECTION_TOKENS = 64;
+    public static final int MAX_SEMANTIC_MEMORY_SECTIONS = 6;
+    public static final Duration SEMANTIC_MEMORY_HALF_LIFE = Duration.ofDays(30);
+    public static final double MINIMUM_SEMANTIC_TRUST = 0.25;
 
     @Min(256)
     @Max(32_000)
-    private int repairMaxTokens = 1_500;
+    private int generationMaxTokens = GENERATION_MAX_TOKENS;
+
+    @Min(256)
+    @Max(32_000)
+    private int repairMaxTokens = REPAIR_MAX_TOKENS;
 
     /** 用于 OpenAI 兼容模型输入预算的稳定分词器。 */
     @NotBlank
-    private String tokenizerModel = "gpt-4o";
+    private String tokenizerModel = TOKENIZER_MODEL;
 
     /** 涵盖 OpenAI 兼容提供商和提示框架之间的分词器差异。 */
     @DecimalMin("1.0")
     @DecimalMax("2.0")
-    private double tokenSafetyMargin = 1.15;
+    private double tokenSafetyMargin = TOKEN_SAFETY_MARGIN;
 
     @Min(64)
     @Max(8_000)
-    private int maxSectionTokens = 800;
+    private int maxSectionTokens = MAX_SECTION_TOKENS;
 
     @Min(16)
     @Max(1_000)
-    private int minimumSectionTokens = 64;
+    private int minimumSectionTokens = MINIMUM_SECTION_TOKENS;
 
     @Min(1)
     @Max(20)
-    private int maxSemanticMemorySections = 6;
+    private int maxSemanticMemorySections = MAX_SEMANTIC_MEMORY_SECTIONS;
 
-    private Duration semanticMemoryHalfLife = Duration.ofDays(30);
+    private Duration semanticMemoryHalfLife = SEMANTIC_MEMORY_HALF_LIFE;
 
-    private double minimumSemanticTrust = 0.25;
+    private double minimumSemanticTrust = MINIMUM_SEMANTIC_TRUST;
 
     /**
  * 校验当前配置项组合是否合法。

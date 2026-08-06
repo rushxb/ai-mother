@@ -10,7 +10,9 @@ public record GenerationPipelineOutcome(
         GenerationTaskStatus terminalStatus,
         String reason,
         String resultSummary,
-        GenerationCompletionEvidenceSet completionEvidence
+        GenerationCompletionEvidenceSet completionEvidence,
+        Integer changedFileCount,
+        Integer repairRounds
 ) {
 
     /** 创建生成流水线结果实例并完成必要的依赖和初始状态设置。 */
@@ -28,6 +30,13 @@ public record GenerationPipelineOutcome(
         completionEvidence = completionEvidence == null
                 ? GenerationCompletionEvidenceSet.empty()
                 : completionEvidence;
+        // 负值视为未采集而不是异常：这两项只用于 L3 归因，不参与完成判定。
+        if (changedFileCount != null && changedFileCount < 0) {
+            changedFileCount = null;
+        }
+        if (repairRounds != null && repairRounds < 0) {
+            repairRounds = null;
+        }
         if (disposition == GenerationPipelineDisposition.COMPLETED
                 && (terminalStatus == null || !terminalStatus.isTerminal())) {
             throw new IllegalArgumentException("已完成的生成管线必须提供终态");
@@ -62,6 +71,16 @@ public record GenerationPipelineOutcome(
                 GenerationCompletionEvidenceSet.empty());
     }
 
+    /** 兼容既有调用：不携带 L3 归因指标。 */
+    public GenerationPipelineOutcome(GenerationPipelineDisposition disposition,
+                                     String route,
+                                     GenerationTaskStatus terminalStatus,
+                                     String reason,
+                                     String resultSummary,
+                                     GenerationCompletionEvidenceSet completionEvidence) {
+        this(disposition, route, terminalStatus, reason, resultSummary, completionEvidence, null, null);
+    }
+
     public static GenerationPipelineOutcome completed(String route,
                                                        GenerationTaskStatus status,
                                                        String reason,
@@ -76,6 +95,30 @@ public record GenerationPipelineOutcome(
                                                        GenerationCompletionEvidenceSet completionEvidence) {
         return new GenerationPipelineOutcome(
                 GenerationPipelineDisposition.COMPLETED, route, status, reason, resultSummary, completionEvidence);
+    }
+
+    /**
+     * 创建携带 L3 归因指标的终态结果。
+     *
+     * @param route 路由
+     * @param status 终态
+     * @param reason 终态原因
+     * @param resultSummary 结果摘要
+     * @param completionEvidence 完成证据
+     * @param changedFileCount 有效变更文件数，未采集传 {@code null}
+     * @param repairRounds 修复轮次，未采集传 {@code null}
+     * @return 生成流水线结果
+     */
+    public static GenerationPipelineOutcome completed(String route,
+                                                       GenerationTaskStatus status,
+                                                       String reason,
+                                                       String resultSummary,
+                                                       GenerationCompletionEvidenceSet completionEvidence,
+                                                       Integer changedFileCount,
+                                                       Integer repairRounds) {
+        return new GenerationPipelineOutcome(
+                GenerationPipelineDisposition.COMPLETED, route, status, reason, resultSummary,
+                completionEvidence, changedFileCount, repairRounds);
     }
 
     public static GenerationPipelineOutcome running(String route) {

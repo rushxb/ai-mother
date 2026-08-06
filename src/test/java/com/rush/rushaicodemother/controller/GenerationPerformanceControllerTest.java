@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.vo.GenerationDurationProfileVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskSpanVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedger;
+import com.rush.rushaicodemother.monitor.latency.GenerationRouteLatencySegmentService;
 import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedgerService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfile;
@@ -32,7 +33,8 @@ class GenerationPerformanceControllerTest {
         GenerationSpanQueryService queryService = mock(GenerationSpanQueryService.class);
         GenerationPerformanceController controller = new GenerationPerformanceController(
                 monitorService, queryService, mock(GenerationDurationProfileService.class),
-                mock(GenerationTaskLatencyLedgerService.class));
+                mock(GenerationTaskLatencyLedgerService.class),
+                mock(GenerationRouteLatencySegmentService.class));
         Instant startedAt = Instant.parse("2026-07-16T02:00:00Z");
         Instant endedAt = startedAt.plusSeconds(12);
         when(queryService.findByTaskId("task-span-1", 25)).thenReturn(List.of(
@@ -90,7 +92,8 @@ class GenerationPerformanceControllerTest {
                 computedAt));
         GenerationPerformanceController controller = new GenerationPerformanceController(
                 monitorService, queryService, profileService,
-                mock(GenerationTaskLatencyLedgerService.class));
+                mock(GenerationTaskLatencyLedgerService.class),
+                mock(GenerationRouteLatencySegmentService.class));
 
         BaseResponse<GenerationDurationProfileVO> response = controller.getRouteDurationProfile("heavy");
 
@@ -120,7 +123,8 @@ class GenerationPerformanceControllerTest {
                 mock(GenerationPerformanceMonitorService.class),
                 mock(GenerationSpanQueryService.class),
                 mock(GenerationDurationProfileService.class),
-                ledgerService
+                ledgerService,
+                mock(GenerationRouteLatencySegmentService.class)
         );
         Instant submittedAt = Instant.parse("2026-07-18T01:00:00Z");
         when(ledgerService.getLedger("task-ledger-1")).thenReturn(new GenerationTaskLatencyLedger(

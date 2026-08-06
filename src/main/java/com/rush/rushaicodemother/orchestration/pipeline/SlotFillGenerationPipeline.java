@@ -275,6 +275,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
             String resultSummary
     ) {
         generationPerformanceMonitorService.finishTask(taskId, GenerationTaskStatus.SUCCESS.getValue());
+        int patchOperationCount = result == null ? 0 : result.patchOperationCount();
         return GenerationPipelineOutcome.completed(
                 route(),
                 GenerationTaskStatus.SUCCESS,
@@ -283,7 +284,9 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 GenerationCompletionEvidenceSet.successfulMutation(
                         request.modeDecision().expectedValidationLevel(),
                         route(),
-                        result == null ? 0 : result.patchOperationCount()));
+                        patchOperationCount),
+                patchOperationCount,
+                0);
     }
 
     /** 构建修复预算耗尽后结束 CREATE，避免再次执行整条重型生成链路。 */

@@ -2,77 +2,85 @@ package com.rush.rushaicodemother.orchestration.runtime.execution;
 
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.boot.env.YamlPropertySourceLoader;
-import org.springframework.core.env.MapPropertySource;
-import org.springframework.core.env.StandardEnvironment;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.time.Duration;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class GenerationSlaPropertiesTest {
 
-    @Test
-    void applicationYamlBindsEveryRouteProfile() throws Exception {
-        StandardEnvironment environment = new StandardEnvironment();
-        new YamlPropertySourceLoader().load("application", new ClassPathResource("application.yml"))
-                .forEach(source -> environment.getPropertySources().addLast(source));
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withUserConfiguration(GenerationSlaProperties.class);
 
-        GenerationSlaProperties properties = Binder.get(environment)
-                .bind("app.generation-sla", Bindable.of(GenerationSlaProperties.class))
-                .orElseThrow(() -> new AssertionError("生成任务 SLA 配置未绑定"));
+    @Test
+    void hardcodedRouteProfilesMustMatchProductionConstants() {
+        GenerationSlaProperties properties = new GenerationSlaProperties();
 
         assertTrue(properties.isConfigurationValid());
         assertProfile(properties.profile(GenerationMode.CREATE),
-                "create-preview-first", 4, 18, 4);
+                GenerationSlaProperties.CREATE_NAME,
+                GenerationSlaProperties.CREATE_MAX_ROOT_MODEL_ATTEMPTS,
+                GenerationSlaProperties.CREATE_MAX_MODEL_TURNS,
+                GenerationSlaProperties.CREATE_MAX_PROVIDER_FAILOVER_ATTEMPTS);
         assertProfile(properties.profile(GenerationMode.LIGHT_EDIT),
-                "light-edit-fast", 2, 4, 2);
+                GenerationSlaProperties.LIGHT_EDIT_NAME,
+                GenerationSlaProperties.LIGHT_EDIT_MAX_ROOT_MODEL_ATTEMPTS,
+                GenerationSlaProperties.LIGHT_EDIT_MAX_MODEL_TURNS,
+                GenerationSlaProperties.LIGHT_EDIT_MAX_PROVIDER_FAILOVER_ATTEMPTS);
         assertProfile(properties.profile(GenerationMode.AGENT_EDIT),
-                "agent-edit-balanced", 2, 12, 4);
+                GenerationSlaProperties.AGENT_EDIT_NAME,
+                GenerationSlaProperties.AGENT_EDIT_MAX_ROOT_MODEL_ATTEMPTS,
+                GenerationSlaProperties.AGENT_EDIT_MAX_MODEL_TURNS,
+                GenerationSlaProperties.AGENT_EDIT_MAX_PROVIDER_FAILOVER_ATTEMPTS);
         assertProfile(properties.profile(GenerationMode.HEAVY_EXPERT),
-                "heavy-expert-quality", 4, 24, 6);
+                GenerationSlaProperties.HEAVY_EXPERT_NAME,
+                GenerationSlaProperties.HEAVY_EXPERT_MAX_ROOT_MODEL_ATTEMPTS,
+                GenerationSlaProperties.HEAVY_EXPERT_MAX_MODEL_TURNS,
+                GenerationSlaProperties.HEAVY_EXPERT_MAX_PROVIDER_FAILOVER_ATTEMPTS);
         assertProfile(properties.getSaturatedAgentEdit(),
-                "agent-edit-saturated", 2, 8, 2);
-        assertEquals(Duration.ofSeconds(45),
+                GenerationSlaProperties.SATURATED_NAME,
+                GenerationSlaProperties.SATURATED_MAX_ROOT_MODEL_ATTEMPTS,
+                GenerationSlaProperties.SATURATED_MAX_MODEL_TURNS,
+                GenerationSlaProperties.SATURATED_MAX_PROVIDER_FAILOVER_ATTEMPTS);
+        assertEquals(GenerationSlaProperties.CREATE_FIRST_PREVIEW_COMPLETION_RESERVE,
                 properties.profile(GenerationMode.CREATE).getFirstPreviewCompletionReserve());
-        assertEquals(Duration.ofSeconds(30),
+        assertEquals(GenerationSlaProperties.LIGHT_EDIT_FIRST_PREVIEW_COMPLETION_RESERVE,
                 properties.profile(GenerationMode.LIGHT_EDIT).getFirstPreviewCompletionReserve());
-        assertEquals(Duration.ofSeconds(45),
+        assertEquals(GenerationSlaProperties.AGENT_EDIT_FIRST_PREVIEW_COMPLETION_RESERVE,
                 properties.profile(GenerationMode.AGENT_EDIT).getFirstPreviewCompletionReserve());
-        assertEquals(Duration.ofSeconds(60),
+        assertEquals(GenerationSlaProperties.HEAVY_EXPERT_FIRST_PREVIEW_COMPLETION_RESERVE,
                 properties.profile(GenerationMode.HEAVY_EXPERT).getFirstPreviewCompletionReserve());
-        assertEquals(Duration.ofSeconds(30),
+        assertEquals(GenerationSlaProperties.SATURATED_FIRST_PREVIEW_COMPLETION_RESERVE,
                 properties.getSaturatedAgentEdit().getFirstPreviewCompletionReserve());
     }
 
+    /** 路由预算固定为常量，历史环境变量与属性名都不得再改写模型调用预算。 */
     @Test
-    void newBudgetVariablesOverrideLegacyRootAttemptFallback() throws Exception {
-        StandardEnvironment environment = environmentWith(Map.of(
-                "GENERATION_CREATE_MAX_ROOT_MODEL_ATTEMPTS", "5",
-                "GENERATION_CREATE_MAX_MODEL_ATTEMPTS", "7",
-                "GENERATION_CREATE_MAX_MODEL_TURNS", "23",
-                "GENERATION_CREATE_MAX_PROVIDER_FAILOVER_ATTEMPTS", "9"
-        ));
-
-        GenerationSlaProperties properties = bind(environment);
-
-        assertProfile(properties.profile(GenerationMode.CREATE),
-                "create-preview-first", 5, 23, 9);
-    }
-
-    @Test
-    void legacyBudgetVariableRemainsACompatibleRootAttemptFallback() throws Exception {
-        GenerationSlaProperties properties = bind(environmentWith(Map.of(
-                "GENERATION_CREATE_MAX_MODEL_ATTEMPTS", "6"
-        )));
-
-        assertEquals(6, properties.profile(GenerationMode.CREATE).getMaxRootModelAttempts());
+    void externalPropertiesMustNotOverrideHardcodedRouteBudgets() {
+        contextRunner
+                .withPropertyValues(
+                        "app.generation-sla.profiles.create.max-root-model-attempts=5",
+                        "app.generation-sla.profiles.create.max-model-turns=23",
+                        "app.generation-sla.profiles.create.max-provider-failover-attempts=9",
+                        "app.generation-sla.saturated-agent-edit.max-model-turns=16"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    GenerationSlaProperties properties = context.getBean(GenerationSlaProperties.class);
+                    GenerationSlaProperties.Profile create = properties.profile(GenerationMode.CREATE);
+                    assertThat(create.getMaxRootModelAttempts())
+                            .isEqualTo(GenerationSlaProperties.CREATE_MAX_ROOT_MODEL_ATTEMPTS);
+                    assertThat(create.getMaxModelTurns())
+                            .isEqualTo(GenerationSlaProperties.CREATE_MAX_MODEL_TURNS);
+                    assertThat(create.getMaxProviderFailoverAttempts())
+                            .isEqualTo(GenerationSlaProperties.CREATE_MAX_PROVIDER_FAILOVER_ATTEMPTS);
+                    assertThat(properties.getSaturatedAgentEdit().getMaxModelTurns())
+                            .isEqualTo(GenerationSlaProperties.SATURATED_MAX_MODEL_TURNS);
+                });
     }
 
     @Test
@@ -120,20 +128,6 @@ class GenerationSlaPropertiesTest {
         lightEdit.setMaxRepairRounds(2);
 
         assertFalse(properties.isConfigurationValid());
-    }
-
-    private GenerationSlaProperties bind(StandardEnvironment environment) {
-        return Binder.get(environment)
-                .bind("app.generation-sla", Bindable.of(GenerationSlaProperties.class))
-                .orElseThrow(() -> new AssertionError("生成任务 SLA 配置未绑定"));
-    }
-
-    private StandardEnvironment environmentWith(Map<String, Object> overrides) throws Exception {
-        StandardEnvironment environment = new StandardEnvironment();
-        environment.getPropertySources().addFirst(new MapPropertySource("test-overrides", overrides));
-        new YamlPropertySourceLoader().load("application", new ClassPathResource("application.yml"))
-                .forEach(source -> environment.getPropertySources().addLast(source));
-        return environment;
     }
 
     private void assertProfile(GenerationSlaProperties.Profile profile,

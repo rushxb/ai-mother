@@ -121,7 +121,10 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                     route(),
                     "success".equals(status) ? GenerationTaskStatus.SUCCESS : GenerationTaskStatus.FAILED,
                     "success".equals(status) ? null : LIGHTWEIGHT_EDIT_FAILURE_REASON,
-                    buildResultSummary("success".equals(status) ? "成功" : "失败", editResult)
+                    buildResultSummary("success".equals(status) ? "成功" : "失败", editResult),
+                    GenerationCompletionEvidenceSet.empty(),
+                    editResult.appliedOperations() == null ? null : editResult.appliedOperations().size(),
+                    0
             );
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;

@@ -58,4 +58,15 @@ class TemplatePreWarmConfigurationTest {
                     assertEquals(2, taskExecutor.getThreadPoolExecutor().getQueue().remainingCapacity());
                 });
     }
+
+    @Test
+    void shouldFallBackToHardcodedPreWarmScopeWhenYamlOmitsIt() {
+        contextRunner
+                .withPropertyValues("app.template-pre-warm.enabled=true")
+                .run(context -> {
+                    TemplatePreWarmProperties properties = context.getBean(TemplatePreWarmProperties.class);
+                    assertEquals(TemplatePreWarmProperties.MAX_CONCURRENCY, properties.getMaxConcurrency());
+                    assertEquals(TemplatePreWarmProperties.TEMPLATE_IDS, properties.getTemplateIds());
+                });
+    }
 }

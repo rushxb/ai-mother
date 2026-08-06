@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.config.production;
 
+import com.rush.rushaicodemother.config.GeneratedCodeSandboxProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.Ordered;
@@ -34,12 +35,10 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
             "app.cors.allowed-origins",
             "app.generated-code-sandbox.mode",
             "app.generated-code-sandbox.container.image",
-            "app.generated-code-sandbox.container.workspace-mount",
             "app.generated-code-sandbox.container.dependency-network",
             "app.generated-code-sandbox.container.dev-server-network",
             "app.generated-code-sandbox.container.preview-gateway-network",
             "app.generated-code-sandbox.container.pnpm-store-volume",
-            "app.generated-code-sandbox.container.pnpm-store-mount",
             "app.dev-server.runtime.node-id",
             "app.dev-server.internal-routing.base-url-template",
             "app.dev-server.internal-routing.shared-secret",
@@ -544,13 +543,16 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
             );
         }
 
-        String workspaceMount = readProperty(
+        // 容器挂载点已下沉为常量；仍按生效取值校验，避免常量被改成不安全路径。
+        String workspaceMount = resolveWithFallback(
                 environment,
-                "app.generated-code-sandbox.container.workspace-mount"
+                "app.generated-code-sandbox.container.workspace-mount",
+                GeneratedCodeSandboxProperties.Container.WORKSPACE_MOUNT
         );
-        String storeMount = readProperty(
+        String storeMount = resolveWithFallback(
                 environment,
-                "app.generated-code-sandbox.container.pnpm-store-mount"
+                "app.generated-code-sandbox.container.pnpm-store-mount",
+                GeneratedCodeSandboxProperties.Container.PNPM_STORE_MOUNT
         );
         if (hasTextValue(workspaceMount) && !isSafeContainerMount(workspaceMount)) {
             unsafeProperties.add(
@@ -567,6 +569,14 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
                             + "（必须是与 workspace 和 /tmp 隔离的安全绝对容器路径）"
             );
         }
+    }
+
+    /** 读取属性，缺失时回退到已下沉的常量取值。 */
+    private String resolveWithFallback(ConfigurableEnvironment environment,
+                                      String propertyName,
+                                      String hardcodedValue) {
+        String value = readProperty(environment, propertyName);
+        return hasTextValue(value) ? value : hardcodedValue;
     }
 
     /** 判断安全容器挂载是否满足约束。 */

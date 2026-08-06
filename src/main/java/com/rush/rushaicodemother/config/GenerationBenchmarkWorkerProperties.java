@@ -17,6 +17,9 @@ import java.util.regex.Pattern;
 @ConfigurationProperties(prefix = "app.generation-benchmark.worker")
 public class GenerationBenchmarkWorkerProperties {
 
+    /** 单轮评测签发证据的有效期，属于固定发布契约。 */
+    public static final Duration EVIDENCE_VALIDITY = Duration.ofDays(1);
+
     private static final Pattern PROMPT_KEY =
             Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
     private static final Pattern PROMPT_VERSION =
@@ -24,7 +27,7 @@ public class GenerationBenchmarkWorkerProperties {
 
     private boolean enabled;
     private String outputFile = "";
-    private Duration evidenceValidity = Duration.ofDays(1);
+    private Duration evidenceValidity = EVIDENCE_VALIDITY;
     private Candidate candidate = new Candidate();
 
     /**

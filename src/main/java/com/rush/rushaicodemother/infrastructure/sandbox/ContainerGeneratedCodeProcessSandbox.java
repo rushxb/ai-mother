@@ -534,14 +534,17 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         }
     }
 
-    /** 规范化{@code Executable}。 */
+    /**
+     * 规范化{@code Executable}。
+     *
+     * <p>容器内的网络与 tmpfs 授权依赖这里识别出的可执行文件名，因此不能依赖宿主 JVM 的
+     * {@link Path} 分隔符语义：Linux 上 {@code \} 不是分隔符，会把
+     * {@code C:\tools\pnpm.cmd} 当成单段文件名，导致 pnpm 共享 store 与离线 Go 可执行
+     * tmpfs 的分发判定失效（fail-closed，构建反而会失败）。此处显式按 {@code /} 与
+     * {@code \} 双分隔符取末段，使判定与宿主操作系统无关。</p>
+     */
     private String normalizeExecutable(String executable) {
-        String fileName;
-        try {
-            fileName = Path.of(executable).getFileName().toString();
-        } catch (RuntimeException ignored) {
-            fileName = executable;
-        }
+        String fileName = executableFileName(executable);
         String normalized = fileName.toLowerCase(Locale.ROOT);
         if (normalized.equals("pnpm.cmd") || normalized.equals("pnpm.exe")) {
             return "pnpm";
@@ -556,6 +559,19 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
             return "go";
         }
         return fileName;
+    }
+
+    /** 按 POSIX 与 Windows 两种分隔符取可执行文件名末段，不依赖宿主操作系统。 */
+    private String executableFileName(String executable) {
+        if (executable == null || executable.isBlank()) {
+            return executable == null ? "" : executable;
+        }
+        int lastSeparator = Math.max(executable.lastIndexOf('/'), executable.lastIndexOf('\\'));
+        String fileName = lastSeparator < 0
+                ? executable
+                : executable.substring(lastSeparator + 1);
+        // 末尾是分隔符时回退到原值，避免把目录路径误判为空可执行名。
+        return fileName.isBlank() ? executable : fileName;
     }
 
     /** 将输入映射为工作区路径。 */

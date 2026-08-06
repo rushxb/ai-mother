@@ -43,16 +43,22 @@ class EditStatePersistenceConfigurationTest {
                             context.getBean(EditStatePersistenceProperties.class);
                     assertThat(properties.getRootDirectory())
                             .isEqualTo(baseDirectory.resolve("tmp").resolve("edit_state"));
-                    assertThat(properties.getMaxCacheEntries()).isEqualTo(1_000);
-                    assertThat(properties.getCacheExpireAfterAccess()).isEqualTo(Duration.ofHours(2));
-                    assertThat(properties.getStateRetention()).isEqualTo(Duration.ofHours(24));
-                    assertThat(properties.getMaxPersistedApps()).isEqualTo(10_000);
-                    assertThat(properties.getLockStripes()).isEqualTo(64);
+                    assertThat(properties.getMaxCacheEntries())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_CACHE_ENTRIES);
+                    assertThat(properties.getCacheExpireAfterAccess())
+                            .isEqualTo(EditStatePersistenceProperties.CACHE_EXPIRE_AFTER_ACCESS);
+                    assertThat(properties.getStateRetention())
+                            .isEqualTo(EditStatePersistenceProperties.STATE_RETENTION);
+                    assertThat(properties.getMaxPersistedApps())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_PERSISTED_APPS);
+                    assertThat(properties.getLockStripes())
+                            .isEqualTo(EditStatePersistenceProperties.LOCK_STRIPES);
                 });
     }
 
+    /** 编辑状态开关与落盘目录仍需支持部署期注入。 */
     @Test
-    void environmentStyleOverridesMustBindAllEditStateLimits() {
+    void environmentStyleOverridesMustBindEditStateToggleAndRootDirectory() {
         Path stateDirectory = Path.of("target", "test-workspaces", "edit-state-config-override")
                 .toAbsolutePath()
                 .normalize();
@@ -60,7 +66,25 @@ class EditStatePersistenceConfigurationTest {
         contextRunner
                 .withPropertyValues(
                         "EDIT_STATE_ENABLED=false",
-                        "EDIT_STATE_ROOT_DIRECTORY=" + propertyPath(stateDirectory),
+                        "EDIT_STATE_ROOT_DIRECTORY=" + propertyPath(stateDirectory)
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    EditStatePersistenceProperties properties =
+                            context.getBean(EditStatePersistenceProperties.class);
+                    assertThat(properties.isEnabled()).isFalse();
+                    assertThat(properties.getRootDirectory()).isEqualTo(stateDirectory);
+                });
+    }
+
+    /**
+     * 编辑状态的缓存容量、保留期限和长度上限的 yaml 键已删除，
+     * 历史环境变量名不再具备任何改写能力。
+     */
+    @Test
+    void retiredEnvironmentVariablesMustNotChangeFixedEditStateLimits() {
+        contextRunner
+                .withPropertyValues(
                         "EDIT_STATE_MAX_CACHE_ENTRIES=25",
                         "EDIT_STATE_CACHE_EXPIRE_AFTER_ACCESS=30m",
                         "EDIT_STATE_RETENTION=12h",
@@ -77,33 +101,54 @@ class EditStatePersistenceConfigurationTest {
                     assertThat(context).hasNotFailed();
                     EditStatePersistenceProperties properties =
                             context.getBean(EditStatePersistenceProperties.class);
-                    assertThat(properties.isEnabled()).isFalse();
-                    assertThat(properties.getRootDirectory()).isEqualTo(stateDirectory);
-                    assertThat(properties.getMaxCacheEntries()).isEqualTo(25);
-                    assertThat(properties.getCacheExpireAfterAccess()).isEqualTo(Duration.ofMinutes(30));
-                    assertThat(properties.getStateRetention()).isEqualTo(Duration.ofHours(12));
-                    assertThat(properties.getMaxPersistedApps()).isEqualTo(500);
-                    assertThat(properties.getMaxStateFileBytes()).isEqualTo(65_536);
-                    assertThat(properties.getMaxRecentEdits()).isEqualTo(12);
-                    assertThat(properties.getMaxRecentFiles()).isEqualTo(30);
-                    assertThat(properties.getMaxRecentValidations()).isEqualTo(10);
-                    assertThat(properties.getMaxTaskIdLength()).isEqualTo(64);
-                    assertThat(properties.getMaxFilePathLength()).isEqualTo(512);
-                    assertThat(properties.getLockStripes()).isEqualTo(16);
+                    assertThat(properties.getMaxCacheEntries())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_CACHE_ENTRIES);
+                    assertThat(properties.getCacheExpireAfterAccess())
+                            .isEqualTo(EditStatePersistenceProperties.CACHE_EXPIRE_AFTER_ACCESS);
+                    assertThat(properties.getStateRetention())
+                            .isEqualTo(EditStatePersistenceProperties.STATE_RETENTION);
+                    assertThat(properties.getMaxPersistedApps())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_PERSISTED_APPS);
+                    assertThat(properties.getMaxStateFileBytes())
+                            .isEqualTo(EditStatePersistenceProperties.DEFAULT_MAX_STATE_FILE_BYTES);
+                    assertThat(properties.getMaxRecentEdits())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_RECENT_EDITS);
+                    assertThat(properties.getMaxRecentFiles())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_RECENT_FILES);
+                    assertThat(properties.getMaxRecentValidations())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_RECENT_VALIDATIONS);
+                    assertThat(properties.getMaxTaskIdLength())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_TASK_ID_LENGTH);
+                    assertThat(properties.getMaxFilePathLength())
+                            .isEqualTo(EditStatePersistenceProperties.MAX_FILE_PATH_LENGTH);
+                    assertThat(properties.getLockStripes())
+                            .isEqualTo(EditStatePersistenceProperties.LOCK_STRIPES);
                 });
     }
 
+    /** 该类仍保留 {@code @ConfigurationProperties}，规范键注入的越界组合必须继续拦截在启动期。 */
     @Test
     void cacheExpiryBeyondRetentionMustFailApplicationContextStartup() {
         contextRunner
                 .withPropertyValues(
-                        "EDIT_STATE_CACHE_EXPIRE_AFTER_ACCESS=48h",
-                        "EDIT_STATE_RETENTION=24h"
+                        "app.edit-state.cache-expire-after-access=48h",
+                        "app.edit-state.state-retention=24h"
                 )
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure()).hasMessageContaining("app.edit-state");
                 });
+    }
+
+    /** 缓存期限不得超过保留期限的约束本身也直接校验，避免常量被误改。 */
+    @Test
+    void directValidationRejectsCacheExpiryBeyondRetention() {
+        EditStatePersistenceProperties properties = new EditStatePersistenceProperties();
+        assertThat(properties.isStorageConfigurationValid()).isTrue();
+
+        properties.setCacheExpireAfterAccess(Duration.ofHours(48));
+        properties.setStateRetention(Duration.ofHours(24));
+        assertThat(properties.isStorageConfigurationValid()).isFalse();
     }
 
     private String propertyPath(Path path) {

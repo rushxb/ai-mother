@@ -103,7 +103,10 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                         route(),
                         GenerationTaskStatus.FAILED,
                         AGENT_EDIT_FAILURE_REASON,
-                        buildResultSummary("失败", editResult)
+                        buildResultSummary("失败", editResult),
+                        GenerationCompletionEvidenceSet.empty(),
+                        editResult.changedFiles().size(),
+                        editResult.repairRounds()
                 );
             }
             session.emit(GenerationStreamEvent.agentEvent(
@@ -126,7 +129,9 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                     GenerationCompletionEvidenceSet.successfulMutation(
                             request.modeDecision().expectedValidationLevel(),
                             route(),
-                            editResult.changedFiles().size())
+                            editResult.changedFiles().size()),
+                    editResult.changedFiles().size(),
+                    editResult.repairRounds()
             );
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;

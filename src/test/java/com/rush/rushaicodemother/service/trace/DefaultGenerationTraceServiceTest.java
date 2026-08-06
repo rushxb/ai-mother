@@ -187,6 +187,38 @@ class DefaultGenerationTraceServiceTest {
     }
 
     @Test
+    void completeTaskWithoutOutcomeQualityMustKeepUsingTheExistingCollaborationPath() {
+        when(persistenceService.lockTaskByTaskId("task-1"))
+                .thenReturn(taskRecord(GenerationTaskStatus.RUNNING));
+
+        // 传入空证据等价于未采集，必须仍走既有 6 参数持久化调用，
+        // 不得因新增能力改变既有调用契约。
+        service.completeTask("task-1", GenerationTaskStatus.SUCCESS, null,
+                GenerationOutcomeQuality.empty());
+
+        verify(persistenceService).completeRunningTask(
+                10L, GenerationTaskStatus.SUCCESS, NOW_LOCAL, 10_000L, null, null
+        );
+        verify(persistenceService, never()).completeRunningTask(
+                anyLong(), any(), any(), anyLong(), any(), any(), any()
+        );
+    }
+
+    @Test
+    void completeTaskMustForwardCollectedOutcomeQualityToPersistence() {
+        when(persistenceService.lockTaskByTaskId("task-1"))
+                .thenReturn(taskRecord(GenerationTaskStatus.RUNNING));
+        GenerationOutcomeQuality quality =
+                GenerationOutcomeQuality.ofSuccess(3, 0, true, 8_000L);
+
+        service.completeTask("task-1", GenerationTaskStatus.SUCCESS, null, quality);
+
+        verify(persistenceService).completeRunningTask(
+                10L, GenerationTaskStatus.SUCCESS, NOW_LOCAL, 10_000L, null, null, quality
+        );
+    }
+
+    @Test
     void terminalTransitionMustBeIdempotentOnlyForSameStatus() {
         when(persistenceService.lockTaskByTaskId("task-1"))
                 .thenReturn(taskRecord(GenerationTaskStatus.SUCCESS));

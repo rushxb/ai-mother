@@ -23,22 +23,30 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.chat-memory")
 public class ChatMemoryProperties {
 
+    /** 对话记忆 Redis 键前缀；多环境通过 Redis database 编号隔离，不依赖前缀区分。 */
+    public static final String KEY_PREFIX = "chat-memory:";
+
+    public static final long TTL_SECONDS = 3600;
+    public static final long FALLBACK_MAX_ENTRIES = 1000;
+    public static final Duration FALLBACK_EXPIRE_AFTER_ACCESS = Duration.ofHours(2);
+    public static final int COMPLETED_TOOL_ARGUMENTS_MAX_CHARS = 8_192;
+
     @NotBlank
     @Pattern(regexp = "[A-Za-z0-9:_-]{1,128}")
-    private String keyPrefix = "chat-memory:";
+    private String keyPrefix = KEY_PREFIX;
 
     @Min(1)
-    private long ttlSeconds = 3600;
+    private long ttlSeconds = TTL_SECONDS;
 
     @Min(1)
-    private long fallbackMaxEntries = 1000;
+    private long fallbackMaxEntries = FALLBACK_MAX_ENTRIES;
 
     @NotNull
-    private Duration fallbackExpireAfterAccess = Duration.ofHours(2);
+    private Duration fallbackExpireAfterAccess = FALLBACK_EXPIRE_AFTER_ACCESS;
 
     @Min(1_024)
     @Max(262_144)
-    private int completedToolArgumentsMaxChars = 8_192;
+    private int completedToolArgumentsMaxChars = COMPLETED_TOOL_ARGUMENTS_MAX_CHARS;
 
     @AssertTrue(message = "对话记忆内存回退过期时间必须大于 0")
     public boolean isFallbackExpirationValid() {

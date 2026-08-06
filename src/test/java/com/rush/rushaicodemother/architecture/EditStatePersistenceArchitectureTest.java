@@ -52,11 +52,17 @@ class EditStatePersistenceArchitectureTest {
         assertTrue(properties.contains("@Min(MIN_STATE_FILE_BYTES)"));
         assertTrue(properties.contains("@Max(MAX_STATE_FILE_BYTES)"));
 
+        // 只有开关和存储根仍可按部署环境覆盖，其余资源上限已下沉为常量。
+        assertTrue(yaml.contains("EDIT_STATE_ENABLED"));
         assertTrue(yaml.contains("EDIT_STATE_ROOT_DIRECTORY"));
-        assertTrue(yaml.contains("EDIT_STATE_MAX_CACHE_ENTRIES"));
-        assertTrue(yaml.contains("EDIT_STATE_RETENTION"));
-        assertTrue(yaml.contains("EDIT_STATE_MAX_PERSISTED_APPS"));
-        assertTrue(yaml.contains("EDIT_STATE_MAX_FILE_BYTES"));
-        assertTrue(yaml.contains("EDIT_STATE_LOCK_STRIPES"));
+        assertFalse(yaml.contains("EDIT_STATE_MAX_CACHE_ENTRIES"));
+        assertFalse(yaml.contains("EDIT_STATE_MAX_PERSISTED_APPS"));
+        assertFalse(yaml.contains("EDIT_STATE_MAX_FILE_BYTES"));
+        assertFalse(yaml.contains("EDIT_STATE_LOCK_STRIPES"));
+
+        // 资源上限必须仍以常量形式声明，保证策略可审计。
+        assertTrue(properties.contains("public static final long MAX_CACHE_ENTRIES"));
+        assertTrue(properties.contains("public static final int DEFAULT_MAX_STATE_FILE_BYTES"));
+        assertTrue(properties.contains("public static final int LOCK_STRIPES"));
     }
 }

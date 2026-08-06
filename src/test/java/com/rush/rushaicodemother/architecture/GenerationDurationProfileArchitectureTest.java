@@ -63,13 +63,41 @@ class GenerationDurationProfileArchitectureTest {
     }
 
     @Test
-    void applicationYamlMustExposeAllEtaControlsWithoutProductionSecrets() throws IOException {
-        String yaml = Files.readString(ROOT.resolve(Path.of("src", "main", "resources", "application.yml")));
+    void routeLatencySegmentModuleMustDependOnPortsAndReuseExistingBoundedQueries() throws IOException {
+        String segmentService = Files.readString(JAVA_ROOT.resolve(Path.of(
+                "monitor", "latency", "GenerationRouteLatencySegmentService.java")));
+        String segmentEnum = Files.readString(JAVA_ROOT.resolve(Path.of(
+                "monitor", "latency", "GenerationLatencySegment.java")));
 
-        assertTrue(yaml.contains("generation-progress:"));
-        assertTrue(yaml.contains("GENERATION_PROGRESS_TASK_SAMPLE_LIMIT"));
-        assertTrue(yaml.contains("GENERATION_PROGRESS_PROFILE_CACHE_TTL"));
-        assertTrue(yaml.contains("GENERATION_PROGRESS_FALLBACK_TOTAL_DURATION"));
-        assertTrue(yaml.contains("GENERATION_PROGRESS_MAXIMUM_ESTIMATED_DURATION"));
+        // 分段画像只做纯计算：不得触碰 mapper 或持久化适配器，必须走既有 port。
+        assertFalse(segmentService.contains(".mapper."));
+        assertFalse(segmentService.contains("infrastructure.persistence"));
+        assertTrue(segmentService.contains("GenerationDurationSampleRepository"));
+        assertTrue(segmentService.contains("loadRecentSuccessfulSamples"));
+        // 不得新建线程池；缓存与样本上限复用既有进度配置。
+        assertFalse(segmentService.contains("Executors."));
+        assertTrue(segmentService.contains("GenerationTaskProgressProperties"));
+        // 分段定义属于领域判断，不得下沉到持久化层。
+        assertFalse(segmentEnum.contains(".mapper."));
+        assertFalse(segmentEnum.contains("infrastructure.persistence"));
+    }
+
+    @Test
+    void etaControlsMustRemainDeclaredAsAuditableConstantsWithoutProductionSecrets() throws IOException {
+        String yaml = Files.readString(ROOT.resolve(Path.of("src", "main", "resources", "application.yml")));
+        String properties = Files.readString(ROOT.resolve(Path.of(
+                "src", "main", "java", "com", "rush", "rushaicodemother", "orchestration",
+                "runtime", "task", "progress", "GenerationTaskProgressProperties.java")));
+
+        // 进度估算参数属于内部算法口径，已整体下沉为常量，不再出现在 yaml 中。
+        assertFalse(yaml.contains("generation-progress:"));
+        assertFalse(yaml.contains("GENERATION_PROGRESS_TASK_SAMPLE_LIMIT"));
+        assertFalse(yaml.contains("GENERATION_PROGRESS_PROFILE_CACHE_TTL"));
+
+        assertTrue(properties.contains("public static final int TASK_SAMPLE_LIMIT"));
+        assertTrue(properties.contains("public static final Duration PROFILE_CACHE_TTL"));
+        assertTrue(properties.contains("public static final Duration FALLBACK_TOTAL_DURATION"));
+        assertTrue(properties.contains("public static final Duration MAXIMUM_ESTIMATED_DURATION"));
+        assertTrue(properties.contains("@Validated"));
     }
 }

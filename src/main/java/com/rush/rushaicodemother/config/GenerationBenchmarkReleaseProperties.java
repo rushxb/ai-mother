@@ -1,13 +1,13 @@
 package com.rush.rushaicodemother.config;
 
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaProperties;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
@@ -16,107 +16,135 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * 生成基准测试发布配置属性。
+ * 生成基准测试发布门禁的固定阈值。
  */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.generation-benchmark.release-gate")
 public class GenerationBenchmarkReleaseProperties {
 
+    public static final int MINIMUM_TASK_COUNT = 32;
+    public static final double MINIMUM_SUCCESS_RATE = 0.95;
+    public static final double MINIMUM_BUILD_PASS_RATE = 0.90;
+    public static final double MINIMUM_STRUCTURAL_EVALUATION_RATE = 1.0;
+    public static final double MINIMUM_STRUCTURAL_PASS_RATE = 0.95;
+    public static final double MINIMUM_FUNCTIONAL_EVALUATION_RATE = 1.0;
+    public static final double MINIMUM_FUNCTIONAL_PASS_RATE = 0.90;
+    public static final double MINIMUM_DIFF_SCOPE_EVALUATION_RATE = 1.0;
+    public static final double MINIMUM_DIFF_SCOPE_PASS_RATE = 0.95;
+    public static final double MINIMUM_SECURITY_EVALUATION_RATE = 1.0;
+    public static final double MINIMUM_SECURITY_PASS_RATE = 1.0;
+    public static final double MINIMUM_RUNTIME_EVALUATION_RATE = 1.0;
+    public static final double MINIMUM_RUNTIME_PASS_RATE = 0.90;
+    public static final double MINIMUM_VISUAL_EVALUATION_RATE = 1.0;
+    public static final double MINIMUM_VISUAL_PASS_RATE = 0.90;
+    public static final boolean REQUIRE_PROMPT_BUNDLE_ID = true;
+    public static final double MAXIMUM_FALLBACK_RATE = 0.20;
+    public static final Duration MAXIMUM_P90_DURATION = Duration.ofMinutes(5);
+    public static final Duration MAXIMUM_P99_DURATION = Duration.ofMinutes(10);
+    public static final Duration MAXIMUM_P90_FIRST_TOKEN_LATENCY = Duration.ofSeconds(15);
+    public static final Duration MAXIMUM_P99_FIRST_TOKEN_LATENCY = Duration.ofSeconds(30);
+    public static final double MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE = 1.0;
+    public static final long MAXIMUM_AVERAGE_TOKENS = 250_000L;
+    public static final long MAXIMUM_AVERAGE_CREDIT_COST = 10L;
+
+    /** P99 首屏门禁沿用 HEAVY_EXPERT 路由的首屏 SLA 上限。 */
+    public static final Duration MAXIMUM_P99_FIRST_PREVIEW_LATENCY =
+            GenerationSlaProperties.HEAVY_EXPERT_FIRST_PREVIEW_TIMEOUT;
+
     @Min(1)
-    private int minimumTaskCount = 32;
+    private int minimumTaskCount = MINIMUM_TASK_COUNT;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumSuccessRate = 0.95;
+    private double minimumSuccessRate = MINIMUM_SUCCESS_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumBuildPassRate = 0.90;
+    private double minimumBuildPassRate = MINIMUM_BUILD_PASS_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumStructuralEvaluationRate = 1.0;
+    private double minimumStructuralEvaluationRate = MINIMUM_STRUCTURAL_EVALUATION_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumStructuralPassRate = 0.95;
+    private double minimumStructuralPassRate = MINIMUM_STRUCTURAL_PASS_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumFunctionalEvaluationRate = 1.0;
+    private double minimumFunctionalEvaluationRate = MINIMUM_FUNCTIONAL_EVALUATION_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumFunctionalPassRate = 0.90;
+    private double minimumFunctionalPassRate = MINIMUM_FUNCTIONAL_PASS_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumDiffScopeEvaluationRate = 1.0;
+    private double minimumDiffScopeEvaluationRate = MINIMUM_DIFF_SCOPE_EVALUATION_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumDiffScopePassRate = 0.95;
+    private double minimumDiffScopePassRate = MINIMUM_DIFF_SCOPE_PASS_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumSecurityEvaluationRate = 1.0;
+    private double minimumSecurityEvaluationRate = MINIMUM_SECURITY_EVALUATION_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumSecurityPassRate = 1.0;
+    private double minimumSecurityPassRate = MINIMUM_SECURITY_PASS_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumRuntimeEvaluationRate = 1.0;
+    private double minimumRuntimeEvaluationRate = MINIMUM_RUNTIME_EVALUATION_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumRuntimePassRate = 0.90;
+    private double minimumRuntimePassRate = MINIMUM_RUNTIME_PASS_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumVisualEvaluationRate = 1.0;
+    private double minimumVisualEvaluationRate = MINIMUM_VISUAL_EVALUATION_RATE;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double minimumVisualPassRate = 0.90;
+    private double minimumVisualPassRate = MINIMUM_VISUAL_PASS_RATE;
 
-    private boolean requirePromptBundleId = true;
+    private boolean requirePromptBundleId = REQUIRE_PROMPT_BUNDLE_ID;
 
     @DecimalMin("0.0")
     @DecimalMax("1.0")
-    private double maximumFallbackRate = 0.20;
+    private double maximumFallbackRate = MAXIMUM_FALLBACK_RATE;
 
     @NotNull
-    private Duration maximumP90Duration = Duration.ofMinutes(5);
+    private Duration maximumP90Duration = MAXIMUM_P90_DURATION;
 
     @NotNull
-    private Duration maximumP99Duration = Duration.ofMinutes(10);
+    private Duration maximumP99Duration = MAXIMUM_P99_DURATION;
 
     @NotNull
-    private Duration maximumP90FirstTokenLatency = Duration.ofSeconds(15);
+    private Duration maximumP90FirstTokenLatency = MAXIMUM_P90_FIRST_TOKEN_LATENCY;
 
     @NotNull
-    private Duration maximumP99FirstTokenLatency = Duration.ofSeconds(30);
+    private Duration maximumP99FirstTokenLatency = MAXIMUM_P99_FIRST_TOKEN_LATENCY;
 
     @DecimalMin("1.0")
     @DecimalMax("1.0")
-    private double minimumFirstPreviewObservationRate = 1.0;
+    private double minimumFirstPreviewObservationRate = MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE;
 
     @NotNull
     private Map<GenerationMode, Duration> maximumP90FirstPreviewLatencyByMode =
             defaultMaximumP90FirstPreviewLatencyByMode();
 
     @NotNull
-    private Duration maximumP99FirstPreviewLatency = Duration.ofMinutes(5);
+    private Duration maximumP99FirstPreviewLatency = MAXIMUM_P99_FIRST_PREVIEW_LATENCY;
 
     @Min(1)
-    private long maximumAverageTokens = 250_000L;
+    private long maximumAverageTokens = MAXIMUM_AVERAGE_TOKENS;
 
     @Min(1)
-    private long maximumAverageCreditCost = 10L;
+    private long maximumAverageCreditCost = MAXIMUM_AVERAGE_CREDIT_COST;
 
     /**
  * 校验各时长配置及其相互约束是否合法。
@@ -150,12 +178,17 @@ public class GenerationBenchmarkReleaseProperties {
         return value != null && !value.isZero() && !value.isNegative();
     }
 
+    /** 各路由的 P90 首屏门禁沿用对应路由的首屏 SLA 上限。 */
     private static Map<GenerationMode, Duration> defaultMaximumP90FirstPreviewLatencyByMode() {
         EnumMap<GenerationMode, Duration> limits = new EnumMap<>(GenerationMode.class);
-        limits.put(GenerationMode.CREATE, Duration.ofSeconds(60));
-        limits.put(GenerationMode.LIGHT_EDIT, Duration.ofSeconds(90));
-        limits.put(GenerationMode.AGENT_EDIT, Duration.ofMinutes(3));
-        limits.put(GenerationMode.HEAVY_EXPERT, Duration.ofMinutes(5));
+        limits.put(GenerationMode.CREATE,
+                GenerationSlaProperties.CREATE_FIRST_PREVIEW_TIMEOUT);
+        limits.put(GenerationMode.LIGHT_EDIT,
+                GenerationSlaProperties.LIGHT_EDIT_FIRST_PREVIEW_TIMEOUT);
+        limits.put(GenerationMode.AGENT_EDIT,
+                GenerationSlaProperties.AGENT_EDIT_FIRST_PREVIEW_TIMEOUT);
+        limits.put(GenerationMode.HEAVY_EXPERT,
+                GenerationSlaProperties.HEAVY_EXPERT_FIRST_PREVIEW_TIMEOUT);
         return limits;
     }
 }

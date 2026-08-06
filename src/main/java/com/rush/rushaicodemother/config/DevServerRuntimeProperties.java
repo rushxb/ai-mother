@@ -23,26 +23,41 @@ public class DevServerRuntimeProperties {
     private static final Duration MAX_RUNTIME_DURATION = Duration.ofHours(1);
     private static final String SAFE_NODE_ID_PATTERN = "[A-Za-z0-9][A-Za-z0-9._-]{0,127}";
 
+    public static final Duration STARTUP_TIMEOUT = Duration.ofSeconds(30);
+    public static final Duration READINESS_POLL_INTERVAL = Duration.ofMillis(200);
+    public static final Duration VALIDATION_ERROR_COLLECTION_WINDOW = Duration.ofSeconds(5);
+    public static final Duration VALIDATION_CRITICAL_ERROR_DRAIN_WINDOW = Duration.ofMillis(300);
+    public static final Duration VALIDATION_POLL_INTERVAL = Duration.ofMillis(100);
+    public static final Duration OUTPUT_DRAIN_TIMEOUT = Duration.ofSeconds(2);
+    public static final Duration STOP_TIMEOUT = Duration.ofSeconds(10);
+    public static final int MAX_SERVERS_PER_USER = 3;
+    public static final int MAX_OUTPUT_LINE_LENGTH = 2000;
+    public static final int MAX_RECENT_OUTPUT_LINES = 200;
+    public static final Duration LEASE_DURATION = Duration.ofSeconds(30);
+    public static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(10);
+    public static final Duration RECOVERY_SCAN_INTERVAL = Duration.ofSeconds(15);
+    public static final int RECOVERY_BATCH_SIZE = 50;
+
     /** Dev Server 从创建进程到确认就绪的最大时长。 */
-    private Duration startupTimeout = Duration.ofSeconds(30);
+    private Duration startupTimeout = STARTUP_TIMEOUT;
 
     /** 启动就绪检查间隔。 */
-    private Duration readinessPollInterval = Duration.ofMillis(200);
+    private Duration readinessPollInterval = READINESS_POLL_INTERVAL;
 
     /** 启动就绪后，用于收集首次编译延迟错误的验证窗口。 */
-    private Duration validationErrorCollectionWindow = Duration.ofSeconds(5);
+    private Duration validationErrorCollectionWindow = VALIDATION_ERROR_COLLECTION_WINDOW;
 
     /** 检测到阻断级错误后，继续收集同批诊断的短暂收口窗口。 */
-    private Duration validationCriticalErrorDrainWindow = Duration.ofMillis(300);
+    private Duration validationCriticalErrorDrainWindow = VALIDATION_CRITICAL_ERROR_DRAIN_WINDOW;
 
     /** 验证期间取消和截止日期检查的轮询间隔。 */
-    private Duration validationPollInterval = Duration.ofMillis(100);
+    private Duration validationPollInterval = VALIDATION_POLL_INTERVAL;
 
     /** 进程结束后等待输出消费线程收口的时长。 */
-    private Duration outputDrainTimeout = Duration.ofSeconds(2);
+    private Duration outputDrainTimeout = OUTPUT_DRAIN_TIMEOUT;
 
     /** 停止启动中会话时，等待启动线程完成补偿清理的最大时长。 */
-    private Duration stopTimeout = Duration.ofSeconds(10);
+    private Duration stopTimeout = STOP_TIMEOUT;
 
     /** 自动分配端口范围起点。 */
     @Min(1024)
@@ -57,34 +72,34 @@ public class DevServerRuntimeProperties {
     /** 单用户允许同时占用的 Dev Server 会话数。 */
     @Min(1)
     @Max(100)
-    private int maxServersPerUser = 3;
+    private int maxServersPerUser = MAX_SERVERS_PER_USER;
 
     /** 单行进程输出允许保留的最大字符数。 */
     @Min(256)
     @Max(100_000)
-    private int maxOutputLineLength = 2000;
+    private int maxOutputLineLength = MAX_OUTPUT_LINE_LENGTH;
 
     /** 单应用在内存中保留的最近输出行数。 */
     @Min(1)
     @Max(10_000)
-    private int maxRecentOutputLines = 200;
+    private int maxRecentOutputLines = MAX_RECENT_OUTPUT_LINES;
 
     /** 稳定的部署节点身份。生产环境必须明确配置它。 */
     private String nodeId;
 
     /** 持久开发服务器会话的所有权租赁。 */
-    private Duration leaseDuration = Duration.ofSeconds(30);
+    private Duration leaseDuration = LEASE_DURATION;
 
     /** 拥有进程更新其会话租约所使用的时间间隔。 */
-    private Duration heartbeatInterval = Duration.ofSeconds(10);
+    private Duration heartbeatInterval = HEARTBEAT_INTERVAL;
 
     /** 用于扫描过期开发服务器会话的时间间隔。 */
-    private Duration recoveryScanInterval = Duration.ofSeconds(15);
+    private Duration recoveryScanInterval = RECOVERY_SCAN_INTERVAL;
 
     /** 一次扫描中恢复的最大过期会话数。 */
     @Min(1)
     @Max(500)
-    private int recoveryBatchSize = 50;
+    private int recoveryBatchSize = RECOVERY_BATCH_SIZE;
 
     @AssertTrue(message = "Dev Server 运行时超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {

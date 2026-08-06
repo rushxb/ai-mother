@@ -36,6 +36,25 @@ public interface GenerationTracePersistenceService {
                              String errorMessage,
                              GenerationExecutionFence fence);
 
+    /**
+     * 完成运行中任务，并把 L3 结果质量证据折叠进同一条终态 UPDATE。
+     *
+     * @param recordId 记录编号
+     * @param status 目标终态
+     * @param endTime 结束时间
+     * @param durationMs 耗时毫秒
+     * @param errorMessage 错误消息
+     * @param fence 执行围栏
+     * @param outcomeQuality 结果质量证据；{@code null} 或空证据表示未采集
+     */
+    void completeRunningTask(long recordId,
+                             GenerationTaskStatus status,
+                             LocalDateTime endTime,
+                             long durationMs,
+                             String errorMessage,
+                             GenerationExecutionFence fence,
+                             GenerationOutcomeQuality outcomeQuality);
+
     void insertBuildLog(NewBuildLog buildLog);
 
     boolean insertModelCall(NewModelCall modelCall);

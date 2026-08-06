@@ -3,26 +3,26 @@ package com.rush.rushaicodemother.config;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
 /**
- * 生成 SSE配置属性。
+ * 生成 SSE 的固定配置属性。
  */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.generation-sse")
 public class GenerationSseProperties {
+
+    public static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(15);
 
     /** 心跳间隔。 */
     @NotNull
-    private Duration heartbeatInterval = Duration.ofSeconds(15);
+    private Duration heartbeatInterval = HEARTBEAT_INTERVAL;
 
-    @AssertTrue(message = "generation SSE heartbeat interval must be positive")
+    @AssertTrue(message = "生成 SSE 心跳间隔必须大于 0")
     public boolean isHeartbeatIntervalPositive() {
         return heartbeatInterval != null && !heartbeatInterval.isZero() && !heartbeatInterval.isNegative();
     }

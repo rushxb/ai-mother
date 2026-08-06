@@ -39,9 +39,16 @@ public final class PublicDiagnosticSanitizer {
             "(?i)(?<![A-Za-z0-9_])(?:[A-Z]:[\\\\/](?:[^\\s:;,\\\"'()<>|]+[\\\\/])*)"
                     + "([^\\\\/\\s:;,\\\"'()<>|]+)"
     );
+    /**
+     * 匹配任意 POSIX 绝对路径的目录部分，只保留末段文件名。
+     *
+     * <p>此前按 {@code /home|/var|/tmp|...} 白名单匹配，任何白名单外的根目录都会整段泄漏 ——
+     * 例如以 root 运行时工作区位于 {@code /root/...}，绝对路径会原样进入用户可见事件。
+     * 主机目录结构属于内部信息，不应依赖穷举已知根目录，因此改为匹配任意
+     * 「至少两段的绝对路径」。前置断言避免截断 {@code a/b} 这类相对路径与 URL 路径片段。</p>
+     */
     private static final Pattern UNIX_ABSOLUTE_PATH = Pattern.compile(
-            "(?<![A-Za-z0-9_.-])/(?:home|Users|var|tmp|opt|srv|workspace|app)/"
-                    + "(?:[^\\s:;,\\\"'()<>]+/)*([^/\\s:;,\\\"'()<>]+)"
+            "(?<![A-Za-z0-9_.\\-/])(?<!:)/(?:[^\\s:;,\\\"'()<>]+/)+([^/\\s:;,\\\"'()<>]+)"
     );
 
     private PublicDiagnosticSanitizer() {

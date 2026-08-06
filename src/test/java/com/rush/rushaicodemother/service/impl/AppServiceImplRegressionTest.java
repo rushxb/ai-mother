@@ -296,6 +296,13 @@ class AppServiceImplRegressionTest {
         }
 
         @Override
+        public void completeTask(String taskId,
+                                 GenerationTaskStatus status,
+                                 String errorMessage,
+                                 com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality outcomeQuality) {
+        }
+
+        @Override
         public void recordEvent(String taskId, Long appId, Long userId, GenerationStreamEvent event) {
         }
 

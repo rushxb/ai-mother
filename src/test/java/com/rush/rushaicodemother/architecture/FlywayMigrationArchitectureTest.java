@@ -1,14 +1,19 @@
 package com.rush.rushaicodemother.architecture;
 
+import com.rush.rushaicodemother.config.production.ProfileDefaultsEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.StandardEnvironment;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,8 +38,6 @@ class FlywayMigrationArchitectureTest {
         String baseline = Files.readString(Path.of(
                 "sql", "migrations", "B20260716_5__production_schema_baseline.sql"));
         String defaults = Files.readString(Path.of("src", "main", "resources", "application.yml"));
-        String production = Files.readString(Path.of(
-                "src", "main", "resources", "application-prod.yml"));
 
         assertFalse(baseline.toLowerCase().contains("create database"));
         assertFalse(baseline.toLowerCase().contains("use rush_ai_code_mother"));
@@ -43,8 +46,35 @@ class FlywayMigrationArchitectureTest {
         assertTrue(defaults.contains("enabled: ${FLYWAY_ENABLED:false}"));
         assertTrue(defaults.contains("clean-disabled: true"));
         assertTrue(defaults.contains("baseline-on-migrate: false"));
-        assertTrue(production.contains("enabled: ${FLYWAY_ENABLED:true}"));
-        assertTrue(production.contains("baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}"));
+
+        // 生产 Profile yaml 已删除，Flyway 固定配置改由 ProfileDefaultsEnvironmentPostProcessor 注入。
+        StandardEnvironment production = productionEnvironment();
+        assertEquals("true", production.getProperty("spring.flyway.enabled"));
+        // 基线采纳必须显式开启：默认 false，避免对空库或未知库自动打基线。
+        assertEquals("false", production.getProperty("spring.flyway.baseline-on-migrate"));
+        assertEquals("20260716.5", production.getProperty("spring.flyway.baseline-version"));
+    }
+
+    /** 部署方仍可通过环境变量显式采纳基线。 */
+    @Test
+    void productionBaselineAdoptionMustRemainExplicitlyOverridable() {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.setActiveProfiles("prod");
+        environment.getPropertySources().addFirst(new MapPropertySource(
+                "显式采纳基线",
+                Map.of("FLYWAY_BASELINE_ON_MIGRATE", "true")));
+
+        new ProfileDefaultsEnvironmentPostProcessor().postProcessEnvironment(environment, null);
+
+        assertEquals("true", environment.getProperty("spring.flyway.baseline-on-migrate"));
+    }
+
+    /** 返回注入生产固定配置后的环境。 */
+    private StandardEnvironment productionEnvironment() {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.setActiveProfiles("prod");
+        new ProfileDefaultsEnvironmentPostProcessor().postProcessEnvironment(environment, null);
+        return environment;
     }
 
     @Test

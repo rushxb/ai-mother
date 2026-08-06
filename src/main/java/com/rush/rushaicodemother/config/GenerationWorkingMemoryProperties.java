@@ -4,30 +4,33 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
 /**
- * 生成工作记忆配置属性。
+ * 生成工作记忆的固定配置属性。
  */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.memory.working")
 public class GenerationWorkingMemoryProperties {
+
+    public static final int MAX_TASKS = 2000;
+    public static final Duration RETENTION = Duration.ofHours(2);
+    public static final int MAX_RECENT_EVENTS = 100;
+
     @Min(10)
     @Max(100000)
-    private int maxTasks = 2000;
+    private int maxTasks = MAX_TASKS;
     /** 数据保留时长。 */
-    private Duration retention = Duration.ofHours(2);
+    private Duration retention = RETENTION;
     @Min(5)
     @Max(500)
-    private int maxRecentEvents = 100;
+    private int maxRecentEvents = MAX_RECENT_EVENTS;
 
-    @AssertTrue(message = "working memory retention must be positive")
+    @AssertTrue(message = "工作记忆保留时长必须大于 0")
     public boolean isRetentionPositive() {
         return retention != null && !retention.isZero() && !retention.isNegative();
     }

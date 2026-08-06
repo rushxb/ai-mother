@@ -18,6 +18,19 @@ public interface GenerationTraceService {
 
     void completeTask(String taskId, GenerationTaskStatus status, String errorMessage);
 
+    /**
+     * 完成任务并记录 L3 结果质量证据。
+     *
+     * @param taskId 任务编号
+     * @param status 目标终态
+     * @param errorMessage 错误消息
+     * @param outcomeQuality 结果质量证据；{@code null} 表示未采集
+     */
+    void completeTask(String taskId,
+                      GenerationTaskStatus status,
+                      String errorMessage,
+                      GenerationOutcomeQuality outcomeQuality);
+
     void recordEvent(String taskId, Long appId, Long userId, GenerationStreamEvent event);
 
     void recordModelCall(GenerationModelCallCommand command);

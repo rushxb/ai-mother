@@ -16,16 +16,43 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.generation-benchmark.backend-grading")
 public class GenerationBenchmarkBackendProperties {
 
+    /** 被评分后端进程的启动等待上限。 */
+    public static final Duration STARTUP_TIMEOUT = Duration.ofSeconds(45);
+
+    /** 单次探测请求超时。 */
+    public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(3);
+
+    /** 就绪状态轮询间隔。 */
+    public static final Duration POLL_INTERVAL = Duration.ofMillis(100);
+
+    /** 被评分进程的总存活上限。 */
+    public static final Duration PROCESS_TIMEOUT = Duration.ofMinutes(2);
+
+    /** 进程存活心跳间隔。 */
+    public static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(5);
+
+    /** 进程输出收尾读取超时。 */
+    public static final Duration OUTPUT_DRAIN_TIMEOUT = Duration.ofSeconds(2);
+
+    /** 进程优雅停止超时。 */
+    public static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
+
+    /** 保留的进程输出最大字符数。 */
+    public static final int MAX_OUTPUT_LENGTH = 64 * 1024;
+
+    /** 单次探测响应的最大字节数。 */
+    public static final int MAX_RESPONSE_BYTES = 64 * 1024;
+
     private boolean enabled;
-    private Duration startupTimeout = Duration.ofSeconds(45);
-    private Duration requestTimeout = Duration.ofSeconds(3);
-    private Duration pollInterval = Duration.ofMillis(100);
-    private Duration processTimeout = Duration.ofMinutes(2);
-    private Duration heartbeatInterval = Duration.ofSeconds(5);
-    private Duration outputDrainTimeout = Duration.ofSeconds(2);
-    private Duration shutdownTimeout = Duration.ofSeconds(10);
-    private int maxOutputLength = 64 * 1024;
-    private int maxResponseBytes = 64 * 1024;
+    private Duration startupTimeout = STARTUP_TIMEOUT;
+    private Duration requestTimeout = REQUEST_TIMEOUT;
+    private Duration pollInterval = POLL_INTERVAL;
+    private Duration processTimeout = PROCESS_TIMEOUT;
+    private Duration heartbeatInterval = HEARTBEAT_INTERVAL;
+    private Duration outputDrainTimeout = OUTPUT_DRAIN_TIMEOUT;
+    private Duration shutdownTimeout = SHUTDOWN_TIMEOUT;
+    private int maxOutputLength = MAX_OUTPUT_LENGTH;
+    private int maxResponseBytes = MAX_RESPONSE_BYTES;
     private int portRangeStart = 19_000;
     private int portRangeEnd = 19_999;
     private Path workspaceRoot = Path.of(

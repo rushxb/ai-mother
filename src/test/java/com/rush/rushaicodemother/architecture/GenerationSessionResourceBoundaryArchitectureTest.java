@@ -35,18 +35,17 @@ class GenerationSessionResourceBoundaryArchitectureTest {
     }
 
     @Test
-    void replayPolicyMustRemainCentralizedAndExternallyConfigurable() throws IOException {
+    void replayPolicyMustRemainCentralizedAndInternallyFixed() throws IOException {
         String properties = Files.readString(ORCHESTRATION_ROOT.resolve("GenerationSessionProperties.java"));
-        String yaml = Files.readString(PROJECT_ROOT.resolve(Path.of("src", "main", "resources", "application.yml")));
         Path pipelineRoot = ORCHESTRATION_ROOT.resolve("pipeline");
         String pipelineExecutor = Files.readString(pipelineRoot.resolve("GenerationPipelineExecutor.java"));
 
-        assertTrue(properties.contains("@ConfigurationProperties(prefix = \"app.generation-session\")"));
+        assertFalse(properties.contains("@ConfigurationProperties"));
         assertTrue(properties.contains("@Validated"));
-        assertTrue(yaml.contains("GENERATION_SESSION_LOCK_STRIPES"));
-        assertTrue(yaml.contains("GENERATION_SESSION_MAX_TRACKED_SESSIONS"));
-        assertTrue(yaml.contains("GENERATION_SESSION_COMPLETED_REPLAY_RETENTION"));
-        assertTrue(yaml.contains("GENERATION_SESSION_CLEANUP_INTERVAL"));
+        assertTrue(properties.contains("public static final int LOCK_STRIPES"));
+        assertTrue(properties.contains("public static final int MAX_TRACKED_SESSIONS"));
+        assertTrue(properties.contains("public static final Duration COMPLETED_REPLAY_RETENTION"));
+        assertTrue(properties.contains("public static final Duration CLEANUP_INTERVAL"));
 
         for (String pipeline : List.of(
                 "SlotFillGenerationPipeline.java",

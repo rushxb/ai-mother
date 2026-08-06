@@ -1,12 +1,9 @@
 package com.rush.rushaicodemother.config;
 
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaProperties;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.boot.env.YamlPropertySourceLoader;
-import org.springframework.core.env.StandardEnvironment;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.time.Duration;
 import java.util.Map;
@@ -14,28 +11,64 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class GenerationBenchmarkReleasePropertiesTest {
 
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withUserConfiguration(GenerationBenchmarkReleaseProperties.class);
+
     @Test
-    void applicationYamlMustBindEveryFirstPreviewReleaseLimit() throws Exception {
-        StandardEnvironment environment = new StandardEnvironment();
-        new YamlPropertySourceLoader().load("application", new ClassPathResource("application.yml"))
-                .forEach(source -> environment.getPropertySources().addLast(source));
+    void hardcodedFirstPreviewReleaseLimitsMustMatchRouteSla() {
+        GenerationBenchmarkReleaseProperties properties = new GenerationBenchmarkReleaseProperties();
 
-        GenerationBenchmarkReleaseProperties properties = Binder.get(environment)
-                .bind("app.generation-benchmark.release-gate",
-                        Bindable.of(GenerationBenchmarkReleaseProperties.class))
-                .orElseThrow(() -> new AssertionError("生成质量评测发布门禁配置未绑定"));
-
-        assertEquals(1.0, properties.getMinimumFirstPreviewObservationRate());
-        assertEquals(Duration.ofSeconds(60), maximum(properties, GenerationMode.CREATE));
-        assertEquals(Duration.ofSeconds(90), maximum(properties, GenerationMode.LIGHT_EDIT));
-        assertEquals(Duration.ofMinutes(3), maximum(properties, GenerationMode.AGENT_EDIT));
-        assertEquals(Duration.ofMinutes(5), maximum(properties, GenerationMode.HEAVY_EXPERT));
-        assertEquals(Duration.ofSeconds(30), properties.getMaximumP99FirstTokenLatency());
-        assertEquals(Duration.ofMinutes(5), properties.getMaximumP99FirstPreviewLatency());
+        assertEquals(GenerationBenchmarkReleaseProperties.MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE,
+                properties.getMinimumFirstPreviewObservationRate());
+        // 各路由的 P90 首屏门禁必须与对应路由的首屏 SLA 上限保持一致。
+        assertEquals(GenerationSlaProperties.CREATE_FIRST_PREVIEW_TIMEOUT,
+                maximum(properties, GenerationMode.CREATE));
+        assertEquals(GenerationSlaProperties.LIGHT_EDIT_FIRST_PREVIEW_TIMEOUT,
+                maximum(properties, GenerationMode.LIGHT_EDIT));
+        assertEquals(GenerationSlaProperties.AGENT_EDIT_FIRST_PREVIEW_TIMEOUT,
+                maximum(properties, GenerationMode.AGENT_EDIT));
+        assertEquals(GenerationSlaProperties.HEAVY_EXPERT_FIRST_PREVIEW_TIMEOUT,
+                maximum(properties, GenerationMode.HEAVY_EXPERT));
+        assertEquals(GenerationBenchmarkReleaseProperties.MAXIMUM_P99_FIRST_TOKEN_LATENCY,
+                properties.getMaximumP99FirstTokenLatency());
+        assertEquals(GenerationBenchmarkReleaseProperties.MAXIMUM_P99_FIRST_PREVIEW_LATENCY,
+                properties.getMaximumP99FirstPreviewLatency());
         assertTrue(properties.isDurationConfigurationValid());
+    }
+
+    /** 发布门禁阈值固定为常量，外部配置不得放宽首屏与通过率要求。 */
+    @Test
+    void externalPropertiesMustNotRelaxHardcodedReleaseGate() {
+        contextRunner
+                .withPropertyValues(
+                        "app.generation-benchmark.release-gate.minimum-first-preview-observation-rate=0.5",
+                        "app.generation-benchmark.release-gate.minimum-success-rate=0.1",
+                        "app.generation-benchmark.release-gate.maximum-p99-first-token-latency=10m",
+                        "app.generation-benchmark.release-gate.maximum-p99-first-preview-latency=30m",
+                        "app.generation-benchmark.release-gate.minimum-security-pass-rate=0.1"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    GenerationBenchmarkReleaseProperties properties =
+                            context.getBean(GenerationBenchmarkReleaseProperties.class);
+                    assertThat(properties.getMinimumFirstPreviewObservationRate())
+                            .isEqualTo(GenerationBenchmarkReleaseProperties
+                                    .MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE);
+                    assertThat(properties.getMinimumSuccessRate())
+                            .isEqualTo(GenerationBenchmarkReleaseProperties.MINIMUM_SUCCESS_RATE);
+                    assertThat(properties.getMaximumP99FirstTokenLatency())
+                            .isEqualTo(GenerationBenchmarkReleaseProperties
+                                    .MAXIMUM_P99_FIRST_TOKEN_LATENCY);
+                    assertThat(properties.getMaximumP99FirstPreviewLatency())
+                            .isEqualTo(GenerationBenchmarkReleaseProperties
+                                    .MAXIMUM_P99_FIRST_PREVIEW_LATENCY);
+                    assertThat(properties.getMinimumSecurityPassRate())
+                            .isEqualTo(GenerationBenchmarkReleaseProperties.MINIMUM_SECURITY_PASS_RATE);
+                });
     }
 
     @Test

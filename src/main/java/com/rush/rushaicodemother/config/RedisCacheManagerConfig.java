@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.config;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,7 +18,6 @@ import java.util.Map;
  */
 @Configuration
 @RequiredArgsConstructor
-@EnableConfigurationProperties(RedisCacheProperties.class)
 public class RedisCacheManagerConfig {
 
     private final RedisConnectionFactory redisConnectionFactory;

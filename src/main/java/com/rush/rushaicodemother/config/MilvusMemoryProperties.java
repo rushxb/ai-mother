@@ -24,6 +24,15 @@ import java.util.regex.Pattern;
 public class MilvusMemoryProperties {
     private static final Pattern RESOURCE_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,254}");
 
+    public static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
+    public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
+    public static final Duration READINESS_TIMEOUT = Duration.ofSeconds(60);
+    public static final Duration READINESS_REFRESH_INTERVAL = Duration.ofSeconds(30);
+    public static final int FALLBACK_MAX_ENTRIES = 5000;
+    public static final Duration FALLBACK_RETENTION = Duration.ofHours(12);
+    public static final int DEFAULT_TOP_K = 6;
+    public static final double MINIMUM_SCORE = 0.45;
+
     /** 是否启用。 */
     private boolean enabled = false;
     private String uri = "";
@@ -35,22 +44,22 @@ public class MilvusMemoryProperties {
     @NotBlank
     private String collectionName = "generation_memory_v2";
     /** 连接超时时间。 */
-    private Duration connectTimeout = Duration.ofSeconds(3);
+    private Duration connectTimeout = CONNECT_TIMEOUT;
     /** 请求超时时间。 */
-    private Duration requestTimeout = Duration.ofSeconds(5);
-    private Duration readinessTimeout = Duration.ofSeconds(60);
-    private Duration readinessRefreshInterval = Duration.ofSeconds(30);
+    private Duration requestTimeout = REQUEST_TIMEOUT;
+    private Duration readinessTimeout = READINESS_TIMEOUT;
+    private Duration readinessRefreshInterval = READINESS_REFRESH_INTERVAL;
     /** 是否在启动时执行校验。 */
     private boolean verifyOnStartup = false;
     /** 本地回退最大条目数。 */
     @Min(10)
     @Max(100000)
-    private int fallbackMaxEntries = 5000;
-    private Duration fallbackRetention = Duration.ofHours(12);
+    private int fallbackMaxEntries = FALLBACK_MAX_ENTRIES;
+    private Duration fallbackRetention = FALLBACK_RETENTION;
     @Min(1)
     @Max(50)
-    private int defaultTopK = 6;
-    private double minimumScore = 0.45;
+    private int defaultTopK = DEFAULT_TOP_K;
+    private double minimumScore = MINIMUM_SCORE;
 
     /**
  * 校验当前配置项组合是否合法。

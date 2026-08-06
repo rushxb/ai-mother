@@ -35,16 +35,31 @@ public class GeneratedCodeSandboxProperties {
     @Data
     public static class Container {
 
+        /** 工作区在容器内的挂载点，属于镜像内部布局。 */
+        public static final String WORKSPACE_MOUNT = "/workspace";
+
+        /** pnpm store 在容器内的挂载点，属于镜像内部布局。 */
+        public static final String PNPM_STORE_MOUNT = "/pnpm/store";
+
+        /** 容器启动自检超时，属于固定运行时策略。 */
+        public static final Duration STARTUP_VERIFICATION_TIMEOUT = Duration.ofSeconds(10);
+
+        /** 容器激活超时。 */
+        public static final Duration ACTIVATION_TIMEOUT = Duration.ofSeconds(10);
+
+        /** 容器清理超时。 */
+        public static final Duration CLEANUP_TIMEOUT = Duration.ofSeconds(5);
+
         private String runtime = "docker";
         private String image = "ai-code-mother/sandbox-node:1";
-        private String workspaceMount = "/workspace";
+        private String workspaceMount = WORKSPACE_MOUNT;
         private String user = "1000:1000";
         private String dependencyNetwork = "bridge";
         private String devServerNetwork = "ai-code-sandbox-internal";
         private String previewGatewayNetwork = "ai-code-sandbox-preview-gateway";
         private boolean dependencyCacheEnabled = false;
         private String pnpmStoreVolume = "ai-code-mother-pnpm-store-v9";
-        private String pnpmStoreMount = "/pnpm/store";
+        private String pnpmStoreMount = PNPM_STORE_MOUNT;
         private String memory = "1g";
         private String tmpfsSize = "256m";
         private String goBuildTmpfsSize = "512m";
@@ -68,9 +83,9 @@ public class GeneratedCodeSandboxProperties {
 
         private boolean readOnlyRoot = true;
         private boolean verifyOnStartup = true;
-        private Duration startupVerificationTimeout = Duration.ofSeconds(10);
-        private Duration activationTimeout = Duration.ofSeconds(10);
-        private Duration cleanupTimeout = Duration.ofSeconds(5);
+        private Duration startupVerificationTimeout = STARTUP_VERIFICATION_TIMEOUT;
+        private Duration activationTimeout = ACTIVATION_TIMEOUT;
+        private Duration cleanupTimeout = CLEANUP_TIMEOUT;
 
         /**
  * 校验当前配置项组合是否合法。

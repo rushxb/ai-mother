@@ -30,6 +30,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -263,22 +267,29 @@ public class GenerationPipelineExecutor {
             }
         }
         if (generationTaskLifecycleService != null) {
+            GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, outcome, null);
+            Long appIdentity = request.taskRequest().app().getId();
+            // 未采集到任何指标时走既有签名，保持原调用契约不变。
+            boolean hasOutcomeQuality = !outcomeQuality.isEmpty();
             if (status == GenerationTaskStatus.SUCCESS) {
-                generationTaskLifecycleService.completeGenerationAndCharge(
-                        execution.taskId(),
-                        request.taskRequest().app().getId(),
-                        status,
-                        null,
-                        outcome.resultSummary()
-                );
+                if (hasOutcomeQuality) {
+                    generationTaskLifecycleService.completeGenerationAndCharge(
+                            execution.taskId(), appIdentity, status, null,
+                            outcome.resultSummary(), outcomeQuality);
+                } else {
+                    generationTaskLifecycleService.completeGenerationAndCharge(
+                            execution.taskId(), appIdentity, status, null, outcome.resultSummary());
+                }
             } else {
-                generationTaskLifecycleService.completeGeneration(
-                        execution.taskId(),
-                        request.taskRequest().app().getId(),
-                        status,
-                        outcome.reason(),
-                        outcome.resultSummary()
-                );
+                if (hasOutcomeQuality) {
+                    generationTaskLifecycleService.completeGeneration(
+                            execution.taskId(), appIdentity, status, outcome.reason(),
+                            outcome.resultSummary(), outcomeQuality);
+                } else {
+                    generationTaskLifecycleService.completeGeneration(
+                            execution.taskId(), appIdentity, status, outcome.reason(),
+                            outcome.resultSummary());
+                }
             }
             rememberOutcome(request, status, outcome.resultSummary());
         }
@@ -336,9 +347,17 @@ public class GenerationPipelineExecutor {
         );
         if (generationTaskLifecycleService != null) {
             try {
-                generationTaskLifecycleService.completeGeneration(
-                        execution.taskId(), request.taskRequest().app().getId(),
-                        outcome.taskStatus(), terminalReason, resultSummary);
+                GenerationOutcomeQuality outcomeQuality =
+                        resolveOutcomeQuality(execution, null, failure);
+                if (outcomeQuality.isEmpty()) {
+                    generationTaskLifecycleService.completeGeneration(
+                            execution.taskId(), request.taskRequest().app().getId(),
+                            outcome.taskStatus(), terminalReason, resultSummary);
+                } else {
+                    generationTaskLifecycleService.completeGeneration(
+                            execution.taskId(), request.taskRequest().app().getId(),
+                            outcome.taskStatus(), terminalReason, resultSummary, outcomeQuality);
+                }
                 rememberOutcome(request, outcome.taskStatus(), resultSummary);
             } catch (RuntimeException lifecycleFailure) {
                 failure.addSuppressed(lifecycleFailure);
@@ -348,6 +367,69 @@ public class GenerationPipelineExecutor {
         }
         generationPerformanceMonitorService.finishTask(execution.taskId(), outcome.status());
         finalizeRuntime(request, execution, session, outcome.taskStatus(), terminalReason);
+    }
+
+    /**
+     * 装配 L3 结果质量证据。
+     *
+     * <p>只做归因采集，不参与完成判定；任一指标缺失即保持 {@code null}（语义为「未采集」），
+     * 因此采集失败不会影响交付。异常路径传入 {@code failure} 以复用既有错误分类。</p>
+     *
+     * @param execution 任务执行上下文
+     * @param outcome 流水线结果，失败路径为 {@code null}
+     * @param failure 失败异常，成功路径为 {@code null}
+     * @return 结果质量证据
+     */
+    private GenerationOutcomeQuality resolveOutcomeQuality(GenerationTaskExecution execution,
+                                                          GenerationPipelineOutcome outcome,
+                                                          Throwable failure) {
+        Integer changedFileCount = outcome == null ? null : outcome.changedFileCount();
+        Integer repairRounds = outcome == null ? null : outcome.repairRounds();
+        Long firstPreviewMillis = resolveFirstPreviewMillis(execution);
+        if (failure != null) {
+            return GenerationOutcomeQuality.ofFailure(
+                    GenerationErrorClassifier.classify(failure).category(),
+                    changedFileCount, repairRounds, firstPreviewMillis);
+        }
+        return GenerationOutcomeQuality.ofSuccess(
+                changedFileCount, repairRounds,
+                resolveFirstBuildPassed(outcome, repairRounds),
+                firstPreviewMillis);
+    }
+
+    /**
+     * 判断是否免修复通过构建。
+     *
+     * <p>有修复轮次即为 {@code false}；零修复且具备构建校验证据才是 {@code true}；
+     * 两者都无信息时返回 {@code null}，不臆测。</p>
+     */
+    private Boolean resolveFirstBuildPassed(GenerationPipelineOutcome outcome, Integer repairRounds) {
+        if (repairRounds != null && repairRounds > 0) {
+            return Boolean.FALSE;
+        }
+        if (outcome == null || outcome.completionEvidence() == null) {
+            return null;
+        }
+        boolean buildValidated = outcome.completionEvidence()
+                .contains(GenerationCompletionEvidenceType.BUILD_VALIDATION);
+        if (!buildValidated) {
+            return null;
+        }
+        return repairRounds == null ? null : Boolean.TRUE;
+    }
+
+    /** 计算提交到首个可预览版本的耗时；未就绪时返回 {@code null}。 */
+    private Long resolveFirstPreviewMillis(GenerationTaskExecution execution) {
+        if (execution == null || execution.session() == null
+                || execution.session().executionContext() == null) {
+            return null;
+        }
+        Instant firstPreviewReadyAt = execution.session().executionContext().firstPreviewReadyAt();
+        if (firstPreviewReadyAt == null || execution.submittedAt() == null) {
+            return null;
+        }
+        long elapsed = Duration.between(execution.submittedAt(), firstPreviewReadyAt).toMillis();
+        return elapsed < 0 ? null : elapsed;
     }
 
     /** 处理记录结果。 */

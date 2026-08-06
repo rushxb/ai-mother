@@ -43,18 +43,25 @@ class GenerationTaskSnapshotConfigurationTest {
                             context.getBean(GenerationTaskSnapshotProperties.class);
                     assertThat(properties.getRootDirectory())
                             .isEqualTo(baseDirectory.resolve("tmp").resolve("orchestration_tasks"));
-                    assertThat(properties.getMaxSnapshotBytes()).isEqualTo(2 * 1024 * 1024);
-                    assertThat(properties.getMaxSnapshotsPerApp()).isEqualTo(100);
-                    assertThat(properties.getRetention()).isEqualTo(Duration.ofDays(7));
-                    assertThat(properties.getLockStripes()).isEqualTo(64);
+                    assertThat(properties.getMaxSnapshotBytes())
+                            .isEqualTo(GenerationTaskSnapshotProperties.DEFAULT_MAX_SNAPSHOT_BYTES);
+                    assertThat(properties.getMaxSnapshotsPerApp())
+                            .isEqualTo(GenerationTaskSnapshotProperties.MAX_SNAPSHOTS_PER_APP);
+                    assertThat(properties.getRetention())
+                            .isEqualTo(GenerationTaskSnapshotProperties.RETENTION);
+                    assertThat(properties.getLockStripes())
+                            .isEqualTo(GenerationTaskSnapshotProperties.LOCK_STRIPES);
                     assertThat(properties.isReplaySafeStartCheckpointElisionEnabled()).isFalse();
                     assertThat(properties.isReplaySafeCompletionCheckpointCoalescingEnabled()).isFalse();
-                    assertThat(properties.getReplaySafeCompletionCheckpointInterval()).isEqualTo(4);
+                    assertThat(properties.getReplaySafeCompletionCheckpointInterval())
+                            .isEqualTo(GenerationTaskSnapshotProperties
+                                    .REPLAY_SAFE_COMPLETION_CHECKPOINT_INTERVAL);
                 });
     }
 
+    /** 快照开关与落盘目录仍需支持部署期注入。 */
     @Test
-    void environmentStyleOverridesMustBindAllSnapshotLimits() {
+    void environmentStyleOverridesMustBindSnapshotTogglesAndRootDirectory() {
         Path snapshotDirectory = Path.of("target", "test-workspaces", "snapshot-config-override")
                 .toAbsolutePath()
                 .normalize();
@@ -64,8 +71,28 @@ class GenerationTaskSnapshotConfigurationTest {
                         "GENERATION_TASK_SNAPSHOT_ENABLED=false",
                         "GENERATION_REPLAY_SAFE_START_CHECKPOINT_ELISION_ENABLED=true",
                         "GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_COALESCING_ENABLED=true",
+                        "GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY=" + propertyPath(snapshotDirectory)
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    GenerationTaskSnapshotProperties properties =
+                            context.getBean(GenerationTaskSnapshotProperties.class);
+                    assertThat(properties.isEnabled()).isFalse();
+                    assertThat(properties.isReplaySafeStartCheckpointElisionEnabled()).isTrue();
+                    assertThat(properties.isReplaySafeCompletionCheckpointCoalescingEnabled()).isTrue();
+                    assertThat(properties.getRootDirectory()).isEqualTo(snapshotDirectory);
+                });
+    }
+
+    /**
+     * 快照容量、保留期限、锁分片和检查点间隔的 yaml 键已删除，
+     * 历史环境变量名不再具备任何改写能力。
+     */
+    @Test
+    void retiredEnvironmentVariablesMustNotChangeFixedSnapshotLimits() {
+        contextRunner
+                .withPropertyValues(
                         "GENERATION_REPLAY_SAFE_COMPLETION_CHECKPOINT_INTERVAL=8",
-                        "GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY=" + propertyPath(snapshotDirectory),
                         "GENERATION_TASK_SNAPSHOT_MAX_BYTES=65536",
                         "GENERATION_TASK_SNAPSHOT_MAX_PER_APP=12",
                         "GENERATION_TASK_SNAPSHOT_RETENTION=36h",
@@ -75,22 +102,25 @@ class GenerationTaskSnapshotConfigurationTest {
                     assertThat(context).hasNotFailed();
                     GenerationTaskSnapshotProperties properties =
                             context.getBean(GenerationTaskSnapshotProperties.class);
-                    assertThat(properties.isEnabled()).isFalse();
-                    assertThat(properties.isReplaySafeStartCheckpointElisionEnabled()).isTrue();
-                    assertThat(properties.isReplaySafeCompletionCheckpointCoalescingEnabled()).isTrue();
-                    assertThat(properties.getReplaySafeCompletionCheckpointInterval()).isEqualTo(8);
-                    assertThat(properties.getRootDirectory()).isEqualTo(snapshotDirectory);
-                    assertThat(properties.getMaxSnapshotBytes()).isEqualTo(65_536);
-                    assertThat(properties.getMaxSnapshotsPerApp()).isEqualTo(12);
-                    assertThat(properties.getRetention()).isEqualTo(Duration.ofHours(36));
-                    assertThat(properties.getLockStripes()).isEqualTo(16);
+                    assertThat(properties.getReplaySafeCompletionCheckpointInterval())
+                            .isEqualTo(GenerationTaskSnapshotProperties
+                                    .REPLAY_SAFE_COMPLETION_CHECKPOINT_INTERVAL);
+                    assertThat(properties.getMaxSnapshotBytes())
+                            .isEqualTo(GenerationTaskSnapshotProperties.DEFAULT_MAX_SNAPSHOT_BYTES);
+                    assertThat(properties.getMaxSnapshotsPerApp())
+                            .isEqualTo(GenerationTaskSnapshotProperties.MAX_SNAPSHOTS_PER_APP);
+                    assertThat(properties.getRetention())
+                            .isEqualTo(GenerationTaskSnapshotProperties.RETENTION);
+                    assertThat(properties.getLockStripes())
+                            .isEqualTo(GenerationTaskSnapshotProperties.LOCK_STRIPES);
                 });
     }
 
+    /** 该类仍保留 {@code @ConfigurationProperties}，规范键注入的越界值必须继续拦截在启动期。 */
     @Test
     void invalidSnapshotLimitsMustFailApplicationContextStartup() {
         contextRunner
-                .withPropertyValues("GENERATION_TASK_SNAPSHOT_MAX_BYTES=1024")
+                .withPropertyValues("app.generation-task-snapshot.max-snapshot-bytes=1024")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())

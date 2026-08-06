@@ -15,11 +15,14 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.generation-benchmark.browser-grading")
 public class GenerationBenchmarkBrowserProperties {
 
+    /** 页面稳定等待时长，属于固定评分口径。 */
+    public static final Duration SETTLE_DELAY = Duration.ofSeconds(2);
+
     private boolean enabled;
 
-    private Duration settleDelay = Duration.ofSeconds(2);
+    private Duration settleDelay = SETTLE_DELAY;
 
-    @AssertTrue(message = "generation benchmark browser settle delay must be between zero and 30 seconds")
+    @AssertTrue(message = "浏览器评分的页面稳定等待时长必须在 0 到 30 秒之间")
     public boolean isSettleDelayValid() {
         return settleDelay != null
                 && !settleDelay.isNegative()

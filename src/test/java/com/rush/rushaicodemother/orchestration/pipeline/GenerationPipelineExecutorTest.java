@@ -45,6 +45,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -332,15 +333,20 @@ class GenerationPipelineExecutorTest {
                 GenerationTaskStatus.FAILED,
                 "generation_pipeline_failed");
         ArgumentCaptor<String> summaryCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<GenerationOutcomeQuality> qualityCaptor =
+                ArgumentCaptor.forClass(GenerationOutcomeQuality.class);
         verify(taskLifecycleService).completeGeneration(
                 org.mockito.ArgumentMatchers.eq("task-failed"),
                 org.mockito.ArgumentMatchers.eq(1L),
                 org.mockito.ArgumentMatchers.eq(GenerationTaskStatus.FAILED),
                 org.mockito.ArgumentMatchers.eq("generation_pipeline_failed"),
-                summaryCaptor.capture()
+                summaryCaptor.capture(),
+                qualityCaptor.capture()
         );
         assertTrue(summaryCaptor.getValue().contains("任务状态：失败"));
         assertTrue(summaryCaptor.getValue().contains("生成任务执行失败"));
+        // 失败路径必须沉淀可归因的失败分类，供 L3 复盘与后续蒸馏使用。
+        assertNotNull(qualityCaptor.getValue().failureCategory());
         verify(outcomeMemoryService).remember(org.mockito.ArgumentMatchers.argThat(memory ->
                 memory.status() == GenerationTaskStatus.FAILED
                         && memory.memorySummary().equals(summaryCaptor.getValue())));

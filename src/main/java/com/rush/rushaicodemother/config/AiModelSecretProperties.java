@@ -18,6 +18,9 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "app.ai-model-secrets")
 public class AiModelSecretProperties {
 
+    public static final int MAX_SECRET_BYTES = 2_048;
+    public static final int MAX_REFERENCE_BYTES = 4_096;
+
     private String activeKeyId;
 
     /** Base64 编码的 256 位密钥加密密钥。 */
@@ -34,9 +37,9 @@ public class AiModelSecretProperties {
 
     @Min(32)
     @Max(8_192)
-    private int maxSecretBytes = 2_048;
+    private int maxSecretBytes = MAX_SECRET_BYTES;
 
     @Min(512)
     @Max(32_768)
-    private int maxReferenceBytes = 4_096;
+    private int maxReferenceBytes = MAX_REFERENCE_BYTES;
 }

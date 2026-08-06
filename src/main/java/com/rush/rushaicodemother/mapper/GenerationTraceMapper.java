@@ -174,6 +174,13 @@ public interface GenerationTraceMapper {
                                 @Param("executionEpoch") long executionEpoch,
                                 @Param("updateTime") LocalDateTime updateTime);
 
+    /**
+     * 完成运行中任务并写入终态。
+     *
+     * <p>L3 结果质量字段折叠进这条既有 UPDATE：不引入独立写入路径，天然与积分结算同事务，
+     * 也不增加数据库往返。每个字段用 {@code COALESCE(#{值}, 列)} 保护 —— 传 {@code null}
+     * 表示「未采集」而非「清空」，因此重试不会擦掉先前已采集的值。</p>
+     */
     @Update("""
             UPDATE generation_task
             SET status = #{status},
@@ -182,6 +189,14 @@ public interface GenerationTraceMapper {
                 endTime = #{endTime},
                 durationMs = #{durationMs},
                 errorMessage = #{errorMessage},
+                thinkingMode = COALESCE(#{thinkingMode}, thinkingMode),
+                changedFileCount = COALESCE(#{changedFileCount}, changedFileCount),
+                firstBuildPassed = COALESCE(#{firstBuildPassed}, firstBuildPassed),
+                repairRounds = COALESCE(#{repairRounds}, repairRounds),
+                firstPreviewMillis = COALESCE(#{firstPreviewMillis}, firstPreviewMillis),
+                failureCategory = COALESCE(#{failureCategory}, failureCategory),
+                reworkedAt = COALESCE(#{reworkedAt}, reworkedAt),
+                distilledAt = COALESCE(#{distilledAt}, distilledAt),
                 leaseOwner = NULL,
                 leaseUntil = NULL,
                 heartbeatAt = NULL,
@@ -204,7 +219,15 @@ public interface GenerationTraceMapper {
                             @Param("durationMs") Long durationMs,
                             @Param("errorMessage") String errorMessage,
                             @Param("leaseOwner") String leaseOwner,
-                            @Param("executionEpoch") long executionEpoch);
+                            @Param("executionEpoch") long executionEpoch,
+                            @Param("thinkingMode") String thinkingMode,
+                            @Param("changedFileCount") Integer changedFileCount,
+                            @Param("firstBuildPassed") Integer firstBuildPassed,
+                            @Param("repairRounds") Integer repairRounds,
+                            @Param("firstPreviewMillis") Long firstPreviewMillis,
+                            @Param("failureCategory") String failureCategory,
+                            @Param("reworkedAt") LocalDateTime reworkedAt,
+                            @Param("distilledAt") LocalDateTime distilledAt);
 
     @Insert("""
             INSERT INTO generation_build_log (

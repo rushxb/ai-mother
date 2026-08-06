@@ -4,7 +4,6 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
@@ -12,50 +11,61 @@ import java.time.Duration;
 import java.util.stream.Stream;
 
 /**
- * 项目校验与构建命令的超时和输出资源上限。
+ * 项目校验与构建命令的固定超时和输出资源上限。
  */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.project-command")
 public class ProjectCommandProperties {
 
+    public static final Duration TOOL_SCRIPT_TIMEOUT = Duration.ofMinutes(5);
+    public static final Duration LIGHT_VALIDATION_TIMEOUT = Duration.ofSeconds(90);
+    public static final Duration LIGHT_BUILD_TIMEOUT = Duration.ofMinutes(3);
+    public static final Duration FULL_BUILD_TIMEOUT = Duration.ofMinutes(4);
+    public static final Duration GO_TEST_TIMEOUT = Duration.ofMinutes(3);
+    public static final Duration GO_TEST_IDLE_TIMEOUT = Duration.ofMinutes(2);
+    public static final Duration IDLE_TIMEOUT = Duration.ofSeconds(90);
+    public static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(15);
+    public static final Duration OUTPUT_DRAIN_TIMEOUT = Duration.ofSeconds(2);
+    public static final int MAX_OUTPUT_LENGTH = 12_000;
+    public static final int RECENT_BUILD_RESULT_MAX_ENTRIES = 500;
+
     /** AI 工具执行 lint、test、type-check 等脚本的总超时。 */
-    private Duration toolScriptTimeout = Duration.ofMinutes(5);
+    private Duration toolScriptTimeout = TOOL_SCRIPT_TIMEOUT;
 
     /** Vue 项目轻量校验脚本的总超时。 */
-    private Duration lightValidationTimeout = Duration.ofSeconds(90);
+    private Duration lightValidationTimeout = LIGHT_VALIDATION_TIMEOUT;
 
     /** Vue 项目轻量构建脚本的总超时。 */
-    private Duration lightBuildTimeout = Duration.ofMinutes(3);
+    private Duration lightBuildTimeout = LIGHT_BUILD_TIMEOUT;
 
     /** Vue 项目全量构建脚本的总超时。 */
-    private Duration fullBuildTimeout = Duration.ofMinutes(4);
+    private Duration fullBuildTimeout = FULL_BUILD_TIMEOUT;
 
     /** Go 项目执行完整测试的总超时。 */
-    private Duration goTestTimeout = Duration.ofMinutes(3);
+    private Duration goTestTimeout = GO_TEST_TIMEOUT;
 
     /** Go 编译或测试持续无输出时的超时。 */
-    private Duration goTestIdleTimeout = Duration.ofMinutes(2);
+    private Duration goTestIdleTimeout = GO_TEST_IDLE_TIMEOUT;
 
     /** 命令持续无输出的超时。 */
-    private Duration idleTimeout = Duration.ofSeconds(90);
+    private Duration idleTimeout = IDLE_TIMEOUT;
 
     /** 长时间运行命令的心跳日志间隔。 */
-    private Duration heartbeatInterval = Duration.ofSeconds(15);
+    private Duration heartbeatInterval = HEARTBEAT_INTERVAL;
 
     /** 进程结束后等待输出消费线程收口的时长。 */
-    private Duration outputDrainTimeout = Duration.ofSeconds(2);
+    private Duration outputDrainTimeout = OUTPUT_DRAIN_TIMEOUT;
 
     /** 内存中保留的命令输出最大字符数。 */
     @Min(1024)
     @Max(1_000_000)
-    private int maxOutputLength = 12_000;
+    private int maxOutputLength = MAX_OUTPUT_LENGTH;
 
     /** 内存中最多保留的最近项目构建结果数量。 */
     @Min(10)
     @Max(10_000)
-    private int recentBuildResultMaxEntries = 500;
+    private int recentBuildResultMaxEntries = RECENT_BUILD_RESULT_MAX_ENTRIES;
 
     /**
  * 校验各时长配置及其相互约束是否合法。

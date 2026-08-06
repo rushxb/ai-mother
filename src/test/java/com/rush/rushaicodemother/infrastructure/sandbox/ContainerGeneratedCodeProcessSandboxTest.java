@@ -173,6 +173,58 @@ class ContainerGeneratedCodeProcessSandboxTest {
     }
 
     @Test
+    void executableRecognitionMustNotDependOnHostPathSeparator() {
+        // 容器授权判定曾依赖宿主 JVM 的 Path 分隔符语义：Linux 上 "\" 不是分隔符，
+        // Windows 风格的工具链路径会被当作单段文件名，导致共享 store 与可执行 tmpfs
+        // 授权静默失效。这里固定两种分隔符在任一宿主上都必须识别成同一可执行文件。
+        for (String goExecutable : new String[]{
+                "go", "go.exe", "/usr/local/go/bin/go", "C:\\tools\\go.exe",
+                "C:/tools/go.exe", "\\\\build-host\\toolchain\\go.exe"
+        }) {
+            SandboxProcessPlan plan = sandbox().prepare(
+                    ManagedProcessRequest.builder()
+                            .workingDirectory(workspace)
+                            .command(List.of(goExecutable, "test", "./..."))
+                            .environment(GoProcessEnvironment.overrides())
+                            .networkPolicy(SandboxNetworkPolicy.NONE)
+                            .build(),
+                    workspace.toAbsolutePath().normalize()
+            );
+
+            List<String> command = plan.hostCommand();
+            assertTrue(optionValues(command, "--tmpfs").contains(
+                            "/tmp/go-build:rw,nosuid,nodev,exec,size=512m"),
+                    "离线 Go 编译必须获得可执行 tmpfs: " + goExecutable);
+            int imageIndex = command.indexOf("ai-code-mother/sandbox-node:1");
+            assertEquals(List.of("go", "test", "./..."),
+                    command.subList(imageIndex + 1, command.size()),
+                    "容器内可执行名必须归一化: " + goExecutable);
+        }
+    }
+
+    @Test
+    void sharedPnpmStoreRecognitionMustNotDependOnHostPathSeparator() {
+        for (String pnpmExecutable : new String[]{
+                "pnpm", "pnpm.cmd", "/usr/local/bin/pnpm", "C:\\tools\\pnpm.cmd",
+                "C:/tools/pnpm.cmd"
+        }) {
+            SandboxProcessPlan plan = sandbox(true).prepare(
+                    ManagedProcessRequest.builder()
+                            .workingDirectory(workspace)
+                            .command(List.of(pnpmExecutable, "install"))
+                            .networkPolicy(SandboxNetworkPolicy.DEPENDENCY_EGRESS)
+                            .build(),
+                    workspace.toAbsolutePath().normalize()
+            );
+
+            List<String> command = plan.hostCommand();
+            assertTrue(optionValues(command, "--mount").contains(
+                            "type=volume,source=ai-code-mother-pnpm-store-v9,target=/pnpm/store"),
+                    "受管 pnpm install 必须挂载共享 store: " + pnpmExecutable);
+        }
+    }
+
+    @Test
     void shouldGrantExecutableTmpfsToOfflineGoRunWithExposedPort() {
         ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
         ManagedProcessRequest request = ManagedProcessRequest.builder()

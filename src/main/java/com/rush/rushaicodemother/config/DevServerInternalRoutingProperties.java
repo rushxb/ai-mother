@@ -21,6 +21,9 @@ public class DevServerInternalRoutingProperties {
     private static final String NODE_ID_PLACEHOLDER = "{nodeId}";
     private static final Duration MAX_CLOCK_SKEW = Duration.ofMinutes(5);
 
+    public static final Duration ALLOWED_CLOCK_SKEW = Duration.ofSeconds(30);
+    public static final int REPLAY_CACHE_MAX_ENTRIES = 10_000;
+
     /** 将持久节点 ID 解析为该节点的内部应用程序基本 URL。 */
     private String baseUrlTemplate = "http://{nodeId}:8123/api";
 
@@ -28,12 +31,12 @@ public class DevServerInternalRoutingProperties {
     private String sharedSecret = "";
 
     /** 发送器和接收器时钟之间可接受的最大差异。 */
-    private Duration allowedClockSkew = Duration.ofSeconds(30);
+    private Duration allowedClockSkew = ALLOWED_CLOCK_SKEW;
 
     /** 有界随机数缓存用于拒绝重播的内部请求。 */
     @Min(100)
     @Max(1_000_000)
-    private int replayCacheMaxEntries = 10_000;
+    private int replayCacheMaxEntries = REPLAY_CACHE_MAX_ENTRIES;
 
     /**
  * 判断基础地址模板是否有效。

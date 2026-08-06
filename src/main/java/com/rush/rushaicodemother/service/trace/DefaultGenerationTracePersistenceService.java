@@ -203,6 +203,28 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                                     long durationMs,
                                     String errorMessage,
                                     GenerationExecutionFence fence) {
+        completeRunningTask(recordId, status, endTime, durationMs, errorMessage, fence, null);
+    }
+
+    /**
+ * 完成运行中任务并折叠写入结果质量证据。
+ *
+ * @param recordId 记录编号
+ * @param status 目标状态
+ * @param endTime 结束时间
+ * @param durationMs 耗时毫秒
+ * @param errorMessage 错误消息
+ * @param fence 围栏
+ * @param outcomeQuality 结果质量证据，允许为空
+ */
+    @Override
+    public void completeRunningTask(long recordId,
+                                    GenerationTaskStatus status,
+                                    LocalDateTime endTime,
+                                    long durationMs,
+                                    String errorMessage,
+                                    GenerationExecutionFence fence,
+                                    GenerationOutcomeQuality outcomeQuality) {
         requirePositive(recordId, "生成任务记录 ID");
         if (status == null || !status.isTerminal()) {
             throw invalid("生成任务终态不合法");
@@ -211,10 +233,21 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
         if (durationMs < 0) {
             throw invalid("生成任务耗时不合法");
         }
+        GenerationOutcomeQuality quality = outcomeQuality == null
+                ? GenerationOutcomeQuality.empty()
+                : outcomeQuality;
         requireOneAffectedRow(
                 mapper.completeRunningTask(
                         recordId, status.getValue(), endTime, durationMs, errorMessage,
-                        leaseOwner(fence), executionEpoch(fence)),
+                        leaseOwner(fence), executionEpoch(fence),
+                        quality.thinkingMode(),
+                        quality.changedFileCount(),
+                        quality.firstBuildPassedValue(),
+                        quality.repairRounds(),
+                        quality.firstPreviewMillis(),
+                        quality.failureCategory(),
+                        quality.reworkedAt(),
+                        quality.distilledAt()),
                 "完成生成任务 trace"
         );
     }

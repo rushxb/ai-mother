@@ -4,29 +4,32 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
 /**
- * AI 模型熔断器配置属性。
+ * AI 模型熔断器的固定配置属性。
  */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.ai-model-circuit-breaker")
 public class AiModelCircuitBreakerProperties {
+
+    public static final int FAILURE_THRESHOLD = 1;
+    public static final Duration OPEN_DURATION = Duration.ofSeconds(30);
+    public static final int MAX_TRACKED_MODELS = 200;
+
     @Min(1)
     @Max(20)
-    private int failureThreshold = 1;
-    private Duration openDuration = Duration.ofSeconds(30);
+    private int failureThreshold = FAILURE_THRESHOLD;
+    private Duration openDuration = OPEN_DURATION;
     @Min(10)
     @Max(10000)
-    private int maxTrackedModels = 200;
+    private int maxTrackedModels = MAX_TRACKED_MODELS;
 
-    @AssertTrue(message = "AI model circuit breaker open duration must be positive")
+    @AssertTrue(message = "AI 模型熔断器打开时长必须大于 0")
     public boolean isOpenDurationPositive() {
         return openDuration != null && !openDuration.isZero() && !openDuration.isNegative();
     }

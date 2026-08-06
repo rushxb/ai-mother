@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.config.production;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.io.IOException;
@@ -11,9 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -518,38 +521,56 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
     }
 
     @Test
-    void productionProfileMustNotPackageDevelopmentCredentialOrEndpointDefaults() throws IOException {
-        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("application-prod.yml")) {
-            assertTrue(inputStream != null, "缺少 application-prod.yml");
-            String content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+    void productionProfileMustNotPackageDevelopmentCredentialOrEndpointDefaults() {
+        // 生产固定配置已下沉到代码常量；凭据和对外端点必须仍然只能由外部注入。
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.setActiveProfiles("prod");
+        new ProfileDefaultsEnvironmentPostProcessor().postProcessEnvironment(environment, null);
 
-            assertTrue(content.contains("url: ${MYSQL_URL}"));
-            assertTrue(content.contains("username: ${MYSQL_USERNAME}"));
-            assertTrue(content.contains("password: ${MYSQL_PASSWORD}"));
-            assertTrue(content.contains("host: ${REDIS_HOST}"));
-            assertTrue(content.contains("password: ${REDIS_PASSWORD}"));
-            assertTrue(content.contains("allowed-origins: ${CORS_ALLOWED_ORIGINS}"));
-            assertTrue(content.contains("deploy-host: ${CODE_DEPLOY_HOST}"));
-            assertTrue(content.contains("active-key-id: ${AI_MODEL_SECRET_ACTIVE_KEY_ID}"));
-            assertTrue(content.contains("active-key: ${AI_MODEL_SECRET_ACTIVE_KEY}"));
-            assertTrue(content.contains("fingerprint-key: ${AI_MODEL_SECRET_FINGERPRINT_KEY}"));
-            assertTrue(content.contains(
-                    "transport: ${GENERATION_EVENT_STREAM_TRANSPORT:redis}"));
-            assertTrue(content.contains(
-                    "transport: ${GENERATION_TASK_QUEUE_TRANSPORT:redis}"));
-            assertTrue(content.contains(
-                    "signing-secret: ${GENERATION_BENCHMARK_EVIDENCE_SIGNING_SECRET}"));
-            assertTrue(content.contains("uri: ${MILVUS_URI}"));
-            assertTrue(content.contains("token: ${MILVUS_TOKEN}"));
-            assertTrue(content.contains("authentication-required: ${MILVUS_AUTHENTICATION_REQUIRED:true}"));
-            assertTrue(content.contains("tls-required: ${MILVUS_TLS_REQUIRED:true}"));
-            assertTrue(content.contains("verify-on-startup: ${MILVUS_VERIFY_ON_STARTUP:true}"));
-            assertTrue(content.contains(
-                    "dependency-cache-enabled: ${GENERATED_CODE_SANDBOX_DEPENDENCY_CACHE_ENABLED:true}"));
-            assertFalse(content.contains("MYSQL_PASSWORD:123456"));
-            assertFalse(content.contains("CORS_ALLOWED_ORIGINS:http://localhost"));
-            assertFalse(content.contains("CODE_DEPLOY_HOST:http://localhost"));
+        for (String credentialProperty : List.of(
+                "spring.datasource.url",
+                "spring.datasource.username",
+                "spring.datasource.password",
+                "spring.data.redis.host",
+                "spring.data.redis.password",
+                "app.cors.allowed-origins",
+                "code.deploy-host"
+        )) {
+            String value = environment.getProperty(credentialProperty);
+            assertTrue(
+                    value == null || value.isBlank(),
+                    "生产固定配置不得提供凭据或端点默认值: " + credentialProperty
+            );
         }
+
+        // 安全硬化项必须由固定配置强制开启，避免依赖部署方逐项设置。
+        assertEquals("redis", environment.getProperty("app.generation-event-stream.transport"));
+        assertEquals("redis", environment.getProperty("app.generation-task-queue.transport"));
+        assertEquals("true", environment.getProperty("app.memory.long-term.authentication-required"));
+        assertEquals("true", environment.getProperty("app.memory.long-term.tls-required"));
+        assertEquals("true", environment.getProperty("app.memory.long-term.verify-on-startup"));
+        assertEquals("true", environment.getProperty(
+                "app.generated-code-sandbox.container.dependency-cache-enabled"));
+    }
+
+    @Test
+    void profileDefaultsMustBeRegisteredBeforeProductionValidation() throws IOException {
+        Enumeration<URL> resources = getClass().getClassLoader().getResources("META-INF/spring.factories");
+        boolean registered = false;
+        while (resources.hasMoreElements() && !registered) {
+            URL resource = resources.nextElement();
+            try (InputStream inputStream = resource.openStream()) {
+                String content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                registered = content.contains(ProfileDefaultsEnvironmentPostProcessor.class.getName());
+            }
+        }
+
+        assertTrue(registered, "固定 Profile 配置必须注册为 EnvironmentPostProcessor");
+        assertTrue(
+                new ProfileDefaultsEnvironmentPostProcessor().getOrder()
+                        < new ProductionConfigurationEnvironmentPostProcessor().getOrder(),
+                "固定配置必须先于生产校验执行"
+        );
     }
 
     private MockEnvironment productionEnvironment(Map<String, Object> properties) {

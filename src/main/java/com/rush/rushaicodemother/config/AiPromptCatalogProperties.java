@@ -22,10 +22,21 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.ai-prompt-catalog")
 public class AiPromptCatalogProperties {
 
+    /** 内置提示词目录清单的 classpath 位置，随构建产物固定。 */
+    public static final String MANIFEST = "classpath:prompt/prompt-catalog.json";
+
+    /**
+     * 提示词灰度分桶盐值。
+     *
+     * <p>该值参与 cohort 哈希，修改会让所有用户重新分桶并使灰度观测数据失去可比性，
+     * 因此固定为常量：只有在需要主动重置灰度分布时才随版本号一起递增。</p>
+     */
+    public static final String ROLLOUT_SALT = "ai-code-mother-prompt-rollout-v1";
+
     /** 是否启用。 */
     private boolean enabled = true;
-    private String manifest = "classpath:prompt/prompt-catalog.json";
-    private String rolloutSalt = "ai-code-mother-prompt-rollout-v1";
+    private String manifest = MANIFEST;
+    private String rolloutSalt = ROLLOUT_SALT;
 
     @Valid
     private RuntimeReleases runtimeReleases = new RuntimeReleases();
@@ -76,10 +87,13 @@ public class AiPromptCatalogProperties {
 
     @Data
     public static class RuntimeReleases {
+
+        public static final Duration REFRESH_INTERVAL = Duration.ofSeconds(5);
+
         /** 是否启用。 */
         private boolean enabled;
         private boolean initialLoadRequired;
-        private Duration refreshInterval = Duration.ofSeconds(5);
+        private Duration refreshInterval = REFRESH_INTERVAL;
 
         public boolean isConfigurationValid() {
             return refreshInterval != null

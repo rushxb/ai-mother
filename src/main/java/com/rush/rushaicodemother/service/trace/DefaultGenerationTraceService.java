@@ -186,6 +186,36 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
     @Override
     @Transactional
     public void completeTask(String taskId, GenerationTaskStatus status, String errorMessage) {
+        completeTaskInternal(taskId, status, errorMessage, null);
+    }
+
+    /**
+ * 完成任务并记录结果质量证据。
+ *
+ * @param taskId 任务编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ * @param outcomeQuality 结果质量证据，允许为空
+ */
+    @Override
+    @Transactional
+    public void completeTask(String taskId,
+                             GenerationTaskStatus status,
+                             String errorMessage,
+                             GenerationOutcomeQuality outcomeQuality) {
+        completeTaskInternal(taskId, status, errorMessage, outcomeQuality);
+    }
+
+    /**
+     * 终态写入的唯一实现。
+     *
+     * <p>结果质量证据为空时调用既有 6 参数持久化方法，保持原协作路径不变；
+     * 仅在确有证据时才走带证据的重载，避免为新增能力改变既有调用契约。</p>
+     */
+    private void completeTaskInternal(String taskId,
+                                      GenerationTaskStatus status,
+                                      String errorMessage,
+                                      GenerationOutcomeQuality outcomeQuality) {
         String normalizedTaskId = requireText(taskId, MAX_TASK_ID_LENGTH, "生成任务 ID");
         if (status == null || !status.isTerminal()) {
             throw invalid("生成任务完成状态必须是终态");
@@ -208,9 +238,15 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             throw operationFailed("生成任务结束时间早于数据库开始时间，taskId=" + normalizedTaskId);
         }
         String normalizedError = truncate(nullableText(errorMessage), MAX_STAGE_MESSAGE_LENGTH);
-        persistenceService.completeRunningTask(
-                task.recordId(), status, endTime, durationMs, normalizedError,
-                executionFence(normalizedTaskId));
+        if (outcomeQuality == null || outcomeQuality.isEmpty()) {
+            persistenceService.completeRunningTask(
+                    task.recordId(), status, endTime, durationMs, normalizedError,
+                    executionFence(normalizedTaskId));
+        } else {
+            persistenceService.completeRunningTask(
+                    task.recordId(), status, endTime, durationMs, normalizedError,
+                    executionFence(normalizedTaskId), outcomeQuality);
+        }
         log.info("生成任务 trace 已完成，taskId: {}, status: {}, durationMs: {}",
                 normalizedTaskId, status.getValue(), durationMs);
     }

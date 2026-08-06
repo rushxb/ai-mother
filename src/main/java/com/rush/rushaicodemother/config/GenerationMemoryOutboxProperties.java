@@ -20,29 +20,36 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.memory.outbox")
 public class GenerationMemoryOutboxProperties {
 
+    public static final Duration SCAN_INTERVAL = Duration.ofSeconds(30);
+    public static final int BATCH_SIZE = 50;
+    public static final int MAX_ATTEMPTS = 10;
+    public static final Duration LEASE_DURATION = Duration.ofMinutes(2);
+    public static final Duration INITIAL_RETRY_DELAY = Duration.ofSeconds(30);
+    public static final Duration MAX_RETRY_DELAY = Duration.ofHours(1);
+
     /** 是否启用。 */
     private boolean enabled = true;
 
     @NotNull
-    private Duration scanInterval = Duration.ofSeconds(30);
+    private Duration scanInterval = SCAN_INTERVAL;
 
     @Min(1)
     @Max(500)
-    private int batchSize = 50;
+    private int batchSize = BATCH_SIZE;
 
     /** 最大尝试次数。 */
     @Min(1)
     @Max(100)
-    private int maxAttempts = 10;
+    private int maxAttempts = MAX_ATTEMPTS;
 
     @NotNull
-    private Duration leaseDuration = Duration.ofMinutes(2);
+    private Duration leaseDuration = LEASE_DURATION;
 
     @NotNull
-    private Duration initialRetryDelay = Duration.ofSeconds(30);
+    private Duration initialRetryDelay = INITIAL_RETRY_DELAY;
 
     @NotNull
-    private Duration maxRetryDelay = Duration.ofHours(1);
+    private Duration maxRetryDelay = MAX_RETRY_DELAY;
 
     @AssertTrue(message = "memory outbox durations must be positive and ordered")
     public boolean isDurationPolicyValid() {

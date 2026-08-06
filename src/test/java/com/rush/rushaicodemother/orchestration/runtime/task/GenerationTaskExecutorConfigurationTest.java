@@ -33,7 +33,7 @@ class GenerationTaskExecutorConfigurationTest {
             );
 
     @Test
-    void applicationYamlMustBindBoundedProductionDefaults() {
+    void hardcodedDefaultsMustRemainBoundedForProduction() {
         contextRunner.run(context -> {
             assertThat(context).hasNotFailed();
             GenerationTaskExecutorProperties properties =
@@ -47,31 +47,23 @@ class GenerationTaskExecutorConfigurationTest {
     }
 
     @Test
-    void environmentStyleOverridesMustBindAllExecutorLimits() {
+    void externalOverridesMustNotChangeFixedExecutorLimits() {
         contextRunner
                 .withPropertyValues(
-                        "GENERATION_TASK_MAX_CONCURRENCY=8",
-                        "GENERATION_TASK_QUEUE_CAPACITY=64",
-                        "GENERATION_TASK_EXECUTOR_SHUTDOWN_TIMEOUT=5s"
+                        "app.generation-task-executor.max-concurrency=8",
+                        "app.generation-task-executor.queue-capacity=64",
+                        "app.generation-task-executor.shutdown-timeout=5s"
                 )
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     GenerationTaskExecutorProperties properties =
                             context.getBean(GenerationTaskExecutorProperties.class);
-                    assertThat(properties.getMaxConcurrency()).isEqualTo(8);
-                    assertThat(properties.getQueueCapacity()).isEqualTo(64);
-                    assertThat(properties.getShutdownTimeout()).isEqualTo(Duration.ofSeconds(5));
-                });
-    }
-
-    @Test
-    void invalidExecutorLimitsMustFailApplicationContextStartup() {
-        contextRunner
-                .withPropertyValues("GENERATION_TASK_MAX_CONCURRENCY=0")
-                .run(context -> {
-                    assertThat(context).hasFailed();
-                    assertThat(context.getStartupFailure())
-                            .hasMessageContaining("app.generation-task-executor");
+                    assertThat(properties.getMaxConcurrency())
+                            .isEqualTo(GenerationTaskExecutorProperties.MAX_CONCURRENCY);
+                    assertThat(properties.getQueueCapacity())
+                            .isEqualTo(GenerationTaskExecutorProperties.QUEUE_CAPACITY);
+                    assertThat(properties.getShutdownTimeout())
+                            .isEqualTo(GenerationTaskExecutorProperties.SHUTDOWN_TIMEOUT);
                 });
     }
 }

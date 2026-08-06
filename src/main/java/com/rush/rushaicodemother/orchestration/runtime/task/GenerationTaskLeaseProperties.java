@@ -17,18 +17,23 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.generation-task-lease")
 public class GenerationTaskLeaseProperties {
 
+    public static final Duration LEASE_DURATION = Duration.ofSeconds(30);
+    public static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(10);
+    public static final Duration RECOVERY_SCAN_INTERVAL = Duration.ofSeconds(15);
+    public static final int RECOVERY_BATCH_SIZE = 50;
+
     /** 可选的 stable 前缀；始终附加进程唯一的后缀。 */
     private String ownerId;
 
-    private Duration leaseDuration = Duration.ofSeconds(30);
+    private Duration leaseDuration = LEASE_DURATION;
 
-    private Duration heartbeatInterval = Duration.ofSeconds(10);
+    private Duration heartbeatInterval = HEARTBEAT_INTERVAL;
 
-    private Duration recoveryScanInterval = Duration.ofSeconds(15);
+    private Duration recoveryScanInterval = RECOVERY_SCAN_INTERVAL;
 
     @Min(1)
     @Max(500)
-    private int recoveryBatchSize = 50;
+    private int recoveryBatchSize = RECOVERY_BATCH_SIZE;
 
     @AssertTrue(message = "generation task lease durations must be positive and heartbeat must be shorter than lease")
     public boolean isDurationConfigurationValid() {

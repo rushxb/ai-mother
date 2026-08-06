@@ -20,6 +20,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -137,6 +138,31 @@ class ToolPathSupportTest {
         Path realDirectory = outputRoot.resolve("another-project");
         Files.createDirectories(realDirectory);
         createSymbolicLinkOrSkip(projectRoot, realDirectory);
+
+        ToolInputException exception = assertThrows(
+                ToolInputException.class,
+                () -> pathSupport.resolveProjectRoot(appId)
+        );
+
+        // 拒绝由工作区解析层的 NOFOLLOW_LINKS 校验先行完成，因此对外是「路径无效」，
+        // 成因保留在 cause 中。只要链接被拒绝，安全不变量即成立；不绑定具体提示语，
+        // 避免把用户可见文案固化成契约。
+        assertTrue(exception.getMessage().contains("项目工作区路径无效"));
+        assertNotNull(exception.getCause());
+        assertTrue(exception.getCause().getMessage().contains("不是安全目录"));
+    }
+
+    @Test
+    void projectRootSymbolicLinkMustBeRejectedByToolBoundaryWhenWorkspaceIsSupplied() throws Exception {
+        long appId = 990_007L;
+        Path outputRoot = configuredOutputRoot();
+        Path projectRoot = outputRoot.resolve("vue_project_" + appId);
+        Path realDirectory = outputRoot.resolve("another-supplied-project");
+        Files.createDirectories(realDirectory);
+        createSymbolicLinkOrSkip(projectRoot, realDirectory);
+        // 直接提供已存在的符号链接工作区，跳过解析层校验，验证工具边界自身的兜底拒绝。
+        ToolPathSupport pathSupport = ToolPathSupportTestFixture.forSuppliedWorkspace(
+                appId, CodeGenTypeEnum.VUE_PROJECT, projectRoot, storageProperties());
 
         ToolInputException exception = assertThrows(
                 ToolInputException.class,

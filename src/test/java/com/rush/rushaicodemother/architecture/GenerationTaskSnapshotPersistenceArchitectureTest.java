@@ -42,11 +42,18 @@ class GenerationTaskSnapshotPersistenceArchitectureTest {
         assertTrue(properties.contains("@Min(MIN_SNAPSHOT_BYTES)"));
         assertTrue(properties.contains("@Max(MAX_SNAPSHOT_BYTES)"));
 
+        // 只有开关和存储根仍可按部署环境覆盖，其余资源上限已下沉为常量。
         assertTrue(yaml.contains("GENERATION_TASK_SNAPSHOT_ENABLED"));
         assertTrue(yaml.contains("GENERATION_TASK_SNAPSHOT_ROOT_DIRECTORY"));
-        assertTrue(yaml.contains("GENERATION_TASK_SNAPSHOT_MAX_BYTES"));
-        assertTrue(yaml.contains("GENERATION_TASK_SNAPSHOT_MAX_PER_APP"));
-        assertTrue(yaml.contains("GENERATION_TASK_SNAPSHOT_RETENTION"));
-        assertTrue(yaml.contains("GENERATION_TASK_SNAPSHOT_LOCK_STRIPES"));
+        assertFalse(yaml.contains("GENERATION_TASK_SNAPSHOT_MAX_BYTES"));
+        assertFalse(yaml.contains("GENERATION_TASK_SNAPSHOT_MAX_PER_APP"));
+        assertFalse(yaml.contains("GENERATION_TASK_SNAPSHOT_RETENTION"));
+        assertFalse(yaml.contains("GENERATION_TASK_SNAPSHOT_LOCK_STRIPES"));
+
+        // 资源上限必须仍以常量形式声明，保证策略可审计。
+        assertTrue(properties.contains("public static final int DEFAULT_MAX_SNAPSHOT_BYTES"));
+        assertTrue(properties.contains("public static final int MAX_SNAPSHOTS_PER_APP"));
+        assertTrue(properties.contains("public static final Duration RETENTION"));
+        assertTrue(properties.contains("public static final int LOCK_STRIPES"));
     }
 }

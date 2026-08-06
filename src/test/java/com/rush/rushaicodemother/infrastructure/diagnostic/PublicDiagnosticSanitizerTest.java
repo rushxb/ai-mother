@@ -40,6 +40,36 @@ class PublicDiagnosticSanitizerTest {
     }
 
     @Test
+    void shouldRedactAbsolutePathsUnderAnyRootDirectory() {
+        // 曾按 /home|/var|/tmp|... 白名单匹配，白名单外的根目录会整段泄漏主机目录结构；
+        // 以 root 运行时工作区位于 /root/... 正好落在白名单外。这里固定「任意根目录都脱敏」。
+        for (String directory : new String[]{
+                "/root/ai-mother/tmp/code_output", "/home/rush/workspace",
+                "/data/generation/workspace", "/mnt/build/cache",
+                "/Users/rush/projects", "/srv/app/output"
+        }) {
+            String sanitized = PublicDiagnosticSanitizer.sanitizeForPublicOutput(
+                    directory + "/App.vue:3:1 build completed");
+
+            assertFalse(sanitized.contains(directory),
+                    "绝对路径目录部分必须脱敏: " + directory);
+            assertTrue(sanitized.contains("App.vue:3:1"),
+                    "必须保留可定位的文件名与行列号: " + directory);
+            assertTrue(sanitized.contains("build completed"));
+        }
+    }
+
+    @Test
+    void shouldKeepRelativePathsAndUrlPathsIntact() {
+        // 脱敏不得误伤相对路径与 URL 路径片段，否则构建诊断会失去可读性。
+        String sanitized = PublicDiagnosticSanitizer.sanitizeForPublicOutput(
+                "src/components/App.vue:3:1 failed; see https://example.com/docs/guide for help");
+
+        assertTrue(sanitized.contains("src/components/App.vue:3:1"));
+        assertTrue(sanitized.contains("https://example.com/docs/guide"));
+    }
+
+    @Test
     void shouldRedactPrivateKeyBodiesAndBoundOversizedOutput() {
         String diagnostic = "before\n-----BEGIN PRIVATE KEY-----\nprivate-key-body\n-----END PRIVATE KEY-----\n"
                 + "x".repeat(20_000)

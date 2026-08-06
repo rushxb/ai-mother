@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.config;
 
+import com.rush.rushaicodemother.config.production.ProfileDefaultsEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.StandardEnvironment;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
@@ -21,10 +23,13 @@ class TemplatePreWarmProfileContractTest {
 
     @Test
     void productionProfileShouldEnablePreWarmByDefault() {
-        assertEquals(
-                "${TEMPLATE_PRE_WARM_ENABLED:true}",
-                readTemplatePreWarmEnabledDefault("application-prod.yml")
-        );
+        // 生产取值已下沉到代码常量，不再由 application-prod.yml 提供。
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.setActiveProfiles("prod");
+
+        new ProfileDefaultsEnvironmentPostProcessor().postProcessEnvironment(environment, null);
+
+        assertEquals("true", environment.getProperty("app.template-pre-warm.enabled"));
     }
 
     private Object readTemplatePreWarmEnabledDefault(String resourceName) {

@@ -25,13 +25,21 @@ import java.util.List;
 @ConfigurationProperties(prefix = "app.template-pre-warm")
 public class TemplatePreWarmProperties {
 
+    public static final int MAX_CONCURRENCY = 2;
+    public static final List<String> TEMPLATE_IDS = List.of(
+            "vue-web-basic",
+            "vue-web-admin",
+            "vue-web-mobile",
+            "vue-web-landing"
+    );
+
     /** 是否在应用就绪后预热模板依赖。 */
     private boolean enabled = false;
 
     /** 同时执行的模板依赖安装任务数。 */
     @Min(1)
     @Max(8)
-    private int maxConcurrency = 2;
+    private int maxConcurrency = MAX_CONCURRENCY;
 
     /** 需要预热的模板 ID。 */
     @NotEmpty
@@ -43,12 +51,7 @@ public class TemplatePreWarmProperties {
                     regexp = "[a-z0-9]+(?:-[a-z0-9]+)*",
                     message = "模板 ID 只能包含小写字母、数字和单个连字符分隔符"
             )
-                    String> templateIds = List.of(
-            "vue-web-basic",
-            "vue-web-admin",
-            "vue-web-mobile",
-            "vue-web-landing"
-    );
+                    String> templateIds = TEMPLATE_IDS;
 
     @AssertTrue(message = "模板预热列表不能包含重复的模板 ID")
     public boolean isTemplateIdsUnique() {

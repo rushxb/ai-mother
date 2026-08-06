@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryRequest;
 import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
 import lombok.RequiredArgsConstructor;
@@ -42,25 +43,31 @@ public class HeavyGenerationSessionCompletionService {
         }
         String status = outcome.status();
         String memorySummary = buildMemorySummary(preparation, status);
+        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(preparation, session, outcome);
+        // 未采集到任何指标时走既有签名，保持原调用契约不变；只有确有证据才使用新重载。
+        boolean hasOutcomeQuality = !outcomeQuality.isEmpty();
         RuntimeException lifecycleFailure = null;
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             if (outcome == GenerationTerminalOutcome.SUCCESS) {
-                generationTaskLifecycleService.completeGenerationAndCharge(
-                        preparation.taskId(),
-                        appId,
-                        outcome.taskStatus(),
-                        null,
-                        memorySummary
-                );
+                if (hasOutcomeQuality) {
+                    generationTaskLifecycleService.completeGenerationAndCharge(
+                            preparation.taskId(), appId, outcome.taskStatus(), null,
+                            memorySummary, outcomeQuality);
+                } else {
+                    generationTaskLifecycleService.completeGenerationAndCharge(
+                            preparation.taskId(), appId, outcome.taskStatus(), null, memorySummary);
+                }
             } else {
-                generationTaskLifecycleService.completeGeneration(
-                        preparation.taskId(),
-                        appId,
-                        outcome.taskStatus(),
-                        outcome.status(),
-                        memorySummary
-                );
+                if (hasOutcomeQuality) {
+                    generationTaskLifecycleService.completeGeneration(
+                            preparation.taskId(), appId, outcome.taskStatus(), outcome.status(),
+                            memorySummary, outcomeQuality);
+                } else {
+                    generationTaskLifecycleService.completeGeneration(
+                            preparation.taskId(), appId, outcome.taskStatus(), outcome.status(),
+                            memorySummary);
+                }
             }
         } catch (RuntimeException failure) {
             lifecycleFailure = failure;
@@ -103,6 +110,90 @@ public class HeavyGenerationSessionCompletionService {
                 .map(map -> String.valueOf(map.get("orchestrationMode")))
                 .findFirst()
                 .orElse("unknown");
+    }
+
+    /**
+     * 装配 Heavy 路径的 L3 结果质量证据。
+     *
+     * <p>指标全部来自已沉淀的制品与执行上下文，采集不到即保持 {@code null}（未采集），
+     * 不影响交付。</p>
+     */
+    private GenerationOutcomeQuality resolveOutcomeQuality(GenerationPreparation preparation,
+                                                          GenerationSession session,
+                                                          GenerationTerminalOutcome outcome) {
+        Integer changedFileCount = resolveChangedFileCount(preparation);
+        Integer repairRounds = resolveRepairRounds(preparation);
+        Long firstPreviewMillis = resolveFirstPreviewMillis(preparation, session);
+        if (outcome != GenerationTerminalOutcome.SUCCESS) {
+            // 不用 outcome.status() 充当失败分类：它取值就是 failed/cancelled 等终态，
+            // 与 status 列完全重复，写进去只是冗余而非归因信息。Heavy 最终化处拿不到
+            // 原始异常，因此失败分类保持未采集，由具备异常上下文的调用点负责。
+            return GenerationOutcomeQuality.ofFailure(
+                    null, changedFileCount, repairRounds, firstPreviewMillis);
+        }
+        // 修复轮次未采集时无法判断是否「免修复」通过，保持未采集而不是臆测为 true。
+        Boolean firstBuildPassed = repairRounds == null
+                ? null
+                : repairRounds == 0 && preparation.requiresBuildValidation();
+        return GenerationOutcomeQuality.ofSuccess(
+                changedFileCount, repairRounds, firstBuildPassed, firstPreviewMillis);
+    }
+
+    /** 从 diff 摘要制品统计有效变更文件数。 */
+    private Integer resolveChangedFileCount(GenerationPreparation preparation) {
+        GenerationArtifact diffSummary = preparation.artifact("diff_summary");
+        if (diffSummary == null || diffSummary.payload() == null) {
+            return null;
+        }
+        Integer added = intValue(diffSummary.payload().get("addedCount"));
+        Integer modified = intValue(diffSummary.payload().get("modifiedCount"));
+        Integer deleted = intValue(diffSummary.payload().get("deletedCount"));
+        if (added == null && modified == null && deleted == null) {
+            return null;
+        }
+        return (added == null ? 0 : added)
+                + (modified == null ? 0 : modified)
+                + (deleted == null ? 0 : deleted);
+    }
+
+    /**
+     * 读取实际修复轮次。
+     *
+     * <p>Heavy 路径目前没有沉淀「实际发生了几轮修复」的制品：{@code buildfix_plan} 里的
+     * {@code repairRounds} 是计划允许的轮次上限，不是实际值，用它归因会把「计划允许 1 轮」
+     * 误报成「确实修了 1 轮」。因此这里返回 {@code null}（未采集），等修复循环显式记录轮次
+     * 后再接入 —— 宁可缺数据，不要错数据。</p>
+     */
+    private Integer resolveRepairRounds(GenerationPreparation preparation) {
+        return null;
+    }
+
+    /** 计算提交到首个可预览版本的耗时；未就绪时返回 {@code null}。 */
+    private Long resolveFirstPreviewMillis(GenerationPreparation preparation, GenerationSession session) {
+        if (session == null || session.executionContext() == null) {
+            return null;
+        }
+        java.time.Instant firstPreviewReadyAt = session.executionContext().firstPreviewReadyAt();
+        java.time.Instant startedAt = session.executionContext().startedAt();
+        if (firstPreviewReadyAt == null || startedAt == null) {
+            return null;
+        }
+        long elapsed = java.time.Duration.between(startedAt, firstPreviewReadyAt).toMillis();
+        return elapsed < 0 ? null : elapsed;
+    }
+
+    private Integer intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return Integer.valueOf(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /** 构建并返回记忆汇总。 */

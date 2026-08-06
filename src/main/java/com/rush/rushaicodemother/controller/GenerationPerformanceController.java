@@ -6,9 +6,11 @@ import com.rush.rushaicodemother.common.ResultUtils;
 import com.rush.rushaicodemother.constant.UserConstant;
 import com.rush.rushaicodemother.model.vo.GenerationDurationProfileVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceSummaryVO;
+import com.rush.rushaicodemother.model.vo.GenerationRouteLatencySegmentVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskLatencyLedgerVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskSpanVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.latency.GenerationRouteLatencySegmentService;
 import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedgerService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfileService;
@@ -38,6 +40,7 @@ public class GenerationPerformanceController {
     private final GenerationSpanQueryService generationSpanQueryService;
     private final GenerationDurationProfileService generationDurationProfileService;
     private final GenerationTaskLatencyLedgerService generationTaskLatencyLedgerService;
+    private final GenerationRouteLatencySegmentService generationRouteLatencySegmentService;
 
     @GetMapping("/admin/summary")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
@@ -90,6 +93,21 @@ public class GenerationPerformanceController {
     ) {
         return ResultUtils.success(GenerationDurationProfileVO.from(
                 generationDurationProfileService.getProfile(route)));
+    }
+
+    /**
+     * 获取路由的分段延迟画像，用于判断准备阶段是否值得并行。
+     *
+     * @param route 运行时路由
+     * @return 统一封装的接口响应
+     */
+    @GetMapping("/admin/routes/{route}/latency-segments")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<GenerationRouteLatencySegmentVO> getRouteLatencySegments(
+            @PathVariable @Pattern(regexp = ROUTE_PATTERN) String route
+    ) {
+        return ResultUtils.success(GenerationRouteLatencySegmentVO.from(
+                generationRouteLatencySegmentService.getProfile(route)));
     }
 
 }

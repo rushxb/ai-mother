@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import com.rush.rushaicodemother.service.trace.GenerationTaskStartCommand;
 import com.rush.rushaicodemother.service.trace.GenerationTaskTraceStartResult;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
@@ -292,6 +293,55 @@ public class GenerationTaskLifecycleService {
                                                String memorySummary) {
         generationTraceService.updateMemorySummary(taskId, memorySummary);
         return completeGenerationAndCharge(taskId, appId, status, errorMessage);
+    }
+
+    /**
+ * 完成生成并结算积分，同时记录 L3 结果质量证据。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ * @param memorySummary 记忆汇总
+ * @param outcomeQuality 结果质量证据，允许为空
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean completeGenerationAndCharge(String taskId,
+                                               Long appId,
+                                               GenerationTaskStatus status,
+                                               String errorMessage,
+                                               String memorySummary,
+                                               GenerationOutcomeQuality outcomeQuality) {
+        generationTraceService.updateMemorySummary(taskId, memorySummary);
+        boolean released = generationAppStateService.releaseOwnedGenerationState(appId, taskId);
+        generationTraceService.completeTask(taskId, status, errorMessage, outcomeQuality);
+        userCreditService.chargeGenerationTask(taskId);
+        return released;
+    }
+
+    /**
+ * 完成生成并持久化终态，同时记录 L3 结果质量证据。
+ *
+ * @param taskId 任务编号
+ * @param appId 应用编号
+ * @param status 目标状态
+ * @param errorMessage 错误消息
+ * @param memorySummary 记忆汇总
+ * @param outcomeQuality 结果质量证据，允许为空
+ * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+ */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean completeGeneration(String taskId,
+                                      Long appId,
+                                      GenerationTaskStatus status,
+                                      String errorMessage,
+                                      String memorySummary,
+                                      GenerationOutcomeQuality outcomeQuality) {
+        generationTraceService.updateMemorySummary(taskId, memorySummary);
+        boolean released = generationAppStateService.releaseOwnedGenerationState(appId, taskId);
+        generationTraceService.completeTask(taskId, status, errorMessage, outcomeQuality);
+        return released;
     }
 
     public boolean releaseGenerationState(String taskId, Long appId) {

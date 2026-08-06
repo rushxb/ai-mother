@@ -19,7 +19,7 @@ public class GenerationCreditSettlementCoordinator {
     private final UserCreditProperties properties;
 
     /** 对账并修复生成额度{@code Settlement}协调器状态。 */
-    @Scheduled(fixedDelayString = "${app.user-credit.settlement-scan-interval:30s}")
+    @Scheduled(fixedDelayString = UserCreditProperties.SETTLEMENT_SCAN_INTERVAL)
     public void reconcile() {
         for (String taskId : persistenceService.findUnsettledTerminalTaskIds(
                 properties.getSettlementBatchSize())) {

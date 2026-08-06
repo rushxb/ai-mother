@@ -1,44 +1,34 @@
 package com.rush.rushaicodemother.config;
 
+import com.rush.rushaicodemother.config.production.ProfileDefaultsEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.env.YamlPropertySourceLoader;
-import org.springframework.core.env.PropertySource;
-import org.springframework.core.io.ClassPathResource;
-
-import java.util.List;
+import org.springframework.core.env.StandardEnvironment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * 校验评测 Worker 角色在 Profile yaml 删除后仍然隔离线上流量。
+ *
+ * <p>取值现由 {@link ProfileDefaultsEnvironmentPostProcessor} 以代码常量提供。</p>
+ */
 class GenerationBenchmarkWorkerProfileTest {
 
     @Test
-    void profileMustDisableOnlineRolesAndEnableCompleteGraders() throws Exception {
-        List<PropertySource<?>> sources = new YamlPropertySourceLoader().load(
-                "benchmark-worker",
-                new ClassPathResource("application-benchmark-worker.yml")
-        );
+    void profileMustDisableOnlineRolesAndEnableCompleteGraders() {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.setActiveProfiles("prod", "benchmark-worker");
 
-        assertEquals("none", value(sources, "spring.main.web-application-type"));
-        assertEquals(false, value(sources, "app.background-jobs.enabled"));
-        assertEquals("local", value(sources, "app.generation-task-queue.transport"));
-        assertEquals("local", value(sources, "app.generation-event-stream.transport"));
-        assertEquals(false, value(sources, "app.template-pre-warm.enabled"));
-        assertEquals(true, value(sources, "app.generation-benchmark.worker.enabled"));
-        assertEquals(
-                "${GENERATION_BENCHMARK_BROWSER_GRADING_ENABLED:true}",
-                value(sources, "app.generation-benchmark.browser-grading.enabled")
-        );
-        assertEquals(
-                "${GENERATION_BENCHMARK_BACKEND_GRADING_ENABLED:true}",
-                value(sources, "app.generation-benchmark.backend-grading.enabled")
-        );
-    }
+        new ProfileDefaultsEnvironmentPostProcessor().postProcessEnvironment(environment, null);
 
-    private Object value(List<PropertySource<?>> sources, String key) {
-        return sources.stream()
-                .map(source -> source.getProperty(key))
-                .filter(java.util.Objects::nonNull)
-                .findFirst()
-                .orElseThrow();
+        assertEquals("none", environment.getProperty("spring.main.web-application-type"));
+        assertEquals("false", environment.getProperty("app.background-jobs.enabled"));
+        assertEquals("local", environment.getProperty("app.generation-task-queue.transport"));
+        assertEquals("local", environment.getProperty("app.generation-event-stream.transport"));
+        assertEquals("false", environment.getProperty("app.template-pre-warm.enabled"));
+        assertEquals("true", environment.getProperty("app.generation-benchmark.worker.enabled"));
+        assertEquals("true",
+                environment.getProperty("app.generation-benchmark.browser-grading.enabled"));
+        assertEquals("true",
+                environment.getProperty("app.generation-benchmark.backend-grading.enabled"));
     }
 }

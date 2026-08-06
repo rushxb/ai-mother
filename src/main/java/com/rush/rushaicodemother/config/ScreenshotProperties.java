@@ -23,6 +23,15 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.screenshot")
 public class ScreenshotProperties {
 
+    public static final int MAX_CONCURRENCY = 2;
+    public static final int QUEUE_CAPACITY = 16;
+    public static final int VIEWPORT_WIDTH = 1600;
+    public static final int VIEWPORT_HEIGHT = 900;
+    public static final Duration PAGE_LOAD_TIMEOUT = Duration.ofSeconds(30);
+    public static final Duration READY_STATE_TIMEOUT = Duration.ofSeconds(15);
+    public static final Duration POST_LOAD_DELAY = Duration.ofSeconds(2);
+    public static final float COMPRESSION_QUALITY = 0.3F;
+
     private boolean enabled;
 
     private String chromeDriverPath;
@@ -31,21 +40,21 @@ public class ScreenshotProperties {
 
     private Path workDirectory = Path.of(AppConstant.SCREENSHOT_ROOT_DIR);
 
-    private int maxConcurrency = 2;
+    private int maxConcurrency = MAX_CONCURRENCY;
 
-    private int queueCapacity = 16;
+    private int queueCapacity = QUEUE_CAPACITY;
 
-    private int viewportWidth = 1600;
+    private int viewportWidth = VIEWPORT_WIDTH;
 
-    private int viewportHeight = 900;
+    private int viewportHeight = VIEWPORT_HEIGHT;
 
-    private Duration pageLoadTimeout = Duration.ofSeconds(30);
+    private Duration pageLoadTimeout = PAGE_LOAD_TIMEOUT;
 
-    private Duration readyStateTimeout = Duration.ofSeconds(15);
+    private Duration readyStateTimeout = READY_STATE_TIMEOUT;
 
-    private Duration postLoadDelay = Duration.ofSeconds(2);
+    private Duration postLoadDelay = POST_LOAD_DELAY;
 
-    private float compressionQuality = 0.3F;
+    private float compressionQuality = COMPRESSION_QUALITY;
 
     private boolean noSandbox;
 

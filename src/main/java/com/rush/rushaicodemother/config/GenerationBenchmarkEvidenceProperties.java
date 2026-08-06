@@ -17,18 +17,24 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app.generation-benchmark.evidence")
 public class GenerationBenchmarkEvidenceProperties {
 
+    /** 证据最长信任期限，属于固定发布契约。 */
+    public static final Duration MAXIMUM_VALIDITY = Duration.ofDays(7);
+
+    /** 单份证据报告的最大字节数。 */
+    public static final int MAXIMUM_REPORT_BYTES = 5 * 1024 * 1024;
+
     /** 必须由秘密管理者在摄取或验证证据的环境中提供。 */
     private String signingSecret = "";
 
     private String graderFingerprint = "generation-benchmark-graders-v6";
 
-    private Duration maximumValidity = Duration.ofDays(7);
+    private Duration maximumValidity = MAXIMUM_VALIDITY;
 
     @Min(1024)
     @Max(10 * 1024 * 1024)
-    private int maximumReportBytes = 5 * 1024 * 1024;
+    private int maximumReportBytes = MAXIMUM_REPORT_BYTES;
 
-    @AssertTrue(message = "generation benchmark evidence settings are invalid")
+    @AssertTrue(message = "生成评测证据配置无效")
     public boolean isConfigurationValid() {
         return graderFingerprint != null && !graderFingerprint.isBlank()
                 && graderFingerprint.length() <= 128

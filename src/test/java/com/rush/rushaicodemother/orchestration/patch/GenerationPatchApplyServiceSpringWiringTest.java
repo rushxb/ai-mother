@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceG
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -33,8 +32,9 @@ class GenerationPatchApplyServiceSpringWiringTest {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @EnableConfigurationProperties(PatchExecutionProperties.class)
     @Import({
+            // 补丁资源上限已下沉为常量，这里按普通组件导入即可。
+            PatchExecutionProperties.class,
             GenerationPatchApplyService.class,
             PatchWorkspaceFileService.class,
             PatchOperationResourcePolicy.class,

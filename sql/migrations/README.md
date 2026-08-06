@@ -83,3 +83,18 @@ Prompt 发布、模型启停或删除、模型密钥迁移在读取或改变发�
 `V20260723_1__generation_benchmark_candidate_invocation_attestation.sql` 新增 Benchmark
 证据签名协议版本和候选模型物理请求计数。历史证据标记为 `v1/0` 以保留审计可读性；
 新发布只接受 `v2`。模型启用候选必须记录至少一次评测窗口内的真实物理请求，Prompt 候选必须为 `0`。
+
+`V20260804_1__generation_episodic_outcome_quality.sql` 为 L3 情景记录新增 8 个可空的结果质量列
+（`thinkingMode`、`changedFileCount`、`firstBuildPassed`、`repairRounds`、`firstPreviewMillis`、
+`failureCategory`、`reworkedAt`、`distilledAt`）、蒸馏扫描索引 `idx_generation_task_distill_claim`
+和边界约束 `chk_generation_task_outcome_quality`。
+
+三条硬约束：
+
+1. **NULL 语义是「未采集」，不是「值为零」。** 禁止用 `UPDATE ... SET` 回填默认值 —— 那等于伪造
+   历史归因数据，会让后续经验蒸馏基于虚假标签。
+2. **写入必须保留 `COALESCE(#{列}, 列)`。** 这些列随既有终态 UPDATE 一并写入，传 `null` 表示不覆盖；
+   一旦改成直接赋值，重试就会擦掉先前已采集的值，而这种数据损坏在运行时不会报错。
+   `GenerationEpisodicOutcomeQualityArchitectureTest` 逐列锁定该写法。
+3. **单一写入所有权。** 除 `GenerationTraceMapper.completeRunningTask` 外不得有第二处 SQL 写这些列；
+   不新建独立情景记录表，也不为其新写一套 outbox —— 复用 `generation_task` 既有的租约与 fencing。

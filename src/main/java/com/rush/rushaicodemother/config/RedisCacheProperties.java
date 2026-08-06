@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.config;
 
 import jakarta.validation.constraints.AssertTrue;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
@@ -10,18 +10,19 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Redis 业务缓存过期策略。
+ * Redis 业务缓存的固定过期策略。
  */
 @Data
+@Component
 @Validated
-@ConfigurationProperties(prefix = "app.redis-cache")
 public class RedisCacheProperties {
 
-    private Duration defaultTtl = Duration.ofMinutes(30);
+    public static final Duration DEFAULT_TTL = Duration.ofMinutes(30);
+    public static final Map<String, Duration> CACHE_TTL = Map.of("good_app_page", Duration.ofMinutes(5));
 
-    private Map<String, Duration> cacheTtl = new LinkedHashMap<>(
-            Map.of("good_app_page", Duration.ofMinutes(5))
-    );
+    private Duration defaultTtl = DEFAULT_TTL;
+
+    private Map<String, Duration> cacheTtl = new LinkedHashMap<>(CACHE_TTL);
 
     /**
  * 校验当前配置项组合是否合法。

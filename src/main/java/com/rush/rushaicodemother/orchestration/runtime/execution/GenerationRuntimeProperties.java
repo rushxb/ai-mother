@@ -5,7 +5,6 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
@@ -13,54 +12,66 @@ import java.time.Duration;
 import java.util.EnumMap;
 
 /**
- * 模型、工具、构建和修复循环共享的任务范围执行控制。
+ * 模型、工具、构建和修复循环共享的任务范围固定执行控制。
  */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.generation-runtime")
 public class GenerationRuntimeProperties {
+
+    public static final Duration TASK_TIMEOUT = Duration.ofMinutes(10);
+    public static final Duration MODEL_CALL_TIMEOUT = Duration.ofMinutes(4);
+    public static final Duration MINIMUM_OPERATION_TIMEOUT = Duration.ofMillis(500);
+    public static final Duration FIRST_PREVIEW_COMPLETION_RESERVE = Duration.ofSeconds(10);
+    public static final Duration STREAM_SNAPSHOT_UPDATE_INTERVAL = Duration.ofSeconds(5);
+    public static final int STREAM_SNAPSHOT_MAX_CHARS = 20_000;
+    public static final int MAX_ROOT_MODEL_ATTEMPTS = 3;
+    public static final int MAX_MODEL_TURNS = 16;
+    public static final int MAX_PROVIDER_FAILOVER_ATTEMPTS = 4;
+    public static final int MAX_TOOL_WRITES = 80;
+    public static final int MAX_BUILD_EXECUTIONS = 2;
+    public static final int MAX_REPAIR_ROUNDS = 1;
 
     private static final Duration MIN_STREAM_SNAPSHOT_UPDATE_INTERVAL = Duration.ofMillis(100);
     private static final Duration MAX_STREAM_SNAPSHOT_UPDATE_INTERVAL = Duration.ofMinutes(1);
 
-    private Duration taskTimeout = Duration.ofMinutes(10);
+    private Duration taskTimeout = TASK_TIMEOUT;
 
-    private Duration modelCallTimeout = Duration.ofMinutes(4);
+    private Duration modelCallTimeout = MODEL_CALL_TIMEOUT;
 
-    private Duration minimumOperationTimeout = Duration.ofMillis(500);
+    private Duration minimumOperationTimeout = MINIMUM_OPERATION_TIMEOUT;
 
-    private Duration firstPreviewCompletionReserve = Duration.ofSeconds(10);
+    private Duration firstPreviewCompletionReserve = FIRST_PREVIEW_COMPLETION_RESERVE;
 
-    private Duration streamSnapshotUpdateInterval = Duration.ofSeconds(5);
+    private Duration streamSnapshotUpdateInterval = STREAM_SNAPSHOT_UPDATE_INTERVAL;
 
     @Min(1)
     @Max(100_000)
-    private int streamSnapshotMaxChars = 20_000;
+    private int streamSnapshotMaxChars = STREAM_SNAPSHOT_MAX_CHARS;
 
     @Min(1)
     @Max(10)
-    private int maxRootModelAttempts = 3;
+    private int maxRootModelAttempts = MAX_ROOT_MODEL_ATTEMPTS;
 
     @Min(1)
     @Max(100)
-    private int maxModelTurns = 16;
+    private int maxModelTurns = MAX_MODEL_TURNS;
 
     @Min(1)
     @Max(100)
-    private int maxProviderFailoverAttempts = 4;
+    private int maxProviderFailoverAttempts = MAX_PROVIDER_FAILOVER_ATTEMPTS;
 
     @Min(1)
     @Max(500)
-    private int maxToolWrites = 80;
+    private int maxToolWrites = MAX_TOOL_WRITES;
 
     @Min(1)
     @Max(20)
-    private int maxBuildExecutions = 2;
+    private int maxBuildExecutions = MAX_BUILD_EXECUTIONS;
 
     @Min(1)
     @Max(10)
-    private int maxRepairRounds = 1;
+    private int maxRepairRounds = MAX_REPAIR_ROUNDS;
 
     /**
  * 将当前对象转换为限制。

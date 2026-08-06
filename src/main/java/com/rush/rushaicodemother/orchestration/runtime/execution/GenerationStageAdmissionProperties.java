@@ -3,7 +3,6 @@ package com.rush.rushaicodemother.orchestration.runtime.execution;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import jakarta.validation.constraints.AssertTrue;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
@@ -12,37 +11,43 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.Stream;
 
-/** 允许在昂贵的发电阶段之前使用的最小剩余时间窗口。 */
+/** 允许在昂贵的生成阶段之前使用的固定最小剩余时间窗口。 */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.generation-stage-admission")
 public class GenerationStageAdmissionProperties {
 
+    public static final Duration MODEL_TURN_MINIMUM = Duration.ofSeconds(30);
+    public static final Duration MODEL_HANDOFF_RESERVE = Duration.ofSeconds(2);
+    public static final Duration REPAIR_MODEL_MINIMUM = Duration.ofSeconds(60);
+    public static final Duration BUILD_MINIMUM = Duration.ofSeconds(45);
+    public static final Duration RUNTIME_VALIDATION_MINIMUM = Duration.ofSeconds(15);
+    public static final Duration TERMINALIZATION_RESERVE = Duration.ofSeconds(10);
+
     /** 新模型回合至少需要具备的有效执行时间。 */
-    private Duration modelTurnMinimum = Duration.ofSeconds(30);
+    private Duration modelTurnMinimum = MODEL_TURN_MINIMUM;
 
     /** 模型阶段向构建阶段交接时保留的调度余量。 */
-    private Duration modelHandoffReserve = Duration.ofSeconds(2);
+    private Duration modelHandoffReserve = MODEL_HANDOFF_RESERVE;
 
     /** 可选自动修复回合的最小有用模型窗口。 */
-    private Duration repairModelMinimum = Duration.ofSeconds(60);
+    private Duration repairModelMinimum = REPAIR_MODEL_MINIMUM;
 
     /** 用于依赖项准备和项目构建验证的最小有用窗口。 */
-    private Duration buildMinimum = Duration.ofSeconds(45);
+    private Duration buildMinimum = BUILD_MINIMUM;
 
     /** 开发服务器启动和延迟错误收集的最小有用窗口。 */
-    private Duration runtimeValidationMinimum = Duration.ofSeconds(15);
+    private Duration runtimeValidationMinimum = RUNTIME_VALIDATION_MINIMUM;
 
     /** 为发布、生命周期持久性、收费和终端事件提供时间保护。 */
-    private Duration terminalizationReserve = Duration.ofSeconds(10);
+    private Duration terminalizationReserve = TERMINALIZATION_RESERVE;
 
     /**
  * 校验当前配置项组合是否合法。
  *
  * @return 满足条件时返回 {@code true}，否则返回 {@code false}
  */
-    @AssertTrue(message = "generation stage admission durations must all be greater than zero")
+    @AssertTrue(message = "生成阶段准入时间窗口必须全部大于 0")
     public boolean isConfigurationValid() {
         return Stream.of(
                         modelTurnMinimum,

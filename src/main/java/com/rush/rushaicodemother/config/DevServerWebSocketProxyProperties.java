@@ -2,31 +2,34 @@ package com.rush.rushaicodemother.config;
 
 import jakarta.validation.constraints.AssertTrue;
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-/** 预览 WebSocket 代理的有界连接、消息和反压限制。 */
+/** 预览 WebSocket 代理的固定连接、消息和反压限制。 */
 @Data
 @Component
 @Validated
-@ConfigurationProperties(prefix = "app.dev-server.websocket-proxy")
 public class DevServerWebSocketProxyProperties {
 
-    private Duration connectTimeout = Duration.ofSeconds(5);
-    private Duration sendTimeLimit = Duration.ofSeconds(10);
-    private DataSize sendBufferSize = DataSize.ofMegabytes(2);
-    private DataSize maxMessageSize = DataSize.ofMegabytes(1);
+    public static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
+    public static final Duration SEND_TIME_LIMIT = Duration.ofSeconds(10);
+    public static final DataSize SEND_BUFFER_SIZE = DataSize.ofMegabytes(2);
+    public static final DataSize MAX_MESSAGE_SIZE = DataSize.ofMegabytes(1);
 
-    @AssertTrue(message = "Dev Server WebSocket timeouts must be positive")
+    private Duration connectTimeout = CONNECT_TIMEOUT;
+    private Duration sendTimeLimit = SEND_TIME_LIMIT;
+    private DataSize sendBufferSize = SEND_BUFFER_SIZE;
+    private DataSize maxMessageSize = MAX_MESSAGE_SIZE;
+
+    @AssertTrue(message = "Dev Server WebSocket 超时必须全部大于 0")
     public boolean isTimeoutConfigurationValid() {
         return positive(connectTimeout) && positive(sendTimeLimit);
     }
 
-    @AssertTrue(message = "Dev Server WebSocket buffers must be positive and fit in a Java int")
+    @AssertTrue(message = "Dev Server WebSocket 缓冲区必须大于 0 且不超过 Java int 上限")
     public boolean isBufferConfigurationValid() {
         return validSize(sendBufferSize) && validSize(maxMessageSize);
     }

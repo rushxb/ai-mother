@@ -285,6 +285,14 @@ create table chat_history
         enhancedPrompt          mediumtext                         null comment '增强后的生成提示词',
         requiresBuildValidation tinyint     default 0              not null comment '是否需要构建校验',
         qualityGate             varchar(64)                        null comment '质量门禁级别',
+        thinkingMode            varchar(16)                        null comment '实际使用的思考档位',
+        changedFileCount        int                                null comment '有效变更文件数',
+        firstBuildPassed        tinyint                            null comment '是否免修复通过构建',
+        repairRounds            int                                null comment '实际修复轮次',
+        firstPreviewMillis      bigint                             null comment '提交到可预览耗时毫秒',
+        failureCategory         varchar(64)                        null comment '失败分类',
+        reworkedAt              datetime(6)                        null comment '交付后被追加改修的时间',
+        distilledAt             datetime(6)                        null comment '经验已蒸馏时间',
         orchestrationMode       varchar(64)                        null comment '编排模式',
         route                   varchar(64)                        null comment '运行时路由',
         runtimeSchemaVersion    int                                null comment '可重建执行命令 schema 版本',
@@ -339,6 +347,13 @@ create table chat_history
             (memoryIndexContractVersion, memoryIndexedAt, memoryIndexNextAttemptAt,
              memoryIndexLeaseUntil, memoryIndexAttempts, status, isDelete, endTime),
         INDEX idx_generation_task_tenant_runtime (tenantId, status, isDelete, submittedAt, id),
+        INDEX idx_generation_task_distill_claim (distilledAt, status, isDelete, endTime, id),
+        CONSTRAINT chk_generation_task_outcome_quality CHECK (
+            (changedFileCount IS NULL OR changedFileCount >= 0)
+                AND (repairRounds IS NULL OR repairRounds >= 0)
+                AND (firstPreviewMillis IS NULL OR firstPreviewMillis >= 0)
+                AND (firstBuildPassed IS NULL OR firstBuildPassed IN (0, 1))
+        ),
         CONSTRAINT chk_generation_task_idempotency_pair CHECK (
             (idempotencyKeyHash IS NULL AND requestFingerprint IS NULL)
                 OR (idempotencyKeyHash IS NOT NULL AND requestFingerprint IS NOT NULL)

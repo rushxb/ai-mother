@@ -29,7 +29,7 @@ class GenerationSessionConfigurationTest {
             .withUserConfiguration(GenerationSessionProperties.class);
 
     @Test
-    void applicationYamlMustBindProductionDefaults() {
+    void hardcodedDefaultsMustRemainBoundedForProduction() {
         contextRunner.run(context -> {
             assertThat(context).hasNotFailed();
             GenerationSessionProperties properties = context.getBean(GenerationSessionProperties.class);
@@ -41,21 +41,25 @@ class GenerationSessionConfigurationTest {
     }
 
     @Test
-    void environmentStyleOverridesMustBindAllSessionLimits() {
+    void externalOverridesMustNotChangeFixedSessionLimits() {
         contextRunner
                 .withPropertyValues(
-                        "GENERATION_SESSION_LOCK_STRIPES=32",
-                        "GENERATION_SESSION_MAX_TRACKED_SESSIONS=250",
-                        "GENERATION_SESSION_COMPLETED_REPLAY_RETENTION=45s",
-                        "GENERATION_SESSION_CLEANUP_INTERVAL=3s"
+                        "app.generation-session.lock-stripes=32",
+                        "app.generation-session.max-tracked-sessions=250",
+                        "app.generation-session.completed-replay-retention=45s",
+                        "app.generation-session.cleanup-interval=3s"
                 )
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     GenerationSessionProperties properties = context.getBean(GenerationSessionProperties.class);
-                    assertThat(properties.getLockStripes()).isEqualTo(32);
-                    assertThat(properties.getMaxTrackedSessions()).isEqualTo(250);
-                    assertThat(properties.getCompletedReplayRetention()).isEqualTo(Duration.ofSeconds(45));
-                    assertThat(properties.getCleanupInterval()).isEqualTo(Duration.ofSeconds(3));
+                    assertThat(properties.getLockStripes())
+                            .isEqualTo(GenerationSessionProperties.LOCK_STRIPES);
+                    assertThat(properties.getMaxTrackedSessions())
+                            .isEqualTo(GenerationSessionProperties.MAX_TRACKED_SESSIONS);
+                    assertThat(properties.getCompletedReplayRetention())
+                            .isEqualTo(GenerationSessionProperties.COMPLETED_REPLAY_RETENTION);
+                    assertThat(properties.getCleanupInterval())
+                            .isEqualTo(GenerationSessionProperties.CLEANUP_INTERVAL);
                 });
     }
 
@@ -66,19 +70,6 @@ class GenerationSessionConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(GenerationSessionRegistry.class);
-                });
-    }
-
-    @Test
-    void unsafeCleanupTimingMustFailContextStartup() {
-        contextRunner
-                .withPropertyValues(
-                        "GENERATION_SESSION_COMPLETED_REPLAY_RETENTION=10s",
-                        "GENERATION_SESSION_CLEANUP_INTERVAL=11s"
-                )
-                .run(context -> {
-                    assertThat(context).hasFailed();
-                    assertThat(context.getStartupFailure()).hasMessageContaining("app.generation-session");
                 });
     }
 }

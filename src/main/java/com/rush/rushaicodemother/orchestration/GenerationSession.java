@@ -151,6 +151,31 @@ public final class GenerationSession {
         }
     }
 
+    /**
+     * 用意图澄清后重算模型档位的计划替换已绑定计划。
+     *
+     * <p>只接受"仅模型档位与工具调用上限不同"的计划：SLA、路由、验证图、写工具预算
+     * 都在提交阶段冻结，任务运行期改写它们会绕过已通过的门禁。校验放在会话侧，
+     * 保证任何调用方都无法借这个入口偷换执行契约。</p>
+     */
+    public void rebindRefinedExecutionPlan(GenerationExecutionPlan refinedPlan) {
+        if (refinedPlan == null) {
+            return;
+        }
+        GenerationExecutionPlan existing = executionPlanRef.get();
+        if (existing == null) {
+            bindExecutionPlan(refinedPlan);
+            return;
+        }
+        if (existing.equals(refinedPlan)) {
+            return;
+        }
+        if (!existing.withModelProfile(refinedPlan.modelProfile()).equals(refinedPlan)) {
+            throw new IllegalStateException("精化执行计划只允许调整模型档位");
+        }
+        executionPlanRef.set(refinedPlan);
+    }
+
     public GenerationExecutionPlan executionPlan() {
         return executionPlanRef.get();
     }

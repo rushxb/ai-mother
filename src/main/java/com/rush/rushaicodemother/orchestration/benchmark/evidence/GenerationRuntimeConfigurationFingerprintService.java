@@ -49,6 +49,8 @@ import com.rush.rushaicodemother.orchestration.context.AgentConversationWindowPo
 import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
 import com.rush.rushaicodemother.orchestration.edit.EditStatePersistenceProperties;
 import com.rush.rushaicodemother.orchestration.dag.GenerationTaskSnapshotProperties;
+import com.rush.rushaicodemother.orchestration.intent.IntentAmbiguitySignal;
+import com.rush.rushaicodemother.orchestration.intent.IntentClarificationPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingTelemetryProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaProperties;
@@ -101,6 +103,7 @@ public class GenerationRuntimeConfigurationFingerprintService {
             "app.ai-model-capacity.fail-open",
             "app.ai-model-runtime.local-first-heavy-routing-enabled",
             "app.ai-model-runtime.first-token-hedge-enabled",
+            "app.ai-model-runtime.intent-clarification-enabled",
             "app.generated-code-sandbox.mode",
             "app.generated-code-sandbox.container.image",
             "app.generated-code-sandbox.container.user",
@@ -172,6 +175,8 @@ public class GenerationRuntimeConfigurationFingerprintService {
             GenerationCreditReservationProperties.class,
             GenerationEventStreamProperties.class,
             GenerationMemoryContextProperties.class,
+            IntentAmbiguitySignal.class,
+            IntentClarificationPolicy.class,
             GenerationMemoryOutboxProperties.class,
             GenerationRoutingTelemetryProperties.class,
             GenerationRuntimeProperties.class,

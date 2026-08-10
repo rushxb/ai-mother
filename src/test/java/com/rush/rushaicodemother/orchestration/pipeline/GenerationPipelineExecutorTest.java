@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationComp
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.intent.IntentClarificationStage;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -54,10 +55,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class GenerationPipelineExecutorTest {
 
@@ -70,6 +73,7 @@ class GenerationPipelineExecutorTest {
     private GenerationTaskLifecycleService taskLifecycleService;
     private GenerationOutcomeMemoryService outcomeMemoryService;
     private GenerationCompletionPolicy completionPolicy;
+    private IntentClarificationStage intentClarificationStage;
 
     @BeforeEach
     void setUp() {
@@ -83,6 +87,9 @@ class GenerationPipelineExecutorTest {
         outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
         // 栅栏守卫放行，使断言聚焦流水线终态编排；栅栏拒绝路径由完成门禁自身的测试覆盖。
         completionPolicy = new GenerationCompletionPolicy(mock(GenerationTaskFenceGuard.class));
+        // 澄清阶段默认原样返回请求，使断言聚焦流水线编排；澄清行为由其自身的测试覆盖。
+        intentClarificationStage = mock(IntentClarificationStage.class);
+        when(intentClarificationStage.apply(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -395,7 +402,8 @@ class GenerationPipelineExecutorTest {
         GenerationPipelineExecutor executor = new GenerationPipelineExecutor(
                 List.of(pipeline), eventPublisher, sessionRegistry, cleanupService,
                 runtimeLifecycleService, performanceMonitorService, workspaceReleaseService,
-                taskLifecycleService, outcomeMemoryService, completionPolicy);
+                taskLifecycleService, outcomeMemoryService, completionPolicy,
+                intentClarificationStage);
 
         executor.execute(request);
 
@@ -444,7 +452,7 @@ class GenerationPipelineExecutorTest {
         return new GenerationPipelineExecutor(
                 pipelines, eventPublisher, sessionRegistry, contextService, runtimeLifecycleService,
                 performanceMonitorService, workspaceReleaseService, taskLifecycleService,
-                outcomeMemoryService, completionPolicy);
+                outcomeMemoryService, completionPolicy, intentClarificationStage);
     }
 
     private GenerationPipeline pipeline(String route,

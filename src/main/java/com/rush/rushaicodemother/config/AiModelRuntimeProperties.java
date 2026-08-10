@@ -35,11 +35,14 @@ public class AiModelRuntimeProperties {
     public static final Duration ROOT_MODEL_RETRY_MAX_DELAY = Duration.ofSeconds(20);
     public static final double ROOT_MODEL_RETRY_JITTER = 0.35;
     public static final Duration CREATE_SPEC_TIMEOUT = Duration.ofSeconds(10);
+    /** 意图澄清只产出三个字段，超时刻意压到 8 秒：澄清失败沿用本地结论，不值得占用任务时间。 */
+    public static final Duration INTENT_CLARIFICATION_TIMEOUT = Duration.ofSeconds(8);
 
     private static final Duration MIN_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration MAX_ROUTING_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration MAX_GENERATION_TIMEOUT = Duration.ofMinutes(15);
     private static final Duration MAX_CREATE_SPEC_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration MAX_INTENT_CLARIFICATION_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration MIN_FIRST_SIGNAL_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration MAX_FIRST_SIGNAL_TIMEOUT = Duration.ofMinutes(2);
     private static final Duration MIN_FIRST_TOKEN_HEDGE_DELAY = Duration.ofMillis(250);
@@ -97,6 +100,11 @@ public class AiModelRuntimeProperties {
 
     private Duration createSpecTimeout = CREATE_SPEC_TIMEOUT;
 
+    /** 是否允许在本地意图解析出现多维歧义时，用小模型澄清一次。默认关闭，需灰度验证收益后开启。 */
+    private boolean intentClarificationEnabled;
+
+    private Duration intentClarificationTimeout = INTENT_CLARIFICATION_TIMEOUT;
+
     @AssertTrue(message = "AI 流式生成模型超时必须在 3 秒到 15 分钟之间")
     public boolean isGenerationTimeoutValid() {
         return isWithinRange(generationTimeout, MIN_TIMEOUT, MAX_GENERATION_TIMEOUT);
@@ -117,6 +125,12 @@ public class AiModelRuntimeProperties {
     @AssertTrue(message = "CREATE Spec 模型超时必须在 3 秒到 10 秒之间")
     public boolean isCreateSpecTimeoutValid() {
         return isWithinRange(createSpecTimeout, MIN_TIMEOUT, MAX_CREATE_SPEC_TIMEOUT);
+    }
+
+    @AssertTrue(message = "意图澄清模型超时必须在 3 秒到 15 秒之间")
+    public boolean isIntentClarificationTimeoutValid() {
+        return isWithinRange(
+                intentClarificationTimeout, MIN_TIMEOUT, MAX_INTENT_CLARIFICATION_TIMEOUT);
     }
 
     @AssertTrue(message = "首 Token 对冲延迟必须在 250 毫秒到 30 秒之间")

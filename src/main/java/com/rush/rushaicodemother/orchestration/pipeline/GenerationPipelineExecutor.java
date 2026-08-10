@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.intent.IntentClarificationStage;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
@@ -68,6 +69,7 @@ public class GenerationPipelineExecutor {
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationOutcomeMemoryService generationOutcomeMemoryService;
     private final GenerationCompletionPolicy generationCompletionPolicy;
+    private final IntentClarificationStage intentClarificationStage;
 
     /**
  * 执行生成流水线处理流程。
@@ -87,7 +89,12 @@ public class GenerationPipelineExecutor {
                     Duration.between(execution.submittedAt(), Instant.now()),
                     request.modeDecision().route()
             );
-            GenerationPipelineRequest currentRequest = request;
+            // 澄清放在路由循环之前：它只调整模型档位，不参与路由回退，
+            // 因此每个任务最多执行一次，回退重试不会重复付费。
+            GenerationPipelineRequest currentRequest = intentClarificationStage.apply(request);
+            if (currentRequest != request) {
+                execution.session().rebindRefinedExecutionPlan(currentRequest.executionPlan());
+            }
             for (int attempt = 1; attempt <= MAX_ROUTE_ATTEMPTS; attempt++) {
                 execution.session().throwIfCancelled();
                 GenerationPipeline pipeline = findPipeline(currentRequest);

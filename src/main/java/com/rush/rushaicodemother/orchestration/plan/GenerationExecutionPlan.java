@@ -68,6 +68,32 @@ public record GenerationExecutionPlan(
         );
     }
 
+    /**
+     * 在保留已冻结 SLA、路由与验证图的前提下，替换模型档位。
+     *
+     * <p>仅用于意图澄清后重新推导模型档位：档位只影响模型选择与工具调用上限，
+     * 不触碰 SLA 时限、写工具预算和验证等级，因此可以在任务运行时安全替换。</p>
+     */
+    public GenerationExecutionPlan withModelProfile(GenerationPerformanceProfile refinedModelProfile) {
+        Objects.requireNonNull(refinedModelProfile, "精化后的模型档位不能为空");
+        return new GenerationExecutionPlan(
+                route,
+                refinedModelProfile,
+                contextBudget,
+                new ToolPolicy(
+                        refinedModelProfile.maxToolInvocations(),
+                        toolPolicy.maxWriteOperations(),
+                        toolPolicy.writeOperationsRequireFence(),
+                        toolPolicy.destructiveOperationsRequireApproval()
+                ),
+                validationGraph,
+                repairBudget,
+                commitPolicy,
+                previewPolicy,
+                sla
+        );
+    }
+
     /** 上下文装配使用的令牌预算快照。 */
     public record ContextBudget(
             int generationMaxTokens,

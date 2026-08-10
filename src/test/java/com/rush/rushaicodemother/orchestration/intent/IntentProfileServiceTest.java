@@ -7,7 +7,10 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.RecordComponent;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -101,8 +104,14 @@ class IntentProfileServiceTest {
         assertTrue(oversizedProfile.requiresBackend());
         assertTrue(oversizedProfile.requiresDatabase());
         assertTrue(oversizedProfile.affectedScopes().contains(IntentAffectedScope.AUTHENTICATION));
-        assertTrue(IntentProfile.class.getRecordComponents().length == 9,
-                "意图画像不得保存原始提示词或其截断副本");
+        // 直接断言"没有任何文本类型字段"，而不是钉住字段数量：
+        // 数量断言会被任何合法新增字段误伤，却挡不住把某个字段悄悄换成提示词副本。
+        List<String> textComponents = Arrays.stream(IntentProfile.class.getRecordComponents())
+                .filter(component -> CharSequence.class.isAssignableFrom(component.getType()))
+                .map(RecordComponent::getName)
+                .toList();
+        assertTrue(textComponents.isEmpty(),
+                "意图画像不得保存原始提示词或其截断副本，违规字段: " + textComponents);
     }
     private GenerationTaskRequest request(String message) {
         App app = App.builder()

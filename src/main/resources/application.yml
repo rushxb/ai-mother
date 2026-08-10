@@ -90,6 +90,7 @@ app:
     routing-log-responses: ${AI_ROUTING_LOG_RESPONSES:false}
     local-first-heavy-routing-enabled: ${AI_LOCAL_FIRST_HEAVY_ROUTING_ENABLED:true}
     first-token-hedge-enabled: ${AI_FIRST_TOKEN_HEDGE_ENABLED:false}
+    intent-clarification-enabled: ${AI_INTENT_CLARIFICATION_ENABLED:false}
   ai-model-secrets:
     active-key-id: ${AI_MODEL_SECRET_ACTIVE_KEY_ID:}
     active-key: ${AI_MODEL_SECRET_ACTIVE_KEY:}

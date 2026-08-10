@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.plan;
 
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceSelector;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
@@ -89,5 +90,33 @@ public class GenerationExecutionPlanner {
                         sla.firstPreviewTimeout(), sla.firstPreviewCompletionReserve()),
                 sla
         );
+    }
+
+    /**
+     * 按精化后的意图画像重新推导模型档位，其余执行约束保持冻结。
+     *
+     * <p>提交阶段已经冻结 SLA、验证图与计费口径，任务运行期不允许再改；
+     * 但模型档位只影响模型选择与工具调用上限，意图澄清后重算能让"看起来简单、
+     * 实际复杂"的请求拿到匹配的模型，而不必重走一遍提交门禁。</p>
+     *
+     * @param frozenPlan 提交阶段冻结的执行计划
+     * @param refinedProfile 精化后的意图画像
+     * @param codeGenType 目标代码生成类型
+     * @return 仅替换模型档位后的执行计划；输入不完整时返回原计划
+     */
+    public GenerationExecutionPlan replanModelProfile(GenerationExecutionPlan frozenPlan,
+                                                     IntentProfile refinedProfile,
+                                                     CodeGenTypeEnum codeGenType) {
+        if (frozenPlan == null || refinedProfile == null) {
+            return frozenPlan;
+        }
+        GenerationPerformanceProfile refinedModelProfile = generationPerformanceSelector.select(
+                refinedProfile.operationType() == IntentOperationType.CREATE,
+                refinedProfile.semanticComplexity() != IntentSemanticComplexity.LOW,
+                codeGenType);
+        if (refinedModelProfile == null || refinedModelProfile.equals(frozenPlan.modelProfile())) {
+            return frozenPlan;
+        }
+        return frozenPlan.withModelProfile(refinedModelProfile);
     }
 }

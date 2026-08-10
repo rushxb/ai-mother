@@ -87,7 +87,9 @@ public class IntentProfileService {
             "architecture", "multi-tenant", "microservice", "distributed"
     );
     private static final List<String> HIGH_DESTRUCTIVE_KEYWORDS = List.of(
-            "全部删除", "删除全部", "清空", "全部重写", "从头重写", "推倒重来", "替换整个", "更换技术栈",
+            // "删除所有" 与 "删除全部" 在中文里同样常见，缺一个会让高危请求被判为中风险。
+            "全部删除", "删除全部", "删除所有", "所有删除", "清空", "全部重写", "从头重写", "推倒重来",
+            "替换整个", "更换技术栈",
             "换框架", "drop table", "drop database", "delete all", "remove all", "rewrite everything",
             "replace entire", "change framework"
     );
@@ -105,19 +107,23 @@ public class IntentProfileService {
         }
 
         boolean firstGeneration = workspace != null && !workspace.exists();
-        Set<IntentAffectedScope> scopes = detectScopes(normalizedMessage, codeGenType);
+        // 解析过程同步记录每个维度是"关键词命中"还是"走了兜底默认值"，
+        // 供上层判断是否值得为澄清意图额外付费。
+        ResolutionRecorder recorder = new ResolutionRecorder(normalizedMessage);
+        Set<IntentAffectedScope> scopes = detectScopes(normalizedMessage, codeGenType, recorder);
         boolean requiresDatabase = scopes.contains(IntentAffectedScope.DATABASE);
         boolean requiresBackend = requiresDatabase
                 || scopes.contains(IntentAffectedScope.BACKEND)
                 || scopes.contains(IntentAffectedScope.API)
                 || scopes.contains(IntentAffectedScope.AUTHENTICATION);
-        IntentOperationType operationType = detectOperationType(normalizedMessage, firstGeneration);
+        IntentOperationType operationType = detectOperationType(
+                normalizedMessage, firstGeneration, recorder);
         IntentDestructiveRisk destructiveRisk = detectDestructiveRisk(normalizedMessage);
         int expectedFileCount = estimateFileCount(
-                normalizedMessage, firstGeneration, scopes, requiresBackend, requiresDatabase);
+                normalizedMessage, firstGeneration, scopes, requiresBackend, requiresDatabase, recorder);
         IntentSemanticComplexity complexity = detectComplexity(
                 normalizedMessage, firstGeneration, scopes, requiresBackend, requiresDatabase,
-                destructiveRisk, expectedFileCount);
+                destructiveRisk, expectedFileCount, recorder);
         IntentValidationRisk validationRisk = detectValidationRisk(
                 operationType, scopes, complexity, destructiveRisk, requiresBackend, requiresDatabase);
         double confidence = calculateConfidence(
@@ -132,11 +138,45 @@ public class IntentProfileService {
                 destructiveRisk,
                 expectedFileCount,
                 validationRisk,
-                confidence
+                confidence,
+                recorder.toSignal()
         );
     }
 
-    private IntentOperationType detectOperationType(String message, boolean firstGeneration) {
+    /**
+     * 在一次解析过程中累积"哪些维度只能依赖兜底默认值"的事实。
+     *
+     * <p>只在检测方法真正走到兜底分支时登记，避免歧义信号退化为又一套关键词猜测。</p>
+     */
+    private static final class ResolutionRecorder {
+
+        private final EnumSet<IntentResolutionDimension> unresolved =
+                EnumSet.noneOf(IntentResolutionDimension.class);
+        private final boolean shortPrompt;
+        private boolean scopeFallback;
+
+        private ResolutionRecorder(String normalizedMessage) {
+            this.shortPrompt = normalizedMessage.length() < IntentAmbiguitySignal.SHORT_PROMPT_THRESHOLD;
+        }
+
+        private void markUnresolved(IntentResolutionDimension dimension) {
+            unresolved.add(dimension);
+        }
+
+        private void markScopeFallback() {
+            scopeFallback = true;
+            unresolved.add(IntentResolutionDimension.AFFECTED_SCOPE);
+        }
+
+        private IntentAmbiguitySignal toSignal() {
+            return new IntentAmbiguitySignal(unresolved, scopeFallback, shortPrompt);
+        }
+    }
+
+    private IntentOperationType detectOperationType(String message,
+                                                    boolean firstGeneration,
+                                                    ResolutionRecorder recorder) {
+        // 空工作区是客观事实而非推断，因此首次生成不算歧义。
         if (firstGeneration) {
             return IntentOperationType.CREATE;
         }
@@ -146,10 +186,16 @@ public class IntentProfileService {
         if (containsAny(message, EXPLAIN_KEYWORDS) && !containsAny(message, EDIT_ACTION_KEYWORDS)) {
             return IntentOperationType.EXPLAIN;
         }
+        if (!containsAny(message, EDIT_ACTION_KEYWORDS)) {
+            // 未出现任何显式动作词，EDIT 只是兜底猜测。
+            recorder.markUnresolved(IntentResolutionDimension.OPERATION_TYPE);
+        }
         return IntentOperationType.EDIT;
     }
 
-    private Set<IntentAffectedScope> detectScopes(String message, CodeGenTypeEnum codeGenType) {
+    private Set<IntentAffectedScope> detectScopes(String message,
+                                                  CodeGenTypeEnum codeGenType,
+                                                  ResolutionRecorder recorder) {
         EnumSet<IntentAffectedScope> scopes = EnumSet.noneOf(IntentAffectedScope.class);
         addScopeWhenMatched(scopes, IntentAffectedScope.FRONTEND, message, FRONTEND_KEYWORDS);
         addScopeWhenMatched(scopes, IntentAffectedScope.BACKEND, message, BACKEND_KEYWORDS);
@@ -162,9 +208,12 @@ public class IntentProfileService {
         addScopeWhenMatched(scopes, IntentAffectedScope.DOCUMENTATION, message, DOCUMENTATION_KEYWORDS);
 
         if (scopes.isEmpty() && codeGenType != null && codeGenType != CodeGenTypeEnum.HTML) {
+            // 未命中任何领域关键词，只能按工程类型假定为前端改动。
+            recorder.markScopeFallback();
             scopes.add(IntentAffectedScope.FRONTEND);
         }
         if (scopes.isEmpty()) {
+            recorder.markScopeFallback();
             scopes.add(IntentAffectedScope.UNKNOWN);
         }
         return Set.copyOf(scopes);
@@ -193,7 +242,8 @@ public class IntentProfileService {
                                   boolean firstGeneration,
                                   Set<IntentAffectedScope> scopes,
                                   boolean requiresBackend,
-                                  boolean requiresDatabase) {
+                                  boolean requiresDatabase,
+                                  ResolutionRecorder recorder) {
         if (containsAny(message, SINGLE_FILE_KEYWORDS)) {
             return 1;
         }
@@ -212,6 +262,8 @@ public class IntentProfileService {
         if (containsAny(message, LIGHT_EDIT_KEYWORDS)) {
             return 1;
         }
+        // 既无规模关键词也无轻量特征，只能按影响范围数量粗估。
+        recorder.markUnresolved(IntentResolutionDimension.EXPECTED_FILE_COUNT);
         return Math.max(2, scopes.size());
     }
 
@@ -221,7 +273,8 @@ public class IntentProfileService {
                                                        boolean requiresBackend,
                                                        boolean requiresDatabase,
                                                        IntentDestructiveRisk destructiveRisk,
-                                                       int expectedFileCount) {
+                                                       int expectedFileCount,
+                                                       ResolutionRecorder recorder) {
         if (containsAny(message, HIGH_COMPLEXITY_KEYWORDS)
                 || destructiveRisk == IntentDestructiveRisk.HIGH
                 || scopes.contains(IntentAffectedScope.INFRASTRUCTURE)
@@ -236,6 +289,10 @@ public class IntentProfileService {
                 && destructiveRisk == IntentDestructiveRisk.LOW
                 && containsAny(message, LIGHT_EDIT_KEYWORDS)) {
             return IntentSemanticComplexity.LOW;
+        }
+        // 首次生成的中等档由工作区状态决定，属于确定结论；其余情况是兜底默认值。
+        if (!firstGeneration) {
+            recorder.markUnresolved(IntentResolutionDimension.SEMANTIC_COMPLEXITY);
         }
         return IntentSemanticComplexity.MEDIUM;
     }

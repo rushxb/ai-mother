@@ -116,13 +116,12 @@ public class GenerationPreviewMilestoneService {
                                  String slaStatus) {
         try {
             // 两级预览分别记 span，避免暂定预览污染既有「已验证首预览」时序基线。
-            String stage = milestone.provisional()
-                    ? "time_to_provisional_preview"
-                    : "time_to_first_preview";
             performanceMonitorService.recordSpan(
-                    context.taskId(), stage, GenerationSpanCategory.PIPELINE,
+                    context.taskId(), milestone.level().spanStage(), GenerationSpanCategory.PIPELINE,
                     slaStatus, milestone.elapsed(), context.slaProfile());
-            metricsCollector.recordFirstPreviewDuration(route, target, slaStatus, milestone.elapsed());
+            // 指标同样按等级分序列：口径与 span 保持一致，否则仪表盘与 span 会给出两个结论。
+            metricsCollector.recordFirstPreviewDuration(
+                    route, target, slaStatus, milestone.level().wireValue(), milestone.elapsed());
             // SLA 结论每个任务只出一条，否则同一任务会产生两条互相矛盾的 first_preview 结论。
             // 优先由暂定预览裁定（它才是「用户多久看到东西」，也是首预览截止线的原意）；
             // 未发生暂定预览的链路（如 LIGHT_EDIT、HTML）仍由已验证预览兜底上报，避免指标缺失。

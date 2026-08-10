@@ -20,7 +20,8 @@ class GenerationOrchestrationMetricsCollectorTest {
         collector.recordAutoRepair("heavy", "build", "started");
         collector.recordRuntimeValidation("heavy", "vue_project", "PASS");
         collector.recordUserWaitDuration("heavy", "vue_project", "success", Duration.ofSeconds(3));
-        collector.recordFirstPreviewDuration("create", "vue_project", "met", Duration.ofSeconds(20));
+        collector.recordFirstPreviewDuration(
+                "create", "vue_project", "met", "verified", Duration.ofSeconds(20));
         collector.recordSlaOutcome("create", "first_preview", "met", "within_deadline");
         collector.recordStreamSnapshotWrite("persisted", Duration.ofMillis(5));
         collector.recordStreamSnapshotWrite("failed", Duration.ofMillis(7));
@@ -64,6 +65,7 @@ class GenerationOrchestrationMetricsCollectorTest {
                 .tag("orchestration_mode", "create")
                 .tag("target_type", "vue_project")
                 .tag("sla_status", "met")
+                .tag("preview_level", "verified")
                 .timer()
                 .count());
         assertEquals(1, meterRegistry.find("generation_sla_outcomes_total")

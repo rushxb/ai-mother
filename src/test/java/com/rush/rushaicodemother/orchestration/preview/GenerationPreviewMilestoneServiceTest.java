@@ -93,6 +93,35 @@ class GenerationPreviewMilestoneServiceTest {
                 "create", "first_preview", "met", "within_deadline");
     }
 
+    /**
+     * 两级预览必须落在不同的指标序列与不同的 span 阶段上。
+     *
+     * <p>同一个 EXPERT 任务会先后产生暂定与已验证两个样本。若指标不带 preview_level 标签，
+     * 二者会混进同一条时序，直方图变成双峰分布，分位数与告警阈值都失去意义 ——
+     * 而 P0-2 立项的理由正是「TTP 指标失真」。</p>
+     */
+    @Test
+    void provisionalAndVerifiedPreviewsMustNotShareTheSameMetricSeries() {
+        GenerationOrchestrationMetricsCollector metrics = mock(GenerationOrchestrationMetricsCollector.class);
+        GenerationPerformanceMonitorService performance = mock(GenerationPerformanceMonitorService.class);
+        GenerationPreviewMilestoneService service = new GenerationPreviewMilestoneService(
+                performance, metrics, mock(GenerationEventPublisher.class));
+        GenerationSession session = session();
+
+        service.publishProvisionalReady(session, CodeGenTypeEnum.VUE_PROJECT);
+        service.publishRuntimeReady(session, CodeGenTypeEnum.VUE_PROJECT);
+
+        verify(metrics, times(1)).recordFirstPreviewDuration(
+                eq("create"), eq("vue_project"), any(), eq("provisional"), any());
+        verify(metrics, times(1)).recordFirstPreviewDuration(
+                eq("create"), eq("vue_project"), any(), eq("verified"), any());
+        // span 阶段名与指标标签必须同口径，否则仪表盘与 span 会给出两个互相矛盾的结论。
+        verify(performance, times(1)).recordSpan(
+                any(), eq("time_to_provisional_preview"), any(), any(), any(), any());
+        verify(performance, times(1)).recordSpan(
+                any(), eq("time_to_first_preview"), any(), any(), any(), any());
+    }
+
     @Test
     void verifiedPreviewMustReportSlaWhenNoProvisionalPreviewHappened() {
         GenerationOrchestrationMetricsCollector metrics = mock(GenerationOrchestrationMetricsCollector.class);

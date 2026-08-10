@@ -447,27 +447,36 @@ public class GenerationOrchestrationMetricsCollector {
     }
 
     /**
- * 记录{@code First}预览时长相关指标或状态。
- *
- * @param orchestrationMode 编排模式
- * @param targetType 目标类型
- * @param status 目标状态
- * @param duration 目标时长
- */
+     * 记录首预览耗时。
+     *
+     * <p>{@code previewLevel} 必须携带：暂定预览与已验证预览是两种口径，
+     * 前者度量「用户多久看到东西」，后者度量「多久拿到可交付版本」，
+     * 同一个 EXPERT 任务会各贡献一个样本。若不按等级分序列，
+     * 直方图会成为双峰混合分布，分位数与告警阈值都失去意义。</p>
+     *
+     * @param orchestrationMode 编排模式
+     * @param targetType 目标类型
+     * @param status SLA 判定结果
+     * @param previewLevel 预览成熟度，取 {@code provisional} 或 {@code verified}
+     * @param duration 自任务开始到就绪的耗时
+     */
     public void recordFirstPreviewDuration(String orchestrationMode,
                                            String targetType,
                                            String status,
+                                           String previewLevel,
                                            Duration duration) {
         String mode = normalize(orchestrationMode);
         String type = normalize(targetType);
         String normalizedStatus = normalize(status);
-        String key = String.join(":", mode, type, normalizedStatus);
+        String level = normalize(previewLevel);
+        String key = String.join(":", mode, type, normalizedStatus, level);
         Timer timer = firstPreviewTimers.computeIfAbsent(key, unused ->
                 Timer.builder("generation_time_to_first_preview_seconds")
                         .description("Time from durable submission until the first usable preview")
                         .tag("orchestration_mode", mode)
                         .tag("target_type", type)
                         .tag("sla_status", normalizedStatus)
+                        .tag("preview_level", level)
                         .register(meterRegistry)
         );
         timer.record(nonNegative(duration));

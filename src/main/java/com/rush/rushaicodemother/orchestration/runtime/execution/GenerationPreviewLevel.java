@@ -14,14 +14,31 @@ public enum GenerationPreviewLevel {
      * <p>仅用于让用户尽早看到结果，<b>不构成完成证据、不触发计费、不写任务终态</b>。
      * 对应产物属于未发布的执行纪元，随时可能被纠偏重试覆盖或随任务失败作废。</p>
      */
-    PROVISIONAL,
+    PROVISIONAL("time_to_provisional_preview"),
 
     /**
      * 已验证预览：产物已通过验证并原子发布为用户可见版本。
      *
      * <p>这是交付语义上的「可用」，与完成证据和计费在同一条收口链路上。</p>
      */
-    VERIFIED;
+    VERIFIED("time_to_first_preview");
+
+    /**
+     * 该等级对应的遥测 span 阶段名。
+     *
+     * <p>由枚举自带而非由调用方分支判断：新增等级时只需在此登记，
+     * 记录侧无需再改。已验证等级刻意沿用历史名 {@code time_to_first_preview} ——
+     * 它是发布门禁与基准执行器的既有读取契约，改名会让历史数据与门禁失配。</p>
+     */
+    private final String spanStage;
+
+    GenerationPreviewLevel(String spanStage) {
+        this.spanStage = spanStage;
+    }
+
+    public String spanStage() {
+        return spanStage;
+    }
 
     /** 事件载荷与指标标签使用的稳定小写字面值，避免前端依赖枚举名大小写。 */
     public String wireValue() {

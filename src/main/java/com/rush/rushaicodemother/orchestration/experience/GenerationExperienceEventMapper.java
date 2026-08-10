@@ -173,15 +173,23 @@ public class GenerationExperienceEventMapper {
                 "dag", "planning", "context", "template", "architecture",
                 "create_spec_started", "create_spec_recipe", "recipe_group_started",
                 "route_fallback");
+        // 仅限「模型/模板确实在写代码」的内部阶段。注意 patch_apply / patch_applied 来自 CREATE
+        // 模板物化，属于实现期；而收尾产出的 patch 摘要同名不同义，已归入下方收口期。
         putAll(mappings, UserProgressStage.IMPLEMENTING,
-                "codegen", "patch", "patch_apply", "patch_applied", "diff", "commit",
+                "codegen", "patch_apply", "patch_applied",
                 "rollback", "recipe_default_rendered", "recipe_skeleton_only",
                 "create_recipe_unsupported", "create_spec_degraded",
                 "create_spec_execution_deferred", "create_spec_group_degraded",
                 "create_spec_preview_deadline_degraded", "create_spec_recipe_applied");
+        // 代码生成结束之后的收口期：验证、审查、差异摘要与提交。
+        //
+        // diff / patch / commit 曾被归入实现期，但它们由收尾链路发出，此时代码早已写完。
+        // 暂定预览把「已可预览」提前到验证窗口内之后，这个错分会让用户先看到「已可预览」
+        // 再看到「正在生成或修改代码」，读起来像生成重启了 —— 是不实陈述，不只是顺序回退。
         putAll(mappings, UserProgressStage.VERIFYING,
                 "quality", "buildfix", "pre_write_validation", "codegen_done",
-                "model_turn_admission", "orphan_review", "validation", "build");
+                "model_turn_admission", "validation", "build",
+                "orphan_review", "diff", "patch", "commit");
         return Map.copyOf(mappings);
     }
 

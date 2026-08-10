@@ -39,6 +39,13 @@ public final class GenerationExecutionContext {
     private final AtomicReference<String> cancellationReason = new AtomicReference<>();
     private final AtomicReference<String> terminalStatus = new AtomicReference<>();
     private final AtomicReference<Instant> firstPreviewReadyAt = new AtomicReference<>();
+    /**
+     * 首个「暂定可预览」时刻，与 {@link #firstPreviewReadyAt} 相互独立。
+     *
+     * <p>前者度量交付（已验证发布），后者度量体验（用户多久看到东西）。分开记录才能让 TTP
+     * 反映真实首屏，而不是恒等于任务总时长。</p>
+     */
+    private final AtomicReference<Instant> firstProvisionalPreviewAt = new AtomicReference<>();
     private final AtomicReference<GenerationExecutionFence> executionFence = new AtomicReference<>();
 
     /**
@@ -239,8 +246,36 @@ public final class GenerationExecutionContext {
                 readyAt,
                 firstPreviewDeadlineAt,
                 Duration.between(startedAt, readyAt),
-                readyAt.isAfter(firstPreviewDeadlineAt)
+                readyAt.isAfter(firstPreviewDeadlineAt),
+                GenerationPreviewLevel.VERIFIED
         );
+    }
+
+    /**
+     * 标记首个「暂定可预览」时刻。
+     *
+     * <p>与已验证发布互不干扰：即使暂定预览先发生，后续 {@link #markFirstPreviewReady()} 仍会
+     * 独立记录已验证时刻。SLA 判定沿用同一条首预览截止线，因为它约束的正是「用户多久看到东西」。</p>
+     *
+     * @return 首预览里程碑；{@code firstPublication} 为 {@code false} 表示本纪元已发过暂定预览
+     */
+    public GenerationFirstPreviewMilestone markProvisionalPreviewReady() {
+        Instant now = clock.instant();
+        boolean first = firstProvisionalPreviewAt.compareAndSet(null, now);
+        Instant readyAt = first ? now : firstProvisionalPreviewAt.get();
+        return new GenerationFirstPreviewMilestone(
+                first,
+                readyAt,
+                firstPreviewDeadlineAt,
+                Duration.between(startedAt, readyAt),
+                readyAt.isAfter(firstPreviewDeadlineAt),
+                GenerationPreviewLevel.PROVISIONAL
+        );
+    }
+
+    /** 首个暂定可预览时刻；尚未发布过暂定预览时返回 {@code null}。 */
+    public Instant firstProvisionalPreviewAt() {
+        return firstProvisionalPreviewAt.get();
     }
 
     public GenerationExecutionLimits limits() {

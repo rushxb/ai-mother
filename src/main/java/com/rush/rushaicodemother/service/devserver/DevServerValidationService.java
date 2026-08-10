@@ -55,7 +55,28 @@ public class DevServerValidationService {
             CodeGenTypeEnum codeGenType,
             GenerationExecutionFence executionFence
     ) {
+        return validate(taskId, appId, userId, codeGenType, executionFence, () -> { });
+    }
+
+    /**
+     * 运行验证，并在 Dev Server 就绪、尚未停止时回调一次。
+     *
+     * <p>回调点选在「已就绪、仍在运行」的窗口内：验证结束时 {@code finally} 会停掉本次调用创建的会话，
+     * 若等到验证返回后再通知，用户拿到的预览地址已经失效。回调异常被吞掉并记录，
+     * 因为它只承载体验增强，不得影响验证结论。</p>
+     *
+     * @param onDevServerReady Dev Server 就绪回调，在错误采集窗口开始前触发一次
+     */
+    public DevServerValidationResult validate(
+            String taskId,
+            Long appId,
+            Long userId,
+            CodeGenTypeEnum codeGenType,
+            GenerationExecutionFence executionFence,
+            Runnable onDevServerReady
+    ) {
         validateRequest(taskId, appId, userId, codeGenType);
+        Runnable readyCallback = onDevServerReady == null ? () -> { } : onDevServerReady;
         generationExecutionContextService.assertCanContinue(taskId);
         Duration startupTimeout = generationExecutionContextService.clampTimeout(
                 taskId,
@@ -105,6 +126,7 @@ public class DevServerValidationService {
             );
             log.info("Dev Server is ready, taskId={}, port={}; collecting delayed errors",
                     taskId, startResult.port());
+            notifyDevServerReady(taskId, readyCallback);
             if (!awaitErrorCollectionWindow(taskId, collectionWindow, collector)) {
                 return DevServerValidationResult.interrupted(taskId, appId, elapsedSince(startNanos));
             }
@@ -124,6 +146,16 @@ public class DevServerValidationService {
         } finally {
             stopOwnedSession(appId, startResult);
             devServerManager.unregisterErrorCollector(appId, collector);
+        }
+    }
+
+    /** 触发就绪回调；回调只承载体验增强，异常不得影响验证结论。 */
+    private void notifyDevServerReady(String taskId, Runnable onDevServerReady) {
+        try {
+            onDevServerReady.run();
+        } catch (RuntimeException exception) {
+            log.warn("Dev Server 就绪回调失败，验证流程继续执行，taskId={}, error={}",
+                    taskId, LogExceptionSanitizer.sanitizeMessage(exception));
         }
     }
 

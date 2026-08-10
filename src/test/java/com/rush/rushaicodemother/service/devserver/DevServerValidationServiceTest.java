@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,9 +19,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -31,6 +34,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -89,6 +93,63 @@ class DevServerValidationServiceTest {
         assertEquals(DevServerValidationResult.ValidationStatus.PASS, result.status());
         verify(manager).stopDevServer(11L);
         verify(manager).unregisterErrorCollector(11L, collectorReference.get());
+    }
+
+    @Test
+    void readyCallbackMustFireWhileDevServerIsStillRunning() {
+        when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                .thenReturn(new DevServerStartResult(5180, true));
+        AtomicReference<Boolean> stoppedWhenCallbackFired = new AtomicReference<>();
+        AtomicInteger callbackInvocations = new AtomicInteger();
+
+        DevServerValidationResult result = service.validate(
+                "task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT,
+                new GenerationExecutionFence("task-1", "owner-a", 1L),
+                () -> {
+                    callbackInvocations.incrementAndGet();
+                    // 若此刻已经 stop，用户拿到的预览地址就是失效的，暂定预览毫无意义。
+                    stoppedWhenCallbackFired.set(
+                            mockingDetails(manager).getInvocations().stream()
+                                    .anyMatch(invocation ->
+                                            "stopDevServer".equals(invocation.getMethod().getName())));
+                });
+
+        assertTrue(result.isPassed());
+        assertEquals(1, callbackInvocations.get());
+        assertEquals(Boolean.FALSE, stoppedWhenCallbackFired.get(),
+                "就绪回调必须在 Dev Server 停止之前触发");
+        verify(manager).stopDevServer(11L);
+    }
+
+    @Test
+    void readyCallbackFailureMustNotAffectValidationOutcome() {
+        when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                .thenReturn(new DevServerStartResult(5180, true));
+
+        DevServerValidationResult result = service.validate(
+                "task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT,
+                new GenerationExecutionFence("task-1", "owner-a", 1L),
+                () -> {
+                    throw new IllegalStateException("暂定预览通知失败");
+                });
+
+        assertEquals(DevServerValidationResult.ValidationStatus.PASS, result.status());
+        verify(manager).stopDevServer(11L);
+    }
+
+    @Test
+    void readyCallbackMustNotFireWhenStartupFails() {
+        when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                .thenThrow(new BusinessException(ErrorCode.OPERATION_ERROR, "启动失败"));
+        AtomicInteger callbackInvocations = new AtomicInteger();
+
+        DevServerValidationResult result = service.validate(
+                "task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT,
+                new GenerationExecutionFence("task-1", "owner-a", 1L),
+                callbackInvocations::incrementAndGet);
+
+        assertFalse(result.isPassed());
+        assertEquals(0, callbackInvocations.get(), "启动失败时不得通知用户可预览");
     }
 
     @Test

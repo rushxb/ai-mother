@@ -48,6 +48,19 @@ public record DevServerValidationResult(
     }
 
     /**
+     * Dev Server 是否成功启动（无论其后是否采集到运行时错误）。
+     *
+     * <p>比 {@link #isPassed()} 宽松：{@code RUNTIME_ERROR} 表示进程已起、页面已可访问，
+     * 只是采集到了控制台错误。用于判定「用户是否已经可以看到页面」这一体验事实，
+     * 与「产物是否可交付」的验证结论相互独立。启动失败、超时、中断和跳过都不算已启动。</p>
+     */
+    public boolean startedSuccessfully() {
+        return status == ValidationStatus.PASS
+                || status == ValidationStatus.WARNING
+                || failureKind == ValidationFailureKind.RUNTIME_ERROR;
+    }
+
+    /**
      * 转换为 SSE 事件 data 结构
      */
     public Map<String, Object> toEventData() {

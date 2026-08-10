@@ -21,6 +21,7 @@ import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
@@ -363,13 +364,21 @@ public class GenerationPipelineExecutor {
         return repairRounds == null ? null : Boolean.TRUE;
     }
 
-    /** 计算提交到首个可预览版本的耗时；未就绪时返回 {@code null}。 */
+    /**
+     * 计算提交到首个可预览版本的耗时（TTP）；未就绪时返回 {@code null}。
+     *
+     * <p>优先取「暂定可预览」时刻：TTP 度量的是用户多久看到东西。若只取已验证发布时刻，
+     * 该指标会恒等于任务总时长而失去诊断意义。未产生暂定预览的链路回落到已验证时刻。</p>
+     */
     private Long resolveFirstPreviewMillis(GenerationTaskExecution execution) {
         if (execution == null || execution.session() == null
                 || execution.session().executionContext() == null) {
             return null;
         }
-        Instant firstPreviewReadyAt = execution.session().executionContext().firstPreviewReadyAt();
+        GenerationExecutionContext context = execution.session().executionContext();
+        Instant firstPreviewReadyAt = context.firstProvisionalPreviewAt() == null
+                ? context.firstPreviewReadyAt()
+                : context.firstProvisionalPreviewAt();
         if (firstPreviewReadyAt == null || execution.submittedAt() == null) {
             return null;
         }

@@ -168,12 +168,20 @@ public class HeavyGenerationSessionCompletionService {
         return null;
     }
 
-    /** 计算提交到首个可预览版本的耗时；未就绪时返回 {@code null}。 */
+    /**
+     * 计算提交到首个可预览版本的耗时（TTP）；未就绪时返回 {@code null}。
+     *
+     * <p>优先取「暂定可预览」时刻，理由同 {@code GenerationPipelineExecutor}：TTP 度量用户多久看到东西，
+     * 只取已验证发布时刻会让该指标恒等于任务总时长。</p>
+     */
     private Long resolveFirstPreviewMillis(GenerationPreparation preparation, GenerationSession session) {
         if (session == null || session.executionContext() == null) {
             return null;
         }
-        java.time.Instant firstPreviewReadyAt = session.executionContext().firstPreviewReadyAt();
+        java.time.Instant firstPreviewReadyAt =
+                session.executionContext().firstProvisionalPreviewAt() == null
+                        ? session.executionContext().firstPreviewReadyAt()
+                        : session.executionContext().firstProvisionalPreviewAt();
         java.time.Instant startedAt = session.executionContext().startedAt();
         if (firstPreviewReadyAt == null || startedAt == null) {
             return null;

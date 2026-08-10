@@ -21,6 +21,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
+import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -89,7 +90,8 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     mock(HeavyGenerationSessionCompletionService.class),
                     new GenerationWorkspaceService(new CodeStorageProperties()),
                     projectBuildValidationService,
-                    mock(GenerationStageAdmissionService.class)
+                    mock(GenerationStageAdmissionService.class),
+                    mock(GenerationPreviewMilestoneService.class)
             );
             GenerationPreparation preparation = preparation(taskId, new HashMap<>());
             GenerationSession session = new GenerationSession(preparation);

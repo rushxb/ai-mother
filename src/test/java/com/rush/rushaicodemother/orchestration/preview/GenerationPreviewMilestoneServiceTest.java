@@ -69,6 +69,49 @@ class GenerationPreviewMilestoneServiceTest {
         assertEquals("首个可用构建产物已就绪", event.getText());
     }
 
+    @Test
+    void provisionalPreviewMustBeMarkedUnverifiedAndNotConsumeVerifiedMilestone() {
+        GenerationOrchestrationMetricsCollector metrics = mock(GenerationOrchestrationMetricsCollector.class);
+        GenerationPreviewMilestoneService service = new GenerationPreviewMilestoneService(
+                mock(GenerationPerformanceMonitorService.class),
+                metrics,
+                mock(GenerationEventPublisher.class)
+        );
+        GenerationSession session = session();
+
+        assertTrue(service.publishProvisionalReady(session, CodeGenTypeEnum.VUE_PROJECT));
+        // 暂定预览幂等：同一执行纪元内只通知一次。
+        assertFalse(service.publishProvisionalReady(session, CodeGenTypeEnum.VUE_PROJECT));
+        // 关键：暂定预览不得占用已验证里程碑，交付语义仍需独立发布。
+        assertTrue(service.publishRuntimeReady(session, CodeGenTypeEnum.VUE_PROJECT));
+
+        GenerationStreamEvent provisional = session.asFlux().blockFirst(Duration.ofSeconds(1));
+        assertEquals("provisional", provisional.getData().get("previewLevel"));
+        assertEquals(Boolean.FALSE, provisional.getData().get("verified"));
+        // SLA 结论每任务仅一条，由暂定预览裁定，避免同一任务出现两条互相矛盾的结论。
+        verify(metrics, times(1)).recordSlaOutcome(
+                "create", "first_preview", "met", "within_deadline");
+    }
+
+    @Test
+    void verifiedPreviewMustReportSlaWhenNoProvisionalPreviewHappened() {
+        GenerationOrchestrationMetricsCollector metrics = mock(GenerationOrchestrationMetricsCollector.class);
+        GenerationPreviewMilestoneService service = new GenerationPreviewMilestoneService(
+                mock(GenerationPerformanceMonitorService.class),
+                metrics,
+                mock(GenerationEventPublisher.class)
+        );
+        GenerationSession session = session();
+
+        // LIGHT_EDIT、HTML 等链路不产生暂定预览，SLA 指标不能因此缺失。
+        assertTrue(service.publishRuntimeReady(session, CodeGenTypeEnum.VUE_PROJECT));
+
+        GenerationStreamEvent event = session.asFlux().blockFirst(Duration.ofSeconds(1));
+        assertEquals(Boolean.TRUE, event.getData().get("verified"));
+        verify(metrics, times(1)).recordSlaOutcome(
+                "create", "first_preview", "met", "within_deadline");
+    }
+
     private GenerationSession session() {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {

@@ -37,6 +37,7 @@ import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.devserver.DevServerError;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
+import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -488,7 +489,8 @@ class HeavyGenerationRepairBudgetTest {
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 projectBuildValidationService,
-                stageAdmissionService()
+                stageAdmissionService(),
+                mock(GenerationPreviewMilestoneService.class)
         );
     }
 

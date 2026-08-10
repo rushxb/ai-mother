@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
@@ -47,6 +48,7 @@ public class HeavyGenerationBuildValidationService {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationProjectBuildValidationService projectBuildValidationService;
     private final GenerationStageAdmissionService generationStageAdmissionService;
+    private final GenerationPreviewMilestoneService generationPreviewMilestoneService;
 
     /**
  * 运行并{@code Auto}{@code Repair}处理流程。
@@ -296,9 +298,12 @@ public class HeavyGenerationBuildValidationService {
                 dsResult = devServerValidationService.validate(
                         preparation.taskId(), appId, loginUser.getId(), preparation.targetType());
             } else {
+                // Dev Server 就绪即证明工作区可渲染，是「用户可以先看到东西」的最早诚实信号。
+                // 回调在服务仍运行的窗口内触发；只发暂定预览事件，不构成完成证据、不计费、不写终态。
                 dsResult = devServerValidationService.validate(
                         preparation.taskId(), appId, loginUser.getId(), preparation.targetType(),
-                        session.executionContext().executionFence());
+                        session.executionContext().executionFence(),
+                        () -> publishProvisionalPreviewSafely(session, preparation.targetType()));
             }
         } catch (RuntimeException exception) {
             span.failed(LogExceptionSanitizer.sanitizeMessage(exception));
@@ -327,6 +332,21 @@ public class HeavyGenerationBuildValidationService {
             log.warn("Dev Server 运行时验证失败，appId: {}, summary: {}", appId, dsResult.summary());
         }
         return dsResult;
+    }
+
+    /**
+     * 发布暂定预览里程碑，失败不影响交付。
+     *
+     * <p>暂定预览纯属体验增强，任何异常都不得冒泡打断验证与发布链路。</p>
+     */
+    private void publishProvisionalPreviewSafely(GenerationSession session, CodeGenTypeEnum targetType) {
+        try {
+            generationPreviewMilestoneService.publishProvisionalReady(session, targetType);
+        } catch (RuntimeException exception) {
+            log.warn("暂定预览里程碑通知失败，生成流程继续执行，targetType: {}",
+                    targetType == null ? "unknown" : targetType.getValue(),
+                    LogExceptionSanitizer.sanitize(exception));
+        }
     }
 
     private record ValidationFailure(

@@ -56,7 +56,7 @@ class GenerationTaskOrchestratorPipelineTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.eq(GenerationTaskIdempotency.none()))).thenReturn(expected);
         GenerationTaskOrchestrator orchestrator = new GenerationTaskOrchestrator(
-                registry, router, context.workspaceService(), submissionService,
+                router, context.workspaceService(), submissionService,
                 mock(GenerationTaskControlService.class));
 
         GenerationTaskResult result = orchestrator.start(context.request());
@@ -76,7 +76,6 @@ class GenerationTaskOrchestratorPipelineTest {
         TestContext context = testContext();
         GenerationTaskSubmissionService submissionService = mock(GenerationTaskSubmissionService.class);
         GenerationTaskOrchestrator orchestrator = new GenerationTaskOrchestrator(
-                new GenerationSessionRegistry(new GenerationSessionProperties()),
                 mock(GenerationModeRouter.class),
                 context.workspaceService(),
                 submissionService,
@@ -92,7 +91,6 @@ class GenerationTaskOrchestratorPipelineTest {
         TestContext context = testContext();
         GenerationTaskControlService controlService = mock(GenerationTaskControlService.class);
         GenerationTaskOrchestrator orchestrator = new GenerationTaskOrchestrator(
-                new GenerationSessionRegistry(new GenerationSessionProperties()),
                 mock(GenerationModeRouter.class),
                 context.workspaceService(),
                 mock(GenerationTaskSubmissionService.class),

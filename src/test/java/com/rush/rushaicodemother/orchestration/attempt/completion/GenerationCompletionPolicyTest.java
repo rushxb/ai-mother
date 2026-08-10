@@ -26,9 +26,19 @@ class GenerationCompletionPolicyTest {
 
     private static final Instant NOW = Instant.parse("2026-08-04T00:00:00Z");
 
+    /**
+     * 构造只放行栅栏校验的完成门禁。
+     *
+     * <p>栅栏守卫是构造期强依赖，测试注入放行 mock，使断言聚焦于证据判定本身；
+     * 栅栏拒绝路径由 {@code staleExecutionFenceMustFailClosed} 单独覆盖。</p>
+     */
+    private static GenerationCompletionPolicy policyWithPassingFence() {
+        return new GenerationCompletionPolicy(mock(GenerationTaskFenceGuard.class));
+    }
+
     @Test
     void completeFastEvidenceMustAllowSuccess() {
-        GenerationCompletionPolicy policy = new GenerationCompletionPolicy();
+        GenerationCompletionPolicy policy = policyWithPassingFence();
 
         assertDoesNotThrow(() -> policy.requireCompletable(
                 sessionWithoutFence(),
@@ -44,7 +54,7 @@ class GenerationCompletionPolicyTest {
                 item(GenerationCompletionEvidenceType.FAST_VALIDATION)
         );
 
-        GenerationCompletionDecision decision = new GenerationCompletionPolicy().evaluate(
+        GenerationCompletionDecision decision = policyWithPassingFence().evaluate(
                 sessionWithoutFence(), graph(ExpectedValidationLevel.FAST), evidence);
 
         assertFalse(decision.completable());
@@ -59,13 +69,13 @@ class GenerationCompletionPolicyTest {
                 item(GenerationCompletionEvidenceType.FAST_VALIDATION)
         );
 
-        assertTrue(new GenerationCompletionPolicy().evaluate(
+        assertTrue(policyWithPassingFence().evaluate(
                 sessionWithoutFence(), graph(ExpectedValidationLevel.FAST), evidence).completable());
     }
 
     @Test
     void buildGraphMustRequireBuildEvidence() {
-        GenerationCompletionDecision decision = new GenerationCompletionPolicy().evaluate(
+        GenerationCompletionDecision decision = policyWithPassingFence().evaluate(
                 sessionWithoutFence(),
                 graph(ExpectedValidationLevel.BUILD),
                 evidence(ExpectedValidationLevel.FAST)
@@ -76,7 +86,7 @@ class GenerationCompletionPolicyTest {
 
     @Test
     void expertGraphMustRequireExpertEvidence() {
-        GenerationCompletionDecision decision = new GenerationCompletionPolicy().evaluate(
+        GenerationCompletionDecision decision = policyWithPassingFence().evaluate(
                 sessionWithoutFence(),
                 graph(ExpectedValidationLevel.EXPERT),
                 evidence(ExpectedValidationLevel.BUILD)
@@ -90,7 +100,7 @@ class GenerationCompletionPolicyTest {
         GenerationSession session = sessionWithoutFence();
         session.cancel("测试取消");
 
-        GenerationCompletionDecision decision = new GenerationCompletionPolicy().evaluate(
+        GenerationCompletionDecision decision = policyWithPassingFence().evaluate(
                 session, graph(ExpectedValidationLevel.FAST), evidence(ExpectedValidationLevel.FAST));
 
         assertTrue(decision.missing().contains(GenerationCompletionRequirement.RUNTIME_OWNERSHIP));

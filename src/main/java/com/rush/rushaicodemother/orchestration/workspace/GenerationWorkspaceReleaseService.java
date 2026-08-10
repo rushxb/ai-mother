@@ -49,17 +49,6 @@ public class GenerationWorkspaceReleaseService {
         return result;
     }
 
-    /**
-     * 兼容旧调用入口；新主链路必须通过 {@link #releaseVerified(GenerationSession, CodeGenTypeEnum)}
-     * 明确表达只有验证通过的工作区才允许发布。
-     */
-    @Deprecated(forRemoval = false)
-    public GenerationWorkspacePublicationResult release(
-            GenerationSession session,
-            CodeGenTypeEnum targetType
-    ) {
-        return releaseVerified(session, targetType);
-    }
     /** 发布{@code First}预览安全处理。 */
     private void publishFirstPreviewSafely(GenerationSession session, CodeGenTypeEnum targetType) {
         try {

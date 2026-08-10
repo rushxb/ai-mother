@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration;
 
 import cn.hutool.core.util.StrUtil;
-import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.App;
@@ -17,7 +16,6 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Flux;
 
 /**
  * 公共生成用例外观。
@@ -29,7 +27,6 @@ import reactor.core.publisher.Flux;
 @RequiredArgsConstructor
 public class GenerationTaskOrchestrator {
 
-    private final GenerationSessionRegistry generationSessionRegistry;
     private final GenerationModeRouter generationModeRouter;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationTaskSubmissionService generationTaskSubmissionService;
@@ -72,12 +69,6 @@ public class GenerationTaskOrchestrator {
                 routeSelection.intentProfile(),
                 routeSelection.decision()
         ), idempotency);
-    }
-
-    public Flux<GenerationStreamEvent> getStream(Long appId) {
-        GenerationSession session = generationSessionRegistry.get(appId);
-        ThrowUtils.throwIf(session == null, ErrorCode.OPERATION_ERROR, "当前应用没有可订阅的生成任务");
-        return session.asFlux();
     }
 
     public void stop(Long appId, User loginUser) {

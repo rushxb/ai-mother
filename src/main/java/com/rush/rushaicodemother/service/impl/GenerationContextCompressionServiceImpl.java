@@ -13,15 +13,9 @@ import java.util.List;
 @Service
 public class GenerationContextCompressionServiceImpl implements GenerationContextCompressionService {
 
-    private static final int MEMORY_CONTEXT_BUDGET = 3200;
     private static final int PROJECT_CONTEXT_BUDGET = 7000;
     private static final int FINAL_PROMPT_BUDGET = 18000;
     private static final int LONG_LINE_BUDGET = 900;
-
-    @Override
-    public String compressMemoryContext(String context) {
-        return compress(context, MEMORY_CONTEXT_BUDGET);
-    }
 
     @Override
     public String compressProjectContext(String context) {

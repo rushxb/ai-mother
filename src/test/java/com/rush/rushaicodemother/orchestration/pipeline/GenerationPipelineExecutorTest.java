@@ -13,6 +13,8 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -67,6 +69,7 @@ class GenerationPipelineExecutorTest {
     private GenerationWorkspaceReleaseService workspaceReleaseService;
     private GenerationTaskLifecycleService taskLifecycleService;
     private GenerationOutcomeMemoryService outcomeMemoryService;
+    private GenerationCompletionPolicy completionPolicy;
 
     @BeforeEach
     void setUp() {
@@ -78,6 +81,8 @@ class GenerationPipelineExecutorTest {
         workspaceReleaseService = mock(GenerationWorkspaceReleaseService.class);
         taskLifecycleService = mock(GenerationTaskLifecycleService.class);
         outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
+        // 栅栏守卫放行，使断言聚焦流水线终态编排；栅栏拒绝路径由完成门禁自身的测试覆盖。
+        completionPolicy = new GenerationCompletionPolicy(mock(GenerationTaskFenceGuard.class));
     }
 
     @Test
@@ -389,7 +394,8 @@ class GenerationPipelineExecutorTest {
         GenerationExecutionContextService cleanupService = mock(GenerationExecutionContextService.class);
         GenerationPipelineExecutor executor = new GenerationPipelineExecutor(
                 List.of(pipeline), eventPublisher, sessionRegistry, cleanupService,
-                runtimeLifecycleService, performanceMonitorService);
+                runtimeLifecycleService, performanceMonitorService, workspaceReleaseService,
+                taskLifecycleService, outcomeMemoryService, completionPolicy);
 
         executor.execute(request);
 
@@ -437,7 +443,8 @@ class GenerationPipelineExecutorTest {
     private GenerationPipelineExecutor executor(List<GenerationPipeline> pipelines) {
         return new GenerationPipelineExecutor(
                 pipelines, eventPublisher, sessionRegistry, contextService, runtimeLifecycleService,
-                performanceMonitorService, workspaceReleaseService, taskLifecycleService, outcomeMemoryService);
+                performanceMonitorService, workspaceReleaseService, taskLifecycleService,
+                outcomeMemoryService, completionPolicy);
     }
 
     private GenerationPipeline pipeline(String route,

@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
@@ -99,7 +100,9 @@ class AppServiceImplRegressionTest {
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
                 null,
                 null,
-                new GenerationWorkspaceService(new CodeStorageProperties())
+                new GenerationWorkspaceService(new CodeStorageProperties()),
+                // 本用例只反射校验事件载荷构造，不触达完成门禁；注入 mock 避免恢复 null 协作者。
+                mock(GenerationCompletionPolicy.class)
         );
         HeavyGenerationFailureRecoveryService failureRecoveryService = newFailureRecoveryService(
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()));

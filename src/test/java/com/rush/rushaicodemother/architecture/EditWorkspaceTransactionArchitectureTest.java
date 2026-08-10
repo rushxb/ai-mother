@@ -76,7 +76,9 @@ class EditWorkspaceTransactionArchitectureTest {
                 "pipeline", "GenerationPipelineExecutor.java")));
 
         assertTrue(releaseService.contains("releaseVerified("));
-        assertTrue(releaseService.contains("return releaseVerified(session, targetType)"));
+        // 旧的 release(...) 委托入口已删除：唯一发布入口必须是语义明确的 releaseVerified，
+        // 不允许再出现一个「未表达已验证语义」的同义方法供人误用。
+        assertFalse(releaseService.contains("GenerationWorkspacePublicationResult release("));
         assertTrue(heavyCoordinator.contains("workspaceReleaseService.releaseVerified("));
         assertTrue(pipelineExecutor.contains("workspaceReleaseService.releaseVerified("));
         assertFalse(heavyCoordinator.contains("workspaceReleaseService.release("));

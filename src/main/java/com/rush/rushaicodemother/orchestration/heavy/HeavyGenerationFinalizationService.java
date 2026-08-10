@@ -18,7 +18,6 @@ import com.rush.rushaicodemother.orchestration.review.OrphanFileReviewService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationCommitService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -39,8 +38,7 @@ public class HeavyGenerationFinalizationService {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationCompletionPolicy generationCompletionPolicy;
 
-    /** Spring 使用的完整构造器，完成门禁必须参与正式收尾链路。 */
-    @Autowired
+    /** 完成门禁必须参与正式收尾链路，因此栅栏校验是构造期强依赖。 */
     public HeavyGenerationFinalizationService(
             GenerationCommitService generationCommitService,
             GenerationDiffSummaryService generationDiffSummaryService,
@@ -57,26 +55,6 @@ public class HeavyGenerationFinalizationService {
         this.orphanFileReviewService = orphanFileReviewService;
         this.generationWorkspaceService = generationWorkspaceService;
         this.generationCompletionPolicy = generationCompletionPolicy;
-    }
-
-    /** 兼容既有非 Spring 测试；正式运行由完整构造器注入持久任务栅栏检查。 */
-    public HeavyGenerationFinalizationService(
-            GenerationCommitService generationCommitService,
-            GenerationDiffSummaryService generationDiffSummaryService,
-            GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector,
-            GenerationPatchResultService generationPatchResultService,
-            OrphanFileReviewService orphanFileReviewService,
-            GenerationWorkspaceService generationWorkspaceService
-    ) {
-        this(
-                generationCommitService,
-                generationDiffSummaryService,
-                generationOrchestrationMetricsCollector,
-                generationPatchResultService,
-                orphanFileReviewService,
-                generationWorkspaceService,
-                new GenerationCompletionPolicy()
-        );
     }
 
     /**

@@ -5,7 +5,6 @@ import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -24,15 +23,9 @@ public class GenerationCompletionPolicy {
 
     private final GenerationTaskFenceGuard generationTaskFenceGuard;
 
-    @Autowired
     public GenerationCompletionPolicy(GenerationTaskFenceGuard generationTaskFenceGuard) {
         this.generationTaskFenceGuard = Objects.requireNonNull(
                 generationTaskFenceGuard, "生成任务栅栏守卫不能为空");
-    }
-
-    /** 仅供不经过 Spring 的单元测试或旧式非托管调用使用。 */
-    public GenerationCompletionPolicy() {
-        this.generationTaskFenceGuard = null;
     }
 
     public GenerationCompletionDecision evaluate(
@@ -98,7 +91,7 @@ public class GenerationCompletionPolicy {
             GenerationExecutionFence fence = session.executionContext() == null
                     ? null
                     : session.executionContext().executionFence();
-            if (fence != null && generationTaskFenceGuard != null) {
+            if (fence != null) {
                 generationTaskFenceGuard.assertCurrent(fence);
             }
             return true;

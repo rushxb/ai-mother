@@ -68,55 +68,6 @@ public class GenerationPipelineExecutor {
     private final GenerationOutcomeMemoryService generationOutcomeMemoryService;
     private final GenerationCompletionPolicy generationCompletionPolicy;
 
-    /** 在发布之前创建的重点测试的兼容性构造函数成为强制性的。 */
-    public GenerationPipelineExecutor(
-            List<GenerationPipeline> generationPipelines,
-            GenerationEventPublisher generationEventPublisher,
-            GenerationSessionRegistry generationSessionRegistry,
-            GenerationExecutionContextService generationExecutionContextService,
-            GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
-            GenerationPerformanceMonitorService generationPerformanceMonitorService
-    ) {
-        this(
-                generationPipelines,
-                generationEventPublisher,
-                generationSessionRegistry,
-                generationExecutionContextService,
-                generationTaskRuntimeLifecycleService,
-                generationPerformanceMonitorService,
-                null,
-                null,
-                null,
-                new GenerationCompletionPolicy()
-        );
-    }
-
-    /** 兼容既有测试构造器；Spring 使用包含完成门禁的完整构造器。 */
-    public GenerationPipelineExecutor(
-            List<GenerationPipeline> generationPipelines,
-            GenerationEventPublisher generationEventPublisher,
-            GenerationSessionRegistry generationSessionRegistry,
-            GenerationExecutionContextService generationExecutionContextService,
-            GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
-            GenerationPerformanceMonitorService generationPerformanceMonitorService,
-            GenerationWorkspaceReleaseService workspaceReleaseService,
-            GenerationTaskLifecycleService generationTaskLifecycleService,
-            GenerationOutcomeMemoryService generationOutcomeMemoryService
-    ) {
-        this(
-                generationPipelines,
-                generationEventPublisher,
-                generationSessionRegistry,
-                generationExecutionContextService,
-                generationTaskRuntimeLifecycleService,
-                generationPerformanceMonitorService,
-                workspaceReleaseService,
-                generationTaskLifecycleService,
-                generationOutcomeMemoryService,
-                new GenerationCompletionPolicy()
-        );
-    }
-
     /**
  * 执行生成流水线处理流程。
  *
@@ -257,42 +208,38 @@ public class GenerationPipelineExecutor {
                     : request.executionPlan().validationGraph();
             generationCompletionPolicy.requireCompletable(
                     session, validationGraph, outcome.completionEvidence());
-            if (workspaceReleaseService != null) {
-                workspaceReleaseService.releaseVerified(
-                        session,
-                        session.executionWorkspace() == null
-                                ? request.codeGenType()
-                                : session.executionWorkspace().codeGenType()
-                );
-            }
+            workspaceReleaseService.releaseVerified(
+                    session,
+                    session.executionWorkspace() == null
+                            ? request.codeGenType()
+                            : session.executionWorkspace().codeGenType()
+            );
         }
-        if (generationTaskLifecycleService != null) {
-            GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, outcome, null);
-            Long appIdentity = request.taskRequest().app().getId();
-            // 未采集到任何指标时走既有签名，保持原调用契约不变。
-            boolean hasOutcomeQuality = !outcomeQuality.isEmpty();
-            if (status == GenerationTaskStatus.SUCCESS) {
-                if (hasOutcomeQuality) {
-                    generationTaskLifecycleService.completeGenerationAndCharge(
-                            execution.taskId(), appIdentity, status, null,
-                            outcome.resultSummary(), outcomeQuality);
-                } else {
-                    generationTaskLifecycleService.completeGenerationAndCharge(
-                            execution.taskId(), appIdentity, status, null, outcome.resultSummary());
-                }
+        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, outcome, null);
+        Long appIdentity = request.taskRequest().app().getId();
+        // 未采集到任何指标时走既有签名，保持原调用契约不变。
+        boolean hasOutcomeQuality = !outcomeQuality.isEmpty();
+        if (status == GenerationTaskStatus.SUCCESS) {
+            if (hasOutcomeQuality) {
+                generationTaskLifecycleService.completeGenerationAndCharge(
+                        execution.taskId(), appIdentity, status, null,
+                        outcome.resultSummary(), outcomeQuality);
             } else {
-                if (hasOutcomeQuality) {
-                    generationTaskLifecycleService.completeGeneration(
-                            execution.taskId(), appIdentity, status, outcome.reason(),
-                            outcome.resultSummary(), outcomeQuality);
-                } else {
-                    generationTaskLifecycleService.completeGeneration(
-                            execution.taskId(), appIdentity, status, outcome.reason(),
-                            outcome.resultSummary());
-                }
+                generationTaskLifecycleService.completeGenerationAndCharge(
+                        execution.taskId(), appIdentity, status, null, outcome.resultSummary());
             }
-            rememberOutcome(request, status, outcome.resultSummary());
+        } else {
+            if (hasOutcomeQuality) {
+                generationTaskLifecycleService.completeGeneration(
+                        execution.taskId(), appIdentity, status, outcome.reason(),
+                        outcome.resultSummary(), outcomeQuality);
+            } else {
+                generationTaskLifecycleService.completeGeneration(
+                        execution.taskId(), appIdentity, status, outcome.reason(),
+                        outcome.resultSummary());
+            }
         }
+        rememberOutcome(request, status, outcome.resultSummary());
         if (status == GenerationTaskStatus.SUCCESS) {
             generationEventPublisher.publishSafely(
                     request.taskRequest(), GenerationEventType.TASK_DONE, "生成任务已发布", Map.of(
@@ -345,25 +292,23 @@ public class GenerationPipelineExecutor {
                         "reason", terminalReason
                 )
         );
-        if (generationTaskLifecycleService != null) {
-            try {
-                GenerationOutcomeQuality outcomeQuality =
-                        resolveOutcomeQuality(execution, null, failure);
-                if (outcomeQuality.isEmpty()) {
-                    generationTaskLifecycleService.completeGeneration(
-                            execution.taskId(), request.taskRequest().app().getId(),
-                            outcome.taskStatus(), terminalReason, resultSummary);
-                } else {
-                    generationTaskLifecycleService.completeGeneration(
-                            execution.taskId(), request.taskRequest().app().getId(),
-                            outcome.taskStatus(), terminalReason, resultSummary, outcomeQuality);
-                }
-                rememberOutcome(request, outcome.taskStatus(), resultSummary);
-            } catch (RuntimeException lifecycleFailure) {
-                failure.addSuppressed(lifecycleFailure);
-                log.error("Failed to finalize application generation state, taskId: {}",
-                        execution.taskId(), LogExceptionSanitizer.sanitize(lifecycleFailure));
+        try {
+            GenerationOutcomeQuality outcomeQuality =
+                    resolveOutcomeQuality(execution, null, failure);
+            if (outcomeQuality.isEmpty()) {
+                generationTaskLifecycleService.completeGeneration(
+                        execution.taskId(), request.taskRequest().app().getId(),
+                        outcome.taskStatus(), terminalReason, resultSummary);
+            } else {
+                generationTaskLifecycleService.completeGeneration(
+                        execution.taskId(), request.taskRequest().app().getId(),
+                        outcome.taskStatus(), terminalReason, resultSummary, outcomeQuality);
             }
+            rememberOutcome(request, outcome.taskStatus(), resultSummary);
+        } catch (RuntimeException lifecycleFailure) {
+            failure.addSuppressed(lifecycleFailure);
+            log.error("Failed to finalize application generation state, taskId: {}",
+                    execution.taskId(), LogExceptionSanitizer.sanitize(lifecycleFailure));
         }
         generationPerformanceMonitorService.finishTask(execution.taskId(), outcome.status());
         finalizeRuntime(request, execution, session, outcome.taskStatus(), terminalReason);
@@ -436,8 +381,7 @@ public class GenerationPipelineExecutor {
     private void rememberOutcome(GenerationPipelineRequest request,
                                  GenerationTaskStatus status,
                                  String resultSummary) {
-        if (generationOutcomeMemoryService == null
-                || request.taskRequest() == null
+        if (request.taskRequest() == null
                 || request.taskRequest().app() == null
                 || request.taskRequest().app().getTenantId() == null
                 || request.taskRequest().loginUser() == null

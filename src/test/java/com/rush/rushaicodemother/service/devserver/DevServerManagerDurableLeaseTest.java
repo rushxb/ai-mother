@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionC
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +41,7 @@ class DevServerManagerDurableLeaseTest {
     private Path project;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
         DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
         dependencyInstaller = mock(ProjectDependencyInstaller.class);
         projectLocator = mock(DevServerProjectLocator.class);
@@ -59,6 +61,9 @@ class DevServerManagerDurableLeaseTest {
                 leaseCoordinator
         );
         project = Path.of("target", "durable-dev-server-test").toAbsolutePath().normalize();
+        // 目录必须真实存在：心跳巡检会把工作区已消失的会话判为不可用并回收，
+        // 用不存在的路径会让本类用例绕开真正要覆盖的租约语义。
+        Files.createDirectories(project);
         when(projectLocator.locate(any())).thenReturn(project);
         when(portAllocator.reserve(11L, null)).thenReturn(5180);
     }
@@ -109,6 +114,9 @@ class DevServerManagerDurableLeaseTest {
 
         manager.maintainSessionLeases();
 
+        // 断言续租确实被调用过：同一趟巡检还会回收工作区缺失或空闲的会话，
+        // 若不钉住这一点，本用例可能因为别的回收原因而“通过”，不再覆盖租约丢失路径。
+        verify(leaseCoordinator).renew(11L);
         verify(processRunner).stop(eq(processSession));
         verify(leaseCoordinator).release(eq(11L), any());
     }

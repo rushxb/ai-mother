@@ -19,7 +19,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DevServerPreviewRoutingServiceTest {
@@ -105,6 +108,65 @@ class DevServerPreviewRoutingServiceTest {
         assertFalse(session.running());
         assertEquals("unavailable", session.status());
         assertThrows(BusinessException.class, () -> service.requireLocalRunningPort(21L));
+    }
+
+    /**
+     * 本地路由直连回环、不经过内部跃点，因此活跃度必须在本地分支记账。
+     *
+     * <p>漏掉这一处，单节点部署下正在被观看的预览会被空闲回收误杀。</p>
+     */
+    @Test
+    void localRouteMustReportActivityToPostponeIdleReclamation() {
+        when(manager.getPort(21L)).thenReturn(5180);
+        when(registry.findByAppId(21L)).thenReturn(Optional.of(record(
+                "preview-node-a", "owner-a", DevServerSessionState.RUNNING, 5180, NOW.plusSeconds(30)
+        )));
+
+        service.requireRunningRoute(21L);
+
+        verify(manager).touchSession(21L);
+    }
+
+    /** 跨节点转发时，非所有者节点不得为它管不到的会话续命。 */
+    @Test
+    void remoteRouteMustNotReportActivityOnTheForwardingNode() {
+        when(manager.getPort(21L)).thenReturn(null);
+        when(registry.findByAppId(21L)).thenReturn(Optional.of(record(
+                "preview-node-b", "owner-b", DevServerSessionState.RUNNING, 5180, NOW.plusSeconds(30)
+        )));
+        when(nodeRouteResolver.resolve("preview-node-b"))
+                .thenReturn(URI.create("http://preview-node-b:8123/api"));
+
+        service.requireRunningRoute(21L);
+
+        verify(manager, never()).touchSession(any());
+    }
+
+    /** 跨节点流量最终落到所有者节点的这一跳，是远端预览唯一的活跃度来源。 */
+    @Test
+    void internalHopMustReportActivityOnTheOwnerNode() {
+        when(manager.getPort(21L)).thenReturn(5180);
+        when(registry.findByAppId(21L)).thenReturn(Optional.of(record(
+                "preview-node-a", "owner-a", DevServerSessionState.RUNNING, 5180, NOW.plusSeconds(30)
+        )));
+
+        service.requireLocalRunningPort(21L);
+
+        verify(manager).touchSession(21L);
+    }
+
+    /** 校验失败时不得记账，否则无效访问也能给会话续命。 */
+    @Test
+    void rejectedInternalHopMustNotReportActivity() {
+        when(manager.getPort(21L)).thenReturn(5180);
+        when(registry.findByAppId(21L)).thenReturn(Optional.of(record(
+                "preview-node-a", "different-owner", DevServerSessionState.RUNNING, 5180,
+                NOW.plusSeconds(30)
+        )));
+
+        assertThrows(BusinessException.class, () -> service.requireLocalRunningPort(21L));
+
+        verify(manager, never()).touchSession(any());
     }
 
     @Test

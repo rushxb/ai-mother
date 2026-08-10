@@ -16,6 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -29,6 +31,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
 
 /**
  * 应用 Dev Server 生命周期编排器。
@@ -52,6 +55,13 @@ public class DevServerManager {
     private final Map<Long, ManagedDevServerSession> sessions = new ConcurrentHashMap<>();
     private final ReentrantLock registryLock = new ReentrantLock();
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+    /**
+     * 空闲判定使用的单调时钟。
+     *
+     * <p>刻意不用 {@link java.time.Clock}：空闲时长是「经过了多久」而不是「几点」，
+     * 系统墙钟回拨会让基于 {@code Instant} 的判定瞬间误杀活跃会话。测试可注入固定推进的时间源。</p>
+     */
+    private final LongSupplier nanoTimeSource;
 
     /**
  * 创建开发服务器管理器实例并完成必要的依赖和初始状态设置。
@@ -76,6 +86,22 @@ public class DevServerManager {
             DevServerOutputHub outputHub,
             DevServerSessionLeaseCoordinator leaseCoordinator
     ) {
+        this(properties, projectDependencyInstaller, projectLocator, portAllocator,
+                bootstrapInjector, processRunner, outputHub, leaseCoordinator, System::nanoTime);
+    }
+
+    /** 创建开发服务器管理器实例，并允许注入空闲判定使用的单调时间源。 */
+    DevServerManager(
+            DevServerRuntimeProperties properties,
+            ProjectDependencyInstaller projectDependencyInstaller,
+            DevServerProjectLocator projectLocator,
+            DevServerPortAllocator portAllocator,
+            VisualEditorBootstrapInjector bootstrapInjector,
+            DevServerProcessRunner processRunner,
+            DevServerOutputHub outputHub,
+            DevServerSessionLeaseCoordinator leaseCoordinator,
+            LongSupplier nanoTimeSource
+    ) {
         this.properties = properties;
         this.projectDependencyInstaller = projectDependencyInstaller;
         this.projectLocator = projectLocator;
@@ -84,6 +110,7 @@ public class DevServerManager {
         this.processRunner = processRunner;
         this.outputHub = outputHub;
         this.leaseCoordinator = leaseCoordinator;
+        this.nanoTimeSource = nanoTimeSource;
     }
 
     /** 创建开发服务器管理器实例并完成必要的依赖和初始状态设置。 */
@@ -105,6 +132,30 @@ public class DevServerManager {
                 processRunner,
                 outputHub,
                 DevServerSessionLeaseCoordinator.noOp()
+        );
+    }
+
+    /** 创建开发服务器管理器实例，供空闲回收用例注入可控时间源。 */
+    DevServerManager(
+            DevServerRuntimeProperties properties,
+            ProjectDependencyInstaller projectDependencyInstaller,
+            DevServerProjectLocator projectLocator,
+            DevServerPortAllocator portAllocator,
+            VisualEditorBootstrapInjector bootstrapInjector,
+            DevServerProcessRunner processRunner,
+            DevServerOutputHub outputHub,
+            LongSupplier nanoTimeSource
+    ) {
+        this(
+                properties,
+                projectDependencyInstaller,
+                projectLocator,
+                portAllocator,
+                bootstrapInjector,
+                processRunner,
+                outputHub,
+                DevServerSessionLeaseCoordinator.noOp(),
+                nanoTimeSource
         );
     }
 
@@ -342,6 +393,24 @@ public class DevServerManager {
         return outputHub.recentLines(appId, limit);
     }
 
+    /**
+     * 记录一次预览访问，推迟该会话的空闲回收。
+     *
+     * <p>由预览路由收口调用：只有本节点持有的会话才可能被本节点回收，因此这里对未知
+     * {@code appId} 静默返回，跨节点的活跃度由所有者节点自己记账。</p>
+     *
+     * @param appId 应用编号
+     */
+    public void touchSession(Long appId) {
+        if (appId == null) {
+            return;
+        }
+        ManagedDevServerSession session = sessions.get(appId);
+        if (session != null) {
+            session.touch(nanoTimeSource.getAsLong());
+        }
+    }
+
     /** 处理{@code maintain}会话{@code Leases}。 */
     @Scheduled(fixedDelayString = "${app.dev-server.runtime.heartbeat-interval:10s}")
     public void maintainSessionLeases() {
@@ -350,6 +419,10 @@ public class DevServerManager {
         }
         for (ManagedDevServerSession session : new ArrayList<>(sessions.values())) {
             try {
+                // 先判可回收再续租：顺序颠倒会让本轮就该回收的会话反被续上一个租期。
+                if (reclaimIfUnusable(session)) {
+                    continue;
+                }
                 DevServerSessionLeaseCoordinator.LeaseStatus status =
                         leaseCoordinator.renew(session.appId());
                 if (status == DevServerSessionLeaseCoordinator.LeaseStatus.STOP_REQUESTED
@@ -363,6 +436,43 @@ public class DevServerManager {
                         session.appId(), LogExceptionSanitizer.sanitize(maintenanceFailure));
             }
         }
+    }
+
+    /**
+     * 回收已不再可用的运行中会话：长时间无人访问，或工作区目录已不在原处。
+     *
+     * <p>两种情形都必须主动收口。空闲会话若不回收，任何漏掉的停止（任务异常退出、用户直接
+     * 关掉预览页）都会让 Vite 进程、端口和单用户会话配额一直占用到 JVM 退出。工作区目录被
+     * 移走的情形更危险：发布会把执行工作区整体移动到版本目录，而 Linux 上 Vite 进程仍持有
+     * 旧 inode，此时预览既不报错也不更新，用户看到的是一份无声的过期内容。</p>
+     *
+     * <p>仅处理已进入运行态的会话：启动中的会话由启动线程自行收口，停止中的无需重复处理。</p>
+     *
+     * @return 是否已回收该会话
+     */
+    private boolean reclaimIfUnusable(ManagedDevServerSession session) {
+        if (!session.isRunning()) {
+            return false;
+        }
+        String reclaimReason = unusableReason(session);
+        if (reclaimReason == null) {
+            return false;
+        }
+        log.info("回收不可用的 Dev Server 会话，appId={}, reason={}", session.appId(), reclaimReason);
+        stopSession(session, false);
+        return true;
+    }
+
+    /** 返回会话不可用的原因，可用时返回 {@code null}。 */
+    private String unusableReason(ManagedDevServerSession session) {
+        if (!Files.isDirectory(session.projectDirectory(), LinkOption.NOFOLLOW_LINKS)) {
+            return "workspace_directory_missing";
+        }
+        Duration idleTimeout = properties.getIdleSessionTimeout();
+        if (idleTimeout != null && session.isIdleSince(nanoTimeSource.getAsLong(), idleTimeout)) {
+            return "idle_timeout";
+        }
+        return null;
     }
 
     /** 处理{@code destroy}。 */
@@ -501,7 +611,8 @@ public class DevServerManager {
                         userId,
                         projectDirectory,
                         port,
-                        environmentOverrides
+                        environmentOverrides,
+                        nanoTimeSource.getAsLong()
                 );
                 sessions.put(appId, session);
                 outputHub.prepare(appId);
@@ -799,6 +910,8 @@ public class DevServerManager {
         private final int port;
         private final Map<String, String> environmentOverrides;
         private final CompletableFuture<Void> startupCompletion = new CompletableFuture<>();
+        /** 最近一次被访问的时刻，用于空闲回收；写多读少且跨线程，用 volatile 足够。 */
+        private volatile long lastAccessNanos;
         private SessionState state = SessionState.STARTING;
         private DevServerProcessSession processSession;
 
@@ -807,7 +920,8 @@ public class DevServerManager {
                 Long userId,
                 Path projectDirectory,
                 int port,
-                Map<String, String> environmentOverrides
+                Map<String, String> environmentOverrides,
+                long createdAtNanos
         ) {
             this.appId = appId;
             this.userId = userId;
@@ -816,6 +930,17 @@ public class DevServerManager {
             this.environmentOverrides = environmentOverrides == null
                     ? Map.of()
                     : Map.copyOf(environmentOverrides);
+            // 以创建时刻作为初值：会话在首次被访问前也应享有完整的空闲宽限期。
+            this.lastAccessNanos = createdAtNanos;
+        }
+
+        private void touch(long nowNanos) {
+            lastAccessNanos = nowNanos;
+        }
+
+        /** 判断自 {@code lastAccessNanos} 起的静默时长是否已超过空闲上限。 */
+        private boolean isIdleSince(long nowNanos, Duration idleTimeout) {
+            return nowNanos - lastAccessNanos > idleTimeout.toNanos();
         }
 
         private Long appId() {

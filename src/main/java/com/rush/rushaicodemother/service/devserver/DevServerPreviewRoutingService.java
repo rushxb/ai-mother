@@ -98,11 +98,15 @@ public class DevServerPreviewRoutingService {
     }
 
     /**
- * 校验并返回有效的运行中{@code Route}。
- *
- * @param appId 应用编号
- * @return 运行中{@code Route}
- */
+     * 校验并返回有效的运行中路由，同时为本地会话记一次访问。
+     *
+     * <p>活跃度只在「本节点即所有者」的分支记账。远端分支此刻只是转发，真正的访问会在
+     * 所有者节点的 {@link #requireLocalRunningPort} 上再记一次，避免同一次访问被记两遍，
+     * 也避免非所有者节点为它管不到的会话续命。</p>
+     *
+     * @param appId 应用编号
+     * @return 运行中路由
+     */
     public DevServerPreviewRoute requireRunningRoute(Long appId) {
         DevServerPreviewSession session = findCurrent(appId)
                 .filter(DevServerPreviewSession::running)
@@ -111,6 +115,9 @@ public class DevServerPreviewRoutingService {
                         "Dev Server 未运行"
                 ));
         if (session.local()) {
+            // 本地路由直连回环，不经过内部跃点，因此活跃度必须在这里记账，
+            // 否则单节点部署下的预览会被空闲回收误杀。
+            devServerManager.touchSession(appId);
             return DevServerPreviewRoute.local(
                     appId, identityProvider.nodeId(), session.port());
         }
@@ -134,6 +141,8 @@ public class DevServerPreviewRoutingService {
                 || localPort != record.port()) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "Dev Server owner is unavailable");
         }
+        // 跨节点流量最终落到所有者节点的这一跳，是远端预览唯一的活跃度来源。
+        devServerManager.touchSession(appId);
         return localPort;
     }
 

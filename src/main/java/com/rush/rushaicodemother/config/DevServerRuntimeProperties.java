@@ -37,6 +37,7 @@ public class DevServerRuntimeProperties {
     public static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(10);
     public static final Duration RECOVERY_SCAN_INTERVAL = Duration.ofSeconds(15);
     public static final int RECOVERY_BATCH_SIZE = 50;
+    public static final Duration IDLE_SESSION_TIMEOUT = Duration.ofMinutes(20);
 
     /** Dev Server 从创建进程到确认就绪的最大时长。 */
     private Duration startupTimeout = STARTUP_TIMEOUT;
@@ -101,6 +102,15 @@ public class DevServerRuntimeProperties {
     @Max(500)
     private int recoveryBatchSize = RECOVERY_BATCH_SIZE;
 
+    /**
+     * 无人访问的 Dev Server 会话被回收前允许的最长空闲时长。
+     *
+     * <p>取值需要同时容纳两类正常间隙：用户读代码、切窗口造成的浏览器静默，以及生成链路
+     * 两轮修复之间的空档。取值过小会打断正在使用的预览，过大则让废弃会话继续占用端口、
+     * 进程和单用户会话配额。</p>
+     */
+    private Duration idleSessionTimeout = IDLE_SESSION_TIMEOUT;
+
     @AssertTrue(message = "Dev Server 运行时超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
         return configuredDurations()
@@ -125,8 +135,17 @@ public class DevServerRuntimeProperties {
                 stopTimeout,
                 leaseDuration,
                 heartbeatInterval,
-                recoveryScanInterval
+                recoveryScanInterval,
+                idleSessionTimeout
         );
+    }
+
+    @AssertTrue(message = "Dev Server 空闲回收时长必须大于租约续期间隔")
+    public boolean isIdleSessionTimeoutSafe() {
+        // 空闲判定由心跳巡检推进，若小于心跳间隔，一次巡检就可能误杀刚建立的会话。
+        return idleSessionTimeout != null
+                && heartbeatInterval != null
+                && idleSessionTimeout.compareTo(heartbeatInterval) > 0;
     }
 
     @AssertTrue(message = "Dev Server heartbeat interval must be shorter than its ownership lease")

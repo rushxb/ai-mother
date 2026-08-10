@@ -81,6 +81,24 @@ class DevServerRuntimePropertiesTest {
         assertFalse(validator.validate(properties).isEmpty());
     }
 
+    /** 空闲判定由心跳巡检推进，短于心跳间隔时一次巡检就可能误杀刚建立的会话。 */
+    @Test
+    void shouldRejectIdleTimeoutShorterThanTheHeartbeatThatEvaluatesIt() {
+        DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
+        properties.setIdleSessionTimeout(Duration.ofSeconds(5));
+        properties.setHeartbeatInterval(Duration.ofSeconds(10));
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
+    void shouldRejectIdleTimeoutBeyondTheRuntimeUpperBound() {
+        DevServerRuntimeProperties properties = new DevServerRuntimeProperties();
+        properties.setIdleSessionTimeout(Duration.ofHours(2));
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
     @Test
     void shouldRejectNodeIdentityThatCannotBeSafelyRouted() {
         DevServerRuntimeProperties properties = new DevServerRuntimeProperties();

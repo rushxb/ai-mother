@@ -19,6 +19,9 @@
 - 路由按现有工程约定实现；已有 Vue 3 模板默认继续使用 hash 模式。
 - Node.js 18+ 兼容。
 - 样式、图标、字体、滚动和动效默认遵守 `frontend-design` skill；改修项目优先沿用现有项目约定。
+- 禁止直接访问 `localStorage` / `sessionStorage`：预览产物运行在 CSP sandbox 中，直接访问会抛
+  SecurityError 并导致整页白屏。统一改用 `@/lib/safe-storage` 导出的 `safeLocalStorage`
+  （接口与 Storage 一致，沙箱下自动退化为内存存储）。若该文件不存在则先创建它。
 
 ## 组件库架构
 

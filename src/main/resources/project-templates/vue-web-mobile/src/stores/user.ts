@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { UserInfo, LoginParams } from '@/types'
+import { safeLocalStorage } from '@/lib/safe-storage'
 
 export const useUserStore = defineStore('user', () => {
   // State
@@ -48,7 +49,7 @@ export const useUserStore = defineStore('user', () => {
 }, {
   persist: {
     key: 'user-store',
-    storage: localStorage,
+    storage: safeLocalStorage,
     paths: ['token']
   }
 })

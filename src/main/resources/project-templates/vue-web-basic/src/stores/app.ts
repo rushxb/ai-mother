@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import { safeLocalStorage } from '@/lib/safe-storage'
 
 export const useAppStore = defineStore('app', () => {
   // State
@@ -45,7 +46,7 @@ export const useAppStore = defineStore('app', () => {
 }, {
   persist: {
     key: 'app-store',
-    storage: localStorage,
+    storage: safeLocalStorage,
     paths: ['theme', 'locale', 'sidebarCollapsed']
   }
 })

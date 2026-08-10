@@ -115,6 +115,54 @@ class DevServerProxyServiceTest {
 
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
+    void previewMustBeSandboxedAndOverrideUpstreamContentSecurityPolicy() throws Exception {
+        DevServerProxyProperties properties = new DevServerProxyProperties();
+        HttpClient httpClient = mock(HttpClient.class);
+        HttpResponse upstreamResponse = mock(HttpResponse.class);
+        when(upstreamResponse.statusCode()).thenReturn(200);
+        when(upstreamResponse.body()).thenReturn(
+                new ByteArrayInputStream("<html></html>".getBytes(StandardCharsets.UTF_8)));
+        // 用户的 vite 配置可能自行下发宽松 CSP，平台策略必须覆盖而不是叠加。
+        when(upstreamResponse.headers()).thenReturn(java.net.http.HttpHeaders.of(
+                Map.of(
+                        "Content-Type", List.of("text/html"),
+                        "Content-Security-Policy", List.of("default-src *")
+                ),
+                (name, value) -> true
+        ));
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(upstreamResponse);
+        DevServerProxyService service = new DevServerProxyService(
+                properties,
+                new ProxyHeaderPolicy(),
+                mock(DevServerInternalRequestSigner.class),
+                new DevServerPreviewTargetResolver(new DevServerPreviewPathFactory("/api")),
+                httpClient
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/index.html");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        service.proxy(
+                DevServerPreviewRoute.local(21L, "preview-node-a", 5173),
+                "/index.html",
+                null,
+                request,
+                response
+        );
+
+        List<String> policies = response.getHeaders("Content-Security-Policy");
+        assertEquals(1, policies.size(), "平台必须是 CSP 的唯一来源，不得与上游策略叠加");
+        String policy = policies.getFirst();
+        assertFalse(policy.contains("default-src *"), "上游宽松策略必须被覆盖");
+        assertTrue(policy.contains("sandbox "), "预览产物必须启用 sandbox");
+        assertFalse(policy.contains("allow-same-origin"), "预览产物不得获得同源权限");
+        // 预览需要保留 Vite HMR，因此按 scheme 放通 WebSocket，但仍不允许 HTTP 外发。
+        assertTrue(policy.contains("connect-src ws: wss:"), "预览必须保留 HMR WebSocket 通道");
+        assertEquals("SAMEORIGIN", response.getHeader("X-Frame-Options"));
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
     void remoteRouteMustUseServerGeneratedSignatureAndDropForgedInternalHeaders() throws Exception {
         DevServerProxyProperties properties = new DevServerProxyProperties();
         HttpClient httpClient = mock(HttpClient.class);

@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.infrastructure.security.GeneratedContentSecurityPolicy;
 import com.rush.rushaicodemother.config.DevServerProxyProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -295,10 +296,24 @@ public class DevServerProxyService {
                 response.addHeader(headerName, value);
             }
         });
+        applyGeneratedContentSecurityPolicy(response);
         response.setContentLengthLong(body.length);
         if (body.length > 0) {
             response.getOutputStream().write(body);
         }
+    }
+
+    /**
+     * 以平台策略覆盖生成产物的安全响应头。
+     *
+     * <p>用 {@code setHeader} 而非 {@code addHeader}：dev server 或用户 vite 配置可能已下发自己的
+     * CSP，多个 CSP 头会按最严格交集生效之外还可能被绕过，这里必须由平台策略单一决定。</p>
+     */
+    private void applyGeneratedContentSecurityPolicy(HttpServletResponse response) {
+        response.setHeader(
+                GeneratedContentSecurityPolicy.CONTENT_SECURITY_POLICY_HEADER,
+                GeneratedContentSecurityPolicy.PREVIEW_CONTENT_SECURITY_POLICY);
+        GeneratedContentSecurityPolicy.ADDITIONAL_HEADERS.forEach(response::setHeader);
     }
 
     /** 写入错误。 */

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.controller;
 
+import com.rush.rushaicodemother.infrastructure.security.GeneratedContentSecurityPolicy;
 import com.rush.rushaicodemother.service.artifact.DeploymentArtifactResourceService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.io.FileSystemResource;
@@ -70,11 +71,14 @@ public class StaticResourceController {
         try {
             Path resourcePath = deploymentArtifactResourceService.resolve(deployKey, relativePath);
             MediaType contentType = resolveContentType(resourcePath);
-            return ResponseEntity.ok()
+            ResponseEntity.BodyBuilder response = ResponseEntity.ok()
                     .contentType(contentType)
                     .cacheControl(CacheControl.noStore())
-                    .header("X-Content-Type-Options", "nosniff")
-                    .body(new FileSystemResource(resourcePath));
+                    // 生成产物与平台 API 同源，必须沙箱隔离后再交给浏览器执行。
+                    .header(GeneratedContentSecurityPolicy.CONTENT_SECURITY_POLICY_HEADER,
+                            GeneratedContentSecurityPolicy.CONTENT_SECURITY_POLICY);
+            GeneratedContentSecurityPolicy.ADDITIONAL_HEADERS.forEach(response::header);
+            return response.body(new FileSystemResource(resourcePath));
         } catch (NoSuchFileException exception) {
             return ResponseEntity.notFound().build();
         } catch (IllegalArgumentException exception) {

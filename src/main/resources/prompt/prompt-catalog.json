@@ -35,7 +35,7 @@
       "defaultVersion": "v2",
       "versions": [
         { "version": "v1", "resource": "prompt/codegen-full-stack-project-system-prompt.txt", "sha256": "fca4498eae953bb099919d1a7a16e9f19dd89ac360d58adeb4f2a1fcce62f994" },
-        { "version": "v2", "resource": "prompt/codegen-full-stack-project-system-prompt-v2.txt", "sha256": "209eaddbf259b39aca4ee0d1bdf4dcc734ad32a3e7e9c6f9a73368d1e1611f53" }
+        { "version": "v2", "resource": "prompt/codegen-full-stack-project-system-prompt-v2.txt", "sha256": "2163ef4567681cd820556f8cf51a619c1aa2b4cad33f3b75f81e00edb9a9fd8f" }
       ]
     },
     {
@@ -63,8 +63,8 @@
       "key": "codegen-vue-project",
       "defaultVersion": "v2",
       "versions": [
-        { "version": "v1", "resource": "prompt/codegen-vue-project-system-prompt.txt", "sha256": "b8aca637ab141e5809081f71b643a7f842c0a3a8fd183e5e06502ea364d46bdf" },
-        { "version": "v2", "resource": "prompt/codegen-vue-project-system-prompt-v2.txt", "sha256": "b1119296aeda22970b45ae33014539a511eda8018b2131aed14c2421922655b4" }
+        { "version": "v1", "resource": "prompt/codegen-vue-project-system-prompt.txt", "sha256": "20e25a2e7e1e3420c50e24983a8be64148a7956f4fdf796f71e3cb5df0f69b92" },
+        { "version": "v2", "resource": "prompt/codegen-vue-project-system-prompt-v2.txt", "sha256": "dae072b90c4fd6d7be5fab2e497090ce2ee2e835545399284cbdd10744b2d731" }
       ]
     },
     {

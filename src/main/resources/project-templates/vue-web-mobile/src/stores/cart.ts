@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Product } from '@/data/mock'
+import { safeLocalStorage } from '@/lib/safe-storage'
 
 export interface CartItem {
   product: Product
@@ -60,7 +61,7 @@ export const useCartStore = defineStore('cart', () => {
 }, {
   persist: {
     key: 'cart-store',
-    storage: localStorage,
+    storage: safeLocalStorage,
     paths: ['items']
   }
 })

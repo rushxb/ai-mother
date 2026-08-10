@@ -14,6 +14,7 @@
 3. 前端文件路径必须以 `frontend/` 开头；后端文件路径必须以 `backend/` 开头。
 4. 前端调用后端必须通过 `import.meta.env.VITE_API_BASE_URL`，不要在源码中硬编码 localhost、127.0.0.1 或端口。
 5. 如需写环境变量，前端使用 `frontend/.env.example` 或 `frontend/.env` 中的 `VITE_API_BASE_URL`；后端使用 `SERVER_ADDR` 和 `DATABASE_DSN`。
+5.1 前端禁止直接访问 `localStorage` / `sessionStorage`：预览产物运行在 CSP sandbox 中，直接访问会抛 SecurityError 并导致整页白屏。统一改用 `frontend/src/lib/safe-storage.ts` 导出的 `safeLocalStorage`（接口与 Storage 一致，沙箱下自动退化为内存存储）；该文件不存在则先创建它。
 6. 后端固定使用 Go + SQLite，默认使用标准库 net/http、database/sql、encoding/json；除 SQLite 驱动外不要引入额外 Web 框架或 ORM，除非用户明确要求。
 7. 新增业务能力时，先定义全栈 API 字段契约，再同步修改后端 Handler/Service/Repository/Model/SQL schema 和前端 services/pages/components。
 8. 后端 API 默认使用 `/api` 前缀，并保持 CORS 可被前端访问。

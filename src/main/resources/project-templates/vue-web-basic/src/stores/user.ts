@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { useRouter } from 'vue-router'
 import type { UserInfo, LoginParams } from '@/types'
 import request from '@/services/request'
+import { safeLocalStorage } from '@/lib/safe-storage'
 
 export const useUserStore = defineStore('user', () => {
   const router = useRouter()
@@ -57,7 +58,7 @@ export const useUserStore = defineStore('user', () => {
 }, {
   persist: {
     key: 'user-store',
-    storage: localStorage,
+    storage: safeLocalStorage,
     paths: ['token']
   }
 })

@@ -25,6 +25,8 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalStatus;
+import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutionPlanner;
+import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutor;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
 import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpoint;
@@ -89,6 +91,8 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
     private final GenerationAgentTurnPolicy generationAgentTurnPolicy;
     private final GenerationAgentConversationInitializer conversationInitializer;
     private final GenerationAgentCompletionPolicy generationAgentCompletionPolicy;
+    private final ToolBatchExecutionPlanner toolBatchExecutionPlanner;
+    private final ToolBatchExecutor toolBatchExecutor;
 
     /**
      * 创建默认智能体运行时，并注入模型调用、工具治理、审批恢复和短期记忆依赖。
@@ -107,6 +111,8 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
      * @param generationStageAdmissionService 生成阶段准入服务
      * @param generationAgentTurnPolicy 智能体轮次策略
      * @param conversationInitializer 短期会话初始化器
+     * @param toolBatchExecutionPlanner 工具批次分段规划器
+     * @param toolBatchExecutor 工具批次执行器
      */
     public DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
                                          ToolManager toolManager,
@@ -121,13 +127,16 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                          CompletedToolCallContextCompactor completedToolCallContextCompactor,
                                          GenerationStageAdmissionService generationStageAdmissionService,
                                          GenerationAgentTurnPolicy generationAgentTurnPolicy,
-                                         GenerationAgentConversationInitializer conversationInitializer) {
+                                         GenerationAgentConversationInitializer conversationInitializer,
+                                         ToolBatchExecutionPlanner toolBatchExecutionPlanner,
+                                         ToolBatchExecutor toolBatchExecutor) {
         this(chatMemoryStore, toolManager, streamingModelFactory, toolExecutionFailurePolicy,
                 toolApprovalService, toolExecutionContextService, performanceMonitorService,
                 aiToolInvocationPolicy, conversationCodec, modelCallSupervisor,
                 completedToolCallContextCompactor, generationStageAdmissionService,
                 generationAgentTurnPolicy, conversationInitializer,
-                new GenerationAgentCompletionPolicy());
+                new GenerationAgentCompletionPolicy(),
+                toolBatchExecutionPlanner, toolBatchExecutor);
     }
 
     @Autowired
@@ -145,7 +154,9 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                          GenerationStageAdmissionService generationStageAdmissionService,
                                          GenerationAgentTurnPolicy generationAgentTurnPolicy,
                                          GenerationAgentConversationInitializer conversationInitializer,
-                                         GenerationAgentCompletionPolicy generationAgentCompletionPolicy) {
+                                         GenerationAgentCompletionPolicy generationAgentCompletionPolicy,
+                                         ToolBatchExecutionPlanner toolBatchExecutionPlanner,
+                                         ToolBatchExecutor toolBatchExecutor) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolManager = toolManager;
         this.streamingModelFactory = streamingModelFactory;
@@ -162,6 +173,10 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
         this.conversationInitializer = conversationInitializer;
         this.generationAgentCompletionPolicy = Objects.requireNonNull(
                 generationAgentCompletionPolicy, "智能体完成判定策略不能为空");
+        this.toolBatchExecutionPlanner = Objects.requireNonNull(
+                toolBatchExecutionPlanner, "工具批次分段规划器不能为空");
+        this.toolBatchExecutor = Objects.requireNonNull(
+                toolBatchExecutor, "工具批次执行器不能为空");
     }
 
     DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
@@ -182,7 +197,10 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                          new ObjectMapper(), new ChatMemoryProperties()),
                  generationStageAdmissionService,
                  new GenerationAgentTurnPolicy(),
-                 null);
+                 null,
+                 new GenerationAgentCompletionPolicy(),
+                 new ToolBatchExecutionPlanner(toolManager),
+                 new ToolBatchExecutor());
     }
 
     @Override
@@ -557,17 +575,27 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                     }
                     boolean anyToolErrored = false;
                     List<ReturnBehavior> returnBehaviors = new ArrayList<>();
-                    for (int index = 0; index < aiMessage.toolExecutionRequests().size(); index++) {
-                        ToolExecutionRequest toolRequest = aiMessage.toolExecutionRequests().get(index);
-                        sink.next(toolCallEvent(toolRequest, index));
-                        ToolExecutionResult result = executeToolWithSpan(
-                                state,
-                                invocationContext,
-                                toolRequest,
-                                () -> toolService.executeTool(
-                                        invocationContext, toolService.toolExecutors(),
-                                        toolRequest, null, null)
-                        );
+                    List<ToolExecutionRequest> toolRequests = aiMessage.toolExecutionRequests();
+                    // 工具调用事件先按原序发出，用户看到的调用顺序与模型请求顺序一致。
+                    for (int index = 0; index < toolRequests.size(); index++) {
+                        sink.next(toolCallEvent(toolRequests.get(index), index));
+                    }
+                    // 只读工具并发执行，写/破坏性工具保持串行；结果按原序回填。
+                    List<ToolExecutionResult> results = toolBatchExecutor.execute(
+                            toolBatchExecutionPlanner.plan(toolRequests),
+                            toolRequests.size(),
+                            indexed -> executeToolWithSpan(
+                                    state,
+                                    invocationContext,
+                                    indexed.request(),
+                                    () -> toolService.executeTool(
+                                            invocationContext, toolService.toolExecutors(),
+                                            indexed.request(), null, null)
+                            )
+                    );
+                    for (int index = 0; index < toolRequests.size(); index++) {
+                        ToolExecutionRequest toolRequest = toolRequests.get(index);
+                        ToolExecutionResult result = results.get(index);
                         memory.add(toResultMessage(toolRequest, result));
                         sink.next(toolResultEvent(toolRequest, result));
                         anyToolErrored = anyToolErrored || result.isError();

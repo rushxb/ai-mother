@@ -35,6 +35,8 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredEx
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
+import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutionPlanner;
+import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutor;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalStatus;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
@@ -135,7 +137,9 @@ class DefaultGenerationAgentRuntimeTest {
                 compactor,
                 stageAdmissionService(),
                 new GenerationAgentTurnPolicy(),
-                initializer
+                initializer,
+                new ToolBatchExecutionPlanner(toolManager),
+                new ToolBatchExecutor()
         );
         GenerationExecutionContext executionContext = executionContext();
         assumeWorkspaceMutation(executionContext);
@@ -200,7 +204,9 @@ class DefaultGenerationAgentRuntimeTest {
                 compactor,
                 stageAdmissionService(),
                 new GenerationAgentTurnPolicy(),
-                initializer
+                initializer,
+                new ToolBatchExecutionPlanner(toolManager),
+                new ToolBatchExecutor()
         );
         GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
                 11L,
@@ -307,7 +313,9 @@ class DefaultGenerationAgentRuntimeTest {
                 compactor,
                 stageAdmissionService(),
                 new GenerationAgentTurnPolicy(),
-                initializer
+                initializer,
+                new ToolBatchExecutionPlanner(toolManager),
+                new ToolBatchExecutor()
         );
         GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
                 11L,

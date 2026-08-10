@@ -28,6 +28,8 @@ import com.rush.rushaicodemother.orchestration.tool.AiToolInvocationPolicy;
 import com.rush.rushaicodemother.orchestration.tool.CompletedToolCallContextCompactor;
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentTurnPolicy;
 import com.rush.rushaicodemother.orchestration.tool.DurableToolConversationCodec;
+import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutionPlanner;
+import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutor;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
@@ -96,6 +98,8 @@ class ProductionAiWiringTest {
                     DurableToolConversationCodec.class,
                     GenerationAgentPromptResolver.class,
                     GenerationAgentConversationInitializer.class,
+                    ToolBatchExecutionPlanner.class,
+                    ToolBatchExecutor.class,
                     DefaultGenerationAgentRuntime.class,
                     AiModelMonitorListener.class,
                     GenerationModelInvocationCancellationBridge.class,

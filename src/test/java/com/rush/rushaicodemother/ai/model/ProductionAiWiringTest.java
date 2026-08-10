@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.model;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
 import com.rush.rushaicodemother.ai.provenance.AiModelProvenanceFactory;
@@ -14,6 +15,12 @@ import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationAgentCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationFolder;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationTokenAccountant;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationWindowPolicy;
+import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
+import com.rush.rushaicodemother.orchestration.context.OpenAiCompatibleContextTokenEstimator;
+import com.rush.rushaicodemother.orchestration.context.ToolRoundPathExtractor;
 import com.rush.rushaicodemother.orchestration.runtime.agent.DefaultGenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentConversationInitializer;
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentPromptResolver;
@@ -88,6 +95,8 @@ class ProductionAiWiringTest {
                     () -> mock(ToolApprovalService.class))
             .withBean(GenerationStageAdmissionService.class,
                     () -> mock(GenerationStageAdmissionService.class))
+            // 对话折叠依赖真实 JSON 解析器提取工具参数中的文件路径，不能用 mock 替代。
+            .withBean(ObjectMapper.class, ObjectMapper::new)
             .withUserConfiguration(
                     AiModelCircuitBreakerProperties.class,
                     AiModelCircuitBreaker.class,
@@ -97,6 +106,12 @@ class ProductionAiWiringTest {
                     GenerationToolExecutionContextService.class,
                     DurableToolConversationCodec.class,
                     GenerationAgentPromptResolver.class,
+                    AiContextPackBudgetProperties.class,
+                    OpenAiCompatibleContextTokenEstimator.class,
+                    ToolRoundPathExtractor.class,
+                    AgentConversationFolder.class,
+                    AgentConversationTokenAccountant.class,
+                    AgentConversationWindowPolicy.class,
                     GenerationAgentConversationInitializer.class,
                     ToolBatchExecutionPlanner.class,
                     ToolBatchExecutor.class,

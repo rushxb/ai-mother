@@ -16,7 +16,6 @@ import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexServi
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
-import com.rush.rushaicodemother.service.impl.GenerationContextCompressionServiceImpl;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -62,7 +61,7 @@ class GenerationWorkspaceIndexSnapshotTest {
                 new GenerationRecipeLibrary(),
                 new GenerationSkillLibrary(),
                 new WorkspaceSemanticIndexService(fileSystemService),
-                new GenerationContextCompressionServiceImpl(),
+                GenerationAgentTestFixture.contextCompressionService(),
                 new GenerationWorkspaceService(storageProperties),
                 new GeneratedProjectContextService(
                         fileSystemService, new GenerationProjectContextProperties())

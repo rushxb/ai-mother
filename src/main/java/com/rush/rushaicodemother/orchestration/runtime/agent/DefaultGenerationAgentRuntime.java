@@ -9,6 +9,12 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationAgentCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationFolder;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationTokenAccountant;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationWindowPolicy;
+import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
+import com.rush.rushaicodemother.orchestration.context.OpenAiCompatibleContextTokenEstimator;
+import com.rush.rushaicodemother.orchestration.context.ToolRoundPathExtractor;
 import com.rush.rushaicodemother.orchestration.progress.ReasoningProgressTracker;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
@@ -39,7 +45,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.memory.ChatMemory;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -74,8 +79,6 @@ import java.util.function.Supplier;
 @Component
 public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
 
-    private static final int HEAVY_CHAT_MEMORY_MESSAGES = 12;
-
     private final ChatMemoryStore chatMemoryStore;
     private final ToolManager toolManager;
     private final StreamingModelFactory streamingModelFactory;
@@ -93,6 +96,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
     private final GenerationAgentCompletionPolicy generationAgentCompletionPolicy;
     private final ToolBatchExecutionPlanner toolBatchExecutionPlanner;
     private final ToolBatchExecutor toolBatchExecutor;
+    private final AgentConversationWindowPolicy conversationWindowPolicy;
 
     /**
      * 创建默认智能体运行时，并注入模型调用、工具治理、审批恢复和短期记忆依赖。
@@ -113,6 +117,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
      * @param conversationInitializer 短期会话初始化器
      * @param toolBatchExecutionPlanner 工具批次分段规划器
      * @param toolBatchExecutor 工具批次执行器
+     * @param conversationWindowPolicy 短期记忆窗口策略
      */
     public DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
                                          ToolManager toolManager,
@@ -129,14 +134,15 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                          GenerationAgentTurnPolicy generationAgentTurnPolicy,
                                          GenerationAgentConversationInitializer conversationInitializer,
                                          ToolBatchExecutionPlanner toolBatchExecutionPlanner,
-                                         ToolBatchExecutor toolBatchExecutor) {
+                                         ToolBatchExecutor toolBatchExecutor,
+                                         AgentConversationWindowPolicy conversationWindowPolicy) {
         this(chatMemoryStore, toolManager, streamingModelFactory, toolExecutionFailurePolicy,
                 toolApprovalService, toolExecutionContextService, performanceMonitorService,
                 aiToolInvocationPolicy, conversationCodec, modelCallSupervisor,
                 completedToolCallContextCompactor, generationStageAdmissionService,
                 generationAgentTurnPolicy, conversationInitializer,
                 new GenerationAgentCompletionPolicy(),
-                toolBatchExecutionPlanner, toolBatchExecutor);
+                toolBatchExecutionPlanner, toolBatchExecutor, conversationWindowPolicy);
     }
 
     @Autowired
@@ -156,7 +162,8 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                          GenerationAgentConversationInitializer conversationInitializer,
                                          GenerationAgentCompletionPolicy generationAgentCompletionPolicy,
                                          ToolBatchExecutionPlanner toolBatchExecutionPlanner,
-                                         ToolBatchExecutor toolBatchExecutor) {
+                                         ToolBatchExecutor toolBatchExecutor,
+                                         AgentConversationWindowPolicy conversationWindowPolicy) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolManager = toolManager;
         this.streamingModelFactory = streamingModelFactory;
@@ -177,6 +184,8 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                 toolBatchExecutionPlanner, "工具批次分段规划器不能为空");
         this.toolBatchExecutor = Objects.requireNonNull(
                 toolBatchExecutor, "工具批次执行器不能为空");
+        this.conversationWindowPolicy = Objects.requireNonNull(
+                conversationWindowPolicy, "短期记忆窗口策略不能为空");
     }
 
     DefaultGenerationAgentRuntime(ChatMemoryStore chatMemoryStore,
@@ -200,7 +209,18 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                  null,
                  new GenerationAgentCompletionPolicy(),
                  new ToolBatchExecutionPlanner(toolManager),
-                 new ToolBatchExecutor());
+                 new ToolBatchExecutor(),
+                 defaultConversationWindowPolicy());
+    }
+
+    /** 构造测试用的窗口策略，保持与生产装配一致的折叠语义。 */
+    private static AgentConversationWindowPolicy defaultConversationWindowPolicy() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        return new AgentConversationWindowPolicy(
+                new AgentConversationFolder(new ToolRoundPathExtractor(objectMapper)),
+                new AgentConversationTokenAccountant(
+                        new OpenAiCompatibleContextTokenEstimator(
+                                new AiContextPackBudgetProperties())));
     }
 
     @Override
@@ -757,17 +777,19 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
         if (state.durableConversation() != null) {
             List<ChatMessage> messages = conversationCodec.restore(
                     state.durableConversation(), checkpoint);
-            ChatMemory memory = MessageWindowChatMemory.withMaxMessages(HEAVY_CHAT_MEMORY_MESSAGES);
-            messages.forEach(memory::add);
+            // 检查点恢复使用进程内存储：恢复出的历史随后由 synchronize 落回共享存储。
+            ChatMemory memory = conversationWindowPolicy.createContinuationMemory(
+                    state.appId(), null);
+            if (!messages.isEmpty()) {
+                // 一次性写入而非逐条追加，避免恢复过程中对同一段历史反复折叠。
+                memory.set(messages);
+            }
             ContinuationMemory restored = new ContinuationMemory(memory, state.appId(), true);
             restored.synchronize();
             return restored;
         }
-        ChatMemory legacyMemory = MessageWindowChatMemory.builder()
-                .id(state.appId())
-                .chatMemoryStore(chatMemoryStore)
-                .maxMessages(HEAVY_CHAT_MEMORY_MESSAGES)
-                .build();
+        ChatMemory legacyMemory = conversationWindowPolicy.createContinuationMemory(
+                state.appId(), chatMemoryStore);
         return new ContinuationMemory(legacyMemory, state.appId(), false);
     }
 

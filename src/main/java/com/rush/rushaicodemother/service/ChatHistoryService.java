@@ -4,7 +4,7 @@ import com.mybatisflex.core.paginate.Page;
 import com.rush.rushaicodemother.model.dto.chathistory.ChatHistoryQueryRequest;
 import com.rush.rushaicodemother.model.entity.ChatHistory;
 import com.rush.rushaicodemother.service.chathistory.ChatHistorySlice;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.ChatMemory;
 
 import java.time.LocalDateTime;
 
@@ -60,9 +60,9 @@ public interface ChatHistoryService {
      * 加载对话历史到内存
      *
      * @param appId 应用 ID
-     * @param chatMemory 对话记忆
+     * @param chatMemory 对话记忆，只依赖 {@link ChatMemory} 契约，便于替换窗口实现
      * @param maxCount 最多加载多少条
      * @return 加载成功的条数
      */
-    int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount);
+    int loadChatHistoryToMemory(Long appId, ChatMemory chatMemory, int maxCount);
 }

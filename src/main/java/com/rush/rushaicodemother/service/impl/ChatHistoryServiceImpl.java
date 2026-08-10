@@ -18,7 +18,7 @@ import com.rush.rushaicodemother.service.chathistory.ChatHistorySlice;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.ChatMemory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -166,7 +166,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
  * @return 计算或处理后的数值结果
  */
     @Override
-    public int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount) {
+    public int loadChatHistoryToMemory(Long appId, ChatMemory chatMemory, int maxCount) {
         validatePositiveId(appId, "应用 ID 不能为空");
         ThrowUtils.throwIf(chatMemory == null, ErrorCode.PARAMS_ERROR, "对话记忆不能为空");
         ThrowUtils.throwIf(maxCount <= 0 || maxCount > MAX_MEMORY_MESSAGE_COUNT,
@@ -239,7 +239,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
     }
 
     /** 清理{@code Partially}{@code Rebuilt}记忆。 */
-    private void clearPartiallyRebuiltMemory(MessageWindowChatMemory chatMemory,
+    private void clearPartiallyRebuiltMemory(ChatMemory chatMemory,
                                              Long appId,
                                              RuntimeException rebuildFailure) {
         log.error("重建历史对话记忆失败，appId: {}", appId, LogExceptionSanitizer.sanitize(rebuildFailure));

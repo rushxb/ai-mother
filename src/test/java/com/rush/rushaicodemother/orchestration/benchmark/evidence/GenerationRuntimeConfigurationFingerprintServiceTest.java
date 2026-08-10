@@ -157,6 +157,7 @@ class GenerationRuntimeConfigurationFingerprintServiceTest {
 
         // 覆盖面回归：下沉的策略类必须全部登记，避免调整常量绕过发布门禁。
         for (String policyClass : new String[]{
+                "AgentConversationWindowPolicy",
                 "GenerationProjectContextProperties", "EditLocatorProperties",
                 "PatchExecutionProperties", "AiToolWorkspaceProperties",
                 "AiToolLoopGuardProperties", "AiAgentProductivityProperties",

@@ -1,5 +1,12 @@
 package com.rush.rushaicodemother.orchestration.runtime.agent;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationFolder;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationTokenAccountant;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationWindowPolicy;
+import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
+import com.rush.rushaicodemother.orchestration.context.OpenAiCompatibleContextTokenEstimator;
+import com.rush.rushaicodemother.orchestration.context.ToolRoundPathExtractor;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -7,7 +14,6 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.memory.ChatMemory;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +36,7 @@ class GenerationAgentConversationInitializerTest {
         ChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
         ChatHistoryService historyService = mock(ChatHistoryService.class);
         doAnswer(invocation -> {
-            MessageWindowChatMemory memory = invocation.getArgument(1);
+            ChatMemory memory = invocation.getArgument(1);
             memory.add(SystemMessage.from("旧系统提示"));
             memory.add(UserMessage.from("历史需求"));
             memory.add(AiMessage.from("历史答复"));
@@ -47,7 +53,7 @@ class GenerationAgentConversationInitializerTest {
                 .thenReturn("当前系统提示");
 
         ChatMemory memory = new GenerationAgentConversationInitializer(
-                memoryStore, historyService, promptResolver)
+                memoryStore, historyService, promptResolver, windowPolicy())
                 .initialize(request, invocationContext);
 
         List<ChatMessage> messages = memory.messages();
@@ -60,7 +66,7 @@ class GenerationAgentConversationInitializerTest {
                 AiMessage.class, messages.get(2)).text());
         assertEquals("生成管理后台", assertInstanceOf(
                 UserMessage.class, messages.getLast()).singleText());
-        verify(historyService).loadChatHistoryToMemory(11L, (MessageWindowChatMemory) memory, 4);
+        verify(historyService).loadChatHistoryToMemory(11L, memory, 4);
     }
 
     @Test
@@ -68,7 +74,7 @@ class GenerationAgentConversationInitializerTest {
         ChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
         ChatHistoryService historyService = mock(ChatHistoryService.class);
         doAnswer(invocation -> {
-            MessageWindowChatMemory memory = invocation.getArgument(1);
+            ChatMemory memory = invocation.getArgument(1);
             memory.add(UserMessage.from("继续完善登录页"));
             return 1;
         }).when(historyService).loadChatHistoryToMemory(eq(12L), any(), eq(4));
@@ -81,7 +87,7 @@ class GenerationAgentConversationInitializerTest {
                 com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.VUE_PROJECT);
 
         List<ChatMessage> messages = new GenerationAgentConversationInitializer(
-                memoryStore, historyService, promptResolver)
+                memoryStore, historyService, promptResolver, windowPolicy())
                 .initialize(request, mock(InvocationContext.class))
                 .messages();
 
@@ -92,6 +98,15 @@ class GenerationAgentConversationInitializerTest {
                 .filter(message -> "继续完善登录页".equals(message.singleText()))
                 .count();
         assertEquals(1L, currentPromptCount);
+    }
+
+    /** 使用与生产一致的窗口策略，确保测试覆盖真实的折叠与预算语义。 */
+    private static AgentConversationWindowPolicy windowPolicy() {
+        return new AgentConversationWindowPolicy(
+                new AgentConversationFolder(new ToolRoundPathExtractor(new ObjectMapper())),
+                new AgentConversationTokenAccountant(
+                        new OpenAiCompatibleContextTokenEstimator(
+                                new AiContextPackBudgetProperties())));
     }
 
     private static final class InMemoryChatMemoryStore implements ChatMemoryStore {

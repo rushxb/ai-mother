@@ -45,6 +45,7 @@ import com.rush.rushaicodemother.config.TemplatePreWarmProperties;
 import com.rush.rushaicodemother.config.UserCreditProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationWindowPolicy;
 import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
 import com.rush.rushaicodemother.orchestration.edit.EditStatePersistenceProperties;
 import com.rush.rushaicodemother.orchestration.dag.GenerationTaskSnapshotProperties;
@@ -137,6 +138,7 @@ public class GenerationRuntimeConfigurationFingerprintService {
      * 其全部公开常量会自动纳入指纹。</p>
      */
     private static final List<Class<?>> HARDCODED_POLICY_SOURCES = List.of(
+            AgentConversationWindowPolicy.class,
             GenerationProjectContextProperties.class,
             EditLocatorProperties.class,
             PatchExecutionProperties.class,

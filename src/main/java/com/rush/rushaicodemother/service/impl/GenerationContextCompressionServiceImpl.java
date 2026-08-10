@@ -1,14 +1,20 @@
 package com.rush.rushaicodemother.service.impl;
 
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.orchestration.context.StructureAwareContextCompressor;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 生成上下文压缩服务实现。
+ *
+ * <p>本类只负责「规范化 + 分配预算」，具体取舍委托给
+ * {@link StructureAwareContextCompressor} 按语法块完成，因此新增结构类别
+ * 无需改动本类。</p>
  */
 @Service
 public class GenerationContextCompressionServiceImpl implements GenerationContextCompressionService {
@@ -16,6 +22,12 @@ public class GenerationContextCompressionServiceImpl implements GenerationContex
     private static final int PROJECT_CONTEXT_BUDGET = 7000;
     private static final int FINAL_PROMPT_BUDGET = 18000;
     private static final int LONG_LINE_BUDGET = 900;
+
+    private final StructureAwareContextCompressor compressor;
+
+    public GenerationContextCompressionServiceImpl(StructureAwareContextCompressor compressor) {
+        this.compressor = Objects.requireNonNull(compressor, "结构感知压缩器不能为空");
+    }
 
     @Override
     public String compressProjectContext(String context) {
@@ -27,7 +39,7 @@ public class GenerationContextCompressionServiceImpl implements GenerationContex
         return compress(prompt, FINAL_PROMPT_BUDGET);
     }
 
-    /** 返回{@code compress}。 */
+    /** 规范化后按结构感知策略压缩到字符预算内。 */
     private String compress(String value, int maxChars) {
         if (StrUtil.isBlank(value)) {
             return "";
@@ -36,20 +48,7 @@ public class GenerationContextCompressionServiceImpl implements GenerationContex
         if (normalized.length() <= maxChars) {
             return normalized;
         }
-        int headBudget = Math.max(maxChars * 2 / 3, 1);
-        int tailBudget = Math.max(maxChars - headBudget - 160, 0);
-        String head = normalized.substring(0, Math.min(headBudget, normalized.length())).trim();
-        String tail = tailBudget <= 0
-                ? ""
-                : normalized.substring(Math.max(headBudget, normalized.length() - tailBudget)).trim();
-        if (StrUtil.isBlank(tail)) {
-            return head + "\n\n[上下文已自动压缩，省略 " + (normalized.length() - head.length()) + " 个字符]";
-        }
-        return head
-                + "\n\n[上下文已自动压缩，省略中间 "
-                + Math.max(0, normalized.length() - head.length() - tail.length())
-                + " 个字符]\n\n"
-                + tail;
+        return compressor.compress(normalized, maxChars);
     }
 
     /** 规范化生成上下文压缩服务{@code Impl}。 */

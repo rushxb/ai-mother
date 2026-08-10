@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.runtime.agent;
 
 import cn.hutool.json.JSONObject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
@@ -17,6 +18,12 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationFolder;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationTokenAccountant;
+import com.rush.rushaicodemother.orchestration.context.AgentConversationWindowPolicy;
+import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
+import com.rush.rushaicodemother.orchestration.context.OpenAiCompatibleContextTokenEstimator;
+import com.rush.rushaicodemother.orchestration.context.ToolRoundPathExtractor;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
@@ -139,7 +146,8 @@ class DefaultGenerationAgentRuntimeTest {
                 new GenerationAgentTurnPolicy(),
                 initializer,
                 new ToolBatchExecutionPlanner(toolManager),
-                new ToolBatchExecutor()
+                new ToolBatchExecutor(),
+                windowPolicy()
         );
         GenerationExecutionContext executionContext = executionContext();
         assumeWorkspaceMutation(executionContext);
@@ -206,7 +214,8 @@ class DefaultGenerationAgentRuntimeTest {
                 new GenerationAgentTurnPolicy(),
                 initializer,
                 new ToolBatchExecutionPlanner(toolManager),
-                new ToolBatchExecutor()
+                new ToolBatchExecutor(),
+                windowPolicy()
         );
         GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
                 11L,
@@ -315,7 +324,8 @@ class DefaultGenerationAgentRuntimeTest {
                 new GenerationAgentTurnPolicy(),
                 initializer,
                 new ToolBatchExecutionPlanner(toolManager),
-                new ToolBatchExecutor()
+                new ToolBatchExecutor(),
+                windowPolicy()
         );
         GenerationAgentExecutionRequest request = new GenerationAgentExecutionRequest(
                 11L,
@@ -859,6 +869,15 @@ class DefaultGenerationAgentRuntimeTest {
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
                 new GenerationPerformanceMonitorService()
         );
+    }
+
+    /** 构造与生产一致的短期记忆窗口策略。 */
+    private AgentConversationWindowPolicy windowPolicy() {
+        return new AgentConversationWindowPolicy(
+                new AgentConversationFolder(new ToolRoundPathExtractor(new ObjectMapper())),
+                new AgentConversationTokenAccountant(
+                        new OpenAiCompatibleContextTokenEstimator(
+                                new AiContextPackBudgetProperties())));
     }
 
     private GenerationStageAdmissionService shortWindowStageAdmissionService() {

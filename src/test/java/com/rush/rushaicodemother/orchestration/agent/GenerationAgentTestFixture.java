@@ -4,7 +4,9 @@ import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.config.GenerationProjectContextProperties;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
+import com.rush.rushaicodemother.orchestration.context.ContextBlockSplitter;
 import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService;
+import com.rush.rushaicodemother.orchestration.context.StructureAwareContextCompressor;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.review.BackendQualityReviewService;
@@ -42,7 +44,7 @@ public final class GenerationAgentTestFixture {
                 new GenerationRecipeLibrary(),
                 skillLibrary,
                 new WorkspaceSemanticIndexService(fileSystemService),
-                new GenerationContextCompressionServiceImpl(),
+                contextCompressionService(),
                 generationWorkspaceService,
                 new GeneratedProjectContextService(
                         fileSystemService, new GenerationProjectContextProperties())
@@ -57,7 +59,13 @@ public final class GenerationAgentTestFixture {
     }
 
     public static CodeAgentNode codeAgentNode() {
-        return new CodeAgentNode(new GenerationContextCompressionServiceImpl());
+        return new CodeAgentNode(contextCompressionService());
+    }
+
+    /** 构造与生产一致的上下文压缩服务，压缩按结构块而非字符位置取舍。 */
+    public static GenerationContextCompressionServiceImpl contextCompressionService() {
+        return new GenerationContextCompressionServiceImpl(
+                new StructureAwareContextCompressor(new ContextBlockSplitter()));
     }
 
     public static ReviewAgentNode reviewAgentNode() {

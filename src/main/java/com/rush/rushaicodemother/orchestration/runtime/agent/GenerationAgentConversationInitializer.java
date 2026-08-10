@@ -1,45 +1,51 @@
 package com.rush.rushaicodemother.orchestration.runtime.agent;
 
+import com.rush.rushaicodemother.orchestration.context.AgentConversationWindowPolicy;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.memory.ChatMemory;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
-/** 为新的智能体根尝试重建有界短期会话，并保证当前用户消息幂等。 */
+/**
+ * 为新的智能体根尝试重建有界短期会话，并保证当前用户消息幂等。
+ *
+ * <p>会话窗口由 {@link AgentConversationWindowPolicy} 统一裁决：按 token 预算收敛，
+ * 溢出时把最早的工具循环折叠为摘要而非丢弃，模型因此不会「忘记自己改过什么」。</p>
+ */
 @Component
 public class GenerationAgentConversationInitializer {
 
-    private static final int MAX_MEMORY_MESSAGES = 8;
     private static final int INITIAL_HISTORY_MESSAGES = 4;
 
     private final ChatMemoryStore chatMemoryStore;
     private final ChatHistoryService chatHistoryService;
     private final GenerationAgentPromptResolver promptResolver;
+    private final AgentConversationWindowPolicy conversationWindowPolicy;
 
     public GenerationAgentConversationInitializer(
             ChatMemoryStore chatMemoryStore,
             ChatHistoryService chatHistoryService,
-            GenerationAgentPromptResolver promptResolver) {
+            GenerationAgentPromptResolver promptResolver,
+            AgentConversationWindowPolicy conversationWindowPolicy) {
         this.chatMemoryStore = chatMemoryStore;
         this.chatHistoryService = chatHistoryService;
         this.promptResolver = promptResolver;
+        this.conversationWindowPolicy = Objects.requireNonNull(
+                conversationWindowPolicy, "短期记忆窗口策略不能为空");
     }
 
     public ChatMemory initialize(GenerationAgentExecutionRequest request,
                                  InvocationContext invocationContext) {
-        MessageWindowChatMemory memory = MessageWindowChatMemory.builder()
-                .id(request.appId())
-                .chatMemoryStore(chatMemoryStore)
-                .maxMessages(MAX_MEMORY_MESSAGES)
-                .build();
+        ChatMemory memory = conversationWindowPolicy.createGenerationMemory(
+                request.appId(), chatMemoryStore);
         chatHistoryService.loadChatHistoryToMemory(
                 request.appId(), memory, INITIAL_HISTORY_MESSAGES);
 

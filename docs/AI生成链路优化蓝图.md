@@ -619,6 +619,92 @@ challenger 实现后该用例以预期信息失败，删除后恢复通过。
 
 ---
 
+## 5.6 第六批落地记录：两级预览拆分后的三处口径漏配
+
+本批不来自原蓝图条目，而来自对已落地部分的**回头复核**：两级预览（暂定 / 已验证）拆分是第二批
+引入的结构性改动，但它同时改变了「first preview」这个词在**指标、用户阶段、发布门禁**三处的含义，
+而这三处都没跟着改。三个缺陷同源，因此放在同一批。
+
+### 缺陷一（S1）：指标侧漏了等级维度，直方图变双峰
+
+span 侧上一批已拆成 `time_to_provisional_preview` / `time_to_first_preview`，
+但 `generation_time_to_first_preview_seconds` 的标签只有 `orchestration_mode` /
+`target_type` / `sla_status`。一个 EXPERT 任务先后贡献两个样本（量级示意：暂定数十秒、
+已验证可达数分钟，**具体数值未实测**），直方图成为双峰混合分布，分位数与告警阈值都不再成立
+—— 等于换一种方式让 P0-2 要修的「TTP 指标失真」复发。
+
+做法：`recordFirstPreviewDuration` 增加 `previewLevel` 标签；**span 阶段名下沉为
+`GenerationPreviewLevel` 的枚举属性**，由等级自带而非在记录点分支判断。
+已验证等级刻意沿用历史名 `time_to_first_preview` —— 它是发布门禁与基准执行器的既有读取契约。
+
+**影响范围修正**：本项只影响仪表盘与告警，**未触及发布门禁** —— 门禁读的是已按等级分开的 span，
+不是被污染的 Micrometer timer。提交信息里记的是这个修正后的边界。
+
+### 缺陷二（S2）：收尾阶段仍宣称「正在生成或修改代码」
+
+`diff` / `patch` / `commit` 被映射到 `IMPLEMENTING`，但这三个事件由
+`HeavyGenerationFinalizationService` 发出，此时代码早已写完。暂定预览把「已可预览」提前到验证窗口内
+之后，用户会先看到「已可预览」，再看到「正在生成或修改代码」，读起来像生成重启了。
+
+**先修正我自己的两处判断错误**：
+
+1. 我最初把它记成「`preview_ready → verifying` 顺序回退」。这是错的：`PREVIEW_READY(13)` 在枚举里
+   本就先于 `VERIFYING(14)`，暂定预览发生在验证之前正是设计意图，该转移是正向推进。
+   真正的缺陷是收尾事件被错分为实现期 —— **这不只是顺序回退，是不实陈述**。
+2. 我曾提议加「用户阶段单调不回退」门禁。**这个方案被我自己否掉了**：自动修复轮次确实会重写代码，
+   `agent_event stage=codegen` 必须能把进度拉回实现期；一刀切门禁会让用户在修复期一直停在
+   「正在做质量校验」，用一种错分换另一种错分。
+
+做法：只把 `diff` / `patch` / `commit` / `orphan_review` 移到 `VERIFYING`。
+注意 `patch_apply` / `patch_applied` 来自 CREATE 模板物化，属实现期，与收尾同名不同义，保留原位。
+
+回归用例刻意**只覆盖成功路径**，并按 EXPERT 真实发事件顺序回放，断言的是用户可见阶段序列，
+而不是映射表本身。反向验证打印出缺陷的实际序列：
+`[preview_ready, implementing, implementing, verifying, implementing, preview_ready]`。
+
+### 缺陷三（S3）：同一字段三个来源、两种语义，且直达发布门禁
+
+基准执行器的 `firstPreviewLatencyMs` 由三处填充，口径不一致：流事件观测取第一个
+`first_preview_ready`（EXPERT 上即暂定预览），而两处 span 回退都按 `"time_to_first_preview"`
+字面量过滤（只认已验证）。取到哪个值只取决于订阅是否恰好抓到事件。
+
+与 S1 不同，**这一处真的进门禁**：该字段喂 `GenerationBenchmarkReleaseGate` 的
+`firstPreviewObservationRate`（要求 1.0）、`p99FirstPreviewLatencyMs` 及分路由 P90。
+跨 worker 恢复时只落到暂定预览 span 的任务会被判为「从未预览」，把正常任务判成发布违规。
+
+**方向由现有设计自身的表述决定，而不是我的直觉** —— 我最初想改成「只认已验证」，是反的：
+
+- `GenerationPreviewMilestoneService` 的 SLA 裁定本就**暂定优先**（注释：「它才是『用户多久看到东西』，
+  也是首预览截止线的原意」）；
+- `GenerationPreviewLevel` 类注释指出，把 TTP 绑到已验证发布点正是「TTP 恒等于任务总时长、
+  指标失去诊断意义」的成因。
+
+只认已验证等于把两级拆分要修的缺陷重新引入，并让门禁与生产 SLA 判定**不同的里程碑**。
+因此口径统一为「任一等级中最早的一条」：`GenerationPreviewLevel` 新增 `isPreviewSpanStage`，
+由枚举统一判定阶段名归属（与 S1 的 `spanStage()` 对称：写侧下沉了，读侧也下沉），
+两处回退改用该判定，并从 `findFirst` 改为取最小值 —— 保证「最早」而非「查询返回的第一条」。
+
+### 回归测试与反向验证
+
+三项各自独立提交、独立验证。S2 反向验证得到 `Tests run: 7, Failures: 1`，
+失败信息直接打印出上述错误序列；S3 还原字面量过滤后两条新断言失败
+（`expected true but was false`、`expected 1500 but was 9000`），与缺陷特征一致，随后均已还原。
+S3 另补「无关 span 不得误判为预览观测」的负向用例，防止判定放宽过头。
+
+全量 2645 用例 0 失败 0 错误 1 跳过；发布冒烟 8/8。
+
+### 本项的实际收益边界（不夸大）
+
+- **确定收益**：首预览指标不再是双峰混合分布；成功路径上用户不会再看到「已可预览之后又在生成代码」；
+  发布门禁不再把只发过暂定预览的正常任务判成违规。
+- **未改变的**：暂定预览约 5 秒可用窗口的结论不变（见 6 节），本批修的是**度量与陈述的准确性**，
+  不是体验本身。
+- **可复用的教训**：一次语义拆分（把一个概念分成两级）的真实成本，不在拆分点，而在**所有读取侧**。
+  本批三个缺陷全部是「写侧拆了、读侧没跟」。新增预览等级时，`spanStage()` 与
+  `isPreviewSpanStage` 已让枚举成为唯一登记处，但**用户阶段映射表与门禁阈值仍需人工复核**。
+
+---
+
 ## 6. 未覆盖声明
 
 第一批落地后仍未验证的部分：
@@ -656,4 +742,18 @@ challenger 实现后该用例以预期信息失败，删除后恢复通过。
 - `HedgedStreamingExecution` 与 `FailoverStreamingChatModel` 的取消传播是否真正中断上游 HTTP 流；
 - SSE 跨实例重连（本地会话优先于 Redis 流，多实例部署下 `GenerationSessionRegistry` 为单机内存）——
   `GenerationTaskQueryService:149-159` 先查本地会话再回落持久流，多实例场景需单独验证；
-- 656 个测试文件未执行（本轮只做 `compile`），文中所有结论均来自静态代码追溯而非运行时验证。
+- ~~656 个测试文件未执行（本轮只做 `compile`），文中所有结论均来自静态代码追溯而非运行时验证。~~
+  **已失效**：第二批起每批均跑全量用例，当前基线 2645 例 0 失败 + 发布冒烟 8/8。
+  但仍需注意：全量绿只证明**已有断言**成立，第六批三个缺陷正是长期在绿灯下存活的
+  —— 它们缺的是断言，不是执行。
+
+第六批新增的复核项：
+
+- **门禁阈值与预览等级的对应关系未实测**：`maximumP90FirstPreviewLatencyByMode` 取自各路由的
+  `*_FIRST_PREVIEW_TIMEOUT`（CREATE 60s / LIGHT_EDIT 90s / AGENT_EDIT 3min / HEAVY_EXPERT 5min）。
+  S3 把观测口径统一为「最早预览」后，EXPERT 实测值会显著下移（从已验证时长变为暂定时长），
+  **现有阈值因此偏松**。需上线后按 `preview_level` 分序列观察实际分布再收紧，
+  否则门禁在 EXPERT 上近似失效。
+- **`controller/support/GenerationSseEventMapper.isRepeatedUserStage` 只折叠连续相同阶段**，S2 修正后成功路径的
+  阶段序列已单调，但修复轮次仍会产生 `verifying → implementing → verifying` 的往返。
+  这是诚实的（代码确实在被重写），但前端是否需要为往返做视觉处理未验证。

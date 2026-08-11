@@ -40,6 +40,26 @@ public enum GenerationPreviewLevel {
         return spanStage;
     }
 
+    /**
+     * 判断给定 span 阶段名是否属于「用户已看到预览」的任一等级。
+     *
+     * <p>供基准执行器等读取侧使用：它们关心的是「用户多久看到东西」，因此暂定与已验证都算命中。
+     * 由枚举统一判定而非各调用点各写一遍字面量 —— 新增等级时读取侧自动跟随，
+     * 不会再出现「按 {@code time_to_first_preview} 过滤，于是只发过暂定预览的任务被判为从未预览」
+     * 这类等级新增后遗留的漏判。</p>
+     */
+    public static boolean isPreviewSpanStage(String stage) {
+        if (stage == null || stage.isBlank()) {
+            return false;
+        }
+        for (GenerationPreviewLevel level : values()) {
+            if (level.spanStage.equals(stage)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 事件载荷与指标标签使用的稳定小写字面值，避免前端依赖枚举名大小写。 */
     public String wireValue() {
         return name().toLowerCase(java.util.Locale.ROOT);

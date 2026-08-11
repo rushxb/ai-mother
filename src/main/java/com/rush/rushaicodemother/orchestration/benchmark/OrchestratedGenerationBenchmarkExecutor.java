@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEvent;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationPreviewLevel;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -409,22 +410,33 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 .orElse(null);
     }
 
-    /** 返回首次预览{@code From}遥测。 */
+    /**
+     * 返回首次预览{@code From}遥测。
+     *
+     * <p>暂定与已验证预览都算命中，口径与流事件观测一致：本字段度量「用户多久看到东西」，
+     * 而暂定预览正是首预览截止线的原意。若只认 {@code time_to_first_preview}，
+     * 仅发过暂定预览的任务会被判为从未预览，在观测率门禁（要求 1.0）上误判为违规。</p>
+     */
     private Long firstPreviewFromTelemetry(GenerationPerformanceTaskVO telemetry) {
         if (telemetry == null || telemetry.getSpans() == null) {
             return null;
         }
         return telemetry.getSpans().stream()
                 .filter(Objects::nonNull)
-                .filter(span -> "time_to_first_preview".equals(span.getStage()))
+                .filter(span -> GenerationPreviewLevel.isPreviewSpanStage(span.getStage()))
                 .map(GenerationPerformanceSpanVO::getDurationMs)
                 .filter(Objects::nonNull)
                 .filter(durationMs -> durationMs >= 0)
-                .findFirst()
+                .min(Long::compare)
                 .orElse(null);
     }
 
-    /** 返回首次预览{@code From}持久追踪。 */
+    /**
+     * 返回首次预览{@code From}持久追踪。
+     *
+     * <p>与 {@link #firstPreviewFromTelemetry} 同口径：取两级预览中最早的一条，
+     * 保证跨 worker 恢复出的数值与实时观测到的是同一个里程碑。</p>
+     */
     private Long firstPreviewFromDurableTrace(String taskId) {
         if (StrUtil.isBlank(taskId)) {
             return null;
@@ -432,7 +444,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         try {
             return spanQueryService.findByTaskId(taskId, GenerationSpanQueryService.MAX_LIMIT).stream()
                     .filter(Objects::nonNull)
-                    .filter(span -> "time_to_first_preview".equals(span.stage()))
+                    .filter(span -> GenerationPreviewLevel.isPreviewSpanStage(span.stage()))
                     .mapToLong(GenerationSpanQueryService.StoredSpan::durationMs)
                     .filter(durationMs -> durationMs >= 0)
                     .min()

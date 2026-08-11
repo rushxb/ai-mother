@@ -73,6 +73,13 @@ public record GenerationBenchmarkRunResult(
                 : qualityEvidence;
     }
 
+    /**
+     * 是否观测到首个用户可见预览。
+     *
+     * <p>口径为「任一等级的最早预览」：暂定预览也算已观测。这与首预览截止线的语义一致 ——
+     * 它约束的是用户多久看到东西，而非产物多久通过验证。若只认已验证预览，
+     * 该指标会退化成任务总时长，失去诊断意义。</p>
+     */
     public boolean firstPreviewObserved() {
         return firstPreviewLatencyMs != null;
     }

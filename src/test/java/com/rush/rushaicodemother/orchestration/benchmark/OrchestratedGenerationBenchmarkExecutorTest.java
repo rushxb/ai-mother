@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationPreviewLevel;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
@@ -295,6 +296,87 @@ class OrchestratedGenerationBenchmarkExecutorTest {
 
         assertTrue(result.success());
         assertEquals(777L, result.firstPreviewLatencyMs());
+    }
+
+    /**
+     * 只落下暂定预览 span 的任务，跨 worker 恢复时也必须算「已观测到首预览」。
+     *
+     * <p>EXPERT 链路的暂定预览记 {@code time_to_provisional_preview}，已验证预览记
+     * {@code time_to_first_preview}。若持久追踪只认后者，一个用户明明早就看到了页面的任务
+     * 会被判为从未预览 —— 而观测率门禁要求 1.0，于是把正常任务判成发布违规。
+     * 断言取两级中最早的一条，与实时流事件观测同口径。</p>
+     */
+    @Test
+    void provisionalPreviewSpanMustCountAsObservedFirstPreview() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(
+                generationResult("bench-preview-provisional", "heavy_expert", Flux.empty()));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        when(spanQueryService.findByTaskId(
+                "bench-preview-provisional", GenerationSpanQueryService.MAX_LIMIT)).thenReturn(java.util.List.of(
+                storedSpan("span-provisional", "bench-preview-provisional",
+                        GenerationPreviewLevel.PROVISIONAL.spanStage(), 1200)));
+
+        GenerationBenchmarkRunResult result = executor.execute(
+                new GenerationBenchmarkTask(
+                        "preview-provisional", "HEAVY_EXPERT", "vue_project", "generate", "fast"));
+
+        assertTrue(result.success());
+        assertTrue(result.firstPreviewObserved(), "暂定预览也应算作已观测到首预览");
+        assertEquals(1200L, result.firstPreviewLatencyMs());
+    }
+
+    /** 两级预览都落了 span 时，取最早的那条：度量的是用户多久看到东西。 */
+    @Test
+    void earliestPreviewLevelMustWinWhenBothSpansExist() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(
+                generationResult("bench-preview-both", "heavy_expert", Flux.empty()));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        when(spanQueryService.findByTaskId(
+                "bench-preview-both", GenerationSpanQueryService.MAX_LIMIT)).thenReturn(java.util.List.of(
+                storedSpan("span-verified", "bench-preview-both",
+                        GenerationPreviewLevel.VERIFIED.spanStage(), 9000),
+                storedSpan("span-provisional", "bench-preview-both",
+                        GenerationPreviewLevel.PROVISIONAL.spanStage(), 1500)));
+
+        GenerationBenchmarkRunResult result = executor.execute(
+                new GenerationBenchmarkTask(
+                        "preview-both", "HEAVY_EXPERT", "vue_project", "generate", "fast"));
+
+        assertTrue(result.success());
+        assertEquals(1500L, result.firstPreviewLatencyMs(), "应取两级预览中最早的一条");
+    }
+
+    /** 与首预览无关的 span 不得被误认成预览观测。 */
+    @Test
+    void unrelatedSpansMustNotBeMistakenForPreviewObservation() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(
+                generationResult("bench-preview-unrelated", "create", Flux.empty()));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        when(spanQueryService.findByTaskId(
+                "bench-preview-unrelated", GenerationSpanQueryService.MAX_LIMIT)).thenReturn(java.util.List.of(
+                storedSpan("span-build", "bench-preview-unrelated", "build_validation", 2000)));
+
+        GenerationBenchmarkRunResult result = executor.execute(
+                new GenerationBenchmarkTask(
+                        "preview-unrelated", "CREATE", "vue_project", "generate", "fast"));
+
+        assertTrue(result.success());
+        assertFalse(result.firstPreviewObserved());
+        assertNull(result.firstPreviewLatencyMs());
+    }
+
+    /** 构造一条持久化 span，便于按阶段名与耗时断言首预览观测口径。 */
+    private GenerationSpanQueryService.StoredSpan storedSpan(String spanId,
+                                                             String taskId,
+                                                             String stage,
+                                                             long durationMs) {
+        Instant endedAt = Instant.now();
+        return new GenerationSpanQueryService.StoredSpan(
+                spanId, taskId, stage, "pipeline", "met",
+                endedAt.minusMillis(durationMs), endedAt, durationMs, "create-preview-first");
     }
 
     @Test

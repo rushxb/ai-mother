@@ -52,6 +52,7 @@ create table if not exists user_credit_transaction
 (
     id           bigint auto_increment comment 'id' primary key,
     userId       bigint                             not null comment '用户id',
+    tenantId     bigint                             null comment '生成任务所属租户；非生成和历史流水为空',
     changeAmount bigint                             not null comment '积分变动，正数增加，负数扣除',
     balanceAfter bigint                             not null comment '变动后余额',
     type         varchar(64)                        not null comment '变动类型：初始化/调整/生成预授权/结算/兼容扣费',
@@ -64,6 +65,7 @@ create table if not exists user_credit_transaction
     UNIQUE KEY uk_type_bizId (type, bizId),
     INDEX idx_userId_createTime (userId, createTime),
     INDEX idx_adminUserId_createTime (adminUserId, createTime),
+    INDEX idx_tenant_generation_budget (tenantId, type, isDelete, createTime, bizId),
     CONSTRAINT chk_user_credit_transaction_balance_nonnegative CHECK (balanceAfter >= 0),
     -- 每种流水类型的字段组合都固定，避免出现「管理员调整却带 token 数」这类脏数据
     CONSTRAINT chk_user_credit_transaction_shape CHECK (

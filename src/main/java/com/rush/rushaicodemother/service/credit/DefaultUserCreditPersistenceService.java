@@ -62,6 +62,7 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         }
         if (task.getId() == null || task.getId() <= 0
                 || task.getUserId() == null || task.getUserId() <= 0
+                || task.getTenantId() == null || task.getTenantId() <= 0
                 || task.getTaskId() == null || task.getTaskId().isBlank()) {
             throw corruptedData("生成任务积分结算数据不完整");
         }
@@ -69,6 +70,7 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
                 task.getId(),
                 task.getTaskId(),
                 task.getUserId(),
+                task.getTenantId(),
                 Integer.valueOf(1).equals(task.getCreditCharged())
         );
     }
@@ -139,6 +141,7 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         validateNewTransaction(transaction);
         UserCreditTransaction entity = UserCreditTransaction.builder()
                 .userId(transaction.userId())
+                .tenantId(transaction.tenantId())
                 .changeAmount(transaction.changeAmount())
                 .balanceAfter(transaction.balanceAfter())
                 .type(transaction.type().name())
@@ -231,6 +234,7 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         }
         return new CreditTransaction(
                 transaction.getUserId(),
+                transaction.getTenantId(),
                 transaction.getChangeAmount(),
                 transaction.getBalanceAfter(),
                 type,
@@ -266,20 +270,21 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
 
     private void validateAccountInitialization(NewCreditTransaction transaction) {
         if (transaction.changeAmount() <= 0 || !hasPositiveId(transaction.adminUserId())
-                || transaction.tokenCount() != null) {
+                || transaction.tokenCount() != null || transaction.tenantId() != null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分初始化流水参数不合法");
         }
     }
 
     private void validateAdminAdjustment(NewCreditTransaction transaction) {
         if (transaction.changeAmount() == 0 || !hasPositiveId(transaction.adminUserId())
-                || transaction.tokenCount() != null) {
+                || transaction.tokenCount() != null || transaction.tenantId() != null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "管理员积分调整流水参数不合法");
         }
     }
 
     private void validateGenerationCharge(NewCreditTransaction transaction) {
         if (transaction.changeAmount() > 0 || transaction.adminUserId() != null
+                || !hasPositiveId(transaction.tenantId())
                 || transaction.tokenCount() == null || transaction.tokenCount() < 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分流水参数不合法");
         }
@@ -287,13 +292,14 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
 
     private void validateGenerationReservation(NewCreditTransaction transaction) {
         if (transaction.changeAmount() >= 0 || transaction.adminUserId() != null
-                || transaction.tokenCount() != null) {
+                || !hasPositiveId(transaction.tenantId()) || transaction.tokenCount() != null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分预授权流水参数不合法");
         }
     }
 
     private void validateGenerationSettlement(NewCreditTransaction transaction) {
         if (transaction.adminUserId() != null
+                || !hasPositiveId(transaction.tenantId())
                 || transaction.tokenCount() == null || transaction.tokenCount() < 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分结算流水参数不合法");
         }

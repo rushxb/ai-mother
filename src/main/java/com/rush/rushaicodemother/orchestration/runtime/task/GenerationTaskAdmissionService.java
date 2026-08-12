@@ -10,23 +10,50 @@ import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
 import com.rush.rushaicodemother.service.credit.GenerationCreditReservationPolicy;
 import com.rush.rushaicodemother.service.credit.GenerationCreditReservationQuote;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Objects;
 
 /** 以原子方式保留任务预算并保留其可重建的持久命令。 */
 @Service
-@RequiredArgsConstructor
 public class GenerationTaskAdmissionService {
 
     private final GenerationCreditReservationPolicy reservationPolicy;
-    private final GenerationTaskConcurrencyAdmissionPolicy concurrencyAdmissionPolicy;
+    private final List<GenerationTaskAdmissionPolicy> admissionPolicies;
     private final GenerationTaskAdmissionRepository admissionRepository;
     private final AiModelRuntimeService aiModelRuntimeService;
     private final UserCreditService userCreditService;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+
+    @Autowired
+    public GenerationTaskAdmissionService(GenerationCreditReservationPolicy reservationPolicy,
+                                          List<GenerationTaskAdmissionPolicy> admissionPolicies,
+                                          GenerationTaskAdmissionRepository admissionRepository,
+                                          AiModelRuntimeService aiModelRuntimeService,
+                                          UserCreditService userCreditService,
+                                          GenerationTaskRuntimeLifecycleService runtimeLifecycleService) {
+        this.reservationPolicy = reservationPolicy;
+        this.admissionPolicies = List.copyOf(admissionPolicies);
+        this.admissionRepository = admissionRepository;
+        this.aiModelRuntimeService = aiModelRuntimeService;
+        this.userCreditService = userCreditService;
+        this.runtimeLifecycleService = runtimeLifecycleService;
+    }
+
+    /** 兼容不需要扩展策略集合的既有构造入口。 */
+    GenerationTaskAdmissionService(GenerationCreditReservationPolicy reservationPolicy,
+                                   GenerationTaskConcurrencyAdmissionPolicy concurrencyAdmissionPolicy,
+                                   GenerationTaskAdmissionRepository admissionRepository,
+                                   AiModelRuntimeService aiModelRuntimeService,
+                                   UserCreditService userCreditService,
+                                   GenerationTaskRuntimeLifecycleService runtimeLifecycleService) {
+        this(reservationPolicy, List.of(concurrencyAdmissionPolicy), admissionRepository,
+                aiModelRuntimeService, userCreditService, runtimeLifecycleService);
+    }
 
     /**
  * 返回{@code admit}。
@@ -51,7 +78,8 @@ public class GenerationTaskAdmissionService {
                                                GenerationTaskIdempotency idempotency) {
         Objects.requireNonNull(command, "生成任务命令不能为空");
         Objects.requireNonNull(idempotency, "生成任务幂等信息不能为空");
-        int currentNonTerminalTasks = admissionRepository.lockUserAndCountNonTerminalTasks(command.userId());
+        GenerationTaskAdmissionSnapshot snapshot = admissionRepository.lockScopeAndMeasure(
+                command.tenantId(), command.userId());
         if (idempotency.present()) {
             GenerationTaskIdempotencyRecord existing = admissionRepository.findByIdempotencyKey(
                     command.tenantId(), command.userId(), command.appId(), idempotency.keyHash()
@@ -68,11 +96,15 @@ public class GenerationTaskAdmissionService {
         }
 
         aiModelRuntimeService.ensureGenerationModelsConfigured();
-        concurrencyAdmissionPolicy.assertMayCreate(currentNonTerminalTasks);
         GenerationCreditReservationQuote quote = reservationPolicy.quote(command);
+        GenerationTaskAdmissionContext context = new GenerationTaskAdmissionContext(command, snapshot, quote);
+        admissionPolicies.stream()
+                .sorted(AnnotationAwareOrderComparator.INSTANCE)
+                .forEach(policy -> policy.assertMayAdmit(context));
         userCreditService.reserveGenerationTask(new GenerationCreditReservationCommand(
                 command.taskId(),
                 command.userId(),
+                command.tenantId(),
                 quote.reservedCredit(),
                 quote.pricingReference()
         ));

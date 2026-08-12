@@ -33,6 +33,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class GenerationTaskAdmissionServiceTest {
 
@@ -43,7 +44,7 @@ class GenerationTaskAdmissionServiceTest {
     void newSubmissionMustCheckIdempotencyBeforeQuotaCreditAndDurablePersistence() {
         Fixture fixture = fixture();
         GenerationTaskCommand command = command();
-        when(fixture.repository().lockUserAndCountNonTerminalTasks(7L)).thenReturn(2);
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(2));
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
                 .thenReturn(Optional.empty());
         when(fixture.reservationPolicy().quote(command)).thenReturn(new GenerationCreditReservationQuote(
@@ -57,11 +58,11 @@ class GenerationTaskAdmissionServiceTest {
                 ArgumentCaptor.forClass(GenerationCreditReservationCommand.class);
         InOrder order = inOrder(fixture.repository(), fixture.aiModelRuntimeService(), fixture.concurrencyPolicy(),
                 fixture.reservationPolicy(), fixture.creditService(), fixture.lifecycleService());
-        order.verify(fixture.repository()).lockUserAndCountNonTerminalTasks(7L);
+        order.verify(fixture.repository()).lockScopeAndMeasure(100L, 7L);
         order.verify(fixture.repository()).findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash());
         order.verify(fixture.aiModelRuntimeService()).ensureGenerationModelsConfigured();
-        order.verify(fixture.concurrencyPolicy()).assertMayCreate(2);
         order.verify(fixture.reservationPolicy()).quote(command);
+        order.verify(fixture.concurrencyPolicy()).assertMayAdmit(any(GenerationTaskAdmissionContext.class));
         order.verify(fixture.creditService()).reserveGenerationTask(reservationCaptor.capture());
         order.verify(fixture.lifecycleService()).submit(command, IDEMPOTENCY);
         assertEquals("task-1", reservationCaptor.getValue().taskId());
@@ -72,7 +73,7 @@ class GenerationTaskAdmissionServiceTest {
     @Test
     void matchingRetryMustReuseOriginalTaskBeforeQuotaAndCreditChecks() {
         Fixture fixture = fixture();
-        when(fixture.repository().lockUserAndCountNonTerminalTasks(7L)).thenReturn(4);
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(4));
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
                 .thenReturn(Optional.of(idempotencyRecord(
                         "heavy_generation", IDEMPOTENCY.requestFingerprint())));
@@ -89,7 +90,7 @@ class GenerationTaskAdmissionServiceTest {
     @Test
     void reusedKeyWithDifferentRequestMustFailWithoutSideEffects() {
         Fixture fixture = fixture();
-        when(fixture.repository().lockUserAndCountNonTerminalTasks(7L)).thenReturn(0);
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(0));
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
                 .thenReturn(Optional.of(idempotencyRecord(
                         "lightweight_edit", "c".repeat(64))));
@@ -109,11 +110,11 @@ class GenerationTaskAdmissionServiceTest {
         GenerationTaskCommand command = command();
         GenerationCreditReservationQuote quote = new GenerationCreditReservationQuote(
                 200_000L, 2L, "policy-v1");
-        when(fixture.repository().lockUserAndCountNonTerminalTasks(7L)).thenReturn(0);
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(0));
         when(fixture.reservationPolicy().quote(command)).thenReturn(quote);
         IllegalStateException failure = new IllegalStateException("insufficient credit");
         doThrow(failure).when(fixture.creditService()).reserveGenerationTask(
-                new GenerationCreditReservationCommand("task-1", 7L, 2L, "policy-v1"));
+                new GenerationCreditReservationCommand("task-1", 7L, 100L, 2L, "policy-v1"));
 
         assertSame(failure, assertThrows(IllegalStateException.class,
                 () -> fixture.service().admit(command)));
@@ -175,6 +176,10 @@ class GenerationTaskAdmissionServiceTest {
                 ),
                 requestFingerprint
         );
+    }
+
+    private GenerationTaskAdmissionSnapshot snapshot(int userTasks) {
+        return new GenerationTaskAdmissionSnapshot(userTasks, 3, 1, 100L);
     }
 
     private record Fixture(

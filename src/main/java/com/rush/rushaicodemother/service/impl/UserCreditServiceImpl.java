@@ -184,7 +184,8 @@ public class UserCreditServiceImpl implements UserCreditService {
     @Transactional(rollbackFor = Exception.class)
     public void reserveGenerationTask(GenerationCreditReservationCommand command) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
-        if (command == null || !hasPositiveId(command.userId()) || command.reservedCredit() <= 0) {
+        if (command == null || !hasPositiveId(command.userId())
+                || !hasPositiveId(command.tenantId()) || command.reservedCredit() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分预授权参数不合法");
         }
         String taskId = requireTaskId(command.taskId());
@@ -209,6 +210,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         persistenceService.updateBalance(command.userId(), balanceAfter);
         persistenceService.appendTransaction(new NewCreditTransaction(
                 command.userId(),
+                command.tenantId(),
                 -command.reservedCredit(),
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_RESERVATION,
@@ -241,6 +243,7 @@ public class UserCreditServiceImpl implements UserCreditService {
 
         persistenceService.appendTransaction(new NewCreditTransaction(
                 task.userId(),
+                task.tenantId(),
                 settlementDelta,
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_SETTLEMENT,
@@ -275,6 +278,7 @@ public class UserCreditServiceImpl implements UserCreditService {
 
         persistenceService.appendTransaction(new NewCreditTransaction(
                 task.userId(),
+                task.tenantId(),
                 -actualCreditCost,
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_CHARGE,
@@ -297,6 +301,7 @@ public class UserCreditServiceImpl implements UserCreditService {
     /** 恢复生成{@code Settlement}。 */
     private void recoverGenerationSettlement(GenerationCreditTask task, CreditTransaction transaction) {
         if (transaction.userId() != task.userId()
+                || !Objects.equals(transaction.tenantId(), task.tenantId())
                 || transaction.type() != UserCreditTransactionType.GENERATION_CHARGE
                 || !Objects.equals(transaction.bizId(), task.taskId())
                 || transaction.changeAmount() > 0
@@ -334,6 +339,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         }
         long reservedCredit = validateReservation(task, reservation);
         if (settlement.userId() != task.userId()
+                || !Objects.equals(settlement.tenantId(), task.tenantId())
                 || settlement.type() != UserCreditTransactionType.GENERATION_SETTLEMENT
                 || !Objects.equals(settlement.bizId(), task.taskId())
                 || settlement.adminUserId() != null
@@ -359,6 +365,7 @@ public class UserCreditServiceImpl implements UserCreditService {
     /** 校验{@code ate}{@code Reservation}是否有效。 */
     private long validateReservation(GenerationCreditTask task, CreditTransaction reservation) {
         if (reservation.userId() != task.userId()
+                || !Objects.equals(reservation.tenantId(), task.tenantId())
                 || reservation.type() != UserCreditTransactionType.GENERATION_RESERVATION
                 || !Objects.equals(reservation.bizId(), task.taskId())
                 || reservation.changeAmount() >= 0
@@ -377,6 +384,7 @@ public class UserCreditServiceImpl implements UserCreditService {
                                              GenerationCreditReservationCommand command,
                                              String pricingReference) {
         if (transaction.userId() != command.userId()
+                || !Objects.equals(transaction.tenantId(), command.tenantId())
                 || transaction.changeAmount() != -command.reservedCredit()
                 || transaction.type() != UserCreditTransactionType.GENERATION_RESERVATION
                 || !Objects.equals(transaction.bizId(), command.taskId().trim())

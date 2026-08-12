@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 
+import static org.mockito.ArgumentMatchers.any;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.inOrder;
@@ -18,18 +20,33 @@ import static org.mockito.Mockito.when;
 class MyBatisGenerationTaskAdmissionRepositoryTest {
 
     @Test
-    void repositoryMustLockTheUserBeforeReadingCurrentOutstandingLoad() {
+    void repositoryMustLockTenantThenUserBeforeReadingCapacityAndBudget() {
         GenerationTaskRuntimeMapper mapper = mock(GenerationTaskRuntimeMapper.class);
+        when(mapper.lockActiveTenantForGenerationAdmission(100L)).thenReturn(100L);
         when(mapper.lockActiveUserForGenerationAdmission(7L)).thenReturn(7L);
         when(mapper.countNonTerminalTasksByUserId(7L)).thenReturn(3);
+        when(mapper.countNonTerminalTasksByTenantId(100L)).thenReturn(8);
+        when(mapper.countNonTerminalHeavyTasksByTenantId(100L)).thenReturn(2);
+        when(mapper.sumTenantGenerationCreditUsage(org.mockito.ArgumentMatchers.eq(100L), any(), any()))
+                .thenReturn(900L);
         MyBatisGenerationTaskAdmissionRepository repository =
                 new MyBatisGenerationTaskAdmissionRepository(mapper);
 
-        assertEquals(3, repository.lockUserAndCountNonTerminalTasks(7L));
+        var snapshot = repository.lockScopeAndMeasure(100L, 7L);
+
+        assertEquals(3, snapshot.userNonTerminalTasks());
+        assertEquals(8, snapshot.tenantNonTerminalTasks());
+        assertEquals(2, snapshot.tenantHeavyNonTerminalTasks());
+        assertEquals(900L, snapshot.tenantMonthlyCreditUsage());
 
         var order = inOrder(mapper);
+        order.verify(mapper).lockActiveTenantForGenerationAdmission(100L);
         order.verify(mapper).lockActiveUserForGenerationAdmission(7L);
         order.verify(mapper).countNonTerminalTasksByUserId(7L);
+        order.verify(mapper).countNonTerminalTasksByTenantId(100L);
+        order.verify(mapper).countNonTerminalHeavyTasksByTenantId(100L);
+        order.verify(mapper).sumTenantGenerationCreditUsage(
+                org.mockito.ArgumentMatchers.eq(100L), any(), any());
     }
 
     @Test
@@ -39,11 +56,11 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
                 new MyBatisGenerationTaskAdmissionRepository(mapper);
 
         assertThrows(IllegalArgumentException.class,
-                () -> repository.lockUserAndCountNonTerminalTasks(0L));
+                () -> repository.lockScopeAndMeasure(100L, 0L));
         verifyNoInteractions(mapper);
 
         assertThrows(BusinessException.class,
-                () -> repository.lockUserAndCountNonTerminalTasks(7L));
+                () -> repository.lockScopeAndMeasure(100L, 7L));
     }
 
     @Test

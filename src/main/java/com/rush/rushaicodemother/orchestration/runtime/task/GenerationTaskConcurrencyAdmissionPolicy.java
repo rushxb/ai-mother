@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 /** 集群范围的用户准入策略，防止一个帐户垄断持久工作。 */
 @Component
 @RequiredArgsConstructor
-public class GenerationTaskConcurrencyAdmissionPolicy {
+public class GenerationTaskConcurrencyAdmissionPolicy implements GenerationTaskAdmissionPolicy {
 
     private final GenerationTaskAdmissionProperties properties;
 
@@ -29,5 +29,10 @@ public class GenerationTaskConcurrencyAdmissionPolicy {
                     "当前用户同时进行中的生成任务已达到上限（" + limit + "）"
             );
         }
+    }
+
+    @Override
+    public void assertMayAdmit(GenerationTaskAdmissionContext context) {
+        assertMayCreate(context.snapshot().userNonTerminalTasks());
     }
 }

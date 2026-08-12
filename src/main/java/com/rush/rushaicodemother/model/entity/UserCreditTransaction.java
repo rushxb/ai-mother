@@ -34,6 +34,9 @@ public class UserCreditTransaction implements Serializable {
     @Column("userId")
     private Long userId;
 
+    @Column("tenantId")
+    private Long tenantId;
+
     /** 额度变更量。 */
     @Column("changeAmount")
     private Long changeAmount;

@@ -6,12 +6,14 @@ import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskAdmissionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskAdmissionRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskIdempotencyRecord;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Objects;
 import java.util.Optional;
@@ -24,23 +26,28 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
     private final GenerationTaskRuntimeMapper mapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
 
-    /**
- * 返回锁用户{@code And}数量{@code Non}{@code Terminal}任务。
- *
- * @param userId 用户编号
- * @return 计算或处理后的数值结果
- */
+    /** 在固定锁顺序下读取租户和用户准入事实。 */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public int lockUserAndCountNonTerminalTasks(Long userId) {
-        if (userId == null || userId <= 0) {
-            throw new IllegalArgumentException("userId must be positive");
+    public GenerationTaskAdmissionSnapshot lockScopeAndMeasure(Long tenantId, Long userId) {
+        requirePositive(tenantId, "tenantId");
+        requirePositive(userId, "userId");
+        Long lockedTenantId = mapper.lockActiveTenantForGenerationAdmission(tenantId);
+        if (!Objects.equals(lockedTenantId, tenantId)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "生成任务所属租户不存在或已停用");
         }
         Long lockedUserId = mapper.lockActiveUserForGenerationAdmission(userId);
         if (!Objects.equals(lockedUserId, userId)) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "Generation user does not exist");
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "生成任务用户不存在");
         }
-        return mapper.countNonTerminalTasksByUserId(userId);
+        LocalDateTime now = LocalDateTime.now(databaseZone);
+        LocalDateTime periodStart = now.withDayOfMonth(1).toLocalDate().atStartOfDay();
+        return new GenerationTaskAdmissionSnapshot(
+                mapper.countNonTerminalTasksByUserId(userId),
+                mapper.countNonTerminalTasksByTenantId(tenantId),
+                mapper.countNonTerminalHeavyTasksByTenantId(tenantId),
+                mapper.sumTenantGenerationCreditUsage(tenantId, periodStart, now)
+        );
     }
 
     /**
@@ -91,7 +98,7 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
 
     private void requirePositive(Long value, String field) {
         if (value == null || value <= 0) {
-            throw new IllegalArgumentException(field + " must be positive");
+            throw new IllegalArgumentException(field + " 必须为正数");
         }
     }
 }

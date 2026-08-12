@@ -43,10 +43,10 @@ class GenerationTaskSubmissionIdempotencyArchitectureTest {
                 "runtime", "task", "GenerationTaskSubmissionService.java")));
 
         assertOrdered(admission,
-                "lockuserandcountnonterminaltasks",
+                "lockscopeandmeasure",
                 "findbyidempotencykey",
                 "ensuregenerationmodelsconfigured",
-                "assertmaycreate",
+                "assertmayadmit",
                 "reservegenerationtask",
                 "runtimelifecycleservice.submit");
         assertTrue(submission.contains("if (admission.created())"));

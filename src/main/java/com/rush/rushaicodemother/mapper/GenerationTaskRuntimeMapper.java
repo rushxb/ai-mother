@@ -56,6 +56,14 @@ public interface GenerationTaskRuntimeMapper {
     Long lockActiveUserForGenerationAdmission(@Param("userId") Long userId);
 
     @Select("""
+            SELECT id
+            FROM tenant
+            WHERE id = #{tenantId} AND status = 'active' AND isDelete = 0
+            FOR UPDATE
+            """)
+    Long lockActiveTenantForGenerationAdmission(@Param("tenantId") Long tenantId);
+
+    @Select("""
             SELECT COUNT(*)
             FROM generation_task
             WHERE appId = #{appId}
@@ -72,6 +80,63 @@ public interface GenerationTaskRuntimeMapper {
               AND isDelete = 0
             """)
     int countNonTerminalTasksByUserId(@Param("userId") Long userId);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM generation_task
+            WHERE tenantId = #{tenantId}
+              AND status IN ('queued', 'running', 'waiting_approval')
+              AND isDelete = 0
+            """)
+    int countNonTerminalTasksByTenantId(@Param("tenantId") Long tenantId);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM generation_task
+            WHERE tenantId = #{tenantId}
+              AND route = 'heavy_generation'
+              AND status IN ('queued', 'running', 'waiting_approval')
+              AND isDelete = 0
+            """)
+    int countNonTerminalHeavyTasksByTenantId(@Param("tenantId") Long tenantId);
+
+    @Select("""
+            SELECT COALESCE(SUM(taskUsage), 0)
+            FROM (
+                SELECT GREATEST(0, -SUM(entry.changeAmount)) AS taskUsage
+                FROM user_credit_transaction reservation
+                JOIN user_credit_transaction entry
+                  ON entry.tenantId = reservation.tenantId
+                 AND entry.bizId = reservation.bizId
+                 AND entry.type IN ('GENERATION_RESERVATION', 'GENERATION_SETTLEMENT')
+                 AND entry.isDelete = 0
+                WHERE reservation.tenantId = #{tenantId}
+                  AND reservation.type = 'GENERATION_RESERVATION'
+                  AND reservation.createTime >= #{periodStart}
+                  AND reservation.createTime < #{periodEnd}
+                  AND reservation.isDelete = 0
+                GROUP BY reservation.bizId
+                UNION ALL
+                SELECT GREATEST(0, -charge.changeAmount) AS taskUsage
+                FROM user_credit_transaction charge
+                WHERE charge.tenantId = #{tenantId}
+                  AND charge.type = 'GENERATION_CHARGE'
+                  AND charge.createTime >= #{periodStart}
+                  AND charge.createTime < #{periodEnd}
+                  AND charge.isDelete = 0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM user_credit_transaction reservation
+                      WHERE reservation.tenantId = charge.tenantId
+                        AND reservation.bizId = charge.bizId
+                        AND reservation.type = 'GENERATION_RESERVATION'
+                        AND reservation.isDelete = 0
+                  )
+            ) tenantTaskUsage
+            """)
+    long sumTenantGenerationCreditUsage(@Param("tenantId") Long tenantId,
+                                        @Param("periodStart") LocalDateTime periodStart,
+                                        @Param("periodEnd") LocalDateTime periodEnd);
 
     @Select("""
             SELECT taskId, appId, route, status, submittedAt, deadlineAt, requestFingerprint
@@ -438,14 +503,21 @@ public interface GenerationTaskRuntimeMapper {
 
     @Select("""
             SELECT taskId
-            FROM generation_task
-            WHERE status = 'queued'
-              AND cancellationRequested = 0
-              AND (deadlineAt IS NULL OR deadlineAt > #{now})
-              AND leaseOwner IS NULL
-              AND (dispatchAt IS NULL OR dispatchAt < #{dispatchedBefore})
-              AND isDelete = 0
-            ORDER BY submittedAt ASC, id ASC
+            FROM (
+                SELECT taskId, tenantId, submittedAt, id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenantId
+                           ORDER BY submittedAt ASC, id ASC
+                       ) AS tenantRank
+                FROM generation_task
+                WHERE status = 'queued'
+                  AND cancellationRequested = 0
+                  AND (deadlineAt IS NULL OR deadlineAt > #{now})
+                  AND leaseOwner IS NULL
+                  AND (dispatchAt IS NULL OR dispatchAt < #{dispatchedBefore})
+                  AND isDelete = 0
+            ) dispatchable
+            ORDER BY tenantRank ASC, submittedAt ASC, id ASC
             LIMIT #{limit}
             """)
     List<String> selectDispatchableQueuedTaskIds(@Param("now") LocalDateTime now,

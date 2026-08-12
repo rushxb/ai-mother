@@ -4,7 +4,16 @@ package com.rush.rushaicodemother.service.credit;
 public record GenerationCreditReservationCommand(
         String taskId,
         Long userId,
+        Long tenantId,
         long reservedCredit,
         String pricingReference
 ) {
+
+    /** 兼容尚未携带租户身份的旧调用方。 */
+    public GenerationCreditReservationCommand(String taskId,
+                                              Long userId,
+                                              long reservedCredit,
+                                              String pricingReference) {
+        this(taskId, userId, null, reservedCredit, pricingReference);
+    }
 }

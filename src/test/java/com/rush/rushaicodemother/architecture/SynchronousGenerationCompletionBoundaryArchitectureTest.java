@@ -15,23 +15,26 @@ class SynchronousGenerationCompletionBoundaryArchitectureTest {
 
     private static final Path ORCHESTRATION_ROOT = Path.of(
             "src", "main", "java", "com", "rush", "rushaicodemother", "orchestration");
-    private static final Path COMPLETION_OWNER = ORCHESTRATION_ROOT.resolve(
-            Path.of("pipeline", "GenerationPipelineExecutor.java"));
+    private static final Path COMPLETION_OWNER = ORCHESTRATION_ROOT.resolve("finalization");
 
     @Test
-    void synchronousRoutesMustLeaveTerminalPersistenceToPipelineExecutor() throws IOException {
+    void generationRoutesMustLeaveTerminalPersistenceToFinalizer() throws IOException {
         List<String> violations = new ArrayList<>();
         for (Path sourceRoot : List.of(
                 ORCHESTRATION_ROOT.resolve("pipeline"),
-                ORCHESTRATION_ROOT.resolve("edit"))) {
+                ORCHESTRATION_ROOT.resolve("edit"),
+                ORCHESTRATION_ROOT.resolve("heavy"),
+                ORCHESTRATION_ROOT.resolve("runtime"))) {
             try (var sources = Files.walk(sourceRoot)) {
                 for (Path source : sources.filter(this::isJavaSource).toList()) {
-                    if (source.equals(COMPLETION_OWNER)) {
+                    if (source.startsWith(COMPLETION_OWNER)) {
                         continue;
                     }
                     String content = Files.readString(source);
                     if (content.contains(".completeGeneration(")
-                            || content.contains(".completeGenerationAndCharge(")) {
+                            || content.contains(".completeGenerationAndCharge(")
+                            || content.contains(".persistOwnedCompletion(")
+                            || content.contains(".persistUnownedCompletion(")) {
                         violations.add(source.toString());
                     }
                 }
@@ -39,7 +42,7 @@ class SynchronousGenerationCompletionBoundaryArchitectureTest {
         }
 
         assertTrue(violations.isEmpty(),
-                "同步生成终态只能由 GenerationPipelineExecutor 提交，发现重复完成入口：\n - "
+                "同步生成终态只能由 GenerationTaskFinalizer 提交，发现重复完成入口：\n - "
                         + String.join("\n - ", violations));
     }
 

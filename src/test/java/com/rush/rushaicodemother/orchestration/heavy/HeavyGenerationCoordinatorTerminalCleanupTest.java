@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
@@ -67,6 +68,8 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
     @Mock
     private HeavyGenerationSessionCompletionService completionService;
     @Mock
+    private GenerationTaskFinalizer taskFinalizer;
+    @Mock
     private GenerationTaskLifecycleService lifecycleService;
     @Mock
     private GenerationToolExecutionContextService toolExecutionContextService;
@@ -97,6 +100,7 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
                 finalizationService,
                 preparationService,
                 completionService,
+                taskFinalizer,
                 lifecycleService,
                 toolExecutionContextService,
                 org.mockito.Mockito.mock(
@@ -144,12 +148,11 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
 
         verify(completionService).completeClaimed(11L, fixture.session(), fixture.preparation(),
                 GenerationTerminalOutcome.SUCCESS);
-        verify(lifecycleService, never()).releaseGenerationState(anyString(), anyLong());
         verifyCommonCleanup(fixture, GenerationTerminalOutcome.SUCCESS);
     }
 
     @Test
-    void lifecyclePersistenceFailureMustUseOwnedStateReleaseAsFallbackAndContinueCleanup() {
+    void lifecyclePersistenceFailureMustPreserveOwnedStateAndRuntimeForRecovery() {
         TerminalFixture fixture = fixture();
         doThrow(new IllegalStateException("persistence unavailable"))
                 .when(completionService)
@@ -157,8 +160,9 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
 
         complete(fixture, GenerationTerminalOutcome.FAILED, new IllegalStateException("generation failed"));
 
-        verify(lifecycleService).releaseGenerationState("task-11", 11L);
-        verifyCommonCleanup(fixture, GenerationTerminalOutcome.FAILED);
+        verify(sessionRegistry, never()).retainForReplay(11L, fixture.session());
+        verify(executionContextService, never()).finishIfOwned(
+                anyString(), any(), anyString());
     }
 
     @Test
@@ -206,7 +210,6 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
 
         verify(completionService).completeClaimed(11L, fixture.session(), fixture.preparation(),
                 GenerationTerminalOutcome.FAILED);
-        verify(lifecycleService, never()).releaseGenerationState(anyString(), anyLong());
         verifyCommonCleanup(fixture, GenerationTerminalOutcome.FAILED);
     }
 

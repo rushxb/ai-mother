@@ -21,6 +21,8 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
@@ -67,6 +69,7 @@ public class HeavyGenerationCoordinator {
     private final HeavyGenerationFinalizationService heavyGenerationFinalizationService;
     private final HeavyGenerationPreparationService heavyGenerationPreparationService;
     private final HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationToolExecutionContextService generationToolExecutionContextService;
     private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
@@ -87,6 +90,7 @@ public class HeavyGenerationCoordinator {
             HeavyGenerationFinalizationService heavyGenerationFinalizationService,
             HeavyGenerationPreparationService heavyGenerationPreparationService,
             HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService,
+            GenerationTaskFinalizer generationTaskFinalizer,
             GenerationTaskLifecycleService generationTaskLifecycleService,
             GenerationToolExecutionContextService generationToolExecutionContextService,
             GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
@@ -104,6 +108,7 @@ public class HeavyGenerationCoordinator {
                 heavyGenerationFinalizationService,
                 heavyGenerationPreparationService,
                 heavyGenerationSessionCompletionService,
+                generationTaskFinalizer,
                 generationTaskLifecycleService,
                 generationToolExecutionContextService,
                 generationTaskRuntimeLifecycleService,
@@ -404,12 +409,15 @@ public class HeavyGenerationCoordinator {
                 }
                 if (lifecycleStarted && preRegisteredSession == null) {
                     try {
-                        generationTaskLifecycleService.completeGeneration(
+                        generationTaskFinalizer.finalizeManaged(GenerationFinalizationCommand.of(
                                 preparation.taskId(),
                                 appId,
+                                executionContext.executionFence(),
                                 GenerationTaskStatus.FAILED,
-                                "generation_start_failed"
-                        );
+                                "generation_start_failed",
+                                null,
+                                null
+                        ));
                     } catch (RuntimeException cleanupFailure) {
                         startFailure.addSuppressed(cleanupFailure);
                     }
@@ -706,17 +714,17 @@ public class HeavyGenerationCoordinator {
         GenerationTerminalOutcome resolvedOutcome = outcome == null
                 ? GenerationTerminalOutcome.resolve(session, failure)
                 : outcome;
-        runTerminalStep("emit terminal stream event", preparation,
-                () -> emitTerminalStreamEvent(appId, preparation, session, resolvedOutcome, failure));
         boolean lifecyclePersisted = runTerminalStep("persist lifecycle", preparation,
                 () -> heavyGenerationSessionCompletionService.completeClaimed(
                         appId, session, preparation, resolvedOutcome));
-        runTerminalStep("complete generation session", preparation, session::complete);
         if (!lifecyclePersisted) {
-            runTerminalStep("fallback release app generation state", preparation,
-                    () -> generationTaskLifecycleService.releaseGenerationState(
-                            preparation.taskId(), appId));
+            log.error("生成任务终态尚未提交，保留运行时状态等待恢复，taskId: {}",
+                    preparation == null ? null : preparation.taskId());
+            return;
         }
+        runTerminalStep("emit terminal stream event", preparation,
+                () -> emitTerminalStreamEvent(appId, preparation, session, resolvedOutcome, failure));
+        runTerminalStep("complete generation session", preparation, session::complete);
         runTerminalStep("finish performance task", preparation,
                 () -> generationPerformanceMonitorService.finishTask(preparation.taskId(), resolvedOutcome.status()));
         runTerminalStep("retain generation session for replay", preparation,

@@ -17,7 +17,9 @@ import com.rush.rushaicodemother.orchestration.intent.IntentClarificationStage;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
-import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationDeferredException;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
@@ -66,7 +68,7 @@ public class GenerationPipelineExecutor {
     private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationWorkspaceReleaseService workspaceReleaseService;
-    private final GenerationTaskLifecycleService generationTaskLifecycleService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationOutcomeMemoryService generationOutcomeMemoryService;
     private final GenerationCompletionPolicy generationCompletionPolicy;
     private final IntentClarificationStage intentClarificationStage;
@@ -129,6 +131,9 @@ public class GenerationPipelineExecutor {
                 }
             }
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成管线路由尝试次数已耗尽");
+        } catch (GenerationFinalizationDeferredException deferred) {
+            log.error("生成结果已发布，终态提交等待恢复，taskId: {}",
+                    execution.taskId(), LogExceptionSanitizer.sanitize(deferred));
         } catch (RuntimeException failure) {
             failManagedTask(request, failure);
         } catch (Error fatalFailure) {
@@ -224,30 +229,24 @@ public class GenerationPipelineExecutor {
             );
         }
         GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, outcome, null);
-        Long appIdentity = request.taskRequest().app().getId();
-        // 未采集到任何指标时走既有签名，保持原调用契约不变。
-        boolean hasOutcomeQuality = !outcomeQuality.isEmpty();
-        if (status == GenerationTaskStatus.SUCCESS) {
-            if (hasOutcomeQuality) {
-                generationTaskLifecycleService.completeGenerationAndCharge(
-                        execution.taskId(), appIdentity, status, null,
-                        outcome.resultSummary(), outcomeQuality);
-            } else {
-                generationTaskLifecycleService.completeGenerationAndCharge(
-                        execution.taskId(), appIdentity, status, null, outcome.resultSummary());
+        try {
+            generationTaskFinalizer.finalizeManaged(GenerationFinalizationCommand.of(
+                    execution.taskId(),
+                    request.taskRequest().app().getId(),
+                    execution.executionFence(),
+                    status,
+                    outcome.reason(),
+                    outcome.resultSummary(),
+                    outcomeQuality
+            ));
+        } catch (RuntimeException finalizationFailure) {
+            if (status == GenerationTaskStatus.SUCCESS) {
+                throw new GenerationFinalizationDeferredException(
+                        "生成结果已发布但终态提交失败", finalizationFailure);
             }
-        } else {
-            if (hasOutcomeQuality) {
-                generationTaskLifecycleService.completeGeneration(
-                        execution.taskId(), appIdentity, status, outcome.reason(),
-                        outcome.resultSummary(), outcomeQuality);
-            } else {
-                generationTaskLifecycleService.completeGeneration(
-                        execution.taskId(), appIdentity, status, outcome.reason(),
-                        outcome.resultSummary());
-            }
+            throw finalizationFailure;
         }
-        rememberOutcome(request, status, outcome.resultSummary());
+        rememberOutcomeSafely(request, status, outcome.resultSummary());
         if (status == GenerationTaskStatus.SUCCESS) {
             generationEventPublisher.publishSafely(
                     request.taskRequest(), GenerationEventType.TASK_DONE, "生成任务已发布", Map.of(
@@ -259,7 +258,7 @@ public class GenerationPipelineExecutor {
         if (session.tryBeginCompletion()) {
             session.complete();
         }
-        finalizeRuntime(request, execution, session, status, outcome.reason());
+        finalizeRuntime(request, execution, session, status);
     }
 
     /** 将{@code Managed}任务标记为失败并记录原因。 */
@@ -275,6 +274,16 @@ public class GenerationPipelineExecutor {
         if (!session.tryBeginCompletion()) {
             return;
         }
+        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, null, failure);
+        generationTaskFinalizer.finalizeManaged(GenerationFinalizationCommand.of(
+                execution.taskId(),
+                request.taskRequest().app().getId(),
+                execution.executionFence(),
+                outcome.taskStatus(),
+                terminalReason,
+                resultSummary,
+                outcomeQuality
+        ));
         if (outcome == GenerationTerminalOutcome.CANCELLED) {
             session.emitStopped();
         } else {
@@ -300,26 +309,9 @@ public class GenerationPipelineExecutor {
                         "reason", terminalReason
                 )
         );
-        try {
-            GenerationOutcomeQuality outcomeQuality =
-                    resolveOutcomeQuality(execution, null, failure);
-            if (outcomeQuality.isEmpty()) {
-                generationTaskLifecycleService.completeGeneration(
-                        execution.taskId(), request.taskRequest().app().getId(),
-                        outcome.taskStatus(), terminalReason, resultSummary);
-            } else {
-                generationTaskLifecycleService.completeGeneration(
-                        execution.taskId(), request.taskRequest().app().getId(),
-                        outcome.taskStatus(), terminalReason, resultSummary, outcomeQuality);
-            }
-            rememberOutcome(request, outcome.taskStatus(), resultSummary);
-        } catch (RuntimeException lifecycleFailure) {
-            failure.addSuppressed(lifecycleFailure);
-            log.error("Failed to finalize application generation state, taskId: {}",
-                    execution.taskId(), LogExceptionSanitizer.sanitize(lifecycleFailure));
-        }
+        rememberOutcomeSafely(request, outcome.taskStatus(), resultSummary);
         generationPerformanceMonitorService.finishTask(execution.taskId(), outcome.status());
-        finalizeRuntime(request, execution, session, outcome.taskStatus(), terminalReason);
+        finalizeRuntime(request, execution, session, outcome.taskStatus());
     }
 
     /**
@@ -417,6 +409,17 @@ public class GenerationPipelineExecutor {
         ));
     }
 
+    private void rememberOutcomeSafely(GenerationPipelineRequest request,
+                                       GenerationTaskStatus status,
+                                       String resultSummary) {
+        try {
+            rememberOutcome(request, status, resultSummary);
+        } catch (RuntimeException memoryFailure) {
+            log.warn("生成结果记忆写入失败，终态不受影响，taskId: {}",
+                    request.requireExecution().taskId(), LogExceptionSanitizer.sanitize(memoryFailure));
+        }
+    }
+
     private String buildFailureResultSummary(GenerationPipelineRequest request,
                                              GenerationTerminalOutcome outcome) {
         String status = switch (outcome) {
@@ -441,15 +444,7 @@ public class GenerationPipelineExecutor {
     private void finalizeRuntime(GenerationPipelineRequest request,
                                  GenerationTaskExecution execution,
                                  GenerationSession session,
-                                 GenerationTaskStatus status,
-                                 String reason) {
-        try {
-            generationTaskRuntimeLifecycleService.completeOwned(
-                    execution.executionFence(), status, reason);
-        } catch (RuntimeException persistenceFailure) {
-            log.error("Failed to finalize durable generation task, taskId: {}",
-                    execution.taskId(), LogExceptionSanitizer.sanitize(persistenceFailure));
-        }
+                                 GenerationTaskStatus status) {
         try {
             generationSessionRegistry.retainForReplay(request.taskRequest().app().getId(), session);
         } catch (RuntimeException retentionFailure) {

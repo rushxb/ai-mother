@@ -26,6 +26,7 @@ import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFailureRecoveryService;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFinalizationService;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationSessionCompletionService;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -119,17 +120,10 @@ class AppServiceImplRegressionTest {
 
     @Test
     void shouldPersistTerminalLifecycleOnceWhenSessionCompletionIsClaimedOnce() {
-        GenerationTaskLifecycleService lifecycleService = new GenerationTaskLifecycleService(
-                mock(GenerationAppStateService.class),
-                null,
-                new NoopGenerationTraceService(),
-                new NoopUserCreditService()
-        );
-        GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
-                mock(GenerationTaskRuntimeLifecycleService.class);
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
         HeavyGenerationSessionCompletionService completionService =
                 new HeavyGenerationSessionCompletionService(
-                        lifecycleService, runtimeLifecycleService,
+                        finalizer,
                         mock(GenerationOutcomeMemoryService.class));
         GenerationPreparation preparation = newPreparation(
                 lifecycleArtifacts(),
@@ -143,8 +137,9 @@ class AppServiceImplRegressionTest {
         session.complete();
         assertFalse(session.tryBeginCompletion());
 
-        verify(runtimeLifecycleService).completeUnowned(
-                preparation.taskId(), GenerationTaskStatus.SUCCESS, null);
+        verify(finalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.taskId().equals(preparation.taskId())
+                        && command.status() == GenerationTaskStatus.SUCCESS));
     }
 
     @Test

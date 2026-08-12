@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -81,6 +82,8 @@ class HeavyGenerationCoordinatorInitializationTest {
     @Mock
     private HeavyGenerationSessionCompletionService completionService;
     @Mock
+    private GenerationTaskFinalizer taskFinalizer;
+    @Mock
     private GenerationTaskLifecycleService lifecycleService;
     @Mock
     private GenerationToolExecutionContextService toolExecutionContextService;
@@ -113,6 +116,7 @@ class HeavyGenerationCoordinatorInitializationTest {
                 finalizationService,
                 preparationService,
                 completionService,
+                taskFinalizer,
                 lifecycleService,
                 toolExecutionContextService,
                 runtimeLifecycleService,

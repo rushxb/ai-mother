@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.workspace;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /** 文件系统/元数据发布传奇的相关事实来源。 */
 public interface GenerationWorkspacePublicationJournalRepository {
@@ -10,6 +11,8 @@ public interface GenerationWorkspacePublicationJournalRepository {
     GenerationWorkspacePublicationJournalEntry prepare(
             GenerationWorkspacePublicationPointer candidate,
             Instant preparedAt);
+
+    Optional<GenerationWorkspacePublicationJournalEntry> findByTaskId(String taskId);
 
     void markFilesystemActivated(GenerationWorkspacePublicationPointer pointer, Instant activatedAt);
 

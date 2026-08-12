@@ -215,138 +215,34 @@ public class GenerationTaskLifecycleService {
         generationTraceService.updateStage(taskId, generatingStage, generatingMessage);
     }
 
-
     /**
- * 完成生成并持久化终态。
- *
- * @param taskId 任务编号
- * @param appId 应用编号
- * @param status 目标状态
- * @param errorMessage 错误消息
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
+     * 在一个数据库事务中提交生成业务终态、释放应用所有权并完成积分结算。
+     *
+     * <p>该方法只由 {@code GenerationTaskFinalizer} 调用。执行轮次显式传入，避免旧 worker
+     * 在终态收口时释放新一轮任务的应用状态。</p>
+     */
     @Transactional(rollbackFor = Exception.class)
-    public boolean completeGeneration(String taskId,
+    public boolean finalizeGeneration(String taskId,
                                       Long appId,
-                                      GenerationTaskStatus status,
-                                      String errorMessage) {
-        boolean released = generationAppStateService.releaseOwnedGenerationState(appId, taskId);
-        generationTraceService.completeTask(taskId, status, errorMessage);
-        return released;
-    }
-
-    /**
- * 完成生成并持久化终态。
- *
- * @param taskId 任务编号
- * @param appId 应用编号
- * @param status 目标状态
- * @param errorMessage 错误消息
- * @param memorySummary 记忆汇总
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    @Transactional(rollbackFor = Exception.class)
-    public boolean completeGeneration(String taskId,
-                                      Long appId,
-                                      GenerationTaskStatus status,
-                                      String errorMessage,
-                                      String memorySummary) {
-        generationTraceService.updateMemorySummary(taskId, memorySummary);
-        return completeGeneration(taskId, appId, status, errorMessage);
-    }
-
-    /**
- * 完成生成{@code And}{@code Charge}并持久化终态。
- *
- * @param taskId 任务编号
- * @param appId 应用编号
- * @param status 目标状态
- * @param errorMessage 错误消息
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    @Transactional(rollbackFor = Exception.class)
-    public boolean completeGenerationAndCharge(String taskId,
-                                               Long appId,
-                                               GenerationTaskStatus status,
-                                               String errorMessage) {
-        boolean released = generationAppStateService.releaseOwnedGenerationState(appId, taskId);
-        generationTraceService.completeTask(taskId, status, errorMessage);
-        userCreditService.chargeGenerationTask(taskId);
-        return released;
-    }
-
-    /**
- * 完成生成{@code And}{@code Charge}并持久化终态。
- *
- * @param taskId 任务编号
- * @param appId 应用编号
- * @param status 目标状态
- * @param errorMessage 错误消息
- * @param memorySummary 记忆汇总
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    @Transactional(rollbackFor = Exception.class)
-    public boolean completeGenerationAndCharge(String taskId,
-                                               Long appId,
-                                               GenerationTaskStatus status,
-                                               String errorMessage,
-                                               String memorySummary) {
-        generationTraceService.updateMemorySummary(taskId, memorySummary);
-        return completeGenerationAndCharge(taskId, appId, status, errorMessage);
-    }
-
-    /**
- * 完成生成并结算积分，同时记录 L3 结果质量证据。
- *
- * @param taskId 任务编号
- * @param appId 应用编号
- * @param status 目标状态
- * @param errorMessage 错误消息
- * @param memorySummary 记忆汇总
- * @param outcomeQuality 结果质量证据，允许为空
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    @Transactional(rollbackFor = Exception.class)
-    public boolean completeGenerationAndCharge(String taskId,
-                                               Long appId,
-                                               GenerationTaskStatus status,
-                                               String errorMessage,
-                                               String memorySummary,
-                                               GenerationOutcomeQuality outcomeQuality) {
-        generationTraceService.updateMemorySummary(taskId, memorySummary);
-        boolean released = generationAppStateService.releaseOwnedGenerationState(appId, taskId);
-        generationTraceService.completeTask(taskId, status, errorMessage, outcomeQuality);
-        userCreditService.chargeGenerationTask(taskId);
-        return released;
-    }
-
-    /**
- * 完成生成并持久化终态，同时记录 L3 结果质量证据。
- *
- * @param taskId 任务编号
- * @param appId 应用编号
- * @param status 目标状态
- * @param errorMessage 错误消息
- * @param memorySummary 记忆汇总
- * @param outcomeQuality 结果质量证据，允许为空
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    @Transactional(rollbackFor = Exception.class)
-    public boolean completeGeneration(String taskId,
-                                      Long appId,
+                                      Long executionEpoch,
                                       GenerationTaskStatus status,
                                       String errorMessage,
                                       String memorySummary,
                                       GenerationOutcomeQuality outcomeQuality) {
-        generationTraceService.updateMemorySummary(taskId, memorySummary);
-        boolean released = generationAppStateService.releaseOwnedGenerationState(appId, taskId);
-        generationTraceService.completeTask(taskId, status, errorMessage, outcomeQuality);
+        generationAppStateService.lockGenerationState(appId);
+        if (memorySummary != null) {
+            generationTraceService.updateMemorySummary(taskId, memorySummary);
+        }
+        boolean released = executionEpoch == null
+                ? generationAppStateService.releaseOwnedGenerationState(appId, taskId)
+                : generationAppStateService.releaseOwnedGenerationState(appId, taskId, executionEpoch);
+        if (outcomeQuality == null || outcomeQuality.isEmpty()) {
+            generationTraceService.completeTask(taskId, status, errorMessage);
+        } else {
+            generationTraceService.completeTask(taskId, status, errorMessage, outcomeQuality);
+        }
+        userCreditService.chargeGenerationTask(taskId);
         return released;
     }
-
-    public boolean releaseGenerationState(String taskId, Long appId) {
-        return generationAppStateService.releaseOwnedGenerationState(appId, taskId);
-    }
-
 
 }

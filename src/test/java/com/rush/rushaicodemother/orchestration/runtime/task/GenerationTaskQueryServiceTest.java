@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimator;
@@ -76,7 +77,8 @@ class GenerationTaskQueryServiceTest {
         when(durableRepository.findByTaskId("task-cancel"))
                 .thenReturn(Optional.of(taskRecord("task-cancel", GenerationTaskStatus.RUNNING)));
         GenerationTaskControlService controlService = new GenerationTaskControlService(
-                queryService, durableRepository, runtimeLifecycleService, contextService,
+                queryService, durableRepository, runtimeLifecycleService,
+                mock(GenerationTaskFinalizer.class), contextService,
                 tenantAuthorizationService);
         when(runtimeLifecycleService.requestCancellation("task-cancel", "user_requested")).thenReturn(true);
 

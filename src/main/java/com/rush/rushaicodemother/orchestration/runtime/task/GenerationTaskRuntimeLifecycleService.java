@@ -8,7 +8,6 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
-import com.rush.rushaicodemother.service.UserCreditService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -25,51 +24,38 @@ public class GenerationTaskRuntimeLifecycleService {
     private final GenerationTaskLeaseCoordinator leaseCoordinator;
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GenerationPerformanceMonitorService performanceMonitorService;
-    private final UserCreditService userCreditService;
     private final Clock clock;
 
     @Autowired
     public GenerationTaskRuntimeLifecycleService(DurableGenerationTaskRepository repository,
                                                  GenerationTaskLeaseCoordinator leaseCoordinator,
                                                  GenerationOrchestrationMetricsCollector metricsCollector,
-                                                 GenerationPerformanceMonitorService performanceMonitorService,
-                                                 UserCreditService userCreditService) {
-        this(repository, leaseCoordinator, metricsCollector, performanceMonitorService,
-                userCreditService, Clock.systemUTC());
+                                                 GenerationPerformanceMonitorService performanceMonitorService) {
+        this(repository, leaseCoordinator, metricsCollector, performanceMonitorService, Clock.systemUTC());
     }
 
     GenerationTaskRuntimeLifecycleService(DurableGenerationTaskRepository repository,
                                           GenerationTaskLeaseCoordinator leaseCoordinator,
                                           Clock clock) {
-        this(repository, leaseCoordinator, null, null, null, clock);
+        this(repository, leaseCoordinator, null, null, clock);
     }
 
     GenerationTaskRuntimeLifecycleService(DurableGenerationTaskRepository repository,
                                           GenerationTaskLeaseCoordinator leaseCoordinator,
                                           GenerationOrchestrationMetricsCollector metricsCollector,
                                           Clock clock) {
-        this(repository, leaseCoordinator, metricsCollector, null, null, clock);
+        this(repository, leaseCoordinator, metricsCollector, null, clock);
     }
 
     GenerationTaskRuntimeLifecycleService(DurableGenerationTaskRepository repository,
                                           GenerationTaskLeaseCoordinator leaseCoordinator,
-                                           GenerationOrchestrationMetricsCollector metricsCollector,
-                                           GenerationPerformanceMonitorService performanceMonitorService,
-                                           Clock clock) {
-        this(repository, leaseCoordinator, metricsCollector, performanceMonitorService, null, clock);
-    }
-
-    GenerationTaskRuntimeLifecycleService(DurableGenerationTaskRepository repository,
-                                           GenerationTaskLeaseCoordinator leaseCoordinator,
-                                           GenerationOrchestrationMetricsCollector metricsCollector,
-                                           GenerationPerformanceMonitorService performanceMonitorService,
-                                           UserCreditService userCreditService,
-                                           Clock clock) {
+                                          GenerationOrchestrationMetricsCollector metricsCollector,
+                                          GenerationPerformanceMonitorService performanceMonitorService,
+                                          Clock clock) {
         this.repository = repository;
         this.leaseCoordinator = leaseCoordinator;
         this.metricsCollector = metricsCollector;
         this.performanceMonitorService = performanceMonitorService;
-        this.userCreditService = userCreditService;
         this.clock = clock;
     }
 
@@ -159,20 +145,10 @@ public class GenerationTaskRuntimeLifecycleService {
  * @param status 目标状态
  * @param reason 原因
  */
-    public void completeOwned(GenerationExecutionFence fence,
-                              GenerationTaskStatus status,
-                              String reason) {
-        DurableGenerationTaskRecord task = safeFind(fence.taskId());
-        Instant completedAt = clock.instant();
-        try {
-            leaseCoordinator.completeOwned(fence, status, reason, completedAt);
-            recordUserWait(task, status, completedAt);
-            if (userCreditService != null) {
-                userCreditService.chargeGenerationTask(fence.taskId());
-            }
-        } finally {
-            leaseCoordinator.release(fence);
-        }
+    public void persistOwnedCompletion(GenerationExecutionFence fence,
+                                       GenerationTaskStatus status,
+                                       String reason) {
+        leaseCoordinator.completeOwned(fence, status, reason, clock.instant());
     }
 
     /**
@@ -182,14 +158,22 @@ public class GenerationTaskRuntimeLifecycleService {
  * @param status 目标状态
  * @param reason 原因
  */
-    public void completeUnowned(String taskId, GenerationTaskStatus status, String reason) {
+    public void persistUnownedCompletion(String taskId, GenerationTaskStatus status, String reason) {
+        repository.completeUnowned(taskId, status, reason, clock.instant());
+    }
+
+    /** 数据库终态提交后记录端到端等待指标。 */
+    public void recordTerminalCommit(String taskId, GenerationTaskStatus status) {
         DurableGenerationTaskRecord task = safeFind(taskId);
-        Instant completedAt = clock.instant();
-        repository.completeUnowned(taskId, status, reason, completedAt);
+        Instant completedAt = task == null || task.completedAt() == null
+                ? clock.instant()
+                : task.completedAt();
         recordUserWait(task, status, completedAt);
-        if (userCreditService != null) {
-            userCreditService.chargeGenerationTask(taskId);
-        }
+    }
+
+    /** 终态事务完成后释放进程内租约跟踪。 */
+    public void releaseTerminalOwnership(GenerationExecutionFence fence) {
+        leaseCoordinator.release(fence);
     }
 
     /** 返回安全{@code Find}。 */

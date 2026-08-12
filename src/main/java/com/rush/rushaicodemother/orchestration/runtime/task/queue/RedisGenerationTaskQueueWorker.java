@@ -3,9 +3,9 @@ package com.rush.rushaicodemother.orchestration.runtime.task.queue;
 import com.rush.rushaicodemother.config.GenerationTaskQueueProperties;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskCommandExecutionService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskDispatchResult;
-import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -26,7 +26,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
     private final DurableGenerationTaskQueue queue;
     private final GenerationTaskCommandExecutionService executionService;
     private final DurableGenerationTaskRepository repository;
-    private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationTaskQueueProperties properties;
     private final Map<String, GenerationTaskQueueDelivery> activeDeliveries = new ConcurrentHashMap<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -36,12 +36,12 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
     public RedisGenerationTaskQueueWorker(DurableGenerationTaskQueue queue,
                                           GenerationTaskCommandExecutionService executionService,
                                           DurableGenerationTaskRepository repository,
-                                          GenerationTaskRuntimeLifecycleService runtimeLifecycleService,
+                                          GenerationTaskFinalizer generationTaskFinalizer,
                                           GenerationTaskQueueProperties properties) {
         this.queue = queue;
         this.executionService = executionService;
         this.repository = repository;
-        this.runtimeLifecycleService = runtimeLifecycleService;
+        this.generationTaskFinalizer = generationTaskFinalizer;
         this.properties = properties;
     }
 
@@ -167,7 +167,7 @@ public class RedisGenerationTaskQueueWorker implements SmartLifecycle {
         try {
             repository.findByTaskId(delivery.taskId()).ifPresent(task -> {
                 if (!task.terminal()) {
-                    runtimeLifecycleService.completeUnowned(
+                    generationTaskFinalizer.finalizeUnownedRuntime(
                             delivery.taskId(), GenerationTaskStatus.FAILED, "queue_delivery_exhausted");
                 }
             });

@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionFactory;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
@@ -63,6 +65,7 @@ public class GenerationTaskCommandExecutionService {
     private final GenerationTaskExecutor taskExecutor;
     private final GenerationPipelineExecutor pipelineExecutor;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationTraceContextBridge traceContextBridge;
     private final GenerationPerformanceMonitorService performanceMonitorService;
 
@@ -81,6 +84,7 @@ public class GenerationTaskCommandExecutionService {
             GenerationTaskExecutor taskExecutor,
             GenerationPipelineExecutor pipelineExecutor,
             GenerationTaskRuntimeLifecycleService runtimeLifecycleService,
+            GenerationTaskFinalizer generationTaskFinalizer,
             GenerationTraceContextBridge traceContextBridge,
             GenerationPerformanceMonitorService performanceMonitorService
     ) {
@@ -101,6 +105,7 @@ public class GenerationTaskCommandExecutionService {
                 taskExecutor,
                 pipelineExecutor,
                 runtimeLifecycleService,
+                generationTaskFinalizer,
                 traceContextBridge,
                 performanceMonitorService
         );
@@ -121,12 +126,12 @@ public class GenerationTaskCommandExecutionService {
         }
         Instant now = Instant.now();
         if (task.cancellationRequested()) {
-            runtimeLifecycleService.completeUnowned(taskId, GenerationTaskStatus.CANCELLED,
+            generationTaskFinalizer.finalizeUnownedRuntime(taskId, GenerationTaskStatus.CANCELLED,
                     normalize(task.cancellationReason(), "user_requested"));
             return GenerationTaskDispatchResult.TERMINAL;
         }
         if (task.deadlineAt() != null && !task.deadlineAt().isAfter(now)) {
-            runtimeLifecycleService.completeUnowned(taskId, GenerationTaskStatus.DEADLINE_EXCEEDED,
+            generationTaskFinalizer.finalizeUnownedRuntime(taskId, GenerationTaskStatus.DEADLINE_EXCEEDED,
                     "deadline_exceeded_before_dispatch");
             return GenerationTaskDispatchResult.TERMINAL;
         }
@@ -162,8 +167,8 @@ public class GenerationTaskCommandExecutionService {
             GenerationTaskCommand command = repository.findCommandByTaskId(taskId).orElse(null);
             if (command == null) {
                 claimReleased = true;
-                runtimeLifecycleService.completeOwned(executionFence, GenerationTaskStatus.FAILED,
-                        "generation_runtime_command_missing");
+                generationTaskFinalizer.finalizeOwnedRuntime(runtimeFinalization(
+                        task, executionFence, "generation_runtime_command_missing"));
                 return GenerationTaskDispatchResult.TERMINAL;
             }
             appId = command.appId();
@@ -174,8 +179,8 @@ public class GenerationTaskCommandExecutionService {
                     || !Objects.equals(app.getTenantId(), task.tenantId())
                     || (command.tenantId() != null && !Objects.equals(command.tenantId(), task.tenantId()))) {
                 claimReleased = true;
-                runtimeLifecycleService.completeOwned(executionFence, GenerationTaskStatus.FAILED,
-                        "generation_identity_no_longer_exists");
+                generationTaskFinalizer.finalizeOwnedRuntime(runtimeFinalization(
+                        task, executionFence, "generation_identity_no_longer_exists"));
                 return GenerationTaskDispatchResult.TERMINAL;
             }
             try {
@@ -184,8 +189,8 @@ public class GenerationTaskCommandExecutionService {
                         "生成任务执行人已无当前租户的操作权限");
             } catch (BusinessException noLongerAuthorized) {
                 claimReleased = true;
-                runtimeLifecycleService.completeOwned(executionFence, GenerationTaskStatus.FAILED,
-                        "generation_actor_no_longer_authorized");
+                generationTaskFinalizer.finalizeOwnedRuntime(runtimeFinalization(
+                        task, executionFence, "generation_actor_no_longer_authorized"));
                 return GenerationTaskDispatchResult.TERMINAL;
             }
 
@@ -416,6 +421,15 @@ public class GenerationTaskCommandExecutionService {
 
     private String normalize(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private GenerationFinalizationCommand runtimeFinalization(
+            DurableGenerationTaskRecord task,
+            GenerationExecutionFence fence,
+            String reason) {
+        return GenerationFinalizationCommand.of(
+                task.taskId(), task.appId(), fence, GenerationTaskStatus.FAILED,
+                reason, null, null);
     }
 
     /** 记录工作器{@code Queue}{@code Wait}相关指标或状态。 */

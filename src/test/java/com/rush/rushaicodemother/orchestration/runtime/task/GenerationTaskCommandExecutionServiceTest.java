@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionFactory;
 import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -175,6 +176,7 @@ class GenerationTaskCommandExecutionServiceTest {
                 taskExecutor,
                 pipelineExecutor,
                 runtimeLifecycleService,
+                mock(GenerationTaskFinalizer.class),
                 traceContextBridge,
                 performanceMonitorService
         );
@@ -303,6 +305,7 @@ class GenerationTaskCommandExecutionServiceTest {
                 taskExecutor,
                 pipelineExecutor,
                 runtimeLifecycleService,
+                mock(GenerationTaskFinalizer.class),
                 traceContextBridge,
                 performanceMonitorService
         );
@@ -422,6 +425,7 @@ class GenerationTaskCommandExecutionServiceTest {
                 taskExecutor,
                 pipelineExecutor,
                 runtimeLifecycleService,
+                mock(GenerationTaskFinalizer.class),
                 traceContextBridge,
                 performanceMonitorService
         );

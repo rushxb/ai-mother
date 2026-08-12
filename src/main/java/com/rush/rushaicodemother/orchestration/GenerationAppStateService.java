@@ -200,6 +200,11 @@ public class GenerationAppStateService {
         return releaseOwnedGenerationState(appId, taskId, resolveExecutionEpoch(requireTaskId(taskId)));
     }
 
+    /** 在终态事务写任务表前锁定应用行，保持全链路数据库锁顺序一致。 */
+    public boolean lockGenerationState(Long appId) {
+        return appMapper.lockGenerationState(requireAppId(appId)) != null;
+    }
+
     /**
  * 释放{@code Owned}生成状态。
  *
@@ -218,6 +223,17 @@ public class GenerationAppStateService {
         }
         return appMapper.releaseOwnedGenerationState(
                 normalizedAppId, normalizedTaskId, executionEpoch) == 1;
+    }
+
+    /**
+     * 在任务持久终态已经提交的同一事务中释放应用占用。
+     *
+     * <p>无主任务没有可用的进程内执行围栏，因此只校验应用和任务标识。调用方必须先通过
+     * 持久任务的终态条件更新，确保同一任务不可能再进入新的执行轮次。</p>
+     */
+    public boolean releaseTerminalGenerationState(Long appId, String taskId) {
+        return appMapper.releaseTerminalGenerationState(
+                requireAppId(appId), requireTaskId(taskId)) == 1;
     }
 
     private long resolveExecutionEpoch(String taskId) {

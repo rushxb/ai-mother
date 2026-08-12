@@ -1,7 +1,8 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
-import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagCheckpointRecoveryPolicy;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
@@ -10,6 +11,9 @@ import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionRecoveryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskRecoveryCandidate;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationJournalEntry;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationJournalRepository;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationJournalStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -17,6 +21,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 恢复位于确定性版本化检查点边界的过期任务，并终止其余过期任务。
@@ -29,7 +34,8 @@ public class GenerationTaskRecoveryService {
     private final DurableGenerationTaskRepository repository;
     private final GenerationTaskLeaseProperties properties;
     private final GenerationTaskRecoveryPolicy recoveryPolicy;
-    private final GenerationAppStateService generationAppStateService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
+    private final GenerationWorkspacePublicationJournalRepository publicationJournalRepository;
     private final GenerationExecutionContextService executionContextService;
     private final ToolExecutionRecoveryService toolExecutionRecoveryService;
     private final GenerationToolContinuationScheduler toolContinuationScheduler;
@@ -41,13 +47,14 @@ public class GenerationTaskRecoveryService {
     public GenerationTaskRecoveryService(DurableGenerationTaskRepository repository,
                                          GenerationTaskLeaseProperties properties,
                                          GenerationTaskRecoveryPolicy recoveryPolicy,
-                                         GenerationAppStateService generationAppStateService,
+                                         GenerationTaskFinalizer generationTaskFinalizer,
+                                         GenerationWorkspacePublicationJournalRepository publicationJournalRepository,
                                          GenerationExecutionContextService executionContextService,
                                          ToolExecutionRecoveryService toolExecutionRecoveryService,
                                          GenerationToolContinuationScheduler toolContinuationScheduler,
                                          GenerationOrchestrationTaskStore orchestrationTaskStore,
                                          GenerationTaskDispatcher taskDispatcher) {
-        this(repository, properties, recoveryPolicy, generationAppStateService,
+        this(repository, properties, recoveryPolicy, generationTaskFinalizer, publicationJournalRepository,
                 executionContextService, toolExecutionRecoveryService,
                 toolContinuationScheduler, orchestrationTaskStore, taskDispatcher, Clock.systemUTC());
     }
@@ -56,13 +63,15 @@ public class GenerationTaskRecoveryService {
     GenerationTaskRecoveryService(DurableGenerationTaskRepository repository,
                                   GenerationTaskLeaseProperties properties,
                                   GenerationTaskRecoveryPolicy recoveryPolicy,
-                                  GenerationAppStateService generationAppStateService,
+                                  GenerationTaskFinalizer generationTaskFinalizer,
+                                  GenerationWorkspacePublicationJournalRepository publicationJournalRepository,
                                   GenerationExecutionContextService executionContextService,
                                   Clock clock) {
         this.repository = repository;
         this.properties = properties;
         this.recoveryPolicy = recoveryPolicy;
-        this.generationAppStateService = generationAppStateService;
+        this.generationTaskFinalizer = generationTaskFinalizer;
+        this.publicationJournalRepository = publicationJournalRepository;
         this.executionContextService = executionContextService;
         this.toolExecutionRecoveryService = null;
         this.toolContinuationScheduler = null;
@@ -75,7 +84,8 @@ public class GenerationTaskRecoveryService {
     GenerationTaskRecoveryService(DurableGenerationTaskRepository repository,
                                   GenerationTaskLeaseProperties properties,
                                   GenerationTaskRecoveryPolicy recoveryPolicy,
-                                  GenerationAppStateService generationAppStateService,
+                                  GenerationTaskFinalizer generationTaskFinalizer,
+                                  GenerationWorkspacePublicationJournalRepository publicationJournalRepository,
                                   GenerationExecutionContextService executionContextService,
                                   ToolExecutionRecoveryService toolExecutionRecoveryService,
                                   GenerationToolContinuationScheduler toolContinuationScheduler,
@@ -85,7 +95,8 @@ public class GenerationTaskRecoveryService {
         this.repository = repository;
         this.properties = properties;
         this.recoveryPolicy = recoveryPolicy;
-        this.generationAppStateService = generationAppStateService;
+        this.generationTaskFinalizer = generationTaskFinalizer;
+        this.publicationJournalRepository = publicationJournalRepository;
         this.executionContextService = executionContextService;
         this.toolExecutionRecoveryService = toolExecutionRecoveryService;
         this.toolContinuationScheduler = toolContinuationScheduler;
@@ -107,6 +118,28 @@ public class GenerationTaskRecoveryService {
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationTaskRecoveryCandidate candidate : candidates) {
             try {
+                Optional<GenerationWorkspacePublicationJournalEntry> publicationEntry =
+                        publicationJournalRepository.findByTaskId(candidate.taskId());
+                GenerationWorkspacePublicationJournalEntry publication = publicationEntry == null
+                        ? null
+                        : publicationEntry.orElse(null);
+                if (publication != null
+                        && publication.status() == GenerationWorkspacePublicationJournalStatus.COMMITTED) {
+                    if (generationTaskFinalizer.finalizeExpiredLease(
+                            candidate, GenerationTaskStatus.SUCCESS, now, null)) {
+                        recovered++;
+                        log.warn("已发布生成任务的终态已恢复为成功，taskId: {}", candidate.taskId());
+                    }
+                    continue;
+                }
+                if (publication != null
+                        && (publication.status()
+                                == GenerationWorkspacePublicationJournalStatus.FILESYSTEM_ACTIVATED
+                        || publication.status()
+                                == GenerationWorkspacePublicationJournalStatus.ROLLBACK_REQUIRED)) {
+                    log.warn("生成任务等待发布 journal 对账，暂缓终态化，taskId: {}", candidate.taskId());
+                    continue;
+                }
                 GenerationTaskRecoveryDecision decision = recoveryPolicy.decide(candidate, now);
                 if (isRecoverableToolOrphan(decision)) {
                     ToolApprovalRecord approval = toolExecutionRecoveryService
@@ -135,14 +168,12 @@ public class GenerationTaskRecoveryService {
                     }
                     continue;
                 }
-                if (!repository.finalizeExpiredLease(
+                if (!generationTaskFinalizer.finalizeExpiredLease(
                         candidate, decision.status(), now, decision.reason())) {
                     continue;
                 }
                 recovered++;
                 executionContextService.cancelByTaskId(candidate.taskId(), decision.reason());
-                generationAppStateService.releaseOwnedGenerationState(
-                        candidate.appId(), candidate.taskId(), candidate.executionEpoch());
                 log.warn(
                         "过期生成任务已进入终态，taskId: {}，status: {}，previousOwner: {}",
                         candidate.taskId(), decision.status().getValue(), candidate.leaseOwner()

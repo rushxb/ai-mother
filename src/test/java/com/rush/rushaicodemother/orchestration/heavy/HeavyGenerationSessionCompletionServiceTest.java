@@ -12,8 +12,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
-import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
-import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,17 +21,17 @@ import java.util.Map;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 class HeavyGenerationSessionCompletionServiceTest {
 
     @Test
     void completedTaskMustNotBypassTheEnabledDurableOutbox() {
-        GenerationTaskLifecycleService lifecycleService = mock(GenerationTaskLifecycleService.class);
-        GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
-                mock(GenerationTaskRuntimeLifecycleService.class);
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
         GenerationSemanticMemoryService semanticMemoryService = mock(GenerationSemanticMemoryService.class);
         MilvusMemoryProperties longTermProperties = new MilvusMemoryProperties();
         longTermProperties.setEnabled(true);
@@ -41,40 +40,59 @@ class HeavyGenerationSessionCompletionServiceTest {
         GenerationOutcomeMemoryService outcomeMemoryService = new GenerationOutcomeMemoryService(
                 semanticMemoryService, longTermProperties, outboxProperties);
         HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
-                lifecycleService, runtimeLifecycleService, outcomeMemoryService);
+                finalizer, outcomeMemoryService);
         GenerationPreparation preparation = preparation();
         GenerationSession session = new GenerationSession(preparation);
         session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
 
         service.completeClaimed(1L, session, preparation, GenerationTerminalOutcome.SUCCESS);
 
-        verify(lifecycleService).completeGenerationAndCharge(
-                eq("task-1"), eq(1L), eq(GenerationTaskStatus.SUCCESS), eq(null), anyString());
-        verify(runtimeLifecycleService).completeUnowned("task-1", GenerationTaskStatus.SUCCESS, null);
+        verify(finalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.taskId().equals("task-1")
+                        && command.appId().equals(1L)
+                        && command.status() == GenerationTaskStatus.SUCCESS
+                        && command.reason() == null
+                        && command.memorySummary() != null));
         verifyNoInteractions(semanticMemoryService);
     }
 
     @Test
     void failedTaskMustPersistOutcomeWithoutCharging() {
-        GenerationTaskLifecycleService lifecycleService = mock(GenerationTaskLifecycleService.class);
-        GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
-                mock(GenerationTaskRuntimeLifecycleService.class);
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
         GenerationOutcomeMemoryService outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
         HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
-                lifecycleService, runtimeLifecycleService, outcomeMemoryService);
+                finalizer, outcomeMemoryService);
         GenerationPreparation preparation = preparation();
         GenerationSession session = new GenerationSession(preparation);
         session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
 
         service.completeClaimed(1L, session, preparation, GenerationTerminalOutcome.FAILED);
 
-        verify(lifecycleService).completeGeneration(
-                eq("task-1"), eq(1L), eq(GenerationTaskStatus.FAILED), eq("failed"), anyString());
-        verify(lifecycleService, never()).completeGenerationAndCharge(
-                eq("task-1"), eq(1L), eq(GenerationTaskStatus.FAILED),
-                org.mockito.ArgumentMatchers.any(), anyString());
-        verify(runtimeLifecycleService).completeUnowned(
-                "task-1", GenerationTaskStatus.FAILED, "failed");
+        verify(finalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.taskId().equals("task-1")
+                        && command.appId().equals(1L)
+                        && command.status() == GenerationTaskStatus.FAILED
+                        && command.reason().equals("failed")
+                        && command.memorySummary() != null));
+    }
+
+    @Test
+    void memoryFailureMustNotTurnCommittedTerminalStateIntoFailure() {
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
+        GenerationOutcomeMemoryService outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
+        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
+                finalizer, outcomeMemoryService);
+        GenerationPreparation preparation = preparation();
+        GenerationSession session = new GenerationSession(preparation);
+        session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
+        doThrow(new IllegalStateException("记忆服务不可用"))
+                .when(outcomeMemoryService).remember(org.mockito.ArgumentMatchers.any());
+
+        assertDoesNotThrow(() -> service.completeClaimed(
+                1L, session, preparation, GenerationTerminalOutcome.SUCCESS));
+
+        verify(finalizer).finalizeManaged(org.mockito.ArgumentMatchers.any());
+        verify(outcomeMemoryService).remember(org.mockito.ArgumentMatchers.any());
     }
 
     private GenerationPreparation preparation() {

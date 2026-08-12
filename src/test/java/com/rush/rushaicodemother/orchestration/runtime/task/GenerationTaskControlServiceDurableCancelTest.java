@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
@@ -30,6 +31,7 @@ class GenerationTaskControlServiceDurableCancelTest {
 
     private DurableGenerationTaskRepository repository;
     private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private GenerationTaskFinalizer taskFinalizer;
     private GenerationExecutionContextService executionContextService;
     private GenerationTaskControlService service;
     private TenantAuthorizationService tenantAuthorizationService;
@@ -38,6 +40,7 @@ class GenerationTaskControlServiceDurableCancelTest {
     void setUp() {
         repository = mock(DurableGenerationTaskRepository.class);
         runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
+        taskFinalizer = mock(GenerationTaskFinalizer.class);
         tenantAuthorizationService = mock(TenantAuthorizationService.class);
         executionContextService = new GenerationExecutionContextService(new GenerationRuntimeProperties());
         GenerationTaskQueryService queryService = new GenerationTaskQueryService(
@@ -45,7 +48,7 @@ class GenerationTaskControlServiceDurableCancelTest {
                 mock(GenerationTaskProgressEstimator.class), mock(GenerationEventStream.class),
                 mock(AppPersistenceService.class), tenantAuthorizationService);
         service = new GenerationTaskControlService(
-                queryService, repository, runtimeLifecycleService, executionContextService,
+                queryService, repository, runtimeLifecycleService, taskFinalizer, executionContextService,
                 tenantAuthorizationService);
     }
 
@@ -90,7 +93,7 @@ class GenerationTaskControlServiceDurableCancelTest {
         GenerationTaskSnapshot snapshot = service.cancel("task-remote", user(2L));
 
         assertEquals("cancelled", snapshot.status());
-        verify(runtimeLifecycleService).completeUnowned(
+        verify(taskFinalizer).finalizeUnownedRuntime(
                 "task-remote", GenerationTaskStatus.CANCELLED, "user_requested");
     }
 

@@ -7,12 +7,14 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
-import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
-import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryRequest;
 import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -20,10 +22,10 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class HeavyGenerationSessionCompletionService {
 
-    private final GenerationTaskLifecycleService generationTaskLifecycleService;
-    private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationOutcomeMemoryService outcomeMemoryService;
 
     /**
@@ -44,54 +46,16 @@ public class HeavyGenerationSessionCompletionService {
         String status = outcome.status();
         String memorySummary = buildMemorySummary(preparation, status);
         GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(preparation, session, outcome);
-        // 未采集到任何指标时走既有签名，保持原调用契约不变；只有确有证据才使用新重载。
-        boolean hasOutcomeQuality = !outcomeQuality.isEmpty();
-        RuntimeException lifecycleFailure = null;
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
-        try {
-            if (outcome == GenerationTerminalOutcome.SUCCESS) {
-                if (hasOutcomeQuality) {
-                    generationTaskLifecycleService.completeGenerationAndCharge(
-                            preparation.taskId(), appId, outcome.taskStatus(), null,
-                            memorySummary, outcomeQuality);
-                } else {
-                    generationTaskLifecycleService.completeGenerationAndCharge(
-                            preparation.taskId(), appId, outcome.taskStatus(), null, memorySummary);
-                }
-            } else {
-                if (hasOutcomeQuality) {
-                    generationTaskLifecycleService.completeGeneration(
-                            preparation.taskId(), appId, outcome.taskStatus(), outcome.status(),
-                            memorySummary, outcomeQuality);
-                } else {
-                    generationTaskLifecycleService.completeGeneration(
-                            preparation.taskId(), appId, outcome.taskStatus(), outcome.status(),
-                            memorySummary);
-                }
-            }
-        } catch (RuntimeException failure) {
-            lifecycleFailure = failure;
-            throw failure;
-        } finally {
-            try {
-                String reason = outcome == GenerationTerminalOutcome.SUCCESS ? null : outcome.status();
-                if (session.executionContext() != null
-                        && session.executionContext().executionFence() != null) {
-                    generationTaskRuntimeLifecycleService.completeOwned(
-                            session.executionContext().executionFence(), outcome.taskStatus(), reason);
-                } else {
-                    generationTaskRuntimeLifecycleService.completeUnowned(
-                            preparation.taskId(), outcome.taskStatus(), reason);
-                }
-            } catch (RuntimeException runtimeFailure) {
-                if (lifecycleFailure != null) {
-                    lifecycleFailure.addSuppressed(runtimeFailure);
-                } else {
-                    throw runtimeFailure;
-                }
-            }
-        }
-        rememberOutcome(appId, session, preparation, outcome, memorySummary);
+        generationTaskFinalizer.finalizeManaged(GenerationFinalizationCommand.of(
+                preparation.taskId(),
+                appId,
+                session.executionContext() == null ? null : session.executionContext().executionFence(),
+                outcome.taskStatus(),
+                outcome == GenerationTerminalOutcome.SUCCESS ? null : outcome.status(),
+                memorySummary,
+                outcomeQuality
+        ));
+        rememberOutcomeSafely(appId, session, preparation, outcome, memorySummary);
     }
 
     /**
@@ -265,6 +229,19 @@ public class HeavyGenerationSessionCompletionService {
                 orchestrationMode(preparation),
                 preparation.targetType() == null ? "unknown" : preparation.targetType().getValue()
         ));
+    }
+
+    private void rememberOutcomeSafely(Long appId,
+                                       GenerationSession session,
+                                       GenerationPreparation preparation,
+                                       GenerationTerminalOutcome outcome,
+                                       String memorySummary) {
+        try {
+            rememberOutcome(appId, session, preparation, outcome, memorySummary);
+        } catch (RuntimeException memoryFailure) {
+            log.warn("生成结果记忆写入失败，终态不受影响，taskId: {}",
+                    preparation.taskId(), LogExceptionSanitizer.sanitize(memoryFailure));
+        }
     }
 
 }

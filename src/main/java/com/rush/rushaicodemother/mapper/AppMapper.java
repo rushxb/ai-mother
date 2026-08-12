@@ -99,6 +99,10 @@ public interface AppMapper extends BaseMapper<App> {
             + "where id = #{appId} and isDelete = 0")
     App selectGenerationState(@Param("appId") Long appId);
 
+    /** 按统一的 app -> generation_task 顺序锁定终态事务涉及的应用行。 */
+    @Select("select id from app where id = #{appId} and isDelete = 0 for update")
+    App lockGenerationState(@Param("appId") Long appId);
+
     /**
      * 原子认领应用生成状态。已有状态为空、已结束、租约过期或属于同一任务时允许认领。
      */
@@ -203,5 +207,21 @@ public interface AppMapper extends BaseMapper<App> {
     int releaseOwnedGenerationState(@Param("appId") Long appId,
                                     @Param("taskId") String taskId,
                                     @Param("executionEpoch") long executionEpoch);
+
+    /** 持久任务已进入终态后，按任务标识释放无主应用状态。 */
+    @Update("""
+            update app
+            set isGenerating = 0,
+                generatingMessage = '',
+                generatingStage = null,
+                generatingTaskId = null,
+                generationExecutionEpoch = null,
+                generationLeaseUntil = null
+            where id = #{appId}
+              and isDelete = 0
+              and generatingTaskId = #{taskId}
+            """)
+    int releaseTerminalGenerationState(@Param("appId") Long appId,
+                                       @Param("taskId") String taskId);
 
 }

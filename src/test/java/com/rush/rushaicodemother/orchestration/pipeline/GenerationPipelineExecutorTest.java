@@ -16,8 +16,9 @@ import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationComp
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.intent.IntentClarificationStage;
-import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -70,7 +71,7 @@ class GenerationPipelineExecutorTest {
     private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
     private GenerationPerformanceMonitorService performanceMonitorService;
     private GenerationWorkspaceReleaseService workspaceReleaseService;
-    private GenerationTaskLifecycleService taskLifecycleService;
+    private GenerationTaskFinalizer taskFinalizer;
     private GenerationOutcomeMemoryService outcomeMemoryService;
     private GenerationCompletionPolicy completionPolicy;
     private IntentClarificationStage intentClarificationStage;
@@ -83,7 +84,7 @@ class GenerationPipelineExecutorTest {
         runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
         performanceMonitorService = new GenerationPerformanceMonitorService();
         workspaceReleaseService = mock(GenerationWorkspaceReleaseService.class);
-        taskLifecycleService = mock(GenerationTaskLifecycleService.class);
+        taskFinalizer = mock(GenerationTaskFinalizer.class);
         outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
         // 栅栏守卫放行，使断言聚焦流水线终态编排；栅栏拒绝路径由完成门禁自身的测试覆盖。
         completionPolicy = new GenerationCompletionPolicy(mock(GenerationTaskFenceGuard.class));
@@ -111,11 +112,13 @@ class GenerationPipelineExecutorTest {
         assertEquals("success", request.execution().executionContext().snapshot().terminalStatus());
         assertSame(request.execution().session(), sessionRegistry.getByTaskId("task-complete"));
         verify(runtimeLifecycleService).activate(request.execution().executionFence());
-        verify(runtimeLifecycleService).completeOwned(
-                request.execution().executionFence(), GenerationTaskStatus.SUCCESS, null);
-        verify(taskLifecycleService).completeGenerationAndCharge(
-                "task-complete", 1L, GenerationTaskStatus.SUCCESS, null,
-                "任务状态：成功\n结果摘要：标题已更新");
+        verify(taskFinalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.taskId().equals("task-complete")
+                        && command.appId().equals(1L)
+                        && command.executionFence().equals(request.execution().executionFence())
+                        && command.status() == GenerationTaskStatus.SUCCESS
+                        && command.reason() == null
+                        && command.memorySummary().equals("任务状态：成功\n结果摘要：标题已更新")));
         ArgumentCaptor<GenerationOutcomeMemoryRequest> memoryCaptor =
                 ArgumentCaptor.forClass(GenerationOutcomeMemoryRequest.class);
         verify(outcomeMemoryService).remember(memoryCaptor.capture());
@@ -171,30 +174,18 @@ class GenerationPipelineExecutorTest {
 
         executor(List.of(pipeline)).execute(request);
 
-        verify(taskLifecycleService).completeGeneration(
-                "task-completed-failure",
-                1L,
-                GenerationTaskStatus.FAILED,
-                "agent_validation_failed",
-                "任务状态：失败\n失败原因：构建验证未通过"
-        );
-        verify(taskLifecycleService, never()).completeGenerationAndCharge(
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyString()
-        );
+        verify(taskFinalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.taskId().equals("task-completed-failure")
+                        && command.appId().equals(1L)
+                        && command.status() == GenerationTaskStatus.FAILED
+                        && command.reason().equals("agent_validation_failed")
+                        && command.memorySummary().equals(
+                                "任务状态：失败\n失败原因：构建验证未通过")));
         ArgumentCaptor<GenerationOutcomeMemoryRequest> memoryCaptor =
                 ArgumentCaptor.forClass(GenerationOutcomeMemoryRequest.class);
         verify(outcomeMemoryService).remember(memoryCaptor.capture());
         assertEquals(GenerationTaskStatus.FAILED, memoryCaptor.getValue().status());
         assertEquals("agent_edit", memoryCaptor.getValue().orchestrationMode());
-        verify(runtimeLifecycleService).completeOwned(
-                request.execution().executionFence(),
-                GenerationTaskStatus.FAILED,
-                "agent_validation_failed"
-        );
     }
 
     @Test
@@ -209,10 +200,7 @@ class GenerationPipelineExecutorTest {
         assertTrue(request.execution().session().isActive());
         assertTrue(contextService.getByTaskId("task-running").isPresent());
         verify(runtimeLifecycleService).activate(request.execution().executionFence());
-        verify(runtimeLifecycleService, never()).completeOwned(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
+        verify(taskFinalizer, never()).finalizeManaged(any());
     }
 
     @Test
@@ -271,10 +259,7 @@ class GenerationPipelineExecutorTest {
                 .blockFirst(Duration.ofSeconds(1));
         assertNotNull(transition);
         assertTrue(transition.getText().contains("正在切换专家模式"));
-        verify(runtimeLifecycleService, never()).completeOwned(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
+        verify(taskFinalizer, never()).finalizeManaged(any());
     }
 
     @Test
@@ -340,28 +325,20 @@ class GenerationPipelineExecutorTest {
         assertFalse(request.execution().session().isActive());
         assertEquals("failed", request.execution().executionContext().snapshot().terminalStatus());
         assertTrue(contextService.getByTaskId("task-failed").isEmpty());
-        verify(runtimeLifecycleService).completeOwned(
-                request.execution().executionFence(),
-                GenerationTaskStatus.FAILED,
-                "generation_pipeline_failed");
-        ArgumentCaptor<String> summaryCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<GenerationOutcomeQuality> qualityCaptor =
-                ArgumentCaptor.forClass(GenerationOutcomeQuality.class);
-        verify(taskLifecycleService).completeGeneration(
-                org.mockito.ArgumentMatchers.eq("task-failed"),
-                org.mockito.ArgumentMatchers.eq(1L),
-                org.mockito.ArgumentMatchers.eq(GenerationTaskStatus.FAILED),
-                org.mockito.ArgumentMatchers.eq("generation_pipeline_failed"),
-                summaryCaptor.capture(),
-                qualityCaptor.capture()
-        );
-        assertTrue(summaryCaptor.getValue().contains("任务状态：失败"));
-        assertTrue(summaryCaptor.getValue().contains("生成任务执行失败"));
+        ArgumentCaptor<GenerationFinalizationCommand> commandCaptor =
+                ArgumentCaptor.forClass(GenerationFinalizationCommand.class);
+        verify(taskFinalizer).finalizeManaged(commandCaptor.capture());
+        GenerationFinalizationCommand command = commandCaptor.getValue();
+        assertEquals("task-failed", command.taskId());
+        assertEquals(GenerationTaskStatus.FAILED, command.status());
+        assertEquals("generation_pipeline_failed", command.reason());
+        assertTrue(command.memorySummary().contains("任务状态：失败"));
+        assertTrue(command.memorySummary().contains("生成任务执行失败"));
         // 失败路径必须沉淀可归因的失败分类，供 L3 复盘与后续蒸馏使用。
-        assertNotNull(qualityCaptor.getValue().failureCategory());
+        assertNotNull(command.outcomeQuality().failureCategory());
         verify(outcomeMemoryService).remember(org.mockito.ArgumentMatchers.argThat(memory ->
                 memory.status() == GenerationTaskStatus.FAILED
-                        && memory.memorySummary().equals(summaryCaptor.getValue())));
+                        && memory.memorySummary().equals(command.memorySummary())));
     }
 
     @Test
@@ -377,11 +354,8 @@ class GenerationPipelineExecutorTest {
         executor(List.of(pipeline)).execute(request);
 
         verify(runtimeLifecycleService).activate(request.execution().executionFence());
-        verify(runtimeLifecycleService, never()).completeOwned(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
-        verifyNoInteractions(eventPublisher, taskLifecycleService, outcomeMemoryService);
+        verify(taskFinalizer, never()).finalizeManaged(any());
+        verifyNoInteractions(eventPublisher, taskFinalizer, outcomeMemoryService);
         assertTrue(contextService.getByTaskId("task-completion-owned").isPresent());
     }
 
@@ -402,7 +376,7 @@ class GenerationPipelineExecutorTest {
         GenerationPipelineExecutor executor = new GenerationPipelineExecutor(
                 List.of(pipeline), eventPublisher, sessionRegistry, cleanupService,
                 runtimeLifecycleService, performanceMonitorService, workspaceReleaseService,
-                taskLifecycleService, outcomeMemoryService, completionPolicy,
+                taskFinalizer, outcomeMemoryService, completionPolicy,
                 intentClarificationStage);
 
         executor.execute(request);
@@ -435,12 +409,9 @@ class GenerationPipelineExecutorTest {
         assertEquals("failed", request.execution().executionContext().snapshot().terminalStatus());
         verify(workspaceReleaseService, never()).releaseVerified(
                 request.execution().session(), CodeGenTypeEnum.VUE_PROJECT);
-        verify(taskLifecycleService, never()).completeGenerationAndCharge(
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.eq(GenerationTaskStatus.SUCCESS),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyString());
+        verify(taskFinalizer, never()).finalizeManaged(
+                org.mockito.ArgumentMatchers.argThat(command ->
+                        command.status() == GenerationTaskStatus.SUCCESS));
     }
 
     private GenerationCompletionEvidenceSet successfulCompletionEvidence() {
@@ -451,7 +422,7 @@ class GenerationPipelineExecutorTest {
     private GenerationPipelineExecutor executor(List<GenerationPipeline> pipelines) {
         return new GenerationPipelineExecutor(
                 pipelines, eventPublisher, sessionRegistry, contextService, runtimeLifecycleService,
-                performanceMonitorService, workspaceReleaseService, taskLifecycleService,
+                performanceMonitorService, workspaceReleaseService, taskFinalizer,
                 outcomeMemoryService, completionPolicy, intentClarificationStage);
     }
 

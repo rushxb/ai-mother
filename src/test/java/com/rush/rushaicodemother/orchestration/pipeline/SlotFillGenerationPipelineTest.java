@@ -75,11 +75,6 @@ class SlotFillGenerationPipelineTest {
         assertTrue(eventPublisher.recent(1L).stream().noneMatch(
                 event -> event.type() == GenerationEventType.TASK_FAILED));
         verify(monitor, never()).finishTask("create-task-1", "failed");
-        verify(lifecycleService, never()).completeGeneration(
-                org.mockito.ArgumentMatchers.eq("create-task-1"),
-                org.mockito.ArgumentMatchers.eq(1L),
-                org.mockito.ArgumentMatchers.eq(GenerationTaskStatus.FAILED),
-                org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test

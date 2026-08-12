@@ -2,9 +2,9 @@ package com.rush.rushaicodemother.orchestration.runtime.task.queue;
 
 import com.rush.rushaicodemother.config.GenerationTaskQueueProperties;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskCommandExecutionService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskDispatchResult;
-import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +37,7 @@ class RedisGenerationTaskQueueWorkerTest {
     private DurableGenerationTaskQueue queue;
     private GenerationTaskCommandExecutionService executionService;
     private DurableGenerationTaskRepository repository;
-    private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private GenerationTaskFinalizer taskFinalizer;
     private RedisGenerationTaskQueueWorker worker;
 
     @BeforeEach
@@ -45,11 +45,11 @@ class RedisGenerationTaskQueueWorkerTest {
         queue = mock(DurableGenerationTaskQueue.class);
         executionService = mock(GenerationTaskCommandExecutionService.class);
         repository = mock(DurableGenerationTaskRepository.class);
-        runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
+        taskFinalizer = mock(GenerationTaskFinalizer.class);
         GenerationTaskQueueProperties properties = new GenerationTaskQueueProperties();
         properties.setMaxDeliveryAttempts(3);
         worker = new RedisGenerationTaskQueueWorker(
-                queue, executionService, repository, runtimeLifecycleService, properties);
+                queue, executionService, repository, taskFinalizer, properties);
     }
 
     @Test
@@ -71,7 +71,7 @@ class RedisGenerationTaskQueueWorkerTest {
         worker.process(delivery);
 
         verify(queue).acknowledge(delivery);
-        verify(runtimeLifecycleService, never()).completeUnowned(any(), any(), any());
+        verify(taskFinalizer, never()).finalizeUnownedRuntime(any(), any(), any());
     }
 
     @Test
@@ -83,7 +83,7 @@ class RedisGenerationTaskQueueWorkerTest {
 
         verify(queue, never()).acknowledge(any());
         verify(queue, never()).deadLetter(any(), any());
-        verify(runtimeLifecycleService, never()).completeUnowned(any(), any(), any());
+        verify(taskFinalizer, never()).finalizeUnownedRuntime(any(), any(), any());
     }
 
     @Test
@@ -94,7 +94,7 @@ class RedisGenerationTaskQueueWorkerTest {
 
         worker.process(delivery);
 
-        verify(runtimeLifecycleService).completeUnowned(
+        verify(taskFinalizer).finalizeUnownedRuntime(
                 "task-1", GenerationTaskStatus.FAILED, "queue_delivery_exhausted");
         verify(queue).deadLetter(delivery, "task_reservation_unavailable");
     }
@@ -111,7 +111,7 @@ class RedisGenerationTaskQueueWorkerTest {
         ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
         verify(queue).deadLetter(org.mockito.Mockito.eq(delivery), reason.capture());
         assertEquals("IllegalStateException: executor unavailable", reason.getValue());
-        verify(runtimeLifecycleService).completeUnowned(
+        verify(taskFinalizer).finalizeUnownedRuntime(
                 "task-1", GenerationTaskStatus.FAILED, "queue_delivery_exhausted");
     }
 
@@ -154,7 +154,7 @@ class RedisGenerationTaskQueueWorkerTest {
             return null;
         }).when(queue).heartbeat(any());
         RedisGenerationTaskQueueWorker concurrentWorker = new RedisGenerationTaskQueueWorker(
-                queue, executionService, repository, runtimeLifecycleService, properties);
+                queue, executionService, repository, taskFinalizer, properties);
 
         try {
             concurrentWorker.start();

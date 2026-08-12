@@ -13,7 +13,6 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskSubmissionRecord;
-import com.rush.rushaicodemother.service.UserCreditService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,15 +68,15 @@ class GenerationTaskRuntimeLifecycleServiceTest {
     }
 
     @Test
-    void ownedCompletionMustReleaseTrackingEvenWhenPersistenceFails() {
+    void ownedPersistenceFailureMustKeepTrackingForRetry() {
         doThrow(new IllegalStateException("db unavailable"))
                 .when(leaseCoordinator).completeOwned(
                         FENCE, GenerationTaskStatus.FAILED, "failed", NOW);
 
         assertThrows(IllegalStateException.class,
-                () -> service.completeOwned(FENCE, GenerationTaskStatus.FAILED, "failed"));
+                () -> service.persistOwnedCompletion(FENCE, GenerationTaskStatus.FAILED, "failed"));
 
-        verify(leaseCoordinator).release(FENCE);
+        verify(leaseCoordinator, never()).release(FENCE);
     }
 
     @Test
@@ -165,7 +164,9 @@ class GenerationTaskRuntimeLifecycleServiceTest {
         GenerationExecutionFence editFence =
                 new GenerationExecutionFence("task-edit", "owner-a", 4L);
 
-        service.completeOwned(editFence, GenerationTaskStatus.SUCCESS, null);
+        service.persistOwnedCompletion(editFence, GenerationTaskStatus.SUCCESS, null);
+        service.recordTerminalCommit(editFence.taskId(), GenerationTaskStatus.SUCCESS);
+        service.releaseTerminalOwnership(editFence);
 
         assertEquals(12.0,
                 meterRegistry.find("generation_orchestration_user_wait_duration_seconds")
@@ -179,29 +180,21 @@ class GenerationTaskRuntimeLifecycleServiceTest {
     }
 
     @Test
-    void everyOwnedTerminalPathMustSettleCreditBeforeLeaseRelease() {
-        UserCreditService creditService = mock(UserCreditService.class);
-        service = new GenerationTaskRuntimeLifecycleService(
-                repository,
-                leaseCoordinator,
-                null,
-                null,
-                creditService,
-                Clock.fixed(NOW, ZoneOffset.UTC)
-        );
+    void ownedPersistenceMustNotReleaseLeaseBeforeFinalizerCommits() {
+        service.persistOwnedCompletion(FENCE, GenerationTaskStatus.CANCELLED, "user_requested");
 
-        service.completeOwned(FENCE, GenerationTaskStatus.CANCELLED, "user_requested");
-
-        InOrder order = inOrder(creditService, leaseCoordinator);
-        order.verify(leaseCoordinator).completeOwned(
+        verify(leaseCoordinator).completeOwned(
                 FENCE, GenerationTaskStatus.CANCELLED, "user_requested", NOW);
-        order.verify(creditService).chargeGenerationTask("task-1");
-        order.verify(leaseCoordinator).release(FENCE);
+        verify(leaseCoordinator, never()).release(FENCE);
+
+        service.releaseTerminalOwnership(FENCE);
+
+        verify(leaseCoordinator).release(FENCE);
     }
 
     @Test
     void unownedTerminalPathMustUseTheControlPlaneTransitionWithoutLeaseRelease() {
-        service.completeUnowned("task-1", GenerationTaskStatus.CANCELLED, "queued_cancelled");
+        service.persistUnownedCompletion("task-1", GenerationTaskStatus.CANCELLED, "queued_cancelled");
 
         verify(repository).completeUnowned(
                 "task-1", GenerationTaskStatus.CANCELLED, "queued_cancelled", NOW);

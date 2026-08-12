@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
@@ -26,7 +27,7 @@ public class GenerationTaskSubmissionService {
     private final GenerationExecutionPlanner generationExecutionPlanner;
     private final GenerationTaskDispatcher taskDispatcher;
     private final GenerationTaskAdmissionService taskAdmissionService;
-    private final GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationEventStream generationEventStream;
     private final GenerationEventPublisher generationEventPublisher;
     private final GenerationTraceContextBridge traceContextBridge;
@@ -37,12 +38,12 @@ public class GenerationTaskSubmissionService {
                                            GenerationExecutionPlanner generationExecutionPlanner,
                                            GenerationTaskDispatcher taskDispatcher,
                                            GenerationTaskAdmissionService taskAdmissionService,
-                                           GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                           GenerationTaskFinalizer generationTaskFinalizer,
                                            GenerationEventStream generationEventStream,
                                            GenerationEventPublisher generationEventPublisher,
                                            GenerationTraceContextBridge traceContextBridge) {
         this(generationTaskIdGenerator, generationExecutionPlanner, taskDispatcher, taskAdmissionService,
-                generationTaskRuntimeLifecycleService, generationEventStream, generationEventPublisher,
+                generationTaskFinalizer, generationEventStream, generationEventPublisher,
                 traceContextBridge, Clock.systemUTC());
     }
 
@@ -50,11 +51,11 @@ public class GenerationTaskSubmissionService {
                                     GenerationExecutionPlanner generationExecutionPlanner,
                                     GenerationTaskDispatcher taskDispatcher,
                                     GenerationTaskAdmissionService taskAdmissionService,
-                                    GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                    GenerationTaskFinalizer generationTaskFinalizer,
                                     GenerationEventStream generationEventStream,
                                     Clock clock) {
         this(generationTaskIdGenerator, generationExecutionPlanner, taskDispatcher, taskAdmissionService,
-                generationTaskRuntimeLifecycleService, generationEventStream, null,
+                generationTaskFinalizer, generationEventStream, null,
                 GenerationTraceContextBridge.NOOP, clock);
     }
 
@@ -62,12 +63,12 @@ public class GenerationTaskSubmissionService {
                                     GenerationExecutionPlanner generationExecutionPlanner,
                                     GenerationTaskDispatcher taskDispatcher,
                                     GenerationTaskAdmissionService taskAdmissionService,
-                                     GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                     GenerationTaskFinalizer generationTaskFinalizer,
                                      GenerationEventStream generationEventStream,
                                      GenerationTraceContextBridge traceContextBridge,
                                      Clock clock) {
         this(generationTaskIdGenerator, generationExecutionPlanner, taskDispatcher, taskAdmissionService,
-                generationTaskRuntimeLifecycleService, generationEventStream, null,
+                generationTaskFinalizer, generationEventStream, null,
                 traceContextBridge, clock);
     }
 
@@ -76,7 +77,7 @@ public class GenerationTaskSubmissionService {
                                     GenerationExecutionPlanner generationExecutionPlanner,
                                     GenerationTaskDispatcher taskDispatcher,
                                     GenerationTaskAdmissionService taskAdmissionService,
-                                    GenerationTaskRuntimeLifecycleService generationTaskRuntimeLifecycleService,
+                                    GenerationTaskFinalizer generationTaskFinalizer,
                                     GenerationEventStream generationEventStream,
                                     GenerationEventPublisher generationEventPublisher,
                                     GenerationTraceContextBridge traceContextBridge,
@@ -85,7 +86,7 @@ public class GenerationTaskSubmissionService {
         this.generationExecutionPlanner = generationExecutionPlanner;
         this.taskDispatcher = taskDispatcher;
         this.taskAdmissionService = taskAdmissionService;
-        this.generationTaskRuntimeLifecycleService = generationTaskRuntimeLifecycleService;
+        this.generationTaskFinalizer = generationTaskFinalizer;
         this.generationEventStream = generationEventStream;
         this.generationEventPublisher = generationEventPublisher;
         this.traceContextBridge = traceContextBridge == null
@@ -157,7 +158,7 @@ public class GenerationTaskSubmissionService {
         } catch (RuntimeException submissionFailure) {
             if (admission != null && admission.created()) {
                 try {
-                    generationTaskRuntimeLifecycleService.completeUnowned(
+                    generationTaskFinalizer.finalizeUnownedRuntime(
                             admission.taskId(), GenerationTaskStatus.FAILED, "submission_failed");
                 } catch (RuntimeException compensationFailure) {
                     submissionFailure.addSuppressed(compensationFailure);

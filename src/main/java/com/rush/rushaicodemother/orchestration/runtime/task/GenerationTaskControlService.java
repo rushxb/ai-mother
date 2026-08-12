@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.model.enums.TenantRole;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
@@ -23,6 +24,7 @@ public class GenerationTaskControlService {
     private final GenerationTaskQueryService generationTaskQueryService;
     private final DurableGenerationTaskRepository durableRepository;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationExecutionContextService executionContextService;
     private final TenantAuthorizationService tenantAuthorizationService;
 
@@ -77,7 +79,7 @@ public class GenerationTaskControlService {
         executionContextService.cancelByTaskId(taskId, USER_REQUESTED);
         DurableGenerationTaskRecord durableTask = durableRepository.findByTaskId(taskId).orElse(null);
         if (durableTask != null && durableTask.status() == GenerationTaskStatus.WAITING_APPROVAL) {
-            runtimeLifecycleService.completeUnowned(
+            generationTaskFinalizer.finalizeUnownedRuntime(
                     taskId, GenerationTaskStatus.CANCELLED, USER_REQUESTED);
         }
     }

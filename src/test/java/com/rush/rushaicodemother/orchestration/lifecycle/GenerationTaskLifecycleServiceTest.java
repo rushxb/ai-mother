@@ -114,33 +114,39 @@ class GenerationTaskLifecycleServiceTest {
     }
 
     @Test
-    void completionMustFinishTraceEvenWhenStateWasAlreadyTakenByANewerTask() {
-        when(appStateService.releaseOwnedGenerationState(11L, "task-1")).thenReturn(false);
+    void finalizationMustFinishTraceAndSettleOnceWhenStateWasTakenByANewerTask() {
+        when(appStateService.releaseOwnedGenerationState(11L, "task-1", 7L)).thenReturn(false);
 
-        boolean released = lifecycleService.completeGenerationAndCharge(
-                "task-1", 11L, GenerationTaskStatus.SUCCESS, null);
+        boolean released = lifecycleService.finalizeGeneration(
+                "task-1", 11L, 7L, GenerationTaskStatus.SUCCESS,
+                null, null, null);
 
         assertFalse(released);
+        verify(appStateService).lockGenerationState(11L);
         verify(traceService).completeTask("task-1", GenerationTaskStatus.SUCCESS, null);
         verify(creditService).chargeGenerationTask("task-1");
     }
 
     @Test
-    void failedCompletionMustPersistMemorySummaryBeforeTerminalStateWithoutCharging() {
-        lifecycleService.completeGeneration(
+    void finalizationMustPersistMemorySummaryBeforeTerminalStateAndSettlement() {
+        lifecycleService.finalizeGeneration(
                 "task-failed",
                 11L,
+                3L,
                 GenerationTaskStatus.FAILED,
                 "build_failed",
-                "任务状态：失败\n失败原因：构建验证未通过"
+                "任务状态：失败\n失败原因：构建验证未通过",
+                null
         );
 
-        InOrder traceOrder = org.mockito.Mockito.inOrder(traceService);
+        InOrder traceOrder = org.mockito.Mockito.inOrder(traceService, appStateService, creditService);
+        traceOrder.verify(appStateService).lockGenerationState(11L);
         traceOrder.verify(traceService).updateMemorySummary(
                 "task-failed", "任务状态：失败\n失败原因：构建验证未通过");
+        traceOrder.verify(appStateService).releaseOwnedGenerationState(11L, "task-failed", 3L);
         traceOrder.verify(traceService).completeTask(
                 "task-failed", GenerationTaskStatus.FAILED, "build_failed");
-        verify(creditService, never()).chargeGenerationTask("task-failed");
+        traceOrder.verify(creditService).chargeGenerationTask("task-failed");
     }
 
     @Test
@@ -153,14 +159,10 @@ class GenerationTaskLifecycleServiceTest {
                 String.class, String.class, boolean.class, String.class, String.class, String.class);
         assertTransactional("updateGenerationStage",
                 String.class, Long.class, String.class, String.class);
-        assertTransactional("completeGeneration",
-                String.class, Long.class, GenerationTaskStatus.class, String.class);
-        assertTransactional("completeGeneration",
-                String.class, Long.class, GenerationTaskStatus.class, String.class, String.class);
-        assertTransactional("completeGenerationAndCharge",
-                String.class, Long.class, GenerationTaskStatus.class, String.class);
-        assertTransactional("completeGenerationAndCharge",
-                String.class, Long.class, GenerationTaskStatus.class, String.class, String.class);
+        assertTransactional("finalizeGeneration",
+                String.class, Long.class, Long.class, GenerationTaskStatus.class,
+                String.class, String.class,
+                com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality.class);
     }
 
     private void assertTransactional(String methodName, Class<?>... parameterTypes) throws Exception {

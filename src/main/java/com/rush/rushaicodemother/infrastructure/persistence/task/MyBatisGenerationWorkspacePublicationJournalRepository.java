@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * MyBatis生成工作区发布日志持久化仓储。
@@ -31,6 +32,14 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
 
     private final GenerationWorkspacePublicationJournalMapper mapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
+
+    @Override
+    public Optional<GenerationWorkspacePublicationJournalEntry> findByTaskId(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(toEntry(mapper.selectOne(taskId.trim()), false));
+    }
 
     /**
  * 准备后续流程所需的{@code My}{@code Batis}生成工作区发布日志。

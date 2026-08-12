@@ -121,6 +121,27 @@ class GenerationAppStateServiceTest {
     }
 
     @Test
+    void terminalReleaseMustUseTaskIdentityWithoutProcessLocalFence() {
+        when(appMapper.releaseTerminalGenerationState(11L, "task-remote"))
+                .thenReturn(1);
+
+        assertTrue(stateService.releaseTerminalGenerationState(11L, "task-remote"));
+
+        verify(appMapper).releaseTerminalGenerationState(11L, "task-remote");
+    }
+
+    @Test
+    void terminalLockMustUseApplicationIdentity() {
+        App app = new App();
+        app.setId(11L);
+        when(appMapper.lockGenerationState(11L)).thenReturn(app);
+
+        assertTrue(stateService.lockGenerationState(11L));
+
+        verify(appMapper).lockGenerationState(11L);
+    }
+
+    @Test
     void invalidIdentifiersMustNotReachMapper() {
         assertThrows(BusinessException.class, () -> stateService.claimGenerationState(
                 null, "task-1", "create", CodeGenTypeEnum.VUE_PROJECT));

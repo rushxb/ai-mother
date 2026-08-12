@@ -4,7 +4,6 @@ import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import org.junit.jupiter.api.Test;
 
@@ -52,8 +51,6 @@ class LightweightEditTaskLifecycleServiceTest {
                 "edit_task", app, user, CodeGenTypeEnum.VUE_PROJECT, "repair page", false))
                 .isSameAs(startFailure);
 
-        verify(taskLifecycleService, never()).completeGeneration(
-                "edit_task", 11L, GenerationTaskStatus.FAILED, "lightweight_edit_start_failed");
     }
 
     private App app(Long appId) {

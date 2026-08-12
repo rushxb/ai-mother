@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
@@ -60,7 +61,7 @@ class GenerationTaskSubmissionServiceTest {
 
     private GenerationTaskDispatcher dispatcher;
     private GenerationTaskAdmissionService admissionService;
-    private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private GenerationTaskFinalizer taskFinalizer;
     private GenerationEventStream eventStream;
     private GenerationSlaPolicy generationSlaPolicy;
     private GenerationExecutionPlanner executionPlanner;
@@ -70,7 +71,7 @@ class GenerationTaskSubmissionServiceTest {
     void setUp() {
         dispatcher = mock(GenerationTaskDispatcher.class);
         admissionService = mock(GenerationTaskAdmissionService.class);
-        runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
+        taskFinalizer = mock(GenerationTaskFinalizer.class);
         eventStream = mock(GenerationEventStream.class);
         traceContextBridge = mock(GenerationTraceContextBridge.class);
         executionPlanner = mock(GenerationExecutionPlanner.class);
@@ -173,7 +174,7 @@ class GenerationTaskSubmissionServiceTest {
         assertFalse(result.created());
         assertSame(expectedStream, result.contentFlux());
         verify(dispatcher, never()).dispatch(org.mockito.ArgumentMatchers.anyString());
-        verify(runtimeLifecycleService, never()).completeUnowned(
+        verify(taskFinalizer, never()).finalizeUnownedRuntime(
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(GenerationTaskStatus.class),
                 org.mockito.ArgumentMatchers.any());
@@ -191,7 +192,7 @@ class GenerationTaskSubmissionServiceTest {
 
         verify(dispatcher, never()).dispatch("task-concurrent");
         verify(eventStream, never()).stream("task-concurrent");
-        verify(runtimeLifecycleService, never()).completeUnowned(
+        verify(taskFinalizer, never()).finalizeUnownedRuntime(
                 "task-concurrent", GenerationTaskStatus.FAILED, "submission_failed");
     }
 
@@ -203,7 +204,7 @@ class GenerationTaskSubmissionServiceTest {
 
         assertThrows(IllegalStateException.class, () -> service.submit(request(1L)));
 
-        verify(runtimeLifecycleService).completeUnowned(
+        verify(taskFinalizer).finalizeUnownedRuntime(
                 "task-rejected", GenerationTaskStatus.FAILED, "submission_failed");
         verify(eventStream, never()).stream("task-rejected");
     }
@@ -219,7 +220,7 @@ class GenerationTaskSubmissionServiceTest {
                 executionPlanner,
                 dispatcher,
                 admissionService,
-                runtimeLifecycleService,
+                taskFinalizer,
                 eventStream,
                 recentPublisher,
                 traceContextBridge,

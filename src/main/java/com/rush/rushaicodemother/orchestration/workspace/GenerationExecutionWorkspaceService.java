@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
@@ -12,6 +13,7 @@ import com.rush.rushaicodemother.service.artifact.ArtifactCopyException;
 import com.rush.rushaicodemother.service.artifact.ArtifactDirectoryCopier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -22,6 +24,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
@@ -35,6 +38,8 @@ public class GenerationExecutionWorkspaceService {
     static final String EXECUTION_ROOT_NAME = ".generation-executions";
     private static final String READY_MARKER_NAME = ".workspace-ready";
     private static final String WORKSPACE_DIRECTORY_NAME = "workspace";
+    static final String QUARANTINE_ROOT_NAME = ".generation-execution-quarantine";
+    private static final String QUARANTINE_MARKER_NAME = ".quarantined-at";
 
     private final CodeStorageProperties storageProperties;
     private final GenerationWorkspaceService generationWorkspaceService;
@@ -106,7 +111,136 @@ public class GenerationExecutionWorkspaceService {
     }
 
     public void clear(GenerationExecutionFence fence) {
+        clear(fence, null, CleanupPolicy.DELETE);
+    }
+
+    /** 按终态策略清理精确执行纪元，并在失败时保留可诊断副本。 */
+    public void clear(GenerationExecutionFence fence, Long appId, CleanupPolicy policy) {
+        if (fence == null) {
+            return;
+        }
+        Path epochRoot = appId == null ? null : executionEpochRoot(appId, fence);
         executionScope.clear(fence);
+        if (epochRoot == null) {
+            return;
+        }
+        try {
+            validateCleanupTarget(epochRoot);
+            if (policy == CleanupPolicy.QUARANTINE) {
+                quarantine(epochRoot, appId, fence);
+            } else {
+                deleteTreeIfExists(epochRoot);
+            }
+        } catch (IOException | RuntimeException cleanupFailure) {
+            log.warn("执行工作区清理失败，taskId: {}，epoch: {}，策略: {}，error: {}",
+                    fence.taskId(), fence.executionEpoch(), policy,
+                    LogExceptionSanitizer.sanitizeMessage(cleanupFailure));
+        }
+    }
+
+    /** 定时回收超过保留期的失败执行工作区。 */
+    @Scheduled(fixedDelayString =
+            "${app.artifact-lifecycle.execution-workspace-cleanup-scan-interval:10m}")
+    public void reclaimQuarantined() {
+        try {
+            Path quarantineRoot = storageProperties.outputRoot().resolve(QUARANTINE_ROOT_NAME).normalize();
+            if (!Files.isDirectory(quarantineRoot, LinkOption.NOFOLLOW_LINKS)) {
+                return;
+            }
+            Instant cutoff = Instant.now().minus(artifactLifecycleProperties
+                    .getExecutionWorkspaceQuarantineRetention());
+            java.util.List<Path> expired;
+            try (Stream<Path> paths = Files.walk(quarantineRoot, 3)) {
+                expired = paths.filter(path -> path.getFileName() != null
+                                && path.getFileName().toString().startsWith("epoch-"))
+                        .filter(path -> Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+                        .filter(path -> isOlderThan(path, cutoff))
+                        .limit(artifactLifecycleProperties.getExecutionWorkspaceCleanupBatchSize())
+                        .toList();
+            }
+            for (Path path : expired) {
+                try {
+                    deleteTreeIfExists(path);
+                } catch (IOException | RuntimeException failure) {
+                    log.warn("隔离执行工作区回收失败，path: {}，error: {}",
+                            path, LogExceptionSanitizer.sanitizeMessage(failure));
+                }
+            }
+        } catch (IOException | RuntimeException scanFailure) {
+            log.warn("隔离执行工作区扫描失败，error: {}",
+                    LogExceptionSanitizer.sanitizeMessage(scanFailure));
+        }
+    }
+
+    private boolean isOlderThan(Path path, Instant cutoff) {
+        try {
+            Path marker = path.resolve(QUARANTINE_MARKER_NAME);
+            Instant quarantinedAt = Files.exists(marker, LinkOption.NOFOLLOW_LINKS)
+                    ? Instant.parse(Files.readString(marker).trim())
+                    : Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant();
+            return quarantinedAt.isBefore(cutoff);
+        } catch (IOException | RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private void quarantine(Path epochRoot, Long appId, GenerationExecutionFence fence) throws IOException {
+        if (!Files.exists(epochRoot, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        Path outputRoot = prepareOutputRoot();
+        Path quarantineRoot = ensureDirectChild(outputRoot, QUARANTINE_ROOT_NAME);
+        Path appRoot = ensureDirectChild(quarantineRoot, "app-" + appId);
+        Path taskRoot = ensureDirectChild(appRoot, fence.taskId());
+        String targetName = "epoch-" + fence.executionEpoch() + "-" + System.currentTimeMillis();
+        Path target = taskRoot.resolve(targetName).normalize();
+        ensureDirectChildPath(taskRoot, target);
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("隔离执行工作区目标已存在");
+        }
+        Files.move(epochRoot, target);
+        Files.writeString(target.resolve(QUARANTINE_MARKER_NAME), Instant.now().toString(),
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+    }
+
+    private Path executionEpochRoot(Long appId, GenerationExecutionFence fence) {
+        if (appId == null || appId <= 0) {
+            return null;
+        }
+        Path outputRoot = storageProperties.outputRoot();
+        Path executionRoot = outputRoot.resolve(EXECUTION_ROOT_NAME).normalize();
+        Path appRoot = executionRoot.resolve("app-" + appId).normalize();
+        Path taskRoot = appRoot.resolve(fence.taskId()).normalize();
+        Path epochRoot = taskRoot.resolve("epoch-" + fence.executionEpoch()).normalize();
+        ensureDirectChildPath(outputRoot, executionRoot);
+        ensureDirectChildPath(executionRoot, appRoot);
+        ensureDirectChildPath(appRoot, taskRoot);
+        ensureDirectChildPath(taskRoot, epochRoot);
+        return epochRoot;
+    }
+
+    private void validateCleanupTarget(Path epochRoot) throws IOException {
+        if (!Files.exists(epochRoot, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        Path taskRoot = epochRoot.getParent();
+        Path appRoot = taskRoot == null ? null : taskRoot.getParent();
+        Path executionRoot = appRoot == null ? null : appRoot.getParent();
+        Path outputRoot = executionRoot == null ? null : executionRoot.getParent();
+        if (taskRoot == null || appRoot == null || executionRoot == null || outputRoot == null
+                || !outputRoot.equals(storageProperties.outputRoot())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "执行工作区清理路径不安全");
+        }
+        validateDirectory(outputRoot, "生成代码输出目录不安全");
+        validateDirectory(executionRoot, "执行工作区根目录不安全");
+        validateDirectory(appRoot, "执行工作区应用目录不安全");
+        validateDirectory(taskRoot, "执行工作区任务目录不安全");
+        validateDirectory(epochRoot, "执行工作区纪元目录不安全");
+    }
+
+    public enum CleanupPolicy {
+        DELETE,
+        QUARANTINE
     }
 
     /** 返回{@code materialize}。 */

@@ -103,16 +103,16 @@ class DevServerValidationServiceTest {
         AtomicInteger callbackInvocations = new AtomicInteger();
 
         DevServerValidationResult result = service.validate(
-                "task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT,
-                new GenerationExecutionFence("task-1", "owner-a", 1L),
-                () -> {
-                    callbackInvocations.incrementAndGet();
-                    // 若此刻已经 stop，用户拿到的预览地址就是失效的，暂定预览毫无意义。
-                    stoppedWhenCallbackFired.set(
-                            mockingDetails(manager).getInvocations().stream()
-                                    .anyMatch(invocation ->
-                                            "stopDevServer".equals(invocation.getMethod().getName())));
-                });
+                DevServerValidationRequest.of("task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT)
+                        .withExecutionFence(new GenerationExecutionFence("task-1", "owner-a", 1L))
+                        .withReadyCallback(() -> {
+                            callbackInvocations.incrementAndGet();
+                            // 若此刻已经 stop，用户拿到的预览地址就是失效的，暂定预览毫无意义。
+                            stoppedWhenCallbackFired.set(
+                                    mockingDetails(manager).getInvocations().stream()
+                                            .anyMatch(invocation ->
+                                                    "stopDevServer".equals(invocation.getMethod().getName())));
+                        }));
 
         assertTrue(result.isPassed());
         assertEquals(1, callbackInvocations.get());
@@ -122,16 +122,62 @@ class DevServerValidationServiceTest {
     }
 
     @Test
+    void taskScopedSessionMustSurviveValidationReturn() {
+        when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                .thenReturn(new DevServerStartResult(5180, true));
+
+        DevServerValidationResult result = service.validate(
+                DevServerValidationRequest.of("task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT)
+                        .withExecutionFence(new GenerationExecutionFence("task-1", "owner-a", 1L))
+                        .withTaskScopedOwnership());
+
+        assertTrue(result.isPassed());
+        // 暂定预览的全部意义在于验证返回后用户还点得开；这里一停，预览地址立刻失效。
+        verify(manager, never()).stopDevServer(any());
+        // 错误采集器仍必须注销，否则移交持有权会连带泄漏采集器。
+        verify(manager).unregisterErrorCollector(11L, collectorReference.get());
+    }
+
+    @Test
+    void taskScopedOwnershipMustNotBeInferredFromReadyCallback() {
+        when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                .thenReturn(new DevServerStartResult(5180, true));
+
+        // 传了就绪回调但未声明任务作用域：持有权仍在调用方，必须照旧停。
+        // 若实现改成「有回调就移交」，这条会失败 —— 那种反推会让持有权被一个体验参数悄悄改变。
+        DevServerValidationResult result = service.validate(
+                DevServerValidationRequest.of("task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT)
+                        .withExecutionFence(new GenerationExecutionFence("task-1", "owner-a", 1L))
+                        .withReadyCallback(() -> { }));
+
+        assertTrue(result.isPassed());
+        verify(manager).stopDevServer(11L);
+    }
+
+    @Test
+    void taskScopedOwnershipMustNotStopReusedSession() {
+        when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                .thenReturn(new DevServerStartResult(5180, false));
+
+        DevServerValidationResult result = service.validate(
+                DevServerValidationRequest.of("task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT)
+                        .withTaskScopedOwnership());
+
+        assertTrue(result.isPassed());
+        verify(manager, never()).stopDevServer(any());
+    }
+
+    @Test
     void readyCallbackFailureMustNotAffectValidationOutcome() {
         when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
                 .thenReturn(new DevServerStartResult(5180, true));
 
         DevServerValidationResult result = service.validate(
-                "task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT,
-                new GenerationExecutionFence("task-1", "owner-a", 1L),
-                () -> {
-                    throw new IllegalStateException("暂定预览通知失败");
-                });
+                DevServerValidationRequest.of("task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT)
+                        .withExecutionFence(new GenerationExecutionFence("task-1", "owner-a", 1L))
+                        .withReadyCallback(() -> {
+                            throw new IllegalStateException("暂定预览通知失败");
+                        }));
 
         assertEquals(DevServerValidationResult.ValidationStatus.PASS, result.status());
         verify(manager).stopDevServer(11L);
@@ -144,9 +190,9 @@ class DevServerValidationServiceTest {
         AtomicInteger callbackInvocations = new AtomicInteger();
 
         DevServerValidationResult result = service.validate(
-                "task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT,
-                new GenerationExecutionFence("task-1", "owner-a", 1L),
-                callbackInvocations::incrementAndGet);
+                DevServerValidationRequest.of("task-1", 11L, 7L, CodeGenTypeEnum.VUE_PROJECT)
+                        .withExecutionFence(new GenerationExecutionFence("task-1", "owner-a", 1L))
+                        .withReadyCallback(callbackInvocations::incrementAndGet));
 
         assertFalse(result.isPassed());
         assertEquals(0, callbackInvocations.get(), "启动失败时不得通知用户可预览");

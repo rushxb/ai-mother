@@ -75,6 +75,38 @@ class GenerationWorkspaceReleaseServiceTest {
     }
 
     @Test
+    void provisionalPreviewMustBeStoppedBeforeWorkspaceIsMoved() {
+        ReleaseFixture fixture = fixture(CodeGenTypeEnum.VUE_PROJECT, "stop-before-publish");
+        GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
+
+        fixture.service(milestoneService).releaseVerified(
+                fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+
+        // 顺序是本条的全部要点：发布会把执行工作区整体 move 走，而 Vite 会继续持有旧 inode，
+        // 停在发布之后等于让用户看一份无声的过期内容。
+        InOrder order = inOrder(fixture.previewLifecycle(), fixture.publicationService());
+        order.verify(fixture.previewLifecycle()).stopBeforePublication(fixture.session());
+        order.verify(fixture.publicationService()).publishWithMetadata(
+                fixture.session(), fixture.metadataService());
+    }
+
+    @Test
+    void provisionalPreviewStopFailureMustNotBlockPublication() {
+        ReleaseFixture fixture = fixture(CodeGenTypeEnum.VUE_PROJECT, "stop-failure-release");
+        GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
+        when(fixture.previewLifecycle().stopBeforePublication(fixture.session()))
+                .thenThrow(new IllegalStateException("停止暂定预览失败"));
+
+        GenerationWorkspacePublicationResult actual = fixture.service(milestoneService)
+                .releaseVerified(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+
+        // 发布是用户可见成果的唯一提交点，不能被一个体验增强进程的清理失败拖垮；
+        // 残留进程由 Dev Server 心跳回收兜底。
+        assertSame(fixture.result(), actual);
+        verify(milestoneService).publishRuntimeReady(fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    @Test
     void publicationFailureMustNotMarkFirstPreviewReady() {
         ReleaseFixture fixture = fixture(CodeGenTypeEnum.VUE_PROJECT, "failed-release");
         GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
@@ -158,7 +190,8 @@ class GenerationWorkspaceReleaseServiceTest {
         session.bindTaskRequest(new GenerationTaskRequest(app, "生成应用", user));
         session.recordRoute("create");
         when(publicationService.publishWithMetadata(session, metadataService)).thenReturn(result);
-        return new ReleaseFixture(publicationService, metadataService, result, session);
+        return new ReleaseFixture(publicationService, metadataService, result, session,
+                mock(GenerationProvisionalPreviewLifecycle.class));
     }
 
     private GenerationExecutionContext context(String taskId) {
@@ -181,13 +214,14 @@ class GenerationWorkspaceReleaseServiceTest {
             GenerationWorkspacePublicationService publicationService,
             GenerationWorkspacePublicationMetadataService metadataService,
             GenerationWorkspacePublicationResult result,
-            GenerationSession session
+            GenerationSession session,
+            GenerationProvisionalPreviewLifecycle previewLifecycle
     ) {
         private GenerationWorkspaceReleaseService service(
                 GenerationPreviewMilestoneService milestoneService
         ) {
             return new GenerationWorkspaceReleaseService(
-                    publicationService, metadataService, milestoneService);
+                    publicationService, metadataService, milestoneService, previewLifecycle);
         }
     }
 }

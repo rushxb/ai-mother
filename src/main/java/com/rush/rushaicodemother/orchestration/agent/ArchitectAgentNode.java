@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -39,16 +38,15 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
                 "模块内改动聚合，跨模块接口最小化",
                 "为 Review 与 BuildFix 保留清晰的文件边界"
         );
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("modules", modules);
-        payload.put("constraints", constraints);
-        payload.put("targetType", context.getTargetType().getValue());
-        payload.put("parallelizable", modules.size() > 1);
+        ArchitecturePlan architecturePlan = new ArchitecturePlan(
+                modules, constraints, context.getTargetType(), modules.size() > 1);
+        Map<String, Object> payload = architecturePlan.toPayload();
         GenerationArtifact artifact = GenerationArtifact.of("architecture_plan", "Architect", "架构规划", payload);
         return AgentNodeResult.of(
                 modules.size() > 1 ? "已完成模块划分，可并行生成" : "已完成工程结构规划",
                 List.of(artifact),
-                Map.of("moduleCount", modules.size(), "parallelizable", modules.size() > 1)
+                Map.of("moduleCount", architecturePlan.modules().size(),
+                        "parallelizable", architecturePlan.parallelizable())
         );
     }
 }

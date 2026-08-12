@@ -41,8 +41,11 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");
-        @SuppressWarnings("unchecked")
-        List<String> modules = (List<String>) context.getArtifactValue("architecture_plan", "modules");
+        ArchitecturePlan architecturePlan = context.getArtifact("architecture_plan")
+                .map(artifact -> ArchitecturePlan.fromPayload(
+                        artifact.payload(), context.getTargetType()))
+                .orElseThrow(() -> new IllegalStateException("缺少架构计划，无法生成代码规范"));
+        List<String> modules = architecturePlan.modules();
         @SuppressWarnings("unchecked")
         List<String> goals = (List<String>) context.getArtifactValue("requirements", "goals");
         @SuppressWarnings("unchecked")

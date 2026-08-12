@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionR
 import com.rush.rushaicodemother.service.devserver.persistence.DevServerSessionState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -28,6 +29,10 @@ import static org.mockito.Mockito.when;
 class DevServerPreviewRoutingServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-07-17T12:00:00Z");
+
+    /** 会话记录里的工作区目录必须真实存在，否则路由会以「工作区已消失」为由拒绝。 */
+    @TempDir
+    Path workspaceDirectory;
 
     private DevServerManager manager;
     private DevServerSessionRegistry registry;
@@ -169,6 +174,49 @@ class DevServerPreviewRoutingServiceTest {
         verify(manager, never()).touchSession(any());
     }
 
+    /**
+     * 工作区已被发布移走的会话必须立即被拒，而不是等心跳回收。
+     *
+     * <p>这是暂定预览把 Dev Server 持有权上提到发布点之后必须补上的判据：租约所有者可以不变
+     * （同一 worker 连续跑两个执行纪元），而上一个纪元的工作区已经被发布整体移走。
+     * Linux 上进程会继续持有旧 inode，于是预览既不报错也不更新 —— 用户看到一份无声的过期内容。</p>
+     */
+    @Test
+    void sessionWhoseWorkspaceWasPublishedAwayMustBeRejectedImmediately() {
+        when(manager.getPort(21L)).thenReturn(5180);
+        when(registry.findByAppId(21L)).thenReturn(Optional.of(record(
+                "preview-node-a", "owner-a", DevServerSessionState.RUNNING, 5180,
+                NOW.plusSeconds(30), workspaceDirectory.resolve("moved-away")
+        )));
+
+        assertTrue(service.findCurrent(21L).isEmpty()
+                || !service.findCurrent(21L).orElseThrow().running());
+        assertThrows(BusinessException.class, () -> service.requireRunningRoute(21L));
+        assertThrows(BusinessException.class, () -> service.requireLocalRunningPort(21L));
+        verify(manager, never()).touchSession(any());
+    }
+
+    /**
+     * 远端会话的目录在另一个节点上，本地文件系统看不到，不得因此判定失效。
+     *
+     * <p>漏掉这个分支会把所有跨节点预览误判为工作区已消失，多实例部署下预览全线不可用。</p>
+     */
+    @Test
+    void remoteSessionMustNotBeJudgedByLocalFilesystem() {
+        when(manager.getPort(21L)).thenReturn(null);
+        when(registry.findByAppId(21L)).thenReturn(Optional.of(record(
+                "preview-node-b", "owner-b", DevServerSessionState.RUNNING, 5180,
+                NOW.plusSeconds(30), workspaceDirectory.resolve("only-exists-on-node-b")
+        )));
+        when(nodeRouteResolver.resolve("preview-node-b"))
+                .thenReturn(URI.create("http://preview-node-b:8123/api"));
+
+        DevServerPreviewRoute route = service.requireRunningRoute(21L);
+
+        assertFalse(route.local());
+        assertEquals("preview-node-b", route.nodeId());
+    }
+
     @Test
     void internalHopMustFenceNodeOwnerAndPort() {
         when(manager.getPort(21L)).thenReturn(5180);
@@ -187,6 +235,17 @@ class DevServerPreviewRoutingServiceTest {
             int port,
             Instant leaseUntil
     ) {
+        return record(nodeId, leaseOwner, state, port, leaseUntil, workspaceDirectory);
+    }
+
+    private DevServerSessionRecord record(
+            String nodeId,
+            String leaseOwner,
+            DevServerSessionState state,
+            int port,
+            Instant leaseUntil,
+            Path projectDirectory
+    ) {
         return new DevServerSessionRecord(
                 21L,
                 7L,
@@ -194,7 +253,7 @@ class DevServerPreviewRoutingServiceTest {
                 leaseOwner,
                 state,
                 port,
-                Path.of("generated", "21"),
+                projectDirectory,
                 "container",
                 List.of("sandbox-21"),
                 leaseUntil,

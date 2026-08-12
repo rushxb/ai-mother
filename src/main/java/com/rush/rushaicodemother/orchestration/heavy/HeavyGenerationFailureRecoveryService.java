@@ -161,7 +161,7 @@ public class HeavyGenerationFailureRecoveryService {
         }
         // 孤立的执行纪元并未改变已发布的工作空间。恢复旧的
         // 仅通过 appId 进行快照就会重新引入 epoch 工作区所避免的 TOCTOU 竞赛。
-        // 失败的纪元将被保留用于诊断和稍后的管理员回收。
+        // 失败纪元由统一 Finalizer 移入带 TTL 的隔离目录，不在这里按 appId 操作文件。
         if (session.executionWorkspace() != null) {
             return;
         }
@@ -193,9 +193,8 @@ public class HeavyGenerationFailureRecoveryService {
         }
         generationAppStateService.updateOwnedCodeGenType(
                 appId, preparation.taskId(), preparation.originalType());
-        // 失败的纪元仍然是私有执行工作区，并由管理员回收。
-        // 删除从 appId + type 重新解析的路径可能会删除较新的已发布版本
-        // 租约接管后，因此故障恢复故意不执行直接文件系统删除。
+        // 失败纪元仍是私有执行工作区，由统一 Finalizer 按完整 execution fence 隔离。
+        // 此处禁止从 appId + type 重新解析并删除，避免租约接管后误伤较新的执行版本。
     }
 
     /**

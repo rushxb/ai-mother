@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
@@ -231,7 +232,8 @@ public class DevServerManager {
                 userId,
                 projectDirectory,
                 app.getDevServerPort(),
-                requestedEnvironment
+                requestedEnvironment,
+                startOptions == null ? null : startOptions.executionFence()
         );
         ManagedDevServerSession session = registration.session();
         if (!registration.created()) {
@@ -322,6 +324,42 @@ public class DevServerManager {
             return;
         }
         stopSession(session, true);
+    }
+
+    /**
+     * 仅当会话正以指定目录为 root 运行时才停止它。
+     *
+     * <p>为「工作区即将被移走」这一场景提供精确停止：按 {@code appId} 无条件停会误杀用户
+     * 手动打开的、以正式工作区为 root 的预览 —— 那份预览与本次发布无关，不该被连带停掉。
+     * 目录比对沿用 {@link #sameProjectDirectory} 的规范化口径，避免符号链接与相对路径造成漏判。</p>
+     *
+     * @param appId            应用编号
+     * @param projectDirectory 期望的会话 root 目录
+     * @return 确实停止了会话时返回 {@code true}；无会话或 root 不匹配时返回 {@code false}
+     */
+    public boolean stopDevServerIfRootedAt(Long appId, Path projectDirectory) {
+        if (appId == null || appId <= 0 || projectDirectory == null) {
+            return false;
+        }
+        ManagedDevServerSession session = sessions.get(appId);
+        if (session == null || !sameProjectDirectory(session.projectDirectory(), projectDirectory)) {
+            return false;
+        }
+        stopSession(session, true);
+        return true;
+    }
+
+    /** 仅停止由指定执行纪元启动的任务级预览，避免误杀正式工作区预览。 */
+    public boolean stopDevServerIfOwnedBy(Long appId, GenerationExecutionFence fence) {
+        if (appId == null || appId <= 0 || fence == null) {
+            return false;
+        }
+        ManagedDevServerSession session = sessions.get(appId);
+        if (session == null || !session.matchesExecutionFence(fence)) {
+            return false;
+        }
+        stopSession(session, true);
+        return true;
     }
 
     /**
@@ -546,7 +584,8 @@ public class DevServerManager {
             Long userId,
             Path projectDirectory,
             Integer preferredPort,
-            Map<String, String> environmentOverrides
+            Map<String, String> environmentOverrides,
+            GenerationExecutionFence executionFence
     ) {
         registryLock.lock();
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
@@ -612,6 +651,7 @@ public class DevServerManager {
                         projectDirectory,
                         port,
                         environmentOverrides,
+                        executionFence,
                         nanoTimeSource.getAsLong()
                 );
                 sessions.put(appId, session);
@@ -909,6 +949,7 @@ public class DevServerManager {
         private final Path projectDirectory;
         private final int port;
         private final Map<String, String> environmentOverrides;
+        private final GenerationExecutionFence executionFence;
         private final CompletableFuture<Void> startupCompletion = new CompletableFuture<>();
         /** 最近一次被访问的时刻，用于空闲回收；写多读少且跨线程，用 volatile 足够。 */
         private volatile long lastAccessNanos;
@@ -921,6 +962,7 @@ public class DevServerManager {
                 Path projectDirectory,
                 int port,
                 Map<String, String> environmentOverrides,
+                GenerationExecutionFence executionFence,
                 long createdAtNanos
         ) {
             this.appId = appId;
@@ -930,6 +972,7 @@ public class DevServerManager {
             this.environmentOverrides = environmentOverrides == null
                     ? Map.of()
                     : Map.copyOf(environmentOverrides);
+            this.executionFence = executionFence;
             // 以创建时刻作为初值：会话在首次被访问前也应享有完整的空闲宽限期。
             this.lastAccessNanos = createdAtNanos;
         }
@@ -953,6 +996,10 @@ public class DevServerManager {
 
         private Path projectDirectory() {
             return projectDirectory;
+        }
+
+        private boolean matchesExecutionFence(GenerationExecutionFence fence) {
+            return fence != null && fence.equals(executionFence);
         }
 
         private int port() {

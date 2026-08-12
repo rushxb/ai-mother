@@ -18,6 +18,7 @@ public class GenerationWorkspaceReleaseService {
     private final GenerationWorkspacePublicationService publicationService;
     private final GenerationWorkspacePublicationMetadataService publicationMetadataService;
     private final GenerationPreviewMilestoneService previewMilestoneService;
+    private final GenerationProvisionalPreviewLifecycle provisionalPreviewLifecycle;
 
     /**
  * 发布已经通过验证的生成工作区。
@@ -43,10 +44,31 @@ public class GenerationWorkspaceReleaseService {
                     "生成发布类型与执行工作区不一致");
         }
         session.throwIfCancelled();
+        stopProvisionalPreviewSafely(session);
         GenerationWorkspacePublicationResult result =
                 publicationService.publishWithMetadata(session, publicationMetadataService);
         publishFirstPreviewSafely(session, targetType);
         return result;
+    }
+
+    /**
+     * 发布前停止以执行工作区为 root 的暂定预览 Dev Server。
+     *
+     * <p>必须停，且必须在发布之前停：发布会把执行工作区整体 move 到版本目录，
+     * 而 Linux 上 Vite 进程会继续持有被移走的旧 inode —— 预览既不报错也不更新，
+     * 用户看到一份无声的过期内容，这比预览直接失效更难排查。</p>
+     *
+     * <p>停止失败只记日志不打断发布：发布是用户可见成果的唯一提交点，
+     * 不能被一个体验增强进程的清理失败拖垮。残留进程由 Dev Server 心跳回收兜底 ——
+     * 目录发布后即消失，回收判据 {@code workspace_directory_missing} 必然命中。</p>
+     */
+    private void stopProvisionalPreviewSafely(GenerationSession session) {
+        try {
+            provisionalPreviewLifecycle.stopBeforePublication(session);
+        } catch (RuntimeException exception) {
+            log.warn("发布前停止暂定预览失败，继续发布并交由心跳回收兜底，taskId: {}",
+                    session.taskId(), LogExceptionSanitizer.sanitize(exception));
+        }
     }
 
     /** 发布{@code First}预览安全处理。 */

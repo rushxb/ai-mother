@@ -20,6 +20,7 @@ import com.rush.rushaicodemother.orchestration.verification.GenerationVerificati
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
@@ -300,10 +301,17 @@ public class HeavyGenerationBuildValidationService {
             } else {
                 // Dev Server 就绪即证明工作区可渲染，是「用户可以先看到东西」的最早诚实信号。
                 // 回调在服务仍运行的窗口内触发；只发暂定预览事件，不构成完成证据、不计费、不写终态。
+                //
+                // 这里把会话持有权交给生成任务：验证返回后 Dev Server 继续运行，用户才真的点得开暂定预览。
+                // 停止责任随之移交给生成任务：发布前由 GenerationWorkspaceReleaseService 停止，
+                // 失败、取消和超时由 GenerationTaskFinalizer 按 execution fence 精确停止。
                 dsResult = devServerValidationService.validate(
-                        preparation.taskId(), appId, loginUser.getId(), preparation.targetType(),
-                        session.executionContext().executionFence(),
-                        () -> publishProvisionalPreviewSafely(session, preparation.targetType()));
+                        DevServerValidationRequest
+                                .of(preparation.taskId(), appId, loginUser.getId(), preparation.targetType())
+                                .withExecutionFence(session.executionContext().executionFence())
+                                .withReadyCallback(() ->
+                                        publishProvisionalPreviewSafely(session, preparation.targetType()))
+                                .withTaskScopedOwnership());
             }
         } catch (RuntimeException exception) {
             span.failed(LogExceptionSanitizer.sanitizeMessage(exception));

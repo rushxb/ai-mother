@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.service.dependency.DependencyInstallResult;
 import com.rush.rushaicodemother.service.dependency.ProjectDependencyInstaller;
 import org.junit.jupiter.api.AfterEach;
@@ -156,6 +157,29 @@ class DevServerManagerTest {
         externalCancellation.set(false);
         manager.stopDevServer(11L);
         assertTrue(cancellationCaptor.getValue().getAsBoolean());
+    }
+
+    @Test
+    void terminalStopMustMatchExactExecutionFence() {
+        Path project = tempDirectory.resolve("project-11");
+        ProcessFixture fixture = processFixture();
+        GenerationExecutionFence fence = new GenerationExecutionFence("task-preview", "worker-1", 3L);
+        DevServerStartOptions options = new DevServerStartOptions(
+                fence.taskId(), Duration.ofSeconds(3), () -> false, fence);
+        when(projectLocator.locate(any(App.class), eq(options))).thenReturn(project);
+        when(portAllocator.reserve(11L, null)).thenReturn(5180);
+        when(outputHub.sink(11L)).thenReturn(line -> { });
+        when(dependencyInstaller.ensureInstalled(project, fence.taskId()))
+                .thenReturn(DependencyInstallResult.success("ok"));
+        when(processRunner.start(eq(project), eq(5180), eq(11L), any(), any(), any()))
+                .thenReturn(fixture.session(project, 5180));
+        manager.startDevServer(app(11L, 7L, CodeGenTypeEnum.VUE_PROJECT), 7L, options);
+
+        assertFalse(manager.stopDevServerIfOwnedBy(
+                11L, new GenerationExecutionFence("task-preview", "worker-1", 4L)));
+        assertTrue(manager.isRunning(11L));
+        assertTrue(manager.stopDevServerIfOwnedBy(11L, fence));
+        assertFalse(manager.isRunning(11L));
     }
 
     @Test

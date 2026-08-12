@@ -15,6 +15,8 @@ import org.mockito.ArgumentCaptor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -136,6 +138,71 @@ class GenerationExecutionWorkspaceServiceTest {
         );
     }
 
+    @Test
+    void successfulExecutionMustDeleteOnlyItsExactEpoch() throws Exception {
+        Fixture fixture = fixture("task-workspace-delete");
+        Path current = executionEpoch(fixture, 1L);
+        Path newer = executionEpoch(fixture, 2L);
+        Files.createDirectories(current.resolve("vue_project/workspace"));
+        Files.createDirectories(newer.resolve("vue_project/workspace"));
+
+        fixture.service().clear(
+                fixture.fence(), APP_ID, GenerationExecutionWorkspaceService.CleanupPolicy.DELETE);
+
+        assertFalse(Files.exists(current));
+        assertTrue(Files.exists(newer));
+    }
+
+    @Test
+    void failedExecutionMustMoveOnlyItsExactEpochToQuarantine() throws Exception {
+        Fixture fixture = fixture("task-workspace-quarantine");
+        Path current = executionEpoch(fixture, 1L);
+        Path newer = executionEpoch(fixture, 2L);
+        Files.createDirectories(current.resolve("vue_project/workspace"));
+        Files.writeString(current.resolve("vue_project/workspace/failure.log"), "diagnostic");
+        Files.createDirectories(newer.resolve("vue_project/workspace"));
+
+        fixture.service().clear(
+                fixture.fence(), APP_ID, GenerationExecutionWorkspaceService.CleanupPolicy.QUARANTINE);
+
+        assertFalse(Files.exists(current));
+        assertTrue(Files.exists(newer));
+        Path quarantineTaskRoot = fixture.outputRoot()
+                .resolve(GenerationExecutionWorkspaceService.QUARANTINE_ROOT_NAME)
+                .resolve("app-" + APP_ID)
+                .resolve(fixture.fence().taskId());
+        try (var children = Files.list(quarantineTaskRoot)) {
+            assertEquals(1L, children.filter(Files::isDirectory).count());
+        }
+    }
+
+    @Test
+    void quarantineReclaimerMustRespectRetentionAndBatchLimit() throws Exception {
+        Fixture fixture = fixture("task-workspace-retention");
+        fixture.properties().setExecutionWorkspaceQuarantineRetention(Duration.ofHours(1));
+        Path quarantineRoot = fixture.outputRoot()
+                .resolve(GenerationExecutionWorkspaceService.QUARANTINE_ROOT_NAME)
+                .resolve("app-" + APP_ID)
+                .resolve(fixture.fence().taskId());
+        Path expired = Files.createDirectories(quarantineRoot.resolve("epoch-1-old"));
+        Path retained = Files.createDirectories(quarantineRoot.resolve("epoch-2-new"));
+        Files.setLastModifiedTime(expired, FileTime.from(Instant.now().minus(Duration.ofHours(2))));
+        Files.setLastModifiedTime(retained, FileTime.from(Instant.now()));
+
+        fixture.service().reclaimQuarantined();
+
+        assertFalse(Files.exists(expired));
+        assertTrue(Files.exists(retained));
+    }
+
+    private Path executionEpoch(Fixture fixture, long epoch) {
+        return fixture.outputRoot()
+                .resolve(GenerationExecutionWorkspaceService.EXECUTION_ROOT_NAME)
+                .resolve("app-" + APP_ID)
+                .resolve(fixture.fence().taskId())
+                .resolve("epoch-" + epoch);
+    }
+
     private Fixture fixture(String taskId) throws Exception {
         Path outputRoot = tempDirectory.resolve(taskId).resolve("output");
         Path canonicalRoot = Files.createDirectories(tempDirectory.resolve(taskId).resolve("canonical"));
@@ -167,6 +234,7 @@ class GenerationExecutionWorkspaceServiceTest {
         );
         return new Fixture(
                 fence,
+                outputRoot,
                 canonicalRoot.toRealPath(),
                 lifecycleProperties,
                 copier,
@@ -192,6 +260,7 @@ class GenerationExecutionWorkspaceServiceTest {
 
     private record Fixture(
             GenerationExecutionFence fence,
+            Path outputRoot,
             Path canonicalRoot,
             ArtifactLifecycleProperties properties,
             ArtifactDirectoryCopier artifactDirectoryCopier,

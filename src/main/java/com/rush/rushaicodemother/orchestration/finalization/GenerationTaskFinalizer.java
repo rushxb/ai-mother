@@ -5,8 +5,10 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskRecoveryCandidate;
-import lombok.RequiredArgsConstructor;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspaceService;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationProvisionalPreviewLifecycle;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -17,16 +19,36 @@ import java.time.Instant;
  * <p>数据库终态提交完成后才释放进程内租约并记录终态指标，避免事务回滚时提前丢失执行所有权。</p>
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class GenerationTaskFinalizer {
 
     private final GenerationTaskFinalizationTransaction transaction;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
+    private final GenerationExecutionWorkspaceService executionWorkspaceService;
+    private final GenerationProvisionalPreviewLifecycle provisionalPreviewLifecycle;
+
+    @Autowired
+    public GenerationTaskFinalizer(
+            GenerationTaskFinalizationTransaction transaction,
+            GenerationTaskRuntimeLifecycleService runtimeLifecycleService,
+            GenerationExecutionWorkspaceService executionWorkspaceService,
+            GenerationProvisionalPreviewLifecycle provisionalPreviewLifecycle) {
+        this.transaction = transaction;
+        this.runtimeLifecycleService = runtimeLifecycleService;
+        this.executionWorkspaceService = executionWorkspaceService;
+        this.provisionalPreviewLifecycle = provisionalPreviewLifecycle;
+    }
+
+    /** 遗留测试和非托管调用者的兼容构造函数。 */
+    public GenerationTaskFinalizer(
+            GenerationTaskFinalizationTransaction transaction,
+            GenerationTaskRuntimeLifecycleService runtimeLifecycleService) {
+        this(transaction, runtimeLifecycleService, null, null);
+    }
 
     public void finalizeManaged(GenerationFinalizationCommand command) {
         transaction.finalizeManaged(command);
-        completePostCommit(command.taskId(), command.status(), command.executionFence());
+        completePostCommit(command.taskId(), command.appId(), command.status(), command.executionFence());
     }
 
     public void finalizeOwnedRuntime(GenerationFinalizationCommand command) {
@@ -34,7 +56,7 @@ public class GenerationTaskFinalizer {
             throw new IllegalArgumentException("运行时有主任务必须提供执行围栏");
         }
         transaction.finalizeOwnedRuntime(command);
-        completePostCommit(command.taskId(), command.status(), command.executionFence());
+        completePostCommit(command.taskId(), command.appId(), command.status(), command.executionFence());
     }
 
     public void finalizeUnownedRuntime(String taskId,
@@ -50,7 +72,7 @@ public class GenerationTaskFinalizer {
                                         String reason) {
         boolean finalized = transaction.finalizeExpiredLease(candidate, status, completedAt, reason);
         if (finalized) {
-            recordTerminalMetricSafely(candidate.taskId(), status);
+            completePostCommit(candidate.taskId(), candidate.appId(), status, fenceOf(candidate));
         }
         return finalized;
     }
@@ -62,12 +84,50 @@ public class GenerationTaskFinalizer {
     }
 
     private void completePostCommit(String taskId,
+                                    Long appId,
                                     GenerationTaskStatus status,
                                     GenerationExecutionFence fence) {
         try {
             recordTerminalMetricSafely(taskId, status);
         } finally {
+            cleanupResourcesSafely(taskId, appId, status, fence);
             releaseFence(fence);
+        }
+    }
+
+    private GenerationExecutionFence fenceOf(GenerationTaskRecoveryCandidate candidate) {
+        if (candidate == null || candidate.leaseOwner() == null || candidate.leaseOwner().isBlank()) {
+            return null;
+        }
+        return new GenerationExecutionFence(
+                candidate.taskId(), candidate.leaseOwner(), candidate.executionEpoch());
+    }
+
+    /** 终态提交后的资源清理，严格按执行围栏定位，避免旧 worker 误删新纪元。 */
+    private void cleanupResourcesSafely(String taskId,
+                                        Long appId,
+                                        GenerationTaskStatus status,
+                                        GenerationExecutionFence fence) {
+        if (fence == null || executionWorkspaceService == null) {
+            return;
+        }
+        try {
+            if (provisionalPreviewLifecycle != null) {
+                provisionalPreviewLifecycle.stopForTerminal(appId, fence);
+            }
+        } catch (RuntimeException previewFailure) {
+            log.warn("终态停止暂定预览失败，taskId: {}，error: {}",
+                    taskId, LogExceptionSanitizer.sanitizeMessage(previewFailure));
+        }
+        try {
+            GenerationExecutionWorkspaceService.CleanupPolicy policy =
+                    status == GenerationTaskStatus.FAILED
+                            ? GenerationExecutionWorkspaceService.CleanupPolicy.QUARANTINE
+                            : GenerationExecutionWorkspaceService.CleanupPolicy.DELETE;
+            executionWorkspaceService.clear(fence, appId, policy);
+        } catch (RuntimeException cleanupFailure) {
+            log.warn("终态清理执行工作区失败，taskId: {}，error: {}",
+                    taskId, LogExceptionSanitizer.sanitizeMessage(cleanupFailure));
         }
     }
 

@@ -150,7 +150,10 @@ public class GenerationToolContinuationScheduler {
             taskExecutor.execute(execution, tracedContinuation);
         } catch (RuntimeException dispatchFailure) {
             if (executionWorkspaceService != null) {
-                executionWorkspaceService.clear(executionFence);
+                executionWorkspaceService.clear(
+                        executionFence,
+                        state.appId(),
+                        GenerationExecutionWorkspaceService.CleanupPolicy.DELETE);
             }
             runtimeLifecycleService.restoreWaitingAfterDispatchFailure(
                     executionFence, "approval_dispatch_retry");

@@ -44,7 +44,7 @@ public class DevServerValidationService {
             Long userId,
             CodeGenTypeEnum codeGenType
     ) {
-        return validate(taskId, appId, userId, codeGenType, null);
+        return validate(DevServerValidationRequest.of(taskId, appId, userId, codeGenType));
     }
 
     /** 针对所提供的栅栏拥有的确切隔离工作区运行验证。 */
@@ -55,28 +55,34 @@ public class DevServerValidationService {
             CodeGenTypeEnum codeGenType,
             GenerationExecutionFence executionFence
     ) {
-        return validate(taskId, appId, userId, codeGenType, executionFence, () -> { });
+        return validate(DevServerValidationRequest.of(taskId, appId, userId, codeGenType)
+                .withExecutionFence(executionFence));
     }
 
     /**
-     * 运行验证，并在 Dev Server 就绪、尚未停止时回调一次。
+     * 运行验证；就绪后按请求声明的持有者语义决定是否在返回前停止会话。
      *
-     * <p>回调点选在「已就绪、仍在运行」的窗口内：验证结束时 {@code finally} 会停掉本次调用创建的会话，
-     * 若等到验证返回后再通知，用户拿到的预览地址已经失效。回调异常被吞掉并记录，
-     * 因为它只承载体验增强，不得影响验证结论。</p>
+     * <p>就绪回调点选在「已就绪、仍在运行」的窗口内：{@link DevServerSessionOwnership#CALLER_SCOPED}
+     * 时验证结束的 {@code finally} 会停掉本次调用创建的会话，若等到验证返回后再通知，
+     * 用户拿到的预览地址已经失效。回调异常被吞掉并记录，因为它只承载体验增强，
+     * 不得影响验证结论。</p>
      *
-     * @param onDevServerReady Dev Server 就绪回调，在错误采集窗口开始前触发一次
+     * @param request 验证入参，含隔离栅栏、就绪回调与会话持有者语义
      */
-    public DevServerValidationResult validate(
-            String taskId,
-            Long appId,
-            Long userId,
-            CodeGenTypeEnum codeGenType,
-            GenerationExecutionFence executionFence,
-            Runnable onDevServerReady
-    ) {
+    public DevServerValidationResult validate(DevServerValidationRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Dev Server 验证请求不能为空");
+        }
+        String taskId = request.taskId();
+        Long appId = request.appId();
+        Long userId = request.userId();
+        CodeGenTypeEnum codeGenType = request.codeGenType();
         validateRequest(taskId, appId, userId, codeGenType);
-        Runnable readyCallback = onDevServerReady == null ? () -> { } : onDevServerReady;
+        Runnable readyCallback = request.onDevServerReady();
+        // 持有者语义在进入 try 之前读出：finally 必须能无条件拿到它，
+        // 且它由调用方显式声明而非从「有没有传就绪回调」反推 —— 后者会让持有权
+        // 随着一个体验增强参数被悄悄改变。
+        DevServerSessionOwnership ownership = request.ownership();
         generationExecutionContextService.assertCanContinue(taskId);
         Duration startupTimeout = generationExecutionContextService.clampTimeout(
                 taskId,
@@ -98,7 +104,7 @@ public class DevServerValidationService {
                     taskId,
                     startupTimeout,
                     () -> generationExecutionContextService.shouldStop(taskId),
-                    executionFence
+                    request.executionFence()
             );
             try {
                 startResult = devServerManager.startDevServer(app, userId, startOptions);
@@ -144,7 +150,7 @@ public class DevServerValidationService {
             }
             return DevServerValidationResult.passed(taskId, appId, elapsed);
         } finally {
-            stopOwnedSession(appId, startResult);
+            stopOwnedSession(appId, startResult, ownership);
             devServerManager.unregisterErrorCollector(appId, collector);
         }
     }
@@ -213,9 +219,21 @@ public class DevServerValidationService {
         }
     }
 
-    /** 停止{@code Owned}会话。 */
-    private void stopOwnedSession(Long appId, DevServerStartResult startResult) {
+    /**
+     * 按持有者语义决定是否在本方法作用域内停止会话。
+     *
+     * <p>{@link DevServerSessionOwnership#TASK_SCOPED} 时刻意不停：暂定预览必须在验证返回后
+     * 继续可用，停止责任已交给生成任务：发布前和任务终态都会按工作区或 execution fence
+     * 精确停止；{@code DevServerManager} 心跳只承担进程异常情况下的最终兜底。</p>
+     */
+    private void stopOwnedSession(Long appId,
+                                  DevServerStartResult startResult,
+                                  DevServerSessionOwnership ownership) {
         if (startResult == null || !startResult.startedByCaller()) {
+            return;
+        }
+        if (!ownership.stopsWithCaller()) {
+            log.info("按任务作用域移交 Dev Server 持有权，验证返回后保持运行，appId={}", appId);
             return;
         }
         try {

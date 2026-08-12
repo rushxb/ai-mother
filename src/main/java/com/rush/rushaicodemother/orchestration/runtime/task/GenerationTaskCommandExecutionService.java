@@ -374,7 +374,10 @@ public class GenerationTaskCommandExecutionService {
             toolExecutionContextService.clearContext(appId, taskId, executionFence);
         }
         if (executionWorkspace != null && executionWorkspaceService != null) {
-            executionWorkspaceService.clear(executionFence);
+            executionWorkspaceService.clear(
+                    executionFence,
+                    appId,
+                    GenerationExecutionWorkspaceService.CleanupPolicy.DELETE);
         }
         if (executionContext != null) {
             executionContextService.finishIfOwned(taskId, executionFence, completionStatus);

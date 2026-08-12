@@ -33,6 +33,9 @@ public class ArtifactLifecycleProperties {
     public static final Duration PUBLICATION_RECONCILIATION_RETRY_DELAY = Duration.ofSeconds(30);
     public static final int PUBLICATION_RECONCILIATION_BATCH_SIZE = 100;
     public static final int PUBLICATION_RECONCILIATION_MAX_ATTEMPTS = 20;
+    public static final Duration EXECUTION_WORKSPACE_QUARANTINE_RETENTION = Duration.ofDays(3);
+    public static final Duration EXECUTION_WORKSPACE_CLEANUP_SCAN_INTERVAL = Duration.ofMinutes(10);
+    public static final int EXECUTION_WORKSPACE_CLEANUP_BATCH_SIZE = 100;
 
     /** 单次 robocopy 复制的总超时。 */
     private Duration copyTimeout = COPY_TIMEOUT;
@@ -101,9 +104,21 @@ public class ArtifactLifecycleProperties {
     @Max(100)
     private int publicationReconciliationMaxAttempts = PUBLICATION_RECONCILIATION_MAX_ATTEMPTS;
 
+    /** 失败执行工作区在隔离目录中的保留时长。 */
+    private Duration executionWorkspaceQuarantineRetention = EXECUTION_WORKSPACE_QUARANTINE_RETENTION;
+
+    /** 失败执行工作区隔离目录的定时清理间隔。 */
+    private Duration executionWorkspaceCleanupScanInterval = EXECUTION_WORKSPACE_CLEANUP_SCAN_INTERVAL;
+
+    /** 单次最多清理的失败执行工作区数量。 */
+    @Min(1)
+    @Max(1000)
+    private int executionWorkspaceCleanupBatchSize = EXECUTION_WORKSPACE_CLEANUP_BATCH_SIZE;
+
     @AssertTrue(message = "产物复制命令相关超时必须全部大于 0")
     public boolean isDurationConfigurationValid() {
-        return Stream.of(copyTimeout, executionWorkspaceCopyTimeout, heartbeatInterval, outputDrainTimeout)
+        return Stream.of(copyTimeout, executionWorkspaceCopyTimeout, heartbeatInterval, outputDrainTimeout,
+                        executionWorkspaceQuarantineRetention, executionWorkspaceCleanupScanInterval)
                 .allMatch(duration -> duration != null && !duration.isZero() && !duration.isNegative());
     }
 

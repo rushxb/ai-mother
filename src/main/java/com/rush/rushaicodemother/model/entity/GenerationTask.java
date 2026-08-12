@@ -118,6 +118,24 @@ public class GenerationTask implements Serializable {
     /** 生成路由。 */
     private String route;
 
+    @Column("intentSignature")
+    private String intentSignature;
+
+    @Column("intentProfileVersion")
+    private String intentProfileVersion;
+
+    @Column("routeDecisionVersion")
+    private String routeDecisionVersion;
+
+    @Column("routeEvidenceJson")
+    private String routeEvidenceJson;
+
+    @Column("routeAlternativesJson")
+    private String routeAlternativesJson;
+
+    @Column("routeReleaseIdentity")
+    private String routeReleaseIdentity;
+
     @Column("runtimeSchemaVersion")
     private Integer runtimeSchemaVersion;
 

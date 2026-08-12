@@ -103,3 +103,7 @@ Prompt 发布、模型启停或删除、模型密钥迁移在读取或改变发�
 并增加带租约、重试和执行轮次围栏的终态副作用 outbox。恢复器只有在 publication、intent、
 execution epoch 和任务版本全部一致时才可恢复成功，禁止仅凭 `publicationStatus=committed`
 临时拼装信息不完整的成功终态。
+
+`V20260812_2__generation_scenario_attribution.sql` 在任务提交时冻结脱敏场景签名、画像/决策
+协议版本、结构化证据、备选路由和发布身份。历史任务保持 `NULL`，禁止伪造回填；分析查询
+必须指定场景签名并限制时间窗和返回条数，且按决策版本与发布身份分桶，不能加入在线生成事务。

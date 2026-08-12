@@ -295,6 +295,12 @@ create table chat_history
         distilledAt             datetime(6)                        null comment '经验已蒸馏时间',
         orchestrationMode       varchar(64)                        null comment '编排模式',
         route                   varchar(64)                        null comment '运行时路由',
+        intentSignature         char(64)                           null comment '结构化意图场景签名',
+        intentProfileVersion    varchar(32)                        null comment '意图画像协议版本',
+        routeDecisionVersion    varchar(32)                        null comment '路由决策协议版本',
+        routeEvidenceJson       text                               null comment '路由证据 JSON',
+        routeAlternativesJson   text                               null comment '备选路由 JSON',
+        routeReleaseIdentity    varchar(64)                        null comment '路由发布身份',
         runtimeSchemaVersion    int                                null comment '可重建执行命令 schema 版本',
         runtimePayloadJson      mediumtext                         null comment '跨实例可重建执行命令 JSON',
         dispatchAt              datetime(6)                        null comment '最近一次进入 durable queue 的时间',
@@ -348,6 +354,7 @@ create table chat_history
              memoryIndexLeaseUntil, memoryIndexAttempts, status, isDelete, endTime),
         INDEX idx_generation_task_tenant_runtime (tenantId, status, isDelete, submittedAt, id),
         INDEX idx_generation_task_distill_claim (distilledAt, status, isDelete, endTime, id),
+        INDEX idx_generation_task_scenario_attribution (intentSignature, endTime, route, status, id),
         CONSTRAINT chk_generation_task_outcome_quality CHECK (
             (changedFileCount IS NULL OR changedFileCount >= 0)
                 AND (repairRounds IS NULL OR repairRounds >= 0)

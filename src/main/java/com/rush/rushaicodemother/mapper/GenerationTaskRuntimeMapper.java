@@ -17,6 +17,8 @@ public interface GenerationTaskRuntimeMapper {
             INSERT INTO generation_task (
                 taskId, appId, userId, tenantId, idempotencyKeyHash, requestFingerprint,
                 status, stage, route,
+                intentSignature, intentProfileVersion, routeDecisionVersion,
+                routeEvidenceJson, routeAlternativesJson, routeReleaseIdentity,
                 runtimeSchemaVersion, runtimePayloadJson,
                 submittedAt, deadlineAt, cancellationRequested,
                 leaseOwner, leaseUntil, heartbeatAt, executionEpoch, attempt, version,
@@ -26,6 +28,8 @@ public interface GenerationTaskRuntimeMapper {
                 #{taskId}, #{appId}, #{userId}, #{tenantId},
                 #{idempotencyKeyHash}, #{requestFingerprint},
                 'queued', 'queued', #{route},
+                #{intentSignature}, #{intentProfileVersion}, #{routeDecisionVersion},
+                #{routeEvidenceJson}, #{routeAlternativesJson}, #{routeReleaseIdentity},
                 #{runtimeSchemaVersion}, #{runtimePayloadJson},
                 #{submittedAt}, #{deadlineAt}, 0,
                 NULL, NULL, NULL, 0, 0, 0,

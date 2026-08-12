@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioDecisionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLease;
@@ -76,12 +77,20 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "Application already has a non-terminal generation task");
         }
+        GenerationScenarioDecisionSnapshot scenario =
+                GenerationScenarioDecisionSnapshot.from(task.command());
         GenerationTask entity = GenerationTask.builder()
                 .taskId(task.taskId()).appId(task.appId()).userId(task.userId())
                 .tenantId(task.tenantId())
                 .idempotencyKeyHash(task.idempotencyKeyHash())
                 .requestFingerprint(task.requestFingerprint())
                 .route(task.route())
+                .intentSignature(scenario.intentSignature())
+                .intentProfileVersion(scenario.profileVersion())
+                .routeDecisionVersion(scenario.decisionVersion())
+                .routeEvidenceJson(scenario.evidenceJson())
+                .routeAlternativesJson(scenario.alternativesJson())
+                .routeReleaseIdentity(scenario.releaseIdentity())
                 .submittedAt(toLocal(task.submittedAt())).deadlineAt(toLocal(task.deadlineAt()))
                 .runtimeSchemaVersion(task.command().schemaVersion())
                 .runtimePayloadJson(GenerationTaskCommandCodec.toJson(task.command()))

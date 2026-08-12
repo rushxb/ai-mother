@@ -13,14 +13,14 @@
 
 当前项目的工程基础已经明显高于普通 AI 代码生成项目：持久任务、幂等提交、租户角色授权、积分预授权、租约与执行栅栏、工作区隔离发布、模型容灾、工具审批、生产容器沙箱、发布评测门禁均已具备。三轮实施还完成了终态入口统一、结构化生产路由、路由评测门禁和任务级资源回收。
 
-最终复审后，真正限制下一阶段用户体验和生成质量的不是缺少更多 Agent，而是四个可验证的闭环尚未完成：
+最终复审识别了四个高价值闭环，其中前两个 P0 工程项已于 2026-08-12 落地，剩余工作转为线上验收与两个 P1 工程项：
 
-1. **发布恢复证据不完整**：数据库终态已收敛为单事务，但文件系统与数据库之间仍依赖 journal；崩溃恢复缺少完整终态快照。
-2. **场景学习不闭环**：生产路由已经结构化，反馈仍主要按应用聚合，无法按场景与决策版本稳定晋级。
+1. **可恢复终态协议（已落地）**：发布前冻结完整终态意图，恢复使用多重 CAS，终态事件与资源清理通过持久 outbox 补发。
+2. **场景质量归因（已落地）**：提交时冻结脱敏场景签名与决策版本，并提供场景到反馈、质量、模型 provenance 和成本的限窗只读视图。
 3. **租户治理不完整**：用户级并发和积分已具备，但缺租户级并发、周期预算、突发额度与降级策略。
 4. **Agent 规划收益未证明**：七节点中的多个阶段仍是规则编译器，是否值得其检查点和上下文成本尚无消融证据。
 
-一句话判断：**项目已越过“山寨 Agent”阶段；下一步领先性来自可恢复协议、场景化学习和单位成功交付成本，而不是继续堆 Agent 数量。**
+一句话判断：**项目已越过“山寨 Agent”阶段；下一步领先性来自用真实数据验证可恢复协议与场景化学习，并继续降低单位成功交付成本，而不是堆 Agent 数量。**
 
 ---
 
@@ -68,22 +68,25 @@ POST /generation/tasks
 
 ### P0-1：补齐发布成功后的可恢复终态协议
 
+**工程状态：已完成，待故障注入与线上指标验收。**
+
 #### 确定缺陷
 
 三轮实现已经建立 `GenerationTaskFinalizer`，Pipeline、Heavy、取消、超时、恢复和补偿不再各写一套终态。最终复审发现并已即时修正一处确定性回归：`finalizeManaged()` 原先只完成应用状态、Trace 和积分，没有写 `generation_task_runtime` 终态；现在有 execution fence 的正常生成会在**同一数据库事务**中先写持久任务终态，再完成应用状态、Trace 和积分。
 
-剩余问题发生在文件系统与数据库之间：
+本轮已补齐文件系统与数据库之间的恢复证据：
 
 1. `GenerationWorkspacePublicationService` 移动版本目录、激活指针并把 publication journal 标记为 `COMMITTED`。
 2. Pipeline 随后调用 `GenerationTaskFinalizer` 提交数据库业务终态。
 3. 事务成功后才发送 `TASK_DONE`、写结果记忆和清理资源。
 
-文件系统与数据库无法组成 ACID 事务。当前恢复扫描看到 `COMMITTED` journal 后会把过期任务恢复为 `SUCCESS`，方向正确，但仍有两个信息缺口：
+文件系统与数据库无法组成 ACID 事务，因此仍保留 publication journal，并用以下协议补齐原有信息缺口：
 
-- journal 只证明文件版本与应用类型元数据已发布，不保存 `memorySummary`、`outcomeQuality`、完成证据和 usage snapshot；崩溃恢复后的 Trace/质量归因可能不完整。
-- 终态后的 SSE、语义记忆和资源清理仍是进程内 best-effort。数据库提交后立刻宕机时，用户可通过查询看到正确终态，但事件与非关键副作用不保证补发。
+- `generation_task` 在发布前保存完整不可变终态意图，覆盖 `memorySummary`、结果质量、终态状态与错误事实；恢复不再临时拼装降级成功命令。
+- 恢复使用 `taskId + executionEpoch + version + publication` 多重 CAS，旧 worker 或旧发布纪元不能覆盖新执行。
+- 终态事件和资源清理由持久 outbox 补发；事件 ID 固定为 `terminal:{taskId}:{epoch}`，消费者可幂等处理。语义记忆继续复用既有 memory outbox。
 
-#### 建议设计
+#### 已落地设计
 
 不重写发布组件，只给现有协议增加一个最小的持久终态快照：
 
@@ -119,25 +122,28 @@ taskId + executionEpoch + terminalStatus + reason
 
 ### P0-2：把结构化路由升级为场景质量学习闭环
 
+**工程状态：数据闭环基础已完成，待离线样本报告与晋级收益验收。**
+
 #### 确定问题
 
 第二轮已经把 `IntentProfileRoutingPolicy` 接入生产决策链，生产与 shadow 共享 `IntentProfileRoutingDecisionEngine`；关键词策略只在画像未知时兼容回退。Benchmark 也已支持 `expectedRoute/forbiddenRoutes`、`HEAVY_EXPERT` 和错误升级/降级门禁。
 
-剩余短板不在“再写一套路由器”，而在生产反馈不能驱动场景决策：
+本轮不再写路由器，而是补齐生产反馈驱动决策所需的事实层：
 
-- `GenerationTelemetryRoutingPolicy` 的质量风险仍按应用级任务/反馈聚合；当前虽保护明确轻量请求不被升级，但复杂请求仍可能被无关历史污染。
-- 反馈实体只保存 task/app/user/rating/outcome/comment；模型调用虽已有 Prompt/模型/工具 provenance，尚未形成可查询的“场景 -> 路由 -> 版本 -> 结果 -> 成本”视图。
-- 路由决策缺少稳定的 `decisionVersion + evidence + alternatives` 持久事实，线上回放和 champion 晋级证据不完整。
+- 每次提交从冻结的 `GenerationTaskCommand` 派生场景签名，签名只包含结构化枚举、布尔值、文件数桶和代码生成类型，不写原始 prompt、用户或应用身份。
+- 同行持久化 `profileVersion + decisionVersion + evidence + alternatives + releaseIdentity`，无需升级命令 schema，也不复制完整命令。
+- 只读归因端口可查询“场景 -> 路由 -> 版本 -> 结果 -> 反馈 -> 成本 -> 模型/Prompt/工具指纹”；聚合强制指定 64 位签名、最多 90 天、最多 500 桶。
+- 聚合按画像版本、决策版本、发布身份和实际路由隔离，避免策略版本混算；模型调用过滤下推到 taskId，单任务查询不会先聚合整张调用表。
 
-#### 建议设计
+#### 已落地设计与下一步
 
 只补最小数据闭环：
 
-1. 提交时持久化 `intentSignature + profileVersion + decisionVersion + evidence + alternatives`。
-2. 以 `intentSignature + codeGenType + route + releaseVersion` 聚合成功率、一次构建通过率、TTP、总耗时、token、fallback、repair 和评分。
-3. 应用级历史只能作为弱信号；升级 Heavy 必须同时满足当前场景风险或同场景历史风险。
+1. 已完成场景决策事实持久化和按版本隔离的质量/成本分析视图。
+2. 下一步先用该视图生成离线回放、route confusion matrix 和单位成功任务成本报告。
+3. 应用级历史只能作为弱信号；升级 Heavy 必须同时满足当前场景风险或同场景历史风险，此项须在样本证明收益后再改生产策略。
 4. 低置信画像才进入澄清，小模型不能直接切生产路由，仍走 shadow 与基准晋级。
-5. 先做分析视图和离线回放，不引入训练平台、向量聚类或在线强化学习。
+5. 不引入训练平台、向量聚类或在线强化学习。
 
 #### 用户价值
 
@@ -240,9 +246,7 @@ taskId + executionEpoch + terminalStatus + reason
 
 | 级别 | 问题 | 归属优化项 |
 | --- | --- | --- |
-| S1 | `COMMITTED` 发布在数据库终态前崩溃时，恢复可判成功，但缺完整 outcome/usage/provenance 快照 | P0-1 |
-| S2 | 终态 SSE、记忆和资源清理为进程内 best-effort，DB 提交后宕机可能漏副作用 | P0-1 |
-| S2 | 应用级历史质量仍可能污染不相干的复杂场景，无法形成同场景收益学习 | P0-2 |
+| S2 | 场景归因事实已具备，但生产路由尚未消费同场景收益；贸然接入会放大冷启动和小样本偏差 | P0-2 线上验收 |
 | S2 | 用户级并发与积分无法限制租户总消耗，大租户可挤压共享 worker/模型/预览资源 | P1-3 |
 | S3 | 七“Agent”多数为确定性规则节点，命名与执行能力不一致，且收益未做消融验证 | P1-4 |
 | S3 | 除 `ArchitecturePlan` 外仍有关键制品依赖字符串 key 和 `Map<String,Object>` 运行时转换 | P1-4 |
@@ -253,7 +257,7 @@ taskId + executionEpoch + terminalStatus + reason
 
 ## 6. 两周实施顺序
 
-### 第一周：先让成功恢复完整可信
+### 第一周：先让成功恢复完整可信（工程已完成）
 
 | 天 | 交付 | 当天可验证结果 |
 | --- | --- | --- |
@@ -262,7 +266,7 @@ taskId + executionEpoch + terminalStatus + reason
 | 4 | terminal outbox 承载 SSE、记忆和清理 | DB 提交后宕机也可补发，消费者幂等 |
 | 5 | 路由决策版本与 intent signature 落库 | 每个任务能解释为何选中当前 route |
 
-### 第二周：闭环质量、成本和结构收益
+### 第二周：闭环质量、成本和结构收益（场景事实层已完成）
 
 | 天 | 交付 | 当天可验证结果 |
 | --- | --- | --- |
@@ -322,4 +326,6 @@ taskId + executionEpoch + terminalStatus + reason
 - Benchmark 任务支持 `expectedRoute/forbiddenRoutes`，新增 `HEAVY_EXPERT` 架构迁移样本；报告聚合路由准确率、错误升级率、错误降级率，发布门禁可直接阻断路由回归。
 - 第三轮将任务级暂定预览停止接入唯一 Finalizer；成功、取消、超时立即删除精确执行纪元，失败纪元进入带 TTL 的隔离目录，过期 worker 不能触碰新 epoch。
 - 第三轮新增 `ArchitecturePlan`，先收紧 Architect 到 Code 的高风险关键契约；其余松散制品和七节点精简保留为后续经消融评测驱动的演进项，不做全仓重写。
-- 最终复审修正：`finalizeManaged()` 在同一数据库事务中补回持久任务终态写入，防止已发布任务长期停留 `RUNNING`；最终蓝图据此区分“数据库终态已原子化”和“跨文件系统恢复证据仍待补齐”。
+- 最终复审修正：`finalizeManaged()` 在同一数据库事务中补回持久任务终态写入，防止已发布任务长期停留 `RUNNING`；随后以终态意图和 outbox 补齐跨文件系统恢复协议，故障注入与线上指标仍待验收。
+- P0-1 提交 `9f98e7e`：冻结完整终态意图，恢复使用 execution epoch/version/publication 多重 CAS；新增终态副作用 outbox，以稳定事件 ID 补发终态事件并按执行围栏清理资源。
+- P0-2：提交时持久化脱敏 `intentSignature`、画像/决策版本、证据、备选项和发布身份；新增按任务归因与最多 90 天、500 桶的场景聚合查询，串联反馈、结果质量、模型 provenance、token 和积分成本。未建设训练平台或新的在线路由工作流。

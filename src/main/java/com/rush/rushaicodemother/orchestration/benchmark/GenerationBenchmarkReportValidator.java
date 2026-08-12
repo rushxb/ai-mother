@@ -52,6 +52,11 @@ public class GenerationBenchmarkReportValidator {
             if (!expectedMode.equals(result.mode())) {
                 throw invalid("生成质量评测报告的任务模式与数据集不一致");
             }
+            if (!result.expectedRoute().isBlank()
+                    && (!taskExpectedRoute(result.taskId()).equals(result.expectedRoute())
+                    || !result.routeAllowed())) {
+                throw invalid("生成质量评测报告包含不符合约束的路由结果");
+            }
         }
         if (seen.size() != expectedModes.size() || !seen.containsAll(expectedModes.keySet())) {
             throw invalid("生成质量评测报告未覆盖完整数据集");
@@ -64,6 +69,14 @@ public class GenerationBenchmarkReportValidator {
         if (!recalculated.equals(report)) {
             throw invalid("生成质量评测报告的汇总统计与任务明细不一致");
         }
+    }
+
+    private String taskExpectedRoute(String taskId) {
+        return catalog.tasks().stream()
+                .filter(task -> task.id().equals(taskId))
+                .map(GenerationBenchmarkTask::expectedRoute)
+                .findFirst()
+                .orElse("");
     }
 
     private BusinessException invalid(String message) {

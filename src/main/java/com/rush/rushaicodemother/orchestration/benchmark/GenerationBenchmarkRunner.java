@@ -131,6 +131,7 @@ public class GenerationBenchmarkRunner {
                 modelFingerprint,
                 summarizeQuality(safeResults),
                 modeStats,
+                summarizeRoutes(safeResults),
                 safeResults
         );
     }
@@ -271,6 +272,42 @@ public class GenerationBenchmarkRunner {
         return task == null
                 || task.requiredQualityDimensions().isEmpty()
                 || task.requiredQualityDimensions().contains(dimension);
+    }
+
+    private GenerationBenchmarkReport.RouteStats summarizeRoutes(List<GenerationBenchmarkRunResult> results) {
+        int expected = (int) results.stream().filter(result -> !result.expectedRoute().isBlank()).count();
+        int allowed = (int) results.stream()
+                .filter(result -> !result.expectedRoute().isBlank())
+                .filter(GenerationBenchmarkRunResult::routeAllowed)
+                .count();
+        int escalations = (int) results.stream()
+                .filter(result -> !result.expectedRoute().isBlank() && !result.routeAllowed())
+                .filter(result -> isEscalated(result.mode(), result.expectedRoute()))
+                .count();
+        int degradations = (int) results.stream()
+                .filter(result -> !result.expectedRoute().isBlank() && !result.routeAllowed())
+                .filter(result -> isDegraded(result.mode(), result.expectedRoute()))
+                .count();
+        return new GenerationBenchmarkReport.RouteStats(expected, allowed, escalations, degradations,
+                rate(allowed, expected), rate(escalations, expected), rate(degradations, expected));
+    }
+
+    private boolean isEscalated(String actual, String expected) {
+        return routeRank(actual) > routeRank(expected);
+    }
+
+    private boolean isDegraded(String actual, String expected) {
+        return routeRank(actual) < routeRank(expected);
+    }
+
+    private int routeRank(String route) {
+        return switch (route == null ? "" : route.toUpperCase()) {
+            case "CREATE" -> 1;
+            case "LIGHT_EDIT" -> 2;
+            case "AGENT_EDIT" -> 3;
+            case "HEAVY_EXPERT" -> 4;
+            default -> 0;
+        };
     }
 
     private ExecutionIdentity currentExecutionIdentity() {

@@ -10,7 +10,7 @@ import java.util.Optional;
  * 创建重型Expert路由决策策略。
  */
 @Component
-@Order(10)
+@Order(20)
 public class CreateHeavyExpertRoutingPolicy implements GenerationRoutingPolicy {
 
     private static final List<String> CREATE_HEAVY_EXPERT_KEYWORDS = List.of(

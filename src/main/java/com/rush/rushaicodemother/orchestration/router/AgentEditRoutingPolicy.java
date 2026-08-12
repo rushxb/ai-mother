@@ -10,7 +10,7 @@ import java.util.Optional;
  * 智能体编辑路由决策策略。
  */
 @Component
-@Order(40)
+@Order(50)
 public class AgentEditRoutingPolicy implements GenerationRoutingPolicy {
 
     private static final List<String> AGENT_EDIT_KEYWORDS = List.of(

@@ -40,6 +40,9 @@ public class GenerationBenchmarkReleaseProperties {
     public static final double MINIMUM_VISUAL_PASS_RATE = 0.90;
     public static final boolean REQUIRE_PROMPT_BUNDLE_ID = true;
     public static final double MAXIMUM_FALLBACK_RATE = 0.20;
+    public static final double MINIMUM_ROUTE_ACCURACY = 0.90;
+    public static final double MAXIMUM_WRONG_ESCALATION_RATE = 0.10;
+    public static final double MAXIMUM_WRONG_DEGRADATION_RATE = 0.05;
     public static final Duration MAXIMUM_P90_DURATION = Duration.ofMinutes(5);
     public static final Duration MAXIMUM_P99_DURATION = Duration.ofMinutes(10);
     public static final Duration MAXIMUM_P90_FIRST_TOKEN_LATENCY = Duration.ofSeconds(15);
@@ -116,6 +119,18 @@ public class GenerationBenchmarkReleaseProperties {
     @DecimalMin("0.0")
     @DecimalMax("1.0")
     private double maximumFallbackRate = MAXIMUM_FALLBACK_RATE;
+
+    @DecimalMin("0.0")
+    @DecimalMax("1.0")
+    private double minimumRouteAccuracy = MINIMUM_ROUTE_ACCURACY;
+
+    @DecimalMin("0.0")
+    @DecimalMax("1.0")
+    private double maximumWrongEscalationRate = MAXIMUM_WRONG_ESCALATION_RATE;
+
+    @DecimalMin("0.0")
+    @DecimalMax("1.0")
+    private double maximumWrongDegradationRate = MAXIMUM_WRONG_DEGRADATION_RATE;
 
     @NotNull
     private Duration maximumP90Duration = MAXIMUM_P90_DURATION;

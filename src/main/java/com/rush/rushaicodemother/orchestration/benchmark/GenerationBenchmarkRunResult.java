@@ -18,7 +18,9 @@ public record GenerationBenchmarkRunResult(
         long creditCost,
         long firstTokenLatencyMs,
         Long firstPreviewLatencyMs,
-        GenerationBenchmarkQualityEvidence qualityEvidence
+        GenerationBenchmarkQualityEvidence qualityEvidence,
+        String expectedRoute,
+        boolean routeAllowed
 ) {
     public GenerationBenchmarkRunResult(String taskId,
                                         String mode,
@@ -35,7 +37,27 @@ public record GenerationBenchmarkRunResult(
                                         long firstTokenLatencyMs) {
         this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount,
                 fallback, repairRounds, failureReason, totalTokens, creditCost,
-                firstTokenLatencyMs, null, GenerationBenchmarkQualityEvidence.empty());
+                firstTokenLatencyMs, null, GenerationBenchmarkQualityEvidence.empty(), "", true);
+    }
+
+    public GenerationBenchmarkRunResult(String taskId,
+                                        String mode,
+                                        boolean success,
+                                        boolean buildPassed,
+                                        long durationMs,
+                                        int aiCallCount,
+                                        int toolCallCount,
+                                        boolean fallback,
+                                        int repairRounds,
+                                        String failureReason,
+                                        long totalTokens,
+                                        long creditCost,
+                                        long firstTokenLatencyMs,
+                                        Long firstPreviewLatencyMs,
+                                        GenerationBenchmarkQualityEvidence qualityEvidence) {
+        this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount, fallback,
+                repairRounds, failureReason, totalTokens, creditCost, firstTokenLatencyMs,
+                firstPreviewLatencyMs, qualityEvidence, "", true);
     }
 
     public GenerationBenchmarkRunResult(String taskId,
@@ -50,7 +72,7 @@ public record GenerationBenchmarkRunResult(
                                         String failureReason) {
         this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount,
                 fallback, repairRounds, failureReason, 0L, 0L, 0L,
-                null, GenerationBenchmarkQualityEvidence.empty());
+                null, GenerationBenchmarkQualityEvidence.empty(), "", true);
     }
 
     /** 创建生成基准测试{@code Run}结果实例并完成必要的依赖和初始状态设置。 */
@@ -71,6 +93,7 @@ public record GenerationBenchmarkRunResult(
         qualityEvidence = qualityEvidence == null
                 ? GenerationBenchmarkQualityEvidence.empty()
                 : qualityEvidence;
+        expectedRoute = expectedRoute == null ? "" : expectedRoute;
     }
 
     /**

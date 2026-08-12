@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionEngine;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingTelemetryProvider;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingTelemetrySnapshot;
+import com.rush.rushaicodemother.orchestration.router.IntentProfileRoutingPolicy;
 import com.rush.rushaicodemother.orchestration.router.LightweightEditRoutingPolicy;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -30,6 +31,7 @@ class GenerationShadowRoutingSpringWiringTest {
                     GenerationShadowRoutingMetricsCollector.class,
                     GenerationShadowRoutingService.class,
                     IntentProfileService.class,
+                    IntentProfileRoutingPolicy.class,
                     CreateHeavyExpertRoutingPolicy.class,
                     CreateFirstRoutingPolicy.class,
                     ExplicitHeavyExpertRoutingPolicy.class,

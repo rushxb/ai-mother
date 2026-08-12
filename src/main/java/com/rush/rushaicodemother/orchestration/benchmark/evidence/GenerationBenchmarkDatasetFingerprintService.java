@@ -49,6 +49,8 @@ public class GenerationBenchmarkDatasetFingerprintService {
             ReleaseCandidateFingerprint.appendField(canonical, task.codeGenType());
             ReleaseCandidateFingerprint.appendField(canonical, task.prompt());
             ReleaseCandidateFingerprint.appendField(canonical, task.expectedValidation());
+            ReleaseCandidateFingerprint.appendField(canonical, task.expectedRoute());
+            appendStrings(canonical, task.forbiddenRoutes());
             ReleaseCandidateFingerprint.appendField(canonical, task.scenario());
             ReleaseCandidateFingerprint.appendField(
                     canonical,

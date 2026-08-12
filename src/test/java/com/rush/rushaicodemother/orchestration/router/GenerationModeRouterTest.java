@@ -41,7 +41,7 @@ class GenerationModeRouterTest {
         );
 
         assertEquals(GenerationMode.AGENT_EDIT, selection.decision().mode());
-        assertEquals(GenerationRoutingDecisionCode.AGENT_EDIT_COMPLEXITY,
+        assertEquals(GenerationRoutingDecisionCode.INTENT_PROFILE_AGENT_EDIT,
                 selection.decision().decisionCode());
         assertTrue(selection.intentProfile().requiresBackend());
         assertTrue(selection.intentProfile().requiresDatabase());
@@ -83,7 +83,7 @@ class GenerationModeRouterTest {
         );
 
         assertEquals(GenerationMode.AGENT_EDIT, decision.mode());
-        assertEquals(GenerationRoutingDecisionCode.AGENT_EDIT_COMPLEXITY, decision.decisionCode());
+        assertEquals(GenerationRoutingDecisionCode.INTENT_PROFILE_AGENT_EDIT, decision.decisionCode());
         assertEquals(0, challengerCalls.get());
     }
 
@@ -121,7 +121,7 @@ class GenerationModeRouterTest {
         );
 
         assertEquals(GenerationMode.AGENT_EDIT, selection.decision().mode());
-        assertEquals(GenerationRoutingDecisionCode.AGENT_EDIT_COMPLEXITY,
+        assertEquals(GenerationRoutingDecisionCode.INTENT_PROFILE_AGENT_EDIT,
                 selection.decision().decisionCode());
         assertEquals(1, challengerCalls.get());
     }

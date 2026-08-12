@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.router;
 
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -8,7 +9,7 @@ import java.util.Optional;
 
 /** 升级历史上不可靠的应用程序，并在饱和期间包含不明确的工作。 */
 @Component
-@Order(35)
+@Order(5)
 @RequiredArgsConstructor
 public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy {
 
@@ -24,6 +25,10 @@ public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy
     public Optional<GenerationModeDecision> decide(GenerationRoutingSignal signal) {
         GenerationRoutingTelemetrySnapshot telemetry = signal.telemetry();
         if (!signal.existingWorkspace() || telemetry == null || !telemetry.available()) {
+            return Optional.empty();
+        }
+        // 应用级历史质量只能保护复杂请求，不能把当前明确的轻量编辑升级到 Heavy。
+        if (isClearlyLightweight(signal.intentProfile())) {
             return Optional.empty();
         }
         if (hasQualityRisk(telemetry)) {
@@ -49,6 +54,17 @@ public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy
             ));
         }
         return Optional.empty();
+    }
+
+    private boolean isClearlyLightweight(IntentProfile profile) {
+        return profile != null
+                && profile.semanticComplexity()
+                == com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity.LOW
+                && profile.validationRisk()
+                == com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk.LOW
+                && !profile.requiresBackend()
+                && !profile.requiresDatabase()
+                && profile.expectedFileCount() <= 2;
     }
 
     private boolean hasQualityRisk(GenerationRoutingTelemetrySnapshot telemetry) {

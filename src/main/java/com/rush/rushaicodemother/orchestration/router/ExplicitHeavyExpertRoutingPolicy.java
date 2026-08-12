@@ -10,7 +10,7 @@ import java.util.Optional;
  * Explicit重型Expert路由决策策略。
  */
 @Component
-@Order(30)
+@Order(40)
 public class ExplicitHeavyExpertRoutingPolicy implements GenerationRoutingPolicy {
 
     private static final List<String> HEAVY_EXPERT_KEYWORDS = List.of(

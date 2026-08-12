@@ -9,7 +9,7 @@ import java.util.Optional;
  * 创建First路由决策策略。
  */
 @Component
-@Order(20)
+@Order(30)
 public class CreateFirstRoutingPolicy implements GenerationRoutingPolicy {
 
     /**

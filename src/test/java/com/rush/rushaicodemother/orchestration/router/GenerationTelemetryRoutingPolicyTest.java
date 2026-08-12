@@ -4,6 +4,12 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
+import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
+import com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
@@ -63,6 +69,31 @@ class GenerationTelemetryRoutingPolicyTest {
         Optional<GenerationModeDecision> decision = policy.decide(signal);
 
         assertTrue(decision.isEmpty());
+    }
+
+    @Test
+    void applicationQualityHistoryMustNotEscalateClearlyLightweightEdit() {
+        GenerationRoutingTelemetryProperties properties = new GenerationRoutingTelemetryProperties();
+        GenerationTelemetryRoutingPolicy policy = new GenerationTelemetryRoutingPolicy(properties);
+        GenerationRoutingSignal base = signal(new GenerationRoutingTelemetrySnapshot(
+                6, 4, 240_000L, 0, 0, 0,
+                0, 1, 0, 4, 32, Instant.now(), true));
+        IntentProfile lightweight = new IntentProfile(
+                IntentOperationType.EDIT,
+                Set.of(IntentAffectedScope.FRONTEND),
+                IntentSemanticComplexity.LOW,
+                false,
+                false,
+                IntentDestructiveRisk.LOW,
+                1,
+                IntentValidationRisk.LOW,
+                0.95
+        );
+        GenerationRoutingSignal signal = new GenerationRoutingSignal(
+                base.request(), base.codeGenType(), base.workspace(), base.normalizedMessage(),
+                base.telemetry(), lightweight);
+
+        assertTrue(policy.decide(signal).isEmpty());
     }
 
     private GenerationRoutingSignal signal(GenerationRoutingTelemetrySnapshot telemetry) {

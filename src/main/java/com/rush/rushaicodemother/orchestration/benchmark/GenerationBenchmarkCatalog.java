@@ -26,7 +26,7 @@ public class GenerationBenchmarkCatalog {
     private static final int MINIMUM_TASK_COUNT = 32;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     private static final Pattern VERSION_PATTERN = Pattern.compile("[0-9][A-Za-z0-9._-]{0,31}");
-    private static final Set<String> MODES = Set.of("CREATE", "LIGHT_EDIT", "AGENT_EDIT");
+    private static final Set<String> MODES = Set.of("CREATE", "LIGHT_EDIT", "AGENT_EDIT", "HEAVY_EXPERT");
     private static final Set<String> VALIDATIONS = Set.of("fast", "build");
     private static final Set<String> SPECIALIZED_FUNCTIONAL_TASK_IDS = Set.of(
             "edit_copy",
@@ -34,7 +34,8 @@ public class GenerationBenchmarkCatalog {
             "edit_search_pagination",
             "edit_build_error",
             "edit_runtime_error",
-            "edit_delete_module"
+            "edit_delete_module",
+            "edit_heavy_architecture"
     );
 
     private final GenerationBenchmarkDataset dataset;
@@ -90,10 +91,15 @@ public class GenerationBenchmarkCatalog {
             throw new IllegalStateException("生成质量评测任务标识无效或重复");
         }
         if (!MODES.contains(task.mode())
+                || !MODES.contains(task.expectedRoute())
                 || CodeGenTypeEnum.getEnumByValue(task.codeGenType()) == null
                 || task.prompt() == null || task.prompt().isBlank() || task.prompt().length() > 2_000
                 || !VALIDATIONS.contains(task.expectedValidation())) {
             throw new IllegalStateException("生成质量评测任务基础字段无效: " + task.id());
+        }
+        if (task.forbiddenRoutes().stream().anyMatch(route -> route == null || !MODES.contains(route))
+                || task.forbiddenRoutes().contains(task.expectedRoute())) {
+            throw new IllegalStateException("生成质量评测路由约束无效: " + task.id());
         }
         if (task.scenario() == null || !ID_PATTERN.matcher(task.scenario()).matches()
                 || task.difficulty() == null
@@ -164,6 +170,7 @@ public class GenerationBenchmarkCatalog {
         if (modes.getOrDefault("CREATE", 0L) < 10
                 || modes.getOrDefault("LIGHT_EDIT", 0L) < 6
                 || modes.getOrDefault("AGENT_EDIT", 0L) < 10
+                || modes.getOrDefault("HEAVY_EXPERT", 0L) < 1
                 || types.getOrDefault("vue_project", 0L) < 12
                 || types.getOrDefault("backend_project", 0L) < 5
                 || types.getOrDefault("full_stack_project", 0L) < 5

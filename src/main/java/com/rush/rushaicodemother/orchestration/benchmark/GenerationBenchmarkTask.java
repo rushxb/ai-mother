@@ -16,7 +16,9 @@ public record GenerationBenchmarkTask(
         List<String> capabilities,
         List<GenerationBenchmarkQualityDimension> requiredQualityDimensions,
         List<GenerationBenchmarkFixtureFile> fixtureFiles,
-        List<GenerationBenchmarkSourceAssertion> sourceAssertions
+        List<GenerationBenchmarkSourceAssertion> sourceAssertions,
+        String expectedRoute,
+        List<String> forbiddenRoutes
 ) {
 
     /**
@@ -44,6 +46,8 @@ public record GenerationBenchmarkTask(
                 List.of(),
                 List.of(),
                 List.of(),
+                List.of(),
+                mode,
                 List.of()
         );
     }
@@ -55,5 +59,22 @@ public record GenerationBenchmarkTask(
                 : List.copyOf(requiredQualityDimensions);
         fixtureFiles = fixtureFiles == null ? List.of() : List.copyOf(fixtureFiles);
         sourceAssertions = sourceAssertions == null ? List.of() : List.copyOf(sourceAssertions);
+        expectedRoute = expectedRoute == null || expectedRoute.isBlank() ? mode : expectedRoute;
+        forbiddenRoutes = forbiddenRoutes == null ? List.of() : List.copyOf(forbiddenRoutes);
+    }
+
+    public GenerationBenchmarkTask(String id,
+                                   String mode,
+                                   String codeGenType,
+                                   String prompt,
+                                   String expectedValidation,
+                                   String scenario,
+                                   GenerationBenchmarkDifficulty difficulty,
+                                   List<String> capabilities,
+                                   List<GenerationBenchmarkQualityDimension> requiredQualityDimensions,
+                                   List<GenerationBenchmarkFixtureFile> fixtureFiles,
+                                   List<GenerationBenchmarkSourceAssertion> sourceAssertions) {
+        this(id, mode, codeGenType, prompt, expectedValidation, scenario, difficulty, capabilities,
+                requiredQualityDimensions, fixtureFiles, sourceAssertions, mode, List.of());
     }
 }

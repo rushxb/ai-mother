@@ -604,6 +604,39 @@
           "allOf": ["BeginTx", "Rollback", "Commit"]
         }
       ]
+    },
+    {
+      "id": "edit_heavy_architecture",
+      "mode": "HEAVY_EXPERT",
+      "codeGenType": "full_stack_project",
+      "prompt": "对现有订单系统进行深度架构改造并全部重写：引入多租户隔离、权限模型、事务一致性和审计链路，前后端契约必须同步",
+      "expectedValidation": "build",
+      "expectedRoute": "HEAVY_EXPERT",
+      "forbiddenRoutes": ["LIGHT_EDIT", "AGENT_EDIT"],
+      "scenario": "architecture_migration",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "go", "multi_tenant", "rbac", "transaction", "audit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/tenantContext.ts",
+          "content": "export const tenantContext = { tenantId: '' }\n"
+        },
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/order_architecture.go",
+          "content": "package benchmark\n\ntype OrderService struct{}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "architecture_tenant_boundary",
+          "root": "WORKSPACE",
+          "paths": ["src/benchmark/tenantContext.ts", "internal/benchmark/order_architecture.go"],
+          "allOf": ["tenant", "transaction", "audit"]
+        }
+      ]
     }
   ]
 }

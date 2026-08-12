@@ -120,11 +120,11 @@ taskId + executionFence + terminalStatus + reason
 
 #### 确定问题
 
-`GenerationModeRouter:46-68` 同时生成 `IntentProfile` 与线上 champion，但线上主要策略仍直接读取文本：
+`GenerationModeRouter:46-68` 同时生成 `IntentProfile` 与线上 champion；在本轮改造前线上主要策略仍直接读取文本：
 
 - `AgentEditRoutingPolicy:16-40` 等类维护各自关键词。
 - `GenerationRoutingSignal.looksLikeSmallSingleFileEdit()` 另有一套动词与长度规则。
-- `IntentProfileRoutingDecisionEngine:18-104` 用同一意图画像做另一套路由，但只作为 shadow challenger。
+- `IntentProfileRoutingDecisionEngine:18-104` 用同一意图画像做另一套路由，但只作为 shadow challenger；本轮已将它提升为生产语义策略。
 - 意图澄清默认关闭（`application.yml:93`），即使开启也只允许重算模型档位，不能纠正流水线路由。
 
 结果是新增场景需要同时修改关键词、画像推导和影子规则；“看起来支持扩展”实际有多处事实源。更严重的是，低评分会按**整个应用**聚合后把后续请求升级 Heavy，而不是按本次需求场景判断（`GenerationTelemetryRoutingPolicy:29-37`）。一个历史失败的复杂需求可能让后续简单改文案也走最重链路。
@@ -159,11 +159,11 @@ taskId + executionFence + terminalStatus + reason
 
 #### 确定问题
 
-当前基准很扎实，但验证的是指定 mode 下的生成结果，不验证入口是否选对 mode：
+当前基准很扎实，但此前验证的是指定 mode 下的生成结果，不验证入口是否选对 mode：
 
-- `GenerationBenchmarkCatalog:24-30` 固定 32 条任务，只允许 `CREATE / LIGHT_EDIT / AGENT_EDIT`，没有 `HEAVY_EXPERT`。
-- `GenerationBenchmarkRequestFactory` 只把 prompt 交给真实 orchestrator，数据集中的 `mode` 主要用于报告分组和 fixture 规则，没有“期望路由与实际路由一致”的门禁。
-- `GenerationBenchmarkReleaseGate:29-120` 检查成功率、质量、耗时、预览、token 与积分，但不检查 route accuracy、错误升级率或错误降级率。
+- `GenerationBenchmarkCatalog:24-30` 固定 32 条任务，只允许 `CREATE / LIGHT_EDIT / AGENT_EDIT`，没有 `HEAVY_EXPERT`；本轮已补充架构迁移样本。
+- `GenerationBenchmarkRequestFactory` 只把 prompt 交给真实 orchestrator，数据集中的 `mode` 主要用于报告分组和 fixture 规则，没有“期望路由与实际路由一致”的门禁；本轮已增加 `expectedRoute/forbiddenRoutes` 和结果校验。
+- `GenerationBenchmarkReleaseGate:29-120` 检查成功率、质量、耗时、预览、token 与积分，但不检查 route accuracy、错误升级率或错误降级率；本轮已增加三项路由门禁。
 - 用户反馈只包含 task/app/user/rating/outcome/comment（`DefaultGenerationFeedbackService:63-94`）；路由侧只读取应用级任务和评分聚合（`DefaultGenerationRoutingTelemetryProvider:206-280`）。
 
 这意味着系统知道“这个应用最近评分低”，但不知道是哪个场景、路线、模型、Prompt、工具失败或验证遗漏导致低分。
@@ -352,3 +352,9 @@ taskId + executionFence + terminalStatus + reason
 - 终态分段、重复结算责任、路由多事实源、资源清理缺口属于代码可确认问题。
 - “准备耗时下降 30%”“路由准确率 90%”属于建议验收目标，不是已测得收益。
 - 当前工作区的 Dev Server 所有权改动尚未提交，合并前应优先补失败/取消/超时资源收口测试。
+
+### 本轮落地记录
+
+- 第一轮已提交 `e4feb63`：统一任务终态收口。
+- 第二轮在当前提交中将 `IntentProfileRoutingPolicy` 接入生产策略链，关键词策略仅作为兼容回退，影子路由与生产路由共享同一画像决策器。
+- Benchmark 任务支持 `expectedRoute/forbiddenRoutes`，新增 `HEAVY_EXPERT` 架构迁移样本；报告聚合路由准确率、错误升级率、错误降级率，发布门禁可直接阻断路由回归。

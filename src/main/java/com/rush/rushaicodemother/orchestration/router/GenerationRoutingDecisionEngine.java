@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.router;
 
+import com.rush.rushaicodemother.orchestration.learning.IntentProfileRoutingDecisionEngine;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -22,6 +23,7 @@ public class GenerationRoutingDecisionEngine {
  */
     public static GenerationRoutingDecisionEngine defaultEngine() {
         return new GenerationRoutingDecisionEngine(List.of(
+                new IntentProfileRoutingPolicy(new IntentProfileRoutingDecisionEngine()),
                 new CreateHeavyExpertRoutingPolicy(),
                 new CreateFirstRoutingPolicy(),
                 new ExplicitHeavyExpertRoutingPolicy(),

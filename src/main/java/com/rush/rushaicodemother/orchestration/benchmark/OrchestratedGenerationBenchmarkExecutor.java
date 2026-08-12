@@ -92,7 +92,8 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             return new GenerationBenchmarkRunResult(
                     task.id(), task.mode(), false, false,
                     Duration.between(startedAt, Instant.now()).toMillis(),
-                    0, 0, false, 0, safeFailureReason(fixtureFailure));
+                    0, 0, false, 0, safeFailureReason(fixtureFailure), 0L, 0L, 0L,
+                    null, GenerationBenchmarkQualityEvidence.empty(), task.expectedRoute(), false);
         }
 
         AtomicBoolean buildPassed = new AtomicBoolean(false);
@@ -185,7 +186,9 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     usage.creditCost(),
                     longValue(telemetry == null ? null : telemetry.getFirstTokenLatencyMs()),
                     firstPreviewLatencyMs,
-                    qualityEvidence
+                    qualityEvidence,
+                    task.expectedRoute(),
+                    routeAllowed(task, resolvedMode(task, telemetry))
             );
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) {
@@ -219,7 +222,9 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     0L,
                     0L,
                     firstPreviewObservation.current(),
-                    GenerationBenchmarkQualityEvidence.empty()
+                    GenerationBenchmarkQualityEvidence.empty(),
+                    task.expectedRoute(),
+                    false
             );
         } finally {
             if (eventSubscription != null) {
@@ -476,6 +481,14 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             return telemetry.getMode().toUpperCase();
         }
         return task == null ? "" : task.mode();
+    }
+
+    private boolean routeAllowed(GenerationBenchmarkTask task, String actualRoute) {
+        if (task == null || StrUtil.isBlank(actualRoute)) {
+            return false;
+        }
+        String normalized = actualRoute.trim().toUpperCase();
+        return normalized.equals(task.expectedRoute()) && !task.forbiddenRoutes().contains(normalized);
     }
 
     private boolean hasFallback(GenerationPerformanceTaskVO telemetry) {

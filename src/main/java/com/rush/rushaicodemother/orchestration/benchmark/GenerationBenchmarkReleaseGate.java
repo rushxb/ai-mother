@@ -89,6 +89,16 @@ public class GenerationBenchmarkReleaseGate {
         if (fallbackRate > properties.getMaximumFallbackRate()) {
             violations.add("fallback_rate_above_maximum");
         }
+        if (report.routeStats().expectedCount() > 0
+                && report.routeStats().accuracy() < properties.getMinimumRouteAccuracy()) {
+            violations.add("route_accuracy_below_minimum");
+        }
+        if (report.routeStats().wrongEscalationRate() > properties.getMaximumWrongEscalationRate()) {
+            violations.add("wrong_escalation_rate_above_maximum");
+        }
+        if (report.routeStats().wrongDegradationRate() > properties.getMaximumWrongDegradationRate()) {
+            violations.add("wrong_degradation_rate_above_maximum");
+        }
         if (report.p90DurationMs() > properties.getMaximumP90Duration().toMillis()) {
             violations.add("p90_duration_above_maximum");
         }

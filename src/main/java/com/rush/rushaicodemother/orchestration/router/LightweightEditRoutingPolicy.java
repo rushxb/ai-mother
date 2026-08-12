@@ -10,7 +10,7 @@ import java.util.Optional;
  * 轻量编辑路由决策策略。
  */
 @Component
-@Order(50)
+@Order(60)
 public class LightweightEditRoutingPolicy implements GenerationRoutingPolicy {
 
     private static final List<String> LIGHT_EDIT_KEYWORDS = List.of(

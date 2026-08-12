@@ -43,7 +43,7 @@ class GenerationTaskFinalizationTransactionTest {
     }
 
     @Test
-    void managedFinalizationMustHaveOneLifecycleAndSettlementOwner() {
+    void managedFinalizationMustPersistDurableTaskBeforeBusinessTerminalState() {
         GenerationExecutionFence fence = new GenerationExecutionFence("task-1", "worker-a", 7L);
         GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
                 "task-1", 11L, fence, GenerationTaskStatus.SUCCESS,
@@ -51,13 +51,29 @@ class GenerationTaskFinalizationTransactionTest {
 
         transaction.finalizeManaged(command);
 
-        verify(taskLifecycleService).finalizeGeneration(
+        InOrder order = inOrder(runtimeLifecycleService, taskLifecycleService);
+        order.verify(runtimeLifecycleService).persistOwnedCompletion(
+                fence, GenerationTaskStatus.SUCCESS, null);
+        order.verify(taskLifecycleService).finalizeGeneration(
                 "task-1", 11L, 7L, GenerationTaskStatus.SUCCESS,
                 null, "任务成功", null);
+        verify(userCreditService, never()).chargeGenerationTask("task-1");
+    }
+
+    @Test
+    void legacyManagedFinalizationWithoutFenceMustRemainCompatible() {
+        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
+                "task-legacy", 11L, null, GenerationTaskStatus.SUCCESS,
+                null, "任务成功", null);
+
+        transaction.finalizeManaged(command);
+
         verify(runtimeLifecycleService, never()).persistOwnedCompletion(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
-        verify(userCreditService, never()).chargeGenerationTask("task-1");
+        verify(taskLifecycleService).finalizeGeneration(
+                "task-legacy", 11L, null, GenerationTaskStatus.SUCCESS,
+                null, "任务成功", null);
     }
 
     @Test

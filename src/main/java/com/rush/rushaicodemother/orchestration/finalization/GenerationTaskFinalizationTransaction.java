@@ -26,6 +26,10 @@ class GenerationTaskFinalizationTransaction {
 
     @Transactional(rollbackFor = Exception.class)
     public void finalizeManaged(GenerationFinalizationCommand command) {
+        if (command.executionFence() != null) {
+            runtimeLifecycleService.persistOwnedCompletion(
+                    command.executionFence(), command.status(), command.reason());
+        }
         taskLifecycleService.finalizeGeneration(
                 command.taskId(),
                 command.appId(),

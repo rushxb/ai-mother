@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,11 @@ public interface DurableGenerationTaskRepository {
     Optional<DurableGenerationTaskRecord> findLatestNonTerminalByAppId(Long appId);
 
     Optional<GenerationTaskCommand> findCommandByTaskId(String taskId);
+
+    void prepareFinalizationIntent(GenerationFinalizationCommand command, Instant preparedAt);
+
+    Optional<GenerationFinalizationCommand> findFinalizationIntent(String taskId,
+                                                                    long executionEpoch);
 
     boolean isCurrentFence(GenerationExecutionFence fence, Instant now);
 
@@ -55,6 +61,10 @@ public interface DurableGenerationTaskRepository {
     boolean finalizeExpiredLease(GenerationTaskRecoveryCandidate candidate,
                                  GenerationTaskStatus terminalStatus,
                                  Instant completedAt, String reason);
+
+    boolean finalizeExpiredPublishedTask(GenerationTaskRecoveryCandidate candidate,
+                                         GenerationFinalizationCommand command,
+                                         Instant completedAt);
 
     boolean requeueExpiredLease(GenerationTaskRecoveryCandidate candidate,
                                 Instant requeuedAt,

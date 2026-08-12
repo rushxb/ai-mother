@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.infrastructure.persistence.task;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
+import com.rush.rushaicodemother.mapper.GenerationTraceMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
@@ -47,12 +48,14 @@ class MyBatisDurableGenerationTaskRepositoryTest {
             new GenerationTaskLease(FENCE, NOW.plusSeconds(30));
 
     private GenerationTaskRuntimeMapper mapper;
+    private GenerationTraceMapper traceMapper;
     private MyBatisDurableGenerationTaskRepository repository;
 
     @BeforeEach
     void setUp() {
         mapper = mock(GenerationTaskRuntimeMapper.class);
-        repository = new MyBatisDurableGenerationTaskRepository(mapper);
+        traceMapper = mock(GenerationTraceMapper.class);
+        repository = new MyBatisDurableGenerationTaskRepository(mapper, traceMapper);
         when(mapper.lockActiveApplicationForSubmission(1L))
                 .thenReturn(App.builder().id(1L).tenantId(100L).build());
         when(mapper.countNonTerminalTasksByAppId(1L)).thenReturn(0);

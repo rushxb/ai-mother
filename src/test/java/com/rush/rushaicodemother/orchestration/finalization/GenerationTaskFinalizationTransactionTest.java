@@ -43,7 +43,7 @@ class GenerationTaskFinalizationTransactionTest {
     }
 
     @Test
-    void managedFinalizationMustPersistDurableTaskBeforeBusinessTerminalState() {
+    void managedFinalizationMustPersistCompleteBusinessTerminalBeforeRuntimeConfirmation() {
         GenerationExecutionFence fence = new GenerationExecutionFence("task-1", "worker-a", 7L);
         GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
                 "task-1", 11L, fence, GenerationTaskStatus.SUCCESS,
@@ -51,12 +51,12 @@ class GenerationTaskFinalizationTransactionTest {
 
         transaction.finalizeManaged(command);
 
-        InOrder order = inOrder(runtimeLifecycleService, taskLifecycleService);
-        order.verify(runtimeLifecycleService).persistOwnedCompletion(
-                fence, GenerationTaskStatus.SUCCESS, null);
+        InOrder order = inOrder(taskLifecycleService, runtimeLifecycleService);
         order.verify(taskLifecycleService).finalizeGeneration(
                 "task-1", 11L, 7L, GenerationTaskStatus.SUCCESS,
                 null, "任务成功", null);
+        order.verify(runtimeLifecycleService).persistOwnedCompletion(
+                fence, GenerationTaskStatus.SUCCESS, null);
         verify(userCreditService, never()).chargeGenerationTask("task-1");
     }
 

@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.orchestration.dag.AgentRuntimeState;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskRecoveryCandidate;
@@ -133,13 +135,17 @@ class GenerationTaskRecoveryServiceTest {
         when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(candidate));
         when(publicationJournal.findByTaskId("task-published")).thenReturn(Optional.of(
                 publication(candidate, GenerationWorkspacePublicationJournalStatus.COMMITTED)));
-        when(taskFinalizer.finalizeExpiredLease(
-                candidate, GenerationTaskStatus.SUCCESS, NOW, null)).thenReturn(true);
+        GenerationFinalizationCommand intent = GenerationFinalizationCommand.of(
+                "task-published", 1L,
+                new GenerationExecutionFence("task-published", "lost-worker", 1L),
+                GenerationTaskStatus.SUCCESS, null, "完整记忆", null);
+        when(repository.findFinalizationIntent("task-published", 1L))
+                .thenReturn(Optional.of(intent));
+        when(taskFinalizer.finalizeExpiredPublishedTask(candidate, intent, NOW)).thenReturn(true);
 
         assertEquals(1, service.recoverExpiredTasks());
 
-        verify(taskFinalizer).finalizeExpiredLease(
-                candidate, GenerationTaskStatus.SUCCESS, NOW, null);
+        verify(taskFinalizer).finalizeExpiredPublishedTask(candidate, intent, NOW);
         verify(executionContextService, never()).cancelByTaskId(
                 "task-published", GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON);
     }

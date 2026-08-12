@@ -91,12 +91,40 @@ public interface GenerationTaskRuntimeMapper {
                    dispatchAt, dispatchAttempt, dispatchError,
                    submittedAt, deadlineAt, cancellationRequested, cancellationReason,
                    leaseOwner, leaseUntil, heartbeatAt, executionEpoch, attempt, version,
-                   endTime, errorMessage
+                   endTime, errorMessage,
+                   terminalIntentSchemaVersion, terminalIntentPayloadJson,
+                   terminalIntentExecutionEpoch, terminalIntentPreparedAt, terminalIntentFinalizedAt
             FROM generation_task
             WHERE taskId = #{taskId} AND isDelete = 0
             LIMIT 1
             """)
     GenerationTask selectRuntimeByTaskId(@Param("taskId") String taskId);
+
+    @Update("""
+            UPDATE generation_task
+            SET terminalIntentSchemaVersion = #{schemaVersion},
+                terminalIntentPayloadJson = #{payloadJson},
+                terminalIntentExecutionEpoch = #{executionEpoch},
+                terminalIntentPreparedAt = #{preparedAt},
+                terminalIntentFinalizedAt = NULL,
+                version = version + 1,
+                updateTime = #{preparedAt}
+            WHERE taskId = #{taskId}
+              AND appId = #{appId}
+              AND status = 'running'
+              AND leaseOwner = #{leaseOwner}
+              AND executionEpoch = #{executionEpoch}
+              AND leaseUntil >= #{preparedAt}
+              AND terminalIntentSchemaVersion IS NULL
+              AND isDelete = 0
+            """)
+    int prepareFinalizationIntent(@Param("taskId") String taskId,
+                                  @Param("appId") Long appId,
+                                  @Param("leaseOwner") String leaseOwner,
+                                  @Param("executionEpoch") long executionEpoch,
+                                  @Param("schemaVersion") int schemaVersion,
+                                  @Param("payloadJson") String payloadJson,
+                                  @Param("preparedAt") LocalDateTime preparedAt);
 
     @Select("""
             SELECT taskId, appId, userId, tenantId, idempotencyKeyHash, requestFingerprint,

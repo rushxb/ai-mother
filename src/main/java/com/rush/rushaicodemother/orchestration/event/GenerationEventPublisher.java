@@ -24,6 +24,32 @@ public class GenerationEventPublisher {
 
     private final Map<Long, Deque<GenerationEvent>> replayEvents = new ConcurrentHashMap<>();
     private final Map<Long, Sinks.Many<GenerationEvent>> eventSinks = new ConcurrentHashMap<>();
+    /** 按稳定 eventId 幂等发布 outbox 事件。 */
+    public void publishIdempotently(GenerationEvent event) {
+        if (event == null || event.appId() == null || event.data() == null) {
+            return;
+        }
+        Object rawEventId = event.data().get("eventId");
+        if (rawEventId == null || String.valueOf(rawEventId).isBlank()) {
+            throw new IllegalArgumentException("幂等生成事件必须包含 eventId");
+        }
+        String eventId = String.valueOf(rawEventId);
+        if (!rememberIdempotently(eventId, event)) {
+            return;
+        }
+        eventSinks.computeIfAbsent(event.appId(), this::newSink).tryEmitNext(event);
+    }
+
+    /** 立即发布与持久 outbox 共用稳定事件 ID。 */
+    public void publishIdempotently(GenerationTaskRequest request,
+                                    GenerationEventType type,
+                                    String message,
+                                    Map<String, Object> data) {
+        Long appId = request == null || request.app() == null ? null : request.app().getId();
+        Long userId = request == null || request.loginUser() == null ? null : request.loginUser().getId();
+        publishIdempotently(new GenerationEvent(
+                appId, userId, type, message, immutableEventData(data), Instant.now()));
+    }
 
     /**
  * 发布当前处理结果或领域事件。
@@ -135,6 +161,23 @@ public class GenerationEventPublisher {
             while (events.size() > MAX_REPLAY_EVENTS_PER_APP) {
                 events.removeFirst();
             }
+        }
+    }
+
+    private boolean rememberIdempotently(String eventId, GenerationEvent event) {
+        Deque<GenerationEvent> events = replayEvents.computeIfAbsent(
+                event.appId(), key -> new ArrayDeque<>(MAX_REPLAY_EVENTS_PER_APP));
+        synchronized (events) {
+            boolean duplicate = events.stream().anyMatch(existing -> existing.data() != null
+                    && eventId.equals(String.valueOf(existing.data().get("eventId"))));
+            if (duplicate) {
+                return false;
+            }
+            events.addLast(event);
+            while (events.size() > MAX_REPLAY_EVENTS_PER_APP) {
+                events.removeFirst();
+            }
+            return true;
         }
     }
 

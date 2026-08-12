@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
@@ -136,7 +137,9 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
         order.verify(finalizationService).emitCommitResultIfAvailable(
                 11L, fixture.preparation(), fixture.session());
         order.verify(workspaceReleaseService).releaseVerified(
-                fixture.session(), CodeGenTypeEnum.VUE_PROJECT);
+                org.mockito.ArgumentMatchers.eq(fixture.session()),
+                org.mockito.ArgumentMatchers.eq(CodeGenTypeEnum.VUE_PROJECT),
+                org.mockito.ArgumentMatchers.nullable(GenerationFinalizationCommand.class));
         verify(finalizationSpan).success();
     }
 
@@ -172,7 +175,7 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
 
         complete(fixture, null, GenerationTerminalOutcome.CANCELLED, null);
 
-        verify(eventPublisher).publish(
+        verify(eventPublisher).publishIdempotently(
                 same(fixture.request()),
                 eq(GenerationEventType.TASK_CANCELLED),
                 eq(GenerationTerminalOutcome.CANCELLED.eventMessage()),
@@ -190,7 +193,7 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
 
         verify(completionService, times(1)).completeClaimed(
                 11L, fixture.session(), fixture.preparation(), GenerationTerminalOutcome.SUCCESS);
-        verify(eventPublisher, times(1)).publish(
+        verify(eventPublisher, times(1)).publishIdempotently(
                 same(fixture.request()),
                 eq(GenerationEventType.TASK_DONE),
                 eq(GenerationTerminalOutcome.SUCCESS.eventMessage()),

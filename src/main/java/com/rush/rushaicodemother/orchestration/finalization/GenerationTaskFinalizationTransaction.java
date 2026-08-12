@@ -27,8 +27,7 @@ class GenerationTaskFinalizationTransaction {
     @Transactional(rollbackFor = Exception.class)
     public void finalizeManaged(GenerationFinalizationCommand command) {
         if (command.executionFence() != null) {
-            runtimeLifecycleService.persistOwnedCompletion(
-                    command.executionFence(), command.status(), command.reason());
+            taskRepository.prepareFinalizationIntent(command, Instant.now());
         }
         taskLifecycleService.finalizeGeneration(
                 command.taskId(),
@@ -39,6 +38,12 @@ class GenerationTaskFinalizationTransaction {
                 command.memorySummary(),
                 command.outcomeQuality()
         );
+        if (command.executionFence() != null) {
+            // Trace 与 durable runtime 共用 generation_task；先写完整业务终态，
+            // 再由 runtime 契约幂等确认，避免先置终态后丢失质量证据。
+            runtimeLifecycleService.persistOwnedCompletion(
+                    command.executionFence(), command.status(), command.reason());
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -72,6 +77,20 @@ class GenerationTaskFinalizationTransaction {
                                         String reason) {
         appStateService.lockGenerationState(candidate.appId());
         if (!taskRepository.finalizeExpiredLease(candidate, status, completedAt, reason)) {
+            return false;
+        }
+        appStateService.releaseOwnedGenerationState(
+                candidate.appId(), candidate.taskId(), candidate.executionEpoch());
+        userCreditService.chargeGenerationTask(candidate.taskId());
+        return true;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public boolean finalizeExpiredPublishedTask(GenerationTaskRecoveryCandidate candidate,
+                                                GenerationFinalizationCommand command,
+                                                Instant completedAt) {
+        appStateService.lockGenerationState(candidate.appId());
+        if (!taskRepository.finalizeExpiredPublishedTask(candidate, command, completedAt)) {
             return false;
         }
         appStateService.releaseOwnedGenerationState(

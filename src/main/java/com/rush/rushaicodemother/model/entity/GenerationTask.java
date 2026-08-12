@@ -242,6 +242,42 @@ public class GenerationTask implements Serializable {
     @Column("publicationCommittedAt")
     private LocalDateTime publicationCommittedAt;
 
+    /** 发布前冻结的终态意图协议版本。 */
+    @Column("terminalIntentSchemaVersion")
+    private Integer terminalIntentSchemaVersion;
+
+    /** 发布前冻结的完整终态命令。 */
+    @Column("terminalIntentPayloadJson")
+    private String terminalIntentPayloadJson;
+
+    /** 终态意图所属执行轮次。 */
+    @Column("terminalIntentExecutionEpoch")
+    private Long terminalIntentExecutionEpoch;
+
+    @Column("terminalIntentPreparedAt")
+    private LocalDateTime terminalIntentPreparedAt;
+
+    @Column("terminalIntentFinalizedAt")
+    private LocalDateTime terminalIntentFinalizedAt;
+
+    @Column("terminalEffectsAttempts")
+    private Integer terminalEffectsAttempts;
+
+    @Column("terminalEffectsError")
+    private String terminalEffectsError;
+
+    @Column("terminalEffectsNextAttemptAt")
+    private LocalDateTime terminalEffectsNextAttemptAt;
+
+    @Column("terminalEffectsLeaseOwner")
+    private String terminalEffectsLeaseOwner;
+
+    @Column("terminalEffectsLeaseUntil")
+    private LocalDateTime terminalEffectsLeaseUntil;
+
+    @Column("terminalEffectsCompletedAt")
+    private LocalDateTime terminalEffectsCompletedAt;
+
     /** 创建时间。 */
     @Column("createTime")
     private LocalDateTime createTime;

@@ -16,17 +16,37 @@ import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class HeavyGenerationSessionCompletionService {
 
     private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationOutcomeMemoryService outcomeMemoryService;
+    private final com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService
+            terminalIntentService;
+
+    @Autowired
+    public HeavyGenerationSessionCompletionService(
+            GenerationTaskFinalizer generationTaskFinalizer,
+            GenerationOutcomeMemoryService outcomeMemoryService,
+            com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService
+                    terminalIntentService) {
+        this.generationTaskFinalizer = generationTaskFinalizer;
+        this.outcomeMemoryService = outcomeMemoryService;
+        this.terminalIntentService = terminalIntentService;
+    }
+
+    /** 遗留单测兼容构造入口。 */
+    public HeavyGenerationSessionCompletionService(
+            GenerationTaskFinalizer generationTaskFinalizer,
+            GenerationOutcomeMemoryService outcomeMemoryService) {
+        this(generationTaskFinalizer, outcomeMemoryService, null);
+    }
 
     /**
      * 在调用者自动声明会话完成后保留终端生命周期数据。
@@ -46,7 +66,7 @@ public class HeavyGenerationSessionCompletionService {
         String status = outcome.status();
         String memorySummary = buildMemorySummary(preparation, status);
         GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(preparation, session, outcome);
-        generationTaskFinalizer.finalizeManaged(GenerationFinalizationCommand.of(
+        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
                 preparation.taskId(),
                 appId,
                 session.executionContext() == null ? null : session.executionContext().executionFence(),
@@ -54,8 +74,24 @@ public class HeavyGenerationSessionCompletionService {
                 outcome == GenerationTerminalOutcome.SUCCESS ? null : outcome.status(),
                 memorySummary,
                 outcomeQuality
-        ));
+        );
+        generationTaskFinalizer.finalizeManaged(
+                terminalIntentService == null ? command : terminalIntentService.preparedOr(command));
         rememberOutcomeSafely(appId, session, preparation, outcome, memorySummary);
+    }
+
+    /** Heavy 发布前冻结成功终态；恢复与正常收口复用同一命令。 */
+    public GenerationFinalizationCommand publishedSuccessCommand(Long appId,
+                                                                 GenerationSession session,
+                                                                 GenerationPreparation preparation) {
+        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
+                preparation.taskId(), appId,
+                session.executionContext() == null ? null : session.executionContext().executionFence(),
+                com.rush.rushaicodemother.model.enums.GenerationTaskStatus.SUCCESS,
+                null,
+                buildMemorySummary(preparation, GenerationTerminalOutcome.SUCCESS.status()),
+                resolveOutcomeQuality(preparation, session, GenerationTerminalOutcome.SUCCESS));
+        return command;
     }
 
     /**

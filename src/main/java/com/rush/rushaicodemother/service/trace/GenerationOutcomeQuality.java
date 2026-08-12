@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.service.trace;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.time.LocalDateTime;
 import java.util.Locale;
 
@@ -88,6 +90,7 @@ public record GenerationOutcomeQuality(
     }
 
     /** 判断是否完全没有采集到任何字段，便于调用方跳过无意义的写入参数装配。 */
+    @JsonIgnore
     public boolean isEmpty() {
         return thinkingMode == null
                 && changedFileCount == null

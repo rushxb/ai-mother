@@ -125,8 +125,12 @@ public class GenerationTaskRecoveryService {
                         : publicationEntry.orElse(null);
                 if (publication != null
                         && publication.status() == GenerationWorkspacePublicationJournalStatus.COMMITTED) {
-                    if (generationTaskFinalizer.finalizeExpiredLease(
-                            candidate, GenerationTaskStatus.SUCCESS, now, null)) {
+                    var terminalIntent = repository.findFinalizationIntent(
+                                    candidate.taskId(), candidate.executionEpoch())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "已发布任务缺少可恢复终态意图"));
+                    if (generationTaskFinalizer.finalizeExpiredPublishedTask(
+                            candidate, terminalIntent, now)) {
                         recovered++;
                         log.warn("已发布生成任务的终态已恢复为成功，taskId: {}", candidate.taskId());
                     }

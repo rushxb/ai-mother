@@ -77,6 +77,16 @@ public class GenerationTaskFinalizer {
         return finalized;
     }
 
+    public boolean finalizeExpiredPublishedTask(GenerationTaskRecoveryCandidate candidate,
+                                                GenerationFinalizationCommand command,
+                                                Instant completedAt) {
+        boolean finalized = transaction.finalizeExpiredPublishedTask(candidate, command, completedAt);
+        if (finalized) {
+            completePostCommit(candidate.taskId(), candidate.appId(), command.status(), fenceOf(candidate));
+        }
+        return finalized;
+    }
+
     private void releaseFence(GenerationExecutionFence fence) {
         if (fence != null) {
             runtimeLifecycleService.releaseTerminalOwnership(fence);

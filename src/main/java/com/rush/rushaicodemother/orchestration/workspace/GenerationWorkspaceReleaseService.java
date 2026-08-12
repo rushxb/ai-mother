@@ -3,15 +3,16 @@ package com.rush.rushaicodemother.orchestration.workspace;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 在原子工作区发布成功后，统一提交用户可见版本及首预览里程碑。 */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class GenerationWorkspaceReleaseService {
 
@@ -19,6 +20,42 @@ public class GenerationWorkspaceReleaseService {
     private final GenerationWorkspacePublicationMetadataService publicationMetadataService;
     private final GenerationPreviewMilestoneService previewMilestoneService;
     private final GenerationProvisionalPreviewLifecycle provisionalPreviewLifecycle;
+    private final GenerationTerminalIntentService terminalIntentService;
+
+    @Autowired
+    public GenerationWorkspaceReleaseService(
+            GenerationWorkspacePublicationService publicationService,
+            GenerationWorkspacePublicationMetadataService publicationMetadataService,
+            GenerationPreviewMilestoneService previewMilestoneService,
+            GenerationProvisionalPreviewLifecycle provisionalPreviewLifecycle,
+            GenerationTerminalIntentService terminalIntentService) {
+        this.publicationService = publicationService;
+        this.publicationMetadataService = publicationMetadataService;
+        this.previewMilestoneService = previewMilestoneService;
+        this.provisionalPreviewLifecycle = provisionalPreviewLifecycle;
+        this.terminalIntentService = terminalIntentService;
+    }
+
+    /** 遗留单测构造入口；生产发布必须注入终态意图服务。 */
+    GenerationWorkspaceReleaseService(
+            GenerationWorkspacePublicationService publicationService,
+            GenerationWorkspacePublicationMetadataService publicationMetadataService,
+            GenerationPreviewMilestoneService previewMilestoneService,
+            GenerationProvisionalPreviewLifecycle provisionalPreviewLifecycle) {
+        this(publicationService, publicationMetadataService, previewMilestoneService,
+                provisionalPreviewLifecycle, null);
+    }
+
+    /** 遗留测试与非托管发布兼容入口。 */
+    @Deprecated
+    public GenerationWorkspacePublicationResult releaseVerified(
+            GenerationSession session,
+            CodeGenTypeEnum targetType) {
+        if (terminalIntentService != null) {
+            throw new GenerationExecutionPolicyException("托管生成发布必须提供终态意图");
+        }
+        return releaseVerifiedInternal(session, targetType, null);
+    }
 
     /**
  * 发布已经通过验证的生成工作区。
@@ -29,8 +66,16 @@ public class GenerationWorkspaceReleaseService {
  */
     public GenerationWorkspacePublicationResult releaseVerified(
             GenerationSession session,
-            CodeGenTypeEnum targetType
+            CodeGenTypeEnum targetType,
+            GenerationFinalizationCommand terminalIntent
     ) {
+        return releaseVerifiedInternal(session, targetType, terminalIntent);
+    }
+
+    private GenerationWorkspacePublicationResult releaseVerifiedInternal(
+            GenerationSession session,
+            CodeGenTypeEnum targetType,
+            GenerationFinalizationCommand terminalIntent) {
         if (session == null || session.executionWorkspace() == null
                 || session.executionContext() == null
                 || session.executionContext().executionFence() == null
@@ -44,6 +89,14 @@ public class GenerationWorkspaceReleaseService {
                     "生成发布类型与执行工作区不一致");
         }
         session.throwIfCancelled();
+        if (terminalIntentService != null) {
+            if (terminalIntent == null
+                    || terminalIntent.status() != com.rush.rushaicodemother.model.enums.GenerationTaskStatus.SUCCESS
+                    || !session.taskId().equals(terminalIntent.taskId())) {
+                throw new GenerationExecutionPolicyException("生成发布终态意图不完整");
+            }
+            terminalIntentService.prepare(terminalIntent);
+        }
         stopProvisionalPreviewSafely(session);
         GenerationWorkspacePublicationResult result =
                 publicationService.publishWithMetadata(session, publicationMetadataService);

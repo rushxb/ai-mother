@@ -155,7 +155,9 @@ class GenerationPipelineExecutorTest {
         executor(List.of(pipeline)).execute(request);
 
         verify(workspaceReleaseService).releaseVerified(
-                request.requireExecution().session(), CodeGenTypeEnum.VUE_PROJECT);
+                org.mockito.ArgumentMatchers.eq(request.requireExecution().session()),
+                org.mockito.ArgumentMatchers.eq(CodeGenTypeEnum.VUE_PROJECT),
+                org.mockito.ArgumentMatchers.any(GenerationFinalizationCommand.class));
     }
 
     @Test

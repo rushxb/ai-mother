@@ -171,7 +171,7 @@ public class GenerationPipelineExecutor {
         String transitionMessage = GenerationRoute.CREATE.equals(failedRoute)
                 ? "CREATE 快速路径未完成，正在切换专家模式..."
                 : "快速生成路径未完成，正在切换专家模式...";
-        generationEventPublisher.publishSafely(
+        generationEventPublisher.publishIdempotently(
                 request.taskRequest(),
                 GenerationEventType.TASK_ROUTE,
                 transitionMessage,
@@ -213,6 +213,16 @@ public class GenerationPipelineExecutor {
         GenerationTaskExecution execution = request.requireExecution();
         GenerationSession session = execution.session();
         GenerationTaskStatus status = outcome.terminalStatus();
+        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, outcome, null);
+        GenerationFinalizationCommand finalizationCommand = GenerationFinalizationCommand.of(
+                execution.taskId(),
+                request.taskRequest().app().getId(),
+                execution.executionFence(),
+                status,
+                outcome.reason(),
+                outcome.resultSummary(),
+                outcomeQuality
+        );
         if (status == GenerationTaskStatus.SUCCESS) {
             session.throwIfCancelled();
             GenerationExecutionPlan.ValidationGraph validationGraph = request.executionPlan() == null
@@ -225,20 +235,12 @@ public class GenerationPipelineExecutor {
                     session,
                     session.executionWorkspace() == null
                             ? request.codeGenType()
-                            : session.executionWorkspace().codeGenType()
+                            : session.executionWorkspace().codeGenType(),
+                    finalizationCommand
             );
         }
-        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, outcome, null);
         try {
-            generationTaskFinalizer.finalizeManaged(GenerationFinalizationCommand.of(
-                    execution.taskId(),
-                    request.taskRequest().app().getId(),
-                    execution.executionFence(),
-                    status,
-                    outcome.reason(),
-                    outcome.resultSummary(),
-                    outcomeQuality
-            ));
+            generationTaskFinalizer.finalizeManaged(finalizationCommand);
         } catch (RuntimeException finalizationFailure) {
             if (status == GenerationTaskStatus.SUCCESS) {
                 throw new GenerationFinalizationDeferredException(
@@ -248,8 +250,9 @@ public class GenerationPipelineExecutor {
         }
         rememberOutcomeSafely(request, status, outcome.resultSummary());
         if (status == GenerationTaskStatus.SUCCESS) {
-            generationEventPublisher.publishSafely(
+            generationEventPublisher.publishIdempotently(
                     request.taskRequest(), GenerationEventType.TASK_DONE, "生成任务已发布", Map.of(
+                            "eventId", terminalEventId(execution),
                             "taskId", execution.taskId(),
                             "route", request.modeDecision().route(),
                             "status", status.getValue()
@@ -303,6 +306,7 @@ public class GenerationPipelineExecutor {
                 outcome.eventType(),
                 outcome.eventMessage(),
                 Map.of(
+                        "eventId", terminalEventId(execution),
                         "taskId", execution.taskId(),
                         "route", request.modeDecision().route(),
                         "status", outcome.status(),
@@ -312,6 +316,12 @@ public class GenerationPipelineExecutor {
         rememberOutcomeSafely(request, outcome.taskStatus(), resultSummary);
         generationPerformanceMonitorService.finishTask(execution.taskId(), outcome.status());
         finalizeRuntime(request, execution, session, outcome.taskStatus());
+    }
+
+    private String terminalEventId(GenerationTaskExecution execution) {
+        long epoch = execution == null || execution.executionFence() == null
+                ? 0L : execution.executionFence().executionEpoch();
+        return "terminal:" + execution.taskId() + ":" + epoch;
     }
 
     /**

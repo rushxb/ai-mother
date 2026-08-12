@@ -685,7 +685,11 @@ public class HeavyGenerationCoordinator {
             heavyGenerationFinalizationService.requireCompletionEvidence(preparation, session);
             heavyGenerationFinalizationService.emitCommitResultIfAvailable(appId, preparation, session);
             if (workspaceReleaseService != null) {
-                workspaceReleaseService.releaseVerified(session, preparation.targetType());
+                GenerationFinalizationCommand terminalIntent =
+                        heavyGenerationSessionCompletionService.publishedSuccessCommand(
+                                appId, session, preparation);
+                workspaceReleaseService.releaseVerified(
+                        session, preparation.targetType(), terminalIntent);
             }
             finalizeSpan.success();
         } catch (Exception e) {
@@ -779,7 +783,13 @@ public class HeavyGenerationCoordinator {
     private void publishCompletion(GenerationTaskRequest request,
                                    GenerationPreparation preparation,
                                    GenerationTerminalOutcome outcome) {
-        generationEventPublisher.publish(request, outcome.eventType(), outcome.eventMessage(), Map.of(
+        long epoch = preparation == null ? 0L : generationExecutionContextService
+                .getExecutionFence(preparation.taskId())
+                .map(GenerationExecutionFence::executionEpoch)
+                .orElse(0L);
+        generationEventPublisher.publishIdempotently(
+                request, outcome.eventType(), outcome.eventMessage(), Map.of(
+                "eventId", "terminal:" + preparation.taskId() + ":" + epoch,
                 "taskId", preparation.taskId(),
                 "status", outcome.status(),
                 "route", GenerationRoute.HEAVY_GENERATION

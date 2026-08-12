@@ -238,7 +238,7 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 : outcomeQuality;
         requireOneAffectedRow(
                 mapper.completeRunningTask(
-                        recordId, status.getValue(), endTime, durationMs, errorMessage,
+                        recordId, status.getValue(), endTime, durationMs, errorMessage, null,
                         leaseOwner(fence), executionEpoch(fence),
                         quality.thinkingMode(),
                         quality.changedFileCount(),
@@ -246,8 +246,8 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                         quality.repairRounds(),
                         quality.firstPreviewMillis(),
                         quality.failureCategory(),
-                        quality.reworkedAt(),
-                        quality.distilledAt()),
+                        quality.reworkedAt(), quality.distilledAt(),
+                        null, null, null, null),
                 "完成生成任务 trace"
         );
     }

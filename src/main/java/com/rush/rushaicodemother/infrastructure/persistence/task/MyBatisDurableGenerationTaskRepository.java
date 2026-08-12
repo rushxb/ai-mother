@@ -3,10 +3,13 @@ package com.rush.rushaicodemother.infrastructure.persistence.task;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
+import com.rush.rushaicodemother.mapper.GenerationTraceMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLease;
@@ -16,8 +19,8 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.Generati
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskSubmissionRecord;
-import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,13 +33,24 @@ import java.util.Optional;
 
 /** 用于持久生成任务运行时端口的 MyBatis 适配器。 */
 @Repository
-@RequiredArgsConstructor
 public class MyBatisDurableGenerationTaskRepository implements DurableGenerationTaskRepository {
 
     private static final int MAX_RECOVERY_BATCH_SIZE = 500;
 
     private final GenerationTaskRuntimeMapper mapper;
+    private final GenerationTraceMapper traceMapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
+
+    public MyBatisDurableGenerationTaskRepository(GenerationTaskRuntimeMapper mapper) {
+        this(mapper, null);
+    }
+
+    @Autowired
+    public MyBatisDurableGenerationTaskRepository(GenerationTaskRuntimeMapper mapper,
+                                                  GenerationTraceMapper traceMapper) {
+        this.mapper = mapper;
+        this.traceMapper = traceMapper;
+    }
 
     /**
  * 创建{@code Submitted}。
@@ -144,6 +158,60 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         } catch (RuntimeException malformed) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "Generation task runtime command is corrupted", malformed);
+        }
+    }
+
+    @Override
+    public void prepareFinalizationIntent(GenerationFinalizationCommand command, Instant preparedAt) {
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(preparedAt, "preparedAt");
+        GenerationExecutionFence fence = Objects.requireNonNull(
+                command.executionFence(), "终态意图必须提供执行围栏");
+        String payload = GenerationFinalizationCommandCodec.toJson(command);
+        int changed = mapper.prepareFinalizationIntent(
+                command.taskId(), command.appId(), fence.leaseOwner(), fence.executionEpoch(),
+                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION, payload, toLocal(preparedAt));
+        if (changed == 1) {
+            return;
+        }
+        GenerationFinalizationCommand existing = findFinalizationIntent(
+                command.taskId(), fence.executionEpoch()).orElseThrow(() ->
+                new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图写入被执行围栏拒绝"));
+        if (!existing.equals(command)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图与已冻结命令冲突");
+        }
+    }
+
+    @Override
+    public Optional<GenerationFinalizationCommand> findFinalizationIntent(String taskId,
+                                                                           long executionEpoch) {
+        requireTaskId(taskId);
+        if (executionEpoch <= 0) {
+            throw new IllegalArgumentException("终态意图执行轮次必须为正数");
+        }
+        GenerationTask entity = mapper.selectRuntimeByTaskId(taskId);
+        if (entity == null
+                || !Long.valueOf(executionEpoch).equals(entity.getTerminalIntentExecutionEpoch())) {
+            return Optional.empty();
+        }
+        if (!Integer.valueOf(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION)
+                .equals(entity.getTerminalIntentSchemaVersion())
+                || entity.getTerminalIntentPayloadJson() == null
+                || entity.getTerminalIntentPayloadJson().isBlank()) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图缺失或协议版本不受支持");
+        }
+        try {
+            GenerationFinalizationCommand command = GenerationFinalizationCommandCodec.fromJson(
+                    entity.getTerminalIntentPayloadJson());
+            if (!taskId.equals(command.taskId())
+                    || command.executionFence() == null
+                    || command.executionFence().executionEpoch() != executionEpoch
+                    || !Objects.equals(command.appId(), entity.getAppId())) {
+                throw new IllegalStateException("生成终态意图身份不一致");
+            }
+            return Optional.of(command);
+        } catch (RuntimeException malformed) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图已损坏", malformed);
         }
     }
 
@@ -464,6 +532,43 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 candidate.taskId(), candidate.status().getValue(), candidate.version(),
                 terminalStatus.getValue(), toLocal(completedAt), normalizeReason(reason)
         ) == 1;
+    }
+
+    @Override
+    public boolean finalizeExpiredPublishedTask(GenerationTaskRecoveryCandidate candidate,
+                                                GenerationFinalizationCommand command,
+                                                Instant completedAt) {
+        Objects.requireNonNull(candidate, "candidate");
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(completedAt, "completedAt");
+        GenerationExecutionFence fence = command.executionFence();
+        if (command.status() != GenerationTaskStatus.SUCCESS
+                || fence == null
+                || !candidate.taskId().equals(command.taskId())
+                || !Objects.equals(candidate.appId(), command.appId())
+                || candidate.executionEpoch() != fence.executionEpoch()) {
+            throw new IllegalArgumentException("已发布任务终态意图与恢复候选不一致");
+        }
+        var quality = command.outcomeQuality() == null
+                ? com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality.empty()
+                : command.outcomeQuality();
+        String payload = GenerationFinalizationCommandCodec.toJson(command);
+        if (traceMapper == null) {
+            throw new IllegalStateException("已发布任务恢复缺少 Trace 持久化组件");
+        }
+        GenerationTask task = mapper.selectRuntimeByTaskId(candidate.taskId());
+        if (task == null || task.getId() == null || task.getSubmittedAt() == null) {
+            return false;
+        }
+        long durationMs = Math.max(0L, java.time.Duration.between(
+                toInstant(task.getSubmittedAt()), completedAt).toMillis());
+        return traceMapper.completeRunningTask(
+                task.getId(), GenerationTaskStatus.SUCCESS.getValue(), toLocal(completedAt), durationMs,
+                normalizeReason(command.reason()), command.memorySummary(), null, 0L,
+                quality.thinkingMode(), quality.changedFileCount(), quality.firstBuildPassedValue(),
+                quality.repairRounds(), quality.firstPreviewMillis(), quality.failureCategory(),
+                quality.reworkedAt(), quality.distilledAt(), candidate.version(), fence.executionEpoch(),
+                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION, payload) == 1;
     }
 
     /**

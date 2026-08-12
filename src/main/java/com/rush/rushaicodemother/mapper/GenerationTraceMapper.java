@@ -189,6 +189,18 @@ public interface GenerationTraceMapper {
                 endTime = #{endTime},
                 durationMs = #{durationMs},
                 errorMessage = #{errorMessage},
+                memorySummary = COALESCE(#{memorySummary}, memorySummary),
+                memoryIndexedAt = CASE WHEN #{memorySummary} IS NULL THEN memoryIndexedAt ELSE NULL END,
+                memoryIndexContractVersion = CASE WHEN #{memorySummary} IS NULL
+                    THEN memoryIndexContractVersion ELSE 0 END,
+                memoryIndexAttempts = CASE WHEN #{memorySummary} IS NULL THEN memoryIndexAttempts ELSE 0 END,
+                memoryIndexError = CASE WHEN #{memorySummary} IS NULL THEN memoryIndexError ELSE NULL END,
+                memoryIndexNextAttemptAt = CASE WHEN #{memorySummary} IS NULL
+                    THEN memoryIndexNextAttemptAt ELSE NULL END,
+                memoryIndexLeaseOwner = CASE WHEN #{memorySummary} IS NULL
+                    THEN memoryIndexLeaseOwner ELSE NULL END,
+                memoryIndexLeaseUntil = CASE WHEN #{memorySummary} IS NULL
+                    THEN memoryIndexLeaseUntil ELSE NULL END,
                 thinkingMode = COALESCE(#{thinkingMode}, thinkingMode),
                 changedFileCount = COALESCE(#{changedFileCount}, changedFileCount),
                 firstBuildPassed = COALESCE(#{firstBuildPassed}, firstBuildPassed),
@@ -197,6 +209,10 @@ public interface GenerationTraceMapper {
                 failureCategory = COALESCE(#{failureCategory}, failureCategory),
                 reworkedAt = COALESCE(#{reworkedAt}, reworkedAt),
                 distilledAt = COALESCE(#{distilledAt}, distilledAt),
+                terminalIntentFinalizedAt = CASE
+                    WHEN terminalIntentExecutionEpoch = executionEpoch THEN #{endTime}
+                    ELSE terminalIntentFinalizedAt
+                END,
                 leaseOwner = NULL,
                 leaseUntil = NULL,
                 heartbeatAt = NULL,
@@ -205,12 +221,22 @@ public interface GenerationTraceMapper {
                 updateTime = #{endTime}
             WHERE id = #{recordId}
               AND status = 'running'
-              AND (
+              AND ((
                     (#{leaseOwner} IS NULL AND executionEpoch = 0)
                     OR (leaseOwner = #{leaseOwner}
                         AND executionEpoch = #{executionEpoch}
                         AND leaseUntil >= #{endTime})
-              )
+              ) OR (
+                    #{recoveryExpectedVersion} IS NOT NULL
+                    AND version = #{recoveryExpectedVersion}
+                    AND executionEpoch = #{recoveryExecutionEpoch}
+                    AND terminalIntentExecutionEpoch = #{recoveryExecutionEpoch}
+                    AND terminalIntentSchemaVersion = #{recoveryIntentSchemaVersion}
+                    AND terminalIntentPayloadJson = #{recoveryIntentPayloadJson}
+                    AND publicationStatus = 'committed'
+                    AND publicationExecutionEpoch = #{recoveryExecutionEpoch}
+                    AND (leaseUntil IS NULL OR leaseUntil < #{endTime})
+              ))
               AND isDelete = 0
             """)
     int completeRunningTask(@Param("recordId") Long recordId,
@@ -218,6 +244,7 @@ public interface GenerationTraceMapper {
                             @Param("endTime") LocalDateTime endTime,
                             @Param("durationMs") Long durationMs,
                             @Param("errorMessage") String errorMessage,
+                            @Param("memorySummary") String memorySummary,
                             @Param("leaseOwner") String leaseOwner,
                             @Param("executionEpoch") long executionEpoch,
                             @Param("thinkingMode") String thinkingMode,
@@ -227,7 +254,11 @@ public interface GenerationTraceMapper {
                             @Param("firstPreviewMillis") Long firstPreviewMillis,
                             @Param("failureCategory") String failureCategory,
                             @Param("reworkedAt") LocalDateTime reworkedAt,
-                            @Param("distilledAt") LocalDateTime distilledAt);
+                            @Param("distilledAt") LocalDateTime distilledAt,
+                            @Param("recoveryExpectedVersion") Long recoveryExpectedVersion,
+                            @Param("recoveryExecutionEpoch") Long recoveryExecutionEpoch,
+                            @Param("recoveryIntentSchemaVersion") Integer recoveryIntentSchemaVersion,
+                            @Param("recoveryIntentPayloadJson") String recoveryIntentPayloadJson);
 
     @Insert("""
             INSERT INTO generation_build_log (

@@ -98,3 +98,8 @@ Prompt 发布、模型启停或删除、模型密钥迁移在读取或改变发�
    `GenerationEpisodicOutcomeQualityArchitectureTest` 逐列锁定该写法。
 3. **单一写入所有权。** 除 `GenerationTraceMapper.completeRunningTask` 外不得有第二处 SQL 写这些列；
    不新建独立情景记录表，也不为其新写一套 outbox —— 复用 `generation_task` 既有的租约与 fencing。
+
+`V20260812_1__generation_terminal_intent.sql` 在 `generation_task` 单行内冻结发布前终态命令，
+并增加带租约、重试和执行轮次围栏的终态副作用 outbox。恢复器只有在 publication、intent、
+execution epoch 和任务版本全部一致时才可恢复成功，禁止仅凭 `publicationStatus=committed`
+临时拼装信息不完整的成功终态。

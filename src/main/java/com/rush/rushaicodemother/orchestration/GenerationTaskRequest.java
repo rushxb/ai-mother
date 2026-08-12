@@ -10,17 +10,29 @@ public record GenerationTaskRequest(
         App app,
         String message,
         User loginUser,
-        GenerationResourceRequirements resourceRequirements
+        GenerationResourceRequirements resourceRequirements,
+        GenerationPlanningVariant planningVariant
 ) {
 
     public GenerationTaskRequest {
         if (resourceRequirements == null) {
             resourceRequirements = GenerationResourceRequirements.none();
         }
+        if (planningVariant == null) {
+            planningVariant = GenerationPlanningVariant.CURRENT_DAG;
+        }
+    }
+
+    public GenerationTaskRequest(App app,
+                                 String message,
+                                 User loginUser,
+                                 GenerationResourceRequirements resourceRequirements) {
+        this(app, message, loginUser, resourceRequirements, GenerationPlanningVariant.CURRENT_DAG);
     }
 
     /** 保留不含资源需求的兼容构造器。 */
     public GenerationTaskRequest(App app, String message, User loginUser) {
-        this(app, message, loginUser, GenerationResourceRequirements.none());
+        this(app, message, loginUser, GenerationResourceRequirements.none(),
+                GenerationPlanningVariant.CURRENT_DAG);
     }
 }

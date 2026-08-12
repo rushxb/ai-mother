@@ -18,8 +18,15 @@ public record GenerationOrchestrationRequest(
         Function<String, CodeGenTypeEnum> routingFunction,
         String memoryContext,
         Supplier<String> deferredMemoryContextSupplier,
-        String taskId
+        String taskId,
+        GenerationPlanningVariant planningVariant
 ) {
+
+    public GenerationOrchestrationRequest {
+        if (planningVariant == null) {
+            planningVariant = GenerationPlanningVariant.CURRENT_DAG;
+        }
+    }
 
     /**
  * 根据当前上下文解析记忆上下文。
@@ -43,7 +50,23 @@ public record GenerationOrchestrationRequest(
             String taskId
     ) {
         this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, null, taskId);
+                routingFunction, memoryContext, null, taskId, GenerationPlanningVariant.CURRENT_DAG);
+    }
+
+    public GenerationOrchestrationRequest(
+            App app,
+            String userMessage,
+            CodeGenTypeEnum currentType,
+            String generatingStage,
+            boolean hasGeneratedCode,
+            Function<String, CodeGenTypeEnum> routingFunction,
+            String memoryContext,
+            Supplier<String> deferredMemoryContextSupplier,
+            String taskId
+    ) {
+        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
+                routingFunction, memoryContext, deferredMemoryContextSupplier, taskId,
+                GenerationPlanningVariant.CURRENT_DAG);
     }
 
     /** 仍然将身份创建委托给任务存储的调用者的兼容性构造函数。 */
@@ -57,6 +80,6 @@ public record GenerationOrchestrationRequest(
             String memoryContext
     ) {
         this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, null, null);
+                routingFunction, memoryContext, null, null, GenerationPlanningVariant.CURRENT_DAG);
     }
 }

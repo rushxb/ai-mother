@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.model.vo.GenerationPerformanceSpanVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceTaskVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
+import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
@@ -74,6 +76,13 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
  */
     @Override
     public GenerationBenchmarkRunResult execute(GenerationBenchmarkTask task) {
+        return execute(task, GenerationPlanningVariant.CURRENT_DAG);
+    }
+
+    public GenerationBenchmarkRunResult execute(GenerationBenchmarkTask task,
+                                                GenerationPlanningVariant planningVariant) {
+        GenerationPlanningVariant variant = Objects.requireNonNullElse(
+                planningVariant, GenerationPlanningVariant.CURRENT_DAG);
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (task == null) {
             return new GenerationBenchmarkRunResult(
@@ -85,7 +94,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             fixture = fixtureService.create(task);
-            request = fixture.request();
+            request = withPlanningVariant(fixture.request(), variant);
         } catch (RuntimeException fixtureFailure) {
             log.warn("Benchmark fixture creation failed, benchmarkTaskId: {}, error: {}",
                     task.id(), LogExceptionSanitizer.sanitizeMessage(fixtureFailure));
@@ -93,7 +102,8 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     task.id(), task.mode(), false, false,
                     Duration.between(startedAt, Instant.now()).toMillis(),
                     0, 0, false, 0, safeFailureReason(fixtureFailure), 0L, 0L, 0L,
-                    null, GenerationBenchmarkQualityEvidence.empty(), task.expectedRoute(), false);
+                    null, GenerationBenchmarkQualityEvidence.empty(), task.expectedRoute(), false,
+                    variant, null);
         }
 
         AtomicBoolean buildPassed = new AtomicBoolean(false);
@@ -164,6 +174,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             }
             GenerationBenchmarkUsage usage = Objects.requireNonNullElse(
                     usageRepository.findByTaskId(taskId), GenerationBenchmarkUsage.empty());
+            Long preparationDurationMs = preparationDuration(telemetry, taskId);
             boolean success = !timedOut && publicationSucceeded && failureReason.get().isBlank();
             boolean expectedBuildPassed = resolveBuildPassed(
                     task, success, buildObserved.get(), buildPassed.get());
@@ -188,7 +199,9 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     firstPreviewLatencyMs,
                     qualityEvidence,
                     task.expectedRoute(),
-                    routeAllowed(task, resolvedMode(task, telemetry))
+                    routeAllowed(task, resolvedMode(task, telemetry)),
+                    variant,
+                    preparationDurationMs
             );
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) {
@@ -224,7 +237,9 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     firstPreviewObservation.current(),
                     GenerationBenchmarkQualityEvidence.empty(),
                     task.expectedRoute(),
-                    false
+                    false,
+                    variant,
+                    null
             );
         } finally {
             if (eventSubscription != null) {
@@ -243,6 +258,16 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 }
             }
         }
+    }
+
+    private GenerationTaskRequest withPlanningVariant(GenerationTaskRequest request,
+                                                      GenerationPlanningVariant variant) {
+        if (request == null) {
+            throw new IllegalArgumentException("Benchmark 生成请求不能为空");
+        }
+        GenerationResourceRequirements requirements = request.resourceRequirements();
+        return new GenerationTaskRequest(
+                request.app(), request.message(), request.loginUser(), requirements, variant);
     }
 
     /** 处理事件。 */
@@ -413,6 +438,41 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                 .filter(task -> taskId.equals(task.getTaskId()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private Long preparationDuration(GenerationPerformanceTaskVO telemetry, String taskId) {
+        if (telemetry != null && telemetry.getSpans() != null) {
+            Long observed = telemetry.getSpans().stream()
+                    .filter(Objects::nonNull)
+                    .filter(span -> "heavy_prepare".equals(span.getStage()))
+                    .map(GenerationPerformanceSpanVO::getDurationMs)
+                    .filter(Objects::nonNull)
+                    .filter(durationMs -> durationMs >= 0)
+                    .findFirst()
+                    .orElse(null);
+            if (observed != null) {
+                return observed;
+            }
+        }
+        if (StrUtil.isBlank(taskId)) {
+            return null;
+        }
+        try {
+            return spanQueryService.findByTaskId(taskId, GenerationSpanQueryService.MAX_LIMIT).stream()
+                    .filter(Objects::nonNull)
+                    .filter(span -> "heavy_prepare".equals(span.stage()))
+                    .mapToLong(GenerationSpanQueryService.StoredSpan::durationMs)
+                    .filter(durationMs -> durationMs >= 0)
+                    .findFirst()
+                    .stream()
+                    .boxed()
+                    .findFirst()
+                    .orElse(null);
+        } catch (RuntimeException queryFailure) {
+            log.warn("读取模型调用前准备耗时失败，taskId: {}, error: {}",
+                    taskId, LogExceptionSanitizer.sanitizeMessage(queryFailure));
+            return null;
+        }
     }
 
     /**

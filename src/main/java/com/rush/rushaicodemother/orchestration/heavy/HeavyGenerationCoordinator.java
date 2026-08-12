@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
@@ -174,7 +175,10 @@ public class HeavyGenerationCoordinator {
                     pipelineRequest.modeDecision()
             );
             performanceStarted = true;
-            preparation = heavyGenerationPreparationService.prepare(taskId, app, request.message());
+            preparation = request.planningVariant() == GenerationPlanningVariant.CURRENT_DAG
+                    ? heavyGenerationPreparationService.prepare(taskId, app, request.message())
+                    : heavyGenerationPreparationService.prepare(
+                            taskId, app, request.message(), request.planningVariant());
             executionContext.assertCanContinue();
             assertConsistentTaskIdentity(taskId, preparation);
             GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.resolve(

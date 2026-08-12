@@ -82,7 +82,8 @@ class MyBatisDurableGenerationTaskRepositoryTest {
         assertTrue(entity.getRouteEvidenceJson().contains("\"selectedRoute\":\"heavy_generation\""));
         assertFalse(entity.getRouteEvidenceJson().contains("build application"));
         assertTrue(entity.getRouteAlternativesJson().contains("agent_edit"));
-        assertEquals("routing-policy-v1@task-command-v7", entity.getRouteReleaseIdentity());
+        assertEquals("routing-policy-v1@task-command-v" + GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                entity.getRouteReleaseIdentity());
         assertEquals(null, entity.getLeaseOwner());
         assertEquals(null, entity.getLeaseUntil());
         assertEquals(toLocal(NOW.plusSeconds(1_200)), entity.getDeadlineAt());

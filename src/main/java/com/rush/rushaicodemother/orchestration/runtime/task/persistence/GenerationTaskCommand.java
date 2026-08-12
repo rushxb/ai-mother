@@ -1,10 +1,13 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
-import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -14,8 +17,6 @@ import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionC
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContext;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
-import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.entity.User;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -42,10 +43,11 @@ public record GenerationTaskCommand(
         Instant deadlineAt,
         GenerationResourceRequirements resourceRequirements,
         IntentProfile intentProfile,
-        GenerationExecutionPlan executionPlan
+        GenerationExecutionPlan executionPlan,
+        GenerationPlanningVariant planningVariant
 ) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 7;
+    public static final int CURRENT_SCHEMA_VERSION = 8;
     public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
     /** 创建生成任务命令实例并完成必要的依赖和初始状态设置。 */
@@ -94,6 +96,9 @@ public record GenerationTaskCommand(
         if (intentProfile == null) {
             intentProfile = IntentProfile.unknown();
         }
+        if (planningVariant == null) {
+            planningVariant = GenerationPlanningVariant.CURRENT_DAG;
+        }
         if (executionPlan != null) {
             GenerationModeDecision persistedDecision = new GenerationModeDecision(
                     mode, routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
@@ -105,6 +110,35 @@ public record GenerationTaskCommand(
                 throw new IllegalArgumentException("执行计划 SLA 与命令 SLA 不一致");
             }
         }
+    }
+
+    /** 兼容尚未声明规划消融方案的完整命令构造入口。 */
+    public GenerationTaskCommand(int schemaVersion,
+                                 String taskId,
+                                 Long appId,
+                                 Long userId,
+                                 Long tenantId,
+                                 String userPrompt,
+                                 CodeGenTypeEnum codeGenType,
+                                 GenerationMode mode,
+                                 double routingConfidence,
+                                 String routingReason,
+                                 FallbackPolicy fallbackPolicy,
+                                 ExpectedValidationLevel expectedValidationLevel,
+                                 String fallbackReason,
+                                 GenerationRoutingDecisionCode routingDecisionCode,
+                                 GenerationSlaEnvelope slaEnvelope,
+                                 GenerationTraceContext traceContext,
+                                 Instant submittedAt,
+                                 Instant deadlineAt,
+                                 GenerationResourceRequirements resourceRequirements,
+                                 IntentProfile intentProfile,
+                                 GenerationExecutionPlan executionPlan) {
+        this(schemaVersion, taskId, appId, userId, tenantId, userPrompt, codeGenType, mode,
+                routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
+                fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
+                deadlineAt, resourceRequirements, intentProfile, executionPlan,
+                GenerationPlanningVariant.CURRENT_DAG);
     }
 
     /** 兼容尚未持久化意图画像的旧调用方。 */
@@ -130,7 +164,8 @@ public record GenerationTaskCommand(
         this(schemaVersion, taskId, appId, userId, tenantId, userPrompt, codeGenType, mode,
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
-                deadlineAt, resourceRequirements, IntentProfile.unknown(), null);
+                deadlineAt, resourceRequirements, IntentProfile.unknown(), null,
+                GenerationPlanningVariant.CURRENT_DAG);
     }
     /** 兼容尚未持久化资源需求的旧调用方。 */
     public GenerationTaskCommand(int schemaVersion,
@@ -154,7 +189,8 @@ public record GenerationTaskCommand(
         this(schemaVersion, taskId, appId, userId, tenantId, userPrompt, codeGenType, mode,
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
-                deadlineAt, GenerationResourceRequirements.none(), IntentProfile.unknown(), null);
+                deadlineAt, GenerationResourceRequirements.none(), IntentProfile.unknown(), null,
+                GenerationPlanningVariant.CURRENT_DAG);
     }
 
     /** 在特定于路由的 SLA 信封之前创建的命令的兼容性构造函数。 */
@@ -304,7 +340,8 @@ public record GenerationTaskCommand(
                 envelope.totalDeadline(submittedAt),
                 taskRequest.resourceRequirements(),
                 request.intentProfile(),
-                request.executionPlan()
+                request.executionPlan(),
+                taskRequest.planningVariant()
         );
     }
 
@@ -345,7 +382,7 @@ public record GenerationTaskCommand(
             throw new IllegalArgumentException("generation task command restore identity mismatch");
         }
         return new GenerationPipelineRequest(
-                new GenerationTaskRequest(app, userPrompt, user, resourceRequirements),
+                new GenerationTaskRequest(app, userPrompt, user, resourceRequirements, planningVariant),
                 codeGenType,
                 workspace,
                 intentProfile,

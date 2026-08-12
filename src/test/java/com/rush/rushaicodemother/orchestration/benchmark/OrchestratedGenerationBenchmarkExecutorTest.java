@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -66,6 +67,27 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     private final GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
     private final GenerationWorkspace publishedWorkspace = workspace(
             Path.of(".").toAbsolutePath().normalize().resolve("published"));
+
+    @Test
+    void planningVariantMustReachDurableGenerationRequestAndRunResult() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(generationResult(
+                "bench-planning", "heavy_generation", Flux.empty()));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+
+        GenerationBenchmarkRunResult result = executor.execute(
+                new GenerationBenchmarkTask(
+                        "planning", "HEAVY_EXPERT", "vue_project", "generate", "build"),
+                GenerationPlanningVariant.COMPACT_PLAN
+        );
+
+        ArgumentCaptor<GenerationTaskRequest> requestCaptor =
+                ArgumentCaptor.forClass(GenerationTaskRequest.class);
+        verify(orchestrator).start(requestCaptor.capture());
+        assertEquals(GenerationPlanningVariant.COMPACT_PLAN,
+                requestCaptor.getValue().planningVariant());
+        assertEquals(GenerationPlanningVariant.COMPACT_PLAN, result.planningVariant());
+    }
 
     @Test
     void shouldExecuteOrchestratorAndCollectSuccessfulBuildMetrics() {

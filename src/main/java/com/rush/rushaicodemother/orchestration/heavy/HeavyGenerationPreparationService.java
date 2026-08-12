@@ -6,14 +6,15 @@ import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationResult;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor.MemoryContextHandle;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentAssembler;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentDecision;
-import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
@@ -42,9 +43,16 @@ public class HeavyGenerationPreparationService {
      * 使用执行运行时已保留的标识准备生成任务。
      */
     public GenerationPreparation prepare(String taskId, App app, String userMessage) {
+        return prepare(taskId, app, userMessage, GenerationPlanningVariant.CURRENT_DAG);
+    }
+
+    public GenerationPreparation prepare(String taskId,
+                                         App app,
+                                         String userMessage,
+                                         GenerationPlanningVariant planningVariant) {
         GenerationIntent intent = recognizeGenerationIntent(taskId, app, userMessage);
         GenerationRoutingPlan routingPlan = routeGeneration(intent);
-        return buildGenerationPreparation(taskId, intent, routingPlan);
+        return buildGenerationPreparation(taskId, intent, routingPlan, planningVariant);
     }
 
     /** 返回{@code recognize}生成{@code Intent}。 */
@@ -71,7 +79,8 @@ public class HeavyGenerationPreparationService {
     /** 构建并返回生成{@code Preparation}。 */
     private GenerationPreparation buildGenerationPreparation(String taskId,
                                                              GenerationIntent intent,
-                                                             GenerationRoutingPlan routingPlan) {
+                                                             GenerationRoutingPlan routingPlan,
+                                                             GenerationPlanningVariant planningVariant) {
         CodeGenTypeEnum targetType = intent.targetType() == null
                 ? routingPlan.routingFunction().apply(intent.generationMessage())
                 : intent.targetType();
@@ -90,7 +99,8 @@ public class HeavyGenerationPreparationService {
                             routingPlan.routingFunction(),
                             null,
                             memoryContext::resolve,
-                            taskId
+                            taskId,
+                            planningVariant
                     )
             );
         }

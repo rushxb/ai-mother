@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.config.GenerationBenchmarkReleaseProperties;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import org.springframework.stereotype.Component;
 
@@ -128,6 +129,94 @@ public class GenerationBenchmarkReleaseGate {
             violations.add("average_credit_cost_above_maximum");
         }
         return new GenerationBenchmarkReleaseAssessment(violations.isEmpty(), violations, report);
+    }
+
+    /** 只有质量不下降且效率改善时，才接受更精简的规划方案。 */
+    public GenerationPlanningAblationAssessment assessPlanningCandidate(
+            GenerationPlanningAblationReport ablationReport,
+            GenerationPlanningVariant candidate,
+            GenerationPlanningVariant baseline) {
+        if (ablationReport == null) {
+            throw new IllegalArgumentException("规划消融报告不能为空");
+        }
+        if (candidate == null || baseline == null) {
+            throw new IllegalArgumentException("规划消融候选和基线不能为空");
+        }
+        List<String> violations = new ArrayList<>();
+        GenerationBenchmarkReport candidateReport = ablationReport.sourceReports().get(candidate);
+        GenerationBenchmarkReport baselineReport = ablationReport.sourceReports().get(baseline);
+        if (candidateReport == null || baselineReport == null) {
+            throw new IllegalArgumentException("规划消融候选或基线报告缺失");
+        }
+        if (!candidate.isSimplerThan(baseline)) {
+            violations.add("planning_candidate_not_simpler");
+        }
+        if (!assess(candidateReport).passed()) {
+            violations.add("planning_candidate_absolute_gate_failed");
+        }
+        if (candidateReport.totalTasks() != baselineReport.totalTasks()
+                || !candidateReport.promptBundleId().equals(baselineReport.promptBundleId())
+                || !candidateReport.modelFingerprint().equals(baselineReport.modelFingerprint())
+                || !benchmarkTaskIds(candidateReport).equals(benchmarkTaskIds(baselineReport))) {
+            violations.add("planning_evidence_identity_mismatch");
+        }
+        if (candidateReport.successRate() < baselineReport.successRate()) {
+            violations.add("planning_success_rate_regressed");
+        }
+        if (candidateReport.buildPassRate() < baselineReport.buildPassRate()) {
+            violations.add("planning_build_pass_rate_regressed");
+        }
+        assessPlanningQuality(candidateReport, baselineReport, violations);
+
+        GenerationPlanningAblationReport.VariantStats candidateStats =
+                ablationReport.variants().get(candidate);
+        GenerationPlanningAblationReport.VariantStats baselineStats =
+                ablationReport.variants().get(baseline);
+        if (candidateStats.preparationObservationRate() < 1.0
+                || baselineStats.preparationObservationRate() < 1.0) {
+            violations.add("planning_preparation_observation_incomplete");
+        }
+        boolean regressed = candidateStats.p90PreparationDurationMs()
+                > baselineStats.p90PreparationDurationMs()
+                || candidateStats.p90DurationMs() > baselineStats.p90DurationMs()
+                || candidateStats.totalTokens() > baselineStats.totalTokens()
+                || candidateStats.totalCreditCost() > baselineStats.totalCreditCost();
+        if (regressed) {
+            violations.add("planning_efficiency_regressed");
+        }
+        boolean improved = candidateStats.p90PreparationDurationMs()
+                < baselineStats.p90PreparationDurationMs()
+                || candidateStats.p90DurationMs() < baselineStats.p90DurationMs()
+                || candidateStats.totalTokens() < baselineStats.totalTokens()
+                || candidateStats.totalCreditCost() < baselineStats.totalCreditCost();
+        if (!improved && !regressed) {
+            violations.add("planning_efficiency_not_improved");
+        }
+        return new GenerationPlanningAblationAssessment(
+                violations.isEmpty(), candidate, baseline, violations);
+    }
+
+    private List<String> benchmarkTaskIds(GenerationBenchmarkReport report) {
+        return report.results().stream()
+                .map(GenerationBenchmarkRunResult::taskId)
+                .sorted()
+                .toList();
+    }
+
+    private void assessPlanningQuality(GenerationBenchmarkReport candidate,
+                                       GenerationBenchmarkReport baseline,
+                                       List<String> violations) {
+        for (Map.Entry<String, GenerationBenchmarkReport.QualityStats> entry
+                : baseline.qualityStats().entrySet()) {
+            GenerationBenchmarkReport.QualityStats candidateStats =
+                    candidate.qualityStats().get(entry.getKey());
+            GenerationBenchmarkReport.QualityStats baselineStats = entry.getValue();
+            if (candidateStats == null
+                    || candidateStats.evaluationRate() < baselineStats.evaluationRate()
+                    || candidateStats.passRate() < baselineStats.passRate()) {
+                violations.add("planning_quality_regressed:" + entry.getKey());
+            }
+        }
     }
 
     /** 处理{@code assess}{@code First}预览{@code Modes}。 */

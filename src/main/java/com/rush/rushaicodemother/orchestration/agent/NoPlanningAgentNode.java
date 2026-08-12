@@ -1,0 +1,93 @@
+package com.rush.rushaicodemother.orchestration.agent;
+
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
+import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/** 仅准备模板、项目上下文和运行时必需生成规范的无规划基线。 */
+public class NoPlanningAgentNode extends BaseGenerationAgentNode {
+
+    private final TemplateAgentNode templateNode;
+    private final ContextAgentNode contextNode;
+
+    public NoPlanningAgentNode(TemplateAgentNode templateNode, ContextAgentNode contextNode) {
+        super("no_plan", "NoPlan", "planning", List.of(),
+                GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT);
+        this.templateNode = templateNode;
+        this.contextNode = contextNode;
+    }
+
+    @Override
+    public AgentNodeResult execute(GenerationAgentContext context) {
+        CodeGenTypeEnum routedType = context.getRequest().routingFunction() == null
+                ? context.getRequest().currentType()
+                : context.getRequest().routingFunction().apply(context.getRequest().userMessage());
+        context.setTargetType(CodeGenTypeEnum.max(context.getRequest().currentType(), routedType));
+        context.setUpgradeRequired(context.getRequest().currentType().canUpgradeTo(context.getTargetType()));
+
+        List<GenerationArtifact> artifacts = new ArrayList<>();
+        append(templateNode.execute(context), context, artifacts);
+        append(contextNode.execute(context), context, artifacts);
+
+        boolean patchFirst = context.getRequest().hasGeneratedCode();
+        String validationMode = context.isHeavyPath() ? "build_validation" : "review_only";
+        List<String> selectedFiles = stringList(
+                context.getArtifactValue("context_summary", "selectedFiles"));
+        ChangePlan changePlan = new ChangePlan(
+                "v1",
+                patchFirst ? "targeted_update" : "project_bootstrap",
+                List.of(),
+                selectedFiles,
+                List.of(),
+                List.of(),
+                validationMode,
+                context.isHeavyPath()
+                        ? "rollback_to_last_stable_snapshot_or_manual_retry"
+                        : "manual_retry_without_snapshot"
+        );
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("enhancedPrompt", context.getRequest().userMessage());
+        payload.put("modulePlan", List.of());
+        payload.put("parallelModuleCount", 0);
+        payload.put("executionMode", "unplanned_generation");
+        payload.put("patchFirst", patchFirst);
+        payload.put("requiresBuild", context.isHeavyPath());
+        payload.put("validationMode", validationMode);
+        payload.put("generationMode", patchFirst ? "patch_first_update" : "full_generation");
+        payload.put("artifactMode", patchFirst ? "patch_plan" : "generation_plan");
+        payload.put("changePlan", changePlan.toPayload());
+        GenerationArtifact changePlanArtifact = GenerationArtifact.of(
+                "change_plan", "NoPlan", "最小变更边界", changePlan.toPayload());
+        GenerationArtifact generationSpec = GenerationArtifact.of(
+                "generation_spec", "NoPlan", "无规划生成规范", payload);
+        artifacts.add(changePlanArtifact);
+        artifacts.add(generationSpec);
+        return AgentNodeResult.of(
+                "已准备无规划生成基线",
+                artifacts,
+                Map.of("planningVariant", "NO_PLAN")
+        );
+    }
+
+    private void append(AgentNodeResult result,
+                        GenerationAgentContext context,
+                        List<GenerationArtifact> artifacts) {
+        context.putArtifacts(result.artifacts());
+        artifacts.addAll(result.artifacts());
+    }
+
+    private List<String> stringList(Object value) {
+        if (!(value instanceof List<?> values)) {
+            return List.of();
+        }
+        return values.stream().filter(String.class::isInstance).map(String.class::cast).toList();
+    }
+}

@@ -207,7 +207,7 @@ taskId + executionEpoch + terminalStatus + reason
 
 ---
 
-### P1-4：用消融实验决定 Agent 规划层去留
+### P1-4：用消融实验决定 Agent 规划层去留（实验协议已完成）
 
 #### 设计冗余
 
@@ -223,13 +223,15 @@ taskId + executionEpoch + terminalStatus + reason
 
 此外，图当前仍是顺序链；即使 Architect 写入 `parallelizable=true`，执行仍是单一 Agent 工具循环。复杂 DAG 检查点为确定性规则阶段带来的持久化成本，是否值得，需要用消融评测证明。
 
-#### 建议设计
+#### 已落地实验设计
 
-1. 先比较 `无规划 / 精简规划 / 当前七节点`，没有数据前不直接重写。
-2. 若精简方案胜出，再收敛为 `PlanCompiler -> AgentRuntime -> Verifier/Repairer`；`ArchitecturePlan` 已强类型化，其余关键制品按收益渐进迁移。
-3. 真实 Review 必须发生在代码 diff 之后；BuildFix 必须消费真实构建诊断。前置规则只叫 `PlanValidator` 和 `RepairPolicyCompiler`。
-4. 保留自主 Agent 的显式工具循环、ChangePlan、上下文压缩、审批恢复和完成判定，这些才是可借鉴 Claude Code / Codex 的核心。
-5. 没有净收益的节点删除；有收益但命名失真的节点按真实职责重命名。
+1. 强类型 `GenerationPlanningVariant` 定义 `NO_PLAN / COMPACT_PLAN / CURRENT_DAG`，并随 schema 8 的持久任务命令保存；恢复和跨 worker 执行不会串组。
+2. `NO_PLAN` 保留模板、仓库上下文和运行必需的最小生成规范；`COMPACT_PLAN` 在单检查点内复用现有确定性步骤；`CURRENT_DAG` 保持生产逐节点图。
+3. Benchmark 对同一 catalog 运行三份完整报告，每条结果携带 variant；消融汇总输出成功率、一次构建通过率、模型调用前准备耗时、总耗时、token 和积分。
+4. 准备耗时复用 `heavy_prepare` span，只以实际进入规划层的 `HEAVY_EXPERT` 为观测分母；质量、成本和总耗时仍使用完整 catalog。
+5. 比较门禁要求候选先通过绝对发布门禁，且成功率、构建率、所有质量维度不下降，准备耗时完整观测；准备耗时 P90、总耗时 P90、token、积分均不得回退，并至少有一项严格改善。
+
+详细协议见 [ADR-Agent规划层消融协议](./ADR-Agent规划层消融协议.md)。生产默认仍为 `CURRENT_DAG`，没有真实模型结果前不删除节点、不重命名现有节点，也不宣称精简方案胜出。
 
 #### 用户价值
 
@@ -239,9 +241,10 @@ taskId + executionEpoch + terminalStatus + reason
 
 #### 验收
 
-- 进入首次真实模型代码调用前的准备耗时 P90 下降至少 30%。
+- 进入首次真实模型代码调用前的准备耗时完整观测；目标 P90 下降至少 30%。
 - 精简方案的生成成功率和一次构建通过率不得下降，平均 token 不增加。
-- 编排核心不再通过裸字符串读取关键 artifact；新增计划字段只改强类型模型及其消费者。
+- 自动化测试证明 variant 经持久命令往返、跨异步提交传递并真实改变规划图；三组缺失、混组、质量回退和无效率收益均被门禁拒绝。
+- 裸字符串 artifact 的进一步收敛必须由消融收益驱动，本轮不为追求形式统一重写全部制品。
 
 ---
 
@@ -335,3 +338,4 @@ taskId + executionEpoch + terminalStatus + reason
 - P0-1 提交 `9f98e7e`：冻结完整终态意图，恢复使用 execution epoch/version/publication 多重 CAS；新增终态副作用 outbox，以稳定事件 ID 补发终态事件并按执行围栏清理资源。
 - P0-2：提交时持久化脱敏 `intentSignature`、画像/决策版本、证据、备选项和发布身份；新增按任务归因与最多 90 天、500 桶的场景聚合查询，串联反馈、结果质量、模型 provenance、token 和积分成本。未建设训练平台或新的在线路由工作流。
 - P1-3：组合准入策略在同一事务内按租户、用户顺序串行化容量检查；增加租户总任务、Heavy 任务和月度积分预算，预算来自带租户身份的不可变积分流水。数据库故障补投按租户轮转，拒绝指标保持低基数；动态套餐、管理员视图和完整运行态公平调度保留为运营扩展与线上验收。
+- P1-4：建立 `NO_PLAN / COMPACT_PLAN / CURRENT_DAG` 三组可恢复消融链路，复用 `heavy_prepare` 观测模型调用前准备耗时，并以完整质量、构建、耗时、token 和积分证据做相对门禁。当前仅完成实验基础设施和 ADR，未运行真实模型三组对照，因此生产默认仍为 `CURRENT_DAG`，不宣称任何精简方案胜出。

@@ -46,7 +46,8 @@ class GenerationScenarioDecisionSnapshotTest {
         assertEquals(64, first.intentSignature().length());
         assertEquals("intent-profile-v1", first.profileVersion());
         assertEquals("routing-policy-v1", first.decisionVersion());
-        assertEquals("routing-policy-v1@task-command-v7", first.releaseIdentity());
+        assertEquals("routing-policy-v1@task-command-v" + GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                first.releaseIdentity());
         String persistedFacts = first.evidenceJson() + first.alternativesJson();
         assertFalse(persistedFacts.contains("绝密需求"));
         assertFalse(persistedFacts.contains("task-secret"));

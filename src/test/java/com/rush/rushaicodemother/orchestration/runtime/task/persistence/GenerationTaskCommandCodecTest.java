@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
@@ -48,7 +49,8 @@ class GenerationTaskCommandCodecTest {
                 submittedAt, envelope.totalDeadline(submittedAt),
                 GenerationResourceRequirements.ofDatabaseRequirement(true),
                 profile(),
-                plan(envelope));
+                plan(envelope),
+                GenerationPlanningVariant.COMPACT_PLAN);
 
         GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(
                 GenerationTaskCommandCodec.toJson(command));
@@ -64,6 +66,7 @@ class GenerationTaskCommandCodecTest {
                 restored.resourceRequirements());
         assertEquals(profile(), restored.intentProfile());
         assertEquals(plan(envelope), restored.executionPlan());
+        assertEquals(GenerationPlanningVariant.COMPACT_PLAN, restored.planningVariant());
     }
 
     @Test
@@ -85,6 +88,7 @@ class GenerationTaskCommandCodecTest {
         assertEquals(GenerationResourceRequirements.none(), restored.resourceRequirements());
         assertEquals(IntentProfile.unknown(), restored.intentProfile());
         assertNull(restored.executionPlan());
+        assertEquals(GenerationPlanningVariant.CURRENT_DAG, restored.planningVariant());
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
+
 /**
  * 生成基准测试Run执行结果。
  */
@@ -20,7 +22,9 @@ public record GenerationBenchmarkRunResult(
         Long firstPreviewLatencyMs,
         GenerationBenchmarkQualityEvidence qualityEvidence,
         String expectedRoute,
-        boolean routeAllowed
+        boolean routeAllowed,
+        GenerationPlanningVariant planningVariant,
+        Long preparationDurationMs
 ) {
     public GenerationBenchmarkRunResult(String taskId,
                                         String mode,
@@ -37,7 +41,8 @@ public record GenerationBenchmarkRunResult(
                                         long firstTokenLatencyMs) {
         this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount,
                 fallback, repairRounds, failureReason, totalTokens, creditCost,
-                firstTokenLatencyMs, null, GenerationBenchmarkQualityEvidence.empty(), "", true);
+                firstTokenLatencyMs, null, GenerationBenchmarkQualityEvidence.empty(), "", true,
+                GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     public GenerationBenchmarkRunResult(String taskId,
@@ -57,7 +62,8 @@ public record GenerationBenchmarkRunResult(
                                         GenerationBenchmarkQualityEvidence qualityEvidence) {
         this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount, fallback,
                 repairRounds, failureReason, totalTokens, creditCost, firstTokenLatencyMs,
-                firstPreviewLatencyMs, qualityEvidence, "", true);
+                firstPreviewLatencyMs, qualityEvidence, "", true,
+                GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     public GenerationBenchmarkRunResult(String taskId,
@@ -72,7 +78,32 @@ public record GenerationBenchmarkRunResult(
                                         String failureReason) {
         this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount,
                 fallback, repairRounds, failureReason, 0L, 0L, 0L,
-                null, GenerationBenchmarkQualityEvidence.empty(), "", true);
+                null, GenerationBenchmarkQualityEvidence.empty(), "", true,
+                GenerationPlanningVariant.CURRENT_DAG, null);
+    }
+
+    /** 兼容尚未记录规划消融维度的完整结果构造入口。 */
+    public GenerationBenchmarkRunResult(String taskId,
+                                        String mode,
+                                        boolean success,
+                                        boolean buildPassed,
+                                        long durationMs,
+                                        int aiCallCount,
+                                        int toolCallCount,
+                                        boolean fallback,
+                                        int repairRounds,
+                                        String failureReason,
+                                        long totalTokens,
+                                        long creditCost,
+                                        long firstTokenLatencyMs,
+                                        Long firstPreviewLatencyMs,
+                                        GenerationBenchmarkQualityEvidence qualityEvidence,
+                                        String expectedRoute,
+                                        boolean routeAllowed) {
+        this(taskId, mode, success, buildPassed, durationMs, aiCallCount, toolCallCount,
+                fallback, repairRounds, failureReason, totalTokens, creditCost,
+                firstTokenLatencyMs, firstPreviewLatencyMs, qualityEvidence, expectedRoute,
+                routeAllowed, GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     /** 创建生成基准测试{@code Run}结果实例并完成必要的依赖和初始状态设置。 */
@@ -94,6 +125,12 @@ public record GenerationBenchmarkRunResult(
                 ? GenerationBenchmarkQualityEvidence.empty()
                 : qualityEvidence;
         expectedRoute = expectedRoute == null ? "" : expectedRoute;
+        if (planningVariant == null) {
+            planningVariant = GenerationPlanningVariant.CURRENT_DAG;
+        }
+        if (preparationDurationMs != null && preparationDurationMs < 0) {
+            throw new IllegalArgumentException("模型调用前准备耗时不能小于 0");
+        }
     }
 
     /**

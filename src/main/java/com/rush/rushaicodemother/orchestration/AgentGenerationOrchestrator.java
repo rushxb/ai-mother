@@ -9,9 +9,11 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
+import com.rush.rushaicodemother.orchestration.agent.CompactPlanningAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
+import com.rush.rushaicodemother.orchestration.agent.NoPlanningAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -73,7 +75,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         taskStore.save(task);
         metricsCollector.recordRun(orchestrationMode, "started");
         GenerationAgentContext context = new GenerationAgentContext(request, task, heavyPath);
-        List<GenerationAgentNode> nodes = selectNodes(heavyPath);
+        List<GenerationAgentNode> nodes = selectNodes(heavyPath, request.planningVariant());
         List<GenerationStreamEvent> events = new ArrayList<>();
         events.add(orchestrationStartEvent(task.getTaskId(), heavyPath));
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
@@ -168,7 +170,8 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     }
 
     /** 从候选项中选择{@code Nodes}。 */
-    private List<GenerationAgentNode> selectNodes(boolean heavyPath) {
+    private List<GenerationAgentNode> selectNodes(boolean heavyPath,
+                                                  GenerationPlanningVariant planningVariant) {
         List<GenerationAgentNode> nodes = new ArrayList<>();
         nodes.add(plannerAgentNode);
         nodes.add(templateAgentNode);
@@ -179,7 +182,12 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         if (heavyPath) {
             nodes.add(buildFixAgentNode);
         }
-        return List.copyOf(nodes);
+        List<GenerationAgentNode> currentDag = List.copyOf(nodes);
+        return switch (planningVariant) {
+            case CURRENT_DAG -> currentDag;
+            case COMPACT_PLAN -> List.of(new CompactPlanningAgentNode(currentDag));
+            case NO_PLAN -> List.of(new NoPlanningAgentNode(templateAgentNode, contextAgentNode));
+        };
     }
 
     /** 为当前上下文附加回滚点。 */

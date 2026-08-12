@@ -94,6 +94,44 @@ class AgentGenerationOrchestratorTest {
     }
 
     @Test
+    void ablationVariantsMustUseOneCheckpointAndStillProduceGenerationSpec() {
+        for (GenerationPlanningVariant variant : List.of(
+                GenerationPlanningVariant.COMPACT_PLAN,
+                GenerationPlanningVariant.NO_PLAN)) {
+            GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+            GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+            task.setTaskId("task-" + variant.name().toLowerCase());
+            when(taskStore.create(anyLong(), anyString())).thenReturn(task);
+            GenerationAgentSupport support = support(codeOutputRoot("ablation-" + variant.name()));
+            AgentGenerationOrchestrator orchestrator = buildOrchestrator(
+                    taskStore, support, new GenerationRoutingSupport(support));
+            App app = new App();
+            app.setId(1L);
+            app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+            GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                    app,
+                    "创建一个 Vue 管理页面",
+                    CodeGenTypeEnum.HTML,
+                    "create",
+                    false,
+                    ignored -> CodeGenTypeEnum.VUE_PROJECT,
+                    null,
+                    null,
+                    null,
+                    variant
+            );
+
+            GenerationOrchestrationResult result = orchestrator.prepare(request);
+
+            String expectedNode = variant == GenerationPlanningVariant.COMPACT_PLAN
+                    ? "compact_plan"
+                    : "no_plan";
+            assertEquals(List.of(expectedNode), result.timings().keySet().stream().toList());
+            assertTrue(result.artifacts().containsKey("generation_spec"));
+        }
+    }
+
+    @Test
     void shouldResumeCheckpointAndSkipCompletedPlannerNode() {
         GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
         GenerationOrchestrationTask restoredTask = new GenerationOrchestrationTask();

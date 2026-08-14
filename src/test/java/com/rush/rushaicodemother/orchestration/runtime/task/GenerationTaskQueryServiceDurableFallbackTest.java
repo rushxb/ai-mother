@@ -6,8 +6,9 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.model.enums.TenantRole;
-import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -46,6 +48,7 @@ class GenerationTaskQueryServiceDurableFallbackTest {
     private GenerationEventStream eventStream;
     private AppPersistenceService appPersistenceService;
     private TenantAuthorizationService tenantAuthorizationService;
+    private GenerationSessionRegistry sessionRegistry;
 
     @BeforeEach
     void setUp() {
@@ -54,8 +57,9 @@ class GenerationTaskQueryServiceDurableFallbackTest {
         eventStream = mock(GenerationEventStream.class);
         appPersistenceService = mock(AppPersistenceService.class);
         tenantAuthorizationService = mock(TenantAuthorizationService.class);
+        sessionRegistry = mock(GenerationSessionRegistry.class);
         service = new GenerationTaskQueryService(
-                new GenerationSessionRegistry(new GenerationSessionProperties()), repository,
+                sessionRegistry, repository,
                 progressEstimator, eventStream, appPersistenceService, tenantAuthorizationService);
     }
 
@@ -120,11 +124,96 @@ class GenerationTaskQueryServiceDurableFallbackTest {
     }
 
     @Test
-    void terminalEventsMustFailHonestlyAfterReplayRetentionExpires() {
+    void terminalEventsMustBeSynthesizedFromDurableTruthAfterReplayRetentionExpires() {
         when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
                 record(2L, GenerationTaskStatus.SUCCESS)));
 
-        assertThrows(BusinessException.class, () -> service.events("task-durable", user(2L)));
+        List<GenerationStreamEvent> events = service.events("task-durable", user(2L))
+                .collectList().block(Duration.ofSeconds(1));
+
+        assertEquals(1, events.size());
+        assertEquals(GenerationStreamEvent.TASK_TERMINAL, events.getFirst().getType());
+        assertEquals("success", events.getFirst().getData().get("status"));
+        assertEquals("task-durable:success:durable-terminal",
+                events.getFirst().getData().get("eventId"));
+    }
+
+    @Test
+    void sequencedTerminalFallbackMustEmitOneStableEventAndCloseTheStream() {
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
+                record(2L, GenerationTaskStatus.FAILED)));
+
+        List<SequencedGenerationEvent> events = service
+                .sequencedEvents("task-durable", 41L, user(2L))
+                .collectList().block(Duration.ofSeconds(1));
+
+        assertEquals(List.of(
+                        DurableGenerationTerminalEventProjection.TERMINAL_SEQUENCE,
+                        DurableGenerationTerminalEventProjection.COMPLETE_SEQUENCE),
+                events.stream().map(SequencedGenerationEvent::sequence).toList());
+        assertEquals(SequencedGenerationEvent.Kind.EVENT, events.getFirst().kind());
+        assertEquals("failed", events.getFirst().event().getData().get("status"));
+        assertTrue(events.getLast().terminal());
+    }
+
+    @Test
+    void durableTerminalMustOverrideIncompleteSharedReplay() {
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
+                record(2L, GenerationTaskStatus.SUCCESS)));
+        when(eventStream.available("task-durable")).thenReturn(true);
+        when(eventStream.stream("task-durable", 0L)).thenReturn(Flux.just(
+                SequencedGenerationEvent.event(1L, GenerationStreamEvent.aiDelta("partial"))));
+
+        List<SequencedGenerationEvent> events = service
+                .sequencedEvents("task-durable", 0L, user(2L))
+                .collectList().block(Duration.ofSeconds(1));
+
+        assertEquals(GenerationStreamEvent.TASK_TERMINAL,
+                events.getFirst().event().getType());
+        assertTrue(events.getLast().terminal());
+        verifyNoInteractions(eventStream);
+    }
+
+    @Test
+    void retainedInactiveSessionMustNotMaskDurableTerminalFallback() {
+        GenerationSession retainedSession = mock(GenerationSession.class);
+        App app = new App();
+        app.setId(1L);
+        app.setTenantId(100L);
+        when(retainedSession.taskRequest()).thenReturn(
+                new GenerationTaskRequest(app, "build", user(2L)));
+        when(retainedSession.isActive()).thenReturn(false);
+        when(sessionRegistry.getByTaskId("task-durable")).thenReturn(retainedSession);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
+                record(2L, GenerationTaskStatus.SUCCESS)));
+
+        List<SequencedGenerationEvent> events = service
+                .sequencedEvents("task-durable", 0L, user(2L))
+                .collectList().block(Duration.ofSeconds(1));
+
+        assertEquals(GenerationStreamEvent.TASK_TERMINAL,
+                events.getFirst().event().getType());
+        assertTrue(events.getLast().terminal());
+    }
+
+    @Test
+    void staleActiveSessionMustNotOverrideDurableTerminalTruth() {
+        GenerationSession staleSession = mock(GenerationSession.class);
+        App app = new App();
+        app.setId(1L);
+        app.setTenantId(100L);
+        when(staleSession.taskRequest()).thenReturn(
+                new GenerationTaskRequest(app, "build", user(2L)));
+        when(staleSession.isActive()).thenReturn(true);
+        when(staleSession.asFlux()).thenReturn(Flux.just(GenerationStreamEvent.aiDelta("stale")));
+        when(sessionRegistry.getByTaskId("task-durable")).thenReturn(staleSession);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
+                record(2L, GenerationTaskStatus.SUCCESS)));
+
+        List<GenerationStreamEvent> events = service.events("task-durable", user(2L))
+                .collectList().block(Duration.ofSeconds(1));
+
+        assertEquals(GenerationStreamEvent.TASK_TERMINAL, events.getFirst().getType());
     }
 
     @Test

@@ -29,6 +29,7 @@ public class GenerationStreamEvent {
     public static final String GENERATION_STOPPED = "generation_stopped";
     public static final String DEV_SERVER_VALIDATION = "dev_server_validation";
     public static final String FIRST_PREVIEW_READY = "first_preview_ready";
+    public static final String TASK_TERMINAL = "task_terminal";
 
     private String type;
 
@@ -213,6 +214,15 @@ public class GenerationStreamEvent {
     public static GenerationStreamEvent firstPreviewReady(String text, Map<String, Object> data) {
         return GenerationStreamEvent.builder()
                 .type(FIRST_PREVIEW_READY)
+                .text(StrUtil.blankToDefault(text, ""))
+                .data(data)
+                .build();
+    }
+
+    /** 数据库终态投影使用的稳定公开事件。 */
+    public static GenerationStreamEvent taskTerminal(String text, Map<String, Object> data) {
+        return GenerationStreamEvent.builder()
+                .type(TASK_TERMINAL)
                 .text(StrUtil.blankToDefault(text, ""))
                 .data(data)
                 .build();

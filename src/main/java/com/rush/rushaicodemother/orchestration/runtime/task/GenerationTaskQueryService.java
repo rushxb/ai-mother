@@ -100,14 +100,26 @@ public class GenerationTaskQueryService {
         GenerationSession session = generationSessionRegistry.getByTaskId(taskId);
         if (session != null) {
             assertOwnedSession(session, actor);
-            return session.asFlux();
+            DurableGenerationTaskRecord durableTask = findAuthorizedDurableTask(taskId, actor);
+            if (durableTask != null && durableTask.terminal()) {
+                return DurableGenerationTerminalEventProjection.legacy(durableTask);
+            }
+            if (session.isActive()) {
+                return session.asFlux();
+            }
+            if (durableTask == null) {
+                throw taskNotFound();
+            }
+            boolean sharedStreamAvailable = generationEventStream.available(taskId);
+            return sharedStreamAvailable
+                    ? generationEventStream.stream(taskId) : session.asFlux();
         }
         DurableGenerationTaskRecord task = requireDurableTask(taskId);
         assertOwnedTask(task, actor);
-        if (!task.terminal() || generationEventStream.available(taskId)) {
-            return generationEventStream.stream(taskId);
+        if (task.terminal()) {
+            return DurableGenerationTerminalEventProjection.legacy(task);
         }
-        throw eventStreamUnavailable();
+        return generationEventStream.stream(taskId);
     }
 
     /** 具有重放光标、显式间隙和有序完成标记的持久任务 API 流。 */
@@ -121,17 +133,29 @@ public class GenerationTaskQueryService {
         GenerationSession session = generationSessionRegistry.getByTaskId(taskId);
         if (session != null) {
             assertOwnedSession(session, actor);
-            if (!session.isActive() && !generationEventStream.available(taskId)) {
-                throw eventStreamUnavailable();
+            DurableGenerationTaskRecord durableTask = findAuthorizedDurableTask(taskId, actor);
+            if (durableTask != null && durableTask.terminal()) {
+                return DurableGenerationTerminalEventProjection.sequenced(
+                        durableTask, afterSequence);
             }
-            return generationEventStream.stream(taskId, afterSequence);
+            if (session.isActive()) {
+                return generationEventStream.stream(taskId, afterSequence);
+            }
+            if (durableTask == null) {
+                throw taskNotFound();
+            }
+            boolean sharedStreamAvailable = generationEventStream.available(taskId);
+            if (sharedStreamAvailable) {
+                return generationEventStream.stream(taskId, afterSequence);
+            }
+            throw eventStreamUnavailable();
         }
         DurableGenerationTaskRecord task = requireDurableTask(taskId);
         assertOwnedTask(task, actor);
-        if (!task.terminal() || generationEventStream.available(taskId)) {
-            return generationEventStream.stream(taskId, afterSequence);
+        if (task.terminal()) {
+            return DurableGenerationTerminalEventProjection.sequenced(task, afterSequence);
         }
-        throw eventStreamUnavailable();
+        return generationEventStream.stream(taskId, afterSequence);
     }
 
     /**
@@ -165,7 +189,15 @@ public class GenerationTaskQueryService {
 
     DurableGenerationTaskRecord requireDurableTask(String taskId) {
         return durableRepository.findByTaskId(taskId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND_ERROR, "Generation task does not exist"));
+                .orElseThrow(this::taskNotFound);
+    }
+
+    private DurableGenerationTaskRecord findAuthorizedDurableTask(String taskId, User actor) {
+        DurableGenerationTaskRecord durableTask = durableRepository.findByTaskId(taskId).orElse(null);
+        if (durableTask != null) {
+            assertOwnedTask(durableTask, actor);
+        }
+        return durableTask;
     }
 
     /** 返回{@code local}快照。 */
@@ -256,5 +288,9 @@ public class GenerationTaskQueryService {
                 ErrorCode.OPERATION_ERROR,
                 "Generation task event stream is no longer available"
         );
+    }
+
+    private BusinessException taskNotFound() {
+        return new BusinessException(ErrorCode.NOT_FOUND_ERROR, "Generation task does not exist");
     }
 }

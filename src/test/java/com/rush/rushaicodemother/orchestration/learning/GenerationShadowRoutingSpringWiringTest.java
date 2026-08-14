@@ -2,16 +2,11 @@ package com.rush.rushaicodemother.orchestration.learning;
 
 import com.rush.rushaicodemother.monitor.GenerationShadowRoutingMetricsCollector;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfileService;
-import com.rush.rushaicodemother.orchestration.router.AgentEditRoutingPolicy;
-import com.rush.rushaicodemother.orchestration.router.CreateFirstRoutingPolicy;
-import com.rush.rushaicodemother.orchestration.router.CreateHeavyExpertRoutingPolicy;
-import com.rush.rushaicodemother.orchestration.router.ExplicitHeavyExpertRoutingPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionEngine;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingTelemetryProvider;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingTelemetrySnapshot;
 import com.rush.rushaicodemother.orchestration.router.IntentProfileRoutingPolicy;
-import com.rush.rushaicodemother.orchestration.router.LightweightEditRoutingPolicy;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -32,11 +27,6 @@ class GenerationShadowRoutingSpringWiringTest {
                     GenerationShadowRoutingService.class,
                     IntentProfileService.class,
                     IntentProfileRoutingPolicy.class,
-                    CreateHeavyExpertRoutingPolicy.class,
-                    CreateFirstRoutingPolicy.class,
-                    ExplicitHeavyExpertRoutingPolicy.class,
-                    AgentEditRoutingPolicy.class,
-                    LightweightEditRoutingPolicy.class,
                     GenerationRoutingDecisionEngine.class,
                     GenerationModeRouter.class
             );

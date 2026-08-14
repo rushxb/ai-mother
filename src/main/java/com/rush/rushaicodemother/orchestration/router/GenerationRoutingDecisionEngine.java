@@ -23,12 +23,7 @@ public class GenerationRoutingDecisionEngine {
  */
     public static GenerationRoutingDecisionEngine defaultEngine() {
         return new GenerationRoutingDecisionEngine(List.of(
-                new IntentProfileRoutingPolicy(new IntentProfileRoutingDecisionEngine()),
-                new CreateHeavyExpertRoutingPolicy(),
-                new CreateFirstRoutingPolicy(),
-                new ExplicitHeavyExpertRoutingPolicy(),
-                new AgentEditRoutingPolicy(),
-                new LightweightEditRoutingPolicy()
+                new IntentProfileRoutingPolicy(new IntentProfileRoutingDecisionEngine())
         ));
     }
 

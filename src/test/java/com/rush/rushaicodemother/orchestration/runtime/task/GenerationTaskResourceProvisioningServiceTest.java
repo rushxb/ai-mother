@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.runtime.task;
 
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
@@ -26,7 +27,9 @@ class GenerationTaskResourceProvisioningServiceTest {
         App app = new App();
         app.setId(10L);
         GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
-        when(command.resourceRequirements()).thenReturn(
+        GenerationScenarioDecision decision = mock(GenerationScenarioDecision.class);
+        when(command.scenarioDecision()).thenReturn(decision);
+        when(decision.requiredResources()).thenReturn(
                 GenerationResourceRequirements.ofDatabaseRequirement(true));
 
         provisioningService.provision(command, app, executionContext);
@@ -42,7 +45,9 @@ class GenerationTaskResourceProvisioningServiceTest {
         GenerationTaskCommand command = mock(GenerationTaskCommand.class);
         App app = new App();
         GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
-        when(command.resourceRequirements()).thenReturn(GenerationResourceRequirements.none());
+        GenerationScenarioDecision decision = mock(GenerationScenarioDecision.class);
+        when(command.scenarioDecision()).thenReturn(decision);
+        when(decision.requiredResources()).thenReturn(GenerationResourceRequirements.none());
 
         provisioningService.provision(command, app, executionContext);
 

@@ -30,7 +30,7 @@ public class GenerationTaskResourceProvisioningService {
         Objects.requireNonNull(app, "应用不能为空");
         Objects.requireNonNull(executionContext, "生成执行上下文不能为空");
 
-        GenerationResourceRequirements requirements = command.resourceRequirements();
+        GenerationResourceRequirements requirements = command.scenarioDecision().requiredResources();
         if (requirements == null || !requirements.databaseRequired()) {
             return;
         }

@@ -11,12 +11,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AppServiceImplGenerationSubmissionTest {
@@ -39,7 +39,6 @@ class AppServiceImplGenerationSubmissionTest {
         GenerationTaskResult expectedResult = mock(GenerationTaskResult.class);
 
         when(fixture.persistenceService().findActiveById(app.getId())).thenReturn(app);
-        when(fixture.databaseResourceService().shouldEnableForPrompt(prompt)).thenReturn(true);
         when(fixture.idempotencyService().resolve("request-key", app.getId(), prompt))
                 .thenReturn(idempotency);
         when(orchestrator.start(org.mockito.ArgumentMatchers.any(GenerationTaskRequest.class),
@@ -55,9 +54,8 @@ class AppServiceImplGenerationSubmissionTest {
         ArgumentCaptor<GenerationTaskRequest> requestCaptor =
                 ArgumentCaptor.forClass(GenerationTaskRequest.class);
         verify(orchestrator, times(2)).start(requestCaptor.capture(), eq(idempotency));
-        assertTrue(requestCaptor.getAllValues().stream()
+        assertFalse(requestCaptor.getAllValues().stream()
                 .allMatch(request -> request.resourceRequirements().databaseRequired()));
-        verify(fixture.databaseResourceService(), never()).enableDatabase(app);
+        verifyNoInteractions(fixture.databaseResourceService());
     }
 }
-

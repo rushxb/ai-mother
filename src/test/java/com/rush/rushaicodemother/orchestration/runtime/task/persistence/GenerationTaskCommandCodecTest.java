@@ -4,6 +4,9 @@ import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
+import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.decision.GenerationToolPermissionProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
@@ -27,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -50,7 +54,8 @@ class GenerationTaskCommandCodecTest {
                 GenerationResourceRequirements.ofDatabaseRequirement(true),
                 profile(),
                 plan(envelope),
-                GenerationPlanningVariant.COMPACT_PLAN);
+                GenerationPlanningVariant.COMPACT_PLAN,
+                scenarioDecision());
 
         GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(
                 GenerationTaskCommandCodec.toJson(command));
@@ -67,6 +72,7 @@ class GenerationTaskCommandCodecTest {
         assertEquals(profile(), restored.intentProfile());
         assertEquals(plan(envelope), restored.executionPlan());
         assertEquals(GenerationPlanningVariant.COMPACT_PLAN, restored.planningVariant());
+        assertEquals(scenarioDecision(), restored.scenarioDecision());
     }
 
     @Test
@@ -89,6 +95,8 @@ class GenerationTaskCommandCodecTest {
         assertEquals(IntentProfile.unknown(), restored.intentProfile());
         assertNull(restored.executionPlan());
         assertEquals(GenerationPlanningVariant.CURRENT_DAG, restored.planningVariant());
+        assertNotNull(restored.scenarioDecision());
+        assertEquals("legacy-task-command-v1", restored.scenarioDecision().ruleVersion());
     }
 
     @Test
@@ -105,6 +113,24 @@ class GenerationTaskCommandCodecTest {
 
         assertEquals(6, restored.schemaVersion());
         assertNull(restored.executionPlan());
+    }
+
+    @Test
+    void legacyResourceRequirementMustRemainAuthoritativeWhenProfileWasNotPersisted() {
+        String json = """
+                {"schemaVersion":7,"taskId":"legacy-resource-task","appId":1,"userId":2,"tenantId":3,
+                "userPrompt":"legacy","codeGenType":"FULL_STACK_PROJECT","mode":"AGENT_EDIT",
+                "routingConfidence":0.7,"routingReason":"legacy","fallbackPolicy":"NONE",
+                "expectedValidationLevel":"BUILD","fallbackReason":"",
+                "resourceRequirements":{"databaseRequired":true},
+                "submittedAt":"2026-07-17T00:00:00Z","deadlineAt":"2026-07-17T00:10:00Z"}
+                """;
+
+        GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(json);
+
+        assertEquals(GenerationResourceRequirements.ofDatabaseRequirement(true),
+                restored.scenarioDecision().requiredResources());
+        assertEquals(true, restored.scenarioDecision().intentProfile().requiresDatabase());
     }
 
     @Test
@@ -188,6 +214,25 @@ class GenerationTaskCommandCodecTest {
                 IntentValidationRisk.HIGH,
                 0.91
         );
+    }
+
+    private GenerationScenarioDecision scenarioDecision() {
+        return new GenerationScenarioDecision(
+                profile(),
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMutability.WRITE,
+                GenerationResourceRequirements.ofDatabaseRequirement(true),
+                new com.rush.rushaicodemother.orchestration.router.GenerationModeDecision(
+                        GenerationMode.CREATE,
+                        0.95,
+                        "template first",
+                        FallbackPolicy.NONE,
+                        ExpectedValidationLevel.BUILD,
+                        "",
+                        GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST),
+                GenerationToolPermissionProfile.WRITE_FENCED,
+                "intent-lexical/test",
+                "b".repeat(64));
     }
 
     private GenerationExecutionPlan plan(GenerationSlaEnvelope envelope) {

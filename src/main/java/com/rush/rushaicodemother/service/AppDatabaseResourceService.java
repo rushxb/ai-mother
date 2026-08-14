@@ -22,9 +22,6 @@ public interface AppDatabaseResourceService {
     /** 批量查询当前启用的 Database 资源视图，并按应用 ID 建立索引。 */
     Map<Long, AppDatabaseResourceVO> findActiveResourceViews(Collection<Long> appIds);
 
-    /** 用户提示词是否明确要求启用 Database 或后端数据库能力。 */
-    boolean shouldEnableForPrompt(String userMessage);
-
     /** 如果应用已启用 Database，则为代码生成追加后端与数据库约束。 */
     String appendGenerationInstructionIfEnabled(App app, String userMessage);
 }

@@ -2,6 +2,10 @@ package com.rush.rushaicodemother.orchestration.learning;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
+import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.decision.GenerationToolPermissionProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentAmbiguitySignal;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
@@ -44,10 +48,9 @@ class GenerationScenarioDecisionSnapshotTest {
         assertEquals(first.intentSignature(), second.intentSignature());
         assertEquals(first.evidenceJson(), second.evidenceJson());
         assertEquals(64, first.intentSignature().length());
-        assertEquals("intent-profile-v1", first.profileVersion());
-        assertEquals("routing-policy-v1", first.decisionVersion());
-        assertEquals("routing-policy-v1@task-command-v" + GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
-                first.releaseIdentity());
+        assertEquals("intent-lexical/test", first.profileVersion());
+        assertEquals("c".repeat(64), first.decisionVersion());
+        assertEquals("c".repeat(64), first.releaseIdentity());
         String persistedFacts = first.evidenceJson() + first.alternativesJson();
         assertFalse(persistedFacts.contains("绝密需求"));
         assertFalse(persistedFacts.contains("task-secret"));
@@ -76,7 +79,24 @@ class GenerationScenarioDecisionSnapshotTest {
                 GenerationMode.AGENT_EDIT, 0.86, "结构化路由", FallbackPolicy.NONE,
                 ExpectedValidationLevel.BUILD, "", GenerationRoutingDecisionCode.INTENT_PROFILE_AGENT_EDIT,
                 null, GenerationTraceContext.empty(), NOW, NOW.plusSeconds(600),
-                GenerationResourceRequirements.none(), profile, null);
+                GenerationResourceRequirements.ofDatabaseRequirement(true), profile, null,
+                GenerationPlanningVariant.CURRENT_DAG,
+                new GenerationScenarioDecision(
+                        profile,
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        GenerationMutability.WRITE,
+                        GenerationResourceRequirements.ofDatabaseRequirement(true),
+                        new com.rush.rushaicodemother.orchestration.router.GenerationModeDecision(
+                                GenerationMode.AGENT_EDIT,
+                                0.86,
+                                "结构化路由",
+                                FallbackPolicy.NONE,
+                                ExpectedValidationLevel.BUILD,
+                                "",
+                                GenerationRoutingDecisionCode.INTENT_PROFILE_AGENT_EDIT),
+                        GenerationToolPermissionProfile.WRITE_FENCED,
+                        "intent-lexical/test",
+                        "c".repeat(64)));
     }
 
     private IntentProfile profile(Set<IntentAffectedScope> scopes, int expectedFileCount) {

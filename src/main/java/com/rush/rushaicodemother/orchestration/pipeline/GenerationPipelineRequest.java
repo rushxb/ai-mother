@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -14,17 +15,29 @@ public record GenerationPipelineRequest(
         GenerationTaskRequest taskRequest,
         CodeGenTypeEnum codeGenType,
         GenerationWorkspace workspace,
-        IntentProfile intentProfile,
-        GenerationModeDecision modeDecision,
+        GenerationScenarioDecision scenarioDecision,
         GenerationExecutionPlan executionPlan,
         GenerationTaskExecution execution
 ) {
 
     public GenerationPipelineRequest {
-        intentProfile = intentProfile == null ? IntentProfile.unknown() : intentProfile;
-        if (executionPlan != null && !executionPlan.route().equals(modeDecision)) {
+        if (scenarioDecision == null) {
+            throw new IllegalArgumentException("场景决策不能为空");
+        }
+        if (codeGenType != scenarioDecision.targetType()) {
+            throw new IllegalArgumentException("流水线工程类型必须与场景决策一致");
+        }
+        if (executionPlan != null && !executionPlan.route().equals(scenarioDecision.routeDecision())) {
             throw new IllegalArgumentException("执行计划路由必须与流水线路由决策一致");
         }
+    }
+
+    /** 新任务只接收一个完整场景决策。 */
+    public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
+                                     CodeGenTypeEnum codeGenType,
+                                     GenerationWorkspace workspace,
+                                     GenerationScenarioDecision scenarioDecision) {
+        this(taskRequest, codeGenType, workspace, scenarioDecision, null, null);
     }
 
     /** 兼容尚未携带执行计划的调用方。 */
@@ -34,14 +47,16 @@ public record GenerationPipelineRequest(
                                      IntentProfile intentProfile,
                                      GenerationModeDecision modeDecision,
                                      GenerationTaskExecution execution) {
-        this(taskRequest, codeGenType, workspace, intentProfile, modeDecision, null, execution);
+        this(taskRequest, codeGenType, workspace,
+                legacyDecision(taskRequest, codeGenType, intentProfile, modeDecision), null, execution);
     }
 
     public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
                                      CodeGenTypeEnum codeGenType,
                                      GenerationWorkspace workspace,
                                      GenerationModeDecision modeDecision) {
-        this(taskRequest, codeGenType, workspace, IntentProfile.unknown(), modeDecision, null, null);
+        this(taskRequest, codeGenType, workspace,
+                legacyDecision(taskRequest, codeGenType, IntentProfile.unknown(), modeDecision), null, null);
     }
 
     public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
@@ -49,7 +64,8 @@ public record GenerationPipelineRequest(
                                      GenerationWorkspace workspace,
                                      IntentProfile intentProfile,
                                      GenerationModeDecision modeDecision) {
-        this(taskRequest, codeGenType, workspace, intentProfile, modeDecision, null, null);
+        this(taskRequest, codeGenType, workspace,
+                legacyDecision(taskRequest, codeGenType, intentProfile, modeDecision), null, null);
     }
 
     public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
@@ -57,11 +73,33 @@ public record GenerationPipelineRequest(
                                      GenerationWorkspace workspace,
                                      GenerationModeDecision modeDecision,
                                      GenerationTaskExecution execution) {
-        this(taskRequest, codeGenType, workspace, IntentProfile.unknown(), modeDecision, null, execution);
+        this(taskRequest, codeGenType, workspace,
+                legacyDecision(taskRequest, codeGenType, IntentProfile.unknown(), modeDecision), null, execution);
+    }
+
+    /** 保留旧格式测试与恢复路径的完整构造入口。 */
+    public GenerationPipelineRequest(GenerationTaskRequest taskRequest,
+                                     CodeGenTypeEnum codeGenType,
+                                     GenerationWorkspace workspace,
+                                     IntentProfile intentProfile,
+                                     GenerationModeDecision modeDecision,
+                                     GenerationExecutionPlan executionPlan,
+                                     GenerationTaskExecution execution) {
+        this(taskRequest, codeGenType, workspace,
+                legacyDecision(taskRequest, codeGenType, intentProfile, modeDecision),
+                executionPlan, execution);
     }
 
     public boolean modeIs(GenerationMode mode) {
-        return modeDecision != null && modeDecision.mode() == mode;
+        return modeDecision().mode() == mode;
+    }
+
+    public IntentProfile intentProfile() {
+        return scenarioDecision.intentProfile();
+    }
+
+    public GenerationModeDecision modeDecision() {
+        return scenarioDecision.routeDecision();
     }
 
     public GenerationTaskExecution requireExecution() {
@@ -73,18 +111,18 @@ public record GenerationPipelineRequest(
 
     public GenerationPipelineRequest withExecution(GenerationTaskExecution taskExecution) {
         return new GenerationPipelineRequest(
-                taskRequest, codeGenType, workspace, intentProfile, modeDecision, executionPlan, taskExecution);
+                taskRequest, codeGenType, workspace, scenarioDecision, executionPlan, taskExecution);
     }
 
     public GenerationPipelineRequest withExecutionPlan(GenerationExecutionPlan plan) {
         return new GenerationPipelineRequest(
-                taskRequest, codeGenType, workspace, intentProfile, modeDecision, plan, execution);
+                taskRequest, codeGenType, workspace, scenarioDecision, plan, execution);
     }
 
     public GenerationPipelineRequest withModeDecision(GenerationModeDecision decision) {
         GenerationExecutionPlan updatedPlan = executionPlan == null ? null : executionPlan.withRoute(decision);
         return new GenerationPipelineRequest(
-                taskRequest, codeGenType, workspace, intentProfile, decision, updatedPlan, execution);
+                taskRequest, codeGenType, workspace, scenarioDecision.withRoute(decision), updatedPlan, execution);
     }
 
     /**
@@ -99,10 +137,24 @@ public record GenerationPipelineRequest(
             return this;
         }
         GenerationExecutionPlan planToUse = refinedPlan == null ? executionPlan : refinedPlan;
-        if (planToUse != null && !planToUse.route().equals(modeDecision)) {
+        if (planToUse != null && !planToUse.route().equals(modeDecision())) {
             throw new IllegalArgumentException("意图澄清不得改变流水线路由决策");
         }
         return new GenerationPipelineRequest(
-                taskRequest, codeGenType, workspace, refinedProfile, modeDecision, planToUse, execution);
+                taskRequest, codeGenType, workspace,
+                scenarioDecision.withIntentProfile(refinedProfile), planToUse, execution);
+    }
+
+    private static GenerationScenarioDecision legacyDecision(
+            GenerationTaskRequest taskRequest,
+            CodeGenTypeEnum codeGenType,
+            IntentProfile intentProfile,
+            GenerationModeDecision modeDecision) {
+        return GenerationScenarioDecision.restoreLegacy(
+                intentProfile,
+                codeGenType,
+                taskRequest == null ? null : taskRequest.resourceRequirements(),
+                modeDecision,
+                0);
     }
 }

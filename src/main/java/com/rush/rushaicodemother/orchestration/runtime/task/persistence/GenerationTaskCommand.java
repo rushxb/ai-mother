@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
@@ -44,10 +45,11 @@ public record GenerationTaskCommand(
         GenerationResourceRequirements resourceRequirements,
         IntentProfile intentProfile,
         GenerationExecutionPlan executionPlan,
-        GenerationPlanningVariant planningVariant
+        GenerationPlanningVariant planningVariant,
+        GenerationScenarioDecision scenarioDecision
 ) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 8;
+    public static final int CURRENT_SCHEMA_VERSION = 9;
     public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
     /** 创建生成任务命令实例并完成必要的依赖和初始状态设置。 */
@@ -99,11 +101,25 @@ public record GenerationTaskCommand(
         if (planningVariant == null) {
             planningVariant = GenerationPlanningVariant.CURRENT_DAG;
         }
+        GenerationModeDecision persistedDecision = new GenerationModeDecision(
+                mode, routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
+                fallbackReason, routingDecisionCode);
+        if (scenarioDecision == null) {
+            scenarioDecision = GenerationScenarioDecision.restoreLegacy(
+                    intentProfile, codeGenType, resourceRequirements, persistedDecision, schemaVersion);
+            // 历史 schema 可能同时携带互相冲突的旧字段；恢复后以场景决策为唯一事实。
+            resourceRequirements = scenarioDecision.requiredResources();
+            intentProfile = scenarioDecision.intentProfile();
+        } else {
+            if (scenarioDecision.targetType() != codeGenType
+                    || !scenarioDecision.intentProfile().equals(intentProfile)
+                    || !scenarioDecision.requiredResources().equals(resourceRequirements)
+                    || !scenarioDecision.routeDecision().equals(persistedDecision)) {
+                throw new IllegalArgumentException("场景决策与任务命令兼容字段不一致");
+            }
+        }
         if (executionPlan != null) {
-            GenerationModeDecision persistedDecision = new GenerationModeDecision(
-                    mode, routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
-                    fallbackReason, routingDecisionCode);
-            if (!executionPlan.route().equals(persistedDecision)) {
+            if (!executionPlan.route().equals(scenarioDecision.routeDecision())) {
                 throw new IllegalArgumentException("执行计划路由与命令路由不一致");
             }
             if (!executionPlan.sla().equals(slaEnvelope)) {
@@ -138,7 +154,7 @@ public record GenerationTaskCommand(
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
                 deadlineAt, resourceRequirements, intentProfile, executionPlan,
-                GenerationPlanningVariant.CURRENT_DAG);
+                GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     /** 兼容尚未持久化意图画像的旧调用方。 */
@@ -165,7 +181,7 @@ public record GenerationTaskCommand(
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
                 deadlineAt, resourceRequirements, IntentProfile.unknown(), null,
-                GenerationPlanningVariant.CURRENT_DAG);
+                GenerationPlanningVariant.CURRENT_DAG, null);
     }
     /** 兼容尚未持久化资源需求的旧调用方。 */
     public GenerationTaskCommand(int schemaVersion,
@@ -190,7 +206,7 @@ public record GenerationTaskCommand(
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
                 deadlineAt, GenerationResourceRequirements.none(), IntentProfile.unknown(), null,
-                GenerationPlanningVariant.CURRENT_DAG);
+                GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     /** 在特定于路由的 SLA 信封之前创建的命令的兼容性构造函数。 */
@@ -338,10 +354,11 @@ public record GenerationTaskCommand(
                 traceContext,
                 submittedAt,
                 envelope.totalDeadline(submittedAt),
-                taskRequest.resourceRequirements(),
+                request.scenarioDecision().requiredResources(),
                 request.intentProfile(),
                 request.executionPlan(),
-                taskRequest.planningVariant()
+                taskRequest.planningVariant(),
+                request.scenarioDecision()
         );
     }
 
@@ -351,15 +368,7 @@ public record GenerationTaskCommand(
  * @return 生成任务命令
  */
     public GenerationModeDecision modeDecision() {
-        return new GenerationModeDecision(
-                mode,
-                routingConfidence,
-                routingReason,
-                fallbackPolicy,
-                expectedValidationLevel,
-                fallbackReason,
-                routingDecisionCode
-        );
+        return scenarioDecision.routeDecision();
     }
 
     /**
@@ -385,15 +394,14 @@ public record GenerationTaskCommand(
                 new GenerationTaskRequest(app, userPrompt, user, resourceRequirements, planningVariant),
                 codeGenType,
                 workspace,
-                intentProfile,
-                modeDecision(),
+                scenarioDecision,
                 executionPlan,
                 null
         );
     }
 
     public String route() {
-        return mode.route();
+        return scenarioDecision.routeDecision().route();
     }
 
     /**

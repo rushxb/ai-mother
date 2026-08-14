@@ -8,9 +8,17 @@ import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
+import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
+import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.decision.GenerationToolPermissionProfile;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionCode;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
@@ -21,6 +29,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.Generati
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskSubmissionRecord;
+import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -82,13 +91,12 @@ class MyBatisDurableGenerationTaskRepositoryTest {
         assertEquals("b".repeat(64), entity.getRequestFingerprint());
         assertEquals("heavy_generation", entity.getRoute());
         assertEquals(64, entity.getIntentSignature().length());
-        assertEquals("intent-profile-v1", entity.getIntentProfileVersion());
-        assertEquals("routing-policy-v1", entity.getRouteDecisionVersion());
+        assertEquals("intent-lexical/repository-test", entity.getIntentProfileVersion());
+        assertEquals("c".repeat(64), entity.getRouteDecisionVersion());
         assertTrue(entity.getRouteEvidenceJson().contains("\"selectedRoute\":\"heavy_generation\""));
         assertFalse(entity.getRouteEvidenceJson().contains("build application"));
         assertTrue(entity.getRouteAlternativesJson().contains("agent_edit"));
-        assertEquals("routing-policy-v1@task-command-v" + GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
-                entity.getRouteReleaseIdentity());
+        assertEquals("c".repeat(64), entity.getRouteReleaseIdentity());
         assertEquals(null, entity.getLeaseOwner());
         assertEquals(null, entity.getLeaseUntil());
         assertEquals(toLocal(NOW.plusSeconds(1_200)), entity.getDeadlineAt());
@@ -305,6 +313,25 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     }
 
     private GenerationTaskCommand command() {
+        IntentProfile profile = IntentProfile.unknown();
+        GenerationResourceRequirements resources = GenerationResourceRequirements.none();
+        GenerationModeDecision routeDecision = new GenerationModeDecision(
+                GenerationMode.HEAVY_EXPERT,
+                0.95,
+                "test",
+                FallbackPolicy.NONE,
+                ExpectedValidationLevel.BUILD,
+                "",
+                GenerationRoutingDecisionCode.UNKNOWN);
+        GenerationScenarioDecision scenarioDecision = new GenerationScenarioDecision(
+                profile,
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMutability.WRITE,
+                resources,
+                routeDecision,
+                GenerationToolPermissionProfile.WRITE_FENCED,
+                "intent-lexical/repository-test",
+                "c".repeat(64));
         return new GenerationTaskCommand(
                 GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
                 "task-1",
@@ -319,8 +346,16 @@ class MyBatisDurableGenerationTaskRepositoryTest {
                 FallbackPolicy.NONE,
                 ExpectedValidationLevel.BUILD,
                 "",
+                GenerationRoutingDecisionCode.UNKNOWN,
+                null,
+                GenerationTraceContext.empty(),
                 NOW,
-                NOW.plusSeconds(1_200));
+                NOW.plusSeconds(1_200),
+                resources,
+                profile,
+                null,
+                GenerationPlanningVariant.CURRENT_DAG,
+                scenarioDecision);
     }
 
     private LocalDateTime toLocal(Instant value) {

@@ -65,7 +65,8 @@ public class GenerationModeRouter {
         );
         GenerationModeDecision champion = decisionEngine.decide(signal);
         shadowRoutingService.evaluate(intentProfile, champion);
-        return new GenerationRouteSelection(intentProfile, champion);
+        return new GenerationRouteSelection(
+                intentProfile, champion, intentProfileService.lexicalRuleVersion());
     }
 
     /** 为生成请求选择实际生效的主路由。 */

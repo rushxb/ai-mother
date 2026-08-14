@@ -98,29 +98,6 @@ public class AppDatabaseResourceServiceImpl implements AppDatabaseResourceServic
     }
 
     /**
- * 判断是否应执行启用{@code For}提示词。
- *
- * @param userMessage 用户消息
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    @Override
-    public boolean shouldEnableForPrompt(String userMessage) {
-        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
-        if (StrUtil.isBlank(normalized)) {
-            return false;
-        }
-        return normalized.contains("database")
-                || normalized.contains("数据库")
-                || normalized.contains("sqlite")
-                || normalized.contains("sqllite")
-                || normalized.contains("sql lite")
-                || (normalized.contains("后端")
-                    && (normalized.contains("数据") || normalized.contains("接口") || normalized.contains("api")))
-                || (normalized.contains("backend")
-                    && (normalized.contains("data") || normalized.contains("api") || normalized.contains("sql")));
-    }
-
-    /**
  * 追加生成指令{@code If}启用。
  *
  * @param app 应用

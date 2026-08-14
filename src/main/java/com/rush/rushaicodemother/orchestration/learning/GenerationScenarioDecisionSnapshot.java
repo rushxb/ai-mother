@@ -24,16 +24,14 @@ public record GenerationScenarioDecisionSnapshot(
         String alternativesJson,
         String releaseIdentity
 ) {
-    public static final String PROFILE_VERSION = "intent-profile-v1";
-    public static final String DECISION_VERSION = "routing-policy-v1";
-
     private static final JsonMapper JSON = JsonMapper.builder()
             .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
             .build();
 
     public static GenerationScenarioDecisionSnapshot from(GenerationTaskCommand command) {
-        var profile = command.intentProfile();
+        var decision = command.scenarioDecision();
+        var profile = decision.intentProfile();
         Map<String, Object> scenario = new LinkedHashMap<>();
         scenario.put("operationType", profile.operationType());
         scenario.put("affectedScopes", profile.affectedScopes().stream().sorted().toList());
@@ -43,7 +41,10 @@ public record GenerationScenarioDecisionSnapshot(
         scenario.put("destructiveRisk", profile.destructiveRisk());
         scenario.put("expectedFileBucket", fileBucket(profile.expectedFileCount()));
         scenario.put("validationRisk", profile.validationRisk());
-        scenario.put("codeGenType", command.codeGenType());
+        scenario.put("codeGenType", decision.targetType());
+        scenario.put("mutability", decision.mutability());
+        scenario.put("databaseResourceRequired", decision.requiredResources().databaseRequired());
+        scenario.put("toolPermissionProfile", decision.toolPermissionProfile());
 
         Map<String, Object> evidence = new LinkedHashMap<>(scenario);
         evidence.put("confidence", profile.confidence());
@@ -53,18 +54,18 @@ public record GenerationScenarioDecisionSnapshot(
         ambiguity.put("scopeFallback", profile.ambiguitySignal().scopeFallback());
         ambiguity.put("shortPrompt", profile.ambiguitySignal().shortPrompt());
         evidence.put("ambiguity", ambiguity);
-        evidence.put("decisionCode", command.routingDecisionCode());
-        evidence.put("selectedRoute", command.route());
-        evidence.put("validationLevel", command.expectedValidationLevel());
+        evidence.put("decisionCode", decision.routeDecision().decisionCode());
+        evidence.put("selectedRoute", decision.routeDecision().route());
+        evidence.put("validationLevel", decision.validationFloor());
         List<String> alternatives = Arrays.stream(GenerationMode.values())
                 .map(GenerationMode::route)
-                .filter(route -> !route.equals(command.route()))
+                .filter(route -> !route.equals(decision.routeDecision().route()))
                 .sorted()
                 .toList();
         return new GenerationScenarioDecisionSnapshot(
-                sha256(json(scenario)), PROFILE_VERSION, DECISION_VERSION,
+                sha256(json(scenario)), decision.ruleVersion(), decision.releaseFingerprint(),
                 json(evidence), json(alternatives),
-                DECISION_VERSION + "@task-command-v" + command.schemaVersion());
+                decision.releaseFingerprint());
     }
 
     private static String fileBucket(int count) {

@@ -4,12 +4,13 @@ import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceSelector;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
+import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
-import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
@@ -44,9 +45,10 @@ public class GenerationExecutionPlanner {
         if (request == null) {
             throw new IllegalArgumentException("生成流水线请求不能为空");
         }
-        GenerationModeDecision route = Objects.requireNonNull(
-                request.modeDecision(), "生成路由决策不能为空");
-        IntentProfile intentProfile = request.intentProfile();
+        GenerationScenarioDecision scenarioDecision = Objects.requireNonNull(
+                request.scenarioDecision(), "场景决策不能为空");
+        GenerationModeDecision route = scenarioDecision.routeDecision();
+        IntentProfile intentProfile = scenarioDecision.intentProfile();
         GenerationSlaEnvelope sla = Objects.requireNonNull(
                 generationSlaPolicy.resolve(route, request.codeGenType()),
                 "SLA 策略返回结果不能为空");
@@ -66,15 +68,15 @@ public class GenerationExecutionPlanner {
                 contextBudgetProperties.getTokenizerModel(),
                 contextBudgetProperties.getTokenSafetyMargin()
         );
-        boolean readOnly = route.mode() == GenerationMode.READ_ONLY;
+        boolean readOnly = scenarioDecision.mutability() == GenerationMutability.READ_ONLY;
         GenerationExecutionPlan.ToolPolicy toolPolicy = new GenerationExecutionPlan.ToolPolicy(
                 readOnly ? 0 : modelProfile.maxToolInvocations(),
                 sla.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
-                !readOnly,
-                !readOnly
+                scenarioDecision.toolPermissionProfile().writeFenceRequired(),
+                scenarioDecision.toolPermissionProfile().destructiveApprovalRequired()
         );
         GenerationExecutionPlan.ValidationGraph validationGraph =
-                GenerationExecutionPlan.ValidationGraph.forLevel(route.expectedValidationLevel());
+                GenerationExecutionPlan.ValidationGraph.forLevel(scenarioDecision.validationFloor());
         GenerationExecutionPlan.RepairBudget repairBudget = new GenerationExecutionPlan.RepairBudget(
                 sla.toLimits().limit(GenerationBudgetKind.REPAIR_ROUND),
                 !readOnly

@@ -19,7 +19,6 @@ import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
-import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskOrchestrator;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
@@ -99,11 +98,8 @@ public class AppServiceImpl implements AppService {
         GenerationTaskIdempotency idempotency = generationTaskIdempotencyService.resolve(
                 idempotencyKey, appId, message);
         App app = getGenerationApp(appId, loginUser);
-        GenerationResourceRequirements resourceRequirements =
-                GenerationResourceRequirements.ofDatabaseRequirement(
-                        appDatabaseResourceService.shouldEnableForPrompt(message));
         return generationTaskOrchestrator.start(
-                new GenerationTaskRequest(app, message, loginUser, resourceRequirements), idempotency);
+                new GenerationTaskRequest(app, message, loginUser), idempotency);
     }
 
     private App getGenerationApp(Long appId, User loginUser) {

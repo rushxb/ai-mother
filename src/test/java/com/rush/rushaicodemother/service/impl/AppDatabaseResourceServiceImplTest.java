@@ -106,14 +106,6 @@ class AppDatabaseResourceServiceImplTest {
     }
 
     @Test
-    void promptDetectionMustRecognizeDatabaseIntentWithoutFalsePositiveOnBlankInput() {
-        assertTrue(service.shouldEnableForPrompt("请增加后端 API 和数据库"));
-        assertTrue(service.shouldEnableForPrompt("Use a SQLite database"));
-        assertFalse(service.shouldEnableForPrompt("只调整首页标题颜色"));
-        assertFalse(service.shouldEnableForPrompt("  "));
-    }
-
-    @Test
     void enabledResourceMustAppendConfiguredAndCorrectlySpelledInstruction() {
         App app = app(7L, 9L, "app");
         AppDatabaseResource persisted = resource(101L, 7L);

@@ -6,9 +6,9 @@ import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecisionKernel;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
-import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
-import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionService;
@@ -27,7 +27,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class GenerationTaskOrchestrator {
 
-    private final GenerationModeRouter generationModeRouter;
+    private final GenerationScenarioDecisionKernel scenarioDecisionKernel;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationTaskSubmissionService generationTaskSubmissionService;
     private final GenerationTaskControlService generationTaskControlService;
@@ -60,14 +60,14 @@ public class GenerationTaskOrchestrator {
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
         GenerationWorkspace workspace = generationWorkspaceService.resolve(app, codeGenType);
-        GenerationRouteSelection routeSelection = generationModeRouter.select(request, codeGenType, workspace);
+        GenerationScenarioDecision scenarioDecision =
+                scenarioDecisionKernel.decide(request, codeGenType, workspace);
 
         return generationTaskSubmissionService.submit(new GenerationPipelineRequest(
                 request,
                 codeGenType,
                 workspace,
-                routeSelection.intentProfile(),
-                routeSelection.decision()
+                scenarioDecision
         ), idempotency);
     }
 

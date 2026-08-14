@@ -13,6 +13,8 @@ import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationBuildValidat
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
@@ -104,7 +106,13 @@ public class CreatePostGenerationValidationService {
                             appId, loginUser, preparation, session)
                     : heavyGenerationBuildValidationService.runWithAutoRepair(
                             appId, loginUser, preparation, session, verificationPolicy);
-            return new ValidationOutcome(passed, true, passed ? "" : "create_post_generation_validation_failed");
+            if (!passed) {
+                return ValidationOutcome.failed("create_post_generation_validation_failed");
+            }
+            return GenerationVerificationEvidenceRecorder.latestObservation(preparation)
+                    .filter(observation -> observation.targetType() == codeGenType)
+                    .map(ValidationOutcome::passed)
+                    .orElseGet(() -> ValidationOutcome.failed("create_validation_evidence_missing"));
         } finally {
             if (executionFence == null) {
                 generationToolExecutionContextService.clearContext(appId, taskId);
@@ -196,10 +204,37 @@ public class CreatePostGenerationValidationService {
                 : session.executionContext().executionFence();
     }
 
-    public record ValidationOutcome(boolean success, boolean executed, String reason) {
+    public record ValidationOutcome(
+            boolean success,
+            boolean executed,
+            String reason,
+            GenerationValidationObservation observation
+    ) {
+
+        public ValidationOutcome {
+            if (success && executed && observation == null) {
+                throw new IllegalArgumentException("已执行成功的 CREATE 验证必须携带实际观测");
+            }
+            if (!success && observation != null) {
+                throw new IllegalArgumentException("失败的 CREATE 验证不能携带通过观测");
+            }
+        }
+
+        /** 兼容失败和跳过结果；成功结果必须通过 {@link #passed} 携带事实证据。 */
+        public ValidationOutcome(boolean success, boolean executed, String reason) {
+            this(success, executed, reason, null);
+        }
+
+        private static ValidationOutcome passed(GenerationValidationObservation observation) {
+            return new ValidationOutcome(true, true, "", observation);
+        }
+
+        private static ValidationOutcome failed(String reason) {
+            return new ValidationOutcome(false, true, reason, null);
+        }
 
         private static ValidationOutcome skipped(String reason) {
-            return new ValidationOutcome(true, false, reason);
+            return new ValidationOutcome(true, false, reason, null);
         }
     }
 }

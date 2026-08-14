@@ -4,25 +4,30 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
-import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GenerationVerificationEvidenceRecorderTest {
 
     @Test
-    void recordPassedMustPersistStepsForPlannedLevel() {
+    void recordPassedMustPersistOnlyObservedSteps() {
         GenerationPreparation preparation = preparation();
 
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
-                GenerationVerificationPolicy.planned(graph(ExpectedValidationLevel.BUILD)),
-                "build_validation"
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "build_validation",
+                        Set.of(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                                GenerationExecutionPlan.ValidationStep.BUILD),
+                        Map.of("component", "frontend", "stage", "done"))
         );
 
         GenerationArtifact artifact = preparation.artifact(
@@ -30,6 +35,15 @@ class GenerationVerificationEvidenceRecorderTest {
         assertEquals("passed", artifact.payload().get("status"));
         assertEquals("build_validation", artifact.payload().get("source"));
         assertEquals(List.of("FAST_CHECK", "BUILD"), artifact.payload().get("passedSteps"));
+        assertEquals("vue_project", artifact.payload().get("targetType"));
+        assertEquals(Map.of("component", "frontend", "stage", "done"), artifact.payload().get("details"));
+        assertEquals(
+                Set.of(
+                        GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                        GenerationExecutionPlan.ValidationStep.BUILD),
+                GenerationVerificationEvidenceRecorder.latestObservation(preparation)
+                        .orElseThrow()
+                        .passedSteps());
     }
 
     @Test
@@ -37,14 +51,23 @@ class GenerationVerificationEvidenceRecorderTest {
         GenerationPreparation preparation = preparation();
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
-                GenerationVerificationPolicy.planned(graph(ExpectedValidationLevel.FAST)),
-                "fast_validation"
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "fast_validation",
+                        Set.of(GenerationExecutionPlan.ValidationStep.FAST_CHECK),
+                        Map.of())
         );
 
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
-                GenerationVerificationPolicy.planned(graph(ExpectedValidationLevel.EXPERT)),
-                "expert_validation"
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "expert_validation",
+                        Set.of(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                                GenerationExecutionPlan.ValidationStep.BUILD,
+                                GenerationExecutionPlan.ValidationStep.EXPERT_CHECK),
+                        Map.of())
         );
 
         assertEquals(
@@ -69,7 +92,4 @@ class GenerationVerificationEvidenceRecorderTest {
         );
     }
 
-    private GenerationExecutionPlan.ValidationGraph graph(ExpectedValidationLevel level) {
-        return GenerationExecutionPlan.ValidationGraph.forLevel(level);
-    }
 }

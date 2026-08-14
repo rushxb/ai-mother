@@ -44,12 +44,6 @@ public final class HeavyGenerationCompletionEvidenceFactory {
                     "heavy_workspace",
                     "已形成结构化无需修改证明"));
         }
-        if (preparation.qualityGateResult() != null && preparation.qualityGateResult().passed()) {
-            evidence.add(GenerationCompletionEvidence.of(
-                    GenerationCompletionEvidenceType.FAST_VALIDATION,
-                    "quality_gate",
-                    "生成前质量门禁已通过"));
-        }
         addVerificationEvidence(preparation.artifact(
                 GenerationVerificationEvidenceRecorder.ARTIFACT_KEY), evidence);
         return new GenerationCompletionEvidenceSet(evidence);

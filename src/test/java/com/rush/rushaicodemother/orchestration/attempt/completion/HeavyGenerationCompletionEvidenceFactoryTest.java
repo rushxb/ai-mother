@@ -67,6 +67,17 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
     }
 
     @Test
+    void preGenerationQualityGateMustNotCountAsPostGenerationFastValidation() {
+        GenerationPreparation preparation = preparation(
+                QualityGateResult.passed(List.of(), List.of("生成前质量门禁通过")));
+
+        GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
+                preparation, new GenerationSession(preparation));
+
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.FAST_VALIDATION));
+    }
+
+    @Test
     void zeroDiffMustNotCountAsWorkspaceChange() {
         GenerationPreparation preparation = preparation(null);
         preparation.putArtifact(artifact("diff_summary", Map.of(

@@ -11,7 +11,7 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
-import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.attempt.completion.ObservedValidationCompletionEvidenceFactory;
 import com.rush.rushaicodemother.orchestration.create.CreatePostGenerationValidationService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
@@ -216,7 +216,8 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                     request,
                     taskId,
                     result,
-                    buildSuccessResultSummary(result)
+                    buildSuccessResultSummary(result),
+                    validationOutcome
             );
         } catch (RuntimeException failure) {
             GenerationTerminalOutcome terminalOutcome = GenerationTerminalOutcome.resolve(session, failure);
@@ -272,7 +273,8 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
             GenerationPipelineRequest request,
             String taskId,
             SlotFillResult result,
-            String resultSummary
+            String resultSummary,
+            CreatePostGenerationValidationService.ValidationOutcome validationOutcome
     ) {
         generationPerformanceMonitorService.finishTask(taskId, GenerationTaskStatus.SUCCESS.getValue());
         int patchOperationCount = result == null ? 0 : result.patchOperationCount();
@@ -281,10 +283,8 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 GenerationTaskStatus.SUCCESS,
                 null,
                 resultSummary,
-                GenerationCompletionEvidenceSet.successfulMutation(
-                        request.modeDecision().expectedValidationLevel(),
-                        route(),
-                        patchOperationCount),
+                ObservedValidationCompletionEvidenceFactory.forMutation(
+                        validationOutcome.observation(), patchOperationCount),
                 patchOperationCount,
                 0);
     }

@@ -16,6 +16,8 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -28,6 +30,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -119,8 +123,8 @@ public class HeavyGenerationBuildValidationService {
                 return false;
             }
             if (runtimeResult == null || runtimeResult.isPassed()) {
-                GenerationVerificationEvidenceRecorder.recordPassed(
-                        preparation, verificationPolicy, "heavy_build_validation");
+                recordSuccessfulValidation(
+                        preparation, buildResult, runtimeResult, "heavy_build_validation");
                 return true;
             }
             validationFailure = ValidationFailure.runtime(runtimeResult);
@@ -206,8 +210,8 @@ public class HeavyGenerationBuildValidationService {
                 if (runtimeResult == null || runtimeResult.isPassed()) {
                     generationOrchestrationMetricsCollector.recordAutoRepair(
                             orchestrationMode(preparation), repairStage, "success");
-                    GenerationVerificationEvidenceRecorder.recordPassed(
-                            preparation, verificationPolicy, "heavy_build_repair_validation");
+                    recordSuccessfulValidation(
+                            preparation, buildResult, runtimeResult, "heavy_build_repair_validation");
                     return true;
                 }
                 validationFailure = ValidationFailure.runtime(runtimeResult);
@@ -220,6 +224,36 @@ public class HeavyGenerationBuildValidationService {
         heavyGenerationFailureRecoveryService.emitBuildFailure(
                 appId, preparation, session, validationFailure.publicSummary());
         return false;
+    }
+
+    /**
+     * 将构建器和运行时校验器已经返回的成功结果转换为事实证据。
+     * 验证策略只决定要执行什么，不参与此处的证据推导。
+     */
+    private void recordSuccessfulValidation(
+            GenerationPreparation preparation,
+            ProjectBuildValidationResult buildResult,
+            DevServerValidationResult runtimeResult,
+            String source
+    ) {
+        EnumSet<GenerationExecutionPlan.ValidationStep> passedSteps = EnumSet.of(
+                GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                GenerationExecutionPlan.ValidationStep.BUILD);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("buildComponent", buildResult.component());
+        details.put("buildStage", buildResult.stage());
+        details.put("buildSummary", buildResult.summary());
+        if (runtimeResult != null) {
+            passedSteps.add(GenerationExecutionPlan.ValidationStep.EXPERT_CHECK);
+            details.put("runtimeStatus", runtimeResult.status().name());
+            details.put("runtimeDurationMs", runtimeResult.validationDurationMs());
+            details.put("runtimeCriticalErrorCount", runtimeResult.criticalErrorCount());
+            details.put("runtimeWarningCount", runtimeResult.warningCount());
+        }
+        GenerationVerificationEvidenceRecorder.recordPassed(
+                preparation,
+                GenerationValidationObservation.passed(
+                        preparation.targetType(), source, passedSteps, details));
     }
 
     /** 执行构建处理流程。 */

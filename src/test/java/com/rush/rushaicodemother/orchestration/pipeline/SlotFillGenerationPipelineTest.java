@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
 import com.rush.rushaicodemother.orchestration.create.CreatePostGenerationValidationService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
@@ -16,12 +17,15 @@ import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.template.SlotFillGenerationService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
+import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +50,46 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SlotFillGenerationPipelineTest {
+
+    @Test
+    void successfulCreateMustUseObservedValidationInsteadOfExpectedRouteLevel() {
+        SlotFillGenerationService slotFillService = mock(SlotFillGenerationService.class);
+        CreatePostGenerationValidationService validationService =
+                mock(CreatePostGenerationValidationService.class);
+        SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
+                mock(GenerationTaskLifecycleService.class),
+                mock(GenerationPerformanceMonitorService.class),
+                validationService,
+                new GenerationEventPublisher(),
+                slotFillService);
+        GenerationPipelineRequest request = request(
+                "create-observed-validation", ExpectedValidationLevel.EXPERT);
+        SlotFillResult result = SlotFillResult.success(
+                "vue-base",
+                List.of("hero"),
+                List.of(PatchOperation.add("src/App.vue", "<template />")),
+                "模板已生成",
+                128);
+        GenerationValidationObservation buildObservation = GenerationValidationObservation.passed(
+                CodeGenTypeEnum.VUE_PROJECT,
+                "create_build_validation",
+                Set.of(
+                        GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                        GenerationExecutionPlan.ValidationStep.BUILD),
+                Map.of("stage", "done"));
+        when(slotFillService.tryGenerate(any(), any(), any())).thenReturn(result);
+        when(validationService.validate(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new CreatePostGenerationValidationService.ValidationOutcome(
+                        true, true, "", buildObservation));
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationTaskStatus.SUCCESS, outcome.terminalStatus());
+        assertTrue(outcome.completionEvidence().contains(
+                GenerationCompletionEvidenceType.BUILD_VALIDATION));
+        assertFalse(outcome.completionEvidence().contains(
+                GenerationCompletionEvidenceType.EXPERT_VALIDATION));
+    }
 
     @Test
     void shouldHandoffToHeavyExpertWhenCreateProducesNoPatch() {
@@ -212,6 +256,13 @@ class SlotFillGenerationPipelineTest {
     }
 
     private GenerationPipelineRequest request(String taskId) {
+        return request(taskId, ExpectedValidationLevel.BUILD);
+    }
+
+    private GenerationPipelineRequest request(
+            String taskId,
+            ExpectedValidationLevel validationLevel
+    ) {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
@@ -222,7 +273,7 @@ class SlotFillGenerationPipelineTest {
                 1L, CodeGenTypeEnum.VUE_PROJECT, root, root, false, root, root, Set.of(), Set.of());
         GenerationModeDecision decision = GenerationModeDecision.of(
                 GenerationMode.CREATE, 0.9, "missing workspace",
-                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT, ExpectedValidationLevel.BUILD);
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT, validationLevel);
         GenerationTaskRequest taskRequest = new GenerationTaskRequest(app, "做一个商城落地页", user);
         GenerationExecutionContext context = new GenerationExecutionContext(
                 taskId, 1L, 2L, Instant.now(), new GenerationRuntimeProperties().toLimits(), Clock.systemUTC());

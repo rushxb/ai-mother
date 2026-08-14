@@ -23,6 +23,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -319,6 +320,12 @@ class HeavyGenerationRepairBudgetTest {
             assertTrue(buildService.runWithAutoRepair(
                     appId, user, preparation, session, verificationPolicy));
             verify(validationService).validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT);
+            Map<String, Object> evidence = preparation.artifact(
+                    GenerationVerificationEvidenceRecorder.ARTIFACT_KEY).payload();
+            assertEquals(
+                    List.of("FAST_CHECK", "BUILD", "EXPERT_CHECK"),
+                    evidence.get("passedSteps"));
+            assertEquals("PASS", ((Map<?, ?>) evidence.get("details")).get("runtimeStatus"));
         } finally {
             FileUtil.del(projectPath.toFile());
         }
@@ -354,6 +361,50 @@ class HeavyGenerationRepairBudgetTest {
             FileUtil.del(projectPath.toFile());
         }
     }
+
+    @Test
+    void expertPolicyMustNotClaimRuntimeEvidenceWhenValidatorOnlyBuiltBackend() throws Exception {
+        long appId = 870_011L;
+        String taskId = "backend-build-observation";
+        Path projectPath = projectPath(appId, CodeGenTypeEnum.BACKEND_PROJECT);
+        HeavyGenerationExecutionService generationService = mock(HeavyGenerationExecutionService.class);
+        HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
+        DevServerValidationService runtimeValidationService = mock(DevServerValidationService.class);
+        GenerationProjectBuildValidationService projectBuildValidationService =
+                mock(GenerationProjectBuildValidationService.class);
+        GenerationPreparation preparation = preparation(taskId, CodeGenTypeEnum.BACKEND_PROJECT);
+        GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
+        when(projectBuildValidationService.validate(
+                any(GenerationWorkspace.class), eq(CodeGenTypeEnum.BACKEND_PROJECT), eq(taskId)))
+                .thenReturn(new ProjectBuildValidationResult(
+                        true, "backend", "done", projectPath.toString(),
+                        "backend build passed", "go test passed", ""));
+
+        try {
+            Files.createDirectories(projectPath.resolve("cmd/server"));
+            Files.writeString(projectPath.resolve("go.mod"), "module example.com/generated\n");
+            Files.writeString(projectPath.resolve("cmd/server/main.go"), "package main\nfunc main() {}\n");
+            HeavyGenerationBuildValidationService buildService = buildService(
+                    generationService,
+                    failureRecoveryService,
+                    runtimeValidationService,
+                    projectBuildValidationService,
+                    appId);
+            GenerationVerificationPolicy expertPolicy = GenerationVerificationPolicy.planned(
+                    GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.EXPERT));
+
+            assertTrue(buildService.runWithAutoRepair(
+                    appId, User.builder().id(7L).build(), preparation, session, expertPolicy));
+
+            Object passedSteps = preparation.artifact(GenerationVerificationEvidenceRecorder.ARTIFACT_KEY)
+                    .payload().get("passedSteps");
+            assertEquals(List.of("FAST_CHECK", "BUILD"), passedSteps);
+            verifyNoInteractions(runtimeValidationService);
+        } finally {
+            FileUtil.del(projectPath.toFile());
+        }
+    }
+
     @Test
     void failedDevServerValidationMustEnterRepairLoopWithStructuredDiagnostic() throws Exception {
         long appId = 870_008L;
@@ -479,6 +530,23 @@ class HeavyGenerationRepairBudgetTest {
                             workspace.frontendRootPath().toString(), taskId);
                     return result == null ? null : ProjectBuildValidationResult.fromVue(result);
                 });
+        return buildService(
+                generationService,
+                failureRecoveryService,
+                devServerValidationService,
+                projectBuildValidationService,
+                appId);
+    }
+
+    private HeavyGenerationBuildValidationService buildService(
+            HeavyGenerationExecutionService generationService,
+            HeavyGenerationFailureRecoveryService failureRecoveryService,
+            DevServerValidationService devServerValidationService,
+            GenerationProjectBuildValidationService projectBuildValidationService,
+            long appId
+    ) {
+        doReturn("repair prompt").when(generationService).buildAutoRepairPrompt(
+                eq(appId), any(GenerationPreparation.class), any(Exception.class), anyInt());
         return new HeavyGenerationBuildValidationService(
                 devServerValidationService,
                 mock(GenerationTaskLifecycleService.class),

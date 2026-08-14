@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.create;
 
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationBuildValidationService;
@@ -9,6 +10,8 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
@@ -23,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -35,6 +40,33 @@ class CreatePostGenerationValidationServiceTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void successfulValidatorWithoutObservationMustFailClosed() {
+        GenerationToolExecutionContextService contextService =
+                mock(GenerationToolExecutionContextService.class);
+        HeavyGenerationBuildValidationService buildValidationService =
+                mock(HeavyGenerationBuildValidationService.class);
+        CreatePostGenerationValidationService service = new CreatePostGenerationValidationService(
+                contextService, buildValidationService);
+        GenerationSession session = new GenerationSession(null);
+        User user = User.builder().id(7L).build();
+        when(buildValidationService.runWithAutoRepair(
+                eq(14L), eq(user), any(), eq(session))).thenReturn(true);
+
+        CreatePostGenerationValidationService.ValidationOutcome outcome = service.validate(
+                14L,
+                user,
+                CodeGenTypeEnum.VUE_PROJECT,
+                "创建仪表盘",
+                "task-missing-observation",
+                null,
+                session
+        );
+
+        assertFalse(outcome.success());
+        assertEquals("create_validation_evidence_missing", outcome.reason());
+    }
 
     @Test
     void managedValidationMustKeepExactFenceAndWorkspaceDuringRepair() {
@@ -52,7 +84,8 @@ class CreatePostGenerationValidationServiceTest {
         GenerationExecutionWorkspace executionWorkspace = executionWorkspace(fence);
         session.bindExecutionWorkspace(executionWorkspace);
         when(buildValidationService.runWithAutoRepair(
-                eq(11L), any(User.class), any(), eq(session))).thenReturn(true);
+                eq(11L), any(User.class), any(), eq(session))).thenAnswer(invocation ->
+                recordBuildObservation(invocation.getArgument(2), CodeGenTypeEnum.VUE_PROJECT));
         SlotFillResult result = SlotFillResult.success(
                 "vue-default",
                 List.of("hero"),
@@ -106,7 +139,8 @@ class CreatePostGenerationValidationServiceTest {
                 any(),
                 eq(session),
                 any(GenerationVerificationPolicy.class)))
-                .thenReturn(true);
+                .thenAnswer(invocation ->
+                        recordBuildObservation(invocation.getArgument(2), CodeGenTypeEnum.VUE_PROJECT));
 
         CreatePostGenerationValidationService.ValidationOutcome outcome = service.validate(
                 13L,
@@ -138,7 +172,8 @@ class CreatePostGenerationValidationServiceTest {
         GenerationSession session = new GenerationSession(null);
         User user = new User();
         when(buildValidationService.runWithAutoRepair(eq(12L), eq(user), any(), eq(session)))
-                .thenReturn(true);
+                .thenAnswer(invocation ->
+                        recordBuildObservation(invocation.getArgument(2), CodeGenTypeEnum.BACKEND_PROJECT));
 
         CreatePostGenerationValidationService.ValidationOutcome outcome = service.validate(
                 12L,
@@ -152,8 +187,26 @@ class CreatePostGenerationValidationServiceTest {
 
         assertTrue(outcome.success());
         assertTrue(outcome.executed());
+        assertTrue(outcome.observation().passedSteps().contains(
+                GenerationExecutionPlan.ValidationStep.BUILD));
         verify(buildValidationService).runWithAutoRepair(eq(12L), eq(user), any(), eq(session));
         verify(contextService).clearContext(12L, "task-backend-create");
+    }
+
+    private boolean recordBuildObservation(
+            GenerationPreparation preparation,
+            CodeGenTypeEnum targetType
+    ) {
+        GenerationVerificationEvidenceRecorder.recordPassed(
+                preparation,
+                GenerationValidationObservation.passed(
+                        targetType,
+                        "create_build_validation",
+                        Set.of(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                                GenerationExecutionPlan.ValidationStep.BUILD),
+                        Map.of("stage", "done")));
+        return true;
     }
 
     private GenerationExecutionWorkspace executionWorkspace(GenerationExecutionFence fence) {

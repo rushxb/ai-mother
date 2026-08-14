@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
@@ -10,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditGenerationService;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditResult;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
@@ -21,6 +23,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.Map;
 
 /**
@@ -32,6 +35,12 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AgentEditGenerationPipeline implements GenerationPipeline {
 
+    private static final GenerationPipelineCapability CAPABILITY =
+            GenerationPipelineCapability.write(
+                    GenerationRoute.AGENT_EDIT,
+                    EnumSet.of(IntentOperationType.EDIT, IntentOperationType.REPAIR),
+                    EnumSet.allOf(CodeGenTypeEnum.class),
+                    EnumSet.of(GenerationMode.AGENT_EDIT));
     private static final String AGENT_EDIT_FAILURE_REASON = "agent_edit_failed";
 
     private final AgentEditGenerationService agentEditGenerationService;
@@ -39,12 +48,12 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
 
     @Override
     public String route() {
-        return GenerationRoute.AGENT_EDIT;
+        return CAPABILITY.route();
     }
 
     @Override
-    public boolean supports(GenerationPipelineRequest request) {
-        return request.modeIs(GenerationMode.AGENT_EDIT);
+    public GenerationPipelineCapability capability() {
+        return CAPABILITY;
     }
 
     /**

@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.attempt.completion.ObservedValida
 import com.rush.rushaicodemother.orchestration.create.CreatePostGenerationValidationService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -40,6 +42,15 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SlotFillGenerationPipeline implements GenerationPipeline {
 
+    private static final GenerationPipelineCapability CAPABILITY =
+            GenerationPipelineCapability.write(
+                    GenerationRoute.CREATE,
+                    EnumSet.of(IntentOperationType.CREATE),
+                    EnumSet.of(
+                            CodeGenTypeEnum.VUE_PROJECT,
+                            CodeGenTypeEnum.BACKEND_PROJECT,
+                            CodeGenTypeEnum.FULL_STACK_PROJECT),
+                    EnumSet.of(GenerationMode.CREATE));
     private static final String CREATE_FAILURE_MESSAGE = "CREATE 模板生成失败，请稍后重试";
     private static final String CREATE_FAILURE_REASON = "create_generation_failed";
     private static final String CREATE_VALIDATION_FAILURE_REASON = "create_validation_failed";
@@ -54,7 +65,12 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
 
     @Override
     public String route() {
-        return GenerationRoute.CREATE;
+        return CAPABILITY.route();
+    }
+
+    @Override
+    public GenerationPipelineCapability capability() {
+        return CAPABILITY;
     }
 
     /**
@@ -65,11 +81,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
  */
     @Override
     public boolean supports(GenerationPipelineRequest request) {
-        CodeGenTypeEnum type = request.codeGenType();
-        return request.modeIs(GenerationMode.CREATE)
-                && (type == CodeGenTypeEnum.VUE_PROJECT
-                || type == CodeGenTypeEnum.BACKEND_PROJECT
-                || type == CodeGenTypeEnum.FULL_STACK_PROJECT)
+        return GenerationPipeline.super.supports(request)
                 && request.workspace() != null
                 && !request.workspace().exists();
     }

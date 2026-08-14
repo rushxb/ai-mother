@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.pipeline;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
@@ -11,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidence;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisResult;
 import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisService;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -22,6 +24,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +41,15 @@ import java.util.Objects;
 @Component
 public class ReadOnlyGenerationPipeline implements GenerationPipeline {
 
+    private static final GenerationPipelineCapability CAPABILITY =
+            GenerationPipelineCapability.readOnly(
+                    GenerationRoute.READ_ONLY,
+                    EnumSet.of(
+                            IntentOperationType.EXPLAIN,
+                            IntentOperationType.AUDIT,
+                            IntentOperationType.PLAN),
+                    EnumSet.allOf(CodeGenTypeEnum.class),
+                    EnumSet.of(GenerationMode.READ_ONLY));
     public static final String ANALYSIS_ARTIFACT = "analysis";
     public static final String NO_CHANGE_JUSTIFICATION_ARTIFACT = "no_change_justification";
     private static final String FAILURE_REASON = "read_only_analysis_failed";
@@ -54,12 +66,12 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
 
     @Override
     public String route() {
-        return GenerationRoute.READ_ONLY;
+        return CAPABILITY.route();
     }
 
     @Override
-    public boolean supports(GenerationPipelineRequest request) {
-        return request != null && request.modeIs(GenerationMode.READ_ONLY);
+    public GenerationPipelineCapability capability() {
+        return CAPABILITY;
     }
 
     @Override

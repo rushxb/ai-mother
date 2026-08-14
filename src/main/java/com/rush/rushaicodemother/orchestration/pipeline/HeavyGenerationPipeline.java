@@ -1,11 +1,15 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationCoordinator;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+
+import java.util.EnumSet;
 
 /**
  * 重型生成处理流水线。
@@ -16,17 +20,26 @@ import org.springframework.stereotype.Component;
 public class HeavyGenerationPipeline implements GenerationPipeline {
 
     public static final String ROUTE = GenerationRoute.HEAVY_GENERATION;
+    private static final GenerationPipelineCapability CAPABILITY =
+            GenerationPipelineCapability.write(
+                    ROUTE,
+                    EnumSet.of(
+                            IntentOperationType.CREATE,
+                            IntentOperationType.EDIT,
+                            IntentOperationType.REPAIR),
+                    EnumSet.allOf(CodeGenTypeEnum.class),
+                    EnumSet.of(GenerationMode.HEAVY_EXPERT));
 
     private final HeavyGenerationCoordinator heavyGenerationCoordinator;
 
     @Override
     public String route() {
-        return ROUTE;
+        return CAPABILITY.route();
     }
 
     @Override
-    public boolean supports(GenerationPipelineRequest request) {
-        return request.modeIs(GenerationMode.HEAVY_EXPERT);
+    public GenerationPipelineCapability capability() {
+        return CAPABILITY;
     }
 
     /**

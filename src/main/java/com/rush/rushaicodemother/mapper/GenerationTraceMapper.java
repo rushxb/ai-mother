@@ -334,7 +334,9 @@ public interface GenerationTraceMapper {
                 call_record.finishReason = 'LEDGER_RECOVERY',
                 call_record.errorCategory = CASE
                         WHEN task.id IS NULL THEN 'orphaned_generation_task'
-                        WHEN task.status IN ('success', 'failed', 'cancelled', 'deadline_exceeded')
+                        WHEN task.status = 'cancelled' THEN 'model_cancelled'
+                        WHEN task.status = 'deadline_exceeded' THEN 'model_timeout'
+                        WHEN task.status IN ('success', 'failed')
                         THEN 'terminal_callback_missing'
                         ELSE 'expired_generation_lease' END
             WHERE call_record.invocationPurpose = 'GENERATION'

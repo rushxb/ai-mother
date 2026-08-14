@@ -90,6 +90,11 @@ class GenerationModelInvocationLedgerArchitectureTest {
                 "运行中任务只能根据过期的执行栅栏恢复");
         assertTrue(recovery.contains("call_record.callstatus = 'error'"),
                 "恢复不能根据任务终态猜测 provider 成功");
+        assertTrue(recovery.contains(
+                        "when task.status = 'cancelled' then 'model_cancelled'")
+                        && recovery.contains(
+                        "when task.status = 'deadline_exceeded' then 'model_timeout'"),
+                "恢复后的取消与超时成本必须保留稳定 outcome，供独立计费策略消费");
         assertTrue(!recovery.contains("totaltokens = null"),
                 "恢复必须保留调用前持久化的保守成本事实");
     }

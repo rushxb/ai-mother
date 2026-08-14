@@ -3,7 +3,7 @@ package com.rush.rushaicodemother.service.credit;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.UserCreditMapper;
-import com.rush.rushaicodemother.model.dto.credit.GenerationTaskModelUsageRow;
+import com.rush.rushaicodemother.model.dto.credit.ProviderCostObservationRow;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.entity.UserCreditTransaction;
@@ -97,22 +97,28 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
     }
 
     @Override
-    public GenerationTaskModelUsage loadTaskModelUsage(String taskId) {
+    public ProviderCostObservation loadTaskProviderCostObservation(String taskId) {
         String normalizedTaskId = requireBusinessId(taskId, "生成任务 ID");
-        GenerationTaskModelUsageRow row = mapper.selectTaskModelUsage(normalizedTaskId);
+        ProviderCostObservationRow row =
+                mapper.selectTaskProviderCostObservation(normalizedTaskId);
         if (row == null) {
-            return GenerationTaskModelUsage.none();
+            return ProviderCostObservation.none();
         }
-        long totalTokens = nonNegativeAggregate(row.getTotalTokens(), "token 汇总");
-        long successfulCalls = nonNegativeAggregate(row.getSuccessfulCallCount(), "成功调用数");
-        long pendingCalls = nonNegativeAggregate(row.getPendingCallCount(), "待完成调用数");
         try {
-            return new GenerationTaskModelUsage(totalTokens, successfulCalls, pendingCalls);
-        } catch (IllegalArgumentException inconsistentAggregate) {
+            ProviderCostObservation observation = new ProviderCostObservation(
+                    nonNegativeAggregate(row.getSuccessfulTokens(), "成功调用 token 汇总"),
+                    nonNegativeAggregate(row.getCancelledTokens(), "取消调用 token 汇总"),
+                    nonNegativeAggregate(row.getTimedOutTokens(), "超时调用 token 汇总"),
+                    nonNegativeAggregate(row.getFailedTokens(), "失败调用 token 汇总"),
+                    nonNegativeAggregate(row.getPendingAttemptCount(), "待完成调用数")
+            );
+            observation.totalObservedTokens();
+            return observation;
+        } catch (IllegalArgumentException | ArithmeticException invalidAggregate) {
             throw new BusinessException(
                     ErrorCode.OPERATION_ERROR,
-                    "生成任务模型用量聚合结果不一致",
-                    inconsistentAggregate
+                    "生成任务 Provider 成本聚合结果不一致",
+                    invalidAggregate
             );
         }
     }

@@ -23,4 +23,17 @@ class GenerationCreditMetricsCollectorTest {
         assertEquals(1, registry.find("generation_credit_settlements_total")
                 .tag("direction", "exact").counter().count(), 0.001);
     }
+
+    @Test
+    void providerCostMustExposeBilledAndWaivedTokensWithoutBusinessIdentifiers() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        GenerationCreditMetricsCollector collector = new GenerationCreditMetricsCollector(registry);
+
+        collector.recordProviderCostSettlement(600L, 100L, 500L);
+
+        assertEquals(100, registry.find("generation_provider_cost_tokens_total")
+                .tag("disposition", "billed").counter().count(), 0.001);
+        assertEquals(500, registry.find("generation_provider_cost_tokens_total")
+                .tag("disposition", "waived").counter().count(), 0.001);
+    }
 }

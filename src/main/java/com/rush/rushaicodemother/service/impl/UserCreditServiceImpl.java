@@ -7,7 +7,9 @@ import com.rush.rushaicodemother.monitor.GenerationCreditMetricsCollector;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
 import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
-import com.rush.rushaicodemother.service.credit.GenerationTaskModelUsage;
+import com.rush.rushaicodemother.service.credit.GenerationUserBillingPolicy;
+import com.rush.rushaicodemother.service.credit.ProviderCostObservation;
+import com.rush.rushaicodemother.service.credit.UserBillingDecision;
 import com.rush.rushaicodemother.service.credit.UserCreditCostCalculator;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditAccount;
@@ -36,6 +38,7 @@ public class UserCreditServiceImpl implements UserCreditService {
     private final UserCreditPersistenceService persistenceService;
     private final UserCreditCostCalculator costCalculator;
     private final GenerationCreditMetricsCollector creditMetricsCollector;
+    private final GenerationUserBillingPolicy billingPolicy;
 
     /**
  * 确保{@code Has}额度已达到可用状态。
@@ -228,7 +231,8 @@ public class UserCreditServiceImpl implements UserCreditService {
     private void settleReservedGenerationTask(GenerationCreditTask task,
                                               CreditTransaction reservation) {
         long reservedCredit = validateReservation(task, reservation);
-        long totalTokens = requireCompleteModelUsage(task.taskId()).totalTokens();
+        UserBillingDecision billingDecision = requireBillingDecision(task.taskId());
+        long totalTokens = billingDecision.chargeableTokens();
         long expectedCreditCost = costCalculator.calculate(totalTokens);
         CreditAccount account = requireLockedAccount(task.userId());
         long collectibleExtra = expectedCreditCost <= reservedCredit
@@ -252,16 +256,21 @@ public class UserCreditServiceImpl implements UserCreditService {
                 UserCreditTransactionType.GENERATION_SETTLEMENT,
                 task.taskId(),
                 buildReservedGenerationRemark(
-                        totalTokens, reservedCredit, expectedCreditCost, actualCreditCost),
+                        billingDecision, reservedCredit, expectedCreditCost, actualCreditCost),
                 null,
                 totalTokens
         ));
         persistenceService.settleGenerationTask(task.recordId(), actualCreditCost, totalTokens);
         creditMetricsCollector.recordReservationSettlement(reservedCredit, actualCreditCost);
+        recordProviderCostSettlement(billingDecision);
         log.info(
-                "生成任务积分预授权结算完成，taskId: {}, tokens: {}, reservedCost: {}, expectedCost: {}, actualCost: {}, balanceAfter: {}",
+                "生成任务积分预授权结算完成，taskId: {}, providerTokens: {}, "
+                        + "billedTokens: {}, waivedTokens: {}, reservedCost: {}, "
+                        + "expectedCost: {}, actualCost: {}, balanceAfter: {}",
                 task.taskId(),
-                totalTokens,
+                billingDecision.providerObservedTokens(),
+                billingDecision.chargeableTokens(),
+                billingDecision.waivedTokens(),
                 reservedCredit,
                 expectedCreditCost,
                 actualCreditCost,
@@ -271,7 +280,8 @@ public class UserCreditServiceImpl implements UserCreditService {
 
     /** 处理{@code settle}{@code Legacy}生成任务。 */
     private void settleLegacyGenerationTask(GenerationCreditTask task) {
-        long totalTokens = requireCompleteModelUsage(task.taskId()).totalTokens();
+        UserBillingDecision billingDecision = requireBillingDecision(task.taskId());
+        long totalTokens = billingDecision.chargeableTokens();
         long expectedCreditCost = costCalculator.calculate(totalTokens);
         CreditAccount account = requireLockedAccount(task.userId());
         long actualCreditCost = Math.min(account.balance(), expectedCreditCost);
@@ -287,11 +297,24 @@ public class UserCreditServiceImpl implements UserCreditService {
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_CHARGE,
                 task.taskId(),
-                buildGenerationRemark(totalTokens, expectedCreditCost, actualCreditCost),
+                buildGenerationRemark(billingDecision, expectedCreditCost, actualCreditCost),
                 null,
                 totalTokens
         ));
         persistenceService.settleGenerationTask(task.recordId(), actualCreditCost, totalTokens);
+        recordProviderCostSettlement(billingDecision);
+        log.info(
+                "生成任务积分结算完成，taskId: {}, providerTokens: {}, "
+                        + "billedTokens: {}, waivedTokens: {}, expectedCost: {}, "
+                        + "actualCost: {}, balanceAfter: {}",
+                task.taskId(),
+                billingDecision.providerObservedTokens(),
+                billingDecision.chargeableTokens(),
+                billingDecision.waivedTokens(),
+                expectedCreditCost,
+                actualCreditCost,
+                balanceAfter
+        );
     }
 
     private CreditAccount requireLockedAccount(Long userId) {
@@ -303,18 +326,35 @@ public class UserCreditServiceImpl implements UserCreditService {
     }
 
     /**
-     * 结算只消费完整的用量快照。usage 估算与持久化尚未恢复时，保留任务的未结算状态和
-     * 已预留积分，由 reconciler 幂等重试，不会将“未知”解释为零成本。
+     * 结算只消费完整的 Provider 成本快照。usage 估算与持久化尚未恢复时，保留任务的
+     * 未结算状态和已预留积分，由 reconciler 幂等重试，不会将“未知”解释为零成本。
      */
-    private GenerationTaskModelUsage requireCompleteModelUsage(String taskId) {
-        GenerationTaskModelUsage usage = persistenceService.loadTaskModelUsage(taskId);
-        if (usage == null || usage.hasPendingCalls()) {
+    private UserBillingDecision requireBillingDecision(String taskId) {
+        ProviderCostObservation observation =
+                persistenceService.loadTaskProviderCostObservation(taskId);
+        if (observation == null || observation.hasPendingAttempts()) {
             throw new BusinessException(
                     ErrorCode.OPERATION_ERROR,
-                    "生成任务模型用量尚未完整，积分结算已保持待处理"
+                    "生成任务 Provider 成本尚未完整，积分结算已保持待处理"
             );
         }
-        return usage;
+        try {
+            return billingPolicy.decide(observation);
+        } catch (IllegalArgumentException | IllegalStateException | ArithmeticException failure) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "生成任务用户计费决策失败",
+                    failure
+            );
+        }
+    }
+
+    private void recordProviderCostSettlement(UserBillingDecision decision) {
+        creditMetricsCollector.recordProviderCostSettlement(
+                decision.providerObservedTokens(),
+                decision.chargeableTokens(),
+                decision.waivedTokens()
+        );
     }
 
     /** 恢复生成{@code Settlement}。 */
@@ -551,24 +591,29 @@ public class UserCreditServiceImpl implements UserCreditService {
         return "reservation:" + pricingReference;
     }
 
-    private String buildReservedGenerationRemark(long totalTokens,
+    private String buildReservedGenerationRemark(UserBillingDecision decision,
                                                  long reservedCredit,
                                                  long expectedCreditCost,
                                                  long actualCreditCost) {
-        return "AI generation settlement: tokens=" + totalTokens
+        return "AI generation settlement: " + billingAuditSummary(decision)
                 + ", reserved=" + reservedCredit
                 + ", expected=" + expectedCreditCost
                 + ", captured=" + actualCreditCost;
     }
 
-    private String buildGenerationRemark(long totalTokens,
+    private String buildGenerationRemark(UserBillingDecision decision,
                                          long expectedCreditCost,
                                          long actualCreditCost) {
-        if (actualCreditCost < expectedCreditCost) {
-            return "AI 生成消耗 " + totalTokens + " token，应扣 " + expectedCreditCost
-                    + " 积分，余额不足实际扣除 " + actualCreditCost + " 积分";
-        }
-        return "AI 生成消耗 " + totalTokens + " token，扣除 " + actualCreditCost + " 积分";
+        return "AI generation charge: " + billingAuditSummary(decision)
+                + ", expected=" + expectedCreditCost
+                + ", captured=" + actualCreditCost;
+    }
+
+    private String billingAuditSummary(UserBillingDecision decision) {
+        return "billedTokens=" + decision.chargeableTokens()
+                + ", providerTokens=" + decision.providerObservedTokens()
+                + ", waivedTokens=" + decision.waivedTokens()
+                + ", policy=" + decision.policyReference();
     }
 
     private boolean hasPositiveId(Long value) {

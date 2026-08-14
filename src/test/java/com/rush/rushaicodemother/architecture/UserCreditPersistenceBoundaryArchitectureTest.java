@@ -48,10 +48,14 @@ class UserCreditPersistenceBoundaryArchitectureTest {
         assertFalse(BaseMapper.class.isAssignableFrom(UserCreditMapper.class));
         String mapperSource = read("mapper", "UserCreditMapper.java");
 
-        assertTrue(mapperSource.contains(
-                "CASE WHEN callStatus = 'SUCCESS' AND totalTokens > 0"));
-        assertTrue(mapperSource.contains("pendingCallCount"),
-                "STARTED 或 usage 不可用的调用必须阻止按 0 结算");
+        assertTrue(mapperSource.contains("successfulTokens"));
+        assertTrue(mapperSource.contains("cancelledTokens"));
+        assertTrue(mapperSource.contains("timedOutTokens"));
+        assertTrue(mapperSource.contains("failedTokens"));
+        assertTrue(mapperSource.contains("model_cancelled"));
+        assertTrue(mapperSource.contains("model_timeout"));
+        assertTrue(mapperSource.contains("pendingAttemptCount"),
+                "STARTED 或 usage 不可用的 attempt 必须阻止按 0 结算");
         assertTrue(mapperSource.contains("FROM generation_model_call"));
         assertTrue(mapperSource.contains("isDelete = 0"));
         assertTrue(mapperSource.split("FOR UPDATE", -1).length - 1 >= 2,
@@ -59,6 +63,23 @@ class UserCreditPersistenceBoundaryArchitectureTest {
         assertTrue(mapperSource.contains("AND creditCharged = 0"),
                 "生成任务结算更新必须使用未结算状态作为并发条件");
         assertFalse(mapperSource.contains("selectListByQuery"));
+    }
+
+    @Test
+    void providerCostFactsAndUserBillingPolicyMustRemainSeparateModules() throws IOException {
+        String creditService = read("service", "impl", "UserCreditServiceImpl.java");
+        String billingPolicy = read(
+                "service", "credit", "ProviderCostGenerationUserBillingPolicy.java");
+
+        assertTrue(Files.exists(JAVA_ROOT.resolve(Path.of(
+                "service", "credit", "ProviderCostObservation.java"))));
+        assertTrue(Files.exists(JAVA_ROOT.resolve(Path.of(
+                "service", "credit", "UserBillingDecision.java"))));
+        assertTrue(creditService.contains("billingPolicy.decide(observation)"));
+        assertFalse(creditService.contains("model_cancelled"));
+        assertFalse(creditService.contains("model_timeout"));
+        assertTrue(billingPolicy.contains("observation.cancelledTokens()"));
+        assertTrue(billingPolicy.contains("observation.timedOutTokens()"));
     }
 
     @Test

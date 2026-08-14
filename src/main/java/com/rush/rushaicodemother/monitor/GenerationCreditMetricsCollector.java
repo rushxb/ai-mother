@@ -30,6 +30,29 @@ public class GenerationCreditMetricsCollector {
         }
     }
 
+    /** 记录 Provider 成本中最终由用户承担与产品减免的 token 数。 */
+    public void recordProviderCostSettlement(long providerObservedTokens,
+                                             long chargeableTokens,
+                                             long waivedTokens) {
+        if (providerObservedTokens < 0 || chargeableTokens < 0 || waivedTokens < 0
+                || Math.addExact(chargeableTokens, waivedTokens) != providerObservedTokens) {
+            throw new IllegalArgumentException("Provider 成本结算指标不守恒");
+        }
+        recordProviderTokenDisposition("billed", chargeableTokens);
+        recordProviderTokenDisposition("waived", waivedTokens);
+    }
+
+    private void recordProviderTokenDisposition(String disposition, long tokenCount) {
+        if (tokenCount == 0) {
+            return;
+        }
+        Counter.builder("generation_provider_cost_tokens_total")
+                .description("Observed provider cost tokens by user billing disposition")
+                .tag("disposition", disposition)
+                .register(meterRegistry)
+                .increment(tokenCount);
+    }
+
     private long safeAbsolute(long value) {
         return value == Long.MIN_VALUE ? Long.MAX_VALUE : Math.abs(value);
     }

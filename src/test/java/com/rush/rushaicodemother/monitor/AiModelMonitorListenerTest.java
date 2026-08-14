@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
 import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelCallTimeoutException;
 import com.rush.rushaicodemother.service.aimodel.AiModelCircuitBreaker;
 import com.rush.rushaicodemother.service.trace.GenerationModelCallCommand;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
@@ -24,10 +25,15 @@ import dev.langchain4j.model.output.TokenUsage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -146,6 +152,40 @@ class AiModelMonitorListenerTest {
         assertEquals(256, call.completionTokens());
         assertEquals(265, call.totalTokens());
         verify(circuitBreaker).recordFailure("xiaomi", "mimo-v2-flash", failure);
+    }
+
+    @ParameterizedTest
+    @MethodSource("cancelAndTimeoutFailures")
+    void cancellationAndTimeoutMustRetainEstimatedProviderCost(
+            Throwable failure,
+            String expectedCategory) {
+        ChatRequest request = request();
+        Map<Object, Object> attributes = new HashMap<>();
+        listener.onRequest(new ChatModelRequestContext(
+                request, ModelProvider.OPEN_AI, attributes));
+
+        listener.onError(new ChatModelErrorContext(
+                failure, request, ModelProvider.OPEN_AI, attributes));
+
+        ArgumentCaptor<GenerationModelCallCommand> captor =
+                ArgumentCaptor.forClass(GenerationModelCallCommand.class);
+        verify(traceService, times(2)).recordModelCall(captor.capture());
+        GenerationModelCallCommand terminal = captor.getAllValues().getLast();
+        assertEquals(GenerationModelCallStatus.ERROR, terminal.status());
+        assertEquals(GenerationModelUsageSource.ESTIMATED, terminal.usageSource());
+        assertEquals(expectedCategory, terminal.errorCategory());
+        assertEquals(265, terminal.totalTokens());
+    }
+
+    private static Stream<Arguments> cancelAndTimeoutFailures() {
+        return Stream.of(
+                Arguments.of(
+                        new CancellationException("user cancelled"),
+                        "model_cancelled"),
+                Arguments.of(
+                        new GenerationModelCallTimeoutException("first-signal"),
+                        "model_timeout")
+        );
     }
 
     @Test

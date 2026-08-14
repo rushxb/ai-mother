@@ -1,6 +1,6 @@
 package com.rush.rushaicodemother.mapper;
 
-import com.rush.rushaicodemother.model.dto.credit.GenerationTaskModelUsageRow;
+import com.rush.rushaicodemother.model.dto.credit.ProviderCostObservationRow;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.entity.UserCreditTransaction;
@@ -53,25 +53,44 @@ public interface UserCreditMapper {
     UserCreditTransaction selectTransactionByTypeAndBizId(@Param("type") String type,
                                                            @Param("bizId") String bizId);
 
+    /**
+     * 按物理 attempt 聚合 Provider 成本事实，不在 SQL 中混入用户收费策略。
+     * ERROR 的稳定错误分类兼容现有账本，并显式恢复 CANCEL/TIMEOUT 语义。
+     */
     @Select("""
             SELECT COALESCE(SUM(
                        CASE WHEN callStatus = 'SUCCESS' AND totalTokens > 0
-                            THEN totalTokens ELSE 0 END), 0) AS totalTokens,
+                            THEN totalTokens ELSE 0 END), 0) AS successfulTokens,
                    COALESCE(SUM(
-                       CASE WHEN callStatus = 'SUCCESS' THEN 1 ELSE 0 END), 0) AS successfulCallCount,
+                       CASE WHEN callStatus = 'ERROR'
+                                  AND errorCategory = 'model_cancelled'
+                                  AND totalTokens > 0
+                            THEN totalTokens ELSE 0 END), 0) AS cancelledTokens,
+                   COALESCE(SUM(
+                       CASE WHEN callStatus = 'ERROR'
+                                  AND errorCategory = 'model_timeout'
+                                  AND totalTokens > 0
+                            THEN totalTokens ELSE 0 END), 0) AS timedOutTokens,
+                   COALESCE(SUM(
+                       CASE WHEN callStatus = 'ERROR'
+                                  AND (errorCategory IS NULL OR errorCategory NOT IN (
+                                      'model_cancelled', 'model_timeout'))
+                                  AND totalTokens > 0
+                            THEN totalTokens ELSE 0 END), 0) AS failedTokens,
                    COALESCE(SUM(
                        CASE WHEN callStatus = 'STARTED'
                                   OR usageSource = 'UNAVAILABLE'
                                   OR totalTokens IS NULL
                                   OR totalTokens <= 0
-                            THEN 1 ELSE 0 END), 0) AS pendingCallCount
+                            THEN 1 ELSE 0 END), 0) AS pendingAttemptCount
             FROM generation_model_call
             WHERE taskId = #{taskId}
               AND invocationPurpose = 'GENERATION'
               AND billingMode = 'BILLABLE'
               AND isDelete = 0
             """)
-    GenerationTaskModelUsageRow selectTaskModelUsage(@Param("taskId") String taskId);
+    ProviderCostObservationRow selectTaskProviderCostObservation(
+            @Param("taskId") String taskId);
 
     @Update("""
             UPDATE `user`

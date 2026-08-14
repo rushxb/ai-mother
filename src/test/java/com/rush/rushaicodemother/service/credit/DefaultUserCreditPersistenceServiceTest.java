@@ -3,10 +3,10 @@ package com.rush.rushaicodemother.service.credit;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.UserCreditMapper;
+import com.rush.rushaicodemother.model.dto.credit.ProviderCostObservationRow;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.entity.UserCreditTransaction;
-import com.rush.rushaicodemother.model.dto.credit.GenerationTaskModelUsageRow;
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditAccount;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditTransaction;
@@ -130,19 +130,40 @@ class DefaultUserCreditPersistenceServiceTest {
     }
 
     @Test
-    void modelUsageSnapshotMustPreserveCompletenessInsteadOfCollapsingMissingUsageToZero() {
-        GenerationTaskModelUsageRow row = new GenerationTaskModelUsageRow();
-        row.setTotalTokens(120L);
-        row.setSuccessfulCallCount(3L);
-        row.setPendingCallCount(1L);
-        when(mapper.selectTaskModelUsage("task-1")).thenReturn(row);
+    void providerCostSnapshotMustPreserveEveryTerminalOutcomeAndPendingAttempt() {
+        ProviderCostObservationRow row = new ProviderCostObservationRow();
+        row.setSuccessfulTokens(120L);
+        row.setCancelledTokens(30L);
+        row.setTimedOutTokens(20L);
+        row.setFailedTokens(10L);
+        row.setPendingAttemptCount(1L);
+        when(mapper.selectTaskProviderCostObservation("task-1")).thenReturn(row);
 
-        GenerationTaskModelUsage usage = service.loadTaskModelUsage("task-1");
+        ProviderCostObservation observation =
+                service.loadTaskProviderCostObservation("task-1");
 
-        assertEquals(120L, usage.totalTokens());
-        assertEquals(3L, usage.successfulCallCount());
-        assertEquals(1L, usage.pendingCallCount());
-        assertTrue(usage.hasPendingCalls());
+        assertEquals(180L, observation.totalObservedTokens());
+        assertEquals(30L, observation.cancelledTokens());
+        assertEquals(20L, observation.timedOutTokens());
+        assertEquals(10L, observation.failedTokens());
+        assertTrue(observation.hasPendingAttempts());
+    }
+
+    @Test
+    void providerCostSnapshotMustFailClosedWhenAggregateOverflows() {
+        ProviderCostObservationRow row = new ProviderCostObservationRow();
+        row.setSuccessfulTokens(Long.MAX_VALUE);
+        row.setCancelledTokens(1L);
+        row.setTimedOutTokens(0L);
+        row.setFailedTokens(0L);
+        row.setPendingAttemptCount(0L);
+        when(mapper.selectTaskProviderCostObservation("task-1")).thenReturn(row);
+
+        BusinessException failure = assertThrows(
+                BusinessException.class,
+                () -> service.loadTaskProviderCostObservation("task-1"));
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), failure.getCode());
     }
 
     @Test

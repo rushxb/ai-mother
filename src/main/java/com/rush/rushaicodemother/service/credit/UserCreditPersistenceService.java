@@ -15,7 +15,7 @@ public interface UserCreditPersistenceService {
 
     CreditTransaction findTransaction(UserCreditTransactionType type, String bizId);
 
-    GenerationTaskModelUsage loadTaskModelUsage(String taskId);
+    ProviderCostObservation loadTaskProviderCostObservation(String taskId);
 
     void updateBalance(Long userId, long balanceAfter);
 

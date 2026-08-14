@@ -9,10 +9,13 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationResult;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +37,7 @@ public class DevServerValidationService {
     private final DevServerManager devServerManager;
     private final DevServerRuntimeProperties runtimeProperties;
     private final GenerationExecutionContextService generationExecutionContextService;
+    private final BrowserRuntimeVerifier browserRuntimeVerifier;
 
     /**
      * 运行任务感知的开发服务器验证。
@@ -104,7 +108,8 @@ public class DevServerValidationService {
                     taskId,
                     startupTimeout,
                     () -> generationExecutionContextService.shouldStop(taskId),
-                    request.executionFence()
+                    request.executionFence(),
+                    request.environmentOverrides()
             );
             try {
                 startResult = devServerManager.startDevServer(app, userId, startOptions);
@@ -133,8 +138,15 @@ public class DevServerValidationService {
             log.info("Dev Server is ready, taskId={}, port={}; collecting delayed errors",
                     taskId, startResult.port());
             notifyDevServerReady(taskId, readyCallback);
+            BrowserRuntimeValidationResult browserResult = validateBrowserIfRequired(
+                    taskId,
+                    startResult.port(),
+                    request
+            );
             if (!awaitErrorCollectionWindow(taskId, collectionWindow, collector)) {
-                return DevServerValidationResult.interrupted(taskId, appId, elapsedSince(startNanos));
+                return DevServerValidationResult.interrupted(
+                                taskId, appId, elapsedSince(startNanos))
+                        .withBrowserValidation(browserResult);
             }
 
             List<DevServerError> errors = collector.getErrors();
@@ -143,16 +155,36 @@ public class DevServerValidationService {
                     taskId, collector.getCriticalErrorCount(), collector.getWarningCount(), elapsed);
 
             if (collector.hasCriticalError()) {
-                return DevServerValidationResult.failed(taskId, appId, errors, elapsed);
+                return DevServerValidationResult.failed(taskId, appId, errors, elapsed)
+                        .withBrowserValidation(browserResult);
             }
             if (collector.hasWarning()) {
-                return DevServerValidationResult.warning(taskId, appId, errors, elapsed);
+                return DevServerValidationResult.warning(taskId, appId, errors, elapsed)
+                        .withBrowserValidation(browserResult);
             }
-            return DevServerValidationResult.passed(taskId, appId, elapsed);
+            return DevServerValidationResult.passed(taskId, appId, elapsed)
+                    .withBrowserValidation(browserResult);
         } finally {
             stopOwnedSession(appId, startResult, ownership);
             devServerManager.unregisterErrorCollector(appId, collector);
         }
+    }
+
+    private BrowserRuntimeValidationResult validateBrowserIfRequired(
+            String taskId,
+            int port,
+            DevServerValidationRequest request
+    ) {
+        if (request.browserValidationPolicy() == null) {
+            return null;
+        }
+        generationExecutionContextService.assertCanContinue(taskId);
+        BrowserRuntimeValidationResult result = browserRuntimeVerifier.verify(
+                URI.create("http://127.0.0.1:" + port + "/"),
+                request.browserValidationPolicy()
+        );
+        generationExecutionContextService.assertCanContinue(taskId);
+        return result;
     }
 
     /** 触发就绪回调；回调只承载体验增强，异常不得影响验证结论。 */

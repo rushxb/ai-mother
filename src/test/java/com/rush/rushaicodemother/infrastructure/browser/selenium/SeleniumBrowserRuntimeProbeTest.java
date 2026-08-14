@@ -9,6 +9,7 @@ import org.openqa.selenium.OutputType;
 import org.openqa.selenium.TakesScreenshot;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.logging.LogEntries;
+import org.openqa.selenium.logging.LogEntry;
 import org.openqa.selenium.logging.LogType;
 import org.openqa.selenium.logging.Logs;
 
@@ -20,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.logging.Level;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -62,6 +64,7 @@ class SeleniumBrowserRuntimeProbeTest {
         when(driver.manage()).thenReturn(options);
         when(options.logs()).thenReturn(logs);
         when(logs.get(LogType.BROWSER)).thenReturn(new LogEntries(List.of()));
+        when(logs.get(LogType.PERFORMANCE)).thenReturn(new LogEntries(List.of()));
         ScreenshotProperties properties = new ScreenshotProperties();
         properties.setReadyStateTimeout(Duration.ofSeconds(1));
         SeleniumBrowserRuntimeProbe probe = new SeleniumBrowserRuntimeProbe(
@@ -76,6 +79,108 @@ class SeleniumBrowserRuntimeProbeTest {
 
         assertTrue(observation.appNodeExists());
         assertTrue(observation.screenshot().captured());
+        verify(driver).quit();
+    }
+
+    @Test
+    void probeMustCaptureFailedHttpResponsesFromPerformanceLog() throws Exception {
+        SeleniumChromeDriverFactory driverFactory = mock(SeleniumChromeDriverFactory.class);
+        WebDriver driver = mock(
+                WebDriver.class,
+                withSettings().extraInterfaces(TakesScreenshot.class, JavascriptExecutor.class)
+        );
+        WebDriver.Options options = mock(WebDriver.Options.class);
+        Logs logs = mock(Logs.class);
+        when(driverFactory.createIsolatedDiagnosticDriver()).thenReturn(driver);
+        when(driver.getCurrentUrl()).thenReturn("http://127.0.0.1:5180/");
+        when(((JavascriptExecutor) driver).executeScript(anyString())).thenAnswer(invocation -> {
+            if ("return document.readyState".equals(invocation.getArgument(0))) {
+                return "complete";
+            }
+            return """
+                    {"title":"Dashboard","readyState":"complete","bodyTextLength":20,
+                    "bodyChildCount":1,"appNodeExists":true,"appNodeChildCount":1,
+                    "visibleElementCount":4,"documentWidth":800,"documentHeight":600,
+                    "viteErrorOverlayPresent":false,"firstText":"Dashboard content",
+                    "firstHeading":"Dashboard","scripts":[],"stylesheets":[]}
+                    """;
+        });
+        when(((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES))
+                .thenReturn(pngBytes(800, 600));
+        when(driver.manage()).thenReturn(options);
+        when(options.logs()).thenReturn(logs);
+        when(logs.get(LogType.BROWSER)).thenReturn(new LogEntries(List.of()));
+        when(logs.get(LogType.PERFORMANCE)).thenReturn(new LogEntries(List.of(new LogEntry(
+                Level.INFO,
+                1L,
+                """
+                        {"message":{"method":"Network.responseReceived","params":{"type":"Fetch",
+                        "response":{"url":"http://127.0.0.1:19101/api/projects","status":503,
+                        "statusText":"Service Unavailable"}}}}
+                        """
+        ))));
+        ScreenshotProperties properties = new ScreenshotProperties();
+        properties.setReadyStateTimeout(Duration.ofSeconds(1));
+        SeleniumBrowserRuntimeProbe probe = new SeleniumBrowserRuntimeProbe(
+                driverFactory,
+                properties
+        );
+
+        BrowserRuntimeObservation observation = probe.inspect(
+                URI.create("http://127.0.0.1:5180/"),
+                Duration.ZERO
+        );
+
+        assertTrue(observation.networkEvidence().captured());
+        assertTrue(observation.networkEvidence().failures().stream().anyMatch(failure ->
+                failure.status() == 503
+                        && failure.url().endsWith("/api/projects")));
+        verify(driver).quit();
+    }
+
+    @Test
+    void screenshotFailureMustNotDiscardConsoleAndNetworkEvidence() {
+        SeleniumChromeDriverFactory driverFactory = mock(SeleniumChromeDriverFactory.class);
+        WebDriver driver = mock(
+                WebDriver.class,
+                withSettings().extraInterfaces(TakesScreenshot.class, JavascriptExecutor.class)
+        );
+        WebDriver.Options options = mock(WebDriver.Options.class);
+        Logs logs = mock(Logs.class);
+        when(driverFactory.createIsolatedDiagnosticDriver()).thenReturn(driver);
+        when(driver.getCurrentUrl()).thenReturn("http://127.0.0.1:5180/");
+        when(((JavascriptExecutor) driver).executeScript(anyString())).thenAnswer(invocation -> {
+            if ("return document.readyState".equals(invocation.getArgument(0))) {
+                return "complete";
+            }
+            return """
+                    {"title":"Dashboard","readyState":"complete","bodyTextLength":20,
+                    "bodyChildCount":1,"appNodeExists":true,"appNodeChildCount":1,
+                    "visibleElementCount":4,"documentWidth":800,"documentHeight":600,
+                    "viteErrorOverlayPresent":false,"firstText":"Dashboard content",
+                    "firstHeading":"Dashboard","scripts":[],"stylesheets":[]}
+                    """;
+        });
+        when(((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES))
+                .thenThrow(new IllegalStateException("screenshot unavailable"));
+        when(driver.manage()).thenReturn(options);
+        when(options.logs()).thenReturn(logs);
+        when(logs.get(LogType.BROWSER)).thenReturn(new LogEntries(List.of()));
+        when(logs.get(LogType.PERFORMANCE)).thenReturn(new LogEntries(List.of()));
+        ScreenshotProperties properties = new ScreenshotProperties();
+        properties.setReadyStateTimeout(Duration.ofSeconds(1));
+        SeleniumBrowserRuntimeProbe probe = new SeleniumBrowserRuntimeProbe(
+                driverFactory,
+                properties
+        );
+
+        BrowserRuntimeObservation observation = probe.inspect(
+                URI.create("http://127.0.0.1:5180/"),
+                Duration.ZERO
+        );
+
+        assertTrue(observation.networkEvidence().captured());
+        assertFalse(observation.screenshot().captured());
         verify(driver).quit();
     }
 

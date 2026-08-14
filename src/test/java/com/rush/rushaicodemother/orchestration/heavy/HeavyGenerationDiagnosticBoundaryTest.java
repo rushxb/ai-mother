@@ -23,6 +23,7 @@ import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -84,6 +85,7 @@ class HeavyGenerationDiagnosticBoundaryTest {
             HeavyGenerationBuildValidationService service = new HeavyGenerationBuildValidationService(
                     devServerValidationService,
                     mock(GeneratedBackendRuntimeVerifier.class),
+                    mock(GeneratedFullStackRuntimeVerifier.class),
                     mock(GenerationTaskLifecycleService.class),
                     mock(GenerationOrchestrationMetricsCollector.class),
                     new GenerationPerformanceMonitorService(),

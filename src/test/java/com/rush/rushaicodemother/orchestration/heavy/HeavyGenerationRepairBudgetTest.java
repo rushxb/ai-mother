@@ -28,6 +28,9 @@ import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBac
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
+import com.rush.rushaicodemother.orchestration.verification.runtime.BackendRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.verification.runtime.FullStackRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -42,6 +45,8 @@ import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.devserver.DevServerError;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -472,6 +477,92 @@ class HeavyGenerationRepairBudgetTest {
     }
 
     @Test
+    void fullStackBrowserNetworkFailureMustBlockExpertCompletionEvidence() throws Exception {
+        long appId = 870_013L;
+        String taskId = "fullstack-browser-network-failure";
+        Path projectRoot = projectRootPath(appId, CodeGenTypeEnum.FULL_STACK_PROJECT);
+        HeavyGenerationExecutionService generationService = mock(HeavyGenerationExecutionService.class);
+        HeavyGenerationFailureRecoveryService failureRecoveryService =
+                mock(HeavyGenerationFailureRecoveryService.class);
+        DevServerValidationService standaloneFrontendRuntime =
+                mock(DevServerValidationService.class);
+        GeneratedFullStackRuntimeVerifier fullStackRuntimeVerifier =
+                mock(GeneratedFullStackRuntimeVerifier.class);
+        GenerationProjectBuildValidationService buildValidation =
+                mock(GenerationProjectBuildValidationService.class);
+        GenerationPreparation preparation = preparation(
+                taskId, CodeGenTypeEnum.FULL_STACK_PROJECT);
+        GenerationSession session = new GenerationSession(
+                preparation, executionContext(taskId, appId, 1));
+        session.consumeBudget(GenerationBudgetKind.REPAIR_ROUND);
+        when(buildValidation.validate(
+                any(GenerationWorkspace.class),
+                eq(CodeGenTypeEnum.FULL_STACK_PROJECT),
+                eq(taskId)
+        )).thenReturn(new ProjectBuildValidationResult(
+                true,
+                "fullstack",
+                "done",
+                projectRoot.toString(),
+                "fullstack build passed",
+                "frontend and backend build passed",
+                ""
+        ));
+        BrowserRuntimeValidationResult browserFailure =
+                BrowserRuntimeValidationResult.failed(10, "browser_network_error");
+        DevServerValidationResult frontendFailure = DevServerValidationResult
+                .passed(taskId, appId, 10)
+                .withBrowserValidation(browserFailure);
+        when(fullStackRuntimeVerifier.verify(
+                any(Path.class),
+                any(),
+                any(BrowserRuntimeValidationPolicy.class)
+        )).thenReturn(new FullStackRuntimeValidationResult(
+                new BackendRuntimeValidationResult(
+                        19_101, true, 10,
+                        "go run -mod=readonly ./cmd/server", List.of()),
+                frontendFailure,
+                20
+        ));
+
+        try {
+            createRepairableProject(projectRoot.resolve("frontend"));
+            Files.createDirectories(projectRoot.resolve("backend"));
+            HeavyGenerationBuildValidationService service = buildService(
+                    generationService,
+                    failureRecoveryService,
+                    standaloneFrontendRuntime,
+                    mock(GeneratedBackendRuntimeVerifier.class),
+                    fullStackRuntimeVerifier,
+                    buildValidation,
+                    appId
+            );
+            GenerationVerificationPolicy expertPolicy = GenerationVerificationPolicy.planned(
+                    GenerationExecutionPlan.ValidationGraph.forLevel(
+                            ExpectedValidationLevel.EXPERT));
+
+            assertFalse(service.runWithAutoRepair(
+                    appId,
+                    User.builder().id(7L).build(),
+                    preparation,
+                    session,
+                    expertPolicy
+            ));
+
+            assertNull(preparation.artifact(
+                    GenerationVerificationEvidenceRecorder.ARTIFACT_KEY));
+            verify(fullStackRuntimeVerifier).verify(
+                    eq(projectRoot.resolve("backend")),
+                    any(),
+                    any(BrowserRuntimeValidationPolicy.class)
+            );
+            verifyNoInteractions(standaloneFrontendRuntime);
+        } finally {
+            FileUtil.del(projectRoot.toFile());
+        }
+    }
+
+    @Test
     void failedDevServerValidationMustEnterRepairLoopWithStructuredDiagnostic() throws Exception {
         long appId = 870_008L;
         String taskId = "runtime-auto-repair";
@@ -628,11 +719,36 @@ class HeavyGenerationRepairBudgetTest {
             GenerationProjectBuildValidationService projectBuildValidationService,
             long appId
     ) {
+        GeneratedFullStackRuntimeVerifier fullStackRuntimeVerifier =
+                mock(GeneratedFullStackRuntimeVerifier.class);
+        when(fullStackRuntimeVerifier.verify(any(Path.class), any(), any()))
+                .thenReturn(successfulFullStackRuntime());
+        return buildService(
+                generationService,
+                failureRecoveryService,
+                devServerValidationService,
+                backendRuntimeVerifier,
+                fullStackRuntimeVerifier,
+                projectBuildValidationService,
+                appId
+        );
+    }
+
+    private HeavyGenerationBuildValidationService buildService(
+            HeavyGenerationExecutionService generationService,
+            HeavyGenerationFailureRecoveryService failureRecoveryService,
+            DevServerValidationService devServerValidationService,
+            GeneratedBackendRuntimeVerifier backendRuntimeVerifier,
+            GeneratedFullStackRuntimeVerifier fullStackRuntimeVerifier,
+            GenerationProjectBuildValidationService projectBuildValidationService,
+            long appId
+    ) {
         doReturn("repair prompt").when(generationService).buildAutoRepairPrompt(
                 eq(appId), any(GenerationPreparation.class), any(Exception.class), anyInt());
         return new HeavyGenerationBuildValidationService(
                 devServerValidationService,
                 backendRuntimeVerifier,
+                fullStackRuntimeVerifier,
                 mock(GenerationTaskLifecycleService.class),
                 mock(GenerationOrchestrationMetricsCollector.class),
                 new GenerationPerformanceMonitorService(),
@@ -643,6 +759,21 @@ class HeavyGenerationRepairBudgetTest {
                 projectBuildValidationService,
                 stageAdmissionService(),
                 mock(GenerationPreviewMilestoneService.class)
+        );
+    }
+
+    private FullStackRuntimeValidationResult successfulFullStackRuntime() {
+        BrowserRuntimeValidationResult browser = new BrowserRuntimeValidationResult(
+                1, false, List.of(), List.of(), List.of(), Map.of());
+        DevServerValidationResult frontend = DevServerValidationResult
+                .passed("fullstack-test", 1L, 1)
+                .withBrowserValidation(browser);
+        return new FullStackRuntimeValidationResult(
+                new BackendRuntimeValidationResult(
+                        19_101, true, 1,
+                        "go run -mod=readonly ./cmd/server", List.of()),
+                frontend,
+                2
         );
     }
 

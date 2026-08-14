@@ -23,6 +23,7 @@ public record BrowserRuntimeObservation(
         List<String> scriptUrls,
         List<String> stylesheetUrls,
         List<ConsoleMessage> consoleMessages,
+        NetworkEvidence networkEvidence,
         ScreenshotStats screenshot
 ) {
 
@@ -47,11 +48,16 @@ public record BrowserRuntimeObservation(
                 .filter(message -> message != null)
                 .limit(50)
                 .toList();
+        networkEvidence = networkEvidence == null ? NetworkEvidence.unavailable() : networkEvidence;
         screenshot = screenshot == null ? ScreenshotStats.empty() : screenshot;
     }
 
     public boolean hasFatalConsoleError() {
         return consoleMessages.stream().anyMatch(ConsoleMessage::fatal);
+    }
+
+    public boolean hasNetworkFailure() {
+        return networkEvidence.failures().stream().anyMatch(NetworkFailure::fatal);
     }
 
     /**
@@ -124,6 +130,48 @@ public record BrowserRuntimeObservation(
 
         public String displayValue() {
             return "UNTRUSTED_BROWSER_LOG " + level + " | " + message;
+        }
+    }
+
+    /** Chrome DevTools performance log 中有界的网络失败证据。 */
+    public record NetworkEvidence(boolean captured, List<NetworkFailure> failures) {
+
+        public NetworkEvidence {
+            failures = failures == null ? List.of() : failures.stream()
+                    .filter(failure -> failure != null)
+                    .distinct()
+                    .limit(50)
+                    .toList();
+        }
+
+        public static NetworkEvidence captured(List<NetworkFailure> failures) {
+            return new NetworkEvidence(true, failures);
+        }
+
+        public static NetworkEvidence unavailable() {
+            return new NetworkEvidence(false, List.of());
+        }
+    }
+
+    /** 单次失败响应或加载失败；状态码为 0 表示请求未获得 HTTP 响应。 */
+    public record NetworkFailure(String url, int status, String reason) {
+
+        public NetworkFailure {
+            url = bounded(url, 512);
+            status = Math.max(0, Math.min(599, status));
+            reason = bounded(reason, 256);
+        }
+
+        public boolean fatal() {
+            if (url.toLowerCase(Locale.ROOT).contains("favicon.ico")) {
+                return false;
+            }
+            return status == 0 || status >= 400;
+        }
+
+        public String displayValue() {
+            return "UNTRUSTED_BROWSER_NETWORK status=" + status
+                    + " reason=" + reason + " url=" + url;
         }
     }
 

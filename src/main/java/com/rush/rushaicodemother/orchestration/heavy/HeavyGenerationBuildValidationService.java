@@ -21,10 +21,13 @@ import com.rush.rushaicodemother.orchestration.verification.GenerationValidation
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.verification.runtime.BackendRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.verification.runtime.FullStackRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
@@ -48,6 +51,7 @@ public class HeavyGenerationBuildValidationService {
 
     private final DevServerValidationService devServerValidationService;
     private final GeneratedBackendRuntimeVerifier generatedBackendRuntimeVerifier;
+    private final GeneratedFullStackRuntimeVerifier generatedFullStackRuntimeVerifier;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
@@ -341,6 +345,15 @@ public class HeavyGenerationBuildValidationService {
                 BackendRuntimeValidationResult backendResult =
                         generatedBackendRuntimeVerifier.verify(workspace.backendRootPath());
                 runtimeResult = ProjectRuntimeValidationResult.fromBackend(backendResult);
+            } else if (preparation.targetType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
+                FullStackRuntimeValidationResult fullStackResult =
+                        generatedFullStackRuntimeVerifier.verify(
+                                workspace.backendRootPath(),
+                                fullStackFrontendRequest(
+                                        appId, loginUser, preparation, session),
+                                BrowserRuntimeValidationPolicy.productionRuntime()
+                        );
+                runtimeResult = ProjectRuntimeValidationResult.fromFullStack(fullStackResult);
             } else {
                 runtimeResult = ProjectRuntimeValidationResult.fromDevServer(
                         validateFrontendRuntime(appId, loginUser, preparation, session));
@@ -373,6 +386,32 @@ public class HeavyGenerationBuildValidationService {
             log.warn("项目运行时验证失败，appId: {}, summary: {}", appId, runtimeResult.summary());
         }
         return runtimeResult;
+    }
+
+    /**
+     * Full Stack 前后端只在联合验证窗口内共同存活。
+     *
+     * <p>后端 runtime 暂无任务作用域移交能力，因此此处不发布 provisional preview，
+     * 也不把前端会话移交给任务，避免向用户暴露后端已经关闭的半失效预览。</p>
+     */
+    private DevServerValidationRequest fullStackFrontendRequest(
+            Long appId,
+            User loginUser,
+            GenerationPreparation preparation,
+            GenerationSession session
+    ) {
+        DevServerValidationRequest request = DevServerValidationRequest.of(
+                preparation.taskId(),
+                appId,
+                loginUser.getId(),
+                preparation.targetType()
+        );
+        if (session.executionContext() == null
+                || session.executionContext().executionFence() == null) {
+            return request;
+        }
+        return request.withExecutionFence(
+                session.executionContext().executionFence());
     }
 
     private DevServerValidationResult validateFrontendRuntime(

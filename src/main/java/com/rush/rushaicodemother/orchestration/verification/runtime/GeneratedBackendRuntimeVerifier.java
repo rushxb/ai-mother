@@ -5,8 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -18,8 +16,6 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 public class GeneratedBackendRuntimeVerifier {
-
-    private static final String COMMAND_SUMMARY = "go run -mod=readonly ./cmd/server";
 
     private final GeneratedBackendRuntime backendRuntime;
 
@@ -37,20 +33,10 @@ public class GeneratedBackendRuntimeVerifier {
                 return BackendRuntimeValidationResult.failed(
                         elapsedSince(startedAt), "backend_runtime_handle_missing");
             }
-            GeneratedBackendRuntimeObservation observation = handle.observation();
-            List<String> violations = new ArrayList<>(observation == null
-                    ? List.of("backend_observation_missing")
-                    : observation.violations());
-            boolean processAlive = handle.processAlive();
-            if (observation != null && observation.passedValidation() && !processAlive) {
-                violations.add("backend_process_exited_after_health");
-            }
-            return new BackendRuntimeValidationResult(
-                    handle.port(),
-                    processAlive,
-                    elapsedSince(startedAt),
-                    COMMAND_SUMMARY,
-                    violations);
+            return BackendRuntimeValidationResult.observe(
+                    handle,
+                    elapsedSince(startedAt)
+            );
         } catch (RuntimeException exception) {
             if (Thread.currentThread().isInterrupted()) {
                 throw exception;

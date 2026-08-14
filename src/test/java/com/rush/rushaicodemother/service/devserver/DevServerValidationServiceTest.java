@@ -9,11 +9,18 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadl
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeObservation;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeProbe;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeVerifier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.net.URI;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,6 +52,7 @@ class DevServerValidationServiceTest {
     private DevServerManager manager;
     private DevServerRuntimeProperties properties;
     private GenerationExecutionContextService executionContextService;
+    private BrowserRuntimeProbe browserRuntimeProbe;
     private DevServerValidationService service;
     private AtomicReference<DevServerErrorCollector> collectorReference;
 
@@ -58,7 +66,13 @@ class DevServerValidationServiceTest {
         executionContextService = mock(GenerationExecutionContextService.class);
         when(executionContextService.clampTimeout(anyString(), any(Duration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(1));
-        service = new DevServerValidationService(manager, properties, executionContextService);
+        browserRuntimeProbe = mock(BrowserRuntimeProbe.class);
+        service = new DevServerValidationService(
+                manager,
+                properties,
+                executionContextService,
+                new BrowserRuntimeVerifier(browserRuntimeProbe)
+        );
         collectorReference = new AtomicReference<>();
         doAnswer(invocation -> {
             collectorReference.set(invocation.getArgument(1));
@@ -93,6 +107,41 @@ class DevServerValidationServiceTest {
         assertEquals(DevServerValidationResult.ValidationStatus.PASS, result.status());
         verify(manager).stopDevServer(11L);
         verify(manager).unregisterErrorCollector(11L, collectorReference.get());
+    }
+
+    @Test
+    void requestedBrowserNetworkValidationMustRunWithBackendEnvironmentAndBlockFailure() {
+        when(manager.startDevServer(any(App.class), eq(7L), any(DevServerStartOptions.class)))
+                .thenReturn(new DevServerStartResult(5_180, true));
+        URI frontendUri = URI.create("http://127.0.0.1:5180/");
+        when(browserRuntimeProbe.inspect(frontendUri, Duration.ZERO)).thenReturn(
+                browserObservationWithNetworkFailure(frontendUri)
+        );
+        ArgumentCaptor<DevServerStartOptions> options =
+                ArgumentCaptor.forClass(DevServerStartOptions.class);
+
+        DevServerValidationResult result = service.validate(
+                DevServerValidationRequest.of(
+                                "task-browser", 11L, 7L, CodeGenTypeEnum.FULL_STACK_PROJECT)
+                        .withEnvironmentOverrides(Map.of(
+                                "VITE_API_BASE_URL", "http://127.0.0.1:19101/api"))
+                        .withBrowserValidation(new BrowserRuntimeValidationPolicy(
+                                Duration.ZERO, false))
+        );
+
+        assertEquals(DevServerValidationResult.ValidationStatus.FAILED, result.status());
+        assertEquals(
+                DevServerValidationResult.ValidationFailureKind.BROWSER_RUNTIME_ERROR,
+                result.failureKind()
+        );
+        assertTrue(result.browserValidation().runtimeViolations()
+                .contains("browser_network_error"));
+        verify(manager).startDevServer(any(App.class), eq(7L), options.capture());
+        assertEquals(
+                "http://127.0.0.1:19101/api",
+                options.getValue().environmentOverrides().get("VITE_API_BASE_URL")
+        );
+        verify(manager).stopDevServer(11L);
     }
 
     @Test
@@ -439,5 +488,35 @@ class DevServerValidationServiceTest {
     }
 
     private record ValidationThreadOutcome(DevServerValidationResult result, boolean interrupted) {
+    }
+
+    private BrowserRuntimeObservation browserObservationWithNetworkFailure(URI target) {
+        return new BrowserRuntimeObservation(
+                target,
+                target,
+                "Dashboard",
+                "complete",
+                120,
+                1,
+                true,
+                1,
+                12,
+                1_600,
+                900,
+                false,
+                "Dashboard content",
+                "Dashboard",
+                List.of(),
+                List.of(),
+                List.of(),
+                BrowserRuntimeObservation.NetworkEvidence.captured(List.of(
+                        new BrowserRuntimeObservation.NetworkFailure(
+                                "http://127.0.0.1:19101/api/projects",
+                                500,
+                                "Internal Server Error"
+                        )
+                )),
+                new BrowserRuntimeObservation.ScreenshotStats(true, 1_600, 900, 12, 180)
+        );
     }
 }

@@ -97,6 +97,7 @@ public final class SeleniumChromeDriverFactory {
         if (browserLoggingEnabled) {
             LoggingPreferences loggingPreferences = new LoggingPreferences();
             loggingPreferences.enable(LogType.BROWSER, Level.ALL);
+            loggingPreferences.enable(LogType.PERFORMANCE, Level.ALL);
             options.setCapability("goog:loggingPrefs", loggingPreferences);
         }
         return options;

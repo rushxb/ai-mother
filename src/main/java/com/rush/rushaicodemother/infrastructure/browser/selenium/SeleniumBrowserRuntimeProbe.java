@@ -26,8 +26,10 @@ import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Selenium 实现具有仅环回目标验证和有限证据捕获。 */
@@ -36,6 +38,7 @@ import java.util.Set;
 public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
 
     private static final int MAX_CONSOLE_MESSAGES = 50;
+    private static final int MAX_NETWORK_FAILURES = 50;
     private static final Duration MAX_SETTLE_DELAY = Duration.ofSeconds(30);
 
     private final SeleniumChromeDriverFactory driverFactory;
@@ -86,6 +89,7 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
                     stringList(page, "scripts"),
                     stringList(page, "stylesheets"),
                     collectConsoleMessages(driver),
+                    collectNetworkEvidence(driver),
                     collectScreenshotStats(driver)
             );
         } catch (InterruptedException exception) {
@@ -182,20 +186,97 @@ public class SeleniumBrowserRuntimeProbe implements BrowserRuntimeProbe {
         return List.copyOf(messages);
     }
 
-    /** 汇总截图结果的尺寸和内容统计。 */
-    private BrowserRuntimeObservation.ScreenshotStats collectScreenshotStats(WebDriver driver) {
-        byte[] bytes = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
-        if (bytes == null || bytes.length == 0) {
-            return BrowserRuntimeObservation.ScreenshotStats.empty();
+    /** 从 Chrome DevTools performance log 汇总 HTTP 失败和未获得响应的加载失败。 */
+    private BrowserRuntimeObservation.NetworkEvidence collectNetworkEvidence(WebDriver driver) {
+        try {
+            Map<String, String> requestUrls = new HashMap<>();
+            List<BrowserRuntimeObservation.NetworkFailure> failures = new ArrayList<>();
+            for (LogEntry entry : driver.manage().logs().get(LogType.PERFORMANCE)) {
+                collectNetworkEntry(entry, requestUrls, failures);
+                if (failures.size() >= MAX_NETWORK_FAILURES) {
+                    break;
+                }
+            }
+            return BrowserRuntimeObservation.NetworkEvidence.captured(failures);
+        } catch (RuntimeException exception) {
+            log.warn("浏览器 network performance log 采集不可用: error={}",
+                    LogExceptionSanitizer.sanitizeMessage(exception));
+            return BrowserRuntimeObservation.NetworkEvidence.unavailable();
+        }
+    }
+
+    private void collectNetworkEntry(
+            LogEntry entry,
+            Map<String, String> requestUrls,
+            List<BrowserRuntimeObservation.NetworkFailure> failures
+    ) {
+        if (entry == null || entry.getMessage() == null || entry.getMessage().isBlank()) {
+            return;
         }
         try {
+            JSONObject envelope = JSONUtil.parseObj(entry.getMessage());
+            JSONObject message = envelope.getJSONObject("message");
+            if (message == null) {
+                return;
+            }
+            String method = message.getStr("method", "");
+            JSONObject params = message.getJSONObject("params");
+            if (params == null) {
+                return;
+            }
+            String requestId = params.getStr("requestId", "");
+            if ("Network.requestWillBeSent".equals(method)) {
+                JSONObject request = params.getJSONObject("request");
+                if (request != null && !requestId.isBlank()) {
+                    requestUrls.put(requestId, request.getStr("url", ""));
+                }
+                return;
+            }
+            if ("Network.responseReceived".equals(method)) {
+                JSONObject response = params.getJSONObject("response");
+                if (response == null) {
+                    return;
+                }
+                int status = response.getInt("status", 0);
+                if (status >= 400) {
+                    failures.add(new BrowserRuntimeObservation.NetworkFailure(
+                            response.getStr("url", requestUrls.getOrDefault(requestId, "")),
+                            status,
+                            response.getStr("statusText", "HTTP " + status)
+                    ));
+                }
+                return;
+            }
+            if ("Network.loadingFailed".equals(method)
+                    && !params.getBool("canceled", false)) {
+                failures.add(new BrowserRuntimeObservation.NetworkFailure(
+                        requestUrls.getOrDefault(requestId, ""),
+                        0,
+                        params.getStr("errorText", "network loading failed")
+                ));
+            }
+        } catch (RuntimeException exception) {
+            log.debug("忽略无法解析的浏览器 performance log 条目: error={}",
+                    LogExceptionSanitizer.sanitizeMessage(exception));
+        }
+    }
+
+    /** 汇总截图结果的尺寸和内容统计。 */
+    private BrowserRuntimeObservation.ScreenshotStats collectScreenshotStats(WebDriver driver) {
+        try {
+            byte[] bytes = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
+            if (bytes == null || bytes.length == 0) {
+                return BrowserRuntimeObservation.ScreenshotStats.empty();
+            }
             BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
             if (image == null) {
                 return BrowserRuntimeObservation.ScreenshotStats.empty();
             }
             return analyzeImage(image);
         } catch (Exception exception) {
-            throw new IllegalStateException("unable to analyze browser screenshot", exception);
+            log.warn("浏览器截图证据采集失败，保留 console/network 观测: error={}",
+                    LogExceptionSanitizer.sanitizeMessage(exception));
+            return BrowserRuntimeObservation.ScreenshotStats.empty();
         }
     }
 

@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
+
+import java.util.Map;
 
 /**
  * 一次 Dev Server 运行时验证的完整入参。
@@ -17,6 +20,8 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
  * @param executionFence 执行隔离栅栏；非空表示以隔离执行工作区为 root 验证
  * @param onDevServerReady Dev Server 就绪回调，在错误采集窗口开始前触发一次
  * @param ownership      会话持有者语义，决定验证返回时是否停止本次创建的会话
+ * @param environmentOverrides 允许注入受控的本地后端地址
+ * @param browserValidationPolicy 非空时在 Dev Server 存活窗口内执行真实浏览器验证
  */
 public record DevServerValidationRequest(
         String taskId,
@@ -25,7 +30,9 @@ public record DevServerValidationRequest(
         CodeGenTypeEnum codeGenType,
         GenerationExecutionFence executionFence,
         Runnable onDevServerReady,
-        DevServerSessionOwnership ownership
+        DevServerSessionOwnership ownership,
+        Map<String, String> environmentOverrides,
+        BrowserRuntimeValidationPolicy browserValidationPolicy
 ) {
 
     /** 构造最小验证请求：无隔离栅栏、无就绪回调、调用方作用域持有。 */
@@ -34,25 +41,30 @@ public record DevServerValidationRequest(
                                                 Long userId,
                                                 CodeGenTypeEnum codeGenType) {
         return new DevServerValidationRequest(taskId, appId, userId, codeGenType,
-                null, null, DevServerSessionOwnership.CALLER_SCOPED);
+                null, null, DevServerSessionOwnership.CALLER_SCOPED, Map.of(), null);
     }
 
     /** 归一化可选字段，使下游无需重复判空。 */
     public DevServerValidationRequest {
         onDevServerReady = onDevServerReady == null ? () -> { } : onDevServerReady;
         ownership = ownership == null ? DevServerSessionOwnership.CALLER_SCOPED : ownership;
+        environmentOverrides = environmentOverrides == null
+                ? Map.of()
+                : Map.copyOf(environmentOverrides);
     }
 
     /** 返回以给定执行栅栏做隔离验证的同值请求。 */
     public DevServerValidationRequest withExecutionFence(GenerationExecutionFence fence) {
         return new DevServerValidationRequest(taskId, appId, userId, codeGenType,
-                fence, onDevServerReady, ownership);
+                fence, onDevServerReady, ownership, environmentOverrides,
+                browserValidationPolicy);
     }
 
     /** 返回携带就绪回调的同值请求。 */
     public DevServerValidationRequest withReadyCallback(Runnable callback) {
         return new DevServerValidationRequest(taskId, appId, userId, codeGenType,
-                executionFence, callback, ownership);
+                executionFence, callback, ownership, environmentOverrides,
+                browserValidationPolicy);
     }
 
     /**
@@ -63,6 +75,25 @@ public record DevServerValidationRequest(
      */
     public DevServerValidationRequest withTaskScopedOwnership() {
         return new DevServerValidationRequest(taskId, appId, userId, codeGenType,
-                executionFence, onDevServerReady, DevServerSessionOwnership.TASK_SCOPED);
+                executionFence, onDevServerReady, DevServerSessionOwnership.TASK_SCOPED,
+                environmentOverrides, browserValidationPolicy);
+    }
+
+    /** 返回携带受控环境覆盖的同值请求；具体 allowlist 由启动参数统一校验。 */
+    public DevServerValidationRequest withEnvironmentOverrides(Map<String, String> overrides) {
+        return new DevServerValidationRequest(taskId, appId, userId, codeGenType,
+                executionFence, onDevServerReady, ownership, overrides,
+                browserValidationPolicy);
+    }
+
+    /** 返回要求在活跃 Dev Server 上采集浏览器事实的同值请求。 */
+    public DevServerValidationRequest withBrowserValidation(
+            BrowserRuntimeValidationPolicy policy
+    ) {
+        if (policy == null) {
+            throw new IllegalArgumentException("浏览器验证策略不能为空");
+        }
+        return new DevServerValidationRequest(taskId, appId, userId, codeGenType,
+                executionFence, onDevServerReady, ownership, environmentOverrides, policy);
     }
 }

@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -86,6 +85,7 @@ class BrowserGenerationBenchmarkRuntimeGraderTest {
                 List.of(),
                 List.of(new BrowserRuntimeObservation.ConsoleMessage(
                         "SEVERE", "Uncaught TypeError: broken")),
+                BrowserRuntimeObservation.NetworkEvidence.captured(List.of()),
                 new BrowserRuntimeObservation.ScreenshotStats(true, 1_600, 900, 1, 0)
         );
         when(browserRuntimeProbe.inspect(any(), any())).thenReturn(unhealthy);
@@ -103,12 +103,14 @@ class BrowserGenerationBenchmarkRuntimeGraderTest {
     }
 
     @Test
-    void probeFailureMustStillStopOwnedDevServer() {
+    void probeFailureMustFailRuntimeAndStillStopOwnedDevServer() {
         when(browserRuntimeProbe.inspect(any(), any()))
                 .thenThrow(new IllegalStateException("browser failed"));
 
-        assertThrows(IllegalStateException.class, () -> grader.evaluate(context()));
+        List<GenerationBenchmarkRuleResult> results = grader.evaluate(context());
 
+        assertTrue(result(results, GenerationBenchmarkQualityDimension.RUNTIME)
+                .violations().contains("browser_probe_failed"));
         verify(devServerManager).stopDevServer(101L);
         verify(devServerManager).unregisterErrorCollector(eq(101L), any());
     }
@@ -168,6 +170,7 @@ class BrowserGenerationBenchmarkRuntimeGraderTest {
                 List.of("http://127.0.0.1:5180/src/main.ts"),
                 List.of(),
                 List.of(),
+                BrowserRuntimeObservation.NetworkEvidence.captured(List.of()),
                 new BrowserRuntimeObservation.ScreenshotStats(true, 1_600, 900, 12, 180)
         );
     }

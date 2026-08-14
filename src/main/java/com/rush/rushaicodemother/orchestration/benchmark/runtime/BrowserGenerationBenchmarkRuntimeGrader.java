@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRunt
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeGrader;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.service.browser.BrowserRuntimeProbe;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeVerifier;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -53,7 +54,7 @@ public class BrowserGenerationBenchmarkRuntimeGrader implements GenerationBenchm
                 new BrowserGenerationRuntimeEvaluator(
                         properties,
                         devServerManager,
-                        browserRuntimeProbe
+                        new BrowserRuntimeVerifier(browserRuntimeProbe)
                 )
         );
     }

@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationResult;
 
 import java.util.List;
 import java.util.Map;
@@ -17,7 +18,8 @@ public record DevServerValidationResult(
         int warningCount,
         List<DevServerError> errors,
         long validationDurationMs,
-        String summary
+        String summary,
+        BrowserRuntimeValidationResult browserValidation
 ) {
 
     public enum ValidationStatus {
@@ -34,6 +36,7 @@ public record DevServerValidationResult(
         STARTUP_FAILURE,
         STARTUP_TIMEOUT,
         INTERRUPTED,
+        BROWSER_RUNTIME_ERROR,
         SKIPPED
     }
 
@@ -57,7 +60,8 @@ public record DevServerValidationResult(
     public boolean startedSuccessfully() {
         return status == ValidationStatus.PASS
                 || status == ValidationStatus.WARNING
-                || failureKind == ValidationFailureKind.RUNTIME_ERROR;
+                || failureKind == ValidationFailureKind.RUNTIME_ERROR
+                || failureKind == ValidationFailureKind.BROWSER_RUNTIME_ERROR;
     }
 
     /**
@@ -79,6 +83,9 @@ public record DevServerValidationResult(
                     "suggestion", e.suggestion(),
                     "count", e.occurrenceCount()
             )).toList());
+        }
+        if (browserValidation != null) {
+            data.put("browserValidation", browserValidation.toEventData());
         }
         return data;
     }
@@ -107,7 +114,61 @@ public record DevServerValidationResult(
                 diagnostic.append("  console=").append(error.rawLine()).append('\n');
             });
         }
+        if (browserValidation != null) {
+            diagnostic.append("browserDiagnostics:\n")
+                    .append(browserValidation.toPublicRepairDiagnostic())
+                    .append('\n');
+        }
         return PublicDiagnosticSanitizer.sanitizeForPublicOutput(diagnostic.toString().trim(), 8_000);
+    }
+
+    /** 合并在同一 Dev Server 存活窗口内采集的浏览器事实。 */
+    public DevServerValidationResult withBrowserValidation(
+            BrowserRuntimeValidationResult browserResult
+    ) {
+        if (browserResult == null) {
+            return this;
+        }
+        if (!isPassed()) {
+            return copy(status, failureKind, criticalErrorCount, summary, browserResult);
+        }
+        if (browserResult.passed()) {
+            return copy(
+                    status,
+                    failureKind,
+                    criticalErrorCount,
+                    "Dev Server 与浏览器 console/network 运行时验证通过",
+                    browserResult
+            );
+        }
+        return copy(
+                ValidationStatus.FAILED,
+                ValidationFailureKind.BROWSER_RUNTIME_ERROR,
+                criticalErrorCount + Math.max(1, browserResult.blockingViolationCount()),
+                browserResult.summary(),
+                browserResult
+        );
+    }
+
+    private DevServerValidationResult copy(
+            ValidationStatus targetStatus,
+            ValidationFailureKind targetFailureKind,
+            int targetCriticalErrorCount,
+            String targetSummary,
+            BrowserRuntimeValidationResult browserResult
+    ) {
+        return new DevServerValidationResult(
+                taskId,
+                appId,
+                targetStatus,
+                targetFailureKind,
+                targetCriticalErrorCount,
+                warningCount,
+                errors,
+                validationDurationMs,
+                targetSummary,
+                browserResult
+        );
     }
 
     // ========== 工厂方法 ==========
@@ -116,7 +177,7 @@ public record DevServerValidationResult(
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.PASS, ValidationFailureKind.NONE,
                 0, 0, List.of(), durationMs,
-                "Dev Server 启动正常，无运行时错误"
+                "Dev Server 启动正常，无运行时错误", null
         );
     }
 
@@ -135,7 +196,7 @@ public record DevServerValidationResult(
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.WARNING, ValidationFailureKind.NONE,
                 0, warnCount, errors, durationMs,
-                "Dev Server 启动正常，" + warnCount + " 个警告（非阻断）"
+                "Dev Server 启动正常，" + warnCount + " 个警告（非阻断）", null
         );
     }
 
@@ -160,7 +221,7 @@ public record DevServerValidationResult(
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.FAILED, ValidationFailureKind.RUNTIME_ERROR,
                 critCount, warnCount, errors, durationMs,
-                "Dev Server 运行时验证失败: " + firstError
+                "Dev Server 运行时验证失败: " + firstError, null
         );
     }
 
@@ -183,7 +244,7 @@ public record DevServerValidationResult(
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.FAILED, ValidationFailureKind.STARTUP_FAILURE,
                 1, 0, List.of(), durationMs,
-                "Dev Server 启动失败: " + detail
+                "Dev Server 启动失败: " + detail, null
         );
     }
 
@@ -199,7 +260,7 @@ public record DevServerValidationResult(
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.FAILED, ValidationFailureKind.INTERRUPTED,
                 1, 0, List.of(), durationMs,
-                "Dev Server 运行时验证被中断"
+                "Dev Server 运行时验证被中断", null
         );
     }
 
@@ -215,7 +276,7 @@ public record DevServerValidationResult(
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.TIMEOUT, ValidationFailureKind.STARTUP_TIMEOUT,
                 0, 0, List.of(), durationMs,
-                "Dev Server 启动超时，未能在预期时间内完成首次编译"
+                "Dev Server 启动超时，未能在预期时间内完成首次编译", null
         );
     }
 
@@ -231,7 +292,7 @@ public record DevServerValidationResult(
         return new DevServerValidationResult(
                 taskId, appId, ValidationStatus.SKIPPED, ValidationFailureKind.SKIPPED,
                 0, 0, List.of(), 0,
-                "已跳过 Dev Server 验证: " + reason
+                "已跳过 Dev Server 验证: " + reason, null
         );
     }
 }

@@ -89,6 +89,37 @@ public record ProjectRuntimeValidationResult(
                 resolved.toPublicRepairDiagnostic());
     }
 
+    public static ProjectRuntimeValidationResult fromFullStack(
+            FullStackRuntimeValidationResult result
+    ) {
+        FullStackRuntimeValidationResult resolved = result == null
+                ? new FullStackRuntimeValidationResult(
+                        BackendRuntimeValidationResult.failed(
+                                0, "fullstack_runtime_result_missing"),
+                        null,
+                        0)
+                : result;
+        Map<String, Object> eventData = new LinkedHashMap<>(resolved.evidenceDetails());
+        eventData.put("status", resolved.status());
+        eventData.put("failureKind", resolved.failureKind());
+        eventData.put("criticalErrorCount", resolved.criticalErrorCount());
+        eventData.put("warningCount", resolved.warningCount());
+        eventData.put("validationDurationMs", resolved.durationMs());
+        eventData.put("summary", resolved.summary());
+        return new ProjectRuntimeValidationResult(
+                resolved.passed(),
+                resolved.status(),
+                resolved.failureKind(),
+                resolved.criticalErrorCount(),
+                resolved.warningCount(),
+                resolved.durationMs(),
+                resolved.summary(),
+                eventData,
+                resolved.evidenceDetails(),
+                resolved.toPublicRepairDiagnostic()
+        );
+    }
+
     public boolean isPassed() {
         return passed;
     }

@@ -7,9 +7,9 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkQualityDimension;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuleResult;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeContext;
-import com.rush.rushaicodemother.service.browser.BrowserRuntimeObservation;
-import com.rush.rushaicodemother.service.browser.BrowserRuntimeProbe;
-import com.rush.rushaicodemother.service.browser.LoopbackBrowserTargetPolicy;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationResult;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeVerifier;
 import com.rush.rushaicodemother.service.devserver.DevServerErrorCollector;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import com.rush.rushaicodemother.service.devserver.DevServerStartOptions;
@@ -31,16 +31,16 @@ public class BrowserGenerationRuntimeEvaluator {
 
     private final GenerationBenchmarkBrowserProperties properties;
     private final DevServerManager devServerManager;
-    private final BrowserRuntimeProbe browserRuntimeProbe;
+    private final BrowserRuntimeVerifier browserRuntimeVerifier;
 
     public BrowserGenerationRuntimeEvaluator(
             GenerationBenchmarkBrowserProperties properties,
             DevServerManager devServerManager,
-            BrowserRuntimeProbe browserRuntimeProbe
+            BrowserRuntimeVerifier browserRuntimeVerifier
     ) {
         this.properties = properties;
         this.devServerManager = devServerManager;
-        this.browserRuntimeProbe = browserRuntimeProbe;
+        this.browserRuntimeVerifier = browserRuntimeVerifier;
     }
 
     /**
@@ -68,13 +68,17 @@ public class BrowserGenerationRuntimeEvaluator {
                     ? devServerManager.startDevServer(app, context.userId())
                     : devServerManager.startDevServer(app, context.userId(), startOptions);
             URI target = URI.create("http://127.0.0.1:" + startResult.port() + "/");
-            BrowserRuntimeObservation observation = browserRuntimeProbe.inspect(
+            BrowserRuntimeValidationResult validation = browserRuntimeVerifier.verify(
                     target,
-                    properties.getSettleDelay()
+                    BrowserRuntimeValidationPolicy.benchmark(properties.getSettleDelay())
             );
             return List.of(
-                    gradeRuntime(observation, errorCollector),
-                    gradeVisual(observation)
+                    gradeRuntime(validation, errorCollector),
+                    result(
+                            VISUAL_RULE_ID,
+                            GenerationBenchmarkQualityDimension.VISUAL,
+                            validation.visualViolations()
+                    )
             );
         } finally {
             stopOwnedSession(appId, startResult);
@@ -84,61 +88,14 @@ public class BrowserGenerationRuntimeEvaluator {
 
     /** 返回{@code grade}运行时。 */
     private GenerationBenchmarkRuleResult gradeRuntime(
-            BrowserRuntimeObservation observation,
+            BrowserRuntimeValidationResult validation,
             DevServerErrorCollector errorCollector
     ) {
-        List<String> violations = new ArrayList<>();
-        if (!LoopbackBrowserTargetPolicy.sameOrigin(observation.requestedUri(), observation.finalUri())) {
-            violations.add("preview_origin_changed");
-        }
-        if (!"complete".equalsIgnoreCase(observation.readyState())) {
-            violations.add("document_not_ready");
-        }
+        List<String> violations = new ArrayList<>(validation.runtimeViolations());
         if (errorCollector.hasCriticalError()) {
             violations.add("dev_server_critical_error");
         }
-        if (observation.viteErrorOverlayPresent()) {
-            violations.add("vite_error_overlay_present");
-        }
-        if (observation.hasFatalConsoleError()) {
-            violations.add("browser_console_error");
-        }
-        if (observation.looksLikeErrorPage()) {
-            violations.add("error_page_rendered");
-        }
-        if (!observation.appNodeExists()) {
-            violations.add("app_mount_missing");
-        } else if (observation.appNodeChildCount() == 0 && observation.bodyTextLength() == 0) {
-            violations.add("app_render_empty");
-        }
         return result(RUNTIME_RULE_ID, GenerationBenchmarkQualityDimension.RUNTIME, violations);
-    }
-
-    /** 返回{@code grade}{@code Visual}。 */
-    private GenerationBenchmarkRuleResult gradeVisual(BrowserRuntimeObservation observation) {
-        List<String> violations = new ArrayList<>();
-        BrowserRuntimeObservation.ScreenshotStats screenshot = observation.screenshot();
-        if (!screenshot.captured()) {
-            violations.add("screenshot_missing");
-        } else {
-            if (screenshot.width() < 320 || screenshot.height() < 240) {
-                violations.add("screenshot_dimensions_invalid");
-            }
-            if (screenshot.nearUniform()) {
-                violations.add("screenshot_near_uniform");
-            }
-        }
-        if (observation.documentWidth() < 1 || observation.documentHeight() < 1) {
-            violations.add("document_has_no_visual_area");
-        }
-        if (observation.visibleElementCount() < 2
-                || observation.bodyTextLength() == 0 && observation.visibleElementCount() < 3) {
-            violations.add("visible_content_empty");
-        }
-        if (observation.viteErrorOverlayPresent() || observation.looksLikeErrorPage()) {
-            violations.add("visual_error_state_rendered");
-        }
-        return result(VISUAL_RULE_ID, GenerationBenchmarkQualityDimension.VISUAL, violations);
     }
 
     private GenerationBenchmarkRuleResult result(

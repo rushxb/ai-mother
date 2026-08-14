@@ -7,7 +7,6 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Service;
 
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -22,81 +21,16 @@ public class IntentProfileService {
 
     private static final int MAX_ANALYZED_CHARACTERS = 20_000;
     private static final int ANALYZED_EDGE_CHARACTERS = MAX_ANALYZED_CHARACTERS / 2;
+    private static final IntentLexicalRuleSet LEXICAL_RULES = IntentLexicalRuleSet.defaultRules();
 
-    private static final List<String> REPAIR_KEYWORDS = List.of(
-            "修复", "修 bug", "修bug", "bug", "报错", "异常", "错误", "失败", "无法运行",
-            "崩溃", "故障", "fix", "broken", "error", "exception", "failed", "failure", "crash"
-    );
-    private static final List<String> EXPLAIN_KEYWORDS = List.of(
-            "解释", "说明", "分析原因", "为什么", "怎么实现", "如何实现", "原理", "讲解",
-            "explain", "why", "how does", "how to", "analyze"
-    );
-    private static final List<String> EDIT_ACTION_KEYWORDS = List.of(
-            "修改", "调整", "更改", "替换", "改成", "换成", "新增", "增加", "实现", "重构",
-            "删除", "升级", "迁移", "modify", "change", "replace", "add", "implement", "refactor",
-            "delete", "remove", "upgrade", "migrate"
-    );
-    private static final List<String> LIGHT_EDIT_KEYWORDS = List.of(
-            "文案", "标题", "文字", "颜色", "字号", "字体", "间距", "边距", "圆角", "按钮",
-            "图标", "样式", "布局微调", "copy", "title", "text", "color", "font", "spacing",
-            "margin", "padding", "border radius", "button", "icon", "style"
-    );
-    private static final List<String> FRONTEND_KEYWORDS = List.of(
-            "前端", "前后端", "页面", "首页", "组件", "界面", "布局", "样式", "按钮", "表单", "弹窗",
-            "vue", "react", "css", "html", "frontend", "page", "component", "ui", "ux"
-    );
-    private static final List<String> BACKEND_KEYWORDS = List.of(
-            "后端", "前后端", "服务端", "controller", "service", "repository", "spring", "java", "backend", "server"
-    );
-    private static final List<String> API_KEYWORDS = List.of(
-            "接口", "api", "endpoint", "rest", "graphql", "websocket", "契约"
-    );
-    private static final List<String> DATABASE_KEYWORDS = List.of(
-            "数据库", "数据表", "表结构", "字段", "sql", "mysql", "postgres", "redis", "mongodb",
-            "database", "schema", "migration", "orm", "mybatis", "jpa"
-    );
-    private static final List<String> AUTHENTICATION_KEYWORDS = List.of(
-            "登录", "注册", "鉴权", "认证", "授权", "权限", "角色", "jwt", "oauth", "sso",
-            "login", "register", "authentication", "authorization", "permission", "role"
-    );
-    private static final List<String> BUILD_KEYWORDS = List.of(
-            "构建", "编译", "依赖", "打包", "部署配置", "package.json", "pom.xml", "gradle", "maven",
-            "npm", "pnpm", "yarn", "vite", "webpack", "build", "compile", "dependency"
-    );
-    private static final List<String> INFRASTRUCTURE_KEYWORDS = List.of(
-            "微服务", "分布式", "kubernetes", "k8s", "docker", "容器", "网关", "消息队列", "高并发",
-            "多租户", "限流", "熔断", "链路追踪", "microservice", "distributed", "infrastructure"
-    );
-    private static final List<String> TESTING_KEYWORDS = List.of(
-            "测试", "单测", "集成测试", "回归", "验收", "test", "testing", "junit", "playwright", "cypress"
-    );
-    private static final List<String> DOCUMENTATION_KEYWORDS = List.of(
-            "文档", "说明书", "readme", "注释", "documentation", "docs", "comment"
-    );
-    private static final List<String> MULTI_FILE_KEYWORDS = List.of(
-            "跨文件", "多个文件", "多文件", "前后端", "全栈", "整个项目", "全项目", "所有文件",
-            "cross-file", "multiple files", "full stack", "entire project", "whole project"
-    );
-    private static final List<String> SINGLE_FILE_KEYWORDS = List.of(
-            "单文件", "一个文件", "当前文件", "这个文件", "single file", "one file", "this file"
-    );
-    private static final List<String> HIGH_COMPLEXITY_KEYWORDS = List.of(
-            "完整重构", "彻底重构", "全部重写", "从头重写", "推倒重来", "更换技术栈", "换框架",
-            "支付系统", "复杂工作流", "架构改造", "领域驱动", "高并发", "多租户", "微服务", "分布式",
-            "rewrite everything", "from scratch", "change framework", "payment system", "complex workflow",
-            "architecture", "multi-tenant", "microservice", "distributed"
-    );
-    private static final List<String> HIGH_DESTRUCTIVE_KEYWORDS = List.of(
-            // "删除所有" 与 "删除全部" 在中文里同样常见，缺一个会让高危请求被判为中风险。
-            "全部删除", "删除全部", "删除所有", "所有删除", "清空", "全部重写", "从头重写", "推倒重来",
-            "替换整个", "更换技术栈",
-            "换框架", "drop table", "drop database", "delete all", "remove all", "rewrite everything",
-            "replace entire", "change framework"
-    );
-    private static final List<String> MEDIUM_DESTRUCTIVE_KEYWORDS = List.of(
-            "重构", "迁移", "升级", "删除", "移除", "表结构", "字段变更", "数据库迁移",
-            "refactor", "migrate", "upgrade", "delete", "remove", "schema change"
-    );
+    /**
+     * 返回本次本地意图判定使用的词法规则版本。
+     *
+     * <p>后续持久化场景决策时可直接记录该值，以保证历史路由可回放。</p>
+     */
+    public String lexicalRuleVersion() {
+        return LEXICAL_RULES.version();
+    }
 
     public IntentProfile analyze(GenerationTaskRequest request,
                                  CodeGenTypeEnum codeGenType,
@@ -180,13 +114,22 @@ public class IntentProfileService {
         if (firstGeneration) {
             return IntentOperationType.CREATE;
         }
-        if (containsAny(message, REPAIR_KEYWORDS)) {
+        boolean repairAction = matches(message, IntentLexicalFeature.REPAIR_ACTION);
+        boolean repairSymptom = matches(message, IntentLexicalFeature.REPAIR_SYMPTOM);
+        boolean explanationAction = matches(message, IntentLexicalFeature.EXPLANATION_ACTION);
+        boolean editAction = matches(message, IntentLexicalFeature.EDIT_ACTION);
+
+        // 显式动作的优先级高于背景症状：“解释 error”是只读分析，不是修复任务。
+        if (repairAction) {
             return IntentOperationType.REPAIR;
         }
-        if (containsAny(message, EXPLAIN_KEYWORDS) && !containsAny(message, EDIT_ACTION_KEYWORDS)) {
+        if (explanationAction && !editAction) {
             return IntentOperationType.EXPLAIN;
         }
-        if (!containsAny(message, EDIT_ACTION_KEYWORDS)) {
+        if (repairSymptom) {
+            return IntentOperationType.REPAIR;
+        }
+        if (!editAction) {
             // 未出现任何显式动作词，EDIT 只是兜底猜测。
             recorder.markUnresolved(IntentResolutionDimension.OPERATION_TYPE);
         }
@@ -197,15 +140,18 @@ public class IntentProfileService {
                                                   CodeGenTypeEnum codeGenType,
                                                   ResolutionRecorder recorder) {
         EnumSet<IntentAffectedScope> scopes = EnumSet.noneOf(IntentAffectedScope.class);
-        addScopeWhenMatched(scopes, IntentAffectedScope.FRONTEND, message, FRONTEND_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.BACKEND, message, BACKEND_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.API, message, API_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.DATABASE, message, DATABASE_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.AUTHENTICATION, message, AUTHENTICATION_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.BUILD_CONFIGURATION, message, BUILD_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.INFRASTRUCTURE, message, INFRASTRUCTURE_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.TESTING, message, TESTING_KEYWORDS);
-        addScopeWhenMatched(scopes, IntentAffectedScope.DOCUMENTATION, message, DOCUMENTATION_KEYWORDS);
+        addScopeWhenMatched(scopes, IntentAffectedScope.FRONTEND, message, IntentLexicalFeature.FRONTEND);
+        addScopeWhenMatched(scopes, IntentAffectedScope.BACKEND, message, IntentLexicalFeature.BACKEND);
+        addScopeWhenMatched(scopes, IntentAffectedScope.API, message, IntentLexicalFeature.API);
+        addScopeWhenMatched(scopes, IntentAffectedScope.DATABASE, message, IntentLexicalFeature.DATABASE);
+        addScopeWhenMatched(scopes, IntentAffectedScope.AUTHENTICATION, message, IntentLexicalFeature.AUTHENTICATION);
+        addScopeWhenMatched(scopes, IntentAffectedScope.BUILD_CONFIGURATION, message,
+                IntentLexicalFeature.BUILD_CONFIGURATION);
+        addScopeWhenMatched(scopes, IntentAffectedScope.INFRASTRUCTURE, message,
+                IntentLexicalFeature.INFRASTRUCTURE);
+        addScopeWhenMatched(scopes, IntentAffectedScope.TESTING, message, IntentLexicalFeature.TESTING);
+        addScopeWhenMatched(scopes, IntentAffectedScope.DOCUMENTATION, message,
+                IntentLexicalFeature.DOCUMENTATION);
 
         if (scopes.isEmpty() && codeGenType != null && codeGenType != CodeGenTypeEnum.HTML) {
             // 未命中任何领域关键词，只能按工程类型假定为前端改动。
@@ -222,17 +168,17 @@ public class IntentProfileService {
     private void addScopeWhenMatched(Set<IntentAffectedScope> scopes,
                                      IntentAffectedScope scope,
                                      String message,
-                                     List<String> keywords) {
-        if (containsAny(message, keywords)) {
+                                     IntentLexicalFeature feature) {
+        if (matches(message, feature)) {
             scopes.add(scope);
         }
     }
 
     private IntentDestructiveRisk detectDestructiveRisk(String message) {
-        if (containsAny(message, HIGH_DESTRUCTIVE_KEYWORDS)) {
+        if (matches(message, IntentLexicalFeature.HIGH_DESTRUCTIVE_RISK)) {
             return IntentDestructiveRisk.HIGH;
         }
-        if (containsAny(message, MEDIUM_DESTRUCTIVE_KEYWORDS)) {
+        if (matches(message, IntentLexicalFeature.MEDIUM_DESTRUCTIVE_RISK)) {
             return IntentDestructiveRisk.MEDIUM;
         }
         return IntentDestructiveRisk.LOW;
@@ -244,13 +190,13 @@ public class IntentProfileService {
                                   boolean requiresBackend,
                                   boolean requiresDatabase,
                                   ResolutionRecorder recorder) {
-        if (containsAny(message, SINGLE_FILE_KEYWORDS)) {
+        if (matches(message, IntentLexicalFeature.SINGLE_FILE)) {
             return 1;
         }
         if (firstGeneration) {
             return requiresBackend || requiresDatabase ? 12 : 6;
         }
-        if (containsAny(message, MULTI_FILE_KEYWORDS)) {
+        if (matches(message, IntentLexicalFeature.MULTI_FILE)) {
             return Math.max(4, scopes.size() + 2);
         }
         if (requiresBackend && requiresDatabase) {
@@ -259,7 +205,7 @@ public class IntentProfileService {
         if (requiresBackend) {
             return 4;
         }
-        if (containsAny(message, LIGHT_EDIT_KEYWORDS)) {
+        if (matches(message, IntentLexicalFeature.LIGHT_EDIT)) {
             return 1;
         }
         // 既无规模关键词也无轻量特征，只能按影响范围数量粗估。
@@ -275,7 +221,7 @@ public class IntentProfileService {
                                                        IntentDestructiveRisk destructiveRisk,
                                                        int expectedFileCount,
                                                        ResolutionRecorder recorder) {
-        if (containsAny(message, HIGH_COMPLEXITY_KEYWORDS)
+        if (matches(message, IntentLexicalFeature.HIGH_COMPLEXITY)
                 || destructiveRisk == IntentDestructiveRisk.HIGH
                 || scopes.contains(IntentAffectedScope.INFRASTRUCTURE)
                 || (requiresBackend && requiresDatabase
@@ -287,7 +233,7 @@ public class IntentProfileService {
                 && !requiresBackend
                 && !requiresDatabase
                 && destructiveRisk == IntentDestructiveRisk.LOW
-                && containsAny(message, LIGHT_EDIT_KEYWORDS)) {
+                && matches(message, IntentLexicalFeature.LIGHT_EDIT)) {
             return IntentSemanticComplexity.LOW;
         }
         // 首次生成的中等档由工作区状态决定，属于确定结论；其余情况是兜底默认值。
@@ -352,7 +298,7 @@ public class IntentProfileService {
                 + normalized.substring(normalized.length() - ANALYZED_EDGE_CHARACTERS);
     }
 
-    private boolean containsAny(String message, List<String> keywords) {
-        return keywords.stream().anyMatch(message::contains);
+    private boolean matches(String message, IntentLexicalFeature feature) {
+        return LEXICAL_RULES.matches(message, feature);
     }
 }

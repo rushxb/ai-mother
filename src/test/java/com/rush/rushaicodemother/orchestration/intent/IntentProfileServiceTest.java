@@ -87,6 +87,83 @@ class IntentProfileServiceTest {
     }
 
     @Test
+    void explicitExplanationShouldTakePriorityOverMentionedFailureSymptoms() {
+        IntentProfile profile = service.analyze(
+                request("Please explain why this component has a render error"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+
+        assertEquals(IntentOperationType.EXPLAIN, profile.operationType());
+    }
+
+    @Test
+    void negatedActionsAndResourcesShouldNotExpandTheExecutionIntent() {
+        IntentProfile profile = service.analyze(
+                request("不要修改数据库，也不要删除数据，只解释 why 页面报错"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+
+        assertEquals(IntentOperationType.EXPLAIN, profile.operationType());
+        assertFalse(profile.requiresDatabase());
+        assertFalse(profile.requiresBackend());
+        assertEquals(IntentDestructiveRisk.LOW, profile.destructiveRisk());
+        assertTrue(profile.affectedScopes().contains(IntentAffectedScope.FRONTEND));
+    }
+
+    @Test
+    void englishFeatureKeywordsShouldRespectWordBoundaries() {
+        IntentProfile profile = service.analyze(
+                request("Please explain the rapid repaint behavior"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+
+        assertEquals(IntentOperationType.EXPLAIN, profile.operationType());
+        assertFalse(profile.affectedScopes().contains(IntentAffectedScope.API));
+        assertFalse(profile.requiresBackend());
+    }
+
+    @Test
+    void englishNegationShouldExcludeForbiddenResourcesAndActions() {
+        IntentProfile profile = service.analyze(
+                request("Do not modify the database; explain the page behavior"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+
+        assertEquals(IntentOperationType.EXPLAIN, profile.operationType());
+        assertFalse(profile.requiresDatabase());
+        assertFalse(profile.requiresBackend());
+        assertEquals(IntentDestructiveRisk.LOW, profile.destructiveRisk());
+    }
+
+    @Test
+    void uncertaintyExpressionsShouldNotBeMisreadAsResourceNegation() {
+        IntentProfile englishProfile = service.analyze(
+                request("I am not sure why the database error happens"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+        IntentProfile chineseProfile = service.analyze(
+                request("我不确定数据库报错的原因，请解释"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+
+        assertTrue(englishProfile.requiresDatabase());
+        assertTrue(chineseProfile.requiresDatabase());
+        assertEquals(IntentOperationType.EXPLAIN, englishProfile.operationType());
+        assertEquals(IntentOperationType.EXPLAIN, chineseProfile.operationType());
+    }
+
+    @Test
+    void lexicalRuleVersionShouldBeStableAndRecordable() {
+        assertEquals("intent-lexical/1.0.0", service.lexicalRuleVersion());
+    }
+
+    @Test
     void blankAndOversizedPromptsShouldRemainBoundedAndSafe() {
         IntentProfile blankProfile = service.analyze(
                 request("   "),

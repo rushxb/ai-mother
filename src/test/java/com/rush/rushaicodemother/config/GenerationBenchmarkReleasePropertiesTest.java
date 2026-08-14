@@ -25,6 +25,8 @@ class GenerationBenchmarkReleasePropertiesTest {
         assertEquals(GenerationBenchmarkReleaseProperties.MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE,
                 properties.getMinimumFirstPreviewObservationRate());
         // 各路由的 P90 首屏门禁必须与对应路由的首屏 SLA 上限保持一致。
+        assertEquals(GenerationSlaProperties.READ_ONLY_FIRST_PREVIEW_TIMEOUT,
+                maximum(properties, GenerationMode.READ_ONLY));
         assertEquals(GenerationSlaProperties.CREATE_FIRST_PREVIEW_TIMEOUT,
                 maximum(properties, GenerationMode.CREATE));
         assertEquals(GenerationSlaProperties.LIGHT_EDIT_FIRST_PREVIEW_TIMEOUT,

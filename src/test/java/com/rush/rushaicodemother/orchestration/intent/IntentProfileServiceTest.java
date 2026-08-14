@@ -98,6 +98,23 @@ class IntentProfileServiceTest {
     }
 
     @Test
+    void explicitAuditAndPlanRequestsMustRemainReadOnlyOperations() {
+        IntentProfile auditProfile = service.analyze(
+                request("审计当前鉴权链路的安全风险，不要修改代码"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+        IntentProfile planProfile = service.analyze(
+                request("先给出数据库迁移方案，不要实现"),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(true)
+        );
+
+        assertEquals(IntentOperationType.AUDIT, auditProfile.operationType());
+        assertEquals(IntentOperationType.PLAN, planProfile.operationType());
+    }
+
+    @Test
     void negatedActionsAndResourcesShouldNotExpandTheExecutionIntent() {
         IntentProfile profile = service.analyze(
                 request("不要修改数据库，也不要删除数据，只解释 why 页面报错"),
@@ -160,7 +177,7 @@ class IntentProfileServiceTest {
 
     @Test
     void lexicalRuleVersionShouldBeStableAndRecordable() {
-        assertEquals("intent-lexical/1.0.0", service.lexicalRuleVersion());
+        assertEquals("intent-lexical/1.1.0", service.lexicalRuleVersion());
     }
 
     @Test

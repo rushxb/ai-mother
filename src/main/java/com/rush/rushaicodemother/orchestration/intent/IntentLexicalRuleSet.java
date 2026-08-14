@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
  */
 final class IntentLexicalRuleSet {
 
-    static final String VERSION = "intent-lexical/1.0.0";
+    static final String VERSION = "intent-lexical/1.1.0";
 
     private static final int NEGATION_LOOKBACK_CHARACTERS = 24;
     private static final Pattern ENGLISH_NEGATION = Pattern.compile(
@@ -145,6 +145,19 @@ final class IntentLexicalRuleSet {
         vocabulary.put(IntentLexicalFeature.EXPLANATION_ACTION, List.of(
                 "解释", "说明", "分析原因", "为什么", "怎么实现", "如何实现", "原理", "讲解",
                 "explain", "why", "how does", "how to", "analyze"
+        ));
+        vocabulary.put(IntentLexicalFeature.AUDIT_ACTION, List.of(
+                "审计", "代码审查", "安全审查", "风险评估", "检查一下", "检视",
+                "audit", "code review", "security review", "risk assessment"
+        ));
+        vocabulary.put(IntentLexicalFeature.PLAN_ACTION, List.of(
+                "先给方案", "给出方案", "实施方案", "迁移方案", "优化方案", "实施步骤", "先规划",
+                "plan first", "proposal", "roadmap", "implementation plan", "migration plan"
+        ));
+        vocabulary.put(IntentLexicalFeature.READ_ONLY_CONSTRAINT, List.of(
+                "不要修改", "不要改", "不要实现", "无需修改", "无需实现", "不改代码", "只分析", "只解释",
+                "只审计", "只给方案", "仅分析", "仅解释", "仅审计", "仅给方案",
+                "do not modify", "do not change", "do not implement", "without changes", "read only", "read-only"
         ));
         vocabulary.put(IntentLexicalFeature.EDIT_ACTION, List.of(
                 "修改", "调整", "更改", "替换", "改成", "换成", "新增", "增加", "实现", "重构",

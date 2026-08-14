@@ -213,6 +213,8 @@ public class GenerationPipelineExecutor {
         GenerationTaskExecution execution = request.requireExecution();
         GenerationSession session = execution.session();
         GenerationTaskStatus status = outcome.terminalStatus();
+        boolean workspacePublished = status == GenerationTaskStatus.SUCCESS
+                && !request.modeIs(GenerationMode.READ_ONLY);
         GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(execution, outcome, null);
         GenerationFinalizationCommand finalizationCommand = GenerationFinalizationCommand.of(
                 execution.taskId(),
@@ -231,31 +233,38 @@ public class GenerationPipelineExecutor {
                     : request.executionPlan().validationGraph();
             generationCompletionPolicy.requireCompletable(
                     session, validationGraph, outcome.completionEvidence());
-            workspaceReleaseService.releaseVerified(
-                    session,
-                    session.executionWorkspace() == null
-                            ? request.codeGenType()
-                            : session.executionWorkspace().codeGenType(),
-                    finalizationCommand
-            );
+            if (workspacePublished) {
+                workspaceReleaseService.releaseVerified(
+                        session,
+                        session.executionWorkspace() == null
+                                ? request.codeGenType()
+                                : session.executionWorkspace().codeGenType(),
+                        finalizationCommand
+                );
+            }
         }
         try {
             generationTaskFinalizer.finalizeManaged(finalizationCommand);
         } catch (RuntimeException finalizationFailure) {
             if (status == GenerationTaskStatus.SUCCESS) {
                 throw new GenerationFinalizationDeferredException(
-                        "生成结果已发布但终态提交失败", finalizationFailure);
+                        workspacePublished
+                                ? "生成结果已发布但终态提交失败"
+                                : "只读分析已完成但终态提交失败",
+                        finalizationFailure);
             }
             throw finalizationFailure;
         }
         rememberOutcomeSafely(request, status, outcome.resultSummary());
         if (status == GenerationTaskStatus.SUCCESS) {
             generationEventPublisher.publishIdempotently(
-                    request.taskRequest(), GenerationEventType.TASK_DONE, "生成任务已发布", Map.of(
+                    request.taskRequest(), GenerationEventType.TASK_DONE,
+                    workspacePublished ? "生成任务已发布" : "只读分析已完成", Map.of(
                             "eventId", terminalEventId(execution),
                             "taskId", execution.taskId(),
                             "route", request.modeDecision().route(),
-                            "status", status.getValue()
+                            "status", status.getValue(),
+                            "workspacePublished", workspacePublished
                     ));
         }
         if (session.tryBeginCompletion()) {

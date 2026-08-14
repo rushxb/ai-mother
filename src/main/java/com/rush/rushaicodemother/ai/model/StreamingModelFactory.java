@@ -134,6 +134,25 @@ public class StreamingModelFactory {
                 beforeModelTurn, beforeProviderFailoverAttempt);
     }
 
+    /** 为只读审计与方案分析创建受任务预算约束的质量优先同步模型。 */
+    public ChatModel createExecutionAnalysisChatModel(Duration totalTimeout,
+                                                      Runnable beforeModelTurn,
+                                                      Runnable beforeProviderFailoverAttempt) {
+        if (totalTimeout == null || totalTimeout.isZero() || totalTimeout.isNegative()) {
+            throw new IllegalArgumentException("只读分析模型超时必须大于 0");
+        }
+        GenerationPerformanceProfile profile = GenerationPerformanceProfile.qualityFirst();
+        List<AiModelRuntimeConfiguration> models = getRequiredEnabledModelsByType(
+                resolveModelType(profile.modelTier()), "受管只读分析任务");
+        return createTimeBoundedChatPool(
+                models,
+                totalTimeout,
+                0,
+                profile.thinkingEnabled(),
+                beforeModelTurn,
+                beforeProviderFailoverAttempt);
+    }
+
     /** 为受管 CREATE 规格调用创建共享任务截止时间与预算回调的同步模型。 */
     public ChatModel createExecutionCreateSpecChatModel(Duration totalTimeout,
                                                         Runnable beforeModelTurn,

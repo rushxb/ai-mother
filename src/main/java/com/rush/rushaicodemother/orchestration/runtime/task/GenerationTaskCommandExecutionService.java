@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizati
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
@@ -226,9 +227,12 @@ public class GenerationTaskCommandExecutionService {
                     command.modeDecision()
             );
 
-            resourceProvisioningService.provision(command, app, executionContext);
+            boolean readOnly = command.mode() == GenerationMode.READ_ONLY;
+            if (!readOnly) {
+                resourceProvisioningService.provision(command, app, executionContext);
+            }
 
-            if (executionWorkspaceService != null) {
+            if (!readOnly && executionWorkspaceService != null) {
                 GenerationPerformanceMonitorService.SpanTimer workspaceSpan =
                         performanceMonitorService.startSpan(
                                 taskId,
@@ -249,7 +253,7 @@ public class GenerationTaskCommandExecutionService {
                     throw workspaceFailure;
                 }
             }
-            if (executionWorkspaceService != null && toolExecutionContextService != null) {
+            if (!readOnly && executionWorkspaceService != null && toolExecutionContextService != null) {
                 // 在工作时代存在之前，准备工作可能已经绑定了任务级上下文。
                 // 现在将其固定，以便每个模型/工具回调都可以解析确切的围栏。
                 toolContextBound = toolExecutionContextService.bindExecutionFenceIfPresent(
@@ -308,7 +312,7 @@ public class GenerationTaskCommandExecutionService {
                             "generation.user.id", String.valueOf(command.userId()),
                             "generation.route", command.route()
                     ),
-                    () -> runInExecutionWorkspace(executionFence, () -> {
+                    () -> runInExecutionWorkspace(executionFence, !readOnly, () -> {
                         recordWorkerQueueWait(task, admittedExecutionContext, workerQueueStartedAt);
                         try {
                             pipelineExecutor.execute(executableRequest);
@@ -385,8 +389,9 @@ public class GenerationTaskCommandExecutionService {
     }
 
     private Void runInExecutionWorkspace(GenerationExecutionFence executionFence,
+                                         boolean workspaceIsolationRequired,
                                          Runnable action) {
-        if (workspaceExecutionScope == null) {
+        if (!workspaceIsolationRequired || workspaceExecutionScope == null) {
             action.run();
             return null;
         }

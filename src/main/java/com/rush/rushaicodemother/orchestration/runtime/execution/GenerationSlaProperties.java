@@ -19,6 +19,18 @@ public class GenerationSlaProperties {
     /** 各路由共享的最小操作超时。 */
     public static final Duration MINIMUM_OPERATION_TIMEOUT = Duration.ofMillis(500);
 
+    public static final String READ_ONLY_NAME = "read-only-analysis";
+    public static final Duration READ_ONLY_FIRST_PREVIEW_TIMEOUT = Duration.ofSeconds(45);
+    public static final Duration READ_ONLY_TOTAL_TIMEOUT = Duration.ofMinutes(2);
+    public static final Duration READ_ONLY_MODEL_CALL_TIMEOUT = Duration.ofMinutes(1);
+    public static final Duration READ_ONLY_FIRST_PREVIEW_COMPLETION_RESERVE = Duration.ofSeconds(10);
+    public static final int READ_ONLY_MAX_ROOT_MODEL_ATTEMPTS = 1;
+    public static final int READ_ONLY_MAX_MODEL_TURNS = 1;
+    public static final int READ_ONLY_MAX_PROVIDER_FAILOVER_ATTEMPTS = 1;
+    public static final int READ_ONLY_MAX_TOOL_WRITES = 0;
+    public static final int READ_ONLY_MAX_BUILD_EXECUTIONS = 0;
+    public static final int READ_ONLY_MAX_REPAIR_ROUNDS = 0;
+
     public static final String CREATE_NAME = "create-preview-first";
     public static final Duration CREATE_FIRST_PREVIEW_TIMEOUT = Duration.ofSeconds(60);
     public static final Duration CREATE_TOTAL_TIMEOUT = Duration.ofMinutes(10);
@@ -132,6 +144,12 @@ public class GenerationSlaProperties {
     /** 返回默认{@code Profiles}。 */
     private static Map<GenerationMode, Profile> defaultProfiles() {
         EnumMap<GenerationMode, Profile> profiles = new EnumMap<>(GenerationMode.class);
+        profiles.put(GenerationMode.READ_ONLY, profile(
+                READ_ONLY_NAME, READ_ONLY_FIRST_PREVIEW_TIMEOUT, READ_ONLY_TOTAL_TIMEOUT,
+                READ_ONLY_MODEL_CALL_TIMEOUT, READ_ONLY_FIRST_PREVIEW_COMPLETION_RESERVE,
+                READ_ONLY_MAX_ROOT_MODEL_ATTEMPTS, READ_ONLY_MAX_MODEL_TURNS,
+                READ_ONLY_MAX_PROVIDER_FAILOVER_ATTEMPTS, READ_ONLY_MAX_TOOL_WRITES,
+                READ_ONLY_MAX_BUILD_EXECUTIONS, READ_ONLY_MAX_REPAIR_ROUNDS));
         profiles.put(GenerationMode.CREATE, profile(
                 CREATE_NAME, CREATE_FIRST_PREVIEW_TIMEOUT, CREATE_TOTAL_TIMEOUT,
                 CREATE_MODEL_CALL_TIMEOUT, CREATE_FIRST_PREVIEW_COMPLETION_RESERVE,
@@ -229,9 +247,9 @@ public class GenerationSlaProperties {
                     && within(maxRootModelAttempts, MAX_ROOT_MODEL_ATTEMPTS)
                     && within(maxModelTurns, MAX_MODEL_TURNS)
                     && within(maxProviderFailoverAttempts, MAX_PROVIDER_FAILOVER_ATTEMPTS)
-                    && within(maxToolWrites, MAX_TOOL_WRITES)
-                    && within(maxBuildExecutions, MAX_BUILD_EXECUTIONS)
-                    && within(maxRepairRounds, MAX_REPAIR_ROUNDS);
+                    && withinNonNegative(maxToolWrites, MAX_TOOL_WRITES)
+                    && withinNonNegative(maxBuildExecutions, MAX_BUILD_EXECUTIONS)
+                    && withinNonNegative(maxRepairRounds, MAX_REPAIR_ROUNDS);
         }
 
         private boolean positive(Duration value) {
@@ -240,6 +258,10 @@ public class GenerationSlaProperties {
 
         private boolean within(int value, int maximum) {
             return value > 0 && value <= maximum;
+        }
+
+        private boolean withinNonNegative(int value, int maximum) {
+            return value >= 0 && value <= maximum;
         }
     }
 }

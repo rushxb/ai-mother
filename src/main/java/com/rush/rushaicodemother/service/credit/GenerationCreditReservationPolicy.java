@@ -50,6 +50,7 @@ public class GenerationCreditReservationPolicy {
     private long estimatedTokens(GenerationMode mode) {
         return switch (Objects.requireNonNull(mode, "mode")) {
             case CREATE -> properties.getCreateEstimatedTokens();
+            case READ_ONLY -> properties.getReadOnlyEstimatedTokens();
             case LIGHT_EDIT -> properties.getLightEditEstimatedTokens();
             case AGENT_EDIT -> properties.getAgentEditEstimatedTokens();
             case HEAVY_EXPERT -> properties.getHeavyExpertEstimatedTokens();

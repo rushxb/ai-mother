@@ -27,6 +27,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -68,6 +69,31 @@ class GenerationExecutionPlannerTest {
         verifyNoMoreInteractions(slaPolicy, performanceSelector);
     }
 
+    @Test
+    void readOnlyPlanMustStructurallyDisableEveryMutationBudget() {
+        GenerationSlaPolicy slaPolicy = mock(GenerationSlaPolicy.class);
+        GenerationPerformanceSelector performanceSelector = mock(GenerationPerformanceSelector.class);
+        GenerationPipelineRequest request = readOnlyRequest();
+        GenerationSlaEnvelope sla = readOnlySlaEnvelope();
+        when(slaPolicy.resolve(request.modeDecision(), request.codeGenType())).thenReturn(sla);
+        when(performanceSelector.select(false, true, request.codeGenType()))
+                .thenReturn(GenerationPerformanceProfile.qualityFirst());
+        GenerationExecutionPlanner planner = new GenerationExecutionPlanner(
+                slaPolicy, performanceSelector, contextProperties());
+
+        GenerationExecutionPlan plan = planner.plan(request);
+
+        assertEquals(0, plan.toolPolicy().maxInvocations());
+        assertEquals(0, plan.toolPolicy().maxWriteOperations());
+        assertEquals(0, plan.repairBudget().maxRounds());
+        assertEquals(0, plan.sla().toLimits().limit(GenerationBudgetKind.BUILD_EXECUTION));
+        assertFalse(plan.toolPolicy().writeOperationsRequireFence());
+        assertFalse(plan.toolPolicy().destructiveOperationsRequireApproval());
+        assertFalse(plan.repairBudget().upgradeModelProfileOnRepair());
+        assertFalse(plan.commitPolicy().requireValidationSuccess());
+        assertFalse(plan.commitPolicy().rollbackOnFailure());
+    }
+
     private GenerationPipelineRequest request() {
         IntentProfile profile = new IntentProfile(
                 IntentOperationType.EDIT,
@@ -86,6 +112,34 @@ class GenerationExecutionPlannerTest {
                 "复杂改修",
                 FallbackPolicy.NONE,
                 ExpectedValidationLevel.EXPERT
+        );
+        return new GenerationPipelineRequest(
+                null,
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                null,
+                profile,
+                decision
+        );
+    }
+
+    private GenerationPipelineRequest readOnlyRequest() {
+        IntentProfile profile = new IntentProfile(
+                IntentOperationType.AUDIT,
+                Set.of(IntentAffectedScope.BACKEND),
+                IntentSemanticComplexity.MEDIUM,
+                true,
+                false,
+                IntentDestructiveRisk.LOW,
+                4,
+                IntentValidationRisk.LOW,
+                0.95
+        );
+        GenerationModeDecision decision = GenerationModeDecision.of(
+                GenerationMode.READ_ONLY,
+                0.95,
+                "只读审计",
+                FallbackPolicy.NONE,
+                ExpectedValidationLevel.FAST
         );
         return new GenerationPipelineRequest(
                 null,
@@ -125,6 +179,26 @@ class GenerationExecutionPlannerTest {
                 Duration.ofSeconds(5),
                 Map.copyOf(budgets),
                 "测试执行计划"
+        );
+    }
+
+    private GenerationSlaEnvelope readOnlySlaEnvelope() {
+        EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
+        budgets.put(GenerationBudgetKind.ROOT_MODEL_ATTEMPT, 1);
+        budgets.put(GenerationBudgetKind.MODEL_TURN, 1);
+        budgets.put(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT, 1);
+        budgets.put(GenerationBudgetKind.TOOL_WRITE, 0);
+        budgets.put(GenerationBudgetKind.BUILD_EXECUTION, 0);
+        budgets.put(GenerationBudgetKind.REPAIR_ROUND, 0);
+        return new GenerationSlaEnvelope(
+                "read-only-test",
+                Duration.ofSeconds(45),
+                Duration.ofSeconds(30),
+                Duration.ofMinutes(2),
+                Duration.ofSeconds(10),
+                Duration.ofMillis(500),
+                Map.copyOf(budgets),
+                "只读分析执行计划"
         );
     }
 }

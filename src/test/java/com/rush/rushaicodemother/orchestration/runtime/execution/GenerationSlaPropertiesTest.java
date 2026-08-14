@@ -21,6 +21,14 @@ class GenerationSlaPropertiesTest {
         GenerationSlaProperties properties = new GenerationSlaProperties();
 
         assertTrue(properties.isConfigurationValid());
+        assertProfile(properties.profile(GenerationMode.READ_ONLY),
+                GenerationSlaProperties.READ_ONLY_NAME,
+                GenerationSlaProperties.READ_ONLY_MAX_ROOT_MODEL_ATTEMPTS,
+                GenerationSlaProperties.READ_ONLY_MAX_MODEL_TURNS,
+                GenerationSlaProperties.READ_ONLY_MAX_PROVIDER_FAILOVER_ATTEMPTS);
+        assertEquals(0, properties.profile(GenerationMode.READ_ONLY).getMaxToolWrites());
+        assertEquals(0, properties.profile(GenerationMode.READ_ONLY).getMaxBuildExecutions());
+        assertEquals(0, properties.profile(GenerationMode.READ_ONLY).getMaxRepairRounds());
         assertProfile(properties.profile(GenerationMode.CREATE),
                 GenerationSlaProperties.CREATE_NAME,
                 GenerationSlaProperties.CREATE_MAX_ROOT_MODEL_ATTEMPTS,

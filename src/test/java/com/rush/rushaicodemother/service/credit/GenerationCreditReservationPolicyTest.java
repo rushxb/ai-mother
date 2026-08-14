@@ -26,11 +26,16 @@ class GenerationCreditReservationPolicyTest {
 
         GenerationCreditReservationQuote lightVue = policy.quote(command(
                 "task-light", GenerationMode.LIGHT_EDIT, CodeGenTypeEnum.VUE_PROJECT));
+        GenerationCreditReservationQuote readOnlyVue = policy.quote(command(
+                "task-read-only", GenerationMode.READ_ONLY, CodeGenTypeEnum.VUE_PROJECT));
         GenerationCreditReservationQuote heavyFullStack = policy.quote(command(
                 "task-heavy", GenerationMode.HEAVY_EXPERT, CodeGenTypeEnum.FULL_STACK_PROJECT));
 
         assertEquals(96_000L, lightVue.estimatedTokens());
         assertEquals(1L, lightVue.reservedCredit());
+        assertEquals(48_000L, readOnlyVue.estimatedTokens());
+        assertEquals(1L, readOnlyVue.reservedCredit());
+        assertTrue(readOnlyVue.pricingReference().contains(":READ_ONLY:"));
         assertEquals(1_050_000L, heavyFullStack.estimatedTokens());
         assertEquals(11L, heavyFullStack.reservedCredit());
         assertTrue(heavyFullStack.pricingReference().startsWith(

@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.intent;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlanner;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import org.springframework.stereotype.Component;
 
@@ -46,7 +47,10 @@ public class IntentClarificationStage {
      */
     public GenerationPipelineRequest apply(GenerationPipelineRequest request) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
-        if (request == null || request.execution() == null || request.taskRequest() == null) {
+        if (request == null
+                || request.modeIs(GenerationMode.READ_ONLY)
+                || request.execution() == null
+                || request.taskRequest() == null) {
             return request;
         }
         GenerationTaskExecution execution = request.execution();

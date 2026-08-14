@@ -25,6 +25,16 @@ public class IntentProfileRoutingDecisionEngine implements GenerationShadowRoute
         if (profile.operationType() == IntentOperationType.CREATE) {
             return decideCreate(profile);
         }
+        if (isReadOnly(profile.operationType())) {
+            return GenerationModeDecision.of(
+                    GenerationMode.READ_ONLY,
+                    profile.confidence(),
+                    "结构化意图明确要求只读分析，不允许修改或发布工作区",
+                    FallbackPolicy.NONE,
+                    ExpectedValidationLevel.FAST,
+                    GenerationRoutingDecisionCode.INTENT_PROFILE_READ_ONLY
+            );
+        }
         if (isHeavyExistingWorkspaceChange(profile)) {
             return GenerationModeDecision.of(
                     GenerationMode.HEAVY_EXPERT,
@@ -93,6 +103,12 @@ public class IntentProfileRoutingDecisionEngine implements GenerationShadowRoute
                 && !profile.requiresDatabase()
                 && profile.destructiveRisk() == IntentDestructiveRisk.LOW
                 && profile.validationRisk() == IntentValidationRisk.LOW;
+    }
+
+    private boolean isReadOnly(IntentOperationType operationType) {
+        return operationType == IntentOperationType.EXPLAIN
+                || operationType == IntentOperationType.AUDIT
+                || operationType == IntentOperationType.PLAN;
     }
 
     private ExpectedValidationLevel expectedValidationLevel(IntentProfile profile) {

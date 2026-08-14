@@ -6,6 +6,7 @@ package com.rush.rushaicodemother.orchestration.routing;
 public final class GenerationRoute {
 
     public static final String CREATE = "create";
+    public static final String READ_ONLY = "read_only";
     public static final String LIGHTWEIGHT_EDIT = "lightweight_edit";
     public static final String AGENT_EDIT = "agent_edit";
     public static final String SLOT_FILL = "slot_fill";

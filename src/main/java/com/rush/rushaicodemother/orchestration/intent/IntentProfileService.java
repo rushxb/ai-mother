@@ -110,21 +110,30 @@ public class IntentProfileService {
     private IntentOperationType detectOperationType(String message,
                                                     boolean firstGeneration,
                                                     ResolutionRecorder recorder) {
-        // 空工作区是客观事实而非推断，因此首次生成不算歧义。
-        if (firstGeneration) {
-            return IntentOperationType.CREATE;
-        }
         boolean repairAction = matches(message, IntentLexicalFeature.REPAIR_ACTION);
         boolean repairSymptom = matches(message, IntentLexicalFeature.REPAIR_SYMPTOM);
         boolean explanationAction = matches(message, IntentLexicalFeature.EXPLANATION_ACTION);
+        boolean auditAction = matches(message, IntentLexicalFeature.AUDIT_ACTION);
+        boolean planAction = matches(message, IntentLexicalFeature.PLAN_ACTION);
+        boolean readOnlyConstraint = matches(message, IntentLexicalFeature.READ_ONLY_CONSTRAINT);
         boolean editAction = matches(message, IntentLexicalFeature.EDIT_ACTION);
 
-        // 显式动作的优先级高于背景症状：“解释 error”是只读分析，不是修复任务。
+        // 显式写动作优先，避免“审计并修复”被错误降为只读；被否定的动作已由词法层排除。
         if (repairAction) {
             return IntentOperationType.REPAIR;
         }
-        if (explanationAction && !editAction) {
+        if (auditAction && (!editAction || readOnlyConstraint)) {
+            return IntentOperationType.AUDIT;
+        }
+        if (planAction && (!editAction || readOnlyConstraint)) {
+            return IntentOperationType.PLAN;
+        }
+        if (explanationAction && (!editAction || readOnlyConstraint)) {
             return IntentOperationType.EXPLAIN;
+        }
+        // 没有显式只读动作时，空工作区才客观表示首次创建。
+        if (firstGeneration) {
+            return IntentOperationType.CREATE;
         }
         if (repairSymptom) {
             return IntentOperationType.REPAIR;
@@ -276,7 +285,7 @@ public class IntentProfileService {
         if (!scopes.contains(IntentAffectedScope.UNKNOWN)) {
             confidence += 0.08;
         }
-        if (operationType == IntentOperationType.REPAIR || operationType == IntentOperationType.EXPLAIN) {
+        if (operationType == IntentOperationType.REPAIR || isReadOnly(operationType)) {
             confidence += 0.07;
         }
         if (complexity == IntentSemanticComplexity.LOW || complexity == IntentSemanticComplexity.HIGH) {
@@ -300,5 +309,11 @@ public class IntentProfileService {
 
     private boolean matches(String message, IntentLexicalFeature feature) {
         return LEXICAL_RULES.matches(message, feature);
+    }
+
+    private boolean isReadOnly(IntentOperationType operationType) {
+        return operationType == IntentOperationType.EXPLAIN
+                || operationType == IntentOperationType.AUDIT
+                || operationType == IntentOperationType.PLAN;
     }
 }

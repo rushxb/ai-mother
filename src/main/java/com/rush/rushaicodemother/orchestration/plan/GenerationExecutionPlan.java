@@ -132,7 +132,7 @@ public record GenerationExecutionPlan(
             boolean destructiveOperationsRequireApproval
     ) {
         public ToolPolicy {
-            requirePositive(maxInvocations, "工具调用上限");
+            requireNonNegative(maxInvocations, "工具调用上限");
             requireNonNegative(maxWriteOperations, "写工具调用上限");
         }
     }

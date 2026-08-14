@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 public enum GenerationMode {
 
     CREATE(GenerationRoute.CREATE),
+    READ_ONLY(GenerationRoute.READ_ONLY),
     LIGHT_EDIT(GenerationRoute.LIGHTWEIGHT_EDIT),
     AGENT_EDIT(GenerationRoute.AGENT_EDIT),
     HEAVY_EXPERT(GenerationRoute.HEAVY_GENERATION);

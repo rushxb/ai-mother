@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.DefaultGenerationSlaPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaProperties;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecution;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +25,8 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * 澄清阶段回归。
@@ -94,6 +97,43 @@ class IntentClarificationStageTest {
         assertThrows(IllegalArgumentException.class,
                 () -> request.withRefinedIntent(request.intentProfile(), reroutedPlan),
                 "澄清不得改变流水线路由决策");
+    }
+
+    @Test
+    void readOnlyRouteMustSkipOptionalClarificationModelCall() {
+        IntentClarificationRefiner refiner = mock(IntentClarificationRefiner.class);
+        GenerationExecutionPlanner executionPlanner = mock(GenerationExecutionPlanner.class);
+        IntentClarificationStage stage = new IntentClarificationStage(refiner, executionPlanner);
+        App app = App.builder().id(10L).userId(20L)
+                .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue()).build();
+        User user = User.builder().id(20L).build();
+        IntentProfile profile = new IntentProfile(
+                IntentOperationType.AUDIT,
+                Set.of(IntentAffectedScope.AUTHENTICATION),
+                IntentSemanticComplexity.MEDIUM,
+                true,
+                false,
+                IntentDestructiveRisk.LOW,
+                3,
+                IntentValidationRisk.LOW,
+                0.95);
+        GenerationModeDecision decision = GenerationModeDecision.of(
+                GenerationMode.READ_ONLY,
+                0.95,
+                "只读审计",
+                FallbackPolicy.NONE,
+                ExpectedValidationLevel.FAST);
+        GenerationPipelineRequest request = new GenerationPipelineRequest(
+                new GenerationTaskRequest(app, "审计鉴权链路，不要修改代码", user),
+                CodeGenTypeEnum.VUE_PROJECT,
+                workspace(),
+                profile,
+                decision,
+                mock(GenerationTaskExecution.class));
+
+        assertSame(request, stage.apply(request));
+
+        verifyNoInteractions(refiner, executionPlanner);
     }
 
     private GenerationPipelineRequest request(IntentSemanticComplexity complexity) {

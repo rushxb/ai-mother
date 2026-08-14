@@ -457,6 +457,107 @@ class GenerationTaskCommandExecutionServiceTest {
         );
     }
 
+    @Test
+    void readOnlyDispatchMustNotProvisionOrMaterializeWritableRuntimeResources() {
+        String taskId = "task-read-only-admission";
+        Instant submittedAt = Instant.now().minusSeconds(1);
+        GenerationTaskCommand command = new GenerationTaskCommand(
+                GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                taskId,
+                11L,
+                22L,
+                100L,
+                "审计鉴权链路，不要修改代码",
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMode.READ_ONLY,
+                0.95,
+                "只读审计",
+                FallbackPolicy.NONE,
+                ExpectedValidationLevel.FAST,
+                "",
+                GenerationRoutingDecisionCode.INTENT_PROFILE_READ_ONLY,
+                null,
+                GenerationTraceContext.empty(),
+                submittedAt,
+                submittedAt.plusSeconds(120));
+        DurableGenerationTaskRepository repository = mock(DurableGenerationTaskRepository.class);
+        AppPersistenceService appPersistenceService = mock(AppPersistenceService.class);
+        UserPersistenceService userPersistenceService = mock(UserPersistenceService.class);
+        TenantAuthorizationService tenantAuthorizationService = mock(TenantAuthorizationService.class);
+        GenerationTaskResourceProvisioningService resourceProvisioningService =
+                mock(GenerationTaskResourceProvisioningService.class);
+        GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
+        GenerationExecutionWorkspaceService executionWorkspaceService =
+                mock(GenerationExecutionWorkspaceService.class);
+        GenerationWorkspaceExecutionScope workspaceExecutionScope =
+                mock(GenerationWorkspaceExecutionScope.class);
+        GenerationToolExecutionContextService toolContextService =
+                mock(GenerationToolExecutionContextService.class);
+        GenerationExecutionContextService executionContextService =
+                new GenerationExecutionContextService(new GenerationRuntimeProperties());
+        GenerationSessionFactory sessionFactory = mock(GenerationSessionFactory.class);
+        GenerationSessionRegistry sessionRegistry =
+                new GenerationSessionRegistry(new GenerationSessionProperties());
+        GenerationTaskExecutor taskExecutor = mock(GenerationTaskExecutor.class);
+        GenerationPipelineExecutor pipelineExecutor = mock(GenerationPipelineExecutor.class);
+        GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
+                mock(GenerationTaskRuntimeLifecycleService.class);
+        GenerationTraceContextBridge traceContextBridge = mock(GenerationTraceContextBridge.class);
+        GenerationPerformanceMonitorService performanceMonitorService =
+                mock(GenerationPerformanceMonitorService.class);
+
+        when(repository.findByTaskId(taskId)).thenReturn(Optional.of(taskRecord(command)));
+        when(repository.findCommandByTaskId(taskId)).thenReturn(Optional.of(command));
+        GenerationExecutionFence fence = new GenerationExecutionFence(taskId, "worker-a", 5L);
+        when(runtimeLifecycleService.reserveQueued(taskId)).thenReturn(Optional.of(fence));
+        App app = App.builder().id(command.appId()).userId(command.userId())
+                .tenantId(command.tenantId()).build();
+        User user = User.builder().id(command.userId()).build();
+        when(appPersistenceService.findActiveById(command.appId())).thenReturn(app);
+        when(userPersistenceService.findActiveById(command.userId())).thenReturn(user);
+        Path root = Path.of("target", "read-only-canonical-workspace")
+                .toAbsolutePath().normalize();
+        GenerationWorkspace canonicalWorkspace = new GenerationWorkspace(
+                command.appId(), command.codeGenType(), root, root, true,
+                root, root, Set.of(), Set.of());
+        when(workspaceService.resolve(app, command.codeGenType())).thenReturn(canonicalWorkspace);
+        when(sessionFactory.create(eq(null), any(GenerationExecutionContext.class)))
+                .thenAnswer(invocation -> new GenerationSession(null, invocation.getArgument(1)));
+        when(traceContextBridge.wrap(any(), any(), anyMap(), any(Runnable.class)))
+                .thenAnswer(invocation -> invocation.getArgument(3));
+
+        GenerationTaskCommandExecutionService service = new GenerationTaskCommandExecutionService(
+                repository,
+                appPersistenceService,
+                userPersistenceService,
+                tenantAuthorizationService,
+                resourceProvisioningService,
+                workspaceService,
+                executionWorkspaceService,
+                workspaceExecutionScope,
+                toolContextService,
+                executionContextService,
+                new GenerationRuntimeProperties(),
+                sessionFactory,
+                sessionRegistry,
+                taskExecutor,
+                pipelineExecutor,
+                runtimeLifecycleService,
+                mock(GenerationTaskFinalizer.class),
+                traceContextBridge,
+                performanceMonitorService);
+
+        assertEquals(GenerationTaskDispatchResult.SCHEDULED, service.schedule(taskId, null));
+
+        verify(workspaceService).resolve(app, command.codeGenType());
+        verifyNoInteractions(
+                resourceProvisioningService,
+                executionWorkspaceService,
+                workspaceExecutionScope,
+                toolContextService);
+        verify(taskExecutor).execute(any(GenerationTaskExecution.class), any(Runnable.class));
+    }
+
     private GenerationExecutionPlan executionPlan(GenerationSlaEnvelope sla) {
         com.rush.rushaicodemother.orchestration.router.GenerationModeDecision decision =
                 new com.rush.rushaicodemother.orchestration.router.GenerationModeDecision(

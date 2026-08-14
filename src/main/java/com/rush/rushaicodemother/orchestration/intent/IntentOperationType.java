@@ -5,5 +5,7 @@ public enum IntentOperationType {
     CREATE,
     EDIT,
     REPAIR,
-    EXPLAIN
+    EXPLAIN,
+    AUDIT,
+    PLAN
 }

@@ -116,6 +116,26 @@ class IntentProfileRoutingDecisionEngineTest {
         assertChineseReason(decision);
     }
 
+    @Test
+    void explanationMustUseReadOnlyRoute() {
+        GenerationModeDecision decision = engine.decide(profile(
+                IntentOperationType.EXPLAIN,
+                Set.of(IntentAffectedScope.FRONTEND),
+                IntentSemanticComplexity.MEDIUM,
+                false,
+                false,
+                IntentDestructiveRisk.LOW,
+                2,
+                IntentValidationRisk.LOW
+        ));
+
+        assertEquals(GenerationMode.READ_ONLY, decision.mode());
+        assertEquals(GenerationRoutingDecisionCode.INTENT_PROFILE_READ_ONLY,
+                decision.decisionCode());
+        assertEquals(ExpectedValidationLevel.FAST, decision.expectedValidationLevel());
+        assertChineseReason(decision);
+    }
+
     private IntentProfile profile(IntentOperationType operationType,
                                   Set<IntentAffectedScope> affectedScopes,
                                   IntentSemanticComplexity semanticComplexity,

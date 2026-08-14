@@ -13,9 +13,12 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionProperties;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidence;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
+import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.intent.IntentClarificationStage;
@@ -158,6 +161,39 @@ class GenerationPipelineExecutorTest {
                 org.mockito.ArgumentMatchers.eq(request.requireExecution().session()),
                 org.mockito.ArgumentMatchers.eq(CodeGenTypeEnum.VUE_PROJECT),
                 org.mockito.ArgumentMatchers.any(GenerationFinalizationCommand.class));
+    }
+
+    @Test
+    void successfulReadOnlyAnalysisMustFinalizeWithoutPublishingWorkspace() {
+        GenerationPipelineRequest request = request(
+                "task-read-only-complete", GenerationMode.READ_ONLY, FallbackPolicy.NONE);
+        GenerationPipeline pipeline = pipeline(
+                GenerationRoute.READ_ONLY,
+                GenerationMode.READ_ONLY,
+                ignored -> GenerationPipelineOutcome.completed(
+                        GenerationRoute.READ_ONLY,
+                        GenerationTaskStatus.SUCCESS,
+                        null,
+                        "只读分析已完成",
+                        readOnlyCompletionEvidence(),
+                        0,
+                        0));
+
+        executor(List.of(pipeline)).execute(request);
+
+        verify(workspaceReleaseService, never()).releaseVerified(
+                any(GenerationSession.class),
+                any(CodeGenTypeEnum.class),
+                any(GenerationFinalizationCommand.class));
+        verify(taskFinalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.status() == GenerationTaskStatus.SUCCESS
+                        && command.outcomeQuality().changedFileCount() == 0));
+        verify(eventPublisher).publishIdempotently(
+                org.mockito.ArgumentMatchers.eq(request.taskRequest()),
+                org.mockito.ArgumentMatchers.eq(GenerationEventType.TASK_DONE),
+                org.mockito.ArgumentMatchers.eq("只读分析已完成"),
+                org.mockito.ArgumentMatchers.argThat(data ->
+                        Boolean.FALSE.equals(data.get("workspacePublished"))));
     }
 
     @Test
@@ -421,6 +457,22 @@ class GenerationPipelineExecutorTest {
                 ExpectedValidationLevel.BUILD, "pipeline_executor_test", 1);
     }
 
+    private GenerationCompletionEvidenceSet readOnlyCompletionEvidence() {
+        return GenerationCompletionEvidenceSet.of(
+                GenerationCompletionEvidence.of(
+                        GenerationCompletionEvidenceType.INTENT_COVERAGE,
+                        GenerationRoute.READ_ONLY,
+                        "只读意图已覆盖"),
+                GenerationCompletionEvidence.of(
+                        GenerationCompletionEvidenceType.NO_CHANGE_JUSTIFICATION,
+                        GenerationRoute.READ_ONLY,
+                        "本次仅分析，不修改工作区"),
+                GenerationCompletionEvidence.of(
+                        GenerationCompletionEvidenceType.FAST_VALIDATION,
+                        GenerationRoute.READ_ONLY,
+                        "文件引用已校验"));
+    }
+
     private GenerationPipelineExecutor executor(List<GenerationPipeline> pipelines) {
         return new GenerationPipelineExecutor(
                 pipelines, eventPublisher, sessionRegistry, contextService, runtimeLifecycleService,
@@ -478,8 +530,11 @@ class GenerationPipelineExecutorTest {
         GenerationWorkspace workspace = new GenerationWorkspace(
                 1L, CodeGenTypeEnum.VUE_PROJECT, root, root, workspaceExists,
                 root, root, Set.of(), Set.of());
+        ExpectedValidationLevel validationLevel = mode == GenerationMode.READ_ONLY
+                ? ExpectedValidationLevel.FAST
+                : ExpectedValidationLevel.BUILD;
         GenerationModeDecision decision = GenerationModeDecision.of(
-                mode, 0.8, "test", fallbackPolicy, ExpectedValidationLevel.BUILD);
+                mode, 0.8, "test", fallbackPolicy, validationLevel);
         GenerationExecutionContext context = limits == null
                 ? contextService.start(taskId, 1L, 2L)
                 : new GenerationExecutionContext(

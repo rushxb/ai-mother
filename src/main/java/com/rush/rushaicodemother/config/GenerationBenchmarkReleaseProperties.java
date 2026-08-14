@@ -196,6 +196,8 @@ public class GenerationBenchmarkReleaseProperties {
     /** 各路由的 P90 首屏门禁沿用对应路由的首屏 SLA 上限。 */
     private static Map<GenerationMode, Duration> defaultMaximumP90FirstPreviewLatencyByMode() {
         EnumMap<GenerationMode, Duration> limits = new EnumMap<>(GenerationMode.class);
+        limits.put(GenerationMode.READ_ONLY,
+                GenerationSlaProperties.READ_ONLY_FIRST_PREVIEW_TIMEOUT);
         limits.put(GenerationMode.CREATE,
                 GenerationSlaProperties.CREATE_FIRST_PREVIEW_TIMEOUT);
         limits.put(GenerationMode.LIGHT_EDIT,

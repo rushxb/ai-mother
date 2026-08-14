@@ -60,8 +60,8 @@ public record GenerationExecutionLimits(
             if (limit == null && rootAttempts != null) {
                 limit = legacyDerivedLimit(kind, rootAttempts);
             }
-            if (limit == null || limit <= 0) {
-                throw new IllegalArgumentException(kind + " 的预算必须大于 0");
+            if (limit == null || limit < minimumAllowed(kind)) {
+                throw new IllegalArgumentException(kind + " 的预算低于允许下限");
             }
             normalizedBudgets.put(kind, limit);
         }
@@ -97,6 +97,14 @@ public record GenerationExecutionLimits(
             case MODEL_TURN -> safeMultiply(rootAttempts, LEGACY_MODEL_TURNS_PER_ROOT_ATTEMPT);
             case PROVIDER_FAILOVER_ATTEMPT -> safeMultiply(rootAttempts, LEGACY_FAILOVERS_PER_ROOT_ATTEMPT);
             default -> null;
+        };
+    }
+
+    /** 模型执行预算必须为正；副作用预算允许为零，以表达结构化禁用。 */
+    private static int minimumAllowed(GenerationBudgetKind kind) {
+        return switch (kind) {
+            case ROOT_MODEL_ATTEMPT, MODEL_TURN, PROVIDER_FAILOVER_ATTEMPT -> 1;
+            case TOOL_WRITE, BUILD_EXECUTION, REPAIR_ROUND -> 0;
         };
     }
 

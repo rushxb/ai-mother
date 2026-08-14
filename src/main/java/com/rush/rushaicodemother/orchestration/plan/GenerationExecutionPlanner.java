@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
@@ -65,17 +66,18 @@ public class GenerationExecutionPlanner {
                 contextBudgetProperties.getTokenizerModel(),
                 contextBudgetProperties.getTokenSafetyMargin()
         );
+        boolean readOnly = route.mode() == GenerationMode.READ_ONLY;
         GenerationExecutionPlan.ToolPolicy toolPolicy = new GenerationExecutionPlan.ToolPolicy(
-                modelProfile.maxToolInvocations(),
+                readOnly ? 0 : modelProfile.maxToolInvocations(),
                 sla.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
-                true,
-                true
+                !readOnly,
+                !readOnly
         );
         GenerationExecutionPlan.ValidationGraph validationGraph =
                 GenerationExecutionPlan.ValidationGraph.forLevel(route.expectedValidationLevel());
         GenerationExecutionPlan.RepairBudget repairBudget = new GenerationExecutionPlan.RepairBudget(
                 sla.toLimits().limit(GenerationBudgetKind.REPAIR_ROUND),
-                true
+                !readOnly
         );
 
         return new GenerationExecutionPlan(
@@ -85,7 +87,7 @@ public class GenerationExecutionPlanner {
                 toolPolicy,
                 validationGraph,
                 repairBudget,
-                new GenerationExecutionPlan.CommitPolicy(true, true),
+                new GenerationExecutionPlan.CommitPolicy(!readOnly, !readOnly),
                 new GenerationExecutionPlan.PreviewPolicy(
                         sla.firstPreviewTimeout(), sla.firstPreviewCompletionReserve()),
                 sla

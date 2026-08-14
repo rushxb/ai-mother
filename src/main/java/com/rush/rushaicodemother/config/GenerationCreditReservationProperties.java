@@ -14,6 +14,7 @@ public class GenerationCreditReservationProperties {
 
     public static final String POLICY_VERSION = "route-token-budget-v1";
     public static final long CREATE_ESTIMATED_TOKENS = 150_000L;
+    public static final long READ_ONLY_ESTIMATED_TOKENS = 40_000L;
     public static final long LIGHT_EDIT_ESTIMATED_TOKENS = 80_000L;
     public static final long AGENT_EDIT_ESTIMATED_TOKENS = 300_000L;
     public static final long HEAVY_EXPERT_ESTIMATED_TOKENS = 600_000L;
@@ -27,6 +28,9 @@ public class GenerationCreditReservationProperties {
 
     @Min(1)
     private long createEstimatedTokens = CREATE_ESTIMATED_TOKENS;
+
+    @Min(1)
+    private long readOnlyEstimatedTokens = READ_ONLY_ESTIMATED_TOKENS;
 
     @Min(1)
     private long lightEditEstimatedTokens = LIGHT_EDIT_ESTIMATED_TOKENS;

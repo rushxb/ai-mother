@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycle
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskRecoveryCandidate;
-import com.rush.rushaicodemother.service.UserCreditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +21,6 @@ class GenerationTaskFinalizationTransaction {
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
     private final DurableGenerationTaskRepository taskRepository;
     private final GenerationAppStateService appStateService;
-    private final UserCreditService userCreditService;
 
     @Transactional(rollbackFor = Exception.class)
     public void finalizeManaged(GenerationFinalizationCommand command) {
@@ -48,9 +46,9 @@ class GenerationTaskFinalizationTransaction {
 
     @Transactional(rollbackFor = Exception.class)
     public void finalizeOwnedRuntime(GenerationFinalizationCommand command) {
+        taskRepository.prepareFinalizationIntent(command, Instant.now());
         runtimeLifecycleService.persistOwnedCompletion(
                 command.executionFence(), command.status(), command.reason());
-        userCreditService.chargeGenerationTask(command.taskId());
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -67,7 +65,6 @@ class GenerationTaskFinalizationTransaction {
         if (appId != null) {
             appStateService.releaseTerminalGenerationState(appId, taskId);
         }
-        userCreditService.chargeGenerationTask(taskId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -81,7 +78,6 @@ class GenerationTaskFinalizationTransaction {
         }
         appStateService.releaseOwnedGenerationState(
                 candidate.appId(), candidate.taskId(), candidate.executionEpoch());
-        userCreditService.chargeGenerationTask(candidate.taskId());
         return true;
     }
 
@@ -95,7 +91,6 @@ class GenerationTaskFinalizationTransaction {
         }
         appStateService.releaseOwnedGenerationState(
                 candidate.appId(), candidate.taskId(), candidate.executionEpoch());
-        userCreditService.chargeGenerationTask(candidate.taskId());
         return true;
     }
 }

@@ -7,7 +7,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
-import com.rush.rushaicodemother.service.UserCreditService;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskRecoveryCandidate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -15,11 +15,13 @@ import org.mockito.InOrder;
 import java.time.Instant;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class GenerationTaskFinalizationTransactionTest {
 
@@ -27,7 +29,6 @@ class GenerationTaskFinalizationTransactionTest {
     private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
     private DurableGenerationTaskRepository taskRepository;
     private GenerationAppStateService appStateService;
-    private UserCreditService userCreditService;
     private GenerationTaskFinalizationTransaction transaction;
 
     @BeforeEach
@@ -36,10 +37,9 @@ class GenerationTaskFinalizationTransactionTest {
         runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
         taskRepository = mock(DurableGenerationTaskRepository.class);
         appStateService = mock(GenerationAppStateService.class);
-        userCreditService = mock(UserCreditService.class);
         transaction = new GenerationTaskFinalizationTransaction(
                 taskLifecycleService, runtimeLifecycleService, taskRepository,
-                appStateService, userCreditService);
+                appStateService);
     }
 
     @Test
@@ -57,7 +57,24 @@ class GenerationTaskFinalizationTransactionTest {
                 null, "任务成功", null);
         order.verify(runtimeLifecycleService).persistOwnedCompletion(
                 fence, GenerationTaskStatus.SUCCESS, null);
-        verify(userCreditService, never()).chargeGenerationTask("task-1");
+        verify(taskRepository).prepareFinalizationIntent(
+                org.mockito.ArgumentMatchers.eq(command), any(Instant.class));
+    }
+
+    @Test
+    void ownedRuntimeFinalizationMustPrepareEffectBeforeCompletingTheLease() {
+        GenerationExecutionFence fence = new GenerationExecutionFence("task-owned", "worker-a", 3L);
+        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
+                "task-owned", 11L, fence, GenerationTaskStatus.FAILED,
+                "build_failed", null, null);
+
+        transaction.finalizeOwnedRuntime(command);
+
+        InOrder order = inOrder(taskRepository, runtimeLifecycleService);
+        order.verify(taskRepository).prepareFinalizationIntent(
+                org.mockito.ArgumentMatchers.eq(command), any(Instant.class));
+        order.verify(runtimeLifecycleService).persistOwnedCompletion(
+                fence, GenerationTaskStatus.FAILED, "build_failed");
     }
 
     @Test
@@ -84,12 +101,44 @@ class GenerationTaskFinalizationTransactionTest {
         transaction.finalizeUnownedRuntime(
                 "task-remote", GenerationTaskStatus.CANCELLED, "user_requested");
 
-        InOrder order = inOrder(runtimeLifecycleService, appStateService, userCreditService);
+        InOrder order = inOrder(runtimeLifecycleService, appStateService);
         order.verify(appStateService).lockGenerationState(11L);
         order.verify(runtimeLifecycleService).persistUnownedCompletion(
                 "task-remote", GenerationTaskStatus.CANCELLED, "user_requested");
         order.verify(appStateService).releaseTerminalGenerationState(11L, "task-remote");
-        order.verify(userCreditService).chargeGenerationTask("task-remote");
+    }
+
+    @Test
+    void expiredLeaseFinalizationMustCommitWithoutWaitingForCreditSettlement() {
+        Instant completedAt = Instant.parse("2026-08-14T00:00:00Z");
+        GenerationTaskRecoveryCandidate candidate = recoveryCandidate("task-expired");
+        when(taskRepository.finalizeExpiredLease(
+                candidate, GenerationTaskStatus.FAILED, completedAt, "lease_expired"))
+                .thenReturn(true);
+
+        boolean finalized = transaction.finalizeExpiredLease(
+                candidate, GenerationTaskStatus.FAILED, completedAt, "lease_expired");
+
+        assertTrue(finalized);
+        verify(appStateService).releaseOwnedGenerationState(11L, "task-expired", 3L);
+    }
+
+    @Test
+    void expiredPublishedFinalizationMustCommitWithoutWaitingForCreditSettlement() {
+        Instant completedAt = Instant.parse("2026-08-14T00:00:00Z");
+        GenerationTaskRecoveryCandidate candidate = recoveryCandidate("task-published");
+        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
+                "task-published", 11L,
+                new GenerationExecutionFence("task-published", "worker-a", 3L),
+                GenerationTaskStatus.SUCCESS, null, "任务成功", null);
+        when(taskRepository.finalizeExpiredPublishedTask(candidate, command, completedAt))
+                .thenReturn(true);
+
+        boolean finalized = transaction.finalizeExpiredPublishedTask(
+                candidate, command, completedAt);
+
+        assertTrue(finalized);
+        verify(appStateService).releaseOwnedGenerationState(11L, "task-published", 3L);
     }
 
     private DurableGenerationTaskRecord record() {
@@ -99,5 +148,12 @@ class GenerationTaskFinalizationTransactionTest {
                 GenerationTaskStatus.WAITING_APPROVAL, "approval", "等待审批",
                 now, now.plusSeconds(600), true, "user_requested",
                 null, null, null, 1, 3L, null, null);
+    }
+
+    private GenerationTaskRecoveryCandidate recoveryCandidate(String taskId) {
+        Instant now = Instant.parse("2026-08-14T00:00:00Z");
+        return new GenerationTaskRecoveryCandidate(
+                taskId, 11L, GenerationTaskStatus.RUNNING, "worker-a",
+                now.minusSeconds(1), now.plusSeconds(60), false, null, 3L, 7L);
     }
 }

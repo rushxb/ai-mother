@@ -8,7 +8,6 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
-import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import com.rush.rushaicodemother.service.trace.GenerationTaskStartCommand;
 import com.rush.rushaicodemother.service.trace.GenerationTaskTraceStartResult;
@@ -27,7 +26,6 @@ public class GenerationTaskLifecycleService {
     private final GenerationAppStateService generationAppStateService;
     private final ChatHistoryService chatHistoryService;
     private final GenerationTraceService generationTraceService;
-    private final UserCreditService userCreditService;
 
     /**
  * 记录用户消息相关指标或状态。
@@ -216,7 +214,7 @@ public class GenerationTaskLifecycleService {
     }
 
     /**
-     * 在一个数据库事务中提交生成业务终态、释放应用所有权并完成积分结算。
+     * 在一个数据库事务中提交生成业务终态并释放应用所有权。
      *
      * <p>该方法只由 {@code GenerationTaskFinalizer} 调用。执行轮次显式传入，避免旧 worker
      * 在终态收口时释放新一轮任务的应用状态。</p>
@@ -241,7 +239,6 @@ public class GenerationTaskLifecycleService {
         } else {
             generationTraceService.completeTask(taskId, status, errorMessage, outcomeQuality);
         }
-        userCreditService.chargeGenerationTask(taskId);
         return released;
     }
 

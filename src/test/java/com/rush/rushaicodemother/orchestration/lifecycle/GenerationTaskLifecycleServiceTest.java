@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
-import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.trace.GenerationTaskStartCommand;
 import com.rush.rushaicodemother.service.trace.GenerationTaskTraceStartResult;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
@@ -33,7 +32,6 @@ class GenerationTaskLifecycleServiceTest {
     private GenerationAppStateService appStateService;
     private ChatHistoryService chatHistoryService;
     private GenerationTraceService traceService;
-    private UserCreditService creditService;
     private GenerationTaskLifecycleService lifecycleService;
 
     @BeforeEach
@@ -41,9 +39,8 @@ class GenerationTaskLifecycleServiceTest {
         appStateService = mock(GenerationAppStateService.class);
         chatHistoryService = mock(ChatHistoryService.class);
         traceService = mock(GenerationTraceService.class);
-        creditService = mock(UserCreditService.class);
         lifecycleService = new GenerationTaskLifecycleService(
-                appStateService, chatHistoryService, traceService, creditService);
+                appStateService, chatHistoryService, traceService);
     }
 
     @Test
@@ -114,7 +111,7 @@ class GenerationTaskLifecycleServiceTest {
     }
 
     @Test
-    void finalizationMustFinishTraceAndSettleOnceWhenStateWasTakenByANewerTask() {
+    void finalizationMustCommitTerminalStateWithoutWaitingForCreditSettlement() {
         when(appStateService.releaseOwnedGenerationState(11L, "task-1", 7L)).thenReturn(false);
 
         boolean released = lifecycleService.finalizeGeneration(
@@ -124,11 +121,10 @@ class GenerationTaskLifecycleServiceTest {
         assertFalse(released);
         verify(appStateService).lockGenerationState(11L);
         verify(traceService).completeTask("task-1", GenerationTaskStatus.SUCCESS, null);
-        verify(creditService).chargeGenerationTask("task-1");
     }
 
     @Test
-    void finalizationMustPersistMemorySummaryBeforeTerminalStateAndSettlement() {
+    void finalizationMustPersistMemorySummaryBeforeTerminalState() {
         lifecycleService.finalizeGeneration(
                 "task-failed",
                 11L,
@@ -139,14 +135,13 @@ class GenerationTaskLifecycleServiceTest {
                 null
         );
 
-        InOrder traceOrder = org.mockito.Mockito.inOrder(traceService, appStateService, creditService);
+        InOrder traceOrder = org.mockito.Mockito.inOrder(traceService, appStateService);
         traceOrder.verify(appStateService).lockGenerationState(11L);
         traceOrder.verify(traceService).updateMemorySummary(
                 "task-failed", "任务状态：失败\n失败原因：构建验证未通过");
         traceOrder.verify(appStateService).releaseOwnedGenerationState(11L, "task-failed", 3L);
         traceOrder.verify(traceService).completeTask(
                 "task-failed", GenerationTaskStatus.FAILED, "build_failed");
-        traceOrder.verify(creditService).chargeGenerationTask("task-failed");
     }
 
     @Test

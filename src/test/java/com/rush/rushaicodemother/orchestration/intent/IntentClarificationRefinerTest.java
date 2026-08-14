@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -93,6 +94,8 @@ class IntentClarificationRefinerTest {
         assertEquals(IntentOperationType.REPAIR, result.operationType());
         assertEquals(IntentSemanticComplexity.LOW, result.semanticComplexity());
         assertEquals(1, result.expectedFileCount());
+        assertFalse(result.ambiguitySignal().ambiguous(),
+                "模型已经补齐的维度不得在 worker 中再次触发澄清");
         assertEquals(1, context.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
     }
 

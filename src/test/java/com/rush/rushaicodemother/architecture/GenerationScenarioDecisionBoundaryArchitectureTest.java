@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.architecture;
 
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import org.junit.jupiter.api.Test;
@@ -27,7 +28,8 @@ class GenerationScenarioDecisionBoundaryArchitectureTest {
         assertFalse(pipelineFacts.stream().anyMatch(type -> type.getSimpleName().equals("IntentProfile")));
         assertFalse(pipelineFacts.stream().anyMatch(type -> type.getSimpleName().equals("GenerationModeDecision")));
         assertTrue(commandFacts.contains(GenerationScenarioDecision.class));
-        assertTrue(GenerationTaskCommand.CURRENT_SCHEMA_VERSION >= 9);
+        assertTrue(commandFacts.contains(GenerationPreflightUsage.class));
+        assertTrue(GenerationTaskCommand.CURRENT_SCHEMA_VERSION >= 10);
     }
 
     @Test
@@ -36,14 +38,26 @@ class GenerationScenarioDecisionBoundaryArchitectureTest {
         String appService = source("service/impl/AppServiceImpl.java");
         String databaseResourceInterface = source("service/AppDatabaseResourceService.java");
         String orchestrator = source("orchestration/GenerationTaskOrchestrator.java");
+        String submission = source("orchestration/runtime/task/GenerationTaskSubmissionService.java");
+        String preflight = source("orchestration/decision/GenerationScenarioPreflight.java");
+        String clarificationStage = source("orchestration/intent/IntentClarificationStage.java");
         String planner = source("orchestration/plan/GenerationExecutionPlanner.java");
         String provisioning = source("orchestration/runtime/task/GenerationTaskResourceProvisioningService.java");
         String attribution = source("orchestration/learning/GenerationScenarioDecisionSnapshot.java");
 
         assertFalse(appService.contains("shouldEnableForPrompt"));
         assertFalse(databaseResourceInterface.contains("shouldEnableForPrompt"));
-        assertTrue(orchestrator.contains("scenarioDecisionKernel.decide"));
+        assertFalse(orchestrator.contains("scenarioDecisionKernel"));
         assertFalse(orchestrator.contains("generationModeRouter.select"));
+        assertTrue(orchestrator.contains("generationTaskSubmissionService.submit("));
+        assertTrue(submission.indexOf("findIdempotentReplay(")
+                < submission.indexOf("scenarioPreflight.prepare("));
+        assertTrue(submission.indexOf("scenarioPreflight.prepare(")
+                < submission.indexOf("generationExecutionPlanner.plan("));
+        assertTrue(preflight.contains("admissionService.assertMayPreflight"));
+        assertTrue(preflight.contains("GenerationBudgetKind.ROOT_MODEL_ATTEMPT, 1"));
+        assertTrue(preflight.contains("GenerationBudgetKind.MODEL_TURN, 1"));
+        assertFalse(clarificationStage.contains("clarificationRefiner.refine"));
         assertTrue(planner.contains("request.scenarioDecision()"));
         assertFalse(planner.contains("request.intentProfile()"));
         assertFalse(planner.contains("request.modeDecision()"));

@@ -125,26 +125,6 @@ public record GenerationPipelineRequest(
                 taskRequest, codeGenType, workspace, scenarioDecision.withRoute(decision), updatedPlan, execution);
     }
 
-    /**
-     * 在保持路由与已冻结 SLA 不变的前提下，替换意图画像与随之重算的执行计划。
-     *
-     * <p>供意图澄清使用：澄清只允许调整模型档位这类资源分配结论，
-     * 不允许改写路由决策，否则会绕过提交阶段已完成的门禁与计费口径。</p>
-     */
-    public GenerationPipelineRequest withRefinedIntent(IntentProfile refinedProfile,
-                                                       GenerationExecutionPlan refinedPlan) {
-        if (refinedProfile == null) {
-            return this;
-        }
-        GenerationExecutionPlan planToUse = refinedPlan == null ? executionPlan : refinedPlan;
-        if (planToUse != null && !planToUse.route().equals(modeDecision())) {
-            throw new IllegalArgumentException("意图澄清不得改变流水线路由决策");
-        }
-        return new GenerationPipelineRequest(
-                taskRequest, codeGenType, workspace,
-                scenarioDecision.withIntentProfile(refinedProfile), planToUse, execution);
-    }
-
     private static GenerationScenarioDecision legacyDecision(
             GenerationTaskRequest taskRequest,
             CodeGenTypeEnum codeGenType,

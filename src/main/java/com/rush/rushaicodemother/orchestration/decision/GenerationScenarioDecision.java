@@ -91,23 +91,6 @@ public record GenerationScenarioDecision(
                 releaseFingerprint);
     }
 
-    /**
-     * 保留已冻结的资源、权限和路由，替换经安全精化的画像。
-     *
-     * <p>构造器不变量会拒绝任何改变可变性或资源需求的精化结果。</p>
-     */
-    public GenerationScenarioDecision withIntentProfile(IntentProfile replacement) {
-        return new GenerationScenarioDecision(
-                replacement,
-                targetType,
-                mutability,
-                requiredResources,
-                routeDecision,
-                toolPermissionProfile,
-                ruleVersion,
-                releaseFingerprint);
-    }
-
     /** 从旧命令字段恢复一个可执行的保守决策。 */
     public static GenerationScenarioDecision restoreLegacy(IntentProfile profile,
                                                            CodeGenTypeEnum targetType,

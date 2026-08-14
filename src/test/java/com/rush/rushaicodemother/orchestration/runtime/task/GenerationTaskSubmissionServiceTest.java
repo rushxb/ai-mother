@@ -8,6 +8,9 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
+import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioPreflight;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioPreflightResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
@@ -39,6 +42,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Set;
+import java.util.Optional;
 
 import static com.rush.rushaicodemother.testing.GenerationReleaseSmoke.TAG;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -94,7 +99,8 @@ class GenerationTaskSubmissionServiceTest {
                 runtimeProperties.toLimits().budgets(),
                 "test"
         );
-        when(executionPlanner.plan(any(GenerationPipelineRequest.class)))
+        when(executionPlanner.plan(any(GenerationPipelineRequest.class),
+                any(GenerationPreflightUsage.class)))
                 .thenAnswer(invocation -> plan(invocation.getArgument(0)));
     }
 
@@ -136,7 +142,7 @@ class GenerationTaskSubmissionServiceTest {
                 command.traceContext().traceparent());
         assertEquals("lightweight_edit", command.route());
         assertEquals(command.executionPlan().sla(), command.slaEnvelope());
-        verify(executionPlanner).plan(request);
+        verify(executionPlanner).plan(request, GenerationPreflightUsage.none());
         assertEquals("task-submit-1", result.taskId());
         assertEquals(GenerationTaskStatus.QUEUED, result.submission().status());
         assertEquals(NOW, result.submission().submittedAt());
@@ -207,6 +213,80 @@ class GenerationTaskSubmissionServiceTest {
         verify(taskFinalizer).finalizeUnownedRuntime(
                 "task-rejected", GenerationTaskStatus.FAILED, "submission_failed");
         verify(eventStream, never()).stream("task-rejected");
+    }
+
+    @Test
+    void primarySubmissionMustPreflightAfterIdentityAndPersistItsUsage() {
+        GenerationScenarioPreflight preflight = mock(GenerationScenarioPreflight.class);
+        GenerationPipelineRequest input = request(1L);
+        GenerationPreflightUsage usage = new GenerationPreflightUsage(1, 1, 2);
+        when(eventStream.stream("task-preflight-submit")).thenReturn(Flux.empty());
+        when(preflight.prepare(
+                eq("task-preflight-submit"), eq(NOW), eq(input.taskRequest()),
+                eq(input.codeGenType()), eq(input.workspace())))
+                .thenReturn(new GenerationScenarioPreflightResult(input.scenarioDecision(), usage));
+        GenerationTaskSubmissionService service = new GenerationTaskSubmissionService(
+                () -> "task-preflight-submit",
+                preflight,
+                executionPlanner,
+                dispatcher,
+                admissionService,
+                taskFinalizer,
+                eventStream,
+                null,
+                traceContextBridge,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.submit(input.taskRequest(), input.codeGenType(), input.workspace(),
+                GenerationTaskIdempotency.none());
+
+        ArgumentCaptor<GenerationTaskCommand> commandCaptor =
+                ArgumentCaptor.forClass(GenerationTaskCommand.class);
+        InOrder order = inOrder(preflight, executionPlanner, admissionService);
+        order.verify(admissionService).findIdempotentReplay(
+                input.taskRequest(), GenerationTaskIdempotency.none());
+        order.verify(preflight).prepare(
+                "task-preflight-submit", NOW, input.taskRequest(),
+                input.codeGenType(), input.workspace());
+        order.verify(executionPlanner).plan(any(GenerationPipelineRequest.class), eq(usage));
+        order.verify(admissionService).admit(
+                commandCaptor.capture(), eq(GenerationTaskIdempotency.none()));
+        assertEquals(usage, commandCaptor.getValue().preflightUsage());
+        assertEquals(input.scenarioDecision(), commandCaptor.getValue().scenarioDecision());
+    }
+
+    @Test
+    void primaryIdempotentReplayMustReturnBeforePreflightModelCall() {
+        GenerationScenarioPreflight preflight = mock(GenerationScenarioPreflight.class);
+        GenerationPipelineRequest input = request(1L);
+        GenerationTaskIdempotency idempotency =
+                new GenerationTaskIdempotency("d".repeat(64), "e".repeat(64));
+        GenerationTaskSubmissionReceipt receipt = new GenerationTaskSubmissionReceipt(
+                "task-existing", 1L, "heavy_generation", GenerationTaskStatus.RUNNING,
+                NOW.minusSeconds(10), NOW.plusSeconds(300));
+        when(admissionService.findIdempotentReplay(input.taskRequest(), idempotency))
+                .thenReturn(Optional.of(receipt));
+        when(eventStream.stream("task-existing")).thenReturn(Flux.empty());
+        GenerationTaskSubmissionService service = new GenerationTaskSubmissionService(
+                () -> "must-not-allocate",
+                preflight,
+                executionPlanner,
+                dispatcher,
+                admissionService,
+                taskFinalizer,
+                eventStream,
+                null,
+                traceContextBridge,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        GenerationTaskResult result = service.submit(
+                input.taskRequest(), input.codeGenType(), input.workspace(), idempotency);
+
+        assertEquals("task-existing", result.taskId());
+        assertFalse(result.created());
+        verifyNoInteractions(preflight);
+        verify(executionPlanner, never()).plan(any(), any());
+        verify(dispatcher, never()).dispatch(any());
     }
 
     private GenerationTaskSubmissionService service(String taskId) {

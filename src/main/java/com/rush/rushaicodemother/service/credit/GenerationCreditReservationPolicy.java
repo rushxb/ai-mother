@@ -47,6 +47,29 @@ public class GenerationCreditReservationPolicy {
         );
     }
 
+    /** 模型澄清可能升级路由时使用的保守任务成本上限。 */
+    public GenerationCreditReservationQuote quoteUpperBound(CodeGenTypeEnum codeGenType) {
+        Objects.requireNonNull(codeGenType, "codeGenType");
+        long maximumRouteTokens = java.util.Arrays.stream(GenerationMode.values())
+                .mapToLong(this::estimatedTokens)
+                .max()
+                .orElseThrow(() -> new IllegalStateException("没有可用的生成路由报价"));
+        long estimatedTokens = multiplyAndRoundUp(
+                maximumRouteTokens, multiplierPercent(codeGenType));
+        long reservedCredit = costCalculator.calculate(estimatedTokens);
+        if (reservedCredit <= 0) {
+            throw new IllegalStateException("preflight credit upper bound must be positive");
+        }
+        return new GenerationCreditReservationQuote(
+                estimatedTokens,
+                reservedCredit,
+                String.join(":",
+                        properties.getPolicyVersion().trim(),
+                        "PREFLIGHT_MAX",
+                        codeGenType.name(),
+                        Long.toString(estimatedTokens)));
+    }
+
     private long estimatedTokens(GenerationMode mode) {
         return switch (Objects.requireNonNull(mode, "mode")) {
             case CREATE -> properties.getCreateEstimatedTokens();

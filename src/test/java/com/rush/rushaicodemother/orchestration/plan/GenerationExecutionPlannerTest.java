@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
 import com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk;
 import com.rush.rushaicodemother.orchestration.context.AiContextPackBudgetProperties;
+import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -92,6 +93,31 @@ class GenerationExecutionPlannerTest {
         assertFalse(plan.repairBudget().upgradeModelProfileOnRepair());
         assertFalse(plan.commitPolicy().requireValidationSuccess());
         assertFalse(plan.commitPolicy().rollbackOnFailure());
+    }
+
+    @Test
+    void preflightUsageMustBeIncludedWithoutReducingWorkerBudget() {
+        GenerationSlaPolicy slaPolicy = mock(GenerationSlaPolicy.class);
+        GenerationPerformanceSelector performanceSelector = mock(GenerationPerformanceSelector.class);
+        GenerationPipelineRequest request = request();
+        GenerationSlaEnvelope routeSla = slaEnvelope();
+        when(slaPolicy.resolve(request.modeDecision(), request.codeGenType())).thenReturn(routeSla);
+        when(performanceSelector.select(false, true, request.codeGenType()))
+                .thenReturn(GenerationPerformanceProfile.qualityFirst());
+        GenerationExecutionPlanner planner = new GenerationExecutionPlanner(
+                slaPolicy, performanceSelector, contextProperties());
+
+        GenerationExecutionPlan plan = planner.plan(
+                request, new GenerationPreflightUsage(1, 1, 2));
+
+        assertEquals(routeSla.toLimits().limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT) + 1,
+                plan.sla().toLimits().limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
+        assertEquals(routeSla.toLimits().limit(GenerationBudgetKind.MODEL_TURN) + 1,
+                plan.sla().toLimits().limit(GenerationBudgetKind.MODEL_TURN));
+        assertEquals(routeSla.toLimits().limit(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT) + 2,
+                plan.sla().toLimits().limit(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
+        assertEquals(routeSla.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
+                plan.sla().toLimits().limit(GenerationBudgetKind.TOOL_WRITE));
     }
 
     private GenerationPipelineRequest request() {

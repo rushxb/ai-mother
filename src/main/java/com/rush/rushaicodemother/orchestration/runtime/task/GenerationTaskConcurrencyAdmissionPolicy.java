@@ -35,4 +35,9 @@ public class GenerationTaskConcurrencyAdmissionPolicy implements GenerationTaskA
     public void assertMayAdmit(GenerationTaskAdmissionContext context) {
         assertMayCreate(context.snapshot().userNonTerminalTasks());
     }
+
+    @Override
+    public void assertMayPreflight(GenerationTaskPreflightAdmissionContext context) {
+        assertMayCreate(context.snapshot().userNonTerminalTasks());
+    }
 }

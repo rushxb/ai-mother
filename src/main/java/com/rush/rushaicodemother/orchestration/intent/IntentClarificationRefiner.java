@@ -12,8 +12,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -78,13 +80,16 @@ public class IntentClarificationRefiner {
         if (profile == null || context == null || StrUtil.isBlank(userMessage)) {
             return profile;
         }
-        if (!runtimeProperties.isIntentClarificationEnabled()) {
-            return profile;
-        }
-        if (!IntentClarificationPolicy.requiresClarification(profile)) {
+        if (!canRefine(profile)) {
             return profile;
         }
         return clarifyWithModel(profile, userMessage, taskId, context);
+    }
+
+    /** 是否允许当前画像进入一次模型澄清；调用方可据此避免无效 admission gate。 */
+    public boolean canRefine(IntentProfile profile) {
+        return runtimeProperties.isIntentClarificationEnabled()
+                && IntentClarificationPolicy.requiresClarification(profile);
     }
 
     /** 调用模型澄清意图，任何失败都退回本地画像。 */
@@ -150,6 +155,7 @@ public class IntentClarificationRefiner {
         // 破坏性风险保持本地结论；验证等级按采纳后的复杂度重新推导，只允许升高不允许降低。
         IntentValidationRisk validationRisk = escalateValidationRisk(
                 profile.validationRisk(), complexity);
+        IntentAmbiguitySignal refinedSignal = resolveClarifiedDimensions(signal, clarification);
         return new IntentProfile(
                 operationType,
                 profile.affectedScopes(),
@@ -160,8 +166,30 @@ public class IntentClarificationRefiner {
                 expectedFileCount,
                 validationRisk,
                 profile.confidence(),
-                signal
+                refinedSignal
         );
+    }
+
+    /** 已由模型返回有效值的维度不再保留为“未解析”，防止后续执行阶段重复付费。 */
+    private IntentAmbiguitySignal resolveClarifiedDimensions(
+            IntentAmbiguitySignal signal,
+            IntentClarification clarification) {
+        EnumSet<IntentResolutionDimension> unresolved =
+                EnumSet.noneOf(IntentResolutionDimension.class);
+        unresolved.addAll(signal.unresolvedDimensions());
+        if (clarification.getOperationType() != null
+                && clarification.getOperationType() != IntentOperationType.CREATE) {
+            unresolved.remove(IntentResolutionDimension.OPERATION_TYPE);
+        }
+        if (clarification.getSemanticComplexity() != null) {
+            unresolved.remove(IntentResolutionDimension.SEMANTIC_COMPLEXITY);
+        }
+        if (clarification.getExpectedFileCount() != null
+                && clarification.getExpectedFileCount() > 0) {
+            unresolved.remove(IntentResolutionDimension.EXPECTED_FILE_COUNT);
+        }
+        return new IntentAmbiguitySignal(
+                Set.copyOf(unresolved), signal.scopeFallback(), signal.shortPrompt());
     }
 
     private IntentOperationType adoptOperationType(IntentProfile profile,

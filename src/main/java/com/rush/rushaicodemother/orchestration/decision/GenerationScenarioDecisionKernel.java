@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /**
  * 产生并校验唯一场景决策的深模块。
@@ -40,6 +41,21 @@ public class GenerationScenarioDecisionKernel {
         GenerationRouteSelection selection = Objects.requireNonNull(
                 generationModeRouter.select(request, targetType, workspace),
                 "路由器未返回场景选择");
+        return freeze(targetType, selection);
+    }
+
+    GenerationScenarioDecision decide(GenerationTaskRequest request,
+                                      CodeGenTypeEnum targetType,
+                                      GenerationWorkspace workspace,
+                                      UnaryOperator<IntentProfile> profileRefiner) {
+        GenerationRouteSelection selection = Objects.requireNonNull(
+                generationModeRouter.select(request, targetType, workspace, profileRefiner),
+                "路由器未返回场景选择");
+        return freeze(targetType, selection);
+    }
+
+    private GenerationScenarioDecision freeze(CodeGenTypeEnum targetType,
+                                              GenerationRouteSelection selection) {
         IntentProfile profile = selection.intentProfile();
         boolean readOnly = GenerationScenarioDecision.isReadOnlyOperation(profile.operationType());
         GenerationMutability mutability = readOnly

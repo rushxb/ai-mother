@@ -42,6 +42,23 @@ class GenerationCreditReservationPolicyTest {
                 "route-token-budget-v1:HEAVY_EXPERT:FULL_STACK_PROJECT:test-profile:"));
     }
 
+    @Test
+    void preflightUpperBoundMustCoverEveryPossibleRoute() {
+        GenerationCreditReservationPolicy policy = policy();
+
+        GenerationCreditReservationQuote upperBound =
+                policy.quoteUpperBound(CodeGenTypeEnum.FULL_STACK_PROJECT);
+
+        for (GenerationMode mode : GenerationMode.values()) {
+            GenerationCreditReservationQuote routeQuote = policy.quote(command(
+                    "task-" + mode.name().toLowerCase(), mode,
+                    CodeGenTypeEnum.FULL_STACK_PROJECT));
+            assertTrue(upperBound.estimatedTokens() >= routeQuote.estimatedTokens());
+            assertTrue(upperBound.reservedCredit() >= routeQuote.reservedCredit());
+        }
+        assertTrue(upperBound.pricingReference().contains(":PREFLIGHT_MAX:"));
+    }
+
     private GenerationCreditReservationPolicy policy() {
         UserCreditProperties creditProperties = new UserCreditProperties();
         creditProperties.setTokensPerCredit(100_000L);

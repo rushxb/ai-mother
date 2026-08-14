@@ -1,10 +1,13 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
-import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
-import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskAdmissionRepository;
-import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskIdempotencyRecord;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskAdmissionRepository;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskIdempotencyRecord;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
@@ -17,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** 以原子方式保留任务预算并保留其可重建的持久命令。 */
 @Service
@@ -80,19 +84,10 @@ public class GenerationTaskAdmissionService {
         Objects.requireNonNull(idempotency, "生成任务幂等信息不能为空");
         GenerationTaskAdmissionSnapshot snapshot = admissionRepository.lockScopeAndMeasure(
                 command.tenantId(), command.userId());
-        if (idempotency.present()) {
-            GenerationTaskIdempotencyRecord existing = admissionRepository.findByIdempotencyKey(
-                    command.tenantId(), command.userId(), command.appId(), idempotency.keyHash()
-            ).orElse(null);
-            if (existing != null) {
-                if (!Objects.equals(existing.requestFingerprint(), idempotency.requestFingerprint())) {
-                    throw new BusinessException(
-                            ErrorCode.CONFLICT_ERROR,
-                            "Idempotency-Key 已被其他生成请求使用"
-                    );
-                }
-                return GenerationTaskAdmissionResult.reused(existing.submission());
-            }
+        Optional<GenerationTaskSubmissionReceipt> replay = findMatchingReplay(
+                command.tenantId(), command.userId(), command.appId(), idempotency);
+        if (replay.isPresent()) {
+            return GenerationTaskAdmissionResult.reused(replay.get());
         }
 
         aiModelRuntimeService.ensureGenerationModelsConfigured();
@@ -110,5 +105,89 @@ public class GenerationTaskAdmissionService {
         ));
         runtimeLifecycleService.submit(command, idempotency);
         return GenerationTaskAdmissionResult.created(GenerationTaskSubmissionReceipt.queued(command));
+    }
+
+    /**
+     * 在任何 preflight provider 调用前识别已存在的幂等任务。
+     *
+     * <p>这是快速路径；最终准入仍会在同一锁域下重做检查，以覆盖并发首次提交。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<GenerationTaskSubmissionReceipt> findIdempotentReplay(
+            GenerationTaskRequest request,
+            GenerationTaskIdempotency idempotency) {
+        Objects.requireNonNull(idempotency, "生成任务幂等信息不能为空");
+        if (!idempotency.present()) {
+            return Optional.empty();
+        }
+        if (request == null || request.app() == null || request.loginUser() == null
+                || request.app().getId() == null || request.app().getId() <= 0
+                || request.app().getTenantId() == null || request.app().getTenantId() <= 0
+                || request.loginUser().getId() == null || request.loginUser().getId() <= 0) {
+            throw new IllegalArgumentException("幂等预检身份不完整");
+        }
+        admissionRepository.lockScopeAndMeasure(
+                request.app().getTenantId(), request.loginUser().getId());
+        return findMatchingReplay(
+                request.app().getTenantId(),
+                request.loginUser().getId(),
+                request.app().getId(),
+                idempotency);
+    }
+
+    /**
+     * 在可选模型澄清前执行不产生持久副作用的保守门禁。
+     *
+     * <p>最终 {@link #admit(GenerationTaskCommand, GenerationTaskIdempotency)} 仍会在同一事务内
+     * 重做判断并冻结积分；本方法只防止明显无额度或无容量的请求先消耗 provider 成本。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void assertMayPreflight(GenerationTaskRequest request,
+                                   CodeGenTypeEnum targetType,
+                                   IntentProfile intentProfile) {
+        if (request == null || request.app() == null || request.loginUser() == null
+                || request.app().getTenantId() == null || request.app().getTenantId() <= 0
+                || request.loginUser().getId() == null || request.loginUser().getId() <= 0) {
+            throw new IllegalArgumentException("preflight 准入身份不完整");
+        }
+        Objects.requireNonNull(targetType, "preflight 目标类型不能为空");
+        Objects.requireNonNull(intentProfile, "preflight 意图画像不能为空");
+        aiModelRuntimeService.ensureGenerationModelsConfigured();
+        GenerationCreditReservationQuote upperBoundQuote = reservationPolicy.quoteUpperBound(targetType);
+        userCreditService.ensureHasCredit(
+                request.loginUser().getId(), upperBoundQuote.reservedCredit());
+        GenerationTaskAdmissionSnapshot snapshot = admissionRepository.lockScopeAndMeasure(
+                request.app().getTenantId(), request.loginUser().getId());
+        GenerationTaskPreflightAdmissionContext context = new GenerationTaskPreflightAdmissionContext(
+                request.app().getTenantId(),
+                request.loginUser().getId(),
+                targetType,
+                intentProfile,
+                snapshot,
+                upperBoundQuote);
+        admissionPolicies.stream()
+                .sorted(AnnotationAwareOrderComparator.INSTANCE)
+                .forEach(policy -> policy.assertMayPreflight(context));
+    }
+
+    private Optional<GenerationTaskSubmissionReceipt> findMatchingReplay(
+            Long tenantId,
+            Long userId,
+            Long appId,
+            GenerationTaskIdempotency idempotency) {
+        if (!idempotency.present()) {
+            return Optional.empty();
+        }
+        GenerationTaskIdempotencyRecord existing = admissionRepository.findByIdempotencyKey(
+                tenantId, userId, appId, idempotency.keyHash()).orElse(null);
+        if (existing == null) {
+            return Optional.empty();
+        }
+        if (!Objects.equals(existing.requestFingerprint(), idempotency.requestFingerprint())) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT_ERROR,
+                    "Idempotency-Key 已被其他生成请求使用");
+        }
+        return Optional.of(existing.submission());
     }
 }

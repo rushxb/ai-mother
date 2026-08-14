@@ -2,11 +2,11 @@
 
 ## 状态
 
-已接受，分阶段迁移中。
+已接受。
 
 ## 决策
 
-`GenerationScenarioDecisionKernel` 是用户请求场景事实的唯一生成模块。它在工作区事实已解析、执行计划与准入尚未冻结时，一次性产生不可变 `GenerationScenarioDecision`。
+`GenerationScenarioDecisionKernel` 是用户请求场景事实的唯一生成模块。`GenerationScenarioPreflight` 在工作区事实已解析、执行计划与最终准入尚未冻结时调用该内核，一次性产生不可变 `GenerationScenarioDecision`。
 
 决策同时拥有：
 
@@ -19,7 +19,19 @@
 
 `GenerationPipelineRequest` 只保存这一份决策；画像与路由访问器只是兼容投影。`GenerationExecutionPlanner`、资源预配、任务命令恢复与场景归因只消费该决策。
 
-`GenerationTaskCommand` schema 9 持久化决策本体。旧的路由、画像与资源字段暂时保留为历史 JSON 兼容面，构造时必须与决策一致；历史 schema 缺失决策时只允许确定性保守恢复。
+`GenerationTaskCommand` schema 10 持久化决策本体与 `GenerationPreflightUsage`。旧的路由、画像与资源字段暂时保留为历史 JSON 兼容面，构造时必须与决策一致；历史 schema 缺失决策或预检用量时只允许确定性保守恢复。
+
+## 有界 preflight
+
+本地规则每个请求只解析一次 Prompt。只有低置信度画像会在路由前进入一次模型澄清，澄清可同时改变操作类型、路由、资源、工具权限、验证下限和模型档位。它必须满足：
+
+- 先创建 task identity，再调用 provider；
+- 已存在的幂等任务在分配新 taskId 和调用 provider 前直接返回；
+- 先通过用户积分、用户/租户并发、Heavy 容量和最坏路由月度成本门禁；
+- 最多 1 次根模型尝试、1 个模型回合和 2 次 provider 尝试，禁止工具、构建和修复；
+- 物理调用绑定可计费 MonitorContext 和真实 taskId；
+- 用量持久化到任务命令，worker 恢复时作为已消费预算；
+- worker 只消费已冻结决策，不再二次调用意图澄清模型。
 
 ## 只读不变量
 
@@ -32,6 +44,6 @@
 
 这些约束由 `GenerationScenarioDecision` 构造器 fail-closed，不依赖 Prompt 约定。
 
-## 未完成边界
+## 已知边界
 
-低置信度模型澄清目前仍位于 worker 执行期，只能调整模型档位。下一阶段将其迁到准入前的有界 preflight seam，使澄清能在资源、路由、权限、SLA 和验证图冻结前修正完整决策。
+preflight 门禁是无持久副作用的保守预判，最终任务准入会在事务内重新检查并冻结积分。两者之间仍有短暂竞态窗口：窗口内容量变化可能导致已支付一次有界澄清成本后最终准入被拒绝。如要消除该窗口，需要引入可超时回收的两阶段 preflight reservation，不应使用长事务包裹 provider 调用。

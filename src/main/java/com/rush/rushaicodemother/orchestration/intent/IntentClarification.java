@@ -14,7 +14,7 @@ import dev.langchain4j.model.output.structured.Description;
  */
 public class IntentClarification {
 
-    @Description("用户真实意图对应的操作类型：CREATE 新建、EDIT 修改、REPAIR 修复、EXPLAIN 仅解释不改代码")
+    @Description("用户真实意图对应的操作类型：CREATE 新建、EDIT 修改、REPAIR 修复、EXPLAIN 仅解释、AUDIT 只读审计、PLAN 只读方案")
     private IntentOperationType operationType;
 
     @Description("改动的语义复杂度：LOW 局部微调、MEDIUM 常规功能改动、HIGH 跨模块或架构级改造")

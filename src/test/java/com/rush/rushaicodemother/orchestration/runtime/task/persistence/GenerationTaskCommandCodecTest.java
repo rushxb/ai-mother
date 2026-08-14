@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
+import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.decision.GenerationToolPermissionProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
@@ -55,7 +56,8 @@ class GenerationTaskCommandCodecTest {
                 profile(),
                 plan(envelope),
                 GenerationPlanningVariant.COMPACT_PLAN,
-                scenarioDecision());
+                scenarioDecision(),
+                new GenerationPreflightUsage(1, 1, 2));
 
         GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(
                 GenerationTaskCommandCodec.toJson(command));
@@ -73,6 +75,7 @@ class GenerationTaskCommandCodecTest {
         assertEquals(plan(envelope), restored.executionPlan());
         assertEquals(GenerationPlanningVariant.COMPACT_PLAN, restored.planningVariant());
         assertEquals(scenarioDecision(), restored.scenarioDecision());
+        assertEquals(new GenerationPreflightUsage(1, 1, 2), restored.preflightUsage());
     }
 
     @Test
@@ -97,6 +100,7 @@ class GenerationTaskCommandCodecTest {
         assertEquals(GenerationPlanningVariant.CURRENT_DAG, restored.planningVariant());
         assertNotNull(restored.scenarioDecision());
         assertEquals("legacy-task-command-v1", restored.scenarioDecision().ruleVersion());
+        assertEquals(GenerationPreflightUsage.none(), restored.preflightUsage());
     }
 
     @Test

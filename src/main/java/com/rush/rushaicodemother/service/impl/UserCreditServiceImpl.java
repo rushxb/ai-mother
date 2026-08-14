@@ -47,6 +47,14 @@ public class UserCreditServiceImpl implements UserCreditService {
  */
     @Override
     public void ensureHasCredit(Long userId) {
+        ensureHasCredit(userId, 1L);
+    }
+
+    @Override
+    public void ensureHasCredit(Long userId, long requiredCredit) {
+        if (requiredCredit <= 0) {
+            throw new IllegalArgumentException("所需积分必须大于 0");
+        }
         if (!hasPositiveId(userId)) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
@@ -54,8 +62,10 @@ public class UserCreditServiceImpl implements UserCreditService {
         if (account == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
-        if (account.balance() <= 0) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "积分不足，请联系管理员充值");
+        if (account.balance() < requiredCredit) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "积分不足，本任务最多需要 " + requiredCredit + " 积分");
         }
     }
 

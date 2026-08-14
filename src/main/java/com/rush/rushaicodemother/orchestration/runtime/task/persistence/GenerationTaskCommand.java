@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
@@ -46,10 +47,11 @@ public record GenerationTaskCommand(
         IntentProfile intentProfile,
         GenerationExecutionPlan executionPlan,
         GenerationPlanningVariant planningVariant,
-        GenerationScenarioDecision scenarioDecision
+        GenerationScenarioDecision scenarioDecision,
+        GenerationPreflightUsage preflightUsage
 ) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 9;
+    public static final int CURRENT_SCHEMA_VERSION = 10;
     public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
     /** 创建生成任务命令实例并完成必要的依赖和初始状态设置。 */
@@ -101,6 +103,9 @@ public record GenerationTaskCommand(
         if (planningVariant == null) {
             planningVariant = GenerationPlanningVariant.CURRENT_DAG;
         }
+        if (preflightUsage == null) {
+            preflightUsage = GenerationPreflightUsage.none();
+        }
         GenerationModeDecision persistedDecision = new GenerationModeDecision(
                 mode, routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode);
@@ -126,6 +131,37 @@ public record GenerationTaskCommand(
                 throw new IllegalArgumentException("执行计划 SLA 与命令 SLA 不一致");
             }
         }
+    }
+
+    /** 兼容 schema 10 之前未持久化 preflight 用量的完整构造入口。 */
+    public GenerationTaskCommand(int schemaVersion,
+                                 String taskId,
+                                 Long appId,
+                                 Long userId,
+                                 Long tenantId,
+                                 String userPrompt,
+                                 CodeGenTypeEnum codeGenType,
+                                 GenerationMode mode,
+                                 double routingConfidence,
+                                 String routingReason,
+                                 FallbackPolicy fallbackPolicy,
+                                 ExpectedValidationLevel expectedValidationLevel,
+                                 String fallbackReason,
+                                 GenerationRoutingDecisionCode routingDecisionCode,
+                                 GenerationSlaEnvelope slaEnvelope,
+                                 GenerationTraceContext traceContext,
+                                 Instant submittedAt,
+                                 Instant deadlineAt,
+                                 GenerationResourceRequirements resourceRequirements,
+                                 IntentProfile intentProfile,
+                                 GenerationExecutionPlan executionPlan,
+                                 GenerationPlanningVariant planningVariant,
+                                 GenerationScenarioDecision scenarioDecision) {
+        this(schemaVersion, taskId, appId, userId, tenantId, userPrompt, codeGenType, mode,
+                routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
+                fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
+                deadlineAt, resourceRequirements, intentProfile, executionPlan,
+                planningVariant, scenarioDecision, null);
     }
 
     /** 兼容尚未声明规划消融方案的完整命令构造入口。 */
@@ -154,7 +190,7 @@ public record GenerationTaskCommand(
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
                 deadlineAt, resourceRequirements, intentProfile, executionPlan,
-                GenerationPlanningVariant.CURRENT_DAG, null);
+                GenerationPlanningVariant.CURRENT_DAG, null, null);
     }
 
     /** 兼容尚未持久化意图画像的旧调用方。 */
@@ -181,7 +217,7 @@ public record GenerationTaskCommand(
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
                 deadlineAt, resourceRequirements, IntentProfile.unknown(), null,
-                GenerationPlanningVariant.CURRENT_DAG, null);
+                GenerationPlanningVariant.CURRENT_DAG, null, null);
     }
     /** 兼容尚未持久化资源需求的旧调用方。 */
     public GenerationTaskCommand(int schemaVersion,
@@ -206,7 +242,7 @@ public record GenerationTaskCommand(
                 routingConfidence, routingReason, fallbackPolicy, expectedValidationLevel,
                 fallbackReason, routingDecisionCode, slaEnvelope, traceContext, submittedAt,
                 deadlineAt, GenerationResourceRequirements.none(), IntentProfile.unknown(), null,
-                GenerationPlanningVariant.CURRENT_DAG, null);
+                GenerationPlanningVariant.CURRENT_DAG, null, null);
     }
 
     /** 在特定于路由的 SLA 信封之前创建的命令的兼容性构造函数。 */
@@ -329,6 +365,17 @@ public record GenerationTaskCommand(
                                              Instant submittedAt,
                                              GenerationSlaEnvelope slaEnvelope,
                                              GenerationTraceContext traceContext) {
+        return from(taskId, request, submittedAt, slaEnvelope, traceContext,
+                GenerationPreflightUsage.none());
+    }
+
+    /** 创建包含提交前模型消耗的当前版本任务命令。 */
+    public static GenerationTaskCommand from(String taskId,
+                                             GenerationPipelineRequest request,
+                                             Instant submittedAt,
+                                             GenerationSlaEnvelope slaEnvelope,
+                                             GenerationTraceContext traceContext,
+                                             GenerationPreflightUsage preflightUsage) {
         Objects.requireNonNull(request, "request");
         GenerationTaskRequest taskRequest = Objects.requireNonNull(request.taskRequest(), "taskRequest");
         GenerationModeDecision decision = Objects.requireNonNull(request.modeDecision(), "modeDecision");
@@ -358,7 +405,8 @@ public record GenerationTaskCommand(
                 request.intentProfile(),
                 request.executionPlan(),
                 taskRequest.planningVariant(),
-                request.scenarioDecision()
+                request.scenarioDecision(),
+                preflightUsage
         );
     }
 

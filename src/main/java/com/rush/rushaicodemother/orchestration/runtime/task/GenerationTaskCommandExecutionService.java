@@ -422,7 +422,7 @@ public class GenerationTaskCommandExecutionService {
                                     : command.slaEnvelope().firstPreviewDeadline(command.submittedAt()),
                             null,
                             false, null, null,
-                            Map.of(), Map.copyOf(limitSnapshot)
+                            command.preflightUsage().asBudgetUsages(), Map.copyOf(limitSnapshot)
                     ), limits);
                 });
     }

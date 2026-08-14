@@ -85,6 +85,18 @@ class UserCreditServiceImplTest {
     }
 
     @Test
+    void ensureHasCreditMustEnforceRequestedUpperBound() {
+        when(persistenceService.findActiveAccount(7L)).thenReturn(new CreditAccount(7L, 8L));
+
+        BusinessException insufficient = assertThrows(
+                BusinessException.class,
+                () -> creditService.ensureHasCredit(7L, 9L));
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), insufficient.getCode());
+        assertTrue(insufficient.getMessage().contains("9"));
+    }
+
+    @Test
     void initializeCreditMustWriteDedicatedIdempotentLedger() {
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 0L));
 

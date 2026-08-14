@@ -44,11 +44,15 @@ class GenerationTaskSubmissionIdempotencyArchitectureTest {
 
         assertOrdered(admission,
                 "lockscopeandmeasure",
-                "findbyidempotencykey",
+                "findmatchingreplay",
                 "ensuregenerationmodelsconfigured",
                 "assertmayadmit",
                 "reservegenerationtask",
                 "runtimelifecycleservice.submit");
+        assertOrdered(submission,
+                "findidempotentreplay",
+                "scenariopreflight.prepare",
+                "generationexecutionplanner.plan");
         assertTrue(submission.contains("if (admission.created())"));
         assertTrue(submission.contains("taskdispatcher.dispatch(admission.taskid())"));
     }

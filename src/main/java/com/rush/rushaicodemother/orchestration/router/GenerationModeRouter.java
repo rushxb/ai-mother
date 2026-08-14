@@ -14,6 +14,9 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Objects;
+import java.util.function.UnaryOperator;
+
 /** 将生产信号委托给有序策略的公共路由外观。 */
 @Component
 public class GenerationModeRouter {
@@ -51,11 +54,26 @@ public class GenerationModeRouter {
     public GenerationRouteSelection select(GenerationTaskRequest request,
                                            CodeGenTypeEnum codeGenType,
                                            GenerationWorkspace workspace) {
+        return select(request, codeGenType, workspace, UnaryOperator.identity());
+    }
+
+    /**
+     * 只解析一次 Prompt，并在画像精化完成后执行一次主路由与 shadow 观测。
+     *
+     * <p>精化器只能接收结构化画像；它不能要求路由器再次分析原始 Prompt。</p>
+     */
+    public GenerationRouteSelection select(GenerationTaskRequest request,
+                                           CodeGenTypeEnum codeGenType,
+                                           GenerationWorkspace workspace,
+                                           UnaryOperator<IntentProfile> profileRefiner) {
         validate(request, codeGenType, workspace);
+        Objects.requireNonNull(profileRefiner, "意图画像精化器不能为空");
         Long appId = request.app().getId();
         Long userId = request.loginUser() == null ? request.app().getUserId() : request.loginUser().getId();
         GenerationRoutingTelemetrySnapshot telemetry = telemetryProvider.snapshot(appId, userId);
-        IntentProfile intentProfile = intentProfileService.analyze(request, codeGenType, workspace);
+        IntentProfile analyzedProfile = intentProfileService.analyze(request, codeGenType, workspace);
+        IntentProfile intentProfile = Objects.requireNonNull(
+                profileRefiner.apply(analyzedProfile), "意图画像精化结果不能为空");
         GenerationRoutingSignal signal = GenerationRoutingSignal.from(
                 request,
                 codeGenType,

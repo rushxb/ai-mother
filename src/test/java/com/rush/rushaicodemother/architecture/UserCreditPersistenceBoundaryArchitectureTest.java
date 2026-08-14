@@ -159,7 +159,7 @@ class UserCreditPersistenceBoundaryArchitectureTest {
                 "GenerationTaskAdmissionService.java");
         assertFalse(appServiceSource.contains("userCreditService.ensureHasCredit"));
         assertTrue(admissionSource.contains("userCreditService.reserveGenerationTask"));
-        assertTrue(admissionSource.indexOf("findByIdempotencyKey")
+        assertTrue(admissionSource.indexOf("findMatchingReplay")
                 < admissionSource.indexOf("reserveGenerationTask"));
         assertFalse(appServiceSource.contains("userService.ensureHasCredit"));
     }

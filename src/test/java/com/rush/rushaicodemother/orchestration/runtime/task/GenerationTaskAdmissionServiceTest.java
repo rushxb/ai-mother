@@ -4,6 +4,10 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -120,6 +124,37 @@ class GenerationTaskAdmissionServiceTest {
                 () -> fixture.service().admit(command)));
 
         verify(fixture.lifecycleService(), never()).submit(command, GenerationTaskIdempotency.none());
+    }
+
+    @Test
+    void preflightGateMustCheckWorstCaseCostWithoutReservingCredit() {
+        Fixture fixture = fixture();
+        GenerationTaskAdmissionSnapshot snapshot = snapshot(1);
+        GenerationCreditReservationQuote upperBound = new GenerationCreditReservationQuote(
+                900_000L, 9L, "preflight-upper-bound");
+        App app = App.builder().id(1L).tenantId(100L).build();
+        User user = User.builder().id(7L).build();
+        GenerationTaskRequest request = new GenerationTaskRequest(app, "需要澄清的需求", user);
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot);
+        when(fixture.reservationPolicy().quoteUpperBound(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(upperBound);
+
+        fixture.service().assertMayPreflight(
+                request, CodeGenTypeEnum.VUE_PROJECT, IntentProfile.unknown());
+
+        InOrder order = inOrder(
+                fixture.aiModelRuntimeService(), fixture.creditService(), fixture.repository(),
+                fixture.reservationPolicy(), fixture.concurrencyPolicy());
+        order.verify(fixture.aiModelRuntimeService()).ensureGenerationModelsConfigured();
+        order.verify(fixture.reservationPolicy()).quoteUpperBound(CodeGenTypeEnum.VUE_PROJECT);
+        order.verify(fixture.creditService()).ensureHasCredit(7L, upperBound.reservedCredit());
+        order.verify(fixture.repository()).lockScopeAndMeasure(100L, 7L);
+        ArgumentCaptor<GenerationTaskPreflightAdmissionContext> contextCaptor =
+                ArgumentCaptor.forClass(GenerationTaskPreflightAdmissionContext.class);
+        order.verify(fixture.concurrencyPolicy()).assertMayPreflight(contextCaptor.capture());
+        assertEquals(upperBound, contextCaptor.getValue().upperBoundQuote());
+        verify(fixture.creditService(), never()).reserveGenerationTask(any());
+        verifyNoInteractions(fixture.lifecycleService());
     }
 
     private Fixture fixture() {

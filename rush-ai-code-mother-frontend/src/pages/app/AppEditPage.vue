@@ -322,7 +322,7 @@ const router = useRouter()
 const loginUserStore = useLoginUserStore()
 const { loading, begin, isLatest, end } = useLatestRequest()
 
-const appInfo = ref<API.AppVO>()
+const appInfo = ref<API.OwnerAppVO>()
 const loadError = ref('')
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
@@ -382,7 +382,7 @@ const parsePositiveInteger = (value: unknown) => {
   return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : null
 }
 
-const applyAppToForm = (app: API.AppVO) => {
+const applyAppToForm = (app: API.OwnerAppVO) => {
   formData.appName = app.appName || ''
   formData.cover = app.cover || ''
   formData.priority = app.priority ?? 0

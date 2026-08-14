@@ -47,7 +47,7 @@ export async function getUserById(
   params: API.getUserByIdParams,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponseUser>('/user/get', {
+  return request<API.BaseResponseAdminUserVO>('/user/get', {
     method: 'GET',
     params: {
       ...params,
@@ -70,7 +70,7 @@ export async function getUserVoById(
   params: API.getUserVOByIdParams,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponseUserVO>('/user/get/vo', {
+  return request<API.BaseResponsePublicUserSummaryVO>('/user/get/vo', {
     method: 'GET',
     params: {
       ...params,
@@ -84,7 +84,7 @@ export async function listUserVoByPage(
   body: API.UserQueryRequest,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponsePageUserVO>('/user/list/page/vo', {
+  return request<API.BaseResponsePageAdminUserVO>('/user/list/page/vo', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

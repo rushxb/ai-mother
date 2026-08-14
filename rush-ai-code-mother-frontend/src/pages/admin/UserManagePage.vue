@@ -151,12 +151,12 @@ const columns = [
   { title: '操作', key: 'action', width: 170 },
 ]
 
-const data = ref<API.UserVO[]>([])
+const data = ref<API.AdminUserVO[]>([])
 const total = ref(0)
 const loadError = ref('')
 const creditModalVisible = ref(false)
 const adjustingCredit = ref(false)
-const selectedCreditUser = ref<API.UserVO>()
+const selectedCreditUser = ref<API.AdminUserVO>()
 const deletingUserIds = ref<Set<number>>(new Set())
 const { loading, begin, isLatest, end } = useLatestRequest()
 
@@ -171,7 +171,7 @@ const searchParams = reactive<API.UserQueryRequest>({
 })
 
 const getUserAvatar = (userAvatar?: string) => userAvatar || DEFAULT_USER_AVATAR
-const getUserRowKey = (record: API.UserVO) => record.id ?? record.userAccount ?? ''
+const getUserRowKey = (record: API.AdminUserVO) => record.id ?? record.userAccount ?? ''
 const isDeletingUser = (id?: number) => Boolean(id && deletingUserIds.value.has(id))
 
 const fetchData = async () => {
@@ -224,7 +224,7 @@ const resetSearch = () => {
   void fetchData()
 }
 
-const openCreditModal = (record: API.UserVO) => {
+const openCreditModal = (record: API.AdminUserVO) => {
   if (!record.id) {
     message.warning('用户 ID 无效')
     return

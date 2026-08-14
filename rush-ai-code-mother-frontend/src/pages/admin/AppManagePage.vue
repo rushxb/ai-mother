@@ -186,7 +186,7 @@ const router = useRouter()
 const { loading, begin, isLatest, end } = useLatestRequest()
 
 const getAppCover = (cover?: string) => normalizeImageUrl(cover) || DEFAULT_APP_COVER
-const getGenerationStateText = (app: API.AppVO) => {
+const getGenerationStateText = (app: API.OwnerAppVO) => {
   if (app.generatingStage === 'build') return '构建中'
   if (app.generatingStage === 'repair') return '修复中'
   if (app.generatingStage === 'agent') return '编排中'
@@ -194,7 +194,7 @@ const getGenerationStateText = (app: API.AppVO) => {
   return '创建中'
 }
 
-const getGenerationStateClass = (app: API.AppVO) => {
+const getGenerationStateClass = (app: API.OwnerAppVO) => {
   if (app.generatingStage === 'build') return 'is-build'
   if (app.generatingStage === 'repair') return 'is-repair'
   if (app.generatingStage === 'agent') return 'is-agent'
@@ -215,14 +215,14 @@ const columns = [
   { title: '操作', key: 'action', width: 200, fixed: 'right' },
 ]
 
-const data = ref<API.AppVO[]>([])
+const data = ref<API.OwnerAppVO[]>([])
 const total = ref(0)
 const loadError = ref('')
 const updatingFeaturedIds = ref<Set<number>>(new Set())
 const deletingAppIds = ref<Set<number>>(new Set())
 const searchParams = reactive<API.AppQueryRequest>({ pageNum: 1, pageSize: 10 })
 
-const getAppRowKey = (record: API.AppVO) =>
+const getAppRowKey = (record: API.OwnerAppVO) =>
   record.id ?? `${record.userId ?? 'user'}-${record.createTime ?? 'time'}`
 const normalizeAppId = (value: string | number | undefined) => {
   const appId = Number(value)
@@ -289,7 +289,7 @@ const resetSearch = () => {
   void fetchData()
 }
 
-const editApp = (app: API.AppVO) => {
+const editApp = (app: API.OwnerAppVO) => {
   const appId = normalizeAppId(app.id)
   if (!appId || isAppBusy(appId)) {
     if (!appId) message.warning('应用 ID 无效')
@@ -298,7 +298,7 @@ const editApp = (app: API.AppVO) => {
   void router.push({ name: 'app-edit', params: { id: String(appId) } })
 }
 
-const toggleFeatured = async (app: API.AppVO) => {
+const toggleFeatured = async (app: API.OwnerAppVO) => {
   const appId = normalizeAppId(app.id)
   if (!appId || isAppBusy(appId)) return
 

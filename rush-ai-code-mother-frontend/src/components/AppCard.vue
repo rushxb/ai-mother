@@ -66,7 +66,7 @@ import { DEFAULT_APP_COVER, DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 import { normalizeImageUrl } from '@/utils/url'
 
 interface Props {
-  app: API.AppVO
+  app: API.OwnerAppVO | API.PublicAppVO
   featured?: boolean
   canViewChat?: boolean
   chatButtonText?: string
@@ -77,8 +77,8 @@ interface Props {
 
 interface Emits {
   (e: 'view-chat', appId: string | number | undefined): void
-  (e: 'view-work', app: API.AppVO): void
-  (e: 'copy', app: API.AppVO): void
+  (e: 'view-work', app: API.OwnerAppVO | API.PublicAppVO): void
+  (e: 'copy', app: API.OwnerAppVO | API.PublicAppVO): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -95,28 +95,29 @@ const emit = defineEmits<Emits>()
 const appCover = computed(() => normalizeImageUrl(props.app.cover) || DEFAULT_APP_COVER)
 const userAvatar = computed(() => props.app.user?.userAvatar || DEFAULT_USER_AVATAR)
 const statusMeta = computed(() => {
-  if (!props.app.isGenerating) {
+  const app = props.app
+  if (!('isGenerating' in app) || !app.isGenerating) {
     return null
   }
-  if (props.app.generatingStage === 'build') {
+  if (app.generatingStage === 'build') {
     return {
       label: '构建中',
       variant: 'build',
     }
   }
-  if (props.app.generatingStage === 'repair') {
+  if (app.generatingStage === 'repair') {
     return {
       label: '修复中',
       variant: 'repair',
     }
   }
-  if (props.app.generatingStage === 'agent') {
+  if (app.generatingStage === 'agent') {
     return {
       label: '编排中',
       variant: 'agent',
     }
   }
-  if (props.app.generatingStage === 'update') {
+  if (app.generatingStage === 'update') {
     return {
       label: '改修中',
       variant: 'update',

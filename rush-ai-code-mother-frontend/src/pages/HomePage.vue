@@ -62,14 +62,16 @@ const composerFeedbackDescription = computed(() => {
   return ''
 })
 
-const myApps = ref<API.AppVO[]>([])
+const myApps = ref<API.OwnerAppVO[]>([])
 const myAppsPage = reactive({
   current: 1,
   pageSize: 6,
   total: 0,
 })
 
-const featuredApps = ref<API.AppVO[]>([])
+type AppCardView = API.OwnerAppVO | API.PublicAppVO
+
+const featuredApps = ref<API.PublicAppVO[]>([])
 const featuredAppsPage = reactive({
   current: 1,
   pageSize: 6,
@@ -95,7 +97,7 @@ const copyingAppIds = ref<Set<string>>(new Set())
 const deletingAppIds = ref<Set<string>>(new Set())
 const retiringAppIds = ref<Set<string>>(new Set())
 const deleteModalOpen = ref(false)
-const pendingDeleteApp = ref<API.AppVO | null>(null)
+const pendingDeleteApp = ref<API.OwnerAppVO | null>(null)
 const deletePhase = ref<'confirm' | 'deleting' | 'done'>('confirm')
 
 const showcasePalette = [
@@ -293,7 +295,7 @@ const viewChat = (appId: string | number | undefined) => {
   }
 }
 
-const viewWork = (app: API.AppVO) => {
+const viewWork = (app: AppCardView) => {
   if (!app.deployKey) {
     message.warning('该应用尚未部署')
     return
@@ -304,31 +306,32 @@ const viewWork = (app: API.AppVO) => {
   }
 }
 
-const isOwnApp = (app: API.AppVO) => {
+const isOwnApp = (app: AppCardView) => {
   if (!app.userId || !loginUserStore.loginUser.id) {
     return false
   }
   return String(app.userId) === String(loginUserStore.loginUser.id)
 }
 
-const isCopyingApp = (app: API.AppVO) => {
+const isCopyingApp = (app: AppCardView) => {
   return Boolean(app.id && copyingAppIds.value.has(String(app.id)))
 }
 
-const isDeletingApp = (app: API.AppVO) => {
+const isDeletingApp = (app: AppCardView) => {
   return Boolean(app.id && deletingAppIds.value.has(String(app.id)))
 }
 
-const isRetiringApp = (app: API.AppVO) => {
+const isRetiringApp = (app: AppCardView) => {
   return Boolean(app.id && retiringAppIds.value.has(String(app.id)))
 }
 
-const getAppImage = (app: API.AppVO) => normalizeImageUrl(app.cover) || DEFAULT_APP_COVER
+const getAppImage = (app: AppCardView) => normalizeImageUrl(app.cover) || DEFAULT_APP_COVER
 
-const getAppAuthor = (app: API.AppVO, fallback = '未知用户') => app.user?.userName || fallback
+const getAppAuthor = (app: AppCardView, fallback = '未知用户') =>
+  app.user?.userName || fallback
 
-const getAppSummary = (app: API.AppVO) => {
-  const source = (app.initPrompt || '').trim()
+const getAppSummary = (app: AppCardView) => {
+  const source = ('initPrompt' in app ? app.initPrompt || '' : '').trim()
   if (source) {
     return source.length > 54 ? `${source.slice(0, 54)}...` : source
   }
@@ -387,7 +390,7 @@ const waitForTimeout = (delayMs: number) =>
     pendingTimeouts.set(timerId, resolve)
   })
 
-const openDeleteModal = (app: API.AppVO) => {
+const openDeleteModal = (app: API.OwnerAppVO) => {
   if (!app.id || isDeletingApp(app)) {
     return
   }
@@ -409,7 +412,7 @@ const closeDeleteModal = () => {
   }, 240)
 }
 
-const copyFeaturedApp = async (app: API.AppVO) => {
+const copyFeaturedApp = async (app: API.PublicAppVO) => {
   if (!loginUserStore.loginUser.id) {
     message.warning('请先登录')
     await router.push('/user/login')

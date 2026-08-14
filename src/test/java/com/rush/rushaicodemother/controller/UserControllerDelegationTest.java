@@ -8,7 +8,8 @@ import com.rush.rushaicodemother.exception.SseExceptionResponseWriter;
 import com.rush.rushaicodemother.exception.ValidationExceptionMessageResolver;
 import com.rush.rushaicodemother.exception.UserFacingMessageResolver;
 import com.rush.rushaicodemother.model.dto.user.UserQueryRequest;
-import com.rush.rushaicodemother.model.vo.UserVO;
+import com.rush.rushaicodemother.model.vo.AdminUserVO;
+import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
@@ -60,8 +61,8 @@ class UserControllerDelegationTest {
 
     @Test
     void adminUserLookupMustDelegateToReadOnlyDirectory() throws Exception {
-        UserVO userView = userView(7L, "Alice");
-        when(userDirectoryService.findActiveUserView(7L)).thenReturn(userView);
+        AdminUserVO userView = userView(7L, "Alice");
+        when(userDirectoryService.findActiveAdminView(7L)).thenReturn(userView);
 
         mockMvc.perform(get("/user/get").param("id", "7"))
                 .andExpect(status().isOk())
@@ -69,26 +70,44 @@ class UserControllerDelegationTest {
                 .andExpect(jsonPath("$.data.id").value(7L))
                 .andExpect(jsonPath("$.data.userName").value("Alice"));
 
-        verify(userDirectoryService).findActiveUserView(7L);
+        verify(userDirectoryService).findActiveAdminView(7L);
     }
 
     @Test
     void publicUserViewLookupMustReturnNotFoundForMissingActiveUser() throws Exception {
-        when(userDirectoryService.findActiveUserView(404L)).thenReturn(null);
+        when(userDirectoryService.findActivePublicSummary(404L)).thenReturn(null);
 
         mockMvc.perform(get("/user/get/vo").param("id", "404"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ErrorCode.NOT_FOUND_ERROR.getCode()));
 
-        verify(userDirectoryService).findActiveUserView(404L);
+        verify(userDirectoryService).findActivePublicSummary(404L);
+    }
+
+    @Test
+    void publicUserViewMustNeverExposeAccountRoleCreditOrCreationTime() throws Exception {
+        PublicUserSummaryVO summary = new PublicUserSummaryVO();
+        summary.setId(7L);
+        summary.setUserName("Alice");
+        summary.setUserAvatar("https://cdn.example/avatar.png");
+        when(userDirectoryService.findActivePublicSummary(7L)).thenReturn(summary);
+
+        mockMvc.perform(get("/user/get/vo").param("id", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(7L))
+                .andExpect(jsonPath("$.data.userName").value("Alice"))
+                .andExpect(jsonPath("$.data.userAccount").doesNotExist())
+                .andExpect(jsonPath("$.data.userRole").doesNotExist())
+                .andExpect(jsonPath("$.data.creditBalance").doesNotExist())
+                .andExpect(jsonPath("$.data.createTime").doesNotExist());
     }
 
     @Test
     void userPageLookupMustDelegateToReadOnlyDirectory() throws Exception {
-        UserVO userView = userView(9L, "Bob");
-        Page<UserVO> page = new Page<>(2, 5, 1);
+        AdminUserVO userView = userView(9L, "Bob");
+        Page<AdminUserVO> page = new Page<>(2, 5, 1);
         page.setRecords(List.of(userView));
-        when(userDirectoryService.pageActiveUserViews(any(UserQueryRequest.class)))
+        when(userDirectoryService.pageActiveAdminViews(any(UserQueryRequest.class)))
                 .thenReturn(page);
 
         mockMvc.perform(post("/user/list/page/vo")
@@ -106,7 +125,7 @@ class UserControllerDelegationTest {
                 .andExpect(jsonPath("$.data.records[0].userName").value("Bob"));
 
         ArgumentCaptor<UserQueryRequest> requestCaptor = ArgumentCaptor.forClass(UserQueryRequest.class);
-        verify(userDirectoryService).pageActiveUserViews(requestCaptor.capture());
+        verify(userDirectoryService).pageActiveAdminViews(requestCaptor.capture());
         UserQueryRequest delegatedRequest = requestCaptor.getValue();
         assertEquals(2, delegatedRequest.getPageNum());
         assertEquals(5, delegatedRequest.getPageSize());
@@ -141,8 +160,8 @@ class UserControllerDelegationTest {
         assertEquals(9L, command.adminUserId());
     }
 
-    private UserVO userView(long id, String userName) {
-        UserVO userView = new UserVO();
+    private AdminUserVO userView(long id, String userName) {
+        AdminUserVO userView = new AdminUserVO();
         userView.setId(id);
         userView.setUserName(userName);
         return userView;

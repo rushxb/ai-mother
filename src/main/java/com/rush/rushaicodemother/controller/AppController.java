@@ -14,7 +14,8 @@ import com.rush.rushaicodemother.model.dto.app.AppCopyRequest;
 import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
 import com.rush.rushaicodemother.model.dto.app.AppUpdateRequest;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.model.vo.AppVO;
+import com.rush.rushaicodemother.model.vo.OwnerAppVO;
+import com.rush.rushaicodemother.model.vo.PublicAppVO;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -82,14 +83,17 @@ public class AppController {
 
     /** 根据 ID 获取应用详情。 */
     @GetMapping("/get/vo")
-    public BaseResponse<AppVO> getAppVOById(@RequestParam @Positive long id) {
-        return ResultUtils.success(appQueryApplicationService.getById(id));
+    public BaseResponse<OwnerAppVO> getAppVOById(@RequestParam @Positive long id,
+                                                 HttpServletRequest servletRequest) {
+        User loginUser = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(appQueryApplicationService.getAuthorizedDetail(id, loginUser));
     }
 
     /** 分页获取当前用户创建的应用。 */
     @PostMapping("/my/list/page/vo")
-    public BaseResponse<Page<AppVO>> listMyAppVOByPage(@Valid @RequestBody AppQueryRequest requestBody,
-                                                       HttpServletRequest servletRequest) {
+    public BaseResponse<Page<OwnerAppVO>> listMyAppVOByPage(
+            @Valid @RequestBody AppQueryRequest requestBody,
+            HttpServletRequest servletRequest) {
         User loginUser = userService.getLoginUser(servletRequest);
         return ResultUtils.success(
                 appQueryApplicationService.listMine(requestBody, loginUser.getId())
@@ -98,7 +102,8 @@ public class AppController {
 
     /** 分页获取精选应用。 */
     @PostMapping("/good/list/page/vo")
-    public BaseResponse<Page<AppVO>> listGoodAppVOByPage(@Valid @RequestBody AppQueryRequest requestBody) {
+    public BaseResponse<Page<PublicAppVO>> listGoodAppVOByPage(
+            @Valid @RequestBody AppQueryRequest requestBody) {
         return ResultUtils.success(appQueryApplicationService.listFeatured(requestBody));
     }
 
@@ -121,7 +126,7 @@ public class AppController {
     /** 管理员分页获取应用。 */
     @PostMapping("/admin/list/page/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Page<AppVO>> listAppVOByPageByAdmin(
+    public BaseResponse<Page<OwnerAppVO>> listAppVOByPageByAdmin(
             @Valid @RequestBody AppQueryRequest requestBody) {
         return ResultUtils.success(appQueryApplicationService.listForAdministration(requestBody));
     }
@@ -129,7 +134,7 @@ public class AppController {
     /** 管理员根据 ID 获取应用详情。 */
     @GetMapping("/admin/get/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<AppVO> getAppVOByIdByAdmin(@RequestParam @Positive long id) {
-        return ResultUtils.success(appQueryApplicationService.getById(id));
+    public BaseResponse<OwnerAppVO> getAppVOByIdByAdmin(@RequestParam @Positive long id) {
+        return ResultUtils.success(appQueryApplicationService.getForAdministration(id));
     }
 }

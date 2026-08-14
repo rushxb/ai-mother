@@ -50,6 +50,19 @@ public class AppAccessPolicy {
         return app;
     }
 
+    /** 租户任意有效成员或平台管理员可以读取敏感应用详情。 */
+    public App requireViewerOrAdmin(App app, User actor, String deniedMessage) {
+        requireAuthenticated(actor);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        if (!UserConstant.ADMIN_ROLE.equals(actor.getUserRole())) {
+            tenantAuthorizationService.requireRole(
+                    app.getTenantId(), actor.getId(), TenantRole.VIEWER, deniedMessage);
+        }
+        return app;
+    }
+
     private void requireAuthenticated(User actor) {
         if (actor == null || actor.getId() == null || actor.getId() <= 0) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录");

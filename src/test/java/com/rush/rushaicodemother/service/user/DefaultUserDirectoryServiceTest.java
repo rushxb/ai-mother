@@ -3,7 +3,8 @@ package com.rush.rushaicodemother.service.user;
 import com.mybatisflex.core.paginate.Page;
 import com.rush.rushaicodemother.model.dto.user.UserQueryRequest;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.model.vo.UserVO;
+import com.rush.rushaicodemother.model.vo.AdminUserVO;
+import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,34 +36,48 @@ class DefaultUserDirectoryServiceTest {
         User firstUser = User.builder().id(1L).build();
         User duplicateUser = User.builder().id(1L).build();
         User invalidUser = User.builder().id(null).build();
-        UserVO firstView = new UserVO();
+        AdminUserVO firstView = new AdminUserVO();
         firstView.setId(1L);
         when(userPersistenceService.findActiveByIds(Arrays.asList(1L, null)))
                 .thenReturn(Arrays.asList(firstUser, duplicateUser, invalidUser, null));
-        when(userViewConverter.toUserView(firstUser)).thenReturn(firstView);
+        when(userViewConverter.toAdminView(firstUser)).thenReturn(firstView);
 
-        Map<Long, UserVO> result = service.findActiveUserViews(Arrays.asList(1L, null));
+        Map<Long, AdminUserVO> result = service.findActiveAdminViews(Arrays.asList(1L, null));
 
         assertEquals(Map.of(1L, firstView), result);
-        verify(userViewConverter).toUserView(firstUser);
+        verify(userViewConverter).toAdminView(firstUser);
     }
 
     @Test
     void pageLookupMustReturnVoPageWithoutExposingEntities() {
         UserQueryRequest request = new UserQueryRequest();
         User user = User.builder().id(7L).build();
-        UserVO userView = new UserVO();
+        AdminUserVO userView = new AdminUserVO();
         userView.setId(7L);
         Page<User> userPage = new Page<>(2, 5, 11);
         userPage.setRecords(List.of(user));
         when(userPersistenceService.pageActiveUsers(request)).thenReturn(userPage);
-        when(userViewConverter.toUserView(user)).thenReturn(userView);
+        when(userViewConverter.toAdminView(user)).thenReturn(userView);
 
-        Page<UserVO> result = service.pageActiveUserViews(request);
+        Page<AdminUserVO> result = service.pageActiveAdminViews(request);
 
         assertEquals(2, result.getPageNumber());
         assertEquals(5, result.getPageSize());
         assertEquals(11, result.getTotalRow());
         assertSame(userView, result.getRecords().getFirst());
+    }
+
+    @Test
+    void publicLookupMustUseTheDedicatedMinimalProjection() {
+        User user = User.builder().id(7L).userAccount("secret-account").build();
+        PublicUserSummaryVO summary = new PublicUserSummaryVO();
+        summary.setId(7L);
+        when(userPersistenceService.findActiveById(7L)).thenReturn(user);
+        when(userViewConverter.toPublicSummary(user)).thenReturn(summary);
+
+        PublicUserSummaryVO result = service.findActivePublicSummary(7L);
+
+        assertSame(summary, result);
+        verify(userViewConverter).toPublicSummary(user);
     }
 }

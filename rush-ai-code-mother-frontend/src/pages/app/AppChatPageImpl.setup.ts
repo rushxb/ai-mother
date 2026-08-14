@@ -126,7 +126,7 @@ export default defineComponent({
     )
 
     // 应用信息
-    const appInfo = ref<API.AppVO>()
+    const appInfo = ref<API.OwnerAppVO>()
     const appId = ref<string>()
     const isEditingAppName = ref(false)
     const appNameDraft = ref('')
@@ -1112,7 +1112,7 @@ export default defineComponent({
     }
 
     // 判断是否为 Vue 项目
-    const isVueProject = (app: API.AppVO) => {
+    const isVueProject = (app: API.OwnerAppVO) => {
       return (
         app?.codeGenType === CodeGenTypeEnum.VUE_PROJECT ||
         app?.codeGenType === CodeGenTypeEnum.FULL_STACK_PROJECT

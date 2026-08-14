@@ -59,4 +59,22 @@ class AppAccessPolicyTest {
         assertDoesNotThrow(() -> policy.requireOwnerOrAdmin(app, platformAdministrator, "denied"));
         verifyNoMoreInteractions(tenantAuthorizationService);
     }
+
+    @Test
+    void sensitiveReadMustRequireViewerMembershipButBypassTenantLookupForPlatformAdmin() {
+        App app = App.builder().id(10L).tenantId(100L).build();
+        User viewer = User.builder().id(3L).build();
+        User platformAdministrator = User.builder()
+                .id(99L)
+                .userRole(UserConstant.ADMIN_ROLE)
+                .build();
+
+        assertDoesNotThrow(() -> policy.requireViewerOrAdmin(app, viewer, "denied"));
+        verify(tenantAuthorizationService)
+                .requireRole(100L, 3L, TenantRole.VIEWER, "denied");
+
+        assertDoesNotThrow(() -> policy.requireViewerOrAdmin(
+                app, platformAdministrator, "denied"));
+        verifyNoMoreInteractions(tenantAuthorizationService);
+    }
 }

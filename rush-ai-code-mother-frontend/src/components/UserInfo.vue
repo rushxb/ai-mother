@@ -12,7 +12,7 @@ import { computed } from 'vue'
 import { DEFAULT_USER_AVATAR } from '@/constants/appDefaults'
 
 interface Props {
-  user?: API.UserVO
+  user?: API.PublicUserSummaryVO
   size?: number | 'small' | 'default' | 'large'
   showName?: boolean
 }

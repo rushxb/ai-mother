@@ -6,7 +6,9 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.dto.app.AppQueryRequest;
 import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.vo.AppVO;
+import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.vo.OwnerAppVO;
+import com.rush.rushaicodemother.model.vo.PublicAppVO;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,10 +28,18 @@ public class AppQueryApplicationService {
 
     private final AppPersistenceService appPersistenceService;
     private final AppViewAssembler appViewAssembler;
+    private final AppAccessPolicy appAccessPolicy;
 
-    public AppVO getById(long appId) {
+    /** 返回登录用户有权查看的敏感详情。 */
+    public OwnerAppVO getAuthorizedDetail(long appId, User actor) {
         App app = requireExistingApp(appId);
-        return appViewAssembler.toView(app);
+        appAccessPolicy.requireViewerOrAdmin(app, actor, "无权查看该应用详情");
+        return appViewAssembler.toSensitiveView(app);
+    }
+
+    /** 管理端详情由控制层的管理员门禁保护。 */
+    public OwnerAppVO getForAdministration(long appId) {
+        return appViewAssembler.toSensitiveView(requireExistingApp(appId));
     }
 
     /**
@@ -39,12 +49,12 @@ public class AppQueryApplicationService {
  * @param userId 用户编号
  * @return {@code Mine}
  */
-    public Page<AppVO> listMine(AppQueryRequest sourceRequest, Long userId) {
+    public Page<OwnerAppVO> listMine(AppQueryRequest sourceRequest, Long userId) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
         AppQueryRequest scopedRequest = copyOf(sourceRequest);
         scopedRequest.setUserId(userId);
         enforcePageSize(scopedRequest, USER_PAGE_SIZE_LIMIT);
-        return queryPage(scopedRequest);
+        return querySensitivePage(scopedRequest);
     }
 
     /**
@@ -53,11 +63,11 @@ public class AppQueryApplicationService {
  * @param sourceRequest 来源请求
  * @return {@code Featured}
  */
-    public Page<AppVO> listFeatured(AppQueryRequest sourceRequest) {
+    public Page<PublicAppVO> listFeatured(AppQueryRequest sourceRequest) {
         AppQueryRequest scopedRequest = copyOf(sourceRequest);
         scopedRequest.setPriority(AppConstant.GOOD_APP_PRIORITY);
         enforcePageSize(scopedRequest, USER_PAGE_SIZE_LIMIT);
-        return queryPage(scopedRequest);
+        return queryPublicPage(scopedRequest);
     }
 
     /**
@@ -66,17 +76,26 @@ public class AppQueryApplicationService {
  * @param sourceRequest 来源请求
  * @return {@code For}{@code Administration}
  */
-    public Page<AppVO> listForAdministration(AppQueryRequest sourceRequest) {
-        return queryPage(copyOf(sourceRequest));
+    public Page<OwnerAppVO> listForAdministration(AppQueryRequest sourceRequest) {
+        return querySensitivePage(copyOf(sourceRequest));
     }
 
-    private Page<AppVO> queryPage(AppQueryRequest queryRequest) {
+    private Page<OwnerAppVO> querySensitivePage(AppQueryRequest queryRequest) {
         long pageNum = queryRequest.getPageNum();
         long pageSize = queryRequest.getPageSize();
         Page<App> appPage = appPersistenceService.pageActiveApps(queryRequest);
-        Page<AppVO> result = new Page<>(pageNum, pageSize, appPage.getTotalRow());
-        List<AppVO> records = appViewAssembler.toViewList(appPage.getRecords());
+        Page<OwnerAppVO> result = new Page<>(pageNum, pageSize, appPage.getTotalRow());
+        List<OwnerAppVO> records = appViewAssembler.toSensitiveViewList(appPage.getRecords());
         result.setRecords(records);
+        return result;
+    }
+
+    private Page<PublicAppVO> queryPublicPage(AppQueryRequest queryRequest) {
+        long pageNum = queryRequest.getPageNum();
+        long pageSize = queryRequest.getPageSize();
+        Page<App> appPage = appPersistenceService.pageActiveApps(queryRequest);
+        Page<PublicAppVO> result = new Page<>(pageNum, pageSize, appPage.getTotalRow());
+        result.setRecords(appViewAssembler.toPublicViewList(appPage.getRecords()));
         return result;
     }
 

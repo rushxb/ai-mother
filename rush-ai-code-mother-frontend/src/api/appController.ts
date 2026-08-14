@@ -32,7 +32,7 @@ export async function getAppVoByIdByAdmin(
   params: API.getAppVOByIdByAdminParams,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponseAppVO>('/app/admin/get/vo', {
+  return request<API.BaseResponseOwnerAppVO>('/app/admin/get/vo', {
     method: 'GET',
     params: {
       ...params,
@@ -46,7 +46,7 @@ export async function listAppVoByPageByAdmin(
   body: API.AppQueryRequest,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponsePageAppVO>('/app/admin/list/page/vo', {
+  return request<API.BaseResponsePageOwnerAppVO>('/app/admin/list/page/vo', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -287,7 +287,7 @@ export async function getAppVoById(
   params: API.getAppVOByIdParams,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponseAppVO>('/app/get/vo', {
+  return request<API.BaseResponseOwnerAppVO>('/app/get/vo', {
     method: 'GET',
     params: {
       ...params,
@@ -301,7 +301,7 @@ export async function listGoodAppVoByPage(
   body: API.AppQueryRequest,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponsePageAppVO>('/app/good/list/page/vo', {
+  return request<API.BaseResponsePagePublicAppVO>('/app/good/list/page/vo', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -316,7 +316,7 @@ export async function listMyAppVoByPage(
   body: API.AppQueryRequest,
   options?: { [key: string]: any }
 ) {
-  return request<API.BaseResponsePageAppVO>('/app/my/list/page/vo', {
+  return request<API.BaseResponsePageOwnerAppVO>('/app/my/list/page/vo', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

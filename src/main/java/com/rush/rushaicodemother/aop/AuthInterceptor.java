@@ -37,6 +37,9 @@ public class AuthInterceptor {
     public Object doInterceptor(ProceedingJoinPoint joinPoint, AuthCheck authCheck) throws Throwable {
         HttpServletRequest request = currentRequest();
         User loginUser = userService.getLoginUser(request);
+        if (loginUser == null || loginUser.getId() == null || loginUser.getId() <= 0) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
 
         String requiredRoleValue = authCheck.mustRole();
         if (requiredRoleValue == null || requiredRoleValue.isBlank()) {
@@ -51,9 +54,6 @@ public class AuthInterceptor {
             );
         }
 
-        if (loginUser == null) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
-        }
         UserRoleEnum userRoleEnum = UserRoleEnum.getEnumByValue(loginUser.getUserRole());
         if (userRoleEnum == null) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
@@ -73,7 +73,6 @@ public class AuthInterceptor {
         return servletRequestAttributes.getRequest();
     }
 }
-
 
 
 

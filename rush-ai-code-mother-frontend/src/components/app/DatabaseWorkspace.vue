@@ -183,7 +183,7 @@ import { enableAppDatabase } from '@/api/appController'
 import { resolveSafeBrowserUrl } from '@/utils/browser'
 
 const props = defineProps<{
-  app?: API.AppVO
+  app?: API.OwnerAppVO
   isOwner: boolean
   isGenerating: boolean
 }>()

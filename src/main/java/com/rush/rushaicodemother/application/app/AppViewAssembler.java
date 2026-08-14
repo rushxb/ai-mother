@@ -3,8 +3,9 @@ package com.rush.rushaicodemother.application.app;
 import cn.hutool.core.bean.BeanUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
-import com.rush.rushaicodemother.model.vo.AppVO;
-import com.rush.rushaicodemother.model.vo.UserVO;
+import com.rush.rushaicodemother.model.vo.OwnerAppVO;
+import com.rush.rushaicodemother.model.vo.PublicAppVO;
+import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
 import com.rush.rushaicodemother.service.user.UserDirectoryService;
 import lombok.RequiredArgsConstructor;
@@ -35,8 +36,8 @@ public class AppViewAssembler {
  * @param app 应用
  * @return 视图
  */
-    public AppVO toView(App app) {
-        AppVO appVO = copyBaseFields(app);
+    public OwnerAppVO toSensitiveView(App app) {
+        OwnerAppVO appVO = copySensitiveBaseFields(app);
         if (appVO == null) {
             return null;
         }
@@ -47,7 +48,7 @@ public class AppViewAssembler {
 
         Long userId = app.getUserId();
         if (userId != null) {
-            appVO.setUser(userDirectoryService.findActiveUserView(userId));
+            appVO.setUser(userDirectoryService.findActivePublicSummary(userId));
         }
         return appVO;
     }
@@ -58,7 +59,7 @@ public class AppViewAssembler {
  * @param apps 应用列表
  * @return 视图列表集合
  */
-    public List<AppVO> toViewList(List<App> apps) {
+    public List<OwnerAppVO> toSensitiveViewList(List<App> apps) {
         if (apps == null || apps.isEmpty()) {
             return new ArrayList<>();
         }
@@ -69,7 +70,7 @@ public class AppViewAssembler {
             return new ArrayList<>();
         }
 
-        Map<Long, UserVO> userVOMap = loadUserVOMap(validApps);
+        Map<Long, PublicUserSummaryVO> userSummaryMap = loadPublicSummaryMap(validApps);
         Set<Long> appIds = validApps.stream()
                 .map(App::getId)
                 .filter(Objects::nonNull)
@@ -78,11 +79,44 @@ public class AppViewAssembler {
                 appDatabaseResourceService.findActiveResourceViews(appIds);
 
         return validApps.stream()
-                .map(app -> assembleView(app, userVOMap, databaseResourceMap))
+                .map(app -> assembleSensitiveView(app, userSummaryMap, databaseResourceMap))
                 .collect(Collectors.toList());
     }
 
-    private Map<Long, UserVO> loadUserVOMap(List<App> apps) {
+    /** 装配精选场景的最小公开视图，不触碰数据库资源。 */
+    public PublicAppVO toPublicView(App app) {
+        if (app == null) {
+            return null;
+        }
+        PublicAppVO view = copyPublicBaseFields(app);
+        if (app.getUserId() != null) {
+            view.setUser(userDirectoryService.findActivePublicSummary(app.getUserId()));
+        }
+        return view;
+    }
+
+    /** 批量装配精选公开视图，关联用户使用单次目录查询。 */
+    public List<PublicAppVO> toPublicViewList(List<App> apps) {
+        if (apps == null || apps.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<App> validApps = apps.stream()
+                .filter(Objects::nonNull)
+                .toList();
+        if (validApps.isEmpty()) {
+            return new ArrayList<>();
+        }
+        Map<Long, PublicUserSummaryVO> summaries = loadPublicSummaryMap(validApps);
+        return validApps.stream()
+                .map(app -> {
+                    PublicAppVO view = copyPublicBaseFields(app);
+                    view.setUser(summaries.get(app.getUserId()));
+                    return view;
+                })
+                .toList();
+    }
+
+    private Map<Long, PublicUserSummaryVO> loadPublicSummaryMap(List<App> apps) {
         Set<Long> userIds = apps.stream()
                 .map(App::getUserId)
                 .filter(Objects::nonNull)
@@ -90,17 +124,17 @@ public class AppViewAssembler {
         if (userIds.isEmpty()) {
             return Map.of();
         }
-        return userDirectoryService.findActiveUserViews(userIds);
+        return userDirectoryService.findActivePublicSummaries(userIds);
     }
 
     /** 汇总相关数据并组装视图。 */
-    private AppVO assembleView(App app,
-                               Map<Long, UserVO> userVOMap,
-                               Map<Long, AppDatabaseResourceVO> databaseResourceMap) {
-        AppVO appVO = copyBaseFields(app);
+    private OwnerAppVO assembleSensitiveView(App app,
+                                             Map<Long, PublicUserSummaryVO> userSummaryMap,
+                                             Map<Long, AppDatabaseResourceVO> databaseResourceMap) {
+        OwnerAppVO appVO = copySensitiveBaseFields(app);
         Long userId = app.getUserId();
         if (userId != null) {
-            appVO.setUser(userVOMap.get(userId));
+            appVO.setUser(userSummaryMap.get(userId));
         }
 
         Long appId = app.getId();
@@ -109,12 +143,25 @@ public class AppViewAssembler {
         return appVO;
     }
 
-    private AppVO copyBaseFields(App app) {
+    private OwnerAppVO copySensitiveBaseFields(App app) {
         if (app == null) {
             return null;
         }
-        AppVO appVO = new AppVO();
+        OwnerAppVO appVO = new OwnerAppVO();
         BeanUtil.copyProperties(app, appVO);
         return appVO;
+    }
+
+    private PublicAppVO copyPublicBaseFields(App app) {
+        PublicAppVO view = new PublicAppVO();
+        view.setId(app.getId());
+        view.setAppName(app.getAppName());
+        view.setCover(app.getCover());
+        view.setCodeGenType(app.getCodeGenType());
+        view.setDeployKey(app.getDeployKey());
+        view.setDeployedTime(app.getDeployedTime());
+        view.setUserId(app.getUserId());
+        view.setCreateTime(app.getCreateTime());
+        return view;
     }
 }

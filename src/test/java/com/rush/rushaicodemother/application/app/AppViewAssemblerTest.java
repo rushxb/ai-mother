@@ -3,8 +3,9 @@ package com.rush.rushaicodemother.application.app;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
-import com.rush.rushaicodemother.model.vo.AppVO;
-import com.rush.rushaicodemother.model.vo.UserVO;
+import com.rush.rushaicodemother.model.vo.OwnerAppVO;
+import com.rush.rushaicodemother.model.vo.PublicAppVO;
+import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
 import com.rush.rushaicodemother.service.user.UserDirectoryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +46,7 @@ class AppViewAssemblerTest {
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
 
-        AppVO result = assembler.toView(app);
+        OwnerAppVO result = assembler.toSensitiveView(app);
 
         assertEquals(1L, result.getId());
         assertNull(result.getDevServerPort());
@@ -58,7 +59,7 @@ class AppViewAssemblerTest {
     void singleViewAssemblyShouldSupportTransientAppWithoutIdentifiers() {
         App transientApp = new App();
 
-        AppVO result = assembler.toView(transientApp);
+        OwnerAppVO result = assembler.toSensitiveView(transientApp);
 
         assertNull(result.getId());
         assertNull(result.getUser());
@@ -70,17 +71,17 @@ class AppViewAssemblerTest {
     void listViewAssemblyShouldBatchLoadUsersAndDatabaseResourceViews() {
         App firstApp = app(1L, 10L);
         App secondApp = app(2L, 20L);
-        UserVO firstUserVO = userVO(10L);
-        UserVO secondUserVO = userVO(20L);
+        PublicUserSummaryVO firstUserVO = userSummary(10L);
+        PublicUserSummaryVO secondUserVO = userSummary(20L);
         AppDatabaseResourceVO firstResourceVO = databaseResourceVO(101L, 1L);
         AppDatabaseResourceVO secondResourceVO = databaseResourceVO(102L, 2L);
 
-        when(userDirectoryService.findActiveUserViews(anyCollection()))
+        when(userDirectoryService.findActivePublicSummaries(anyCollection()))
                 .thenReturn(Map.of(10L, firstUserVO, 20L, secondUserVO));
         when(appDatabaseResourceService.findActiveResourceViews(anyCollection()))
                 .thenReturn(Map.of(1L, firstResourceVO, 2L, secondResourceVO));
 
-        List<AppVO> results = assembler.toViewList(List.of(firstApp, secondApp));
+        List<OwnerAppVO> results = assembler.toSensitiveViewList(List.of(firstApp, secondApp));
 
         assertEquals(2, results.size());
         assertSame(firstUserVO, results.get(0).getUser());
@@ -88,8 +89,8 @@ class AppViewAssemblerTest {
         assertSame(firstResourceVO, results.get(0).getDatabaseResource());
         assertSame(secondResourceVO, results.get(1).getDatabaseResource());
         verify(userDirectoryService, times(1))
-                .findActiveUserViews(argThat(ids -> ids.containsAll(List.of(10L, 20L))));
-        verify(userDirectoryService, never()).findActiveUserView(any());
+                .findActivePublicSummaries(argThat(ids -> ids.containsAll(List.of(10L, 20L))));
+        verify(userDirectoryService, never()).findActivePublicSummary(any());
         verify(appDatabaseResourceService, times(1))
                 .findActiveResourceViews(argThat(ids -> ids.containsAll(List.of(1L, 2L))));
         verify(appDatabaseResourceService, never()).findActiveResourceView(any());
@@ -100,7 +101,7 @@ class AppViewAssemblerTest {
         App appWithoutUser = app(1L, null);
         when(appDatabaseResourceService.findActiveResourceViews(anyCollection())).thenReturn(Map.of());
 
-        List<AppVO> results = assembler.toViewList(List.of(appWithoutUser));
+        List<OwnerAppVO> results = assembler.toSensitiveViewList(List.of(appWithoutUser));
 
         assertEquals(1, results.size());
         assertNull(results.getFirst().getUser());
@@ -113,13 +114,30 @@ class AppViewAssemblerTest {
         App transientApp = app(null, null);
         when(appDatabaseResourceService.findActiveResourceViews(anyCollection())).thenReturn(Map.of());
 
-        List<AppVO> results = assembler.toViewList(List.of(transientApp));
+        List<OwnerAppVO> results = assembler.toSensitiveViewList(List.of(transientApp));
 
         assertEquals(1, results.size());
         assertNull(results.getFirst().getId());
         assertNull(results.getFirst().getUser());
         assertNull(results.getFirst().getDatabaseResource());
         verifyNoInteractions(userDirectoryService);
+    }
+
+    @Test
+    void publicListMustNotLoadDatabaseResourcesOrCopySensitiveFields() {
+        App app = app(1L, 10L);
+        app.setInitPrompt("private prompt");
+        app.setGeneratingMessage("partial output");
+        app.setDevServerPort(5173);
+        PublicUserSummaryVO summary = userSummary(10L);
+        when(userDirectoryService.findActivePublicSummaries(anyCollection()))
+                .thenReturn(Map.of(10L, summary));
+
+        List<PublicAppVO> result = assembler.toPublicViewList(List.of(app));
+
+        assertEquals(1L, result.getFirst().getId());
+        assertSame(summary, result.getFirst().getUser());
+        verifyNoInteractions(appDatabaseResourceService);
     }
 
     private App app(Long id, Long userId) {
@@ -130,10 +148,10 @@ class AppViewAssemblerTest {
         return app;
     }
 
-    private UserVO userVO(Long id) {
-        UserVO userVO = new UserVO();
-        userVO.setId(id);
-        return userVO;
+    private PublicUserSummaryVO userSummary(Long id) {
+        PublicUserSummaryVO summary = new PublicUserSummaryVO();
+        summary.setId(id);
+        return summary;
     }
 
     private AppDatabaseResourceVO databaseResourceVO(Long id, Long appId) {

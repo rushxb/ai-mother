@@ -2,8 +2,9 @@ package com.rush.rushaicodemother.service.user;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.model.vo.AdminUserVO;
 import com.rush.rushaicodemother.model.vo.LoginUserVO;
-import com.rush.rushaicodemother.model.vo.UserVO;
+import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
 import org.springframework.stereotype.Component;
 
 /** 用户实体脱敏视图转换器。 */
@@ -16,13 +17,25 @@ public class UserViewConverter {
  * @param user 用户
  * @return 用户视图
  */
-    public UserVO toUserView(User user) {
+    public AdminUserVO toAdminView(User user) {
         if (user == null) {
             return null;
         }
-        UserVO userVO = new UserVO();
+        AdminUserVO userVO = new AdminUserVO();
         BeanUtil.copyProperties(user, userVO);
         return userVO;
+    }
+
+    /** 只复制公开身份字段，禁止使用反射式 Bean 拷贝扩大公开数据面。 */
+    public PublicUserSummaryVO toPublicSummary(User user) {
+        if (user == null) {
+            return null;
+        }
+        PublicUserSummaryVO summary = new PublicUserSummaryVO();
+        summary.setId(user.getId());
+        summary.setUserName(user.getUserName());
+        summary.setUserAvatar(user.getUserAvatar());
+        return summary;
     }
 
     /**

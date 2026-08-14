@@ -3,7 +3,8 @@ package com.rush.rushaicodemother.service.user;
 import com.mybatisflex.core.paginate.Page;
 import com.rush.rushaicodemother.model.dto.user.UserQueryRequest;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.model.vo.UserVO;
+import com.rush.rushaicodemother.model.vo.AdminUserVO;
+import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -27,8 +28,13 @@ public class DefaultUserDirectoryService implements UserDirectoryService {
  * @return 活动用户视图
  */
     @Override
-    public UserVO findActiveUserView(Long userId) {
-        return userViewConverter.toUserView(userPersistenceService.findActiveById(userId));
+    public AdminUserVO findActiveAdminView(Long userId) {
+        return userViewConverter.toAdminView(userPersistenceService.findActiveById(userId));
+    }
+
+    @Override
+    public PublicUserSummaryVO findActivePublicSummary(Long userId) {
+        return userViewConverter.toPublicSummary(userPersistenceService.findActiveById(userId));
     }
 
     /**
@@ -38,12 +44,12 @@ public class DefaultUserDirectoryService implements UserDirectoryService {
  * @return 活动用户{@code Views}集合
  */
     @Override
-    public Map<Long, UserVO> findActiveUserViews(Collection<Long> userIds) {
+    public Map<Long, AdminUserVO> findActiveAdminViews(Collection<Long> userIds) {
         List<User> users = userPersistenceService.findActiveByIds(userIds);
         if (users.isEmpty()) {
             return Map.of();
         }
-        Map<Long, UserVO> userViews = new LinkedHashMap<>();
+        Map<Long, AdminUserVO> userViews = new LinkedHashMap<>();
         for (User user : users) {
             if (user == null || user.getId() == null) {
                 continue;
@@ -51,12 +57,31 @@ public class DefaultUserDirectoryService implements UserDirectoryService {
             if (userViews.containsKey(user.getId())) {
                 continue;
             }
-            UserVO userView = userViewConverter.toUserView(user);
+            AdminUserVO userView = userViewConverter.toAdminView(user);
             if (userView != null) {
                 userViews.put(user.getId(), userView);
             }
         }
         return Map.copyOf(userViews);
+    }
+
+    @Override
+    public Map<Long, PublicUserSummaryVO> findActivePublicSummaries(Collection<Long> userIds) {
+        List<User> users = userPersistenceService.findActiveByIds(userIds);
+        if (users.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, PublicUserSummaryVO> summaries = new LinkedHashMap<>();
+        for (User user : users) {
+            if (user == null || user.getId() == null || summaries.containsKey(user.getId())) {
+                continue;
+            }
+            PublicUserSummaryVO summary = userViewConverter.toPublicSummary(user);
+            if (summary != null) {
+                summaries.put(user.getId(), summary);
+            }
+        }
+        return Map.copyOf(summaries);
     }
 
     /**
@@ -66,15 +91,15 @@ public class DefaultUserDirectoryService implements UserDirectoryService {
  * @return 默认用户目录
  */
     @Override
-    public Page<UserVO> pageActiveUserViews(UserQueryRequest queryRequest) {
+    public Page<AdminUserVO> pageActiveAdminViews(UserQueryRequest queryRequest) {
         Page<User> userPage = userPersistenceService.pageActiveUsers(queryRequest);
-        Page<UserVO> resultPage = new Page<>(
+        Page<AdminUserVO> resultPage = new Page<>(
                 userPage.getPageNumber(),
                 userPage.getPageSize(),
                 userPage.getTotalRow()
         );
         resultPage.setRecords(userPage.getRecords().stream()
-                .map(userViewConverter::toUserView)
+                .map(userViewConverter::toAdminView)
                 .toList());
         return resultPage;
     }

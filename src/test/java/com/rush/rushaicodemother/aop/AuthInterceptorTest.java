@@ -50,6 +50,20 @@ class AuthInterceptorTest {
     }
 
     @Test
+    void shouldRejectMissingLoginEvenWhenUserServiceReturnsNull() throws Throwable {
+        MockHttpServletRequest request = bindRequest();
+        when(userService.getLoginUser(request)).thenReturn(null);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> interceptor.doInterceptor(joinPoint, annotationFor("loginRequired"))
+        );
+
+        assertEquals(ErrorCode.NOT_LOGIN_ERROR.getCode(), exception.getCode());
+        verify(joinPoint, never()).proceed();
+    }
+
+    @Test
     void shouldAllowAdminWhenAdminRoleIsRequired() throws Throwable {
         MockHttpServletRequest request = bindRequest();
         Object expectedResult = new Object();

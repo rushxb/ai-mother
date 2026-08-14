@@ -14,8 +14,9 @@ import com.rush.rushaicodemother.model.dto.user.UserLoginRequest;
 import com.rush.rushaicodemother.model.dto.user.UserQueryRequest;
 import com.rush.rushaicodemother.model.dto.user.UserRegisterRequest;
 import com.rush.rushaicodemother.model.dto.user.UserUpdateRequest;
+import com.rush.rushaicodemother.model.vo.AdminUserVO;
 import com.rush.rushaicodemother.model.vo.LoginUserVO;
-import com.rush.rushaicodemother.model.vo.UserVO;
+import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
@@ -92,18 +93,19 @@ public class UserController {
     /** 管理员根据 ID 获取脱敏用户信息。 */
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<UserVO> getUserById(@RequestParam @Positive long id) {
-        UserVO userView = userDirectoryService.findActiveUserView(id);
+    public BaseResponse<AdminUserVO> getUserById(@RequestParam @Positive long id) {
+        AdminUserVO userView = userDirectoryService.findActiveAdminView(id);
         ThrowUtils.throwIf(userView == null, ErrorCode.NOT_FOUND_ERROR);
         return ResultUtils.success(userView);
     }
 
-    /** 根据 ID 获取脱敏用户信息。 */
+    /** 登录用户根据 ID 获取最小公开身份摘要。 */
     @GetMapping("/get/vo")
-    public BaseResponse<UserVO> getUserVOById(@RequestParam @Positive long id) {
-        UserVO userView = userDirectoryService.findActiveUserView(id);
-        ThrowUtils.throwIf(userView == null, ErrorCode.NOT_FOUND_ERROR);
-        return ResultUtils.success(userView);
+    @AuthCheck
+    public BaseResponse<PublicUserSummaryVO> getUserVOById(@RequestParam @Positive long id) {
+        PublicUserSummaryVO summary = userDirectoryService.findActivePublicSummary(id);
+        ThrowUtils.throwIf(summary == null, ErrorCode.NOT_FOUND_ERROR);
+        return ResultUtils.success(summary);
     }
 
     /** 管理员删除用户。 */
@@ -141,8 +143,9 @@ public class UserController {
     /** 管理员分页获取脱敏用户列表。 */
     @PostMapping("/list/page/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Page<UserVO>> listUserVOByPage(@Valid @RequestBody UserQueryRequest userQueryRequest) {
-        Page<UserVO> resultPage = userDirectoryService.pageActiveUserViews(userQueryRequest);
+    public BaseResponse<Page<AdminUserVO>> listUserVOByPage(
+            @Valid @RequestBody UserQueryRequest userQueryRequest) {
+        Page<AdminUserVO> resultPage = userDirectoryService.pageActiveAdminViews(userQueryRequest);
         return ResultUtils.success(resultPage);
     }
 }

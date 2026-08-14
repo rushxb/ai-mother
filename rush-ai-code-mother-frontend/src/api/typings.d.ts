@@ -80,7 +80,7 @@ declare namespace API {
     appName?: string
   }
 
-  type AppVO = {
+  type OwnerAppVO = {
     id?: string | number
     appName?: string
     cover?: string
@@ -97,7 +97,19 @@ declare namespace API {
     userId?: string | number
     createTime?: string
     updateTime?: string
-    user?: UserVO
+    user?: PublicUserSummaryVO
+  }
+
+  type PublicAppVO = {
+    id?: string | number
+    appName?: string
+    cover?: string
+    codeGenType?: string
+    deployKey?: string
+    deployedTime?: string
+    userId?: string | number
+    createTime?: string
+    user?: PublicUserSummaryVO
   }
 
   type DevServerStatusVO = {
@@ -108,9 +120,15 @@ declare namespace API {
     status?: string
   }
 
-  type BaseResponseAppVO = {
+  type BaseResponseOwnerAppVO = {
     code?: number
-    data?: AppVO
+    data?: OwnerAppVO
+    message?: string
+  }
+
+  type BaseResponsePublicUserSummaryVO = {
+    code?: number
+    data?: PublicUserSummaryVO
     message?: string
   }
 
@@ -156,9 +174,9 @@ declare namespace API {
     message?: string
   }
 
-  type BaseResponsePageAppVO = {
+  type BaseResponsePageOwnerAppVO = {
     code?: number
-    data?: PageAppVO
+    data?: PageOwnerAppVO
     message?: string
   }
 
@@ -174,9 +192,9 @@ declare namespace API {
     message?: string
   }
 
-  type BaseResponsePageUserVO = {
+  type BaseResponsePageAdminUserVO = {
     code?: number
-    data?: PageUserVO
+    data?: PageAdminUserVO
     message?: string
   }
 
@@ -247,9 +265,9 @@ declare namespace API {
     message?: string
   }
 
-  type BaseResponseUserVO = {
+  type BaseResponseAdminUserVO = {
     code?: number
-    data?: UserVO
+    data?: AdminUserVO
     message?: string
   }
 
@@ -351,13 +369,28 @@ declare namespace API {
     updateTime?: string
   }
 
-  type PageAppVO = {
-    records?: AppVO[]
+  type PageOwnerAppVO = {
+    records?: OwnerAppVO[]
     pageNumber?: number
     pageSize?: number
     totalPage?: number
     totalRow?: number
     optimizeCountQuery?: boolean
+  }
+
+  type PagePublicAppVO = {
+    records?: PublicAppVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
+  type BaseResponsePagePublicAppVO = {
+    code?: number
+    data?: PagePublicAppVO
+    message?: string
   }
 
   type PageChatHistoryAdminVO = {
@@ -369,8 +402,8 @@ declare namespace API {
     optimizeCountQuery?: boolean
   }
 
-  type PageUserVO = {
-    records?: UserVO[]
+  type PageAdminUserVO = {
+    records?: AdminUserVO[]
     pageNumber?: number
     pageSize?: number
     totalPage?: number
@@ -447,7 +480,7 @@ declare namespace API {
     userRole?: string
   }
 
-  type UserVO = {
+  type AdminUserVO = {
     id?: number
     userAccount?: string
     userName?: string
@@ -456,6 +489,12 @@ declare namespace API {
     userRole?: string
     creditBalance?: number
     createTime?: string
+  }
+
+  type PublicUserSummaryVO = {
+    id?: number
+    userName?: string
+    userAvatar?: string
   }
 
   // ========== AI 模型配置相关类型 ==========

@@ -324,7 +324,7 @@ import type { FileTreeNode, WorkspaceTabKey } from './types'
 
 const props = defineProps<{
   activeWorkspaceTab: WorkspaceTabKey
-  appInfo?: API.AppVO
+  appInfo?: API.OwnerAppVO
   canSaveFile: boolean
   deploying: boolean
   downloading: boolean

@@ -22,6 +22,9 @@ public class SupportedAiModelVO {
 
     private String defaultBaseUrl;
 
+    /** 管理端可选择的 Provider 地址；运行时仅比较 HTTPS 网络主体。 */
+    private List<String> compatibleBaseUrls;
+
     private String defaultProtocol;
 
     private List<String> supportedProtocols;

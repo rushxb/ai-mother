@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
 import org.junit.jupiter.api.Test;
 
+import static com.rush.rushaicodemother.testsupport.AiModelOutboundSecurityTestFixtures.publicInternetPolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,20 +12,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AiModelConfigurationPolicyTest {
 
     private final AiModelSecretService secretService = AiModelSecretTestFixtures.service();
-    private final AiModelConfigurationPolicy policy = new AiModelConfigurationPolicy(secretService);
+    private final AiModelConfigurationPolicy policy = new AiModelConfigurationPolicy(
+            secretService, publicInternetPolicy());
 
     @Test
     void catalogMustExposeSupportedXiaomiReasoningModel() {
         assertTrue(policy.listSupportedModels().stream()
                 .anyMatch(model -> "xiaomi".equals(model.getProvider())
                         && "mimo-v2.5-pro".equals(model.getModelId())
+                        && model.getCompatibleBaseUrls().contains(
+                                "https://api.xiaomimimo.com/v1")
                         && Integer.valueOf(1).equals(model.getSupportsThinking())));
     }
 
     @Test
     void supportedModelMustReceiveCatalogDefaults() {
         AiModelConfiguration normalized = policy.normalizeAndValidate(configuration(
-                "XIAOMI", "MiMo-V2.5-Pro", "https://gateway.example.com/openai/v1", ""
+                "XIAOMI", "MiMo-V2.5-Pro", "https://api.xiaomimimo.com/v1", ""
         ));
 
         assertEquals("xiaomi", normalized.getProvider());
@@ -36,22 +40,26 @@ class AiModelConfigurationPolicyTest {
     }
 
     @Test
-    void localhostHttpBaseUrlMustRemainSupportedAndNormalizeToV1() {
-        AiModelConfiguration normalized = policy.normalizeAndValidate(configuration(
-                "custom", "local-model", "http://localhost:11434", "chat"
-        ));
+    void catalogModelMustRejectUnregisteredProviderHost() {
+        assertThrows(BusinessException.class, () -> policy.normalizeAndValidate(configuration(
+                "xiaomi", "mimo-v2.5-pro", "https://8.8.8.8/v1", "reasoning"
+        )));
+    }
 
-        assertEquals("http://localhost:11434/v1", normalized.getBaseUrl());
-        assertTrue(policy.isRunnable(normalized));
+    @Test
+    void localhostModelDestinationMustBeRejected() {
+        assertThrows(BusinessException.class, () -> policy.normalizeAndValidate(configuration(
+                "custom", "local-model", "http://localhost:11434", "chat"
+        )));
     }
 
     @Test
     void chatCompletionsPathMustNormalizeToOpenAiBaseUrl() {
         AiModelConfiguration normalized = policy.normalizeAndValidate(configuration(
-                "custom", "model", "https://models.example.com/v1/chat/completions", "chat"
+                "custom", "model", "https://8.8.8.8/v1/chat/completions", "chat"
         ));
 
-        assertEquals("https://models.example.com/v1", normalized.getBaseUrl());
+        assertEquals("https://8.8.8.8/v1", normalized.getBaseUrl());
     }
 
     @Test
@@ -60,7 +68,7 @@ class AiModelConfigurationPolicyTest {
                 "custom", "model", "file:///tmp/model", "chat"
         )));
         assertThrows(BusinessException.class, () -> policy.normalizeAndValidate(configuration(
-                "custom", "model", "https://user:secret@models.example.com/v1", "chat"
+                "custom", "model", "https://user:secret@8.8.8.8/v1", "chat"
         )));
     }
 

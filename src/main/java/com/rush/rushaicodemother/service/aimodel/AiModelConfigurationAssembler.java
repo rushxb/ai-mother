@@ -5,6 +5,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.security.AiModelOutboundDestinationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +18,7 @@ public class AiModelConfigurationAssembler {
     private static final int DEFAULT_SORT_ORDER = 0;
 
     private final AiModelSecretService secretService;
+    private final AiModelOutboundDestinationPolicy outboundDestinationPolicy;
 
     /**
  * 根据输入数据创建当前对象。
@@ -67,6 +69,8 @@ public class AiModelConfigurationAssembler {
         if (!hasEditableField(command)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "至少提供一个可更新字段");
         }
+        outboundDestinationPolicy.requireReplacementSecretForDestinationChange(
+                existing.getBaseUrl(), command.baseUrl(), command.apiKey());
 
         AiModelConfiguration.AiModelConfigurationBuilder builder = existing.toBuilder();
         if (command.modelName() != null) {

@@ -89,7 +89,7 @@ class AiModelEnableBenchmarkEvidenceCandidateResolverTest {
                 .modelName("模型")
                 .provider("custom")
                 .modelId("model")
-                .baseUrl("http://localhost:11434/v1")
+                .baseUrl("https://8.8.8.8/v1")
                 .secretRef("enc:v1:secret")
                 .secretFingerprint(FINGERPRINT)
                 .secretKeyId("secret")

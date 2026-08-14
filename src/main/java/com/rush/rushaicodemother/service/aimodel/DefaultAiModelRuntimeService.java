@@ -43,8 +43,9 @@ public class DefaultAiModelRuntimeService implements AiModelRuntimeService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "model type cannot be blank");
         }
         List<AiModelRuntimeConfiguration> candidates = configurationSource.findEnabled(modelType).stream()
-                .filter(configurationPolicy::isRunnable)
-                .map(configurationPolicy::toRuntimeConfiguration)
+                .flatMap(configuration -> configurationPolicy
+                        .toRuntimeConfigurationIfRunnable(configuration)
+                        .stream())
                 .toList();
         if (candidates.isEmpty()) {
             throw new BusinessException(

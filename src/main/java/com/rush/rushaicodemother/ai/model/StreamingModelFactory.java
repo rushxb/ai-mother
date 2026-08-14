@@ -555,7 +555,7 @@ public class StreamingModelFactory {
                                                   boolean enableThinking,
                                                   Duration timeout) {
         var builder = OpenAiStreamingChatModel.builder()
-                .httpClientBuilder(streamingCallRuntime.httpClientBuilder())
+                .httpClientBuilder(streamingCallRuntime.httpClientBuilder(dbModel.baseUrl()))
                 .apiKey(aiModelSecretService.resolve(
                         dbModel.secretRef(), dbModel.secretFingerprint()))
                 .baseUrl(dbModel.baseUrl())
@@ -599,6 +599,7 @@ public class StreamingModelFactory {
                                             boolean requestLogging,
                                             boolean responseLogging) {
         var builder = OpenAiChatModel.builder()
+                .httpClientBuilder(streamingCallRuntime.httpClientBuilder(dbModel.baseUrl()))
                 .apiKey(aiModelSecretService.resolve(
                         dbModel.secretRef(), dbModel.secretFingerprint()))
                 .baseUrl(dbModel.baseUrl())

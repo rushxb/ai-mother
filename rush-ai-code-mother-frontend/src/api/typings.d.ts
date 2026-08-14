@@ -578,6 +578,7 @@ declare namespace API {
     modelId?: string
     modelName?: string
     defaultBaseUrl?: string
+    compatibleBaseUrls?: string[]
     defaultProtocol?: string
     supportedProtocols?: string[]
     supportedModelTypes?: string[]

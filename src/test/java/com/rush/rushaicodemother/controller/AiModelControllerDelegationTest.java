@@ -97,7 +97,7 @@ class AiModelControllerDelegationTest {
         request.setModelName("Model");
         request.setProvider("custom");
         request.setModelId("model-id");
-        request.setBaseUrl("http://localhost:11434/v1");
+        request.setBaseUrl("https://8.8.8.8/v1");
         request.setApiKey("secret");
         request.setModelType("chat");
         return request;

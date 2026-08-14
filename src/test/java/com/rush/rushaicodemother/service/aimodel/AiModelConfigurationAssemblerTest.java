@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 
+import static com.rush.rushaicodemother.testsupport.AiModelOutboundSecurityTestFixtures.publicInternetPolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -17,14 +18,15 @@ class AiModelConfigurationAssemblerTest {
 
     private final AiModelSecretService secretService = AiModelSecretTestFixtures.service();
     private final AiModelConfigurationAssembler assembler =
-            new AiModelConfigurationAssembler(secretService);
+            new AiModelConfigurationAssembler(
+                    secretService, publicInternetPolicy());
 
     @Test
     void createMustMapExplicitFieldsAndApplyDefaults() {
         AiModelConfiguration configuration = assembler.fromCreateCommand(
                 new AiModelManagementService.CreateCommand(
                         "New Model", "custom", "new-model", "description",
-                        "http://localhost:11434/v1", "secret", 8192, 0.7,
+                        "https://8.8.8.8/v1", "secret", 8192, 0.7,
                         null, "chat", 1, null,
                         "{\"timeoutSeconds\":30}", " openai_chat_completions "
                 ),
@@ -64,6 +66,58 @@ class AiModelConfigurationAssemblerTest {
     }
 
     @Test
+    void changingDestinationHostMustRequireReplacementApiKey() {
+        AiModelConfiguration existing = existing().toBuilder()
+                .baseUrl("https://old.models.example/v1")
+                .build();
+        AiModelManagementService.UpdateCommand command =
+                new AiModelManagementService.UpdateCommand(
+                        7L, null, null, null, null,
+                        "https://attacker.example/v1", "   ",
+                        null, null, null, null, null, null, null, null
+                );
+
+        assertThrows(BusinessException.class, () -> assembler.applyUpdate(existing, command));
+    }
+
+    @Test
+    void changingOnlyDestinationPathMustPreserveExistingApiKey() {
+        AiModelConfiguration existing = existing().toBuilder()
+                .baseUrl("https://models.example/v1")
+                .build();
+        AiModelManagementService.UpdateCommand command =
+                new AiModelManagementService.UpdateCommand(
+                        7L, null, null, null, null,
+                        "https://MODELS.example:443/openai/v1", "   ",
+                        null, null, null, null, null, null, null, null
+                );
+
+        AiModelConfiguration updated = assembler.applyUpdate(existing, command);
+
+        assertEquals(existing.getSecretRef(), updated.getSecretRef());
+        assertEquals("https://MODELS.example:443/openai/v1", updated.getBaseUrl());
+    }
+
+    @Test
+    void changingDestinationHostWithNewApiKeyMustReplaceProtectedSecret() {
+        AiModelConfiguration existing = existing().toBuilder()
+                .baseUrl("https://old.models.example/v1")
+                .build();
+        AiModelManagementService.UpdateCommand command =
+                new AiModelManagementService.UpdateCommand(
+                        7L, null, null, null, null,
+                        "https://new.models.example/v1", "replacement-secret",
+                        null, null, null, null, null, null, null, null
+                );
+
+        AiModelConfiguration updated = assembler.applyUpdate(existing, command);
+
+        assertEquals("replacement-secret", secretService.resolve(
+                updated.getSecretRef(), updated.getSecretFingerprint()));
+        assertEquals("https://new.models.example/v1", updated.getBaseUrl());
+    }
+
+    @Test
     void protocolOnlyUpdateMustPreserveOtherExtensionSettings() {
         AiModelConfiguration existing = existing().toBuilder()
                 .configJson("{\"timeoutSeconds\":45,\"retries\":2}")
@@ -99,7 +153,7 @@ class AiModelConfigurationAssemblerTest {
                 .modelName("Existing")
                 .provider("custom")
                 .modelId("existing-model")
-                .baseUrl("http://localhost:11434/v1")
+                .baseUrl("https://8.8.8.8/v1")
                 .secretRef(secret.reference())
                 .secretFingerprint(secret.fingerprint())
                 .secretKeyId(secret.keyId())

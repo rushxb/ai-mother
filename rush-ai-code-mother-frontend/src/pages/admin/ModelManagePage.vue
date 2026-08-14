@@ -266,11 +266,11 @@
         <a-form-item
           label="API 地址"
           name="baseUrl"
-          extra="可只填写域名，例如 https://token-plan-cn.xiaomimimo.com，系统会按协议自动补 /v1。"
+          extra="仅支持 HTTPS；官方目录模型必须使用登记域名。更换主机或端口时需重新输入 API 密钥。"
         >
           <a-input
             v-model:value="formData.baseUrl"
-            placeholder="https://token-plan-cn.xiaomimimo.com"
+            placeholder="https://api.xiaomimimo.com/v1"
             @blur="normalizeFormBaseUrl"
           />
         </a-form-item>
@@ -478,6 +478,7 @@ const enabledModelsError = ref('')
 const modalVisible = ref(false)
 const isEditing = ref(false)
 const editingModelHasApiKey = ref(false)
+const editingOriginalBaseUrl = ref('')
 const submitting = ref(false)
 const testingConfig = ref(false)
 const enableEvidenceModalVisible = ref(false)
@@ -552,16 +553,33 @@ const validateBaseUrl = async (_rule: unknown, value?: string) => {
   }
   try {
     const parsedUrl = new URL(normalizedUrl)
-    if (!['http:', 'https:'].includes(parsedUrl.protocol) || !parsedUrl.hostname) {
+    if (parsedUrl.protocol !== 'https:' || !parsedUrl.hostname) {
       throw new Error('unsupported protocol')
     }
+    if (parsedUrl.username || parsedUrl.password) {
+      return Promise.reject(new Error('API 地址不能包含用户名或密码'))
+    }
+    const compatibleBaseUrls =
+      currentCatalogModel.value?.compatibleBaseUrls ??
+      (currentCatalogModel.value?.defaultBaseUrl
+        ? [currentCatalogModel.value.defaultBaseUrl]
+        : [])
+    const compatibleOrigin = compatibleBaseUrls.some(
+      (baseUrl) => new URL(baseUrl).origin === parsedUrl.origin,
+    )
+    if (compatibleBaseUrls.length > 0 && !compatibleOrigin) {
+      return Promise.reject(new Error('当前官方模型只能使用目录中登记的 API 主机'))
+    }
   } catch {
-    return Promise.reject(new Error('请输入有效的 HTTP/HTTPS API 地址'))
+    return Promise.reject(new Error('请输入有效的 HTTPS API 地址'))
   }
   return Promise.resolve()
 }
 
 const validateApiKey = async (_rule: unknown, value?: string) => {
+  if (destinationAuthorityChanged.value && !value?.trim()) {
+    return Promise.reject(new Error('更换 API 主机或端口时必须重新输入 API 密钥'))
+  }
   if ((!isEditing.value || !editingModelHasApiKey.value) && !value?.trim()) {
     return Promise.reject(
       new Error(
@@ -603,6 +621,9 @@ const apiKeyHelpText = computed(() => {
   if (!isEditing.value) {
     return '密钥只用于服务端调用，保存后不会回显明文。'
   }
+  if (destinationAuthorityChanged.value) {
+    return 'API 主机或端口已变化；为防止旧密钥被转发到新目标，必须输入新密钥。'
+  }
   return editingModelHasApiKey.value
     ? '已配置密钥；留空将保留原密钥，输入新值才会替换。'
     : '当前未配置密钥，请输入新密钥。'
@@ -620,6 +641,13 @@ const selectedModelKey = computed({
       handleModelSelect(modelKey)
     }
   },
+})
+
+const destinationAuthorityChanged = computed(() => {
+  if (!isEditing.value || !editingOriginalBaseUrl.value || !formData.baseUrl) {
+    return false
+  }
+  return resolveUrlOrigin(editingOriginalBaseUrl.value) !== resolveUrlOrigin(formData.baseUrl)
 })
 
 const evidenceIdPattern =
@@ -827,6 +855,7 @@ const openEditModal = (record: API.AiModel) => {
       catalogModel?.defaultProtocol ??
       'openai_chat_completions',
   })
+  editingOriginalBaseUrl.value = normalizeOpenAiBaseUrl(formData.baseUrl)
   modalVisible.value = true
 }
 
@@ -862,6 +891,7 @@ const applyCatalogModel = (model: API.SupportedAiModelVO) => {
 const resetForm = () => {
   formRef.value?.clearValidate()
   editingModelHasApiKey.value = false
+  editingOriginalBaseUrl.value = ''
   Object.assign(formData, {
     id: undefined,
     modelName: '',
@@ -1188,6 +1218,17 @@ const truncateUrl = (url?: string) => {
 
 const normalizeFormBaseUrl = () => {
   formData.baseUrl = normalizeOpenAiBaseUrl(formData.baseUrl)
+  if (isEditing.value) {
+    void formRef.value?.validateFields(['apiKey']).catch(() => undefined)
+  }
+}
+
+const resolveUrlOrigin = (value?: string) => {
+  try {
+    return new URL(normalizeOpenAiBaseUrl(value)).origin.toLowerCase()
+  } catch {
+    return ''
+  }
 }
 
 const normalizeOpenAiBaseUrl = (value?: string) => {

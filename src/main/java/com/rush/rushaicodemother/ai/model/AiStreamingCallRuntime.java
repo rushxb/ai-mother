@@ -2,13 +2,12 @@ package com.rush.rushaicodemother.ai.model;
 
 import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
 import com.rush.rushaicodemother.ai.model.capacity.CapacityControlledStreamingChatModel;
-import com.rush.rushaicodemother.ai.model.transport.CancellableAiStreamingRequestExecutor;
+import com.rush.rushaicodemother.ai.model.transport.AiModelOutboundHttpClientFactory;
 import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutScheduler;
 import dev.langchain4j.http.client.HttpClientBuilder;
-import dev.langchain4j.http.client.spring.restclient.SpringRestClient;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
 import lombok.RequiredArgsConstructor;
@@ -22,20 +21,18 @@ import java.time.Duration;
 public class AiStreamingCallRuntime {
 
     private final GenerationModelInvocationCancellationBridge cancellationBridge;
-    private final CancellableAiStreamingRequestExecutor requestExecutor;
     private final GenerationModelTimeoutScheduler timeoutScheduler;
     private final AiModelTimeoutMonitor timeoutMonitor;
     private final GenerationModelTimeoutPolicy timeoutPolicy;
+    private final AiModelOutboundHttpClientFactory outboundHttpClientFactory;
 
     /**
  * 返回HTTP客户端{@code Builder}。
  *
  * @return AI{@code Streaming}调用运行时
  */
-    public HttpClientBuilder httpClientBuilder() {
-        return SpringRestClient.builder()
-                .streamingRequestExecutor(requestExecutor)
-                .createDefaultStreamingRequestExecutor(false);
+    public HttpClientBuilder httpClientBuilder(String baseUrl) {
+        return outboundHttpClientFactory.builderFor(baseUrl);
     }
 
     /**

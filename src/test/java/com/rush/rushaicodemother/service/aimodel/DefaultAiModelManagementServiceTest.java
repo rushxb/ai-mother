@@ -21,6 +21,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.time.Instant;
 import java.util.List;
 
+import static com.rush.rushaicodemother.testsupport.AiModelOutboundSecurityTestFixtures.publicInternetPolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -54,8 +55,10 @@ class DefaultAiModelManagementServiceTest {
         secretService = AiModelSecretTestFixtures.service();
         service = new DefaultAiModelManagementService(
                 persistenceService,
-                new AiModelConfigurationAssembler(secretService),
-                new AiModelConfigurationPolicy(secretService),
+                new AiModelConfigurationAssembler(
+                        secretService, publicInternetPolicy()),
+                new AiModelConfigurationPolicy(
+                        secretService, publicInternetPolicy()),
                 new AiModelViewAssembler(),
                 mock(AiModelConnectionTester.class),
                 eventPublisher,
@@ -76,7 +79,7 @@ class DefaultAiModelManagementServiceTest {
         ArgumentCaptor<AiModelConfiguration> configurationCaptor =
                 ArgumentCaptor.forClass(AiModelConfiguration.class);
         verify(persistenceService).insert(configurationCaptor.capture());
-        assertEquals("http://localhost:11434/v1", configurationCaptor.getValue().getBaseUrl());
+        assertEquals("https://8.8.8.8/v1", configurationCaptor.getValue().getBaseUrl());
         assertEquals(0, configurationCaptor.getValue().getIsEnabled());
         verify(eventPublisher).publishEvent(any(AiModelConfigChangedEvent.class));
     }
@@ -85,7 +88,7 @@ class DefaultAiModelManagementServiceTest {
     void enabledCreateMustBeRejectedBeforePersistence() {
         AiModelManagementService.CreateCommand command = new AiModelManagementService.CreateCommand(
                 "Local Model", "custom", "local-model", null,
-                "http://localhost:11434", "secret", 4096, 0.7,
+                "https://8.8.8.8", "secret", 4096, 0.7,
                 1, "chat", 0, 0, null, "openai_chat_completions"
         );
 
@@ -119,6 +122,24 @@ class DefaultAiModelManagementServiceTest {
                         configurationCaptor.getValue().getSecretRef(),
                         configurationCaptor.getValue().getSecretFingerprint()));
         assertEquals("Updated", configurationCaptor.getValue().getModelName());
+    }
+
+    @Test
+    void destinationHostChangeWithoutNewApiKeyMustStopBeforePersistence() {
+        when(persistenceService.lockActiveById(7L)).thenReturn(existing());
+        AiModelManagementService.UpdateCommand command =
+                new AiModelManagementService.UpdateCommand(
+                        7L, null, null, null, null,
+                        "https://1.1.1.1/v1", "   ",
+                        null, null, null, null, null, null, null, null
+                );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class, () -> service.updateModel(command));
+
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), exception.getCode());
+        verify(persistenceService, never()).update(any());
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
@@ -246,7 +267,7 @@ class DefaultAiModelManagementServiceTest {
     private AiModelManagementService.CreateCommand createCommand() {
         return new AiModelManagementService.CreateCommand(
                 "Local Model", "custom", "local-model", null,
-                "http://localhost:11434", "secret", 4096, 0.7,
+                "https://8.8.8.8", "secret", 4096, 0.7,
                 0, "chat", 0, 0, null, "openai_chat_completions"
         );
     }
@@ -258,7 +279,7 @@ class DefaultAiModelManagementServiceTest {
                 .modelName("Existing")
                 .provider("custom")
                 .modelId("existing-model")
-                .baseUrl("http://localhost:11434/v1")
+                .baseUrl("https://8.8.8.8/v1")
                 .secretRef(secret.reference())
                 .secretFingerprint(secret.fingerprint())
                 .secretKeyId(secret.keyId())

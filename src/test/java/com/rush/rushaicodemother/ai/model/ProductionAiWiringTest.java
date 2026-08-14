@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.ai.provenance.AiModelProvenanceFactory;
 import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
 import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgeScheduler;
 import com.rush.rushaicodemother.ai.model.transport.CancellableAiStreamingRequestExecutor;
+import com.rush.rushaicodemother.ai.model.transport.AiModelOutboundHttpClientFactory;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.config.AiModelCircuitBreakerProperties;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
@@ -15,6 +16,8 @@ import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.ConservativeModelTokenUsageEstimator;
+import com.rush.rushaicodemother.infrastructure.security.AiModelOutboundDestinationPolicy;
+import com.rush.rushaicodemother.infrastructure.security.SystemHostAddressResolver;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationAgentCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.context.AgentConversationFolder;
 import com.rush.rushaicodemother.orchestration.context.AgentConversationTokenAccountant;
@@ -122,6 +125,9 @@ class ProductionAiWiringTest {
                     GenerationModelInvocationCancellationBridge.class,
                     GenerationModelTimeoutPolicy.class,
                     CancellableAiStreamingRequestExecutor.class,
+                    SystemHostAddressResolver.class,
+                    AiModelOutboundDestinationPolicy.class,
+                    AiModelOutboundHttpClientFactory.class,
                     ManagedGenerationModelTimeoutScheduler.class,
                     AiModelTimeoutMonitor.class,
                     AiStreamingCallRuntime.class,
@@ -139,6 +145,7 @@ class ProductionAiWiringTest {
             assertThat(context).hasSingleBean(StreamingModelFactory.class);
             assertThat(context).hasSingleBean(AiCodeGeneratorServiceFactory.class);
             assertThat(context).hasSingleBean(CancellableAiStreamingRequestExecutor.class);
+            assertThat(context).hasSingleBean(AiModelOutboundHttpClientFactory.class);
             assertThat(context).hasSingleBean(GenerationStreamingModelCallSupervisor.class);
             assertThat(context).hasSingleBean(GenerationAgentRuntime.class);
             assertThat(context.getBean(GenerationAgentRuntime.class))

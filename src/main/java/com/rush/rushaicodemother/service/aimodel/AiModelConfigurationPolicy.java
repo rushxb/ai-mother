@@ -5,6 +5,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.security.AiModelOutboundDestinationPolicy;
 import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,7 @@ public class AiModelConfigurationPolicy {
     private static final String SECRET_FINGERPRINT_PATTERN = "[a-f0-9]{64}";
 
     private final AiModelSecretService secretService;
+    private final AiModelOutboundDestinationPolicy outboundDestinationPolicy;
 
     private static final List<SupportedModelDefinition> SUPPORTED_MODELS = List.of(
             new SupportedModelDefinition(
@@ -99,6 +101,7 @@ public class AiModelConfigurationPolicy {
                         .modelId(model.modelId())
                         .modelName(model.modelName())
                         .defaultBaseUrl(model.defaultBaseUrl())
+                        .compatibleBaseUrls(model.compatibleBaseUrls())
                         .defaultProtocol(DEFAULT_PROTOCOL)
                         .supportedProtocols(List.of(DEFAULT_PROTOCOL))
                         .supportedModelTypes(model.supportedModelTypes())
@@ -143,6 +146,8 @@ public class AiModelConfigurationPolicy {
         validateSecretMetadata(secretRef, secretFingerprint, secretKeyId);
 
         Optional<SupportedModelDefinition> definition = findSupportedModel(provider, modelId);
+        definition.ifPresent(model -> outboundDestinationPolicy.requireAllowlistedAuthority(
+                baseUrl, model.compatibleBaseUrls()));
         if (StrUtil.isBlank(modelType)) {
             modelType = definition.map(SupportedModelDefinition::defaultModelType).orElse("chat");
         }
@@ -189,18 +194,13 @@ public class AiModelConfigurationPolicy {
                 .build();
     }
 
-    /**
- * 判断可运行是否满足约束。
- *
- * @param configuration 配置
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    public boolean isRunnable(AiModelConfiguration configuration) {
+    /** 只校验一次并返回可运行配置；无效的历史记录由运行时候选池跳过。 */
+    public Optional<AiModelRuntimeConfiguration> toRuntimeConfigurationIfRunnable(
+            AiModelConfiguration configuration) {
         try {
-            normalizeAndValidate(configuration);
-            return true;
+            return Optional.of(toRuntimeConfiguration(configuration));
         } catch (BusinessException exception) {
-            return false;
+            return Optional.empty();
         }
     }
 
@@ -262,23 +262,7 @@ public class AiModelConfigurationPolicy {
 
     /** 规范化基础地址。 */
     private String normalizeBaseUrl(String value) {
-        String trimmed = StrUtil.trim(value);
-        if (StrUtil.isBlank(trimmed)) {
-            return "";
-        }
-        try {
-            URI uri = new URI(trimmed).normalize();
-            String scheme = normalizeKey(uri.getScheme());
-            if (!("http".equals(scheme) || "https".equals(scheme)) || StrUtil.isBlank(uri.getHost())) {
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, "API 地址仅支持包含主机名的 HTTP 或 HTTPS 地址");
-            }
-            if (uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null) {
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, "API 地址不能包含用户信息、查询参数或片段");
-            }
-            return StrUtil.removeSuffix(uri.toString(), "/");
-        } catch (URISyntaxException exception) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "API 地址格式错误", exception);
-        }
+        return outboundDestinationPolicy.normalizeAndValidateBaseUrl(value);
     }
 
     /** 规范化{@code Open}AI 基础地址。 */

@@ -13,7 +13,8 @@ import lombok.ToString;
 
 /**
  * 更新 AI 模型配置请求。
- * API Key 为空时表示保留现有密钥，避免管理端读取或回传明文密钥。
+ * API Key 为空时仅在 API 网络主体未变化的情况下保留现有密钥；
+ * 更换协议、主机或端口必须同时提交新密钥。
  */
 @Data
 public class AiModelUpdateRequest {

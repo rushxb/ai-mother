@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static com.rush.rushaicodemother.testsupport.AiModelOutboundSecurityTestFixtures.publicInternetPolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -20,7 +21,8 @@ class DefaultAiModelRuntimeServiceTest {
     private final AiModelSecretService secretService = AiModelSecretTestFixtures.service();
     private final DefaultAiModelRuntimeService service = new DefaultAiModelRuntimeService(
             configurationSource,
-            new AiModelConfigurationPolicy(secretService),
+            new AiModelConfigurationPolicy(
+                    secretService, publicInternetPolicy()),
             circuitBreaker
     );
 
@@ -100,7 +102,7 @@ class DefaultAiModelRuntimeServiceTest {
                 .modelName("Model")
                 .provider("custom")
                 .modelId(modelId)
-                .baseUrl("http://localhost:11434/v1")
+                .baseUrl("https://8.8.8.8/v1")
                 .maxTokens(4096)
                 .temperature(0.7)
                 .isEnabled(1)

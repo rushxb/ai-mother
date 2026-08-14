@@ -140,9 +140,10 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- AI 模型出站连接使用可校验 DNS 解析器并显式禁用重定向。 -->
         <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-http-client-spring-restclient</artifactId>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>

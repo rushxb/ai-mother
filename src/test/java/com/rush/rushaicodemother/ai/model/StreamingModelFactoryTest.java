@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.ai.model;
 
 import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
 import com.rush.rushaicodemother.ai.model.transport.CancellableAiStreamingRequestExecutor;
+import com.rush.rushaicodemother.ai.model.transport.AiModelOutboundHttpClientFactory;
 import com.rush.rushaicodemother.ai.model.failover.AiModelCandidate;
 import com.rush.rushaicodemother.ai.model.failover.FailoverChatModel;
 import com.rush.rushaicodemother.ai.model.failover.FailoverStreamingChatModel;
@@ -21,6 +22,8 @@ import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.aimodel.AiModelSecretService;
 import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
+import dev.langchain4j.http.client.HttpClient;
+import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import org.junit.jupiter.api.Test;
@@ -193,6 +196,44 @@ class StreamingModelFactoryTest {
                 runtimeModel.secretRef(), runtimeModel.secretFingerprint());
     }
 
+    @Test
+    void everyProviderClientMustBindTransportToItsConfiguredBaseUrl() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        AiModelRuntimeConfiguration chat = model("chat");
+        AiModelRuntimeConfiguration routing = model("routing");
+        when(runtimeService.listRunnableModelsByType("chat")).thenReturn(List.of(chat));
+        when(runtimeService.listRunnableModelsByType("routing")).thenReturn(List.of(routing));
+
+        GenerationModelInvocationCancellationBridge bridge =
+                new GenerationModelInvocationCancellationBridge();
+        CancellableAiStreamingRequestExecutor executor =
+                new CancellableAiStreamingRequestExecutor(bridge);
+        AiModelOutboundHttpClientFactory outboundFactory =
+                mock(AiModelOutboundHttpClientFactory.class);
+        when(outboundFactory.builderFor(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(ignored -> testHttpClientBuilder());
+        AiStreamingCallRuntime runtime = new AiStreamingCallRuntime(
+                bridge,
+                mock(GenerationModelTimeoutScheduler.class),
+                mock(AiModelTimeoutMonitor.class),
+                GenerationModelTimeoutPolicy.defaults(),
+                outboundFactory
+        );
+        StreamingModelFactory factory = factory(
+                runtimeService,
+                monitorListener(),
+                new AiModelRuntimeProperties(),
+                AiModelSecretTestFixtures.service(),
+                runtime
+        );
+
+        factory.createChatModel();
+        factory.createRoutingChatModel();
+
+        verify(outboundFactory, times(2)).builderFor(chat.baseUrl());
+        executor.close();
+    }
+
     private StreamingModelFactory factory(AiModelRuntimeService runtimeService) {
         return factory(runtimeService, monitorListener(), new AiModelRuntimeProperties());
     }
@@ -207,6 +248,15 @@ class StreamingModelFactoryTest {
                                           AiModelMonitorListener listener,
                                           AiModelRuntimeProperties properties,
                                           AiModelSecretService secretService) {
+        return factory(
+                runtimeService, listener, properties, secretService, streamingCallRuntime());
+    }
+
+    private StreamingModelFactory factory(AiModelRuntimeService runtimeService,
+                                          AiModelMonitorListener listener,
+                                          AiModelRuntimeProperties properties,
+                                          AiModelSecretService secretService,
+                                          AiStreamingCallRuntime runtime) {
         return new StreamingModelFactory(
                 listener,
                 runtimeService,
@@ -216,19 +266,25 @@ class StreamingModelFactoryTest {
                 mock(AiModelCapacityGuard.class),
                 secretService,
                 mock(FirstTokenHedgeScheduler.class),
-                streamingCallRuntime()
+                runtime
         );
     }
 
     private AiStreamingCallRuntime streamingCallRuntime() {
         GenerationModelInvocationCancellationBridge bridge =
                 new GenerationModelInvocationCancellationBridge();
+        CancellableAiStreamingRequestExecutor executor =
+                new CancellableAiStreamingRequestExecutor(bridge);
+        AiModelOutboundHttpClientFactory outboundFactory =
+                mock(AiModelOutboundHttpClientFactory.class);
+        when(outboundFactory.builderFor(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(ignored -> testHttpClientBuilder());
         return new AiStreamingCallRuntime(
                 bridge,
-                new CancellableAiStreamingRequestExecutor(bridge),
                 mock(GenerationModelTimeoutScheduler.class),
                 mock(AiModelTimeoutMonitor.class),
-                GenerationModelTimeoutPolicy.defaults()
+                GenerationModelTimeoutPolicy.defaults(),
+                outboundFactory
         );
     }
 
@@ -239,6 +295,13 @@ class StreamingModelFactoryTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyInt())).thenReturn(listener);
         return listener;
+    }
+
+    private HttpClientBuilder testHttpClientBuilder() {
+        HttpClientBuilder builder = mock(
+                HttpClientBuilder.class, org.mockito.Answers.RETURNS_SELF);
+        when(builder.build()).thenReturn(mock(HttpClient.class));
+        return builder;
     }
 
     private AiModelRuntimeConfiguration model(String modelType) {

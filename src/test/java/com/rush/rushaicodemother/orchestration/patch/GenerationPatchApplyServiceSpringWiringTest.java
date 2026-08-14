@@ -41,6 +41,7 @@ class GenerationPatchApplyServiceSpringWiringTest {
             PatchBatchRollbackService.class,
             PatchStructuredContentService.class,
             FrontendPatchImportPolicy.class,
+            GeneratedWorkspaceTrustPolicy.class,
             PatchOperationValidator.class,
             PatchOperationExecutor.class,
             GenerationOrchestrationMetricsCollector.class

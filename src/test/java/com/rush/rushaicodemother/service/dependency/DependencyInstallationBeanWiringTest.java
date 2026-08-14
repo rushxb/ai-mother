@@ -14,6 +14,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -23,6 +24,7 @@ class DependencyInstallationBeanWiringTest {
     @Test
     void shouldWireDependencyInstallationModuleWithProductionConstructors() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            TestPropertyValues.of("app.generated-code-sandbox.mode=host-local").applyTo(context);
             context.registerBean(DependencyInstallProperties.class);
             context.registerBean(ExternalProcessProperties.class);
             context.registerBean(NodeToolchainProperties.class);

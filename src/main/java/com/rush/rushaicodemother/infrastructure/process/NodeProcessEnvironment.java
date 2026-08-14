@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -16,6 +18,37 @@ public final class NodeProcessEnvironment {
             "npm_config_prefix",
             "PNPM_HOME",
             "pnpm_home"
+    );
+    private static final Set<String> SAFE_INHERITED_VARIABLES = Set.of(
+            "PATH",
+            "PATHEXT",
+            "SYSTEMROOT",
+            "WINDIR",
+            "COMSPEC",
+            "SYSTEMDRIVE",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "TEMP",
+            "TMP",
+            "HOME",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "APPDATA",
+            "PROGRAMDATA",
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "COMMONPROGRAMFILES",
+            "NUMBER_OF_PROCESSORS",
+            "PROCESSOR_ARCHITECTURE",
+            "OS",
+            "LANG",
+            "LC_ALL",
+            "TZ",
+            "TERM",
+            "CI",
+            "NO_UPDATE_NOTIFIER",
+            "NPM_CONFIG_AUDIT",
+            "NPM_CONFIG_FUND"
     );
 
     private NodeProcessEnvironment() {
@@ -39,6 +72,24 @@ public final class NodeProcessEnvironment {
     }
 
     public static Set<String> variablesToRemove() {
-        return UNSAFE_INHERITED_VARIABLES;
+        return variablesToRemove(System.getenv().keySet());
+    }
+
+    /**
+     * 计算需要从子进程移除的变量，只保留 Node 工具链启动所需的最小主机环境。
+     *
+     * <p>使用允许列表而不是 secret 名称黑名单，避免新接入的模型、数据库或租户密钥
+     * 因命名未知而被生成代码继承。</p>
+     */
+    static Set<String> variablesToRemove(Set<String> inheritedVariableNames) {
+        LinkedHashSet<String> variables = new LinkedHashSet<>(UNSAFE_INHERITED_VARIABLES);
+        if (inheritedVariableNames != null) {
+            inheritedVariableNames.stream()
+                    .filter(name -> name != null && !name.isBlank())
+                    .filter(name -> !SAFE_INHERITED_VARIABLES.contains(
+                            name.toUpperCase(Locale.ROOT)))
+                    .forEach(variables::add);
+        }
+        return Set.copyOf(variables);
     }
 }

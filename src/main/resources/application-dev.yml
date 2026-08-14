@@ -12,6 +12,9 @@ spring:
       password: ${REDIS_PASSWORD:}
 
 app:
+  generated-code-sandbox:
+    # 开发环境显式选择主机执行；其他 profile 默认使用 container 并 fail closed。
+    mode: ${GENERATED_CODE_SANDBOX_MODE:host-local}
   cors:
     allowed-origins:
       - http://localhost:5173

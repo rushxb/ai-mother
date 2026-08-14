@@ -78,6 +78,8 @@ class PnpmInstallCommandExecutorTest {
         assertEquals("installed", result.output());
         assertEquals("pnpm", capturedRequest.get().command().getFirst());
         assertFalse(capturedRequest.get().command().contains("--force"));
+        assertTrue(capturedRequest.get().command().contains("--ignore-scripts"));
+        assertTrue(capturedRequest.get().command().contains("--ignore-pnpmfile"));
         assertEquals(NodeProcessEnvironment.overrides(false), capturedRequest.get().environment());
         assertEquals(NodeProcessEnvironment.variablesToRemove(),
                 capturedRequest.get().environmentVariablesToRemove());

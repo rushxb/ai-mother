@@ -144,7 +144,7 @@ app:
     enabled: ${EDIT_STATE_ENABLED:true}
     root-directory: ${EDIT_STATE_ROOT_DIRECTORY:${code.edit-state-root-dir:${code.tmp-root-dir:${code.base-dir:${user.dir}}/tmp}/edit_state}}
   generated-code-sandbox:
-    mode: ${GENERATED_CODE_SANDBOX_MODE:host-local}
+    mode: ${GENERATED_CODE_SANDBOX_MODE:container}
     container:
       runtime: ${GENERATED_CODE_SANDBOX_CONTAINER_RUNTIME:docker}
       image: ${GENERATED_CODE_SANDBOX_CONTAINER_IMAGE:ai-code-mother/sandbox-node:1}

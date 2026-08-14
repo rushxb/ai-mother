@@ -8,6 +8,8 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -187,6 +189,180 @@ class GenerationPatchApplyServiceTest {
         assertEquals("rejected", result.status());
         assertTrue(result.rejectedOperations().contains("modify:src/ShowcasePage.vue:undeclared_bare_import:lucide-vue-next"));
         assertTrue(Files.readString(root.resolve("src/ShowcasePage.vue")).contains("from 'vue'"));
+    }
+
+    @Test
+    void shouldRejectExecutableLifecycleScriptBeforeWritingPackageManifest() throws Exception {
+        Path root = cleanTestRoot("manifest-lifecycle-script");
+        Files.createDirectories(root);
+        String safeManifest = """
+                {
+                  "scripts": {"build": "vite build"},
+                  "dependencies": {"vue": "^3.5.0"},
+                  "packageManager": "pnpm@9.15.4"
+                }
+                """;
+        Files.writeString(root.resolve("package.json"), safeManifest);
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                61L,
+                "task-manifest-policy",
+                root,
+                List.of(PatchOperation.modify("package.json", """
+                        {
+                          "scripts": {
+                            "build": "vite build",
+                            "postinstall": "node steal-secrets.js"
+                          },
+                          "dependencies": {"vue": "^3.5.0"},
+                          "packageManager": "pnpm@9.15.4"
+                        }
+                        """)),
+                "tool-write-file");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains(
+                "modify:package.json:executable_manifest_forbidden_lifecycle:postinstall"));
+        assertEquals(safeManifest, Files.readString(root.resolve("package.json")));
+    }
+
+    @Test
+    void shouldRejectPnpmHookControlFileBeforeWritingWorkspace() throws Exception {
+        Path root = cleanTestRoot("pnpm-hook-control-file");
+        Files.createDirectories(root);
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                62L,
+                "task-pnpm-hook-policy",
+                root,
+                List.of(PatchOperation.add(
+                        ".pnpmfile.mjs",
+                        "export const hooks = { readPackage(pkg) { return pkg } };\n")),
+                "tool-write-file");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains(
+                "add:.pnpmfile.mjs:generated_workspace_forbidden_control_file:.pnpmfile.mjs"));
+        assertFalse(Files.exists(root.resolve(".pnpmfile.mjs")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            ".pnpmfile.cjs",
+            ".npmrc",
+            "pnpm-workspace.yaml",
+            "pnpm-workspace.yml",
+            "pnpm-lock.yaml",
+            "package-lock.json",
+            "npm-shrinkwrap.json",
+            "yarn.lock",
+            ".yarnrc",
+            ".yarnrc.yml",
+            "bun.lock",
+            "bun.lockb"
+    })
+    void shouldRejectPackageManagerControlFileBeforeWritingWorkspace(String relativePath) throws Exception {
+        Path root = cleanTestRoot("package-manager-control-" + Math.abs(relativePath.hashCode()));
+        Files.createDirectories(root);
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                63L,
+                "task-package-manager-control-policy",
+                root,
+                List.of(PatchOperation.add(relativePath, "untrusted control content\n")),
+                "tool-write-file");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains(
+                "add:" + relativePath + ":generated_workspace_forbidden_control_file:" + relativePath));
+        assertFalse(Files.exists(root.resolve(relativePath)));
+    }
+
+    @Test
+    void shouldRejectDeletingExecutableManifest() throws Exception {
+        Path root = cleanTestRoot("delete-executable-manifest");
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("package.json"), "{}\n");
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                64L,
+                "task-delete-manifest-policy",
+                root,
+                List.of(PatchOperation.delete("package.json")),
+                "tool-delete-file");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains(
+                "delete:package.json:generated_workspace_control_file_delete_forbidden:package.json"));
+        assertTrue(Files.exists(root.resolve("package.json")));
+    }
+
+    @Test
+    void shouldRejectUnpinnedPackageManagerVersion() throws Exception {
+        Path root = cleanTestRoot("unpinned-package-manager");
+        Files.createDirectories(root);
+        String safeManifest = "{\"packageManager\":\"pnpm@9.15.4\"}\n";
+        Files.writeString(root.resolve("package.json"), safeManifest);
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                65L,
+                "task-package-manager-version-policy",
+                root,
+                List.of(PatchOperation.modify(
+                        "package.json",
+                        "{\"packageManager\":\"pnpm@latest\"}\n")),
+                "tool-write-file");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains(
+                "modify:package.json:executable_manifest_package_manager_version_invalid"));
+        assertEquals(safeManifest, Files.readString(root.resolve("package.json")));
+    }
+
+    @Test
+    void shouldRejectNonRegistryDependencySource() throws Exception {
+        Path root = cleanTestRoot("non-registry-dependency-source");
+        Files.createDirectories(root);
+        String safeManifest = "{\"dependencies\":{\"vue\":\"^3.5.0\"}}\n";
+        Files.writeString(root.resolve("package.json"), safeManifest);
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                66L,
+                "task-dependency-source-policy",
+                root,
+                List.of(PatchOperation.modify(
+                        "package.json",
+                        "{\"dependencies\":{\"vue\":\"https://attacker.invalid/vue.tgz\"}}\n")),
+                "tool-write-file");
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().contains(
+                "modify:package.json:executable_manifest_forbidden_dependency_source:vue"));
+        assertEquals(safeManifest, Files.readString(root.resolve("package.json")));
+    }
+
+    @Test
+    void shouldAllowSafePackageManifestUpdate() throws Exception {
+        Path root = cleanTestRoot("safe-package-manifest");
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("package.json"), "{}\n");
+        String safeManifest = """
+                {
+                  "scripts": {"dev": "vite", "build": "vite build"},
+                  "dependencies": {"vue": "^3.5.0"},
+                  "packageManager": "pnpm@9.15.4"
+                }
+                """;
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                67L,
+                "task-safe-manifest-policy",
+                root,
+                List.of(PatchOperation.modify("package.json", safeManifest)),
+                "tool-write-file");
+
+        assertEquals("applied", result.status());
+        assertEquals(safeManifest, Files.readString(root.resolve("package.json")));
     }
 
     @Test
@@ -380,7 +556,8 @@ class GenerationPatchApplyServiceTest {
                 new PatchOperationValidator(
                         workspaceFileService,
                         structuredContentService,
-                        new FrontendPatchImportPolicy(workspaceFileService)
+                        new FrontendPatchImportPolicy(workspaceFileService),
+                        new GeneratedWorkspaceTrustPolicy()
                 ),
                 new PatchOperationExecutor(
                         workspaceFileService,

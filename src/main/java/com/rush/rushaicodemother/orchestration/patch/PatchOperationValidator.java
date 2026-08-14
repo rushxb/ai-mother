@@ -33,6 +33,7 @@ public class PatchOperationValidator {
     private final PatchWorkspaceFileService workspaceFileService;
     private final PatchStructuredContentService structuredContentService;
     private final FrontendPatchImportPolicy frontendImportPolicy;
+    private final GeneratedWorkspaceTrustPolicy generatedWorkspaceTrustPolicy;
 
     /**
  * 校验{@code ate}是否有效。
@@ -82,6 +83,12 @@ public class PatchOperationValidator {
                 rejectedOperations.add(operationLabel + ":" + targetBlocker);
                 continue;
             }
+            String workspaceTrustBlocker = validateGeneratedWorkspaceTrust(
+                    action, operation, normalizedPath, target);
+            if (StrUtil.isNotBlank(workspaceTrustBlocker)) {
+                rejectedOperations.add(operationLabel + ":" + workspaceTrustBlocker);
+                continue;
+            }
             String dependencyBlocker = frontendImportPolicy.validate(
                     projectRoot, action, operation, normalizedPath, target);
             if (StrUtil.isNotBlank(dependencyBlocker)) {
@@ -91,6 +98,47 @@ public class PatchOperationValidator {
             validOperations.add(new ValidatedPatchOperation(action, normalizedPath, target, operation));
         }
         return new PatchValidationResult(validOperations, rejectedOperations);
+    }
+
+    private String validateGeneratedWorkspaceTrust(String action,
+                                                   PatchOperation operation,
+                                                   String normalizedPath,
+                                                   PatchWorkspaceTarget target) {
+        if (!generatedWorkspaceTrustPolicy.appliesTo(normalizedPath)) {
+            return "";
+        }
+        if (PatchOperation.ACTION_DELETE.equals(action)) {
+            return generatedWorkspaceTrustPolicy.validateDeletion(normalizedPath);
+        }
+        try {
+            return generatedWorkspaceTrustPolicy.validate(
+                    normalizedPath,
+                    candidateContent(action, operation, target));
+        } catch (IOException exception) {
+            return "executable_manifest_read_failed";
+        }
+    }
+
+    private String candidateContent(String action,
+                                    PatchOperation operation,
+                                    PatchWorkspaceTarget target) throws IOException {
+        if (PatchOperation.ACTION_ADD.equals(action)
+                || PatchOperation.ACTION_MODIFY.equals(action)) {
+            return operation.content();
+        }
+        if (PatchOperation.ACTION_REPLACE.equals(action)
+                || PatchOperation.ACTION_INSERT_BEFORE_MARKER.equals(action)
+                || PatchOperation.ACTION_INSERT_AFTER_MARKER.equals(action)) {
+            String originalContent = workspaceFileService.readUtf8(target);
+            String replacement = operation.newContent();
+            if (PatchOperation.ACTION_INSERT_BEFORE_MARKER.equals(action)) {
+                replacement = operation.newContent() + System.lineSeparator() + operation.oldContent();
+            } else if (PatchOperation.ACTION_INSERT_AFTER_MARKER.equals(action)) {
+                replacement = operation.oldContent() + System.lineSeparator() + operation.newContent();
+            }
+            return originalContent.replace(operation.oldContent(), replacement);
+        }
+        return null;
     }
 
     /** 校验{@code ate}目标是否有效。 */

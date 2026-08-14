@@ -34,7 +34,8 @@ public final class PatchApplyServiceTestFactory {
         PatchOperationValidator operationValidator = new PatchOperationValidator(
                 workspaceFileService,
                 structuredContentService,
-                frontendImportPolicy
+                frontendImportPolicy,
+                new GeneratedWorkspaceTrustPolicy()
         );
         PatchOperationExecutor operationExecutor = new PatchOperationExecutor(
                 workspaceFileService,

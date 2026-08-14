@@ -11,7 +11,7 @@ import java.nio.file.Path;
 @ConditionalOnProperty(
         name = "app.generated-code-sandbox.mode",
         havingValue = "host-local",
-        matchIfMissing = true
+        matchIfMissing = false
 )
 public class HostLocalGeneratedCodeProcessSandbox implements GeneratedCodeProcessSandbox {
 

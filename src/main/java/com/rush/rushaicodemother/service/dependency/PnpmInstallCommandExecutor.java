@@ -215,6 +215,8 @@ public class PnpmInstallCommandExecutor {
                 "install",
                 "--reporter=append-only",
                 "--prefer-offline",
+                "--ignore-scripts",
+                "--ignore-pnpmfile",
                 "--config.confirmModulesPurge=false"
         ));
         DependencyInstallMode effectiveMode = mode == null

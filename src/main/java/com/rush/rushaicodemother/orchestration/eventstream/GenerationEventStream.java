@@ -10,6 +10,14 @@ public interface GenerationEventStream {
 
     void complete(String taskId);
 
+    /** 原子且幂等地追加稳定终态事件与 COMPLETE 标记。 */
+    default void complete(String taskId, GenerationStreamEvent terminalEvent) {
+        if (terminalEvent != null) {
+            publish(taskId, terminalEvent);
+        }
+        complete(taskId);
+    }
+
     boolean available(String taskId);
 
     /** 为应用程序范围的兼容性端点保留旧投影。 */

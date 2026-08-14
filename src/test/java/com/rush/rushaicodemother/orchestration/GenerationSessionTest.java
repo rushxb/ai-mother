@@ -15,13 +15,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
 
 class GenerationSessionTest {
 
     @Test
-    void emittedEventsAndCompletionMustReachSharedTaskTransport() {
+    void sessionCompletionMustLeaveSharedTransportForDurableTerminalEffect() {
         GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
         when(executionContext.taskId()).thenReturn("task-shared-stream");
         GenerationEventStream eventStream = mock(GenerationEventStream.class);
@@ -35,7 +37,7 @@ class GenerationSessionTest {
 
         verify(eventStream).publish("task-shared-stream", first);
         verify(eventStream).publish("task-shared-stream", second);
-        verify(eventStream).complete("task-shared-stream");
+        verify(eventStream, never()).complete(anyString());
     }
 
     @Test

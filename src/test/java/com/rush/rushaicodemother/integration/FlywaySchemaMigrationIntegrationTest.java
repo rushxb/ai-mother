@@ -307,6 +307,37 @@ class FlywaySchemaMigrationIntegrationTest {
                     FROM flyway_schema_history
                     WHERE version = '20260721.3' AND success = 1
                     """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'generation_terminal_effect_replay_audit'
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(DISTINCT index_name)
+                    FROM information_schema.statistics
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'generation_terminal_effect_replay_audit'
+                      AND index_name = 'idx_generation_terminal_effect_replay_task'
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM flyway_schema_history
+                    WHERE version = '20260813.1' AND success = 1
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'generation_task'
+                      AND column_name = 'terminalEffectsCompletedMask'
+                      AND is_nullable = 'NO'
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM flyway_schema_history
+                    WHERE version = '20260813.2' AND success = 1
+                    """));
         }
     }
 

@@ -111,3 +111,10 @@ execution epoch 和任务版本全部一致时才可恢复成功，禁止仅凭 
 `V20260812_3__tenant_generation_quota.sql` 为既有积分流水补充可空租户身份和月预算查询索引。
 历史流水保持 `NULL`，禁止按当前应用归属回填；新生成预授权、结算和兼容扣费必须写入租户身份，
 周期用量按不可变流水的净扣减统计，任务或应用删除不得重置预算。
+
+`V20260813_1__generation_terminal_effect_operations.sql` 为终态副作用 dead-letter
+增加不可变人工重放审计。重放只能在管理员鉴权后按 `taskId + executionEpoch` 精确执行，
+且必须确认任务未完成、重试已耗尽、没有活动租约；状态重置与审计插入必须处于同一事务。
+
+`V20260813_2__generation_terminal_effect_receipts.sql` 为同一 outbox 增加操作级回执位标记。
+事件、任务流收口、预览停止和工作区清理各自成功后立即持久化，重试仅执行缺少回执的操作。

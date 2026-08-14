@@ -36,7 +36,6 @@ public final class GenerationSession {
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicBoolean completionStarted = new AtomicBoolean(false);
     private final AtomicBoolean completed = new AtomicBoolean(false);
-    private final AtomicBoolean sharedStreamCompleted = new AtomicBoolean(false);
     private final AtomicReference<GenerationTraceService> traceServiceRef = new AtomicReference<>();
     private final AtomicReference<GenerationCancellationHandle> cancellationHandleRef = new AtomicReference<>();
     private final AtomicReference<GenerationTaskRequest> taskRequestRef = new AtomicReference<>();
@@ -274,7 +273,6 @@ public final class GenerationSession {
         if (workingMemoryService != null && taskId() != null) {
             workingMemoryService.complete(taskId());
         }
-        completeSharedStream();
     }
 
     /**
@@ -290,7 +288,6 @@ public final class GenerationSession {
         if (workingMemoryService != null && taskId() != null) {
             workingMemoryService.complete(taskId());
         }
-        completeSharedStream();
     }
 
     public void cancel() {
@@ -390,32 +387,10 @@ public final class GenerationSession {
             return;
         }
         synchronized (sharedStreamMonitor) {
-            if (sharedStreamCompleted.get()) {
-                return;
-            }
             try {
                 generationEventStream.publish(currentTaskId, event);
             } catch (RuntimeException failure) {
                 log.warn("Failed to publish task event to shared stream, taskId: {}, error: {}",
-                        currentTaskId, LogExceptionSanitizer.sanitizeMessage(failure));
-            }
-        }
-    }
-
-    /** 完成{@code Shared}流并持久化终态。 */
-    private void completeSharedStream() {
-        String currentTaskId = taskId();
-        if (generationEventStream == null || currentTaskId == null || currentTaskId.isBlank()) {
-            return;
-        }
-        synchronized (sharedStreamMonitor) {
-            if (!sharedStreamCompleted.compareAndSet(false, true)) {
-                return;
-            }
-            try {
-                generationEventStream.complete(currentTaskId);
-            } catch (RuntimeException failure) {
-                log.warn("Failed to complete shared task event stream, taskId: {}, error: {}",
                         currentTaskId, LogExceptionSanitizer.sanitizeMessage(failure));
             }
         }

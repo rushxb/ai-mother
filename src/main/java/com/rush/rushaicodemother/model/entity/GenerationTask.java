@@ -293,6 +293,10 @@ public class GenerationTask implements Serializable {
     @Column("terminalEffectsLeaseUntil")
     private LocalDateTime terminalEffectsLeaseUntil;
 
+    /** 已完成终态副作用的持久位标记。 */
+    @Column("terminalEffectsCompletedMask")
+    private Long terminalEffectsCompletedMask;
+
     @Column("terminalEffectsCompletedAt")
     private LocalDateTime terminalEffectsCompletedAt;
 

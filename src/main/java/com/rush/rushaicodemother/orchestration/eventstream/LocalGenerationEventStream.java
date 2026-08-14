@@ -51,10 +51,15 @@ public class LocalGenerationEventStream implements GenerationEventStream {
  */
     @Override
     public void complete(String taskId) {
+        complete(taskId, null);
+    }
+
+    @Override
+    public void complete(String taskId, GenerationStreamEvent terminalEvent) {
         if (!validTaskId(taskId)) {
             return;
         }
-        eventLog(taskId).complete();
+        eventLog(taskId).complete(GenerationPublicEventSanitizer.sanitize(terminalEvent));
     }
 
     /**
@@ -115,9 +120,15 @@ public class LocalGenerationEventStream implements GenerationEventStream {
             );
         }
 
-        private synchronized void complete() {
+        private synchronized void complete(GenerationStreamEvent terminalEvent) {
             if (completed) {
                 return;
+            }
+            if (terminalEvent != null) {
+                sink.emitNext(
+                        SequencedGenerationEvent.event(++sequence, terminalEvent),
+                        Sinks.EmitFailureHandler.FAIL_FAST
+                );
             }
             completed = true;
             sink.emitNext(

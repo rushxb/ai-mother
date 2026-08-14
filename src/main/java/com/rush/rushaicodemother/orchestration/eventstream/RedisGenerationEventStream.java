@@ -61,6 +61,44 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
             redis.call('PEXPIRE', KEYS[2], ARGV[4])
             return sequence
             """, Long.class);
+    private static final DefaultRedisScript<Long> APPEND_TERMINAL_SCRIPT = new DefaultRedisScript<>("""
+            local completed = redis.call('GET', KEYS[3])
+            if completed then
+                return tonumber(completed)
+            end
+            local seed = redis.call('GET', KEYS[2])
+            if not seed then
+                seed = redis.call('XLEN', KEYS[1])
+                local tail = redis.call('XREVRANGE', KEYS[1], '+', '-', 'COUNT', 1)
+                if #tail > 0 then
+                    local fields = tail[1][2]
+                    for index = 1, #fields, 2 do
+                        if fields[index] == 'sequence' then
+                            seed = fields[index + 1]
+                            break
+                        end
+                    end
+                end
+                redis.call('SET', KEYS[2], seed)
+            end
+            if ARGV[1] == '1' then
+                local eventSequence = redis.call('INCR', KEYS[2])
+                redis.call('XADD', KEYS[1], '*',
+                        'sequence', tostring(eventSequence),
+                        'kind', 'event',
+                        'payload', ARGV[2])
+            end
+            local completeSequence = redis.call('INCR', KEYS[2])
+            redis.call('XADD', KEYS[1], '*',
+                    'sequence', tostring(completeSequence),
+                    'kind', 'complete',
+                    'payload', '')
+            redis.call('SET', KEYS[3], tostring(completeSequence), 'PX', ARGV[4])
+            redis.call('XTRIM', KEYS[1], 'MAXLEN', '~', ARGV[3])
+            redis.call('PEXPIRE', KEYS[1], ARGV[4])
+            redis.call('PEXPIRE', KEYS[2], ARGV[4])
+            return completeSequence
+            """, Long.class);
 
     private final StringRedisTemplate redisTemplate;
     private final GenerationEventStreamProperties properties;
@@ -90,7 +128,12 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
 
                     @Override
                     public void complete(String taskId) {
-                        append(taskId, KIND_COMPLETE, "");
+                        appendTerminal(taskId, null);
+                    }
+
+                    @Override
+                    public void complete(String taskId, GenerationStreamEvent terminalEvent) {
+                        appendTerminal(taskId, terminalEvent);
                     }
                 },
                 metricsCollector
@@ -122,10 +165,16 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
  */
     @Override
     public void complete(String taskId) {
+        complete(taskId, null);
+    }
+
+    @Override
+    public void complete(String taskId, GenerationStreamEvent terminalEvent) {
         if (!validTaskId(taskId)) {
             return;
         }
-        deltaCoalescer.complete(taskId);
+        GenerationStreamEvent publicTerminal = GenerationPublicEventSanitizer.sanitize(terminalEvent);
+        deltaCoalescer.complete(taskId, publicTerminal);
     }
 
     /**
@@ -208,6 +257,33 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
         append(taskId, KIND_EVENT, JSONUtil.toJsonStr(event));
     }
 
+    private void appendTerminal(String taskId, GenerationStreamEvent terminalEvent) {
+        long startedAt = System.nanoTime();
+        boolean success = false;
+        try {
+            String streamKey = key(taskId);
+            String payload = terminalEvent == null ? "" : JSONUtil.toJsonStr(terminalEvent);
+            Long sequence = redisTemplate.execute(
+                    APPEND_TERMINAL_SCRIPT,
+                    List.of(streamKey, sequenceKey(streamKey), terminalKey(streamKey)),
+                    terminalEvent == null ? "0" : "1",
+                    payload,
+                    Integer.toString(properties.getMaxEventsPerTask()),
+                    Long.toString(properties.getRetention().toMillis())
+            );
+            if (sequence == null || sequence <= 0) {
+                throw new IllegalStateException("Redis 生成终态事件追加返回了无效序号");
+            }
+            success = true;
+        } finally {
+            metricsCollector.recordRedisAppend(
+                    "terminal",
+                    success ? "success" : "failed",
+                    Duration.ofNanos(Math.max(0L, System.nanoTime() - startedAt))
+            );
+        }
+    }
+
     @SuppressWarnings("unchecked") // Spring Data 通过泛型可变参数暴露 StreamOffset<K>。
     private List<MapRecord<String, String, String>> read(String streamKey, String offset) {
         List<MapRecord<String, String, String>> records = redisTemplate
@@ -261,12 +337,16 @@ public class RedisGenerationEventStream implements GenerationEventStream, AutoCl
     }
 
     private String key(String taskId) {
-        return properties.getKeyPrefix() + taskId;
+        return properties.getKeyPrefix() + "{" + taskId + "}";
     }
 
     /** 使用与原始流键一致的哈希标签，确保两个 Lua 键位于同一 Redis Cluster 槽。 */
     private String sequenceKey(String streamKey) {
-        return "{" + streamKey + "}:sequence";
+        return streamKey + ":sequence";
+    }
+
+    private String terminalKey(String streamKey) {
+        return streamKey + ":terminal";
     }
 
     private boolean validTaskId(String taskId) {

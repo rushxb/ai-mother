@@ -38,3 +38,33 @@ groups:
         annotations:
           summary: "补丁执行拒绝次数激增"
           description: "过去 15 分钟补丁执行器拒绝次数达到 5 次以上，请检查 change_plan 或工具调用边界。"
+
+      - alert: GenerationTerminalOutboxDeadLetter
+        expr: generation_terminal_outbox_dead_letter > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "生成终态副作用出现死信"
+          description: "存在已耗尽自动重试且无活动租约的终态副作用，请按 taskId + executionEpoch 排查。"
+
+      - alert: GenerationTerminalOutboxOldestAgeHigh
+        expr: generation_terminal_outbox_oldest_age_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "生成终态副作用积压过久"
+          description: "最老的可处理终态副作用已等待超过 30 秒。"
+
+      - alert: GenerationTerminalOutboxBatchFailures
+        expr: |
+          sum(increase(generation_terminal_outbox_batches_total{status="error"}[5m])) >= 3
+          and on()
+          (sum(increase(generation_terminal_outbox_batches_total{status="success"}[5m])) or vector(0)) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "生成终态副作用批处理持续失败"
+          description: "5 分钟内至少 3 个批次失败且无成功批次，请检查数据库与 outbox worker。"

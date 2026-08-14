@@ -34,6 +34,27 @@ class LocalGenerationEventStreamTest {
     }
 
     @Test
+    void terminalEventAndCompletionMustBeAppendedOnceAcrossRetries() {
+        LocalGenerationEventStream stream = new LocalGenerationEventStream(
+                new GenerationEventStreamProperties());
+        GenerationStreamEvent terminalEvent = GenerationTerminalStreamEventFactory.create(
+                "task-terminal",
+                com.rush.rushaicodemother.model.enums.GenerationTaskStatus.SUCCESS
+        );
+
+        stream.complete("task-terminal", terminalEvent);
+        stream.complete("task-terminal", terminalEvent);
+
+        List<SequencedGenerationEvent> events = stream.stream("task-terminal", 0L)
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        assertEquals(2, events.size());
+        assertEquals(GenerationStreamEvent.TASK_TERMINAL, events.getFirst().event().getType());
+        assertTrue(events.getLast().terminal());
+    }
+
+    @Test
     void sequencedStreamMustResumeStrictlyAfterCursorAndRetainCompletionSequence() {
         LocalGenerationEventStream stream = new LocalGenerationEventStream(
                 new GenerationEventStreamProperties());

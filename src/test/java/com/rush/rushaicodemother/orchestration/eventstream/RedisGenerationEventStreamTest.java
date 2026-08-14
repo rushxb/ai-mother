@@ -55,8 +55,8 @@ class RedisGenerationEventStreamTest {
         verify(redisTemplate).execute(
                 any(RedisScript.class),
                 eq(List.of(
-                        "generation:events:task-redis",
-                        "{generation:events:task-redis}:sequence"
+                        "generation:events:{task-redis}",
+                        "generation:events:{task-redis}:sequence"
                 )),
                 arguments.capture()
         );
@@ -91,7 +91,39 @@ class RedisGenerationEventStreamTest {
         List<Object[]> appends = arguments.getAllValues();
         assertEquals("A", payload(appends.get(0)).getText());
         assertEquals("BC", payload(appends.get(1)).getText());
-        assertEquals("complete", appends.get(2)[0]);
+        assertEquals("0", appends.get(2)[0]);
+        assertEquals("", appends.get(2)[1]);
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void terminalEventAndCompletionMustUseOneClusterSafeIdempotentScript() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(2L);
+        GenerationStreamEvent terminalEvent = GenerationTerminalStreamEventFactory.create(
+                "task-terminal",
+                com.rush.rushaicodemother.model.enums.GenerationTaskStatus.SUCCESS
+        );
+
+        try (RedisGenerationEventStream stream = stream(redisTemplate, properties())) {
+            stream.complete("task-terminal", terminalEvent);
+        }
+
+        ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
+        verify(redisTemplate).execute(
+                any(RedisScript.class),
+                eq(List.of(
+                        "generation:events:{task-terminal}",
+                        "generation:events:{task-terminal}:sequence",
+                        "generation:events:{task-terminal}:terminal"
+                )),
+                arguments.capture()
+        );
+        Object[] scriptArguments = arguments.getValue();
+        assertEquals("1", scriptArguments[0]);
+        assertEquals(GenerationStreamEvent.TASK_TERMINAL,
+                JSONUtil.toBean(String.valueOf(scriptArguments[1]), GenerationStreamEvent.class).getType());
     }
 
     @Test
@@ -125,7 +157,7 @@ class RedisGenerationEventStreamTest {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         StreamOperations<String, String, String> operations = mock(StreamOperations.class);
         when(redisTemplate.<String, String>opsForStream()).thenReturn(operations);
-        String streamKey = "generation:events:task-redis";
+        String streamKey = "generation:events:{task-redis}";
         MapRecord<String, String, String> event = MapRecord.create(streamKey, Map.of(
                 "sequence", "5",
                 "kind", "event",

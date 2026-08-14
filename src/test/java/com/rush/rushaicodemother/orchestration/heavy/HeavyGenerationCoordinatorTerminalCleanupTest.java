@@ -229,7 +229,6 @@ class HeavyGenerationCoordinatorTerminalCleanupTest {
         GenerationPreparation preparation = preparation();
         GenerationExecutionFence fence = new GenerationExecutionFence("task-11", "worker-1", 7L);
         GenerationExecutionContext executionContext = org.mockito.Mockito.mock(GenerationExecutionContext.class);
-        org.mockito.Mockito.when(executionContext.taskId()).thenReturn("task-11");
         org.mockito.Mockito.when(executionContext.executionFence()).thenReturn(fence);
         GenerationSession session = new GenerationSession(preparation, executionContext);
         TerminalFixture fixture = fixture(preparation, session);

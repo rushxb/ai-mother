@@ -3,8 +3,6 @@ package com.rush.rushaicodemother.orchestration.finalization;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
-import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspaceService;
-import com.rush.rushaicodemother.orchestration.workspace.GenerationProvisionalPreviewLifecycle;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -70,23 +68,6 @@ class GenerationTaskFinalizerTest {
 
         verify(transaction).finalizeManaged(command);
         verify(runtimeLifecycleService).releaseTerminalOwnership(FENCE);
-    }
-
-    @Test
-    void failedTaskMustQuarantineWorkspaceAfterTerminalCommit() {
-        GenerationExecutionWorkspaceService workspaceService = mock(GenerationExecutionWorkspaceService.class);
-        GenerationProvisionalPreviewLifecycle previewLifecycle = mock(GenerationProvisionalPreviewLifecycle.class);
-        finalizer = new GenerationTaskFinalizer(
-                transaction, runtimeLifecycleService, workspaceService, previewLifecycle);
-        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
-                "task-1", 11L, FENCE, GenerationTaskStatus.FAILED,
-                "generation_failed", null, null);
-
-        finalizer.finalizeManaged(command);
-
-        verify(previewLifecycle).stopForTerminal(11L, FENCE);
-        verify(workspaceService).clear(
-                FENCE, 11L, GenerationExecutionWorkspaceService.CleanupPolicy.QUARANTINE);
     }
 
     private GenerationFinalizationCommand command() {

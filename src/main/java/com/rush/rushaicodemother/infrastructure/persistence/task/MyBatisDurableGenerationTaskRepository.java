@@ -482,8 +482,18 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         requireTaskId(taskId);
         if (status == null || !status.isTerminal()) throw new IllegalArgumentException("status must be terminal");
         Objects.requireNonNull(completedAt, "completedAt");
+        GenerationTask task = mapper.selectRuntimeByTaskId(taskId);
+        if (task == null || task.getAppId() == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "Generation task does not exist");
+        }
+        GenerationFinalizationCommand terminalCommand = terminalCommand(
+                taskId, task.getAppId(), status, reason,
+                unownedEffectFence(task));
         int changed = mapper.completeUnownedTask(
-                taskId, status.getValue(), normalizeReason(reason), toLocal(completedAt));
+                taskId, status.getValue(), normalizeReason(reason), toLocal(completedAt),
+                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
+                GenerationFinalizationCommandCodec.toJson(terminalCommand),
+                terminalCommand.executionFence().executionEpoch());
         if (changed == 1) return;
         requireIdempotentTerminalStatus(taskId, status);
     }
@@ -537,10 +547,41 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
             );
         }
         Objects.requireNonNull(completedAt, "completedAt");
+        GenerationFinalizationCommand terminalCommand = terminalCommand(
+                candidate.taskId(), candidate.appId(), terminalStatus, reason,
+                recoveryEffectFence(candidate));
         return mapper.finalizeExpiredLease(
                 candidate.taskId(), candidate.status().getValue(), candidate.version(),
-                terminalStatus.getValue(), toLocal(completedAt), normalizeReason(reason)
+                terminalStatus.getValue(), toLocal(completedAt), normalizeReason(reason),
+                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
+                GenerationFinalizationCommandCodec.toJson(terminalCommand),
+                terminalCommand.executionFence().executionEpoch()
         ) == 1;
+    }
+
+    private GenerationFinalizationCommand terminalCommand(String taskId,
+                                                            Long appId,
+                                                            GenerationTaskStatus status,
+                                                            String reason,
+                                                            GenerationExecutionFence fence) {
+        return GenerationFinalizationCommand.of(
+                taskId, appId, fence, status, normalizeReason(reason),
+                null, com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality.empty());
+    }
+
+    private GenerationExecutionFence unownedEffectFence(GenerationTask task) {
+        long currentEpoch = task.getExecutionEpoch() == null ? 0L : task.getExecutionEpoch();
+        long effectEpoch = "waiting_approval".equals(task.getStatus())
+                ? Math.max(1L, currentEpoch - 1L)
+                : Math.max(1L, currentEpoch);
+        return new GenerationExecutionFence(task.getTaskId(), "terminal-unowned", effectEpoch);
+    }
+
+    private GenerationExecutionFence recoveryEffectFence(GenerationTaskRecoveryCandidate candidate) {
+        String owner = candidate.leaseOwner() == null || candidate.leaseOwner().isBlank()
+                ? "terminal-recovery" : candidate.leaseOwner();
+        return new GenerationExecutionFence(
+                candidate.taskId(), owner, Math.max(1L, candidate.executionEpoch()));
     }
 
     @Override

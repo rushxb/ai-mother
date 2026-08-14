@@ -410,6 +410,10 @@ public interface GenerationTaskRuntimeMapper {
                 endTime = #{completedAt},
                 durationMs = GREATEST(0, TIMESTAMPDIFF(MICROSECOND, submittedAt, #{completedAt}) DIV 1000),
                 errorMessage = #{reason}, leaseOwner = NULL, leaseUntil = NULL,
+                terminalIntentFinalizedAt = CASE
+                    WHEN terminalIntentExecutionEpoch = executionEpoch THEN #{completedAt}
+                    ELSE terminalIntentFinalizedAt
+                END,
                 heartbeatAt = NULL, executionEpoch = executionEpoch + 1,
                 version = version + 1, updateTime = #{completedAt}
             WHERE taskId = #{taskId}
@@ -433,6 +437,11 @@ public interface GenerationTaskRuntimeMapper {
                 durationMs = GREATEST(0, TIMESTAMPDIFF(MICROSECOND, submittedAt, #{completedAt}) DIV 1000),
                 errorMessage = #{reason}, leaseOwner = NULL, leaseUntil = NULL,
                 heartbeatAt = NULL, executionEpoch = executionEpoch + 1,
+                terminalIntentSchemaVersion = #{terminalIntentSchemaVersion},
+                terminalIntentPayloadJson = #{terminalIntentPayloadJson},
+                terminalIntentExecutionEpoch = #{terminalIntentExecutionEpoch},
+                terminalIntentPreparedAt = #{completedAt},
+                terminalIntentFinalizedAt = #{completedAt},
                 version = version + 1, updateTime = #{completedAt}
             WHERE taskId = #{taskId}
               AND status IN ('queued', 'waiting_approval')
@@ -442,7 +451,10 @@ public interface GenerationTaskRuntimeMapper {
     int completeUnownedTask(@Param("taskId") String taskId,
                             @Param("status") String status,
                             @Param("reason") String reason,
-                            @Param("completedAt") LocalDateTime completedAt);
+                            @Param("completedAt") LocalDateTime completedAt,
+                            @Param("terminalIntentSchemaVersion") int terminalIntentSchemaVersion,
+                            @Param("terminalIntentPayloadJson") String terminalIntentPayloadJson,
+                            @Param("terminalIntentExecutionEpoch") long terminalIntentExecutionEpoch);
 
     @Select("""
             SELECT taskId, appId, status, leaseOwner, leaseUntil, deadlineAt,
@@ -467,6 +479,11 @@ public interface GenerationTaskRuntimeMapper {
                 durationMs = GREATEST(0, TIMESTAMPDIFF(MICROSECOND, submittedAt, #{completedAt}) DIV 1000),
                 errorMessage = #{reason}, leaseOwner = NULL, leaseUntil = NULL,
                 heartbeatAt = NULL, executionEpoch = executionEpoch + 1,
+                terminalIntentSchemaVersion = #{terminalIntentSchemaVersion},
+                terminalIntentPayloadJson = #{terminalIntentPayloadJson},
+                terminalIntentExecutionEpoch = #{terminalIntentExecutionEpoch},
+                terminalIntentPreparedAt = #{completedAt},
+                terminalIntentFinalizedAt = #{completedAt},
                 version = version + 1, updateTime = #{completedAt}
             WHERE taskId = #{taskId}
               AND status = #{expectedStatus}
@@ -479,7 +496,10 @@ public interface GenerationTaskRuntimeMapper {
                              @Param("expectedVersion") long expectedVersion,
                              @Param("terminalStatus") String terminalStatus,
                              @Param("completedAt") LocalDateTime completedAt,
-                             @Param("reason") String reason);
+                             @Param("reason") String reason,
+                             @Param("terminalIntentSchemaVersion") int terminalIntentSchemaVersion,
+                             @Param("terminalIntentPayloadJson") String terminalIntentPayloadJson,
+                             @Param("terminalIntentExecutionEpoch") long terminalIntentExecutionEpoch);
 
     @Update("""
             UPDATE generation_task

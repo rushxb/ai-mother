@@ -63,10 +63,14 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
     }
 
     void complete(String taskId) {
+        complete(taskId, null);
+    }
+
+    void complete(String taskId, GenerationStreamEvent terminalEvent) {
         if (enabled) {
             flushAndRemove(taskId, "complete");
         }
-        writer.complete(taskId);
+        writer.complete(taskId, terminalEvent);
     }
 
     /** 发布增量。 */
@@ -280,6 +284,13 @@ final class GenerationEventDeltaCoalescer implements AutoCloseable {
         void publish(String taskId, GenerationStreamEvent event);
 
         void complete(String taskId);
+
+        default void complete(String taskId, GenerationStreamEvent terminalEvent) {
+            if (terminalEvent != null) {
+                publish(taskId, terminalEvent);
+            }
+            complete(taskId);
+        }
     }
 
     private static final class DeltaState {

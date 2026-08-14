@@ -11,6 +11,8 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLease;
@@ -34,7 +36,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -171,11 +176,37 @@ class MyBatisDurableGenerationTaskRepositoryTest {
         assertEquals(4L, candidates.getFirst().executionEpoch());
         assertFalse(candidates.getFirst().cancellationRequested());
         when(mapper.finalizeExpiredLease(
-                "task-expired", "running", 7L, "failed", toLocal(NOW), "lease_expired"))
+                eq("task-expired"), eq("running"), eq(7L), eq("failed"),
+                eq(toLocal(NOW)), eq("lease_expired"), anyInt(), anyString(), eq(4L)))
                 .thenReturn(1);
         assertTrue(repository.finalizeExpiredLease(
                 candidates.getFirst(), GenerationTaskStatus.FAILED, NOW, "lease_expired"
         ));
+    }
+
+    @Test
+    void unownedTerminalTransitionMustPersistAReplayableEffectInTheSameWrite() {
+        GenerationTask waitingApproval = runtimeEntity(
+                GenerationTaskStatus.WAITING_APPROVAL, 2L, true);
+        waitingApproval.setLeaseOwner(null);
+        waitingApproval.setLeaseUntil(null);
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(waitingApproval);
+        when(mapper.completeUnownedTask(
+                eq("task-1"), eq("cancelled"), eq("user_requested"), eq(toLocal(NOW)),
+                anyInt(), anyString(), eq(2L))).thenReturn(1);
+
+        repository.completeUnowned(
+                "task-1", GenerationTaskStatus.CANCELLED, "user_requested", NOW);
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(mapper).completeUnownedTask(
+                eq("task-1"), eq("cancelled"), eq("user_requested"), eq(toLocal(NOW)),
+                eq(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION),
+                payload.capture(), eq(2L));
+        GenerationFinalizationCommand command = GenerationFinalizationCommandCodec.fromJson(
+                payload.getValue());
+        assertEquals(GenerationTaskStatus.CANCELLED, command.status());
+        assertEquals(2L, command.executionFence().executionEpoch());
     }
 
     @Test

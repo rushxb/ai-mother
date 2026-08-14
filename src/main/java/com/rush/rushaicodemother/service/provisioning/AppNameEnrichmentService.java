@@ -4,12 +4,16 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.AppNameGeneratorServiceFactory;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.mapper.AppMapper;
+import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
+import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
+
+import java.util.UUID;
 
 /** 在应用完成落库后异步润色标题，不阻塞创建接口。 */
 @Slf4j
@@ -60,7 +64,10 @@ public class AppNameEnrichmentService {
             MonitorContextHolder.setContext(MonitorContext.builder()
                     .appId(appId.toString())
                     .userId(userId.toString())
-                    .taskId("none")
+                    .taskId("app-name:" + UUID.randomUUID())
+                    .invocationPurpose(ModelInvocationPurpose.APP_NAME_ENRICHMENT)
+                    .billingMode(ModelInvocationBillingMode.EXEMPT)
+                    .billingExemptionReason("product_managed_enrichment")
                     .build());
             String generatedName = appNameGeneratorServiceFactory
                     .createAppNameGeneratorService()

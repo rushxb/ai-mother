@@ -130,6 +130,19 @@ class DefaultGenerationTracePersistenceServiceTest {
     }
 
     @Test
+    void startedModelCallCompletionMustUseSingleCompareAndSetWrite() {
+        when(mapper.completeStartedModelCall(any())).thenReturn(1);
+
+        service.completeStartedModelCall(newModelCall());
+
+        ArgumentCaptor<GenerationModelCall> captor = ArgumentCaptor.forClass(GenerationModelCall.class);
+        verify(mapper).completeStartedModelCall(captor.capture());
+        assertEquals(GenerationModelCallStatus.SUCCESS.name(), captor.getValue().getCallStatus());
+        assertEquals(13, captor.getValue().getTotalTokens());
+        assertEquals(HASH, captor.getValue().getRequestHash());
+    }
+
+    @Test
     void corruptedTaskRowsMustFailInsteadOfLeakingPartialEntities() {
         when(mapper.selectTaskByTaskId("task-1")).thenReturn(GenerationTask.builder()
                 .taskId("task-1")

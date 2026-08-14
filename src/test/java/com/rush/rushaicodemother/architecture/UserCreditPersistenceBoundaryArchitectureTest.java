@@ -48,7 +48,10 @@ class UserCreditPersistenceBoundaryArchitectureTest {
         assertFalse(BaseMapper.class.isAssignableFrom(UserCreditMapper.class));
         String mapperSource = read("mapper", "UserCreditMapper.java");
 
-        assertTrue(mapperSource.contains("SUM(CASE WHEN totalTokens > 0"));
+        assertTrue(mapperSource.contains(
+                "CASE WHEN callStatus = 'SUCCESS' AND totalTokens > 0"));
+        assertTrue(mapperSource.contains("pendingCallCount"),
+                "STARTED 或 usage 不可用的调用必须阻止按 0 结算");
         assertTrue(mapperSource.contains("FROM generation_model_call"));
         assertTrue(mapperSource.contains("isDelete = 0"));
         assertTrue(mapperSource.split("FOR UPDATE", -1).length - 1 >= 2,

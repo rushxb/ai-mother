@@ -292,6 +292,22 @@ class DefaultGenerationTraceServiceTest {
     }
 
     @Test
+    void terminalModelCallMustCompleteTheDurableStartedLedgerInsteadOfConflicting() {
+        GenerationModelCallCommand completed = modelCallCommand();
+        when(persistenceService.insertModelCall(any())).thenReturn(false);
+        when(persistenceService.findModelCallByCallId(CALL_ID))
+                .thenReturn(startedModelCallRecord());
+
+        service.recordModelCall(completed);
+
+        ArgumentCaptor<GenerationTracePersistenceService.NewModelCall> captor =
+                ArgumentCaptor.forClass(GenerationTracePersistenceService.NewModelCall.class);
+        verify(persistenceService).completeStartedModelCall(captor.capture());
+        assertEquals(GenerationModelCallStatus.SUCCESS, captor.getValue().status());
+        assertEquals(13, captor.getValue().totalTokens());
+    }
+
+    @Test
     void buildResultEventMustMapTypedFieldsAndBoundReportLength() {
         String oversizedReport = "x".repeat(13_000);
         GenerationStreamEvent event = GenerationStreamEvent.buildResult("fallback", Map.of(
@@ -341,6 +357,15 @@ class DefaultGenerationTraceServiceTest {
                 CALL_ID, "task-1", 1L, 2L, "openai", model,
                 GenerationModelCallStatus.SUCCESS, "response-1",
                 8, 5, 13, 125L, "STOP", GenerationModelUsageSource.OFFICIAL,
+                null, HASH, HASH, HASH, HASH, 2, 3, "{}"
+        );
+    }
+
+    private ModelCallRecord startedModelCallRecord() {
+        return new ModelCallRecord(
+                CALL_ID, "task-1", 1L, 2L, "openai", "gpt-test",
+                GenerationModelCallStatus.STARTED, null,
+                8, 0, 8, 0L, null, GenerationModelUsageSource.ESTIMATED,
                 null, HASH, HASH, HASH, HASH, 2, 3, "{}"
         );
     }

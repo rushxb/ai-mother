@@ -198,6 +198,31 @@ public class StreamingModelFactory {
     }
 
     /**
+     * 以统一容量门禁和物理调用账本执行管理端连接探测。
+     * 调用方必须先绑定 CONNECTION_TEST 的 MonitorContext。
+     */
+    public String testConnection(AiModelRuntimeConfiguration configuration) {
+        if (configuration == null) {
+            throw new IllegalArgumentException("AI model connection configuration is required");
+        }
+        int probeMaxTokens = Math.min(configuration.maxTokens(), 256);
+        AiModelRuntimeConfiguration probe = new AiModelRuntimeConfiguration(
+                configuration.provider(), configuration.modelId(), configuration.modelType(),
+                configuration.baseUrl(), configuration.secretRef(),
+                configuration.secretFingerprint(), configuration.secretKeyId(),
+                probeMaxTokens, configuration.temperature(), configuration.supportsThinking());
+        Duration timeout = runtimeProperties.getRoutingTimeout();
+        ChatModel delegate = createChatModelFromDb(
+                probe, timeout, 0, false, false, false);
+        ChatModel audited = new CapacityControlledChatModel(
+                probe.provider(), probe.modelId(), probe.maxTokens(), delegate,
+                aiModelCapacityGuard, timeout,
+                aiModelMonitorListener.forModel(
+                        probe.provider(), probe.modelId(), probe.maxTokens()));
+        return audited.chat("Hello, this is a connection test. Reply with 'OK' only.");
+    }
+
+    /**
      * 使用调用者提供的总挂钟超时创建路由模型。
      *
      * <p>托管编辑调用传递{@code maxRetries=0}；重试策略由任务运行时拥有
@@ -316,7 +341,9 @@ public class StreamingModelFactory {
                         model.provider(), model.modelId(),
                         streamingCallRuntime.capacityControlled(
                                 model.provider(), model.modelId(), model.maxTokens(),
-                                modelFactory.apply(model), aiModelCapacityGuard, upstreamTimeout)))
+                                modelFactory.apply(model), aiModelCapacityGuard, upstreamTimeout,
+                                aiModelMonitorListener.forModel(
+                                        model.provider(), model.modelId(), model.maxTokens()))))
                 .toList();
         if (candidates.size() == 1) {
             return candidates.getFirst().model();
@@ -389,8 +416,10 @@ public class StreamingModelFactory {
             candidates.add(new AiModelCandidate<>(
                     model.provider(), model.modelId(),
                      streamingCallRuntime.capacityControlled(
-                             model.provider(), model.modelId(), model.maxTokens(),
-                             streamingModel, aiModelCapacityGuard, timeoutSlices.get(index))));
+                              model.provider(), model.modelId(), model.maxTokens(),
+                              streamingModel, aiModelCapacityGuard, timeoutSlices.get(index),
+                              aiModelMonitorListener.forModel(
+                                      model.provider(), model.modelId(), model.maxTokens()))));
         }
         return List.copyOf(candidates);
     }
@@ -405,7 +434,9 @@ public class StreamingModelFactory {
                         model.provider(), model.modelId(),
                         new CapacityControlledChatModel(
                                 model.provider(), model.modelId(), model.maxTokens(),
-                                modelFactory.apply(model), aiModelCapacityGuard, upstreamTimeout)))
+                                modelFactory.apply(model), aiModelCapacityGuard, upstreamTimeout,
+                                aiModelMonitorListener.forModel(
+                                        model.provider(), model.modelId(), model.maxTokens()))))
                 .toList();
         if (candidates.size() == 1) {
             return candidates.getFirst().model();
@@ -443,7 +474,9 @@ public class StreamingModelFactory {
                     model.provider(), model.modelId(),
                     new CapacityControlledChatModel(
                             model.provider(), model.modelId(), model.maxTokens(),
-                            chatModel, aiModelCapacityGuard, candidateTimeout)));
+                            chatModel, aiModelCapacityGuard, candidateTimeout,
+                            aiModelMonitorListener.forModel(
+                                    model.provider(), model.modelId(), model.maxTokens()))));
         }
         if (candidates.size() == 1 && beforeModelTurn == null
                 && beforeProviderFailoverAttempt == null) {
@@ -530,9 +563,7 @@ public class StreamingModelFactory {
                 .temperature(resolveTemperature(dbModel))
                 .logRequests(runtimeProperties.isGenerationLogRequests())
                 .logResponses(runtimeProperties.isGenerationLogResponses())
-                .timeout(timeout)
-                .listeners(List.of(aiModelMonitorListener.forModel(
-                        dbModel.provider(), dbModel.modelId())));
+                .timeout(timeout);
 
         applyMaxTokens(builder, dbModel);
         applyThinking(builder, dbModel, enableThinking);
@@ -574,9 +605,7 @@ public class StreamingModelFactory {
                 .modelName(dbModel.modelId())
                 .temperature(resolveTemperature(dbModel))
                 .logRequests(requestLogging)
-                .logResponses(responseLogging)
-                .listeners(List.of(aiModelMonitorListener.forModel(
-                        dbModel.provider(), dbModel.modelId())));
+                .logResponses(responseLogging);
 
         applyMaxTokens(builder, dbModel);
         applyThinking(builder, dbModel, enableThinking);

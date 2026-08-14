@@ -7,6 +7,8 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
+import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.service.trace.GenerationTracePersistenceService.BuildLogRecord;
@@ -48,6 +50,7 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
     private static final int MAX_FINISH_REASON_LENGTH = 64;
     private static final int MAX_PROVIDER_REQUEST_ID_LENGTH = 128;
     private static final int MAX_ERROR_CATEGORY_LENGTH = 64;
+    private static final int MAX_BILLING_EXEMPTION_REASON_LENGTH = 64;
     private static final int MAX_MODEL_METADATA_LENGTH = 12_000;
     private static final int SHA_256_HEX_LENGTH = 64;
     private static final int MAX_QUERY_LIMIT = 20;
@@ -314,6 +317,10 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
             throw operationFailed("模型调用并发写入后无法读取，callId=" + modelCall.callId());
         }
         if (!sameModelCallPayload(existing, modelCall)) {
+            if (canCompleteStartedModelCall(existing, modelCall)) {
+                persistenceService.completeStartedModelCall(modelCall);
+                return;
+            }
             throw operationFailed("模型调用 ID 已被不同调用占用，callId=" + modelCall.callId());
         }
     }
@@ -411,6 +418,23 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         if (usageSource == null) {
             throw invalid("模型调用 token 来源不能为空");
         }
+        ModelInvocationPurpose invocationPurpose = command.invocationPurpose();
+        ModelInvocationBillingMode billingMode = command.billingMode();
+        if (invocationPurpose == null || billingMode == null) {
+            throw invalid("模型调用 purpose 与计费模式不能为空");
+        }
+        String billingExemptionReason = boundedNullable(
+                command.billingExemptionReason(), MAX_BILLING_EXEMPTION_REASON_LENGTH,
+                "模型调用计费豁免原因");
+        if (invocationPurpose == ModelInvocationPurpose.GENERATION) {
+            if (billingMode != ModelInvocationBillingMode.BILLABLE
+                    || billingExemptionReason != null) {
+                throw invalid("生成模型调用必须计费且不能包含豁免原因");
+            }
+        } else if (billingMode != ModelInvocationBillingMode.EXEMPT
+                || billingExemptionReason == null) {
+            throw invalid("外围模型调用必须包含明确的计费豁免原因");
+        }
         Integer promptTokens = nullableNonNegative(command.promptTokens(), "输入 token 数");
         Integer completionTokens = nullableNonNegative(command.completionTokens(), "输出 token 数");
         Integer totalTokens = nullableNonNegative(command.totalTokens(), "总 token 数");
@@ -430,8 +454,11 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
         return new NewModelCall(
                 callId,
                 requireText(command.taskId(), MAX_TASK_ID_LENGTH, "生成任务 ID"),
-                requirePositiveId(command.appId(), "应用 ID"),
+                normalizeInvocationAppId(command.appId(), invocationPurpose),
                 requirePositiveId(command.userId(), "用户 ID"),
+                invocationPurpose,
+                billingMode,
+                billingExemptionReason,
                 requireText(command.provider(), MAX_PROVIDER_LENGTH, "模型提供商"),
                 requireText(command.model(), MAX_MODEL_LENGTH, "模型名称"),
                 status,
@@ -511,8 +538,11 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
     private boolean sameModelCallPayload(ModelCallRecord existing, NewModelCall requested) {
         return existing.callId().equals(requested.callId())
                 && existing.taskId().equals(requested.taskId())
-                && existing.appId() == requested.appId()
+                && Objects.equals(existing.appId(), requested.appId())
                 && existing.userId() == requested.userId()
+                && existing.invocationPurpose() == requested.invocationPurpose()
+                && existing.billingMode() == requested.billingMode()
+                && Objects.equals(existing.billingExemptionReason(), requested.billingExemptionReason())
                 && Objects.equals(existing.provider(), requested.provider())
                 && Objects.equals(existing.model(), requested.model())
                 && existing.status() == requested.status()
@@ -531,6 +561,38 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 && Objects.equals(existing.requestMessageCount(), requested.requestMessageCount())
                 && Objects.equals(existing.toolCount(), requested.toolCount())
                 && Objects.equals(existing.rawMetadataJson(), requested.rawMetadataJson());
+    }
+
+    /** STARTED 只能单向完成为终态，请求身份与 provenance 必须完全一致。 */
+    private boolean canCompleteStartedModelCall(ModelCallRecord existing, NewModelCall requested) {
+        return existing.status() == GenerationModelCallStatus.STARTED
+                && requested.status() != GenerationModelCallStatus.STARTED
+                && existing.callId().equals(requested.callId())
+                && existing.taskId().equals(requested.taskId())
+                && Objects.equals(existing.appId(), requested.appId())
+                && existing.userId() == requested.userId()
+                && existing.invocationPurpose() == requested.invocationPurpose()
+                && existing.billingMode() == requested.billingMode()
+                && Objects.equals(existing.billingExemptionReason(), requested.billingExemptionReason())
+                && Objects.equals(existing.provider(), requested.provider())
+                && Objects.equals(existing.model(), requested.model())
+                && Objects.equals(existing.requestHash(), requested.requestHash())
+                && Objects.equals(existing.promptTemplateHash(), requested.promptTemplateHash())
+                && Objects.equals(existing.toolSchemaHash(), requested.toolSchemaHash())
+                && Objects.equals(existing.modelConfigHash(), requested.modelConfigHash())
+                && Objects.equals(existing.requestMessageCount(), requested.requestMessageCount())
+                && Objects.equals(existing.toolCount(), requested.toolCount())
+                && Objects.equals(existing.rawMetadataJson(), requested.rawMetadataJson());
+    }
+
+    private Long normalizeInvocationAppId(Long appId, ModelInvocationPurpose purpose) {
+        if (appId == null) {
+            if (purpose == ModelInvocationPurpose.GENERATION) {
+                throw invalid("生成模型调用必须包含应用 ID");
+            }
+            return null;
+        }
+        return requirePositiveId(appId, "应用 ID");
     }
 
     private List<GenerationBuildTrace> toBuildTraces(List<BuildLogRecord> records) {

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** 记录具有生产安全、有界维度的聚合 AI 模型遥测数据。 */
 @Component
@@ -34,8 +35,13 @@ public class AiModelMetricsCollector {
             "skipped_non_retriable", "skipped_budget", "skipped_deadline");
     private static final Set<String> MODEL_TIMEOUT_KINDS = Set.of(
             "first-signal", "inactivity", "wall-clock");
+    private static final Set<String> USAGE_SOURCES = Set.of(
+            "official", "estimated", "unavailable");
+    private static final Set<String> INVOCATION_RECOVERY_OUTCOMES = Set.of(
+            "success", "failure");
 
     private final MeterRegistry meterRegistry;
+    private final AtomicLong unsettledInvocationCount = new AtomicLong();
 
     /**
      * 保留身份参数是为了源兼容性和详细的数据库跟踪。他们是
@@ -183,9 +189,44 @@ public class AiModelMetricsCollector {
                 .description("AI model provenance persistence failure count")
                 .tag("provider", normalizeProvider(provider))
                 .tag("model_name", normalizeModel(modelName))
-                .tag("outcome", bounded(outcome, Set.of("success", "error")))
+                .tag("outcome", bounded(outcome, Set.of("started", "success", "error")))
                 .register(meterRegistry)
                 .increment();
+    }
+
+    /**
+     * 记录终态物理调用的 token 事实来源。estimated/unavailable 占全部来源的比例即 missing usage rate。
+     */
+    public void recordUsageResolution(String provider, String modelName, String source) {
+        Counter.builder("ai_model_usage_resolution_total")
+                .description("AI model terminal invocation usage resolution source")
+                .tag("provider", normalizeProvider(provider))
+                .tag("model_name", normalizeModel(modelName))
+                .tag("source", bounded(source, USAGE_SOURCES))
+                .register(meterRegistry)
+                .increment();
+    }
+
+    /** 记录恢复的遗留物理调用数量；amount 必须是实际受影响行数。 */
+    public void recordInvocationRecovery(String outcome, long amount) {
+        if (amount <= 0) {
+            return;
+        }
+        Counter.builder("ai_model_invocation_recoveries_total")
+                .description("Recovered or failed stale AI model invocation ledger rows")
+                .tag("outcome", bounded(outcome, INVOCATION_RECOVERY_OUTCOMES))
+                .register(meterRegistry)
+                .increment(amount);
+    }
+
+    /** 使用数据库事实刷新未结算 STARTED 调用数量，而不是从进程内事件推算。 */
+    public void recordUnsettledInvocationCount(long count) {
+        unsettledInvocationCount.set(Math.max(0L, count));
+        io.micrometer.core.instrument.Gauge
+                .builder("ai_model_unsettled_invocation_count", unsettledInvocationCount,
+                        AtomicLong::doubleValue)
+                .description("Current durable STARTED AI model invocation ledger rows")
+                .register(meterRegistry);
     }
 
     /**

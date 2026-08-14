@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.model.capacity;
 
+import com.rush.rushaicodemother.ai.model.PhysicalModelInvocation;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
@@ -22,13 +23,14 @@ public final class CapacityControlledChatModel implements ChatModel {
     private final ChatModel delegate;
     private final AiModelCapacityGuard capacityGuard;
     private final Duration upstreamTimeout;
+    private final ChatModelListener invocationListener;
 
     public CapacityControlledChatModel(String provider,
                                        String modelId,
                                        int configuredMaxOutputTokens,
                                        ChatModel delegate,
                                        AiModelCapacityGuard capacityGuard) {
-        this(provider, modelId, configuredMaxOutputTokens, delegate, capacityGuard, null);
+        this(provider, modelId, configuredMaxOutputTokens, delegate, capacityGuard, null, null);
     }
 
     /**
@@ -47,6 +49,16 @@ public final class CapacityControlledChatModel implements ChatModel {
                                        ChatModel delegate,
                                        AiModelCapacityGuard capacityGuard,
                                        Duration upstreamTimeout) {
+        this(provider, modelId, configuredMaxOutputTokens, delegate, capacityGuard, upstreamTimeout, null);
+    }
+
+    public CapacityControlledChatModel(String provider,
+                                       String modelId,
+                                       int configuredMaxOutputTokens,
+                                       ChatModel delegate,
+                                       AiModelCapacityGuard capacityGuard,
+                                       Duration upstreamTimeout,
+                                       ChatModelListener invocationListener) {
         if (provider == null || provider.isBlank() || modelId == null || modelId.isBlank()
                 || configuredMaxOutputTokens <= 0) {
             throw new IllegalArgumentException("capacity-controlled chat model identity is invalid");
@@ -60,6 +72,7 @@ public final class CapacityControlledChatModel implements ChatModel {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.capacityGuard = Objects.requireNonNull(capacityGuard, "capacityGuard");
         this.upstreamTimeout = upstreamTimeout;
+        this.invocationListener = invocationListener;
     }
 
     /**
@@ -72,11 +85,19 @@ public final class CapacityControlledChatModel implements ChatModel {
     public ChatResponse doChat(ChatRequest request) {
         try (AiModelCapacityGuard.Lease lease = capacityGuard.acquire(
                 provider, modelId, configuredMaxOutputTokens, request, upstreamTimeout)) {
-            ChatResponse response = delegate.doChat(request);
-            if (!lease.isValid()) {
-                throw AiModelCapacityException.unavailable(null);
+            PhysicalModelInvocation invocation = PhysicalModelInvocation.start(
+                    invocationListener, request, delegate.provider());
+            try {
+                ChatResponse response = delegate.doChat(request);
+                if (!lease.isValid()) {
+                    throw AiModelCapacityException.unavailable(null);
+                }
+                invocation.complete(response);
+                return response;
+            } catch (RuntimeException providerFailure) {
+                invocation.fail(providerFailure);
+                throw providerFailure;
             }
-            return response;
         }
     }
 
@@ -87,7 +108,7 @@ public final class CapacityControlledChatModel implements ChatModel {
 
     @Override
     public List<ChatModelListener> listeners() {
-        return delegate.listeners();
+        return invocationListener == null ? delegate.listeners() : List.of();
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.mapper;
 
+import com.rush.rushaicodemother.model.dto.credit.GenerationTaskModelUsageRow;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.entity.UserCreditTransaction;
@@ -53,12 +54,24 @@ public interface UserCreditMapper {
                                                            @Param("bizId") String bizId);
 
     @Select("""
-            SELECT COALESCE(SUM(CASE WHEN totalTokens > 0 THEN totalTokens ELSE 0 END), 0)
+            SELECT COALESCE(SUM(
+                       CASE WHEN callStatus = 'SUCCESS' AND totalTokens > 0
+                            THEN totalTokens ELSE 0 END), 0) AS totalTokens,
+                   COALESCE(SUM(
+                       CASE WHEN callStatus = 'SUCCESS' THEN 1 ELSE 0 END), 0) AS successfulCallCount,
+                   COALESCE(SUM(
+                       CASE WHEN callStatus = 'STARTED'
+                                  OR usageSource = 'UNAVAILABLE'
+                                  OR totalTokens IS NULL
+                                  OR totalTokens <= 0
+                            THEN 1 ELSE 0 END), 0) AS pendingCallCount
             FROM generation_model_call
             WHERE taskId = #{taskId}
+              AND invocationPurpose = 'GENERATION'
+              AND billingMode = 'BILLABLE'
               AND isDelete = 0
             """)
-    Long sumPositiveTaskTokens(@Param("taskId") String taskId);
+    GenerationTaskModelUsageRow selectTaskModelUsage(@Param("taskId") String taskId);
 
     @Update("""
             UPDATE `user`

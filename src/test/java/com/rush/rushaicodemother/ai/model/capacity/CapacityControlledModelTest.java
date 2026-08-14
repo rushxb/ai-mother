@@ -6,6 +6,8 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.listener.ChatModelRequestContext;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.PartialResponse;
@@ -57,6 +59,37 @@ class CapacityControlledModelTest {
         assertThrows(IllegalStateException.class, () -> failure.chat(request()));
         assertEquals(2, guard.acquired.get());
         assertEquals(2, guard.released.get());
+    }
+
+    @Test
+    void durableInvocationStartFailureMustPreventThePhysicalProviderCall() {
+        CountingGuard guard = new CountingGuard();
+        AtomicInteger providerRequests = new AtomicInteger();
+        ChatModel provider = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                providerRequests.incrementAndGet();
+                return ChatResponse.builder().aiMessage(AiMessage.from("unexpected")).build();
+            }
+        };
+        ChatModelListener failingLedger = new ChatModelListener() {
+            @Override
+            public void onRequest(ChatModelRequestContext requestContext) {
+                throw new IllegalStateException("ledger unavailable");
+            }
+        };
+        CapacityControlledChatModel model = new CapacityControlledChatModel(
+                "openai", "gpt-test", 4096, provider, guard,
+                Duration.ofSeconds(30), failingLedger);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> model.chat(request())
+        );
+
+        assertEquals("ledger unavailable", failure.getMessage());
+        assertEquals(0, providerRequests.get());
+        assertEquals(1, guard.released.get());
     }
 
     @Test

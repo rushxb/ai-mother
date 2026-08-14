@@ -125,9 +125,12 @@ public class AiModelController {
     @PostMapping("/test")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> testModelConnection(
-            @Valid @RequestBody AiModelConnectionTestRequest testRequest) {
+            @Valid @RequestBody AiModelConnectionTestRequest testRequest,
+            HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
         AiModelConnectionTestResultVO result =
-                aiModelManagementService.testSavedModelConnection(testRequest.getId());
+                aiModelManagementService.testSavedModelConnection(
+                        testRequest.getId(), loginUser.getId());
         if (!Boolean.TRUE.equals(result.getSuccess())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, result.getMessage());
         }
@@ -138,9 +141,12 @@ public class AiModelController {
     @PostMapping("/test/config")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<AiModelConnectionTestResultVO> testModelConnectionByConfig(
-            @Valid @RequestBody AiModelAddRequest testRequest) {
+            @Valid @RequestBody AiModelAddRequest testRequest,
+            HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
         AiModelConnectionTestResultVO result =
-                aiModelManagementService.testConfiguration(toCreateCommand(testRequest));
+                aiModelManagementService.testConfiguration(
+                        toCreateCommand(testRequest), loginUser.getId());
         if (!Boolean.TRUE.equals(result.getSuccess())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, result.getMessage());
         }

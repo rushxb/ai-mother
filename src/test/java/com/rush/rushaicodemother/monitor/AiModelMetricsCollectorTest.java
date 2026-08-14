@@ -35,6 +35,9 @@ class AiModelMetricsCollectorTest {
                 "scheduled", new java.util.concurrent.TimeoutException("模型调用超时"),
                 Duration.ofSeconds(3));
         collector.recordModelTimeout("OpenAI", "GPT-4.1", "first-signal");
+        collector.recordUsageResolution("OpenAI", "GPT-4.1", "estimated");
+        collector.recordInvocationRecovery("success", 2);
+        collector.recordUnsettledInvocationCount(7);
 
         Meter errorMeter = registry.find("ai_model_errors_total")
                 .tag("error_category", "model_rate_limit")
@@ -93,6 +96,19 @@ class AiModelMetricsCollectorTest {
                 .tag("timeout_kind", "first-signal")
                 .counter()
                 .count(), 0.001);
+        assertEquals(1, registry.find("ai_model_usage_resolution_total")
+                .tag("provider", "openai")
+                .tag("model_name", "gpt-4.1")
+                .tag("source", "estimated")
+                .counter()
+                .count(), 0.001);
+        assertEquals(2, registry.find("ai_model_invocation_recoveries_total")
+                .tag("outcome", "success")
+                .counter()
+                .count(), 0.001);
+        assertEquals(7, registry.find("ai_model_unsettled_invocation_count")
+                .gauge()
+                .value(), 0.001);
     }
 
     @Test
@@ -106,6 +122,8 @@ class AiModelMetricsCollectorTest {
         collector.recordRootModelAttempt("task-specific-outcome", null, Duration.ZERO);
         collector.recordRootModelRetry("task-specific-outcome", null, Duration.ZERO);
         collector.recordModelTimeout("p1", "m1", "task-specific-timeout");
+        collector.recordUsageResolution("p1", "m1", "task-specific-source");
+        collector.recordInvocationRecovery("task-specific-outcome", 1);
 
         assertNotNull(registry.find("ai_model_requests_total").tag("status", "unknown").counter());
         assertNotNull(registry.find("ai_model_tokens_total").tag("token_type", "unknown").counter());
@@ -120,6 +138,12 @@ class AiModelMetricsCollectorTest {
                 .counter());
         assertNotNull(registry.find("ai_model_timeouts_total")
                 .tag("timeout_kind", "unknown")
+                .counter());
+        assertNotNull(registry.find("ai_model_usage_resolution_total")
+                .tag("source", "unknown")
+                .counter());
+        assertNotNull(registry.find("ai_model_invocation_recoveries_total")
+                .tag("outcome", "unknown")
                 .counter());
     }
 }

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.ai.model.capacity;
 
+import com.rush.rushaicodemother.ai.model.PhysicalModelInvocation;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationAwareStreamingHandler;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
@@ -35,6 +36,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CancellationException;
 
 /** 持有分布式容量许可，直到一个具体的流媒体提供商调用终止。 */
 public final class CapacityControlledStreamingChatModel implements StreamingChatModel {
@@ -49,6 +51,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
     private final GenerationModelInvocationCancellationBridge cancellationBridge;
     private final GenerationModelTimeoutScheduler timeoutScheduler;
     private final AiModelTimeoutMonitor timeoutMonitor;
+    private final ChatModelListener invocationListener;
     private final ThreadLocal<CancellationRelay> cancellationRelay = new ThreadLocal<>();
 
     public CapacityControlledStreamingChatModel(String provider,
@@ -57,7 +60,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                                                 StreamingChatModel delegate,
                                                 AiModelCapacityGuard capacityGuard) {
         this(provider, modelId, configuredMaxOutputTokens, delegate, capacityGuard, null,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 
     public CapacityControlledStreamingChatModel(String provider,
@@ -67,7 +70,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                                                 AiModelCapacityGuard capacityGuard,
                                                 Duration upstreamTimeout) {
         this(provider, modelId, configuredMaxOutputTokens, delegate, capacityGuard, upstreamTimeout,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 
     /**
@@ -95,6 +98,22 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             GenerationModelInvocationCancellationBridge cancellationBridge,
             GenerationModelTimeoutScheduler timeoutScheduler,
             AiModelTimeoutMonitor timeoutMonitor) {
+        this(provider, modelId, configuredMaxOutputTokens, delegate, capacityGuard, upstreamTimeout,
+                firstSignalTimeout, cancellationBridge, timeoutScheduler, timeoutMonitor, null);
+    }
+
+    public CapacityControlledStreamingChatModel(
+            String provider,
+            String modelId,
+            int configuredMaxOutputTokens,
+            StreamingChatModel delegate,
+            AiModelCapacityGuard capacityGuard,
+            Duration upstreamTimeout,
+            Duration firstSignalTimeout,
+            GenerationModelInvocationCancellationBridge cancellationBridge,
+            GenerationModelTimeoutScheduler timeoutScheduler,
+            AiModelTimeoutMonitor timeoutMonitor,
+            ChatModelListener invocationListener) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (provider == null || provider.isBlank() || modelId == null || modelId.isBlank()
                 || configuredMaxOutputTokens <= 0) {
@@ -124,6 +143,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
         this.cancellationBridge = cancellationBridge;
         this.timeoutScheduler = timeoutScheduler;
         this.timeoutMonitor = timeoutMonitor;
+        this.invocationListener = invocationListener;
     }
 
     @Override
@@ -181,6 +201,14 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
         }
         AiModelCapacityGuard.Lease lease = capacityGuard.acquire(
                 provider, modelId, configuredMaxOutputTokens, request, upstreamTimeout);
+        final PhysicalModelInvocation invocation;
+        try {
+            invocation = PhysicalModelInvocation.start(
+                    invocationListener, request, delegate.provider());
+        } catch (RuntimeException ledgerFailure) {
+            lease.close();
+            throw ledgerFailure;
+        }
         LeaseBoundHandler forwarding = new LeaseBoundHandler(
                 handler,
                 lease,
@@ -188,7 +216,8 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                 modelId,
                 firstSignalTimeout,
                 timeoutScheduler,
-                timeoutMonitor
+                timeoutMonitor,
+                invocation
         );
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
@@ -210,7 +239,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                 }
             }
         } catch (RuntimeException synchronousFailure) {
-            if (forwarding.onSynchronousFailure()) {
+            if (forwarding.onSynchronousFailure(synchronousFailure)) {
                 throw synchronousFailure;
             }
         }
@@ -259,6 +288,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
         private final Duration firstSignalTimeout;
         private final GenerationModelTimeoutScheduler timeoutScheduler;
         private final AiModelTimeoutMonitor timeoutMonitor;
+        private final PhysicalModelInvocation invocation;
         private final GenerationModelCancellationScope transportScope =
                 new GenerationModelCancellationScope();
         private final AtomicBoolean terminal = new AtomicBoolean();
@@ -273,7 +303,8 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                                   String modelId,
                                   Duration firstSignalTimeout,
                                   GenerationModelTimeoutScheduler timeoutScheduler,
-                                  AiModelTimeoutMonitor timeoutMonitor) {
+                                  AiModelTimeoutMonitor timeoutMonitor,
+                                  PhysicalModelInvocation invocation) {
             this.downstream = downstream;
             this.lease = lease;
             this.provider = provider;
@@ -281,6 +312,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             this.firstSignalTimeout = firstSignalTimeout;
             this.timeoutScheduler = timeoutScheduler;
             this.timeoutMonitor = timeoutMonitor;
+            this.invocation = invocation;
         }
 
         /**
@@ -380,7 +412,10 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
         @Override
         public void onCompleteResponse(ChatResponse completeResponse) {
             markFirstSignal();
-            terminate(() -> downstream.onCompleteResponse(completeResponse), false);
+            terminate(() -> {
+                invocation.complete(completeResponse);
+                downstream.onCompleteResponse(completeResponse);
+            }, false);
         }
 
         /**
@@ -390,12 +425,16 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
  */
         @Override
         public void onError(Throwable error) {
-            terminate(() -> downstream.onError(error), false);
+            terminate(() -> {
+                invocation.fail(error);
+                downstream.onError(error);
+            }, false);
         }
 
         @Override
         public void cancel() {
-            terminate(() -> { }, true);
+            terminate(() -> invocation.fail(new CancellationException(
+                    "physical model invocation cancelled")), true);
         }
 
         private boolean isTerminal() {
@@ -438,12 +477,16 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
 
         private void onLeaseLost() {
             terminate(
-                    () -> downstream.onError(AiModelCapacityException.unavailable(null)),
+                    () -> {
+                        AiModelCapacityException failure = AiModelCapacityException.unavailable(null);
+                        invocation.fail(failure);
+                        downstream.onError(failure);
+                    },
                     true
             );
         }
 
-        private boolean onSynchronousFailure() {
+        private boolean onSynchronousFailure(Throwable failure) {
             if (!terminal.compareAndSet(false, true)) {
                 return false;
             }
@@ -451,6 +494,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             cancelProviderHandles();
             transportScope.cancel();
             lease.close();
+            invocation.fail(failure);
             return true;
         }
 
@@ -482,6 +526,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
             cancelProviderHandles();
             transportScope.cancel();
             lease.close();
+            invocation.fail(failure);
             downstream.onError(failure);
         }
 
@@ -562,7 +607,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
 
     @Override
     public List<ChatModelListener> listeners() {
-        return delegate.listeners();
+        return invocationListener == null ? delegate.listeners() : List.of();
     }
 
     @Override

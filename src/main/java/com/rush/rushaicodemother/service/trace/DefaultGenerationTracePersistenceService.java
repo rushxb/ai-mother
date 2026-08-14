@@ -9,6 +9,8 @@ import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
+import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -290,6 +292,9 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 .taskId(modelCall.taskId())
                 .appId(modelCall.appId())
                 .userId(modelCall.userId())
+                .invocationPurpose(modelCall.invocationPurpose().name())
+                .billingMode(modelCall.billingMode().name())
+                .billingExemptionReason(modelCall.billingExemptionReason())
                 .provider(modelCall.provider())
                 .model(modelCall.model())
                 .callStatus(modelCall.status().name())
@@ -328,6 +333,71 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
     public ModelCallRecord findModelCallByCallId(String callId) {
         GenerationModelCall entity = mapper.selectModelCallByCallId(requireText(callId, "模型调用 ID"));
         return entity == null ? null : toModelCallRecord(entity);
+    }
+
+    @Override
+    public void completeStartedModelCall(NewModelCall modelCall) {
+        requireModelCall(modelCall);
+        if (modelCall.status() == GenerationModelCallStatus.STARTED) {
+            throw invalid("模型调用完成状态不能为 STARTED");
+        }
+        GenerationModelCall entity = GenerationModelCall.builder()
+                .callId(modelCall.callId())
+                .taskId(modelCall.taskId())
+                .appId(modelCall.appId())
+                .userId(modelCall.userId())
+                .invocationPurpose(modelCall.invocationPurpose().name())
+                .billingMode(modelCall.billingMode().name())
+                .billingExemptionReason(modelCall.billingExemptionReason())
+                .provider(modelCall.provider())
+                .model(modelCall.model())
+                .callStatus(modelCall.status().name())
+                .providerRequestId(modelCall.providerRequestId())
+                .promptTokens(modelCall.promptTokens())
+                .completionTokens(modelCall.completionTokens())
+                .totalTokens(modelCall.totalTokens())
+                .latencyMs(modelCall.latencyMs())
+                .finishReason(modelCall.finishReason())
+                .usageSource(modelCall.usageSource().name())
+                .errorCategory(modelCall.errorCategory())
+                .requestHash(modelCall.requestHash())
+                .modelConfigHash(modelCall.modelConfigHash())
+                .build();
+        requireOneAffectedRow(mapper.completeStartedModelCall(entity), "完成生成模型调用账本");
+    }
+
+    @Override
+    public int recoverStaleGenerationStartedModelCalls(LocalDateTime cutoff,
+                                                        LocalDateTime observedAt) {
+        if (cutoff == null || observedAt == null || cutoff.isAfter(observedAt)) {
+            throw invalid("生成模型调用账本恢复时间不合法");
+        }
+        int affectedRows = mapper.recoverStaleGenerationStartedModelCalls(cutoff, observedAt);
+        if (affectedRows < 0) {
+            throw corrupted("恢复生成模型调用账本影响行数异常");
+        }
+        return affectedRows;
+    }
+
+    @Override
+    public int recoverStaleExemptStartedModelCalls(LocalDateTime cutoff) {
+        if (cutoff == null) {
+            throw invalid("外围模型调用账本恢复截止时间不能为空");
+        }
+        int affectedRows = mapper.recoverStaleExemptStartedModelCalls(cutoff);
+        if (affectedRows < 0) {
+            throw corrupted("恢复外围模型调用账本影响行数异常");
+        }
+        return affectedRows;
+    }
+
+    @Override
+    public long countStartedModelCalls() {
+        long count = mapper.countStartedModelCalls();
+        if (count < 0) {
+            throw corrupted("未结算模型调用数量不合法");
+        }
+        return count;
     }
 
     /**
@@ -404,19 +474,26 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
     private ModelCallRecord toModelCallRecord(GenerationModelCall entity) {
         GenerationModelUsageSource usageSource;
         GenerationModelCallStatus status;
+        ModelInvocationPurpose invocationPurpose;
+        ModelInvocationBillingMode billingMode;
         try {
             usageSource = GenerationModelUsageSource.valueOf(entity.getUsageSource());
             status = GenerationModelCallStatus.valueOf(entity.getCallStatus().toUpperCase());
+            invocationPurpose = ModelInvocationPurpose.valueOf(entity.getInvocationPurpose());
+            billingMode = ModelInvocationBillingMode.valueOf(entity.getBillingMode());
         } catch (RuntimeException exception) {
-            throw corrupted("生成模型调用 usageSource 不合法");
+            throw corrupted("生成模型调用枚举字段不合法");
         }
         if (entity.getCallId() == null || entity.getCallId().isBlank()
                 || entity.getTaskId() == null || entity.getTaskId().isBlank()
-                || !hasPositiveId(entity.getAppId()) || !hasPositiveId(entity.getUserId())) {
+                || !hasPositiveId(entity.getUserId())
+                || (invocationPurpose == ModelInvocationPurpose.GENERATION
+                    && !hasPositiveId(entity.getAppId()))) {
             throw corrupted("生成模型调用数据不完整");
         }
         return new ModelCallRecord(
                 entity.getCallId(), entity.getTaskId(), entity.getAppId(), entity.getUserId(),
+                invocationPurpose, billingMode, entity.getBillingExemptionReason(),
                 entity.getProvider(), entity.getModel(), status, entity.getProviderRequestId(),
                 entity.getPromptTokens(),
                 entity.getCompletionTokens(), entity.getTotalTokens(), entity.getLatencyMs(),
@@ -459,7 +536,10 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 || modelCall.status() == null
                 || modelCall.callId() == null || modelCall.callId().isBlank()
                 || modelCall.taskId() == null || modelCall.taskId().isBlank()
-                || modelCall.appId() <= 0 || modelCall.userId() <= 0) {
+                || modelCall.userId() <= 0
+                || modelCall.invocationPurpose() == null || modelCall.billingMode() == null
+                || (modelCall.invocationPurpose() == ModelInvocationPurpose.GENERATION
+                    && !hasPositiveId(modelCall.appId()))) {
             throw invalid("生成模型调用参数不完整");
         }
     }

@@ -55,7 +55,8 @@ class StreamingModelFactoryTest {
 
         verify(runtimeService, times(4)).listRunnableModelsByType("chat");
         verify(runtimeService).listRunnableModelsByType("routing");
-        assertEquals(1, routingModel.listeners().size());
+        // 物理调用 wrapper 手动通知 listener，不再暴露给 LangChain4j 重复回调。
+        assertEquals(0, routingModel.listeners().size());
     }
 
     @Test
@@ -110,9 +111,9 @@ class StreamingModelFactoryTest {
         ChatModel result = factory.createRoutingChatModel();
 
         assertInstanceOf(FailoverChatModel.class, result);
-        verify(listener).forModel("xiaomi", "primary");
-        verify(listener).forModel("xiaomi", "fallback");
-        verify(listener, never()).forModel("xiaomi", "ignored");
+        verify(listener).forModel("xiaomi", "primary", 4096);
+        verify(listener).forModel("xiaomi", "fallback", 4096);
+        verify(listener, never()).forModel("xiaomi", "ignored", 4096);
     }
 
     @Test
@@ -233,8 +234,10 @@ class StreamingModelFactoryTest {
 
     private AiModelMonitorListener monitorListener() {
         AiModelMonitorListener listener = mock(AiModelMonitorListener.class);
-        when(listener.forModel(org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyString())).thenReturn(listener);
+        when(listener.forModel(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt())).thenReturn(listener);
         return listener;
     }
 

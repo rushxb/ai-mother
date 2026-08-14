@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.service.trace;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
 import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
+import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 
 import java.time.LocalDateTime;
@@ -58,6 +60,15 @@ public interface GenerationTracePersistenceService {
     void insertBuildLog(NewBuildLog buildLog);
 
     boolean insertModelCall(NewModelCall modelCall);
+
+    void completeStartedModelCall(NewModelCall modelCall);
+
+    int recoverStaleGenerationStartedModelCalls(LocalDateTime cutoff,
+                                                 LocalDateTime observedAt);
+
+    int recoverStaleExemptStartedModelCalls(LocalDateTime cutoff);
+
+    long countStartedModelCalls();
 
     ModelCallRecord findModelCallByCallId(String callId);
 
@@ -134,8 +145,11 @@ public interface GenerationTracePersistenceService {
     record NewModelCall(
             String callId,
             String taskId,
-            long appId,
+            Long appId,
             long userId,
+            ModelInvocationPurpose invocationPurpose,
+            ModelInvocationBillingMode billingMode,
+            String billingExemptionReason,
             String provider,
             String model,
             GenerationModelCallStatus status,
@@ -156,13 +170,33 @@ public interface GenerationTracePersistenceService {
             String rawMetadataJson,
             LocalDateTime createTime
     ) {
+        /** 兼容仅属于生成任务的持久化测试与 adapter。 */
+        public NewModelCall(String callId, String taskId, long appId, long userId,
+                            String provider, String model, GenerationModelCallStatus status,
+                            String providerRequestId, Integer promptTokens,
+                            Integer completionTokens, Integer totalTokens, Long latencyMs,
+                            String finishReason, GenerationModelUsageSource usageSource,
+                            String errorCategory, String requestHash,
+                            String promptTemplateHash, String toolSchemaHash,
+                            String modelConfigHash, Integer requestMessageCount,
+                            Integer toolCount, String rawMetadataJson, LocalDateTime createTime) {
+            this(callId, taskId, appId, userId,
+                    ModelInvocationPurpose.GENERATION, ModelInvocationBillingMode.BILLABLE, null,
+                    provider, model, status, providerRequestId, promptTokens, completionTokens,
+                    totalTokens, latencyMs, finishReason, usageSource, errorCategory, requestHash,
+                    promptTemplateHash, toolSchemaHash, modelConfigHash, requestMessageCount,
+                    toolCount, rawMetadataJson, createTime);
+        }
     }
 
     record ModelCallRecord(
             String callId,
             String taskId,
-            long appId,
+            Long appId,
             long userId,
+            ModelInvocationPurpose invocationPurpose,
+            ModelInvocationBillingMode billingMode,
+            String billingExemptionReason,
             String provider,
             String model,
             GenerationModelCallStatus status,
@@ -182,5 +216,22 @@ public interface GenerationTracePersistenceService {
             Integer toolCount,
             String rawMetadataJson
     ) {
+        /** 兼容仅属于生成任务的 trace 测试与 adapter。 */
+        public ModelCallRecord(String callId, String taskId, long appId, long userId,
+                               String provider, String model, GenerationModelCallStatus status,
+                               String providerRequestId, Integer promptTokens,
+                               Integer completionTokens, Integer totalTokens, Long latencyMs,
+                               String finishReason, GenerationModelUsageSource usageSource,
+                               String errorCategory, String requestHash,
+                               String promptTemplateHash, String toolSchemaHash,
+                               String modelConfigHash, Integer requestMessageCount,
+                               Integer toolCount, String rawMetadataJson) {
+            this(callId, taskId, appId, userId,
+                    ModelInvocationPurpose.GENERATION, ModelInvocationBillingMode.BILLABLE, null,
+                    provider, model, status, providerRequestId, promptTokens, completionTokens,
+                    totalTokens, latencyMs, finishReason, usageSource, errorCategory, requestHash,
+                    promptTemplateHash, toolSchemaHash, modelConfigHash, requestMessageCount,
+                    toolCount, rawMetadataJson);
+        }
     }
 }

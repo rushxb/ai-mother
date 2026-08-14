@@ -3,8 +3,10 @@ package com.rush.rushaicodemother.service.impl;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
+import com.rush.rushaicodemother.monitor.GenerationCreditMetricsCollector;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
 import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
+import com.rush.rushaicodemother.service.credit.GenerationTaskModelUsage;
 import com.rush.rushaicodemother.service.credit.UserCreditCostCalculator;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditAccount;
@@ -33,12 +35,15 @@ class UserCreditServiceImplTest {
     private UserCreditPersistenceService persistenceService;
     private UserCreditCostCalculator costCalculator;
     private UserCreditServiceImpl creditService;
+    private GenerationCreditMetricsCollector creditMetricsCollector;
 
     @BeforeEach
     void setUp() {
         persistenceService = mock(UserCreditPersistenceService.class);
         costCalculator = mock(UserCreditCostCalculator.class);
-        creditService = new UserCreditServiceImpl(persistenceService, costCalculator);
+        creditMetricsCollector = mock(GenerationCreditMetricsCollector.class);
+        creditService = new UserCreditServiceImpl(
+                persistenceService, costCalculator, creditMetricsCollector);
     }
 
     @Test
@@ -262,7 +267,8 @@ class UserCreditServiceImplTest {
     void generationChargeMustCapCostAtBalanceAndPersistOneAuditableSettlement() {
         when(persistenceService.lockGenerationTask("task-1"))
                 .thenReturn(generationTask(false));
-        when(persistenceService.sumPositiveTaskTokens("task-1")).thenReturn(200_001L);
+        when(persistenceService.loadTaskModelUsage("task-1"))
+                .thenReturn(new GenerationTaskModelUsage(200_001L, 1L, 0L));
         when(costCalculator.calculate(200_001L)).thenReturn(3L);
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 2L));
 
@@ -292,7 +298,8 @@ class UserCreditServiceImplTest {
                         7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
-        when(persistenceService.sumPositiveTaskTokens("task-1")).thenReturn(100_000L);
+        when(persistenceService.loadTaskModelUsage("task-1"))
+                .thenReturn(new GenerationTaskModelUsage(100_000L, 1L, 0L));
         when(costCalculator.calculate(100_000L)).thenReturn(1L);
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 5L));
 
@@ -321,7 +328,8 @@ class UserCreditServiceImplTest {
                         7L, 100L, -2L, 1L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
-        when(persistenceService.sumPositiveTaskTokens("task-1")).thenReturn(500_000L);
+        when(persistenceService.loadTaskModelUsage("task-1"))
+                .thenReturn(new GenerationTaskModelUsage(500_000L, 1L, 0L));
         when(costCalculator.calculate(500_000L)).thenReturn(5L);
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 1L));
 
@@ -348,12 +356,41 @@ class UserCreditServiceImplTest {
                         "task-1", "reservation:policy-v1", null, null
                 ));
         when(costCalculator.calculate(0L)).thenReturn(0L);
+        when(persistenceService.loadTaskModelUsage("task-1"))
+                .thenReturn(GenerationTaskModelUsage.none());
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 7L));
 
         creditService.chargeGenerationTask("task-1");
 
         verify(persistenceService).updateBalance(7L, 10L);
         verify(persistenceService).settleGenerationTask(101L, 0L, 0L);
+    }
+
+    @Test
+    void incompleteSuccessfulModelUsageMustRemainPendingWithoutRefundingReservation() {
+        when(persistenceService.lockGenerationTask("task-1"))
+                .thenReturn(generationTask(false));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, 100L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:policy-v1", null, null
+                ));
+        when(persistenceService.loadTaskModelUsage("task-1"))
+                .thenReturn(new GenerationTaskModelUsage(0L, 1L, 1L));
+
+        BusinessException failure = assertThrows(
+                BusinessException.class,
+                () -> creditService.chargeGenerationTask("task-1")
+        );
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), failure.getCode());
+        verify(persistenceService).loadTaskModelUsage("task-1");
+        verify(persistenceService, never()).lockActiveAccount(any());
+        verify(persistenceService, never()).updateBalance(anyLong(), anyLong());
+        verify(persistenceService, never()).appendTransaction(any());
+        verify(persistenceService, never()).settleGenerationTask(anyLong(), anyLong(), anyLong());
+        verifyNoInteractions(costCalculator);
     }
 
     @Test
@@ -386,6 +423,8 @@ class UserCreditServiceImplTest {
         when(persistenceService.lockGenerationTask("task-1"))
                 .thenReturn(generationTask(false));
         when(costCalculator.calculate(0L)).thenReturn(0L);
+        when(persistenceService.loadTaskModelUsage("task-1"))
+                .thenReturn(GenerationTaskModelUsage.none());
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 5L));
 
         creditService.chargeGenerationTask("task-1");
@@ -435,7 +474,8 @@ class UserCreditServiceImplTest {
 
         when(persistenceService.lockGenerationTask("task-1"))
                 .thenReturn(generationTask(false));
-        when(persistenceService.sumPositiveTaskTokens("task-1")).thenReturn(1L);
+        when(persistenceService.loadTaskModelUsage("task-1"))
+                .thenReturn(new GenerationTaskModelUsage(1L, 1L, 0L));
         when(costCalculator.calculate(1L)).thenReturn(1L);
         BusinessException missingAccount = assertThrows(
                 BusinessException.class,

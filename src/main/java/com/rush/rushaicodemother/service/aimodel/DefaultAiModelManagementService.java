@@ -221,12 +221,14 @@ public class DefaultAiModelManagementService implements AiModelManagementService
  * @return 默认 AI 模型管理
  */
     @Override
-    public AiModelConnectionTestResultVO testSavedModelConnection(long modelId) {
+    public AiModelConnectionTestResultVO testSavedModelConnection(long modelId,
+                                                                  long operatorUserId) {
         AiModelConfiguration configuration = persistenceService.findActiveById(modelId);
         if (configuration == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "模型不存在或已删除");
         }
-        return connectionTester.test(configurationPolicy.toRuntimeConfiguration(configuration));
+        return connectionTester.test(
+                configurationPolicy.toRuntimeConfiguration(configuration), operatorUserId);
     }
 
     /**
@@ -236,11 +238,13 @@ public class DefaultAiModelManagementService implements AiModelManagementService
  * @return 默认 AI 模型管理
  */
     @Override
-    public AiModelConnectionTestResultVO testConfiguration(CreateCommand command) {
+    public AiModelConnectionTestResultVO testConfiguration(CreateCommand command,
+                                                            long operatorUserId) {
         AiModelConfiguration configuration = configurationPolicy.normalizeAndValidate(
                 configurationAssembler.fromCreateCommand(command, null)
         );
-        return connectionTester.test(configurationPolicy.toRuntimeConfiguration(configuration));
+        return connectionTester.test(
+                configurationPolicy.toRuntimeConfiguration(configuration), operatorUserId);
     }
 
     /** 校验并返回有效的{@code Locked}模型。 */

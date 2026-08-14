@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
+import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
+import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.service.aimodel.AiModelCircuitBreaker;
 import com.rush.rushaicodemother.service.trace.GenerationModelCallCommand;
@@ -36,19 +38,31 @@ public class AiModelMonitorListener implements ChatModelListener {
     private static final String MONITOR_CONTEXT_KEY = "monitor_context";
     private static final String MODEL_PROVIDER_KEY = "configured_model_provider";
     private static final String CONFIGURED_MODEL_KEY = "configured_model_id";
+    private static final String CONFIGURED_MAX_OUTPUT_TOKENS_KEY = "configured_max_output_tokens";
     private static final String PROVENANCE_KEY = "model_request_provenance";
+    private static final String PREFLIGHT_TOKEN_ESTIMATE_KEY = "preflight_token_estimate";
     private static final String PROVIDER_ATTEMPT_SPAN_KEY = "provider_attempt_span";
 
     private final AiModelMetricsCollector aiModelMetricsCollector;
     private final GenerationTraceService generationTraceService;
     private final AiModelCircuitBreaker aiModelCircuitBreaker;
     private final AiModelProvenanceFactory provenanceFactory;
+    private final ModelTokenUsageEstimator tokenUsageEstimator;
     private final GenerationPerformanceMonitorService performanceMonitorService;
     private final List<AiModelInvocationObserver> invocationObservers;
 
     /** 绑定隐藏在 OpenAI 兼容传输背后的真实提供商身份。 */
     public ChatModelListener forModel(String provider, String model) {
-        return new BoundChatModelListener(normalize(provider), normalize(model));
+        return new BoundChatModelListener(normalize(provider), normalize(model), null);
+    }
+
+    /** 绑定真实 provider 身份与已审核的最大输出上限。 */
+    public ChatModelListener forModel(String provider, String model, int maxOutputTokens) {
+        if (maxOutputTokens <= 0) {
+            throw new IllegalArgumentException("configured model max output tokens must be positive");
+        }
+        return new BoundChatModelListener(
+                normalize(provider), normalize(model), maxOutputTokens);
     }
 
     /**
@@ -69,16 +83,12 @@ public class AiModelMonitorListener implements ChatModelListener {
         attributes.put(MONITOR_CONTEXT_KEY, monitorContext);
 
         ModelIdentity identity = identity(attributes, requestContext.chatRequest().modelName());
+        attributes.put(PROVENANCE_KEY, provenanceFactory.create(
+                requestContext.chatRequest(), identity.provider(), identity.model()));
+        recordStartedCall(attributes, monitorContext, identity, requestContext.chatRequest());
         notifyInvocationObservers(identity);
         attributes.put(PROVIDER_ATTEMPT_SPAN_KEY, performanceMonitorService.startSpan(
                 monitorContext.getTaskId(), "model_provider_attempt", GenerationSpanCategory.MODEL));
-        try {
-            attributes.put(PROVENANCE_KEY, provenanceFactory.create(
-                    requestContext.chatRequest(), identity.provider(), identity.model()));
-        } catch (RuntimeException provenanceFailure) {
-            log.warn("AI model request provenance could not be created, provider={}, model={}",
-                    identity.provider(), identity.model(), LogExceptionSanitizer.sanitize(provenanceFailure));
-        }
         aiModelMetricsCollector.recordRequest(
                 identity.provider(), monitorContext.getUserId(), monitorContext.getAppId(),
                 monitorContext.getTaskId(), identity.model(), "started");
@@ -109,7 +119,6 @@ public class AiModelMonitorListener implements ChatModelListener {
                 || responseContext.chatResponse().metadata() == null
                 ? null
                 : responseContext.chatResponse().metadata().tokenUsage();
-        recordTokenMetrics(tokenUsage, identity, context);
         recordSuccessfulCall(responseContext, context, identity, tokenUsage, responseTime);
     }
 
@@ -137,19 +146,24 @@ public class AiModelMonitorListener implements ChatModelListener {
         aiModelCircuitBreaker.recordFailure(identity.provider(), identity.model(), failure);
         Duration responseTime = recordResponseTime(
                 attributes, identity, context.getUserId(), context.getAppId(), context.getTaskId());
+        TokenSnapshot tokens = preflightTokenEstimate(attributes);
+        aiModelMetricsCollector.recordUsageResolution(
+                identity.provider(), identity.model(), tokens.usageSource().name().toLowerCase());
+        recordTokenSnapshotMetrics(tokens, identity, context);
         recordCall(
                 attributes,
                 context,
                 identity,
                 GenerationModelCallStatus.ERROR,
                 null,
-                null,
-                null,
-                null,
+                tokens.promptTokens(),
+                tokens.completionTokens(),
+                tokens.totalTokens(),
                 responseTime,
                 null,
-                GenerationModelUsageSource.UNAVAILABLE,
-                errorCategory
+                tokens.usageSource(),
+                errorCategory,
+                false
         );
     }
 
@@ -159,7 +173,10 @@ public class AiModelMonitorListener implements ChatModelListener {
                                       ModelIdentity identity,
                                       TokenUsage tokenUsage,
                                       Duration responseTime) {
-        TokenSnapshot tokens = normalizeTokenUsage(tokenUsage);
+        TokenSnapshot tokens = resolveTokenUsage(responseContext, tokenUsage);
+        aiModelMetricsCollector.recordUsageResolution(
+                identity.provider(), identity.model(), tokens.usageSource().name().toLowerCase());
+        recordTokenSnapshotMetrics(tokens, identity, context);
         String finishReason = responseContext.chatResponse() == null
                 || responseContext.chatResponse().metadata() == null
                 || responseContext.chatResponse().metadata().finishReason() == null
@@ -179,8 +196,76 @@ public class AiModelMonitorListener implements ChatModelListener {
                 responseTime,
                 finishReason,
                 tokens.usageSource(),
-                null
+                null,
+                false
         );
+    }
+
+    /** 物理 provider 调用前先建立持久 STARTED 账本；失败时必须阻止未记账请求继续。 */
+    private void recordStartedCall(Map<Object, Object> attributes,
+                                   MonitorContext context,
+                                   ModelIdentity identity,
+                                   dev.langchain4j.model.chat.request.ChatRequest request) {
+        EstimatedModelTokenUsage estimate = tokenUsageEstimator.estimate(request, null);
+        estimate = applyConfiguredOutputUpperBound(attributes, estimate);
+        if (estimate == null || estimate.totalTokens() <= 0) {
+            throw new IllegalStateException("model invocation ledger usage estimate is unavailable");
+        }
+        attributes.put(PREFLIGHT_TOKEN_ESTIMATE_KEY, estimate);
+        recordCall(
+                attributes,
+                context,
+                identity,
+                GenerationModelCallStatus.STARTED,
+                null,
+                estimate.promptTokens(),
+                estimate.completionTokens(),
+                estimate.totalTokens(),
+                Duration.ZERO,
+                null,
+                GenerationModelUsageSource.ESTIMATED,
+                null,
+                true
+        );
+    }
+
+    private EstimatedModelTokenUsage applyConfiguredOutputUpperBound(
+            Map<Object, Object> attributes,
+            EstimatedModelTokenUsage estimate) {
+        if (estimate == null) {
+            return null;
+        }
+        Object configuredValue = attributes.get(CONFIGURED_MAX_OUTPUT_TOKENS_KEY);
+        if (!(configuredValue instanceof Integer configuredMaxOutputTokens)
+                || configuredMaxOutputTokens <= estimate.completionTokens()) {
+            return estimate;
+        }
+        int promptTokens = estimate.promptTokens();
+        int completionTokens = Math.min(
+                configuredMaxOutputTokens,
+                Integer.MAX_VALUE - promptTokens);
+        return new EstimatedModelTokenUsage(
+                promptTokens,
+                completionTokens,
+                promptTokens + completionTokens);
+    }
+
+    /**
+     * 返回调用前已经持久化的保守估算。
+     *
+     * <p>失败回调不再重新计算，避免请求参数或 tokenizer 版本在调用期间变化；
+     * 缺失时保持 UNAVAILABLE，后续结算会 fail closed，不会解释为零。</p>
+     */
+    private TokenSnapshot preflightTokenEstimate(Map<Object, Object> attributes) {
+        Object value = attributes.get(PREFLIGHT_TOKEN_ESTIMATE_KEY);
+        if (!(value instanceof EstimatedModelTokenUsage estimate) || estimate.totalTokens() <= 0) {
+            return TokenSnapshot.unavailable();
+        }
+        return new TokenSnapshot(
+                estimate.promptTokens(),
+                estimate.completionTokens(),
+                estimate.totalTokens(),
+                GenerationModelUsageSource.ESTIMATED);
     }
 
     /** 记录调用相关指标或状态。 */
@@ -195,18 +280,36 @@ public class AiModelMonitorListener implements ChatModelListener {
                             Duration responseTime,
                             String finishReason,
                             GenerationModelUsageSource usageSource,
-                            String errorCategory) {
+                            String errorCategory,
+                            boolean failClosed) {
         Long appId = parsePositiveLong(context.getAppId());
         Long userId = parsePositiveLong(context.getUserId());
+        ModelInvocationPurpose invocationPurpose = context.getInvocationPurpose() == null
+                ? ModelInvocationPurpose.GENERATION : context.getInvocationPurpose();
+        ModelInvocationBillingMode billingMode = context.getBillingMode() == null
+                ? ModelInvocationBillingMode.BILLABLE : context.getBillingMode();
+        String exemptionReason = normalizeExemptionReason(context.getBillingExemptionReason());
         Object callId = attributes.get(MODEL_CALL_ID_KEY);
         Object provenance = attributes.get(PROVENANCE_KEY);
-        if ("none".equals(context.getTaskId())
-                || appId == null
+        boolean invalidContext = context.getTaskId() == null
+                || context.getTaskId().isBlank()
+                || "none".equals(context.getTaskId())
                 || userId == null
+                || (invocationPurpose == ModelInvocationPurpose.GENERATION && appId == null)
+                || (billingMode == ModelInvocationBillingMode.EXEMPT && exemptionReason == null)
+                || (billingMode == ModelInvocationBillingMode.BILLABLE && exemptionReason != null)
                 || !(callId instanceof String callIdText)
-                || !(provenance instanceof GenerationModelCallProvenance callProvenance)) {
+                || !(provenance instanceof GenerationModelCallProvenance);
+        if (invalidContext) {
+            if (failClosed) {
+                throw new IllegalStateException(
+                        "physical model invocation requires a complete billing context");
+            }
             return;
         }
+        String callIdText = (String) callId;
+        GenerationModelCallProvenance callProvenance =
+                (GenerationModelCallProvenance) provenance;
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             generationTraceService.recordModelCall(new GenerationModelCallCommand(
@@ -214,6 +317,9 @@ public class AiModelMonitorListener implements ChatModelListener {
                     context.getTaskId(),
                     appId,
                     userId,
+                    invocationPurpose,
+                    billingMode,
+                    exemptionReason,
                     identity.provider(),
                     identity.model(),
                     status,
@@ -230,6 +336,9 @@ public class AiModelMonitorListener implements ChatModelListener {
         } catch (RuntimeException persistenceFailure) {
             aiModelMetricsCollector.recordTracePersistenceFailure(
                     identity.provider(), identity.model(), status.name().toLowerCase());
+            if (failClosed) {
+                throw persistenceFailure;
+            }
             log.error("AI model invocation provenance persistence failed, provider={}, model={}, status={}",
                     identity.provider(), identity.model(), status,
                     LogExceptionSanitizer.sanitize(persistenceFailure));
@@ -265,15 +374,15 @@ public class AiModelMonitorListener implements ChatModelListener {
         spanTimer.close(status, detail);
     }
 
-    private void recordTokenMetrics(TokenUsage tokenUsage,
-                                    ModelIdentity identity,
-                                    MonitorContext context) {
-        if (tokenUsage == null) {
+    private void recordTokenSnapshotMetrics(TokenSnapshot tokenUsage,
+                                            ModelIdentity identity,
+                                            MonitorContext context) {
+        if (tokenUsage == null || tokenUsage.usageSource() == GenerationModelUsageSource.UNAVAILABLE) {
             return;
         }
-        recordTokenMetric(identity, context, "input", tokenUsage.inputTokenCount());
-        recordTokenMetric(identity, context, "output", tokenUsage.outputTokenCount());
-        recordTokenMetric(identity, context, "total", tokenUsage.totalTokenCount());
+        recordTokenMetric(identity, context, "input", tokenUsage.promptTokens());
+        recordTokenMetric(identity, context, "output", tokenUsage.completionTokens());
+        recordTokenMetric(identity, context, "total", tokenUsage.totalTokens());
     }
 
     private void recordTokenMetric(ModelIdentity identity,
@@ -312,6 +421,32 @@ public class AiModelMonitorListener implements ChatModelListener {
                 promptTokens, completionTokens, (int) calculatedTotal, GenerationModelUsageSource.ESTIMATED);
     }
 
+    /** Provider 未返回可用 usage 时，使用同一 tokenizer seam 产生保守、可审计的估算。 */
+    private TokenSnapshot resolveTokenUsage(ChatModelResponseContext responseContext,
+                                            TokenUsage providerUsage) {
+        TokenSnapshot providerSnapshot = normalizeTokenUsage(providerUsage);
+        if (providerSnapshot.usageSource() != GenerationModelUsageSource.UNAVAILABLE) {
+            return providerSnapshot;
+        }
+        try {
+            EstimatedModelTokenUsage estimate = tokenUsageEstimator.estimate(
+                    responseContext.chatRequest(), responseContext.chatResponse());
+            if (estimate == null || estimate.totalTokens() <= 0) {
+                return TokenSnapshot.unavailable();
+            }
+            return new TokenSnapshot(
+                    estimate.promptTokens(),
+                    estimate.completionTokens(),
+                    estimate.totalTokens(),
+                    GenerationModelUsageSource.ESTIMATED
+            );
+        } catch (RuntimeException estimationFailure) {
+            log.warn("AI model token usage estimation failed: {}",
+                    LogExceptionSanitizer.sanitize(estimationFailure));
+            return TokenSnapshot.unavailable();
+        }
+    }
+
     private MonitorContext monitorContext(Map<Object, Object> attributes) {
         MonitorContext context = (MonitorContext) attributes.get(MONITOR_CONTEXT_KEY);
         if (context == null) {
@@ -333,7 +468,18 @@ public class AiModelMonitorListener implements ChatModelListener {
                 .userId("anonymous")
                 .appId("none")
                 .taskId("none")
+                .invocationPurpose(ModelInvocationPurpose.GENERATION)
+                .billingMode(ModelInvocationBillingMode.BILLABLE)
                 .build();
+    }
+
+    private String normalizeExemptionReason(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9._-]", "_");
+        return normalized.length() <= 64 ? normalized : normalized.substring(0, 64);
     }
 
     /** 处理通知调用观察者。 */
@@ -380,10 +526,14 @@ public class AiModelMonitorListener implements ChatModelListener {
 
         private final String provider;
         private final String model;
+        private final Integer maxOutputTokens;
 
-        private BoundChatModelListener(String provider, String model) {
+        private BoundChatModelListener(String provider,
+                                       String model,
+                                       Integer maxOutputTokens) {
             this.provider = provider;
             this.model = model;
+            this.maxOutputTokens = maxOutputTokens;
         }
 
         /**
@@ -422,6 +572,9 @@ public class AiModelMonitorListener implements ChatModelListener {
         private void bind(Map<Object, Object> attributes) {
             attributes.put(MODEL_PROVIDER_KEY, provider);
             attributes.put(CONFIGURED_MODEL_KEY, model);
+            if (maxOutputTokens != null) {
+                attributes.put(CONFIGURED_MAX_OUTPUT_TOKENS_KEY, maxOutputTokens);
+            }
         }
     }
 }

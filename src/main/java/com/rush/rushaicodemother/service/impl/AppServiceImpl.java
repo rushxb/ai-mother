@@ -11,6 +11,8 @@ import com.rush.rushaicodemother.model.dto.app.AppCodeFileSaveRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
+import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
 import com.rush.rushaicodemother.model.vo.AppCodeFileContentVO;
 import com.rush.rushaicodemother.model.vo.AppCodeFileTreeVO;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
@@ -38,6 +40,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 应用服务层实现。
@@ -156,11 +159,14 @@ public class AppServiceImpl implements AppService {
         ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
         ThrowUtils.throwIf(prompt.length() > 1000, ErrorCode.PARAMS_ERROR, "提示词不能超过 1000 字");
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
+        MonitorContext previousContext = MonitorContextHolder.getContext();
         MonitorContextHolder.setContext(
                 MonitorContext.builder()
                             .userId(loginUser.getId().toString())
-                            .appId("prompt_optimize")
-                            .taskId("prompt_optimize")
+                            .taskId("prompt-optimize:" + UUID.randomUUID())
+                            .invocationPurpose(ModelInvocationPurpose.PROMPT_OPTIMIZATION)
+                            .billingMode(ModelInvocationBillingMode.EXEMPT)
+                            .billingExemptionReason("interactive_free_tier")
                             .build()
         );
         try {
@@ -168,7 +174,11 @@ public class AppServiceImpl implements AppService {
             ThrowUtils.throwIf(StrUtil.isBlank(optimizedPrompt), ErrorCode.OPERATION_ERROR, "提示词优化失败");
             return optimizedPrompt.trim();
         } finally {
-            MonitorContextHolder.clearContext();
+            if (previousContext == null) {
+                MonitorContextHolder.clearContext();
+            } else {
+                MonitorContextHolder.setContext(previousContext);
+            }
         }
     }
 

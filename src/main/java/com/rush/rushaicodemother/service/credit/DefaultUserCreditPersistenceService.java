@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.service.credit;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.UserCreditMapper;
+import com.rush.rushaicodemother.model.dto.credit.GenerationTaskModelUsageRow;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.entity.UserCreditTransaction;
@@ -95,23 +96,25 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         return transaction == null ? null : toCreditTransaction(transaction);
     }
 
-    /**
- * 计算正数任务令牌的汇总值。
- *
- * @param taskId 任务编号
- * @return 计算或处理后的数值结果
- */
     @Override
-    public long sumPositiveTaskTokens(String taskId) {
+    public GenerationTaskModelUsage loadTaskModelUsage(String taskId) {
         String normalizedTaskId = requireBusinessId(taskId, "生成任务 ID");
-        Long totalTokens = mapper.sumPositiveTaskTokens(normalizedTaskId);
-        if (totalTokens == null) {
-            return 0L;
+        GenerationTaskModelUsageRow row = mapper.selectTaskModelUsage(normalizedTaskId);
+        if (row == null) {
+            return GenerationTaskModelUsage.none();
         }
-        if (totalTokens < 0) {
-            throw corruptedData("生成任务 token 汇总结果不合法");
+        long totalTokens = nonNegativeAggregate(row.getTotalTokens(), "token 汇总");
+        long successfulCalls = nonNegativeAggregate(row.getSuccessfulCallCount(), "成功调用数");
+        long pendingCalls = nonNegativeAggregate(row.getPendingCallCount(), "待完成调用数");
+        try {
+            return new GenerationTaskModelUsage(totalTokens, successfulCalls, pendingCalls);
+        } catch (IllegalArgumentException inconsistentAggregate) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "生成任务模型用量聚合结果不一致",
+                    inconsistentAggregate
+            );
         }
-        return totalTokens;
     }
 
     /**
@@ -320,6 +323,16 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
 
     private boolean hasPositiveId(Long value) {
         return value != null && value > 0;
+    }
+
+    private long nonNegativeAggregate(Long value, String fieldName) {
+        if (value == null) {
+            return 0L;
+        }
+        if (value < 0) {
+            throw corruptedData("生成任务" + fieldName + "结果不合法");
+        }
+        return value;
     }
 
     private BusinessException corruptedData(String message) {

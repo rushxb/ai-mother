@@ -3,9 +3,11 @@ package com.rush.rushaicodemother.service.impl;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
+import com.rush.rushaicodemother.monitor.GenerationCreditMetricsCollector;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
 import com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand;
+import com.rush.rushaicodemother.service.credit.GenerationTaskModelUsage;
 import com.rush.rushaicodemother.service.credit.UserCreditCostCalculator;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditAccount;
@@ -33,6 +35,7 @@ public class UserCreditServiceImpl implements UserCreditService {
 
     private final UserCreditPersistenceService persistenceService;
     private final UserCreditCostCalculator costCalculator;
+    private final GenerationCreditMetricsCollector creditMetricsCollector;
 
     /**
  * 确保{@code Has}额度已达到可用状态。
@@ -225,7 +228,7 @@ public class UserCreditServiceImpl implements UserCreditService {
     private void settleReservedGenerationTask(GenerationCreditTask task,
                                               CreditTransaction reservation) {
         long reservedCredit = validateReservation(task, reservation);
-        long totalTokens = persistenceService.sumPositiveTaskTokens(task.taskId());
+        long totalTokens = requireCompleteModelUsage(task.taskId()).totalTokens();
         long expectedCreditCost = costCalculator.calculate(totalTokens);
         CreditAccount account = requireLockedAccount(task.userId());
         long collectibleExtra = expectedCreditCost <= reservedCredit
@@ -254,6 +257,7 @@ public class UserCreditServiceImpl implements UserCreditService {
                 totalTokens
         ));
         persistenceService.settleGenerationTask(task.recordId(), actualCreditCost, totalTokens);
+        creditMetricsCollector.recordReservationSettlement(reservedCredit, actualCreditCost);
         log.info(
                 "生成任务积分预授权结算完成，taskId: {}, tokens: {}, reservedCost: {}, expectedCost: {}, actualCost: {}, balanceAfter: {}",
                 task.taskId(),
@@ -267,7 +271,7 @@ public class UserCreditServiceImpl implements UserCreditService {
 
     /** 处理{@code settle}{@code Legacy}生成任务。 */
     private void settleLegacyGenerationTask(GenerationCreditTask task) {
-        long totalTokens = persistenceService.sumPositiveTaskTokens(task.taskId());
+        long totalTokens = requireCompleteModelUsage(task.taskId()).totalTokens();
         long expectedCreditCost = costCalculator.calculate(totalTokens);
         CreditAccount account = requireLockedAccount(task.userId());
         long actualCreditCost = Math.min(account.balance(), expectedCreditCost);
@@ -296,6 +300,21 @@ public class UserCreditServiceImpl implements UserCreditService {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户积分账户不存在");
         }
         return account;
+    }
+
+    /**
+     * 结算只消费完整的用量快照。usage 估算与持久化尚未恢复时，保留任务的未结算状态和
+     * 已预留积分，由 reconciler 幂等重试，不会将“未知”解释为零成本。
+     */
+    private GenerationTaskModelUsage requireCompleteModelUsage(String taskId) {
+        GenerationTaskModelUsage usage = persistenceService.loadTaskModelUsage(taskId);
+        if (usage == null || usage.hasPendingCalls()) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "生成任务模型用量尚未完整，积分结算已保持待处理"
+            );
+        }
+        return usage;
     }
 
     /** 恢复生成{@code Settlement}。 */

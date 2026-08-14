@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.monitor.ConservativeModelTokenUsageEstimator;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationAgentCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.context.AgentConversationFolder;
 import com.rush.rushaicodemother.orchestration.context.AgentConversationTokenAccountant;
@@ -117,6 +118,7 @@ class ProductionAiWiringTest {
                     ToolBatchExecutor.class,
                     DefaultGenerationAgentRuntime.class,
                     AiModelMonitorListener.class,
+                    ConservativeModelTokenUsageEstimator.class,
                     GenerationModelInvocationCancellationBridge.class,
                     GenerationModelTimeoutPolicy.class,
                     CancellableAiStreamingRequestExecutor.class,

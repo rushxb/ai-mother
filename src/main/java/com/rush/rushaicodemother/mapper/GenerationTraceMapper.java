@@ -274,14 +274,16 @@ public interface GenerationTraceMapper {
 
     @Insert("""
             INSERT INTO generation_model_call (
-                callId, taskId, appId, userId, provider, model,
+                callId, taskId, appId, userId,
+                invocationPurpose, billingMode, billingExemptionReason, provider, model,
                 callStatus, providerRequestId,
                 promptTokens, completionTokens, totalTokens, latencyMs,
                 finishReason, usageSource, errorCategory,
                 requestHash, promptTemplateHash, toolSchemaHash, modelConfigHash,
                 requestMessageCount, toolCount, rawMetadataJson, createTime, isDelete
             ) VALUES (
-                #{callId}, #{taskId}, #{appId}, #{userId}, #{provider}, #{model},
+                #{callId}, #{taskId}, #{appId}, #{userId},
+                #{invocationPurpose}, #{billingMode}, #{billingExemptionReason}, #{provider}, #{model},
                 #{callStatus}, #{providerRequestId},
                 #{promptTokens}, #{completionTokens}, #{totalTokens}, #{latencyMs},
                 #{finishReason}, #{usageSource}, #{errorCategory},
@@ -292,8 +294,95 @@ public interface GenerationTraceMapper {
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertModelCall(GenerationModelCall modelCall);
 
+    @Update("""
+            UPDATE generation_model_call
+            SET callStatus = #{callStatus},
+                providerRequestId = #{providerRequestId},
+                promptTokens = #{promptTokens},
+                completionTokens = #{completionTokens},
+                totalTokens = #{totalTokens},
+                latencyMs = #{latencyMs},
+                finishReason = #{finishReason},
+                usageSource = #{usageSource},
+                errorCategory = #{errorCategory}
+            WHERE callId = #{callId}
+              AND taskId = #{taskId}
+              AND (appId = #{appId} OR (appId IS NULL AND #{appId} IS NULL))
+              AND userId = #{userId}
+              AND invocationPurpose = #{invocationPurpose}
+              AND billingMode = #{billingMode}
+              AND (billingExemptionReason = #{billingExemptionReason}
+                   OR (billingExemptionReason IS NULL AND #{billingExemptionReason} IS NULL))
+              AND provider = #{provider}
+              AND model = #{model}
+              AND requestHash = #{requestHash}
+              AND modelConfigHash = #{modelConfigHash}
+              AND callStatus = 'STARTED'
+              AND isDelete = 0
+            """)
+    int completeStartedModelCall(GenerationModelCall modelCall);
+
+    @Update("""
+            UPDATE generation_model_call call_record
+            LEFT JOIN generation_task task ON task.taskId = call_record.taskId
+                                          AND task.isDelete = 0
+            SET call_record.callStatus = 'ERROR',
+                call_record.usageSource = CASE
+                        WHEN call_record.totalTokens IS NOT NULL
+                             AND call_record.totalTokens > 0
+                        THEN 'ESTIMATED' ELSE 'UNAVAILABLE' END,
+                call_record.finishReason = 'LEDGER_RECOVERY',
+                call_record.errorCategory = CASE
+                        WHEN task.id IS NULL THEN 'orphaned_generation_task'
+                        WHEN task.status IN ('success', 'failed', 'cancelled', 'deadline_exceeded')
+                        THEN 'terminal_callback_missing'
+                        ELSE 'expired_generation_lease' END
+            WHERE call_record.invocationPurpose = 'GENERATION'
+              AND call_record.billingMode = 'BILLABLE'
+              AND call_record.callStatus = 'STARTED'
+              AND call_record.createTime <= #{cutoff}
+              AND call_record.isDelete = 0
+              AND (
+                    task.id IS NULL
+                    OR task.status IN ('success', 'failed', 'cancelled', 'deadline_exceeded')
+                    OR (
+                        task.status = 'running'
+                        AND task.executionEpoch > 0
+                        AND task.leaseUntil IS NOT NULL
+                        AND task.leaseUntil < #{observedAt}
+                    )
+              )
+            """)
+    int recoverStaleGenerationStartedModelCalls(@Param("cutoff") LocalDateTime cutoff,
+                                                 @Param("observedAt") LocalDateTime observedAt);
+
+    @Update("""
+            UPDATE generation_model_call
+            SET callStatus = 'ERROR',
+                usageSource = CASE
+                    WHEN totalTokens IS NOT NULL AND totalTokens > 0
+                    THEN 'ESTIMATED' ELSE 'UNAVAILABLE' END,
+                finishReason = 'LEDGER_RECOVERY',
+                errorCategory = 'interrupted_without_provider_result'
+            WHERE invocationPurpose <> 'GENERATION'
+              AND billingMode = 'EXEMPT'
+              AND callStatus = 'STARTED'
+              AND createTime <= #{cutoff}
+              AND isDelete = 0
+            """)
+    int recoverStaleExemptStartedModelCalls(@Param("cutoff") LocalDateTime cutoff);
+
     @Select("""
-            SELECT callId, taskId, appId, userId, provider, model,
+            SELECT COUNT(*)
+            FROM generation_model_call
+            WHERE callStatus = 'STARTED'
+              AND isDelete = 0
+            """)
+    long countStartedModelCalls();
+
+    @Select("""
+            SELECT callId, taskId, appId, userId,
+                   invocationPurpose, billingMode, billingExemptionReason, provider, model,
                    callStatus, providerRequestId,
                    promptTokens, completionTokens, totalTokens, latencyMs,
                    finishReason, usageSource, errorCategory,

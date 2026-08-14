@@ -29,9 +29,9 @@ public interface AiModelManagementService {
 
     List<SupportedAiModelVO> listSupportedModels();
 
-    AiModelConnectionTestResultVO testSavedModelConnection(long modelId);
+    AiModelConnectionTestResultVO testSavedModelConnection(long modelId, long operatorUserId);
 
-    AiModelConnectionTestResultVO testConfiguration(CreateCommand command);
+    AiModelConnectionTestResultVO testConfiguration(CreateCommand command, long operatorUserId);
 
     record CreateCommand(String modelName,
                          String provider,

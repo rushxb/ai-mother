@@ -4,6 +4,8 @@ import com.rush.rushaicodemother.ai.AppNameGeneratorService;
 import com.rush.rushaicodemother.ai.AppNameGeneratorServiceFactory;
 import com.rush.rushaicodemother.mapper.AppMapper;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
+import com.rush.rushaicodemother.model.enums.ModelInvocationBillingMode;
+import com.rush.rushaicodemother.model.enums.ModelInvocationPurpose;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
 
@@ -30,7 +32,12 @@ class AppNameEnrichmentServiceTest {
                 .thenAnswer(ignored -> {
                     assertEquals("11", MonitorContextHolder.getContext().getAppId());
                     assertEquals("21", MonitorContextHolder.getContext().getUserId());
-                    assertEquals("none", MonitorContextHolder.getContext().getTaskId());
+                    org.junit.jupiter.api.Assertions.assertTrue(
+                            MonitorContextHolder.getContext().getTaskId().startsWith("app-name:"));
+                    assertEquals(ModelInvocationPurpose.APP_NAME_ENRICHMENT,
+                            MonitorContextHolder.getContext().getInvocationPurpose());
+                    assertEquals(ModelInvocationBillingMode.EXEMPT,
+                            MonitorContextHolder.getContext().getBillingMode());
                     return "应用名称：‘任务看板’";
                 });
         AppNameEnrichmentService service = service(factory, appMapper, Runnable::run);

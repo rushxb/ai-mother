@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.mapper.UserCreditMapper;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.entity.UserCreditTransaction;
+import com.rush.rushaicodemother.model.dto.credit.GenerationTaskModelUsageRow;
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditAccount;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.CreditTransaction;
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -128,16 +130,19 @@ class DefaultUserCreditPersistenceServiceTest {
     }
 
     @Test
-    void tokenSumMustNormalizeNullButRejectNegativeDatabaseResult() {
-        assertEquals(0L, service.sumPositiveTaskTokens("task-1"));
+    void modelUsageSnapshotMustPreserveCompletenessInsteadOfCollapsingMissingUsageToZero() {
+        GenerationTaskModelUsageRow row = new GenerationTaskModelUsageRow();
+        row.setTotalTokens(120L);
+        row.setSuccessfulCallCount(3L);
+        row.setPendingCallCount(1L);
+        when(mapper.selectTaskModelUsage("task-1")).thenReturn(row);
 
-        when(mapper.sumPositiveTaskTokens("task-2")).thenReturn(-1L);
-        BusinessException exception = assertThrows(
-                BusinessException.class,
-                () -> service.sumPositiveTaskTokens("task-2")
-        );
+        GenerationTaskModelUsage usage = service.loadTaskModelUsage("task-1");
 
-        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+        assertEquals(120L, usage.totalTokens());
+        assertEquals(3L, usage.successfulCallCount());
+        assertEquals(1L, usage.pendingCallCount());
+        assertTrue(usage.hasPendingCalls());
     }
 
     @Test

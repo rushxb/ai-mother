@@ -45,6 +45,17 @@ public class GenerationModelCall implements Serializable {
     @Column("userId")
     private Long userId;
 
+    /** 稳定调用目的。 */
+    @Column("invocationPurpose")
+    private String invocationPurpose;
+
+    /** BILLABLE 或带原因的 EXEMPT。 */
+    @Column("billingMode")
+    private String billingMode;
+
+    @Column("billingExemptionReason")
+    private String billingExemptionReason;
+
     /** 模型提供方。 */
     private String provider;
 

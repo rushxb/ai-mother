@@ -550,11 +550,14 @@ create table if not exists generation_model_call
         id               bigint auto_increment comment 'id' primary key,
         callId           varchar(36)                        not null comment '模型调用幂等 ID',
         taskId           varchar(128)                       not null comment '生成任务 ID',
-    appId            bigint                             not null comment '应用id',
+    appId            bigint                             null comment '应用id；外围模型调用允许为空',
     userId           bigint                             not null comment '创建用户id',
+    invocationPurpose varchar(32) default 'GENERATION'  not null comment '稳定调用目的',
+    billingMode      varchar(16) default 'BILLABLE'     not null comment 'BILLABLE/EXEMPT',
+    billingExemptionReason varchar(64)                   null comment 'EXEMPT 的有界审计原因',
     provider         varchar(64)                        null comment '模型提供商',
     model            varchar(128)                       null comment '模型名称',
-    callStatus       varchar(32) default 'SUCCESS'      not null comment 'SUCCESS/ERROR',
+    callStatus       varchar(32) default 'SUCCESS'      not null comment 'STARTED/SUCCESS/ERROR',
     providerRequestId varchar(128)                      null comment '提供商请求或响应 ID',
     promptTokens     int                                null comment '输入 token 数',
     completionTokens int                                null comment '输出 token 数',
@@ -576,9 +579,14 @@ create table if not exists generation_model_call
     INDEX idx_taskId_createTime (taskId, createTime),
     INDEX idx_model_createTime (model, createTime),
     INDEX idx_appId_createTime (appId, createTime),
-    INDEX idx_generation_model_call_outcome (callStatus, createTime),
+    INDEX idx_model_invocation_recovery (invocationPurpose, billingMode, callStatus, createTime),
     INDEX idx_generation_model_call_prompt_model (promptTemplateHash, model, callStatus, createTime),
-    CONSTRAINT chk_generation_model_call_status CHECK (callStatus in ('SUCCESS', 'ERROR')),
+    CONSTRAINT chk_generation_model_call_status CHECK (callStatus in ('STARTED', 'SUCCESS', 'ERROR')),
+    CONSTRAINT chk_generation_model_call_purpose CHECK (invocationPurpose in
+        ('GENERATION', 'PROMPT_OPTIMIZATION', 'APP_NAME_ENRICHMENT', 'CONNECTION_TEST')),
+    CONSTRAINT chk_generation_model_call_billing CHECK (
+        (billingMode = 'BILLABLE' and billingExemptionReason is null)
+        or (billingMode = 'EXEMPT' and billingExemptionReason is not null)),
     CONSTRAINT chk_generation_model_call_counts CHECK (requestMessageCount >= 0 AND toolCount >= 0)
 ) comment 'AI 模型调用' collate = utf8mb4_unicode_ci;
 

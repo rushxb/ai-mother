@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTime
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.http.client.spring.restclient.SpringRestClient;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -53,7 +54,8 @@ public class AiStreamingCallRuntime {
                                                  int maxOutputTokens,
                                                  StreamingChatModel delegate,
                                                  AiModelCapacityGuard capacityGuard,
-                                                 Duration upstreamTimeout) {
+                                                 Duration upstreamTimeout,
+                                                 ChatModelListener invocationListener) {
         return new CapacityControlledStreamingChatModel(
                 provider,
                 modelId,
@@ -64,7 +66,8 @@ public class AiStreamingCallRuntime {
                 timeoutPolicy.firstSignalTimeout(upstreamTimeout),
                 cancellationBridge,
                 timeoutScheduler,
-                timeoutMonitor
+                timeoutMonitor,
+                invocationListener
         );
     }
 

@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
-import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationRuntimeConfigurationFingerprintService;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentAmbiguitySignal;
 import com.rush.rushaicodemother.orchestration.intent.IntentClarificationRefiner;
@@ -22,6 +21,8 @@ import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
+import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentity;
+import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentityProvider;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskAdmissionService;
@@ -77,11 +78,14 @@ class GenerationScenarioPreflightTest {
                     return new GenerationRouteSelection(
                             effectiveProfile, route, "intent-lexical/preflight-test");
                 });
-        GenerationRuntimeConfigurationFingerprintService fingerprintService =
-                mock(GenerationRuntimeConfigurationFingerprintService.class);
-        when(fingerprintService.currentFingerprint()).thenReturn("runtime/preflight-test");
+        GenerationExecutionReleaseIdentityProvider releaseIdentityProvider =
+                mock(GenerationExecutionReleaseIdentityProvider.class);
+        when(releaseIdentityProvider.current("intent-lexical/preflight-test"))
+                .thenReturn(new GenerationExecutionReleaseIdentity(
+                        "a".repeat(40), false, "b".repeat(64), "c".repeat(64),
+                        "d".repeat(64), "intent-lexical/preflight-test"));
         GenerationScenarioDecisionKernel kernel =
-                new GenerationScenarioDecisionKernel(router, fingerprintService);
+                new GenerationScenarioDecisionKernel(router, releaseIdentityProvider);
 
         GenerationTaskAdmissionService admissionService = mock(GenerationTaskAdmissionService.class);
         IntentClarificationRefiner clarificationRefiner = mock(IntentClarificationRefiner.class);

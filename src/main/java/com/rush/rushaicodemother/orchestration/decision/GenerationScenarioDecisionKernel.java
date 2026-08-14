@@ -3,8 +3,8 @@ package com.rush.rushaicodemother.orchestration.decision;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
-import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationRuntimeConfigurationFingerprintService;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentityProvider;
 import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -22,17 +22,15 @@ import java.util.function.UnaryOperator;
 @Component
 public class GenerationScenarioDecisionKernel {
 
-    private static final String FINGERPRINT_SCHEMA = "generation-scenario-decision|";
-
     private final GenerationModeRouter generationModeRouter;
-    private final GenerationRuntimeConfigurationFingerprintService runtimeFingerprintService;
+    private final GenerationExecutionReleaseIdentityProvider releaseIdentityProvider;
 
     public GenerationScenarioDecisionKernel(
             GenerationModeRouter generationModeRouter,
-            GenerationRuntimeConfigurationFingerprintService runtimeFingerprintService) {
+            GenerationExecutionReleaseIdentityProvider releaseIdentityProvider) {
         this.generationModeRouter = Objects.requireNonNull(generationModeRouter, "生成路由器不能为空");
-        this.runtimeFingerprintService = Objects.requireNonNull(
-                runtimeFingerprintService, "运行时指纹模块不能为空");
+        this.releaseIdentityProvider = Objects.requireNonNull(
+                releaseIdentityProvider, "生成发布身份模块不能为空");
     }
 
     public GenerationScenarioDecision decide(GenerationTaskRequest request,
@@ -67,12 +65,8 @@ public class GenerationScenarioDecisionKernel {
         GenerationToolPermissionProfile toolPermissions = readOnly
                 ? GenerationToolPermissionProfile.READ_ONLY
                 : GenerationToolPermissionProfile.WRITE_FENCED;
-        String runtimeFingerprint = runtimeFingerprintService.currentFingerprint();
-        if (runtimeFingerprint == null || runtimeFingerprint.isBlank()) {
-            throw new IllegalStateException("运行时策略指纹不能为空");
-        }
-        String releaseFingerprint = GenerationScenarioDecision.sha256(
-                FINGERPRINT_SCHEMA + selection.ruleVersion() + '|' + runtimeFingerprint.trim());
+        String releaseFingerprint = releaseIdentityProvider.current(selection.ruleVersion())
+                .releaseFingerprint();
         return new GenerationScenarioDecision(
                 profile,
                 targetType,

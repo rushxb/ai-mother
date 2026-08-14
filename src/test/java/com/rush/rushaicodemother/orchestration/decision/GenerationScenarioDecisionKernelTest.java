@@ -2,7 +2,6 @@ package com.rush.rushaicodemother.orchestration.decision;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
-import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationRuntimeConfigurationFingerprintService;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
@@ -15,6 +14,8 @@ import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
+import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentity;
+import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentityProvider;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
@@ -29,10 +30,18 @@ import static org.mockito.Mockito.when;
 class GenerationScenarioDecisionKernelTest {
 
     private final GenerationModeRouter router = mock(GenerationModeRouter.class);
-    private final GenerationRuntimeConfigurationFingerprintService fingerprintService =
-            mock(GenerationRuntimeConfigurationFingerprintService.class);
+    private final GenerationExecutionReleaseIdentityProvider releaseIdentityProvider =
+            mock(GenerationExecutionReleaseIdentityProvider.class);
+    private final GenerationExecutionReleaseIdentity releaseIdentity =
+            new GenerationExecutionReleaseIdentity(
+                    "a".repeat(40),
+                    false,
+                    "b".repeat(64),
+                    "c".repeat(64),
+                    "d".repeat(64),
+                    "intent-lexical/test");
     private final GenerationScenarioDecisionKernel kernel =
-            new GenerationScenarioDecisionKernel(router, fingerprintService);
+            new GenerationScenarioDecisionKernel(router, releaseIdentityProvider);
 
     @Test
     void writeDecisionMustOwnResourcesPermissionsRouteAndValidationAsOneFact() {
@@ -47,7 +56,8 @@ class GenerationScenarioDecisionKernelTest {
                 ExpectedValidationLevel.EXPERT);
         when(router.select(request, CodeGenTypeEnum.FULL_STACK_PROJECT, workspace))
                 .thenReturn(new GenerationRouteSelection(profile, route, "intent-lexical/test"));
-        when(fingerprintService.currentFingerprint()).thenReturn("runtime-policy/test");
+        when(releaseIdentityProvider.current("intent-lexical/test"))
+                .thenReturn(releaseIdentity);
 
         GenerationScenarioDecision decision = kernel.decide(
                 request, CodeGenTypeEnum.FULL_STACK_PROJECT, workspace);
@@ -60,7 +70,7 @@ class GenerationScenarioDecisionKernelTest {
         assertEquals(Set.of(IntentAffectedScope.BACKEND, IntentAffectedScope.DATABASE),
                 decision.contextHints());
         assertEquals("intent-lexical/test", decision.ruleVersion());
-        assertEquals(64, decision.releaseFingerprint().length());
+        assertEquals(releaseIdentity.releaseFingerprint(), decision.releaseFingerprint());
     }
 
     @Test
@@ -76,7 +86,8 @@ class GenerationScenarioDecisionKernelTest {
                 ExpectedValidationLevel.FAST);
         when(router.select(request, CodeGenTypeEnum.FULL_STACK_PROJECT, workspace))
                 .thenReturn(new GenerationRouteSelection(profile, route, "intent-lexical/test"));
-        when(fingerprintService.currentFingerprint()).thenReturn("runtime-policy/test");
+        when(releaseIdentityProvider.current("intent-lexical/test"))
+                .thenReturn(releaseIdentity);
 
         GenerationScenarioDecision decision = kernel.decide(
                 request, CodeGenTypeEnum.FULL_STACK_PROJECT, workspace);

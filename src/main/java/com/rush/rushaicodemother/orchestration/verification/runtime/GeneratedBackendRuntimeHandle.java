@@ -1,39 +1,31 @@
-package com.rush.rushaicodemother.orchestration.benchmark.runtime;
+package com.rush.rushaicodemother.orchestration.verification.runtime;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
-/** 已完成启动探测的后端运行时句柄，关闭时统一回收进程、沙箱、端口和副本。 */
-public final class BackendRuntimeHandle implements AutoCloseable {
+/** 已完成启动探测的后端运行时句柄；关闭即回收进程、沙箱、端口和副本。 */
+public final class GeneratedBackendRuntimeHandle implements AutoCloseable {
 
     private static final Runnable NO_OP = () -> { };
 
     private final int port;
-    private final BackendRuntimeObservation observation;
+    private final GeneratedBackendRuntimeObservation observation;
     private final BooleanSupplier processAlive;
     private final Runnable cleanup;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    public BackendRuntimeHandle(
+    public GeneratedBackendRuntimeHandle(
             int port,
-            BackendRuntimeObservation observation,
+            GeneratedBackendRuntimeObservation observation,
             Runnable cleanup
     ) {
         this(port, observation, () -> true, cleanup);
     }
 
-    /**
- * 创建后端运行时句柄实例并完成必要的依赖和初始状态设置。
- *
- * @param port 端口
- * @param observation 观测
- * @param processAlive 进程存活状态探测器
- * @param cleanup 资源清理回调
- */
-    public BackendRuntimeHandle(
+    public GeneratedBackendRuntimeHandle(
             int port,
-            BackendRuntimeObservation observation,
+            GeneratedBackendRuntimeObservation observation,
             BooleanSupplier processAlive,
             Runnable cleanup
     ) {
@@ -46,15 +38,17 @@ public final class BackendRuntimeHandle implements AutoCloseable {
         this.cleanup = cleanup == null ? NO_OP : cleanup;
     }
 
-    public static BackendRuntimeHandle failed(BackendRuntimeObservation observation) {
-        return new BackendRuntimeHandle(0, observation, NO_OP);
+    public static GeneratedBackendRuntimeHandle failed(
+            GeneratedBackendRuntimeObservation observation
+    ) {
+        return new GeneratedBackendRuntimeHandle(0, observation, NO_OP);
     }
 
     public int port() {
         return port;
     }
 
-    public BackendRuntimeObservation observation() {
+    public GeneratedBackendRuntimeObservation observation() {
         return observation;
     }
 
@@ -62,16 +56,10 @@ public final class BackendRuntimeHandle implements AutoCloseable {
         return port > 0 && observation.passedValidation();
     }
 
-    /**
- * 处理{@code Alive}。
- *
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     public boolean processAlive() {
         return healthy() && processAlive.getAsBoolean();
     }
 
-    /** 关闭后端运行时句柄并释放资源。 */
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {

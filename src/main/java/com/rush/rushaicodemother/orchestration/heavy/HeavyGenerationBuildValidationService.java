@@ -20,6 +20,9 @@ import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
+import com.rush.rushaicodemother.orchestration.verification.runtime.BackendRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
@@ -44,6 +47,7 @@ import java.util.Objects;
 public class HeavyGenerationBuildValidationService {
 
     private final DevServerValidationService devServerValidationService;
+    private final GeneratedBackendRuntimeVerifier generatedBackendRuntimeVerifier;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
@@ -111,13 +115,14 @@ public class HeavyGenerationBuildValidationService {
         ));
         ValidationFailure validationFailure;
         if (buildResult.success()) {
-            DevServerValidationResult runtimeResult = validateRuntimeIfNeeded(
+            ProjectRuntimeValidationResult runtimeResult = validateRuntimeIfNeeded(
                     appId,
                     loginUser,
                     preparation,
                     session,
+                    workspace,
                     verificationPolicy,
-                    "构建通过，正在验证 Dev Server 运行时..."
+                    "构建通过，正在验证项目运行时..."
             );
             if (session.isCancelled()) {
                 return false;
@@ -196,13 +201,14 @@ public class HeavyGenerationBuildValidationService {
             }
             emitBuildResult(session, preparation, buildResult, Map.of());
             if (buildResult.success()) {
-                DevServerValidationResult runtimeResult = validateRuntimeIfNeeded(
+                ProjectRuntimeValidationResult runtimeResult = validateRuntimeIfNeeded(
                         appId,
                         loginUser,
                         preparation,
                         session,
+                        workspace,
                         verificationPolicy,
-                        "修复后构建通过，正在验证 Dev Server 运行时..."
+                        "修复后构建通过，正在验证项目运行时..."
                 );
                 if (session.isCancelled()) {
                     return false;
@@ -233,7 +239,7 @@ public class HeavyGenerationBuildValidationService {
     private void recordSuccessfulValidation(
             GenerationPreparation preparation,
             ProjectBuildValidationResult buildResult,
-            DevServerValidationResult runtimeResult,
+            ProjectRuntimeValidationResult runtimeResult,
             String source
     ) {
         EnumSet<GenerationExecutionPlan.ValidationStep> passedSteps = EnumSet.of(
@@ -245,10 +251,11 @@ public class HeavyGenerationBuildValidationService {
         details.put("buildSummary", buildResult.summary());
         if (runtimeResult != null) {
             passedSteps.add(GenerationExecutionPlan.ValidationStep.EXPERT_CHECK);
-            details.put("runtimeStatus", runtimeResult.status().name());
-            details.put("runtimeDurationMs", runtimeResult.validationDurationMs());
+            details.put("runtimeStatus", runtimeResult.status());
+            details.put("runtimeDurationMs", runtimeResult.durationMs());
             details.put("runtimeCriticalErrorCount", runtimeResult.criticalErrorCount());
             details.put("runtimeWarningCount", runtimeResult.warningCount());
+            details.putAll(runtimeResult.evidenceDetails());
         }
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
@@ -307,14 +314,14 @@ public class HeavyGenerationBuildValidationService {
         return generationWorkspaceService.resolve(appId, targetType);
     }
 
-    /** 校验{@code ate}运行时{@code If}{@code Needed}是否有效。 */
-    private DevServerValidationResult validateRuntimeIfNeeded(Long appId,
-                                                              User loginUser,
-                                                              GenerationPreparation preparation,
-                                                              GenerationSession session,
-                                                              GenerationVerificationPolicy verificationPolicy,
-                                                              String stageMessage) {
-        // BUILD 只执行构建门禁；EXPERT 才进入现有 Dev Server 运行时验证。
+    /** 按工程类型执行实际运行时验证；BUILD 计划不会进入该阶段。 */
+    private ProjectRuntimeValidationResult validateRuntimeIfNeeded(Long appId,
+                                                            User loginUser,
+                                                            GenerationPreparation preparation,
+                                                            GenerationSession session,
+                                                            GenerationWorkspace workspace,
+                                                            GenerationVerificationPolicy verificationPolicy,
+                                                            String stageMessage) {
         if (!verificationPolicy.requiresRuntimeValidation(preparation.targetType())) {
             return null;
         }
@@ -325,55 +332,68 @@ public class HeavyGenerationBuildValidationService {
         );
         markGenerationStage(appId, AppConstant.GENERATING_STAGE_BUILD, stageMessage, session);
         GenerationPerformanceMonitorService.SpanTimer span =
-                generationPerformanceMonitorService.startSpan(preparation.taskId(), "dev_server_validation", GenerationSpanCategory.VALIDATION);
-        DevServerValidationResult dsResult;
+                generationPerformanceMonitorService.startSpan(
+                        preparation.taskId(), "project_runtime_validation", GenerationSpanCategory.VALIDATION);
+        ProjectRuntimeValidationResult runtimeResult;
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            if (session.executionContext() == null || session.executionContext().executionFence() == null) {
-                dsResult = devServerValidationService.validate(
-                        preparation.taskId(), appId, loginUser.getId(), preparation.targetType());
+            if (preparation.targetType() == CodeGenTypeEnum.BACKEND_PROJECT) {
+                BackendRuntimeValidationResult backendResult =
+                        generatedBackendRuntimeVerifier.verify(workspace.backendRootPath());
+                runtimeResult = ProjectRuntimeValidationResult.fromBackend(backendResult);
             } else {
-                // Dev Server 就绪即证明工作区可渲染，是「用户可以先看到东西」的最早诚实信号。
-                // 回调在服务仍运行的窗口内触发；只发暂定预览事件，不构成完成证据、不计费、不写终态。
-                //
-                // 这里把会话持有权交给生成任务：验证返回后 Dev Server 继续运行，用户才真的点得开暂定预览。
-                // 停止责任随之移交给生成任务：发布前由 GenerationWorkspaceReleaseService 停止，
-                // 失败、取消和超时由 GenerationTaskFinalizer 按 execution fence 精确停止。
-                dsResult = devServerValidationService.validate(
-                        DevServerValidationRequest
-                                .of(preparation.taskId(), appId, loginUser.getId(), preparation.targetType())
-                                .withExecutionFence(session.executionContext().executionFence())
-                                .withReadyCallback(() ->
-                                        publishProvisionalPreviewSafely(session, preparation.targetType()))
-                                .withTaskScopedOwnership());
+                runtimeResult = ProjectRuntimeValidationResult.fromDevServer(
+                        validateFrontendRuntime(appId, loginUser, preparation, session));
             }
         } catch (RuntimeException exception) {
             span.failed(LogExceptionSanitizer.sanitizeMessage(exception));
             throw exception;
         }
-        if (dsResult == null) {
-            dsResult = DevServerValidationResult.startupFailed(
-                    preparation.taskId(), appId, 0, "运行时验证服务未返回结果");
+        if (runtimeResult == null) {
+            runtimeResult = ProjectRuntimeValidationResult.fromDevServer(
+                    DevServerValidationResult.startupFailed(
+                            preparation.taskId(), appId, 0, "运行时验证服务未返回结果"));
         }
         generationOrchestrationMetricsCollector.recordRuntimeValidation(
                 orchestrationMode(preparation),
                 preparation.targetType().getValue(),
-                dsResult.status().name()
+                runtimeResult.status()
         );
-        if (dsResult.isPassed()) {
+        if (runtimeResult.isPassed()) {
             span.success();
         } else {
-            span.failed(dsResult.summary());
+            span.failed(runtimeResult.summary());
         }
-        Map<String, Object> eventData = new java.util.LinkedHashMap<>(dsResult.toEventData());
-        eventData.put("willAutoRepair", !dsResult.isPassed()
+        Map<String, Object> eventData = new java.util.LinkedHashMap<>(runtimeResult.eventData());
+        eventData.put("willAutoRepair", !runtimeResult.isPassed()
                 && session.remainingBudget(GenerationBudgetKind.REPAIR_ROUND) > 0
                 && generationStageAdmissionService.canRepair(session, preparation));
-        session.emit(GenerationStreamEvent.devServerValidation(dsResult.summary(), eventData));
-        if (!dsResult.isPassed()) {
-            log.warn("Dev Server 运行时验证失败，appId: {}, summary: {}", appId, dsResult.summary());
+        session.emit(GenerationStreamEvent.devServerValidation(runtimeResult.summary(), eventData));
+        if (!runtimeResult.isPassed()) {
+            log.warn("项目运行时验证失败，appId: {}, summary: {}", appId, runtimeResult.summary());
         }
-        return dsResult;
+        return runtimeResult;
+    }
+
+    private DevServerValidationResult validateFrontendRuntime(
+            Long appId,
+            User loginUser,
+            GenerationPreparation preparation,
+            GenerationSession session
+    ) {
+        if (session.executionContext() == null || session.executionContext().executionFence() == null) {
+            return devServerValidationService.validate(
+                    preparation.taskId(), appId, loginUser.getId(), preparation.targetType());
+        }
+        // Dev Server 就绪即证明工作区可渲染，是「用户可以先看到东西」的最早诚实信号。
+        // 会话持有权交给生成任务，使暂定预览在验证返回后仍可访问；发布或终态负责精确停止。
+        return devServerValidationService.validate(
+                DevServerValidationRequest
+                        .of(preparation.taskId(), appId, loginUser.getId(), preparation.targetType())
+                        .withExecutionFence(session.executionContext().executionFence())
+                        .withReadyCallback(() ->
+                                publishProvisionalPreviewSafely(session, preparation.targetType()))
+                        .withTaskScopedOwnership());
     }
 
     /**
@@ -420,13 +440,13 @@ public class HeavyGenerationBuildValidationService {
             return new ValidationFailure("build", "FAILED", "BUILD_FAILURE", summary, diagnostic);
         }
 
-        private static ValidationFailure runtime(DevServerValidationResult result) {
+        private static ValidationFailure runtime(ProjectRuntimeValidationResult result) {
             return new ValidationFailure(
                     "runtime",
-                    result.status().name(),
-                    result.failureKind().name(),
+                    result.status(),
+                    result.failureKind(),
                     result.summary(),
-                    result.toPublicRepairDiagnostic()
+                    result.repairDiagnostic()
             );
         }
 

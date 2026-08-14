@@ -24,6 +24,10 @@ import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -53,6 +57,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -363,13 +368,14 @@ class HeavyGenerationRepairBudgetTest {
     }
 
     @Test
-    void expertPolicyMustNotClaimRuntimeEvidenceWhenValidatorOnlyBuiltBackend() throws Exception {
+    void expertBackendMustEarnRuntimeEvidenceFromProcessAndHttpHealth() throws Exception {
         long appId = 870_011L;
         String taskId = "backend-build-observation";
         Path projectPath = projectPath(appId, CodeGenTypeEnum.BACKEND_PROJECT);
         HeavyGenerationExecutionService generationService = mock(HeavyGenerationExecutionService.class);
         HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
         DevServerValidationService runtimeValidationService = mock(DevServerValidationService.class);
+        GeneratedBackendRuntime backendRuntime = mock(GeneratedBackendRuntime.class);
         GenerationProjectBuildValidationService projectBuildValidationService =
                 mock(GenerationProjectBuildValidationService.class);
         GenerationPreparation preparation = preparation(taskId, CodeGenTypeEnum.BACKEND_PROJECT);
@@ -379,6 +385,11 @@ class HeavyGenerationRepairBudgetTest {
                 .thenReturn(new ProjectBuildValidationResult(
                         true, "backend", "done", projectPath.toString(),
                         "backend build passed", "go test passed", ""));
+        when(backendRuntime.start(projectPath)).thenReturn(new GeneratedBackendRuntimeHandle(
+                19_211,
+                GeneratedBackendRuntimeObservation.passed(),
+                () -> true,
+                () -> { }));
 
         try {
             Files.createDirectories(projectPath.resolve("cmd/server"));
@@ -388,6 +399,7 @@ class HeavyGenerationRepairBudgetTest {
                     generationService,
                     failureRecoveryService,
                     runtimeValidationService,
+                    new GeneratedBackendRuntimeVerifier(backendRuntime),
                     projectBuildValidationService,
                     appId);
             GenerationVerificationPolicy expertPolicy = GenerationVerificationPolicy.planned(
@@ -396,10 +408,64 @@ class HeavyGenerationRepairBudgetTest {
             assertTrue(buildService.runWithAutoRepair(
                     appId, User.builder().id(7L).build(), preparation, session, expertPolicy));
 
-            Object passedSteps = preparation.artifact(GenerationVerificationEvidenceRecorder.ARTIFACT_KEY)
-                    .payload().get("passedSteps");
-            assertEquals(List.of("FAST_CHECK", "BUILD"), passedSteps);
+            Map<String, Object> evidence = preparation.artifact(
+                    GenerationVerificationEvidenceRecorder.ARTIFACT_KEY).payload();
+            assertEquals(List.of("FAST_CHECK", "BUILD", "EXPERT_CHECK"), evidence.get("passedSteps"));
+            assertEquals(
+                    "backend_http_health",
+                    ((Map<?, ?>) evidence.get("details")).get("runtimeKind"));
             verifyNoInteractions(runtimeValidationService);
+            verify(backendRuntime).start(projectPath);
+        } finally {
+            FileUtil.del(projectPath.toFile());
+        }
+    }
+
+    @Test
+    void unhealthyBackendRuntimeMustBlockExpertCompletionEvidence() throws Exception {
+        long appId = 870_012L;
+        String taskId = "backend-runtime-unhealthy";
+        Path projectPath = projectPath(appId, CodeGenTypeEnum.BACKEND_PROJECT);
+        HeavyGenerationExecutionService generationService = mock(HeavyGenerationExecutionService.class);
+        HeavyGenerationFailureRecoveryService failureRecoveryService = mock(HeavyGenerationFailureRecoveryService.class);
+        DevServerValidationService frontendRuntime = mock(DevServerValidationService.class);
+        GeneratedBackendRuntime backendRuntime = mock(GeneratedBackendRuntime.class);
+        GenerationProjectBuildValidationService buildValidation =
+                mock(GenerationProjectBuildValidationService.class);
+        GenerationPreparation preparation = preparation(taskId, CodeGenTypeEnum.BACKEND_PROJECT);
+        GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
+        session.consumeBudget(GenerationBudgetKind.REPAIR_ROUND);
+        when(buildValidation.validate(
+                any(GenerationWorkspace.class), eq(CodeGenTypeEnum.BACKEND_PROJECT), eq(taskId)))
+                .thenReturn(new ProjectBuildValidationResult(
+                        true, "backend", "done", projectPath.toString(),
+                        "backend build passed", "go test passed", ""));
+        when(backendRuntime.start(projectPath)).thenReturn(GeneratedBackendRuntimeHandle.failed(
+                GeneratedBackendRuntimeObservation.failed("backend_health_status_invalid")));
+
+        try {
+            Files.createDirectories(projectPath.resolve("cmd/server"));
+            Files.writeString(projectPath.resolve("go.mod"), "module example.com/generated\n");
+            Files.writeString(projectPath.resolve("cmd/server/main.go"), "package main\nfunc main() {}\n");
+            HeavyGenerationBuildValidationService service = buildService(
+                    generationService,
+                    failureRecoveryService,
+                    frontendRuntime,
+                    new GeneratedBackendRuntimeVerifier(backendRuntime),
+                    buildValidation,
+                    appId);
+            GenerationVerificationPolicy expertPolicy = GenerationVerificationPolicy.planned(
+                    GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.EXPERT));
+
+            assertFalse(service.runWithAutoRepair(
+                    appId, User.builder().id(7L).build(), preparation, session, expertPolicy));
+
+            assertNull(preparation.artifact(GenerationVerificationEvidenceRecorder.ARTIFACT_KEY));
+            ArgumentCaptor<String> summary = ArgumentCaptor.forClass(String.class);
+            verify(failureRecoveryService).emitBuildFailure(
+                    eq(appId), same(preparation), same(session), summary.capture());
+            assertTrue(summary.getValue().contains("backend_health_status_invalid"));
+            verifyNoInteractions(frontendRuntime);
         } finally {
             FileUtil.del(projectPath.toFile());
         }
@@ -545,10 +611,28 @@ class HeavyGenerationRepairBudgetTest {
             GenerationProjectBuildValidationService projectBuildValidationService,
             long appId
     ) {
+        return buildService(
+                generationService,
+                failureRecoveryService,
+                devServerValidationService,
+                mock(GeneratedBackendRuntimeVerifier.class),
+                projectBuildValidationService,
+                appId);
+    }
+
+    private HeavyGenerationBuildValidationService buildService(
+            HeavyGenerationExecutionService generationService,
+            HeavyGenerationFailureRecoveryService failureRecoveryService,
+            DevServerValidationService devServerValidationService,
+            GeneratedBackendRuntimeVerifier backendRuntimeVerifier,
+            GenerationProjectBuildValidationService projectBuildValidationService,
+            long appId
+    ) {
         doReturn("repair prompt").when(generationService).buildAutoRepairPrompt(
                 eq(appId), any(GenerationPreparation.class), any(Exception.class), anyInt());
         return new HeavyGenerationBuildValidationService(
                 devServerValidationService,
+                backendRuntimeVerifier,
                 mock(GenerationTaskLifecycleService.class),
                 mock(GenerationOrchestrationMetricsCollector.class),
                 new GenerationPerformanceMonitorService(),

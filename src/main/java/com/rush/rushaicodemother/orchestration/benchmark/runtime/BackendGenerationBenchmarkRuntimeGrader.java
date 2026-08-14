@@ -7,6 +7,9 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRule
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeContext;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeGrader;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -19,11 +22,11 @@ public class BackendGenerationBenchmarkRuntimeGrader implements GenerationBenchm
     private static final String RULE_ID = "backend_health_runtime";
 
     private final GenerationBenchmarkBackendProperties properties;
-    private final GenerationBenchmarkBackendRuntime backendRuntime;
+    private final GeneratedBackendRuntime backendRuntime;
 
     public BackendGenerationBenchmarkRuntimeGrader(
             GenerationBenchmarkBackendProperties properties,
-            GenerationBenchmarkBackendRuntime backendRuntime
+            GeneratedBackendRuntime backendRuntime
     ) {
         this.properties = properties;
         this.backendRuntime = backendRuntime;
@@ -61,10 +64,10 @@ public class BackendGenerationBenchmarkRuntimeGrader implements GenerationBenchm
  */
     @Override
     public List<GenerationBenchmarkRuleResult> evaluate(GenerationBenchmarkRuntimeContext context) {
-        try (BackendRuntimeHandle handle = backendRuntime.start(
+        try (GeneratedBackendRuntimeHandle handle = backendRuntime.start(
                 context.workspace().backendRootPath()
         )) {
-            BackendRuntimeObservation observation = handle.observation();
+            GeneratedBackendRuntimeObservation observation = handle.observation();
             return List.of(new GenerationBenchmarkRuleResult(
                     RULE_ID,
                     GenerationBenchmarkQualityDimension.RUNTIME,

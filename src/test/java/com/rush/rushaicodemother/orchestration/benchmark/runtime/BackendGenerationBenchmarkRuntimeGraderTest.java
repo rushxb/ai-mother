@@ -7,6 +7,9 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRule
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeContext;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,11 +31,11 @@ class BackendGenerationBenchmarkRuntimeGraderTest {
     @Test
     void backendTaskMustMapProbeViolationsAndAlwaysCloseRuntimeHandle() {
         GenerationBenchmarkBackendProperties properties = enabledProperties();
-        GenerationBenchmarkBackendRuntime runtime = mock(GenerationBenchmarkBackendRuntime.class);
+        GeneratedBackendRuntime runtime = mock(GeneratedBackendRuntime.class);
         AtomicBoolean closed = new AtomicBoolean(false);
-        when(runtime.start(workspaceRoot)).thenReturn(new BackendRuntimeHandle(
+        when(runtime.start(workspaceRoot)).thenReturn(new GeneratedBackendRuntimeHandle(
                 19_001,
-                BackendRuntimeObservation.failed("backend_health_json_invalid"),
+                GeneratedBackendRuntimeObservation.failed("backend_health_json_invalid"),
                 () -> closed.set(true)
         ));
         BackendGenerationBenchmarkRuntimeGrader grader =
@@ -51,7 +54,7 @@ class BackendGenerationBenchmarkRuntimeGraderTest {
         BackendGenerationBenchmarkRuntimeGrader grader =
                 new BackendGenerationBenchmarkRuntimeGrader(
                         properties,
-                        mock(GenerationBenchmarkBackendRuntime.class)
+                        mock(GeneratedBackendRuntime.class)
                 );
 
         assertTrue(grader.supports(task(CodeGenTypeEnum.BACKEND_PROJECT)));

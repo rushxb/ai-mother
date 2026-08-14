@@ -12,6 +12,9 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -31,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /** 使用统一进程边界在一次性工作区副本中运行生成的 Go 后端。 */
 @Slf4j
 @Component
-public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBenchmarkBackendRuntime {
+public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBackendRuntime {
 
     private static final String DISPLAY_COMMAND = "go run -mod=readonly ./cmd/server";
 
@@ -79,7 +82,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
  * @return {@code Managed}生成基准测试后端运行时
  */
     @Override
-    public BackendRuntimeHandle start(Path backendProjectDirectory) {
+    public GeneratedBackendRuntimeHandle start(Path backendProjectDirectory) {
         Path stagedProject = null;
         GenerationBenchmarkBackendPortAllocator.PortLease portLease = null;
         RuntimeCleanup cleanup = null;
@@ -110,18 +113,18 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
             startProcess(request, processCompletion);
             Process process = awaitProcessStart(processStarted, processCompletion);
             if (process == null) {
-                BackendRuntimeObservation observation = launchFailure(processCompletion);
+                GeneratedBackendRuntimeObservation observation = launchFailure(processCompletion);
                 cleanup.close();
-                return BackendRuntimeHandle.failed(observation);
+                return GeneratedBackendRuntimeHandle.failed(observation);
             }
-            BackendRuntimeObservation observation = httpProbe.awaitHealthy(process, portLease.port());
+            GeneratedBackendRuntimeObservation observation = httpProbe.awaitHealthy(process, portLease.port());
             if (!observation.passedValidation()) {
                 cleanup.close();
-                return BackendRuntimeHandle.failed(observation);
+                return GeneratedBackendRuntimeHandle.failed(observation);
             }
             RuntimeCleanup ownedCleanup = cleanup;
             cleanup = null;
-            return new BackendRuntimeHandle(
+            return new GeneratedBackendRuntimeHandle(
                     portLease.port(),
                     observation,
                     process::isAlive,
@@ -137,14 +140,14 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
                 throw exception;
             }
             log.warn("后端运行时准备失败: error={}", LogExceptionSanitizer.sanitizeMessage(exception));
-            return BackendRuntimeHandle.failed(
-                    BackendRuntimeObservation.failed("backend_runtime_setup_failed")
+            return GeneratedBackendRuntimeHandle.failed(
+                    GeneratedBackendRuntimeObservation.failed("backend_runtime_setup_failed")
             );
         } catch (IOException exception) {
             closePartial(cleanup, stagedProject, portLease);
             log.warn("后端运行时准备失败: error={}", LogExceptionSanitizer.sanitizeMessage(exception));
-            return BackendRuntimeHandle.failed(
-                    BackendRuntimeObservation.failed("backend_runtime_setup_failed")
+            return GeneratedBackendRuntimeHandle.failed(
+                    GeneratedBackendRuntimeObservation.failed("backend_runtime_setup_failed")
             );
         }
     }
@@ -255,20 +258,20 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GenerationBench
     }
 
     /** 返回{@code launch}失败。 */
-    private BackendRuntimeObservation launchFailure(
+    private GeneratedBackendRuntimeObservation launchFailure(
             CompletableFuture<ManagedProcessResult> processCompletion
     ) {
         if (!processCompletion.isDone()) {
-            return BackendRuntimeObservation.failed("backend_startup_timeout");
+            return GeneratedBackendRuntimeObservation.failed("backend_startup_timeout");
         }
         try {
             ManagedProcessResult result = processCompletion.getNow(null);
             if (result != null && result.status() == ManagedProcessResult.Status.START_FAILED) {
-                return BackendRuntimeObservation.failed("backend_process_start_failed");
+                return GeneratedBackendRuntimeObservation.failed("backend_process_start_failed");
             }
-            return BackendRuntimeObservation.failed("backend_process_exited");
+            return GeneratedBackendRuntimeObservation.failed("backend_process_exited");
         } catch (RuntimeException exception) {
-            return BackendRuntimeObservation.failed("backend_process_start_failed");
+            return GeneratedBackendRuntimeObservation.failed("backend_process_start_failed");
         }
     }
 

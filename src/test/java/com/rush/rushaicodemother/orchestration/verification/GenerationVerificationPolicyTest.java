@@ -35,7 +35,7 @@ class GenerationVerificationPolicyTest {
         assertTrue(policy.requiresExpertCheck());
         assertTrue(policy.requiresRuntimeValidation(CodeGenTypeEnum.VUE_PROJECT));
         assertTrue(policy.requiresRuntimeValidation(CodeGenTypeEnum.FULL_STACK_PROJECT));
-        assertFalse(policy.requiresRuntimeValidation(CodeGenTypeEnum.BACKEND_PROJECT));
+        assertTrue(policy.requiresRuntimeValidation(CodeGenTypeEnum.BACKEND_PROJECT));
     }
 
     @Test
@@ -73,7 +73,7 @@ class GenerationVerificationPolicyTest {
 
         assertTrue(policy.requiresBuildValidation(preparation(CodeGenTypeEnum.VUE_PROJECT)));
         assertTrue(policy.requiresRuntimeValidation(CodeGenTypeEnum.VUE_PROJECT));
-        assertFalse(policy.requiresRuntimeValidation(CodeGenTypeEnum.BACKEND_PROJECT));
+        assertTrue(policy.requiresRuntimeValidation(CodeGenTypeEnum.BACKEND_PROJECT));
     }
 
     private GenerationPreparation preparation(CodeGenTypeEnum codeGenType) {

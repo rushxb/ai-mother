@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.benchmark.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.config.GenerationBenchmarkBackendProperties;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -65,9 +66,9 @@ public class GenerationBenchmarkBackendHttpProbe {
  * @param port 端口
  * @return {@code Healthy}
  */
-    public BackendRuntimeObservation awaitHealthy(Process process, int port) {
+    public GeneratedBackendRuntimeObservation awaitHealthy(Process process, int port) {
         if (process == null || port < 1 || port > 65_535) {
-            return BackendRuntimeObservation.failed("backend_process_missing");
+            return GeneratedBackendRuntimeObservation.failed("backend_process_missing");
         }
         long startedAt = System.nanoTime();
         long timeoutNanos = properties.getStartupTimeout().toNanos();
@@ -76,12 +77,12 @@ public class GenerationBenchmarkBackendHttpProbe {
                 throw new IllegalStateException("后端运行时探测被中断");
             }
             if (!process.isAlive()) {
-                return BackendRuntimeObservation.failed("backend_process_exited");
+                return GeneratedBackendRuntimeObservation.failed("backend_process_exited");
             }
             long elapsedNanos = System.nanoTime() - startedAt;
             long remainingNanos = timeoutNanos - elapsedNanos;
             if (remainingNanos <= 0) {
-                return BackendRuntimeObservation.failed("backend_startup_timeout");
+                return GeneratedBackendRuntimeObservation.failed("backend_startup_timeout");
             }
             try {
                 return inspect(port, Duration.ofNanos(remainingNanos));
@@ -95,7 +96,8 @@ public class GenerationBenchmarkBackendHttpProbe {
     }
 
     /** 返回{@code inspect}。 */
-    private BackendRuntimeObservation inspect(int port, Duration remaining) throws IOException, InterruptedException {
+    private GeneratedBackendRuntimeObservation inspect(int port, Duration remaining)
+            throws IOException, InterruptedException {
         Duration requestTimeout = properties.getRequestTimeout().compareTo(remaining) <= 0
                 ? properties.getRequestTimeout()
                 : remaining;
@@ -131,7 +133,7 @@ public class GenerationBenchmarkBackendHttpProbe {
         if (body != null) {
             validateJsonContract(body, violations);
         }
-        return new BackendRuntimeObservation(violations);
+        return new GeneratedBackendRuntimeObservation(violations);
     }
 
     /** 读取{@code Bounded}正文。 */

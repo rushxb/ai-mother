@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark.runtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.config.GenerationBenchmarkBackendProperties;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class GenerationBenchmarkBackendHttpProbeTest {
                 .getBytes(StandardCharsets.UTF_8);
         HttpServer server = startServer(exchange -> respond(exchange, 200, body, true));
         try {
-            BackendRuntimeObservation observation = probe().awaitHealthy(
+            GeneratedBackendRuntimeObservation observation = probe().awaitHealthy(
                     FakeProcess.running(),
                     server.getAddress().getPort()
             );
@@ -45,7 +46,7 @@ class GenerationBenchmarkBackendHttpProbeTest {
         byte[] body = "not-json".getBytes(StandardCharsets.UTF_8);
         HttpServer server = startServer(exchange -> respond(exchange, 503, body, false));
         try {
-            BackendRuntimeObservation observation = probe().awaitHealthy(
+            GeneratedBackendRuntimeObservation observation = probe().awaitHealthy(
                     FakeProcess.running(),
                     server.getAddress().getPort()
             );
@@ -67,7 +68,7 @@ class GenerationBenchmarkBackendHttpProbeTest {
         try {
             GenerationBenchmarkBackendProperties properties = properties();
             properties.setMaxResponseBytes(1_024);
-            BackendRuntimeObservation observation = probe(properties).awaitHealthy(
+            GeneratedBackendRuntimeObservation observation = probe(properties).awaitHealthy(
                     FakeProcess.running(),
                     server.getAddress().getPort()
             );
@@ -83,7 +84,7 @@ class GenerationBenchmarkBackendHttpProbeTest {
 
     @Test
     void exitedProcessMustFailWithoutWaitingForStartupTimeout() {
-        BackendRuntimeObservation observation = probe().awaitHealthy(
+        GeneratedBackendRuntimeObservation observation = probe().awaitHealthy(
                 FakeProcess.completed(),
                 19_001
         );

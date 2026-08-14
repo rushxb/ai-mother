@@ -8,6 +8,8 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -54,7 +56,7 @@ class ManagedGenerationBenchmarkBackendRuntimeTest {
         FakeProcess process = new FakeProcess();
         AtomicReference<ManagedProcessRequest> capturedRequest = new AtomicReference<>();
         when(goToolchain.goExecutable()).thenReturn("go.exe");
-        when(probe.awaitHealthy(process, port)).thenReturn(BackendRuntimeObservation.passed());
+        when(probe.awaitHealthy(process, port)).thenReturn(GeneratedBackendRuntimeObservation.passed());
         when(processExecutor.execute(any(ManagedProcessRequest.class))).thenAnswer(invocation -> {
             ManagedProcessRequest request = invocation.getArgument(0);
             capturedRequest.set(request);
@@ -85,7 +87,7 @@ class ManagedGenerationBenchmarkBackendRuntimeTest {
                         goToolchain
                 );
 
-        BackendRuntimeHandle handle = runtime.start(source);
+        GeneratedBackendRuntimeHandle handle = runtime.start(source);
         ManagedProcessRequest request = capturedRequest.get();
 
         assertTrue(handle.healthy());

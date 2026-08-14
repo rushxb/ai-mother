@@ -10,6 +10,9 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRunt
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.devserver.DevServerStartOptions;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -36,12 +39,12 @@ class FullStackGenerationBenchmarkRuntimeGraderTest {
 
     @Test
     void healthyBackendMustRemainOwnedWhileBrowserUsesInjectedApiBase() {
-        GenerationBenchmarkBackendRuntime backendRuntime = mock(GenerationBenchmarkBackendRuntime.class);
+        GeneratedBackendRuntime backendRuntime = mock(GeneratedBackendRuntime.class);
         BrowserGenerationRuntimeEvaluator browserEvaluator = mock(BrowserGenerationRuntimeEvaluator.class);
         AtomicBoolean closed = new AtomicBoolean(false);
-        BackendRuntimeHandle handle = new BackendRuntimeHandle(
+        GeneratedBackendRuntimeHandle handle = new GeneratedBackendRuntimeHandle(
                 19_101,
-                BackendRuntimeObservation.passed(),
+                GeneratedBackendRuntimeObservation.passed(),
                 () -> true,
                 () -> closed.set(true)
         );
@@ -78,11 +81,11 @@ class FullStackGenerationBenchmarkRuntimeGraderTest {
 
     @Test
     void unhealthyBackendMustFailRuntimeAndSkipBrowserDeterministically() {
-        GenerationBenchmarkBackendRuntime backendRuntime = mock(GenerationBenchmarkBackendRuntime.class);
+        GeneratedBackendRuntime backendRuntime = mock(GeneratedBackendRuntime.class);
         BrowserGenerationRuntimeEvaluator browserEvaluator = mock(BrowserGenerationRuntimeEvaluator.class);
         when(backendRuntime.start(context().workspace().backendRootPath())).thenReturn(
-                BackendRuntimeHandle.failed(
-                        BackendRuntimeObservation.failed("backend_health_json_invalid")
+                GeneratedBackendRuntimeHandle.failed(
+                        GeneratedBackendRuntimeObservation.failed("backend_health_json_invalid")
                 )
         );
         FullStackGenerationBenchmarkRuntimeGrader grader = grader(backendRuntime, browserEvaluator);
@@ -101,13 +104,13 @@ class FullStackGenerationBenchmarkRuntimeGraderTest {
 
     @Test
     void backendExitDuringBrowserWindowMustFailRuntimeDimension() {
-        GenerationBenchmarkBackendRuntime backendRuntime = mock(GenerationBenchmarkBackendRuntime.class);
+        GeneratedBackendRuntime backendRuntime = mock(GeneratedBackendRuntime.class);
         BrowserGenerationRuntimeEvaluator browserEvaluator = mock(BrowserGenerationRuntimeEvaluator.class);
         AtomicBoolean alive = new AtomicBoolean(true);
         when(backendRuntime.start(context().workspace().backendRootPath())).thenReturn(
-                new BackendRuntimeHandle(
+                new GeneratedBackendRuntimeHandle(
                         19_101,
-                        BackendRuntimeObservation.passed(),
+                        GeneratedBackendRuntimeObservation.passed(),
                         alive::get,
                         () -> { }
                 )
@@ -138,7 +141,7 @@ class FullStackGenerationBenchmarkRuntimeGraderTest {
     }
 
     private FullStackGenerationBenchmarkRuntimeGrader grader(
-            GenerationBenchmarkBackendRuntime backendRuntime,
+            GeneratedBackendRuntime backendRuntime,
             BrowserGenerationRuntimeEvaluator browserEvaluator
     ) {
         GenerationBenchmarkBackendProperties backendProperties =

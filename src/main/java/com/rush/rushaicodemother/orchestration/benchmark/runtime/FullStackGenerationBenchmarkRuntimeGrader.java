@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRunt
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeGrader;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.service.devserver.DevServerStartOptions;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -32,14 +34,14 @@ public class FullStackGenerationBenchmarkRuntimeGrader implements GenerationBenc
     private final GenerationBenchmarkBackendProperties backendProperties;
     private final GenerationBenchmarkBrowserProperties browserProperties;
     private final DevServerRuntimeProperties devServerProperties;
-    private final GenerationBenchmarkBackendRuntime backendRuntime;
+    private final GeneratedBackendRuntime backendRuntime;
     private final BrowserGenerationRuntimeEvaluator browserEvaluator;
 
     public FullStackGenerationBenchmarkRuntimeGrader(
             GenerationBenchmarkBackendProperties backendProperties,
             GenerationBenchmarkBrowserProperties browserProperties,
             DevServerRuntimeProperties devServerProperties,
-            GenerationBenchmarkBackendRuntime backendRuntime,
+            GeneratedBackendRuntime backendRuntime,
             BrowserGenerationRuntimeEvaluator browserEvaluator
     ) {
         this.backendProperties = backendProperties;
@@ -82,7 +84,7 @@ public class FullStackGenerationBenchmarkRuntimeGrader implements GenerationBenc
  */
     @Override
     public List<GenerationBenchmarkRuleResult> evaluate(GenerationBenchmarkRuntimeContext context) {
-        try (BackendRuntimeHandle backend = backendRuntime.start(
+        try (GeneratedBackendRuntimeHandle backend = backendRuntime.start(
                 context.workspace().backendRootPath()
         )) {
             if (!backend.healthy()) {

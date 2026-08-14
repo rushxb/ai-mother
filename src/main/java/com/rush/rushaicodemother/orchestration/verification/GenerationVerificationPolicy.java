@@ -85,9 +85,10 @@ public record GenerationVerificationPolicy(
         return requiresBuild() || preparation.requiresBuildValidation();
     }
 
-    /** 仅 EXPERT 计划执行现有 Dev Server 运行时验证；旧任务保持历史行为。 */
+    /** EXPERT 计划对所有工程类型执行真实运行时验证；简单静态类型不启动运行时。 */
     public boolean requiresRuntimeValidation(CodeGenTypeEnum targetType) {
         boolean runtimeSupported = targetType == CodeGenTypeEnum.VUE_PROJECT
+                || targetType == CodeGenTypeEnum.BACKEND_PROJECT
                 || targetType == CodeGenTypeEnum.FULL_STACK_PROJECT;
         return runtimeSupported && (!frozenPlan || requiresExpertCheck());
     }

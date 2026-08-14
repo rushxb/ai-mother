@@ -10,10 +10,15 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -93,6 +98,12 @@ class GenerationEventPublisherTest {
 
         assertEquals(100, publisher.recent(1L).size());
         assertEquals(5, publisher.recent(1L).getFirst().data().get("index"));
+        List<GenerationEvent> streamedReplay = publisher.stream(1L)
+                .take(100)
+                .collectList()
+                .block(Duration.ofSeconds(1));
+        assertEquals(100, streamedReplay.size());
+        assertEquals(5, streamedReplay.getFirst().data().get("index"));
     }
 
     @Test
@@ -108,11 +119,124 @@ class GenerationEventPublisherTest {
         assertTrue(publisher.recent(1L).isEmpty());
     }
 
+    @Test
+    void terminalEventMustCloseLateStreamsAndReleaseTheLiveSink() {
+        GenerationEventPublisher publisher = new GenerationEventPublisher();
+        GenerationTaskRequest request = request(1L, 2L);
+        publisher.stream(1L).subscribe();
+        assertEquals(1, publisher.trackedSinkCount());
+
+        publisher.publish(request, GenerationEventType.TASK_DONE, "done", Map.of("status", "success"));
+
+        assertEquals(0, publisher.trackedSinkCount());
+        List<GenerationEvent> replay = publisher.stream(1L).collectList().block();
+        assertEquals(1, replay.size());
+        assertEquals(GenerationEventType.TASK_DONE, replay.getFirst().type());
+        assertEquals(0, publisher.trackedSinkCount());
+    }
+
+    @Test
+    void idleReplayWindowMustExpireAndCloseItsLiveStream() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-14T08:00:00Z"));
+        GenerationEventPublisher publisher = new GenerationEventPublisher(
+                clock, Duration.ofMinutes(5), 10, 100);
+        GenerationTaskRequest request = request(1L, 2L);
+        AtomicBoolean streamCompleted = new AtomicBoolean(false);
+        publisher.stream(1L).subscribe(
+                ignored -> { },
+                ignored -> { },
+                () -> streamCompleted.set(true));
+        publisher.publish(
+                request, GenerationEventType.TASK_ROUTE,
+                "route selected", Map.of("route", "slot_fill"));
+
+        clock.advance(Duration.ofMinutes(5).plusSeconds(1));
+
+        assertTrue(publisher.recent(1L).isEmpty());
+        assertTrue(streamCompleted.get());
+    }
+
+    @Test
+    void leastRecentlyUsedAppMustBeEvictedWhenGlobalCapacityIsReached() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-14T08:00:00Z"));
+        GenerationEventPublisher publisher = new GenerationEventPublisher(
+                clock, Duration.ofHours(1), 2, 100);
+        AtomicBoolean evictedStreamCompleted = new AtomicBoolean(false);
+
+        publisher.publish(
+                request(1L, 1L), GenerationEventType.TASK_ROUTE,
+                "app-1", Map.of("app", 1));
+        publisher.stream(2L).subscribe(
+                ignored -> { },
+                ignored -> { },
+                () -> evictedStreamCompleted.set(true));
+        publisher.publish(
+                request(2L, 2L), GenerationEventType.TASK_ROUTE,
+                "app-2", Map.of("app", 2));
+        assertEquals(1, publisher.recent(1L).size());
+
+        publisher.publish(
+                request(3L, 3L), GenerationEventType.TASK_ROUTE,
+                "app-3", Map.of("app", 3));
+
+        assertEquals(1, publisher.recent(1L).size());
+        assertTrue(publisher.recent(2L).isEmpty());
+        assertEquals(1, publisher.recent(3L).size());
+        assertTrue(evictedStreamCompleted.get());
+        assertEquals(2, publisher.trackedSinkCount());
+    }
+
+    @Test
+    void stableEventIdMustMakeOutboxPublicationIdempotent() {
+        GenerationEventPublisher publisher = new GenerationEventPublisher();
+        GenerationEvent event = new GenerationEvent(
+                1L,
+                2L,
+                GenerationEventType.TASK_ROUTE,
+                "route selected",
+                Map.of("eventId", "terminal-effect:42", "route", "agent"),
+                Instant.parse("2026-08-14T08:00:00Z"));
+
+        publisher.publishIdempotently(event);
+        publisher.publishIdempotently(event);
+
+        assertEquals(1, publisher.recent(1L).size());
+        assertEquals("terminal-effect:42", publisher.recent(1L).getFirst().data().get("eventId"));
+    }
+
     private GenerationTaskRequest request(Long appId, Long userId) {
         App app = new App();
         app.setId(appId);
         User user = new User();
         user.setId(userId);
         return new GenerationTaskRequest(app, "生成一个应用", user);
+    }
+
+    private static final class MutableClock extends Clock {
+
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        private void advance(Duration duration) {
+            instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }

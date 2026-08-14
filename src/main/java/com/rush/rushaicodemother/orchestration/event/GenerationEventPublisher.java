@@ -7,23 +7,48 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
 public class GenerationEventPublisher {
 
     private static final int MAX_REPLAY_EVENTS_PER_APP = 100;
+    private static final int MAX_TRACKED_APPS = 512;
+    private static final Duration REPLAY_RETENTION = Duration.ofMinutes(30);
 
-    private final Map<Long, Deque<GenerationEvent>> replayEvents = new ConcurrentHashMap<>();
-    private final Map<Long, Sinks.Many<GenerationEvent>> eventSinks = new ConcurrentHashMap<>();
+    private final Object stateMonitor = new Object();
+    private final Map<Long, Sinks.Many<GenerationEvent>> eventSinks = new HashMap<>();
+    private final Deque<Sinks.Many<GenerationEvent>> sinksPendingCompletion = new ArrayDeque<>();
+    private final GenerationEventReplayBuffer replayBuffer;
+    private final int maxReplayEventsPerApp;
+
+    public GenerationEventPublisher() {
+        this(Clock.systemUTC(), REPLAY_RETENTION, MAX_TRACKED_APPS, MAX_REPLAY_EVENTS_PER_APP);
+    }
+
+    GenerationEventPublisher(Clock clock,
+                             Duration replayRetention,
+                             int maxTrackedApps,
+                             int maxReplayEventsPerApp) {
+        this.maxReplayEventsPerApp = maxReplayEventsPerApp;
+        this.replayBuffer = new GenerationEventReplayBuffer(
+                clock,
+                replayRetention,
+                maxTrackedApps,
+                maxReplayEventsPerApp,
+                this::detachSink);
+    }
+
     /** 按稳定 eventId 幂等发布 outbox 事件。 */
     public void publishIdempotently(GenerationEvent event) {
         if (event == null || event.appId() == null || event.data() == null) {
@@ -34,10 +59,14 @@ public class GenerationEventPublisher {
             throw new IllegalArgumentException("幂等生成事件必须包含 eventId");
         }
         String eventId = String.valueOf(rawEventId);
-        if (!rememberIdempotently(eventId, event)) {
-            return;
+        List<Sinks.Many<GenerationEvent>> sinksToComplete;
+        synchronized (stateMonitor) {
+            if (replayBuffer.append(event, eventId)) {
+                emit(event);
+            }
+            sinksToComplete = drainPendingSinkCompletions();
         }
-        eventSinks.computeIfAbsent(event.appId(), this::newSink).tryEmitNext(event);
+        completeSinks(sinksToComplete);
     }
 
     /** 立即发布与持久 outbox 共用稳定事件 ID。 */
@@ -52,13 +81,13 @@ public class GenerationEventPublisher {
     }
 
     /**
- * 发布当前处理结果或领域事件。
- *
- * @param request 请求参数
- * @param type 目标类型
- * @param message 消息内容
- * @param data {@code data} 对应的调用参数
- */
+     * 发布当前处理结果或领域事件。
+     *
+     * @param request 请求参数
+     * @param type 目标类型
+     * @param message 消息内容
+     * @param data {@code data} 对应的调用参数
+     */
     public void publish(GenerationTaskRequest request,
                         GenerationEventType type,
                         String message,
@@ -82,8 +111,13 @@ public class GenerationEventPublisher {
         if (appId == null) {
             return;
         }
-        remember(event);
-        eventSinks.computeIfAbsent(appId, this::newSink).tryEmitNext(event);
+        List<Sinks.Many<GenerationEvent>> sinksToComplete;
+        synchronized (stateMonitor) {
+            replayBuffer.append(event, null);
+            emit(event);
+            sinksToComplete = drainPendingSinkCompletions();
+        }
+        completeSinks(sinksToComplete);
     }
 
     /**
@@ -105,84 +139,115 @@ public class GenerationEventPublisher {
     }
 
     /**
- * 返回{@code recent}。
- *
- * @param appId 应用编号
- * @return 生成事件集合
- */
+     * 返回应用的最近生成事件。
+     *
+     * @param appId 应用编号
+     * @return 生成事件集合
+     */
     public List<GenerationEvent> recent(Long appId) {
-        if (appId == null) {
-            return List.of();
+        List<GenerationEvent> replay;
+        List<Sinks.Many<GenerationEvent>> sinksToComplete;
+        synchronized (stateMonitor) {
+            replay = replayBuffer.snapshot(appId);
+            sinksToComplete = drainPendingSinkCompletions();
         }
-        Deque<GenerationEvent> events = replayEvents.get(appId);
-        if (events == null) {
-            return List.of();
-        }
-        synchronized (events) {
-            return List.copyOf(events);
-        }
+        completeSinks(sinksToComplete);
+        return replay;
     }
 
     /**
- * 清理{@code Recent}。
- *
- * @param appId 应用编号
- */
+     * 清理应用的重放窗口并关闭实时流。
+     *
+     * @param appId 应用编号
+     */
     public void clearRecent(Long appId) {
-        if (appId != null) {
-            replayEvents.remove(appId);
+        List<Sinks.Many<GenerationEvent>> sinksToComplete;
+        synchronized (stateMonitor) {
+            replayBuffer.remove(appId);
+            sinksToComplete = drainPendingSinkCompletions();
         }
+        completeSinks(sinksToComplete);
     }
 
     /**
- * 返回流。
- *
- * @param appId 应用编号
- * @return 异步响应式处理结果
- */
+     * 返回无历史与实时事件窗口的订阅流。
+     *
+     * @param appId 应用编号
+     * @return 异步响应式处理结果
+     */
     public Flux<GenerationEvent> stream(Long appId) {
         if (appId == null) {
             return Flux.empty();
         }
-        return Flux.defer(() -> Flux.concat(
-                Flux.fromIterable(recent(appId)),
-                eventSinks.computeIfAbsent(appId, this::newSink).asFlux()
-        ));
+        return Flux.defer(() -> {
+            Flux<GenerationEvent> eventStream;
+            List<Sinks.Many<GenerationEvent>> sinksToComplete;
+            synchronized (stateMonitor) {
+                List<GenerationEvent> replay = replayBuffer.open(appId);
+                if (!replay.isEmpty() && isTerminal(replay.getLast().type())) {
+                    eventStream = Flux.fromIterable(replay);
+                } else {
+                    Sinks.Many<GenerationEvent> sink = eventSinks.get(appId);
+                    if (sink == null) {
+                        sink = newSink(appId);
+                        replay.forEach(sink::tryEmitNext);
+                        eventSinks.put(appId, sink);
+                    }
+                    eventStream = sink.asFlux();
+                }
+                sinksToComplete = drainPendingSinkCompletions();
+            }
+            completeSinks(sinksToComplete);
+            return eventStream;
+        });
     }
 
-    /** 处理记录。 */
-    private void remember(GenerationEvent event) {
-        Deque<GenerationEvent> events = replayEvents.computeIfAbsent(
-                event.appId(),
-                key -> new ArrayDeque<>(MAX_REPLAY_EVENTS_PER_APP)
-        );
-        synchronized (events) {
-            events.addLast(event);
-            while (events.size() > MAX_REPLAY_EVENTS_PER_APP) {
-                events.removeFirst();
-            }
+    int trackedSinkCount() {
+        synchronized (stateMonitor) {
+            return eventSinks.size();
         }
     }
 
-    private boolean rememberIdempotently(String eventId, GenerationEvent event) {
-        Deque<GenerationEvent> events = replayEvents.computeIfAbsent(
-                event.appId(), key -> new ArrayDeque<>(MAX_REPLAY_EVENTS_PER_APP));
-        synchronized (events) {
-            boolean duplicate = events.stream().anyMatch(existing -> existing.data() != null
-                    && eventId.equals(String.valueOf(existing.data().get("eventId"))));
-            if (duplicate) {
-                return false;
-            }
-            events.addLast(event);
-            while (events.size() > MAX_REPLAY_EVENTS_PER_APP) {
-                events.removeFirst();
-            }
-            return true;
+    private Sinks.Many<GenerationEvent> newSink(Long ignoredAppId) {
+        return Sinks.many().replay().limit(maxReplayEventsPerApp);
+    }
+
+    private void emit(GenerationEvent event) {
+        Sinks.Many<GenerationEvent> sink = eventSinks.computeIfAbsent(event.appId(), this::newSink);
+        boolean terminal = isTerminal(event.type());
+        if (terminal) {
+            eventSinks.remove(event.appId(), sink);
+        }
+        sink.tryEmitNext(event);
+        if (terminal) {
+            sinksPendingCompletion.addLast(sink);
         }
     }
 
-    private Sinks.Many<GenerationEvent> newSink(Long appId) {
-        return Sinks.many().multicast().directBestEffort();
+    private void detachSink(Long appId) {
+        Sinks.Many<GenerationEvent> sink = eventSinks.remove(appId);
+        if (sink != null) {
+            sinksPendingCompletion.addLast(sink);
+        }
+    }
+
+    private List<Sinks.Many<GenerationEvent>> drainPendingSinkCompletions() {
+        if (sinksPendingCompletion.isEmpty()) {
+            return List.of();
+        }
+        List<Sinks.Many<GenerationEvent>> sinks = List.copyOf(sinksPendingCompletion);
+        sinksPendingCompletion.clear();
+        return sinks;
+    }
+
+    private void completeSinks(List<Sinks.Many<GenerationEvent>> sinks) {
+        sinks.forEach(Sinks.Many::tryEmitComplete);
+    }
+
+    private boolean isTerminal(GenerationEventType type) {
+        return type == GenerationEventType.TASK_DONE
+                || type == GenerationEventType.TASK_FAILED
+                || type == GenerationEventType.TASK_CANCELLED;
     }
 
     private Map<String, Object> immutableEventData(Map<String, Object> data) {

@@ -47,14 +47,29 @@ class GenerationScenarioAttributionArchitectureTest {
     }
 
     @Test
-    void readQueryMustFilterModelCallsEarlyAndSeparateDecisionVersions() throws IOException {
+    void readQueryMustFilterCallsAndKeepQualityLatencyCostObservationsSeparate() throws IOException {
         String mapper = Files.readString(ROOT.resolve(Path.of(
                 "src", "main", "java", "com", "rush", "rushaicodemother",
                 "mapper", "GenerationScenarioAttributionMapper.java")));
 
         assertTrue(mapper.contains("FROM generation_model_call\n                WHERE taskId = #{taskId}"));
         assertTrue(mapper.contains("task.intentSignature = #{intentSignature}"));
-        assertTrue(mapper.contains("GROUP BY task.intentSignature, task.intentProfileVersion"));
         assertTrue(mapper.contains("task.routeDecisionVersion, task.route, task.routeReleaseIdentity"));
+        assertTrue(mapper.contains("CUME_DIST() OVER"));
+        assertTrue(mapper.contains("AS p95FirstUsefulMs"));
+        assertTrue(mapper.contains("AS p95DeliveredMs"));
+        assertTrue(mapper.contains("AS validationObservedCount"));
+        assertTrue(mapper.contains("AS repairObservedCount"));
+        assertTrue(mapper.contains("AS providerCostObservedCount"));
+        assertTrue(mapper.contains("AS creditCostObservedCount"));
+        assertTrue(mapper.contains("FROM generation_model_call\n                    WHERE isDelete = 0"));
+        assertTrue(mapper.contains("COUNT(*) AS physicalCallCount"));
+        assertTrue(mapper.contains(
+                "SUM(CASE WHEN totalTokens IS NOT NULL THEN 1 ELSE 0 END) AS costObservedCallCount"));
+        assertTrue(mapper.contains("COALESCE(physicalCallCount, 0)"));
+        assertTrue(mapper.contains("= COALESCE(costObservedCallCount, 0)"));
+        assertFalse(mapper.contains("COUNT(totalTokens) AS providerCostObservedCount"));
+        assertTrue(mapper.contains(
+                "GROUP BY intentSignature, profileVersion, decisionVersion, route, releaseIdentity"));
     }
 }

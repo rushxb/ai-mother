@@ -1,8 +1,13 @@
 package com.rush.rushaicodemother.infrastructure.persistence.task;
 
 import com.rush.rushaicodemother.mapper.GenerationScenarioAttributionMapper;
+import com.rush.rushaicodemother.mapper.GenerationScenarioBucketRow;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttribution;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketIdentity;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketSummary;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCostMetrics;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioLatencyMetrics;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioQualityMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -77,13 +82,24 @@ class MyBatisGenerationScenarioAttributionRepositoryTest {
 
     @Test
     void summaryQueryMustUseBoundedTimeRangeAndReturnImmutableResults() {
-        GenerationScenarioBucketSummary summary = new GenerationScenarioBucketSummary(
+        GenerationScenarioBucketRow row = new GenerationScenarioBucketRow(
                 SIGNATURE, "intent-profile-v1", "routing-policy-v1", "agent_edit",
-                "routing-policy-v1@task-command-v7", 10L, 8L, 1L,
-                4.2, 2_000.0, 9_000L, 40L);
+                "b".repeat(64), 10L, 8L, 10L, 10L, 8L,
+                10L, 2L, 5L, 1L, 4.2,
+                10L, 1_000.0, 1_500L, 10L, 2_000.0, 3_000L,
+                10L, 9_000L, 10L, 40L);
+        GenerationScenarioBucketSummary summary = new GenerationScenarioBucketSummary(
+                new GenerationScenarioBucketIdentity(
+                        SIGNATURE, "intent-profile-v1", "routing-policy-v1", "agent_edit",
+                        "b".repeat(64)),
+                new GenerationScenarioQualityMetrics(
+                        10, 8, 10, 10, 8, 10, 2, 5, 1, 4.2),
+                new GenerationScenarioLatencyMetrics(
+                        10, 1_000.0, 1_500L, 10, 2_000.0, 3_000L),
+                new GenerationScenarioCostMetrics(10, 9_000, 10, 40));
         LocalDateTime localFrom = LocalDateTime.ofInstant(FROM, ZoneId.systemDefault());
         LocalDateTime localTo = LocalDateTime.ofInstant(TO, ZoneId.systemDefault());
-        when(mapper.summarize(SIGNATURE, localFrom, localTo, 20)).thenReturn(List.of(summary));
+        when(mapper.summarize(SIGNATURE, localFrom, localTo, 20)).thenReturn(List.of(row));
 
         List<GenerationScenarioBucketSummary> result = repository.summarize(
                 SIGNATURE, FROM, TO, 20);

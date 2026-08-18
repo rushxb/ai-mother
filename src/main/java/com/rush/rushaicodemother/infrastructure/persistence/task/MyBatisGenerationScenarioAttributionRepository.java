@@ -1,9 +1,14 @@
 package com.rush.rushaicodemother.infrastructure.persistence.task;
 
 import com.rush.rushaicodemother.mapper.GenerationScenarioAttributionMapper;
+import com.rush.rushaicodemother.mapper.GenerationScenarioBucketRow;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttribution;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttributionRepository;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketIdentity;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketSummary;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCostMetrics;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioLatencyMetrics;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioQualityMetrics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -45,9 +50,36 @@ public class MyBatisGenerationScenarioAttributionRepository
         if (intentSignature == null || !intentSignature.matches("[0-9a-f]{64}")) {
             throw new IllegalArgumentException("场景签名不合法");
         }
-        List<GenerationScenarioBucketSummary> result = mapper.summarize(
+        List<GenerationScenarioBucketRow> result = mapper.summarize(
                 intentSignature, toLocal(from), toLocal(to), limit);
-        return result == null ? List.of() : List.copyOf(result);
+        return result == null ? List.of() : result.stream().map(this::toSummary).toList();
+    }
+
+    private GenerationScenarioBucketSummary toSummary(GenerationScenarioBucketRow row) {
+        if (row == null) {
+            throw new IllegalStateException("场景归因查询返回空行");
+        }
+        return new GenerationScenarioBucketSummary(
+                new GenerationScenarioBucketIdentity(
+                        row.intentSignature(), row.profileVersion(), row.decisionVersion(),
+                        row.route(), row.releaseIdentity()),
+                new GenerationScenarioQualityMetrics(
+                        count(row.taskCount()), count(row.successCount()),
+                        count(row.validationRequiredCount()), count(row.validationObservedCount()),
+                        count(row.firstBuildPassCount()), count(row.repairObservedCount()),
+                        count(row.totalRepairRounds()), count(row.feedbackCount()),
+                        count(row.lowRatingCount()), row.averageRating()),
+                new GenerationScenarioLatencyMetrics(
+                        count(row.firstUsefulObservedCount()), row.averageFirstUsefulMs(),
+                        row.p95FirstUsefulMs(), count(row.deliveredObservedCount()),
+                        row.averageDeliveredMs(), row.p95DeliveredMs()),
+                new GenerationScenarioCostMetrics(
+                        count(row.providerCostObservedCount()), count(row.totalProviderTokens()),
+                        count(row.creditCostObservedCount()), count(row.totalCreditCost())));
+    }
+
+    private long count(Long value) {
+        return value == null ? 0L : value;
     }
 
     private LocalDateTime toLocal(Instant instant) {

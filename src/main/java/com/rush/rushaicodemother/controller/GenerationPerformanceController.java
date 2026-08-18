@@ -7,22 +7,27 @@ import com.rush.rushaicodemother.constant.UserConstant;
 import com.rush.rushaicodemother.model.vo.GenerationDurationProfileVO;
 import com.rush.rushaicodemother.model.vo.GenerationPerformanceSummaryVO;
 import com.rush.rushaicodemother.model.vo.GenerationRouteLatencySegmentVO;
+import com.rush.rushaicodemother.model.vo.GenerationStrategyPromotionAssessmentVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskLatencyLedgerVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskSpanVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.latency.GenerationRouteLatencySegmentService;
 import com.rush.rushaicodemother.monitor.latency.GenerationTaskLatencyLedgerService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
+import com.rush.rushaicodemother.orchestration.learning.GenerationStrategyPromotionQuery;
+import com.rush.rushaicodemother.orchestration.learning.GenerationStrategyPromotionService;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfileService;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -41,6 +46,7 @@ public class GenerationPerformanceController {
     private final GenerationDurationProfileService generationDurationProfileService;
     private final GenerationTaskLatencyLedgerService generationTaskLatencyLedgerService;
     private final GenerationRouteLatencySegmentService generationRouteLatencySegmentService;
+    private final GenerationStrategyPromotionService generationStrategyPromotionService;
 
     @GetMapping("/admin/summary")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
@@ -108,6 +114,30 @@ public class GenerationPerformanceController {
     ) {
         return ResultUtils.success(GenerationRouteLatencySegmentVO.from(
                 generationRouteLatencySegmentService.getProfile(route)));
+    }
+
+    /**
+     * 对同一场景下的真实基线与候选发布指纹执行晋级评估。
+     *
+     * <p>接口只返回评估证据，不直接切换生产策略；真正的发布控制面必须消费
+     * {@code passed} 和回滚指纹，避免人工只看成功率后绕过尾延迟与成本门禁。</p>
+     */
+    @GetMapping("/admin/scenarios/{intentSignature}/strategy-promotion")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<GenerationStrategyPromotionAssessmentVO> assessStrategyPromotion(
+            @PathVariable @Pattern(regexp = "[0-9a-f]{64}") String intentSignature,
+            @RequestParam @Pattern(regexp = "[0-9a-f]{64}") String baselineReleaseIdentity,
+            @RequestParam @Pattern(regexp = "[0-9a-f]{64}") String candidateReleaseIdentity,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to
+    ) {
+        return ResultUtils.success(GenerationStrategyPromotionAssessmentVO.from(
+                generationStrategyPromotionService.assess(new GenerationStrategyPromotionQuery(
+                        intentSignature,
+                        baselineReleaseIdentity,
+                        candidateReleaseIdentity,
+                        from,
+                        to))));
     }
 
 }

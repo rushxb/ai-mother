@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.controller;
 import com.rush.rushaicodemother.annotation.AuthCheck;
 import com.rush.rushaicodemother.common.BaseResponse;
 import com.rush.rushaicodemother.constant.UserConstant;
+import com.rush.rushaicodemother.config.GenerationBenchmarkReleaseProperties;
 import com.rush.rushaicodemother.model.vo.GenerationDurationProfileVO;
 import com.rush.rushaicodemother.model.vo.GenerationTaskSpanVO;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
@@ -13,6 +14,9 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfile;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationDurationProfileService;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationStageDurationProfile;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttributionRepository;
+import com.rush.rushaicodemother.orchestration.learning.GenerationStrategyPromotionGate;
+import com.rush.rushaicodemother.orchestration.learning.GenerationStrategyPromotionService;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -34,7 +38,8 @@ class GenerationPerformanceControllerTest {
         GenerationPerformanceController controller = new GenerationPerformanceController(
                 monitorService, queryService, mock(GenerationDurationProfileService.class),
                 mock(GenerationTaskLatencyLedgerService.class),
-                mock(GenerationRouteLatencySegmentService.class));
+                mock(GenerationRouteLatencySegmentService.class),
+                promotionService());
         Instant startedAt = Instant.parse("2026-07-16T02:00:00Z");
         Instant endedAt = startedAt.plusSeconds(12);
         when(queryService.findByTaskId("task-span-1", 25)).thenReturn(List.of(
@@ -93,7 +98,8 @@ class GenerationPerformanceControllerTest {
         GenerationPerformanceController controller = new GenerationPerformanceController(
                 monitorService, queryService, profileService,
                 mock(GenerationTaskLatencyLedgerService.class),
-                mock(GenerationRouteLatencySegmentService.class));
+                mock(GenerationRouteLatencySegmentService.class),
+                promotionService());
 
         BaseResponse<GenerationDurationProfileVO> response = controller.getRouteDurationProfile("heavy");
 
@@ -124,7 +130,8 @@ class GenerationPerformanceControllerTest {
                 mock(GenerationSpanQueryService.class),
                 mock(GenerationDurationProfileService.class),
                 ledgerService,
-                mock(GenerationRouteLatencySegmentService.class)
+                mock(GenerationRouteLatencySegmentService.class),
+                promotionService()
         );
         Instant submittedAt = Instant.parse("2026-07-18T01:00:00Z");
         when(ledgerService.getLedger("task-ledger-1")).thenReturn(new GenerationTaskLatencyLedger(
@@ -155,6 +162,12 @@ class GenerationPerformanceControllerTest {
 
         assertNotNull(authCheck);
         assertEquals(UserConstant.ADMIN_ROLE, authCheck.mustRole());
+    }
+
+    private GenerationStrategyPromotionService promotionService() {
+        return new GenerationStrategyPromotionService(
+                mock(GenerationScenarioAttributionRepository.class),
+                new GenerationStrategyPromotionGate(new GenerationBenchmarkReleaseProperties()));
     }
 
 }

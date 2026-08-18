@@ -65,6 +65,11 @@ public class GeneratedWorkspaceTrustPolicy {
             "optionalDependencies",
             "peerDependencies"
     );
+    private static final List<String> FORBIDDEN_PACKAGE_MANAGER_CONTROL_FIELDS = List.of(
+            "pnpm",
+            "overrides",
+            "resolutions"
+    );
     private static final List<String> FORBIDDEN_DEPENDENCY_PREFIXES = List.of(
             "file:",
             "link:",
@@ -85,6 +90,7 @@ public class GeneratedWorkspaceTrustPolicy {
     private static final ObjectMapper OBJECT_MAPPER = createObjectMapper();
     private static final Pattern PINNED_PNPM_VERSION = Pattern.compile(
             "^pnpm@[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9a-z.-]+)?(?:\\+[0-9a-z.-]+)?$");
+    private final PnpmLockfileTrustPolicy lockfileTrustPolicy = new PnpmLockfileTrustPolicy();
 
     public boolean appliesTo(String relativePath) {
         if (relativePath == null) {
@@ -127,7 +133,7 @@ public class GeneratedWorkspaceTrustPolicy {
             return List.of("executable_manifest_not_object");
         }
 
-        List<String> blockers = new ArrayList<>(3);
+        List<String> blockers = new ArrayList<>(4);
         String scriptBlocker = validateScripts(manifest.path("scripts"));
         if (!scriptBlocker.isEmpty()) {
             blockers.add(scriptBlocker);
@@ -135,6 +141,10 @@ public class GeneratedWorkspaceTrustPolicy {
         String dependencyBlocker = validateDependencies(manifest);
         if (!dependencyBlocker.isEmpty()) {
             blockers.add(dependencyBlocker);
+        }
+        String packageManagerControlBlocker = validatePackageManagerControls(manifest);
+        if (!packageManagerControlBlocker.isEmpty()) {
+            blockers.add(packageManagerControlBlocker);
         }
         String packageManagerBlocker = validatePackageManager(manifest.get("packageManager"));
         if (!packageManagerBlocker.isEmpty()) {
@@ -147,8 +157,9 @@ public class GeneratedWorkspaceTrustPolicy {
      * 在安装、构建或运行 Node.js 项目之前复核工作区当前状态，
      * 关闭模板残留、人工写入和历史旁路。
      *
-     * <p>锁文件由受信模板和明确的安装模式管理，因此这里不因锁文件存在而拒绝；
-     * 但会拒绝能够改变 registry、认证、代理、工作区范围或执行 hook 的项目级控制文件。</p>
+     * <p>锁文件可由受信模板或受控安装产生，因此不会因存在而直接拒绝；其版本、workspace 范围、
+     * 解析控制项、registry 包标识和 SHA-512 完整性仍会逐次复核。能够改变 registry、认证、代理、
+     * 工作区范围或执行 hook 的项目级控制文件一律拒绝。</p>
      *
      * @param projectRoot 已解析为真实路径的项目根目录
      * @return 空字符串表示允许，否则返回稳定、无敏感内容的机器可读拒绝原因
@@ -183,7 +194,7 @@ public class GeneratedWorkspaceTrustPolicy {
                 return "generated_workspace_forbidden_control_file:" + controlFileName;
             }
         }
-        return "";
+        return lockfileTrustPolicy.validate(projectRoot.resolve("pnpm-lock.yaml"));
     }
 
     public String validateDeletion(String relativePath) {
@@ -231,6 +242,14 @@ public class GeneratedWorkspaceTrustPolicy {
             }
         }
         return "";
+    }
+
+    private String validatePackageManagerControls(JsonNode manifest) {
+        return FORBIDDEN_PACKAGE_MANAGER_CONTROL_FIELDS.stream()
+                .filter(manifest::has)
+                .map(field -> "executable_manifest_package_manager_controls_forbidden:" + field)
+                .findFirst()
+                .orElse("");
     }
 
     private String validatePackageManager(JsonNode packageManager) {

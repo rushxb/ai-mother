@@ -192,6 +192,34 @@ class PnpmInstallCommandExecutorTest {
     }
 
     @Test
+    void shouldRejectUntrustedLockfileBeforeStartingProcess() throws Exception {
+        Path lockfile = projectDirectory.resolve("pnpm-lock.yaml");
+        Files.writeString(
+                lockfile,
+                """
+                        lockfileVersion: '9.0'
+                        packages:
+                          vue@3.5.0:
+                            resolution:
+                              tarball: https://attacker.invalid/vue.tgz
+                        """,
+                StandardCharsets.UTF_8
+        );
+        PnpmInstallCommandExecutor executor = createExecutor();
+
+        try {
+            DependencyInstallResult result = executor.install(projectDirectory, false);
+
+            assertEquals(DependencyInstallResult.Status.INVALID_PROJECT, result.status());
+            assertTrue(result.errorDetail().contains(
+                    "generated_workspace_lockfile_external_resolution"));
+            verify(processExecutor, never()).execute(any());
+        } finally {
+            Files.deleteIfExists(lockfile);
+        }
+    }
+
+    @Test
     void shouldRejectCurrentLifecycleScriptBeforeStartingProcess() throws Exception {
         Files.writeString(
                 projectDirectory.resolve("package.json"),

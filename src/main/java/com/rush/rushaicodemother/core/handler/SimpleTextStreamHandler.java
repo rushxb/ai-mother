@@ -3,17 +3,26 @@ package com.rush.rushaicodemother.core.handler;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.ChatHistoryMessageTypeEnum;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.ChatHistoryService;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
-/**
- * 简单文本流处理器
- * 处理 HTML 和 MULTI_FILE 类型的流式响应
- */
-@Slf4j
-public class SimpleTextStreamHandler {
+import java.util.Set;
 
+/** 处理 HTML 与多文件生成的简单文本事件流。 */
+@Component
+public class SimpleTextStreamHandler implements GenerationStreamHandlerAdapter {
+
+    private static final Set<CodeGenTypeEnum> SUPPORTED_TYPES = Set.of(
+            CodeGenTypeEnum.HTML,
+            CodeGenTypeEnum.MULTI_FILE
+    );
+
+    @Override
+    public Set<CodeGenTypeEnum> supportedCodeGenTypes() {
+        return SUPPORTED_TYPES;
+    }
 
     /**
      * 处理传统流（HTML, MULTI_FILE）
@@ -25,27 +34,40 @@ public class SimpleTextStreamHandler {
      * @param loginUser          登录用户
      * @return 处理后的流
      */
-    public Flux<GenerationStreamEvent> handle(Flux<GenerationStreamEvent> originFlux,
-                                              ChatHistoryService chatHistoryService,
-                                              long appId, User loginUser) {
+    @Override
+    public Flux<GenerationStreamEvent> handle(
+            Flux<GenerationStreamEvent> originFlux,
+            ChatHistoryService chatHistoryService,
+            long appId,
+            User loginUser
+    ) {
         StringBuilder aiResponseBuilder = new StringBuilder();
         return originFlux
                 .map(event -> {
-                    // 收集AI响应内容
+                    // 保留完整文本，流结束后一次性写入对话历史。
                     aiResponseBuilder.append(event.getText());
                     return event;
                 })
                 .doOnComplete(() -> {
-                    // 流式响应完成后，添加AI消息到对话历史
                     String aiResponse = aiResponseBuilder.toString();
-                    chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                    chatHistoryService.addChatMessage(
+                            appId,
+                            aiResponse,
+                            ChatHistoryMessageTypeEnum.AI.getValue(),
+                            loginUser.getId()
+                    );
                 })
                 .doOnError(error -> {
-                    // 如果AI回复失败，也要记录错误消息
+                    // 失败时仍保存已产生的公开文本，避免用户上下文无故丢失。
                     GenerationErrorClassifier.GenerationError generationError =
                             GenerationErrorClassifier.classify(error);
                     String errorMessage = aiResponseBuilder + "\n\nAI回复失败: " + generationError.message();
-                    chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                    chatHistoryService.addChatMessage(
+                            appId,
+                            errorMessage,
+                            ChatHistoryMessageTypeEnum.AI.getValue(),
+                            loginUser.getId()
+                    );
                 });
     }
 }

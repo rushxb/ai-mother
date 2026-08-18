@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.ChatHistoryMessageTypeEnum;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,21 +26,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * JSON 消息流处理器
- * 处理 VUE_PROJECT 类型的复杂流式响应，包含工具调用信息
- */
+/** 处理工程项目的结构化事件流，包括工具调用、构建结果和公开诊断信息。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class JsonMessageStreamHandler {
+public class JsonMessageStreamHandler implements GenerationStreamHandlerAdapter {
 
     private static final int MAX_PUBLIC_TOOL_TEXT_LENGTH = 1_200;
     private static final int MAX_PUBLIC_FILE_PREVIEW_LENGTH = 8_000;
     private static final int MAX_PUBLIC_BATCH_FILE_PATHS = 20;
     private static final int MAX_TOOL_ARGUMENT_BUFFER_LENGTH = 256_000;
+    private static final Set<CodeGenTypeEnum> SUPPORTED_TYPES = Set.of(
+            CodeGenTypeEnum.VUE_PROJECT,
+            CodeGenTypeEnum.BACKEND_PROJECT,
+            CodeGenTypeEnum.FULL_STACK_PROJECT
+    );
 
     private final ToolManager toolManager;
+
+    @Override
+    public Set<CodeGenTypeEnum> supportedCodeGenTypes() {
+        return SUPPORTED_TYPES;
+    }
 
     /**
      * 处理 TokenStream（VUE_PROJECT）
@@ -51,6 +59,7 @@ public class JsonMessageStreamHandler {
      * @param loginUser          登录用户
      * @return 处理后的流
      */
+    @Override
     public Flux<GenerationStreamEvent> handle(Flux<GenerationStreamEvent> originFlux,
                                               ChatHistoryService chatHistoryService,
                                               long appId, User loginUser) {

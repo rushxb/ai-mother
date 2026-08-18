@@ -401,7 +401,6 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         return safeFailureReason(detail);
     }
 
-    /** 校验{@code ation}计划是否有效。 */
     private GenerationBenchmarkValidationPlan validationPlan(
             GenerationBenchmarkFixture fixture,
             String taskId,

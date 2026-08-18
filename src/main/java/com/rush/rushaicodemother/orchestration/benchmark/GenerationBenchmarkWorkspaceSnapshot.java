@@ -10,7 +10,6 @@ public record GenerationBenchmarkWorkspaceSnapshot(
         Path root,
         Map<String, String> fileDigests
 ) {
-    /** 创建生成基准测试工作区快照实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkWorkspaceSnapshot {
         if (root == null) {
             throw new IllegalArgumentException("benchmark workspace root is required");

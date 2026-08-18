@@ -10,12 +10,6 @@ public final class ReleaseCandidateFingerprint {
     private ReleaseCandidateFingerprint() {
     }
 
-    /**
- * 计算内容的 SHA-256 摘要。
- *
- * @param value 待处理值
- * @return 处理后的方法执行结果文本
- */
     public static String sha256(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

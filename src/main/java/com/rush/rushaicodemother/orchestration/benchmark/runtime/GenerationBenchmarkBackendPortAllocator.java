@@ -38,11 +38,6 @@ public class GenerationBenchmarkBackendPortAllocator {
         this.nextCandidate = rangeStart;
     }
 
-    /**
- * 返回{@code reserve}。
- *
- * @return 生成基准测试后端端口{@code Allocator}
- */
     public PortLease reserve() {
         lock.lock();
         try {
@@ -71,7 +66,6 @@ public class GenerationBenchmarkBackendPortAllocator {
         return candidate;
     }
 
-    /** 返回{@code try}{@code Bind}。 */
     private ServerSocket tryBind(int port) {
         ServerSocket socket = null;
         try {

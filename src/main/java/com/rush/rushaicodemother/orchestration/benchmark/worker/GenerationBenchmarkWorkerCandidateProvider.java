@@ -46,7 +46,6 @@ public class GenerationBenchmarkWorkerCandidateProvider {
         };
     }
 
-    /** 返回{@code subject}。 */
     private GenerationBenchmarkEvidenceSubject subject(String value) {
         try {
             return GenerationBenchmarkEvidenceSubject.valueOf(

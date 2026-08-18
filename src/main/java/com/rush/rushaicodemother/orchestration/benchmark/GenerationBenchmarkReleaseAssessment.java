@@ -10,7 +10,6 @@ public record GenerationBenchmarkReleaseAssessment(
         List<String> violations,
         GenerationBenchmarkReport report
 ) {
-    /** 创建生成基准测试发布评估实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkReleaseAssessment {
         violations = violations == null ? List.of() : List.copyOf(violations);
         if (report == null) {

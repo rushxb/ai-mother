@@ -21,12 +21,6 @@ public class GenerationBenchmarkReleaseGate {
         this.properties = properties;
     }
 
-    /**
- * 返回{@code assess}。
- *
- * @param report 报告
- * @return 生成基准测试发布门禁
- */
     public GenerationBenchmarkReleaseAssessment assess(GenerationBenchmarkReport report) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (report == null) {
@@ -219,7 +213,6 @@ public class GenerationBenchmarkReleaseGate {
         }
     }
 
-    /** 处理{@code assess}{@code First}预览{@code Modes}。 */
     private void assessFirstPreviewModes(
             Map<String, GenerationBenchmarkReport.ModeStats> modeStats,
             List<String> violations
@@ -246,7 +239,6 @@ public class GenerationBenchmarkReleaseGate {
         }
     }
 
-    /** 处理{@code assess}质量{@code Dimension}。 */
     private void assessQualityDimension(GenerationBenchmarkReport report,
                                         String dimension,
                                         double minimumEvaluationRate,

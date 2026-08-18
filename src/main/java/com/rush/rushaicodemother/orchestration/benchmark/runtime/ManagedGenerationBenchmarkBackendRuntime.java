@@ -46,17 +46,6 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
     private final WorkspaceFileSystemService workspaceFileSystemService;
     private final GoToolchain goToolchain;
 
-    /**
- * 创建{@code Managed}生成基准测试后端运行时实例并完成必要的依赖和初始状态设置。
- *
- * @param properties 配置属性
- * @param portAllocator {@code portAllocator} 对应的调用参数
- * @param httpProbe {@code httpProbe} 对应的调用参数
- * @param processExecutor 进程执行器
- * @param processTerminator {@code processTerminator} 对应的调用参数
- * @param workspaceFileSystemService 处理该职责的领域服务
- * @param goToolchain {@code goToolchain} 对应的调用参数
- */
     public ManagedGenerationBenchmarkBackendRuntime(
             GenerationBenchmarkBackendProperties properties,
             GenerationBenchmarkBackendPortAllocator portAllocator,
@@ -257,7 +246,6 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
         }
     }
 
-    /** 返回{@code launch}失败。 */
     private GeneratedBackendRuntimeObservation launchFailure(
             CompletableFuture<ManagedProcessResult> processCompletion
     ) {

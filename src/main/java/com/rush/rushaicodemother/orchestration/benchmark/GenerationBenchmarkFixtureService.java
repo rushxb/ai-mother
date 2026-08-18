@@ -40,20 +40,6 @@ public class GenerationBenchmarkFixtureService {
     private final AppDeletionService appDeletionService;
     private final TenantProvisioningService tenantProvisioningService;
 
-    /**
- * 创建生成基准测试{@code Fixture}服务实例并完成必要的依赖和初始状态设置。
- *
- * @param userPersistenceService 用户持久化服务
- * @param appPersistenceService 应用持久化服务
- * @param passwordHashService 密码哈希服务
- * @param requestFactory 请求工厂
- * @param vueBootstrapService 处理该职责的领域服务
- * @param backendBootstrapService 处理该职责的领域服务
- * @param generationWorkspaceService 生成工作区服务
- * @param validationEngine {@code validationEngine} 对应的调用参数
- * @param appDeletionService 应用删除服务
- * @param tenantProvisioningService 处理该职责的领域服务
- */
     public GenerationBenchmarkFixtureService(UserPersistenceService userPersistenceService,
                                              AppPersistenceService appPersistenceService,
                                              PasswordHashService passwordHashService,
@@ -164,7 +150,6 @@ public class GenerationBenchmarkFixtureService {
         return task.mode() != null && !"CREATE".equalsIgnoreCase(task.mode());
     }
 
-    /** 处理{@code bootstrap}工作区。 */
     private void bootstrapWorkspace(Long appId, CodeGenTypeEnum codeGenType, String prompt) {
         if (codeGenType == CodeGenTypeEnum.VUE_PROJECT || codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
             vueBootstrapService.bootstrapIfNecessary(appId, codeGenType, prompt);

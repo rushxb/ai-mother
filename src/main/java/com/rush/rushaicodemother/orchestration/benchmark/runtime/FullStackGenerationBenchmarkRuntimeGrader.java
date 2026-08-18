@@ -58,12 +58,6 @@ public class FullStackGenerationBenchmarkRuntimeGrader implements GenerationBenc
         return DIMENSIONS;
     }
 
-    /**
- * 返回{@code supports}。
- *
- * @param task 任务
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return backendProperties.isEnabled()
@@ -73,12 +67,6 @@ public class FullStackGenerationBenchmarkRuntimeGrader implements GenerationBenc
                 == CodeGenTypeEnum.FULL_STACK_PROJECT;
     }
 
-    /**
- * 返回{@code evaluate}。
- *
- * @param context 执行上下文
- * @return 全栈生成基准测试运行时{@code Grader}集合
- */
     @Override
     public List<GenerationBenchmarkRuleResult> evaluate(GenerationBenchmarkRuntimeContext context) {
         FullStackRuntimeValidationResult validation = fullStackRuntimeVerifier.verify(

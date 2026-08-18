@@ -22,14 +22,6 @@ public class GenerationBenchmarkValidationEngine {
     private final GenerationBenchmarkWorkspaceInspector inspector;
     private final GenerationBenchmarkGraderMetricsCollector metricsCollector;
 
-    /**
- * 创建生成基准测试校验{@code Engine}实例并完成必要的依赖和初始状态设置。
- *
- * @param rules 待处理的 {@code rules} 集合
- * @param runtimeGraders 待处理的 {@code runtimeGraders} 集合
- * @param inspector {@code inspector} 对应的调用参数
- * @param metricsCollector {@code metricsCollector} 对应的调用参数
- */
     @Autowired
     public GenerationBenchmarkValidationEngine(
             List<GenerationBenchmarkValidationRule> rules,
@@ -103,12 +95,6 @@ public class GenerationBenchmarkValidationEngine {
         );
     }
 
-    /**
- * 返回{@code evaluate}。
- *
- * @param plan 计划
- * @return 生成基准测试校验
- */
     public GenerationBenchmarkQualityEvidence evaluate(GenerationBenchmarkValidationPlan plan) {
         if (plan == null || plan.task() == null || plan.workspace() == null) {
             return GenerationBenchmarkQualityEvidence.empty();
@@ -137,7 +123,6 @@ public class GenerationBenchmarkValidationEngine {
         return new GenerationBenchmarkQualityEvidence(results);
     }
 
-    /** 处理{@code evaluate}运行时{@code Graders}。 */
     private void evaluateRuntimeGraders(
             GenerationBenchmarkValidationPlan plan,
             List<GenerationBenchmarkRuleResult> results
@@ -216,7 +201,6 @@ public class GenerationBenchmarkValidationEngine {
         return List.copyOf(normalized);
     }
 
-    /** 返回{@code dimensions}。 */
     private List<GenerationBenchmarkQualityDimension> dimensions(
             GenerationBenchmarkRuntimeGrader grader
     ) {

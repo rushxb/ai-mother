@@ -13,7 +13,6 @@ public record GenerationBenchmarkFixture(
         this(request, GenerationBenchmarkValidationPlan.empty(), cleanup);
     }
 
-    /** 创建生成基准测试{@code Fixture}实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkFixture {
         if (request == null) {
             throw new IllegalArgumentException("benchmark request cannot be null");

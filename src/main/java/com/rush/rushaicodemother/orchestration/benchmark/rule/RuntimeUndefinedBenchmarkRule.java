@@ -35,12 +35,6 @@ public class RuntimeUndefinedBenchmarkRule implements GenerationBenchmarkValidat
         return GenerationBenchmarkQualityDimension.FUNCTIONAL;
     }
 
-    /**
- * 返回{@code supports}。
- *
- * @param task 任务
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return task != null && TASK_ID.equals(task.id());
@@ -65,14 +59,6 @@ public class RuntimeUndefinedBenchmarkRule implements GenerationBenchmarkValidat
                 """);
     }
 
-    /**
- * 返回{@code evaluate}。
- *
- * @param task 任务
- * @param workspace 工作区
- * @param baseline {@code baseline} 对应的调用参数
- * @return 运行时{@code Undefined}基准测试规则
- */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,

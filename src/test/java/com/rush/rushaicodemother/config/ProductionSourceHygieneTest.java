@@ -28,6 +28,14 @@ class ProductionSourceHygieneTest {
             ",\\s*(" + String.join("|", THROWABLE_ARGUMENT_NAMES) + ")\\s*\\)\\s*$",
             Pattern.DOTALL
     );
+    private static final List<Pattern> DAMAGED_JAVADOC_PATTERNS = List.of(
+            Pattern.compile("\\{@code ate}"),
+            Pattern.compile("(?:返回|处理|校验)\\{@code"),
+            Pattern.compile("创建.*实例并完成必要的依赖和初始状态设置"),
+            Pattern.compile("方法执行结果"),
+            Pattern.compile("获取并返回"),
+            Pattern.compile("发布当前处理结果或领域事件")
+    );
 
     @Test
     void productionSourcesMustNotWriteDirectlyToProcessConsole() throws IOException {
@@ -64,6 +72,26 @@ class ProductionSourceHygieneTest {
                 violations.isEmpty(),
                 () -> "生产日志不得直接记录 Throwable 或 Throwable#getMessage()；"
                         + "请使用 LogExceptionSanitizer：\n" + String.join("\n", violations)
+        );
+    }
+
+    @Test
+    void generationBenchmarkSourcesMustNotContainDamagedTemplateComments() throws IOException {
+        Path projectBaseDir = Path.of(System.getProperty("projectBaseDir")).toAbsolutePath().normalize();
+        Path benchmarkSourceRoot = projectBaseDir.resolve(
+                "src/main/java/com/rush/rushaicodemother/orchestration/benchmark");
+        List<String> violations = new ArrayList<>();
+
+        try (var sourceFiles = Files.walk(benchmarkSourceRoot)) {
+            sourceFiles
+                    .filter(path -> path.getFileName().toString().endsWith(".java"))
+                    .forEach(path -> inspectDamagedComments(benchmarkSourceRoot, path, violations));
+        }
+
+        assertTrue(
+                violations.isEmpty(),
+                () -> "生成评测源码不得包含损坏或仅复述方法名的模板注释：\n"
+                        + String.join("\n", violations)
         );
     }
 
@@ -109,6 +137,20 @@ class ProductionSourceHygieneTest {
             }
         } catch (IOException exception) {
             throw new SourceInspectionException("无法读取生产源码：" + sourceFile, exception);
+        }
+    }
+
+    private void inspectDamagedComments(Path sourceRoot, Path sourceFile, List<String> violations) {
+        try {
+            List<String> lines = Files.readAllLines(sourceFile, StandardCharsets.UTF_8);
+            for (int index = 0; index < lines.size(); index++) {
+                String line = lines.get(index);
+                if (DAMAGED_JAVADOC_PATTERNS.stream().anyMatch(pattern -> pattern.matcher(line).find())) {
+                    violations.add(sourceRoot.relativize(sourceFile) + ":" + (index + 1));
+                }
+            }
+        } catch (IOException exception) {
+            throw new SourceInspectionException("无法读取生成评测源码：" + sourceFile, exception);
         }
     }
 

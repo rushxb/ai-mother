@@ -43,14 +43,6 @@ public class BrowserGenerationRuntimeEvaluator {
         this.browserRuntimeVerifier = browserRuntimeVerifier;
     }
 
-    /**
- * 返回{@code evaluate}。
- *
- * @param context 执行上下文
- * @param codeGenType 代码生成类型
- * @param startOptions 待处理的 {@code startOptions} 集合
- * @return 浏览器生成运行时{@code Evaluator}集合
- */
     public List<GenerationBenchmarkRuleResult> evaluate(
             GenerationBenchmarkRuntimeContext context,
             CodeGenTypeEnum codeGenType,
@@ -86,7 +78,6 @@ public class BrowserGenerationRuntimeEvaluator {
         }
     }
 
-    /** 返回{@code grade}运行时。 */
     private GenerationBenchmarkRuleResult gradeRuntime(
             BrowserRuntimeValidationResult validation,
             DevServerErrorCollector errorCollector

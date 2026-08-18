@@ -41,12 +41,6 @@ public class DeclarativeSourceBenchmarkRule implements GenerationBenchmarkValida
         return GenerationBenchmarkQualityDimension.FUNCTIONAL;
     }
 
-    /**
- * 返回{@code supports}。
- *
- * @param task 任务
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return task != null && !task.sourceAssertions().isEmpty();
@@ -75,14 +69,6 @@ public class DeclarativeSourceBenchmarkRule implements GenerationBenchmarkValida
         }
     }
 
-    /**
- * 返回{@code evaluate}。
- *
- * @param task 任务
- * @param workspace 工作区
- * @param baseline {@code baseline} 对应的调用参数
- * @return {@code Declarative}来源基准测试规则
- */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,

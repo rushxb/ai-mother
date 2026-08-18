@@ -20,11 +20,6 @@ public record GenerationBenchmarkValidationPlan(
         userId = Math.max(0, userId);
     }
 
-    /**
- * 返回{@code empty}。
- *
- * @return 生成基准测试校验计划
- */
     public static GenerationBenchmarkValidationPlan empty() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         return new GenerationBenchmarkValidationPlan(

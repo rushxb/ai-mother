@@ -31,12 +31,6 @@ public class GenerationBenchmarkEvidenceCodec {
         }
     }
 
-    /**
- * 返回{@code serialize}报告。
- *
- * @param report 报告
- * @return 处理后的生成基准测试证据{@code Codec}文本
- */
     public String serializeReport(GenerationBenchmarkReport report) {
         if (report == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Benchmark 报告不能为空");

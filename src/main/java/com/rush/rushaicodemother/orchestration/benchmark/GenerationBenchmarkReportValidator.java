@@ -22,11 +22,6 @@ public class GenerationBenchmarkReportValidator {
         this.runner = runner;
     }
 
-    /**
- * 校验{@code ate}是否有效。
- *
- * @param report 报告
- */
     public void validate(GenerationBenchmarkReport report) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (report == null) {

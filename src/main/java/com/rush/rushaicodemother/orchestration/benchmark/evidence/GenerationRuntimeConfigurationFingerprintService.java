@@ -276,7 +276,6 @@ public class GenerationRuntimeConfigurationFingerprintService {
         return overrides.isEmpty() ? "none" : ReleaseCandidateFingerprint.sha256(overrides.toString());
     }
 
-    /** 返回{@code discover}配置。 */
     private Map<String, String> discoverConfiguration(ResourceLoader resourceLoader) {
         Resource resource = resourceLoader.getResource(APPLICATION_CONFIG);
         Map<String, String> discovered = new TreeMap<>(HARDCODED_POLICY_VALUES);

@@ -18,12 +18,6 @@ import java.util.Map;
 @Component
 public class GenerationBenchmarkWorkspaceInspector {
 
-    /**
- * 返回{@code capture}。
- *
- * @param root 根
- * @return 生成基准测试工作区{@code Inspector}
- */
     public GenerationBenchmarkWorkspaceSnapshot capture(Path root) {
         Path normalizedRoot = normalizeRoot(root);
         if (!Files.isDirectory(normalizedRoot, LinkOption.NOFOLLOW_LINKS)) {
@@ -117,13 +111,6 @@ public class GenerationBenchmarkWorkspaceInspector {
         }
     }
 
-    /**
- * 返回{@code exists}。
- *
- * @param root 根
- * @param relativePath 相对路径
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     public boolean exists(Path root, String relativePath) {
         return Files.isRegularFile(resolve(root, relativePath), LinkOption.NOFOLLOW_LINKS);
     }
@@ -169,7 +156,6 @@ public class GenerationBenchmarkWorkspaceInspector {
         return root.toAbsolutePath().normalize();
     }
 
-    /** 返回{@code excluded}。 */
     private boolean excluded(Path root, Path candidate) {
         Path relative = root.relativize(candidate);
         for (Path segment : relative) {

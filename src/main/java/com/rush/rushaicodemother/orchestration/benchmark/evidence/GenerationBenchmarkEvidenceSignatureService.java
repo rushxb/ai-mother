@@ -20,12 +20,6 @@ public class GenerationBenchmarkEvidenceSignatureService {
 
     private final GenerationBenchmarkEvidenceProperties properties;
 
-    /**
- * 返回{@code sign}。
- *
- * @param payload 载荷
- * @return 处理后的生成基准测试证据签名文本
- */
     public String sign(GenerationBenchmarkEvidencePayload payload) {
         if (payload == null || !GenerationBenchmarkEvidenceProtocol.hasCurrentAttestation(
                 payload.signatureVersion(),

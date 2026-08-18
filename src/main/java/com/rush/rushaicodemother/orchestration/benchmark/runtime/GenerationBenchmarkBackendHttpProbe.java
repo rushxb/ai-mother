@@ -27,12 +27,6 @@ public class GenerationBenchmarkBackendHttpProbe {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    /**
- * 创建生成基准测试后端HTTP{@code Probe}实例并完成必要的依赖和初始状态设置。
- *
- * @param properties 配置属性
- * @param objectMapper {@code objectMapper} 对应的调用参数
- */
     @Autowired
     public GenerationBenchmarkBackendHttpProbe(
             GenerationBenchmarkBackendProperties properties,
@@ -95,7 +89,6 @@ public class GenerationBenchmarkBackendHttpProbe {
         }
     }
 
-    /** 返回{@code inspect}。 */
     private GeneratedBackendRuntimeObservation inspect(int port, Duration remaining)
             throws IOException, InterruptedException {
         Duration requestTimeout = properties.getRequestTimeout().compareTo(remaining) <= 0
@@ -152,7 +145,6 @@ public class GenerationBenchmarkBackendHttpProbe {
         }
     }
 
-    /** 校验{@code ate}{@code Json}{@code Contract}是否有效。 */
     private void validateJsonContract(byte[] body, List<String> violations) {
         JsonNode root;
         try {
@@ -188,7 +180,6 @@ public class GenerationBenchmarkBackendHttpProbe {
         }
     }
 
-    /** 处理{@code sleep}{@code Until}{@code Next}尝试。 */
     private void sleepUntilNextAttempt(long remainingNanos) {
         long sleepNanos = Math.min(properties.getPollInterval().toNanos(), remainingNanos);
         try {

@@ -81,7 +81,6 @@ public class GenerationBenchmarkAiModelConfigurationSnapshot
         return List.copyOf(models);
     }
 
-    /** 处理{@code prioritize}候选{@code Within}类型。 */
     private void prioritizeCandidateWithinType(List<AiModelConfiguration> models,
                                                AiModelConfiguration candidate) {
         if (candidate == null) {

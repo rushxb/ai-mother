@@ -33,13 +33,6 @@ public class GenerationBenchmarkRunner {
         this(catalog, promptCatalog, UNMANAGED_MODEL_FINGERPRINT_PROVIDER);
     }
 
-    /**
- * 创建生成基准测试{@code Runner}实例并完成必要的依赖和初始状态设置。
- *
- * @param catalog 目录
- * @param promptCatalog 提示词目录
- * @param modelFingerprintProvider 模型指纹提供方
- */
     @Autowired
     public GenerationBenchmarkRunner(GenerationBenchmarkCatalog catalog,
                                      PromptCatalog promptCatalog,
@@ -196,7 +189,6 @@ public class GenerationBenchmarkRunner {
                 .orElse(0));
     }
 
-    /** 返回{@code percentile}{@code First}令牌{@code Latency}。 */
     private long percentileFirstTokenLatency(List<GenerationBenchmarkRunResult> results, double percentile) {
         List<Long> values = results.stream()
                 .map(GenerationBenchmarkRunResult::firstTokenLatencyMs)
@@ -225,7 +217,6 @@ public class GenerationBenchmarkRunner {
                 .orElse(0));
     }
 
-    /** 返回{@code percentile}{@code First}预览{@code Latency}。 */
     private long percentileFirstPreviewLatency(List<GenerationBenchmarkRunResult> results,
                                                double percentile) {
         List<Long> values = results.stream()

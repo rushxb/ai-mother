@@ -37,13 +37,6 @@ public class BrowserGenerationBenchmarkRuntimeGrader implements GenerationBenchm
         this.evaluator = evaluator;
     }
 
-    /**
- * 创建浏览器生成基准测试运行时{@code Grader}实例并完成必要的依赖和初始状态设置。
- *
- * @param properties 配置属性
- * @param devServerManager 开发服务器管理器
- * @param browserRuntimeProbe {@code browserRuntimeProbe} 对应的调用参数
- */
     public BrowserGenerationBenchmarkRuntimeGrader(
             GenerationBenchmarkBrowserProperties properties,
             DevServerManager devServerManager,
@@ -69,12 +62,6 @@ public class BrowserGenerationBenchmarkRuntimeGrader implements GenerationBenchm
         return DIMENSIONS;
     }
 
-    /**
- * 返回{@code supports}。
- *
- * @param task 任务
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return properties.isEnabled()

@@ -78,14 +78,6 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         return task != null;
     }
 
-    /**
- * 返回{@code evaluate}。
- *
- * @param task 任务
- * @param workspace 工作区
- * @param baseline {@code baseline} 对应的调用参数
- * @return {@code Generated}工作区{@code Security}基准测试规则
- */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,
@@ -135,7 +127,6 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         );
     }
 
-    /** 处理{@code inspect}依赖包清单。 */
     private void inspectPackageManifest(
             Path root,
             String relativePath,
@@ -162,7 +153,6 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         }
     }
 
-    /** 处理{@code inspect}{@code Dependencies}。 */
     private void inspectDependencies(JSONObject dependencies, Set<String> violations) {
         if (dependencies == null) {
             return;
@@ -178,7 +168,6 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         }
     }
 
-    /** 处理{@code inspect}来源。 */
     private void inspectSource(String source, Set<String> violations) {
         if (source == null || source.isBlank()) {
             return;
@@ -203,7 +192,6 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         }
     }
 
-    /** 返回{@code contains}{@code Hardcoded}密钥{@code Assignment}。 */
     private boolean containsHardcodedSecretAssignment(String source) {
         Matcher matcher = SECRET_ASSIGNMENT.matcher(source);
         while (matcher.find()) {

@@ -41,14 +41,6 @@ public class WorkspaceStructuralBenchmarkRule implements GenerationBenchmarkVali
         return task != null;
     }
 
-    /**
- * 返回{@code evaluate}。
- *
- * @param task 任务
- * @param workspace 工作区
- * @param baseline {@code baseline} 对应的调用参数
- * @return 工作区{@code Structural}基准测试规则
- */
     @Override
     public GenerationBenchmarkRuleResult evaluate(
             GenerationBenchmarkTask task,

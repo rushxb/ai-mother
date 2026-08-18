@@ -10,7 +10,6 @@ public record GenerationBenchmarkRuleResult(
         List<String> violations,
         int changedFileCount
 ) {
-    /** 创建生成基准测试规则结果实例并完成必要的依赖和初始状态设置。 */
     public GenerationBenchmarkRuleResult {
         ruleId = ruleId == null || ruleId.isBlank() ? "unknown" : ruleId.trim();
         if (dimension == null) {

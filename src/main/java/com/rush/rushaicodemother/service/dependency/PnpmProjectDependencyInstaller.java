@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.service.dependency;
 import com.rush.rushaicodemother.config.DependencyInstallProperties;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -27,7 +28,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
     private final ProjectProcessTerminator processTerminator;
     private final DependencyInstallProperties properties;
     private final GenerationExecutionContextService executionContextService;
-    private final NodeProjectDirectoryValidator projectDirectoryValidator;
+    private final GeneratedNodeWorkspaceValidator projectDirectoryValidator;
     private final ReentrantLock[] projectLocks;
 
     /**
@@ -47,7 +48,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             ProjectProcessTerminator processTerminator,
             DependencyInstallProperties properties,
             GenerationExecutionContextService executionContextService,
-            NodeProjectDirectoryValidator projectDirectoryValidator
+            GeneratedNodeWorkspaceValidator projectDirectoryValidator
     ) {
         this.commandExecutor = commandExecutor;
         this.integrityService = integrityService;
@@ -83,7 +84,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         DependencyInstallMode effectiveMode = mode == null
                 ? DependencyInstallMode.REUSE_IF_VALID
                 : mode;
-        NodeProjectDirectoryValidator.Validation validation =
+        GeneratedNodeWorkspaceValidator.Validation validation =
                 projectDirectoryValidator.resolveProjectDirectory(projectDirectory);
         if (!validation.valid()) {
             return DependencyInstallResult.failed(
@@ -105,7 +106,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            NodeProjectDirectoryValidator.Validation trustValidation =
+            GeneratedNodeWorkspaceValidator.Validation trustValidation =
                     projectDirectoryValidator.validate(projectPath);
             if (!trustValidation.valid()) {
                 return DependencyInstallResult.failed(

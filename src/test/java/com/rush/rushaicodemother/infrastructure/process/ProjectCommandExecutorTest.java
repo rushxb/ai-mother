@@ -4,6 +4,8 @@ import com.rush.rushaicodemother.config.NodeToolchainProperties;
 import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -42,6 +45,11 @@ class ProjectCommandExecutorTest {
     void setUp() throws Exception {
         projectDirectory = Files.createDirectories(
                 Path.of("target", "test-temp", "project-command-executor").toAbsolutePath().normalize()
+        );
+        Files.writeString(
+                projectDirectory.resolve("package.json"),
+                "{\"packageManager\":\"pnpm@9.15.0\"}",
+                StandardCharsets.UTF_8
         );
         properties = new ProjectCommandProperties();
         properties.setIdleTimeout(Duration.ofSeconds(1));
@@ -78,6 +86,42 @@ class ProjectCommandExecutorTest {
         assertEquals("pnpm", capturedBuilder.get().command().getFirst());
         assertEquals("true", capturedBuilder.get().environment().get("CI"));
         assertEquals("false", capturedBuilder.get().environment().get("NPM_CONFIG_AUDIT"));
+    }
+
+    @Test
+    void shouldRejectUntrustedWorkspaceBeforeStartingProjectCommand() throws Exception {
+        Path projectNpmConfig = projectDirectory.resolve(".npmrc");
+        Files.writeString(
+                projectDirectory.resolve("package.json"),
+                "{\"packageManager\":\"pnpm@9.15.0\"}",
+                StandardCharsets.UTF_8
+        );
+        Files.writeString(
+                projectNpmConfig,
+                "registry=https://attacker.invalid/",
+                StandardCharsets.UTF_8
+        );
+        AtomicBoolean processStarted = new AtomicBoolean(false);
+        ProjectCommandExecutor executor = createExecutor(builder -> {
+            processStarted.set(true);
+            return FakeProcess.completed(0, "must not execute");
+        });
+
+        try {
+            ProjectCommandResult result = executor.executePnpmScript(
+                    projectDirectory,
+                    "build",
+                    Duration.ofSeconds(1),
+                    "test"
+            );
+
+            assertEquals(ProjectCommandResult.Status.FAILED, result.status());
+            assertTrue(result.errorDetail().contains(
+                    "generated_workspace_forbidden_control_file:.npmrc"));
+            assertFalse(processStarted.get());
+        } finally {
+            Files.deleteIfExists(projectNpmConfig);
+        }
     }
 
     @Test
@@ -205,7 +249,8 @@ class ProjectCommandExecutorTest {
                 properties,
                 processExecutor,
                 executionContextService,
-                createNodeToolchain()
+                createNodeToolchain(),
+                createWorkspaceValidator()
         );
 
         ProjectCommandResult result = executor.executePnpmScript(
@@ -230,11 +275,21 @@ class ProjectCommandExecutorTest {
 
     private ProjectCommandExecutor createExecutor(ProcessStarter starter) {
         ManagedProcessExecutor processExecutor = new ManagedProcessExecutor(processTerminator, starter);
-        return new ProjectCommandExecutor(properties, processExecutor, executionContextService, createNodeToolchain());
+        return new ProjectCommandExecutor(
+                properties,
+                processExecutor,
+                executionContextService,
+                createNodeToolchain(),
+                createWorkspaceValidator()
+        );
     }
 
     private NodeToolchain createNodeToolchain() {
         return new NodeToolchain(new NodeToolchainProperties(), false);
+    }
+
+    private GeneratedNodeWorkspaceValidator createWorkspaceValidator() {
+        return new GeneratedNodeWorkspaceValidator(new GeneratedWorkspaceTrustPolicy());
     }
 
     private static final class FakeProcess extends Process {

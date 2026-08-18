@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 public class GeneratedWorkspaceTrustPolicy {
 
     private static final long MAX_PACKAGE_MANIFEST_BYTES = 256 * 1024L;
-    private static final Set<String> INSTALL_ACTIVE_CONTROL_FILES = Set.of(
+    private static final Set<String> EXECUTION_ACTIVE_CONTROL_FILES = Set.of(
             ".pnpmfile.mjs",
             ".pnpmfile.cjs",
             ".npmrc",
@@ -144,7 +144,8 @@ public class GeneratedWorkspaceTrustPolicy {
     }
 
     /**
-     * 在 pnpm 读取项目配置前复核工作区当前状态，关闭模板残留、人工写入和历史旁路。
+     * 在安装、构建或运行 Node.js 项目之前复核工作区当前状态，
+     * 关闭模板残留、人工写入和历史旁路。
      *
      * <p>锁文件由受信模板和明确的安装模式管理，因此这里不因锁文件存在而拒绝；
      * 但会拒绝能够改变 registry、认证、代理、工作区范围或执行 hook 的项目级控制文件。</p>
@@ -152,7 +153,7 @@ public class GeneratedWorkspaceTrustPolicy {
      * @param projectRoot 已解析为真实路径的项目根目录
      * @return 空字符串表示允许，否则返回稳定、无敏感内容的机器可读拒绝原因
      */
-    public String validateDependencyInstallWorkspace(Path projectRoot) {
+    public String validateExecutableWorkspace(Path projectRoot) {
         if (projectRoot == null) {
             return "generated_workspace_project_root_missing";
         }
@@ -175,7 +176,7 @@ public class GeneratedWorkspaceTrustPolicy {
             return "generated_workspace_manifest_unreadable";
         }
 
-        for (String controlFileName : INSTALL_ACTIVE_CONTROL_FILES) {
+        for (String controlFileName : EXECUTION_ACTIVE_CONTROL_FILES) {
             Path controlFile = projectRoot.resolve(controlFileName);
             if (Files.isSymbolicLink(controlFile)
                     || Files.exists(controlFile, LinkOption.NOFOLLOW_LINKS)) {
@@ -256,7 +257,7 @@ public class GeneratedWorkspaceTrustPolicy {
     }
 
     private static Set<String> mergeControlFiles() {
-        LinkedHashSet<String> controlFiles = new LinkedHashSet<>(INSTALL_ACTIVE_CONTROL_FILES);
+        LinkedHashSet<String> controlFiles = new LinkedHashSet<>(EXECUTION_ACTIVE_CONTROL_FILES);
         controlFiles.addAll(GENERATED_ONLY_CONTROL_FILES);
         return Set.copyOf(controlFiles);
     }

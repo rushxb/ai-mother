@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -292,7 +293,7 @@ class PnpmInstallCommandExecutorTest {
                 processExecutor,
                 processTerminator,
                 nodeToolchain,
-                new NodeProjectDirectoryValidator(new GeneratedWorkspaceTrustPolicy())
+                new GeneratedNodeWorkspaceValidator(new GeneratedWorkspaceTrustPolicy())
         );
     }
 

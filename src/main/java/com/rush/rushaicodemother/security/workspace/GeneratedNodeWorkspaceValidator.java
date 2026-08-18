@@ -1,6 +1,5 @@
-package com.rush.rushaicodemother.service.dependency;
+package com.rush.rushaicodemother.security.workspace;
 
-import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -9,13 +8,13 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Objects;
 
-/** 对可执行 Node.js 工具链命令的项目目录建立统一安全边界。 */
+/** 对生成 Node.js 工作区建立统一的目录与内容信任校验 seam。 */
 @Component
-public class NodeProjectDirectoryValidator {
+public class GeneratedNodeWorkspaceValidator {
 
     private final GeneratedWorkspaceTrustPolicy workspaceTrustPolicy;
 
-    public NodeProjectDirectoryValidator(GeneratedWorkspaceTrustPolicy workspaceTrustPolicy) {
+    public GeneratedNodeWorkspaceValidator(GeneratedWorkspaceTrustPolicy workspaceTrustPolicy) {
         this.workspaceTrustPolicy = Objects.requireNonNull(
                 workspaceTrustPolicy,
                 "workspaceTrustPolicy must not be null"
@@ -23,7 +22,7 @@ public class NodeProjectDirectoryValidator {
     }
 
     /**
-     * 校验项目目录的文件系统边界与依赖安装信任策略。
+     * 校验项目目录的文件系统边界与可执行内容信任策略。
      *
      * @param projectDirectory 项目目录
      * @return 包含真实项目路径或稳定拒绝原因的校验结果
@@ -33,25 +32,25 @@ public class NodeProjectDirectoryValidator {
         if (!directoryValidation.valid()) {
             return directoryValidation;
         }
-        String rejectionReason = workspaceTrustPolicy.validateDependencyInstallWorkspace(
+        String rejectionReason = workspaceTrustPolicy.validateExecutableWorkspace(
                 directoryValidation.projectPath());
         return rejectionReason.isEmpty()
                 ? directoryValidation
-                : Validation.invalid("项目依赖配置未通过安全校验: " + rejectionReason);
+                : Validation.invalid("生成工作区未通过安全校验: " + rejectionReason);
     }
 
     /**
-     * 仅解析项目目录边界，供取消流程定位已经登记的进程。
+     * 仅解析项目目录边界，供加锁与取消流程定位项目。
      * 取消必须在 manifest 被删除或工作区变为不可信后仍然可用。
      */
-    Validation resolveProjectDirectory(Path projectDirectory) {
+    public Validation resolveProjectDirectory(Path projectDirectory) {
         if (projectDirectory == null) {
             return Validation.invalid("项目目录不能为空");
         }
         Path normalizedProject = projectDirectory.toAbsolutePath().normalize();
         if (Files.isSymbolicLink(normalizedProject)
                 || !Files.isDirectory(normalizedProject, LinkOption.NOFOLLOW_LINKS)) {
-            return Validation.invalid("项目目录不存在或不是安全的普通目录: " + normalizedProject);
+            return Validation.invalid("项目目录不存在或不是安全的普通目录");
         }
         try {
             return Validation.valid(normalizedProject.toRealPath());

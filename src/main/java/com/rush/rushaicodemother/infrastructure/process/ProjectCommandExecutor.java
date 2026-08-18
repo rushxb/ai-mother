@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.infrastructure.process;
 
 import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ public class ProjectCommandExecutor {
     private final ManagedProcessExecutor processExecutor;
     private final GenerationExecutionContextService executionContextService;
     private final NodeToolchain nodeToolchain;
+    private final GeneratedNodeWorkspaceValidator workspaceValidator;
 
     /**
  * 创建项目命令执行器实例并完成必要的依赖和初始状态设置。
@@ -29,14 +31,16 @@ public class ProjectCommandExecutor {
  * @param properties 配置属性
  * @param processExecutor 进程执行器
  * @param executionContextService 执行上下文服务
- * @param nodeToolchain {@code nodeToolchain} 对应的调用参数
+ * @param nodeToolchain Node.js 工具链
+ * @param workspaceValidator 生成工作区信任校验器
  */
     @Autowired
     public ProjectCommandExecutor(
             ProjectCommandProperties properties,
             ManagedProcessExecutor processExecutor,
             GenerationExecutionContextService executionContextService,
-            NodeToolchain nodeToolchain
+            NodeToolchain nodeToolchain,
+            GeneratedNodeWorkspaceValidator workspaceValidator
     ) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.processExecutor = Objects.requireNonNull(processExecutor, "processExecutor must not be null");
@@ -45,6 +49,10 @@ public class ProjectCommandExecutor {
                 "executionContextService must not be null"
         );
         this.nodeToolchain = Objects.requireNonNull(nodeToolchain, "nodeToolchain must not be null");
+        this.workspaceValidator = Objects.requireNonNull(
+                workspaceValidator,
+                "workspaceValidator must not be null"
+        );
     }
 
     public ProjectCommandResult executePnpmScript(
@@ -105,9 +113,21 @@ public class ProjectCommandExecutor {
             String taskId,
             String logContext
     ) {
+        GeneratedNodeWorkspaceValidator.Validation workspaceValidation =
+                workspaceValidator.validate(projectDirectory);
+        if (!workspaceValidation.valid()) {
+            log.warn("拒绝在不可信生成工作区执行项目命令: reason={}", workspaceValidation.errorDetail());
+            return new ProjectCommandResult(
+                    ProjectCommandResult.Status.FAILED,
+                    renderCommand(command),
+                    null,
+                    "",
+                    workspaceValidation.errorDetail()
+            );
+        }
         ManagedProcessResult managedResult = processExecutor.execute(
                 ManagedProcessRequest.builder()
-                        .workingDirectory(projectDirectory)
+                        .workingDirectory(workspaceValidation.projectPath())
                         .command(command)
                         .environment(NodeProcessEnvironment.overrides(true))
                         .environmentVariablesToRemove(NodeProcessEnvironment.variablesToRemove())
@@ -130,6 +150,10 @@ public class ProjectCommandExecutor {
                     result.command(), result.status(), result.exitCode());
         }
         return result;
+    }
+
+    private String renderCommand(List<String> command) {
+        return command == null ? "" : String.join(" ", command);
     }
 
     /** 将当前对象转换为项目命令结果。 */

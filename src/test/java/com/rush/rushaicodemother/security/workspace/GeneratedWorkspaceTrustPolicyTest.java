@@ -26,11 +26,11 @@ class GeneratedWorkspaceTrustPolicyTest {
             "pnpm-workspace.yaml",
             "pnpm-workspace.yml"
     })
-    void dependencyInstallMustRejectProjectLevelPnpmControlFiles(String controlFileName) throws Exception {
+    void executableWorkspaceMustRejectProjectLevelPnpmControlFiles(String controlFileName) throws Exception {
         writeSafeManifest();
         Files.writeString(projectRoot.resolve(controlFileName), "untrusted", StandardCharsets.UTF_8);
 
-        String rejectionReason = policy.validateDependencyInstallWorkspace(projectRoot);
+        String rejectionReason = policy.validateExecutableWorkspace(projectRoot);
 
         assertEquals(
                 "generated_workspace_forbidden_control_file:" + controlFileName,
@@ -39,14 +39,14 @@ class GeneratedWorkspaceTrustPolicyTest {
     }
 
     @Test
-    void dependencyInstallMustValidateCurrentManifestContent() throws Exception {
+    void executableWorkspaceMustValidateCurrentManifestContent() throws Exception {
         Files.writeString(
                 projectRoot.resolve("package.json"),
                 "{\"dependencies\":{\"unsafe\":\"https://attacker.invalid/package.tgz\"}}",
                 StandardCharsets.UTF_8
         );
 
-        String rejectionReason = policy.validateDependencyInstallWorkspace(projectRoot);
+        String rejectionReason = policy.validateExecutableWorkspace(projectRoot);
 
         assertEquals(
                 "executable_manifest_forbidden_dependency_source:unsafe",
@@ -55,7 +55,7 @@ class GeneratedWorkspaceTrustPolicyTest {
     }
 
     @Test
-    void dependencyInstallMayReuseTrustedTemplateLockfile() throws Exception {
+    void executableWorkspaceMayReuseTrustedTemplateLockfile() throws Exception {
         writeSafeManifest();
         Files.writeString(
                 projectRoot.resolve("pnpm-lock.yaml"),
@@ -63,11 +63,11 @@ class GeneratedWorkspaceTrustPolicyTest {
                 StandardCharsets.UTF_8
         );
 
-        assertEquals("", policy.validateDependencyInstallWorkspace(projectRoot));
+        assertEquals("", policy.validateExecutableWorkspace(projectRoot));
     }
 
     @Test
-    void dependencyInstallMustRejectOversizedManifestWithoutParsingIt() throws Exception {
+    void executableWorkspaceMustRejectOversizedManifestWithoutParsingIt() throws Exception {
         Files.writeString(
                 projectRoot.resolve("package.json"),
                 " ".repeat(256 * 1024 + 1),
@@ -76,7 +76,7 @@ class GeneratedWorkspaceTrustPolicyTest {
 
         assertEquals(
                 "executable_manifest_too_large",
-                policy.validateDependencyInstallWorkspace(projectRoot)
+                policy.validateExecutableWorkspace(projectRoot)
         );
     }
 

@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -260,7 +261,7 @@ class PnpmProjectDependencyInstallerTest {
                 processTerminator,
                 properties,
                 contextService,
-                new NodeProjectDirectoryValidator(new GeneratedWorkspaceTrustPolicy())
+                new GeneratedNodeWorkspaceValidator(new GeneratedWorkspaceTrustPolicy())
         );
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -300,7 +301,7 @@ class PnpmProjectDependencyInstallerTest {
                 processTerminator,
                 properties,
                 new GenerationExecutionContextService(new GenerationRuntimeProperties()),
-                new NodeProjectDirectoryValidator(new GeneratedWorkspaceTrustPolicy())
+                new GeneratedNodeWorkspaceValidator(new GeneratedWorkspaceTrustPolicy())
         );
     }
 

@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -31,7 +32,7 @@ public class PnpmInstallCommandExecutor {
     private final ManagedProcessExecutor processExecutor;
     private final ProjectProcessTerminator processTerminator;
     private final NodeToolchain nodeToolchain;
-    private final NodeProjectDirectoryValidator projectDirectoryValidator;
+    private final GeneratedNodeWorkspaceValidator projectDirectoryValidator;
     private final Map<Path, ActiveInstall> activeInstalls = new ConcurrentHashMap<>();
 
     public PnpmInstallCommandExecutor(
@@ -39,7 +40,7 @@ public class PnpmInstallCommandExecutor {
             ManagedProcessExecutor processExecutor,
             ProjectProcessTerminator processTerminator,
             NodeToolchain nodeToolchain,
-            NodeProjectDirectoryValidator projectDirectoryValidator
+            GeneratedNodeWorkspaceValidator projectDirectoryValidator
     ) {
         this.properties = properties;
         this.processExecutor = processExecutor;
@@ -80,7 +81,7 @@ public class PnpmInstallCommandExecutor {
             throw new IllegalArgumentException("命令超时时间必须大于 0");
         }
         BooleanSupplier effectiveCancellation = cancellationRequested == null ? () -> false : cancellationRequested;
-        NodeProjectDirectoryValidator.Validation validation = projectDirectoryValidator.validate(projectDirectory);
+        GeneratedNodeWorkspaceValidator.Validation validation = projectDirectoryValidator.validate(projectDirectory);
         if (!validation.valid()) {
             return DependencyInstallResult.failed(
                     DependencyInstallResult.Status.INVALID_PROJECT,
@@ -186,7 +187,7 @@ public class PnpmInstallCommandExecutor {
         if (projectDirectory == null) {
             return false;
         }
-        NodeProjectDirectoryValidator.Validation validation =
+        GeneratedNodeWorkspaceValidator.Validation validation =
                 projectDirectoryValidator.resolveProjectDirectory(projectDirectory);
         if (!validation.valid()) {
             return false;

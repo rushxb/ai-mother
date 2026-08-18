@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -43,9 +44,14 @@ class VitePreviewExternalTest {
         int port = availablePort();
         NodeToolchain nodeToolchain = mock(NodeToolchain.class);
         when(nodeToolchain.nodeExecutable()).thenReturn("node");
+        GeneratedNodeWorkspaceValidator workspaceValidator = mock(GeneratedNodeWorkspaceValidator.class);
+        when(workspaceValidator.validate(projectDirectory)).thenReturn(
+                new GeneratedNodeWorkspaceValidator.Validation(true, projectDirectory, null)
+        );
         ViteLauncherResolver resolver = new ViteLauncherResolver(
                 nodeToolchain,
-                new DevServerPreviewPathFactory("/api")
+                new DevServerPreviewPathFactory("/api"),
+                workspaceValidator
         );
         List<String> command = resolver.resolve(projectDirectory, port, 21L);
         Process process = new ProcessBuilder(command)

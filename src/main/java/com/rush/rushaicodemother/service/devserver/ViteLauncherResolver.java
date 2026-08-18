@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -81,12 +82,16 @@ public class ViteLauncherResolver {
 
     private final NodeToolchain nodeToolchain;
     private final DevServerPreviewPathFactory previewPathFactory;
+    private final GeneratedNodeWorkspaceValidator workspaceValidator;
 
     public ViteLauncherResolver(NodeToolchain nodeToolchain,
-                                DevServerPreviewPathFactory previewPathFactory) {
+                                DevServerPreviewPathFactory previewPathFactory,
+                                GeneratedNodeWorkspaceValidator workspaceValidator) {
         this.nodeToolchain = Objects.requireNonNull(nodeToolchain, "nodeToolchain must not be null");
         this.previewPathFactory = Objects.requireNonNull(
                 previewPathFactory, "previewPathFactory must not be null");
+        this.workspaceValidator = Objects.requireNonNull(
+                workspaceValidator, "workspaceValidator must not be null");
     }
 
     /**
@@ -106,7 +111,12 @@ public class ViteLauncherResolver {
                     "Dev Server 启动参数无效"
             );
         }
-        Path nodeModules = projectDirectory.resolve("node_modules").normalize();
+        GeneratedNodeWorkspaceValidator.Validation workspaceValidation =
+                workspaceValidator.validate(projectDirectory);
+        if (!workspaceValidation.valid()) {
+            throw invalidLauncher("项目工作区未通过安全校验: " + workspaceValidation.errorDetail());
+        }
+        Path nodeModules = workspaceValidation.projectPath().resolve("node_modules").normalize();
         if (Files.isSymbolicLink(nodeModules)
                 || !Files.isDirectory(nodeModules, LinkOption.NOFOLLOW_LINKS)) {
             throw invalidLauncher("项目缺少安全的 node_modules 目录");

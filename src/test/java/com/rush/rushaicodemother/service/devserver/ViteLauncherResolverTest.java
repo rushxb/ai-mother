@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.service.devserver;
 
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
+import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,8 +62,27 @@ class ViteLauncherResolverTest {
     }
 
     @Test
+    void shouldRejectUntrustedWorkspaceBeforeResolvingRuntimeLauncher() throws IOException {
+        Path projectDirectory = createProjectWithVite(tempDirectory.resolve("untrusted-project"));
+        Files.writeString(
+                projectDirectory.resolve(".npmrc"),
+                "registry=https://attacker.invalid/"
+        );
+
+        DevServerStartException exception = assertThrows(
+                DevServerStartException.class,
+                () -> createResolver("node").resolve(projectDirectory, 5180, 21L)
+        );
+
+        assertEquals(DevServerStartException.Reason.INVALID_LAUNCHER, exception.reason());
+        assertTrue(exception.getMessage().contains(
+                "generated_workspace_forbidden_control_file:.npmrc"));
+    }
+
+    @Test
     void shouldRejectSymbolicNodeModulesDirectory() throws IOException {
         Path projectDirectory = Files.createDirectories(tempDirectory.resolve("project"));
+        writeSafeManifest(projectDirectory);
         Path externalNodeModules = Files.createDirectories(tempDirectory.resolve("external-node-modules"));
         boolean linked = createSymbolicLink(projectDirectory.resolve("node_modules"), externalNodeModules);
         assumeTrue(linked, "Symbolic links are not supported in this environment");
@@ -77,6 +98,7 @@ class ViteLauncherResolverTest {
     @Test
     void shouldRejectViteEntryWhoseRealTargetEscapesNodeModules() throws IOException {
         Path projectDirectory = Files.createDirectories(tempDirectory.resolve("project"));
+        writeSafeManifest(projectDirectory);
         Path viteBin = Files.createDirectories(projectDirectory.resolve("node_modules/vite/bin"));
         Path externalVite = Files.writeString(tempDirectory.resolve("external-vite.js"), "console.log('vite')");
         boolean linked = createSymbolicLink(viteBin.resolve("vite.js"), externalVite);
@@ -104,7 +126,8 @@ class ViteLauncherResolverTest {
         when(nodeToolchain.nodeExecutable()).thenReturn(nodeExecutable);
         return new ViteLauncherResolver(
                 nodeToolchain,
-                new DevServerPreviewPathFactory("/api")
+                new DevServerPreviewPathFactory("/api"),
+                new GeneratedNodeWorkspaceValidator(new GeneratedWorkspaceTrustPolicy())
         );
     }
 
@@ -112,7 +135,15 @@ class ViteLauncherResolverTest {
         Path viteEntry = projectDirectory.resolve("node_modules/vite/bin/vite.js");
         Files.createDirectories(viteEntry.getParent());
         Files.writeString(viteEntry, "console.log('vite')");
+        writeSafeManifest(projectDirectory);
         return projectDirectory;
+    }
+
+    private void writeSafeManifest(Path projectDirectory) throws IOException {
+        Files.writeString(
+                projectDirectory.resolve("package.json"),
+                "{\"packageManager\":\"pnpm@9.15.0\"}"
+        );
     }
 
     private boolean createSymbolicLink(Path link, Path target) {

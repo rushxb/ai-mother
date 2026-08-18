@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.ai.tools.policy.DependencyPolicyService;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
@@ -14,6 +15,8 @@ import dev.langchain4j.agent.tool.ToolMemoryId;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Set;
+
 /**
  * package.json 管理工具
  */
@@ -21,6 +24,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class PackageManagerTool extends BaseTool {
     private static final String SCRIPTS = "scripts";
+    private static final Set<CodeGenTypeEnum> SUPPORTED_CODE_GENERATION_TYPES = Set.of(
+            CodeGenTypeEnum.VUE_PROJECT,
+            CodeGenTypeEnum.FULL_STACK_PROJECT
+    );
 
     private final DependencyPolicyService dependencyPolicyService;
     private final ToolExecutionGateway toolExecutionGateway;
@@ -274,6 +281,11 @@ public class PackageManagerTool extends BaseTool {
     @Override
     public ToolRiskLevel getRiskLevel() {
         return ToolRiskLevel.WRITE;
+    }
+
+    @Override
+    public boolean supportsCodeGeneration(CodeGenTypeEnum codeGenType) {
+        return SUPPORTED_CODE_GENERATION_TYPES.contains(codeGenType);
     }
 
     @Override

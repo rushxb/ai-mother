@@ -13,7 +13,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * 工具管理器
@@ -57,7 +56,7 @@ public class ToolManager {
         log.info("工具管理器初始化完成，共注册 {} 个工具", toolMap.size());
     }
 
-    /** 校验{@code ate}{@code Exposed}工具名称是否有效。 */
+    /** 校验工具注册名与模型实际暴露的 {@link Tool} 名称一致。 */
     private void validateExposedToolName(BaseTool tool) {
         Class<?> toolClass = ClassUtils.getUserClass(tool);
         List<Method> exposedMethods = Arrays.stream(toolClass.getMethods())
@@ -108,25 +107,13 @@ public class ToolManager {
 
     /** 在构建人工智能服务和调用时都使用共享暴露决策。 */
     public boolean isToolAllowedForCodeGen(String toolName, CodeGenTypeEnum codeGenType) {
+        if (codeGenType == null) {
+            return false;
+        }
         BaseTool tool = toolMap.get(toolName);
         if (tool == null || tool.getRiskLevel() == ToolRiskLevel.EXTERNAL_SIDE_EFFECT) {
             return false;
         }
-        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT
-                && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT
-                && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            return true;
-        }
-        if (Set.of(
-                "buildVueProject",
-                "runProjectCheck",
-                "manageDevServer",
-                "diagnosePreviewRuntime"
-        ).contains(toolName)) {
-            return false;
-        }
-        return codeGenType != CodeGenTypeEnum.BACKEND_PROJECT
-                || (!"analyzeDependencyIssue".equals(toolName)
-                && !"managePackageJson".equals(toolName));
+        return tool.supportsCodeGeneration(codeGenType);
     }
 }

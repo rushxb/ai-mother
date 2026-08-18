@@ -38,6 +38,15 @@ class ToolManagerRiskPolicyTest {
     }
 
     @Test
+    void missingProjectTypeMustFailClosedBeforeExposingAnyTool() {
+        ToolManager manager = new ToolManager(new BaseTool[]{new ReadTestTool()});
+        manager.initTools();
+
+        assertFalse(manager.isToolAllowedForCodeGen("read", null));
+        assertEquals(0, manager.getToolsForCodeGen(null).length);
+    }
+
+    @Test
     void duplicateToolNamesMustFailClosedAtStartup() {
         ToolManager manager = new ToolManager(new BaseTool[]{
                 new ReadTestTool(),
@@ -57,18 +66,36 @@ class ToolManagerRiskPolicyTest {
     }
 
     @Test
-    void packageManagerMustBeVisibleOnlyToFrontendCodeGenerationModes() {
+    void frontendDependencyToolsMustExposeTheCompleteProjectTypeMatrix() {
         PackageManagerTool packageManagerTool = new PackageManagerTool(
                 new DependencyPolicyService(),
                 mock(ToolExecutionGateway.class),
                 mock(ToolWorkspaceFileService.class)
         );
-        ToolManager manager = new ToolManager(new BaseTool[]{packageManagerTool});
+        DependencyAnalyzeTool dependencyAnalyzeTool = new DependencyAnalyzeTool(
+                mock(ToolWorkspaceFileService.class)
+        );
+        ToolManager manager = new ToolManager(new BaseTool[]{
+                packageManagerTool,
+                dependencyAnalyzeTool
+        });
         manager.initTools();
 
-        assertTrue(manager.isToolAllowedForCodeGen("managePackageJson", CodeGenTypeEnum.VUE_PROJECT));
-        assertTrue(manager.isToolAllowedForCodeGen("managePackageJson", CodeGenTypeEnum.FULL_STACK_PROJECT));
-        assertFalse(manager.isToolAllowedForCodeGen("managePackageJson", CodeGenTypeEnum.BACKEND_PROJECT));
+        assertFrontendOnly(manager, "managePackageJson");
+        assertFrontendOnly(manager, "analyzeDependencyIssue");
+    }
+
+    @Test
+    void toolAdapterMustOwnItsProjectTypeExposureWithoutManagerNameRules() {
+        ToolManager manager = new ToolManager(new BaseTool[]{new FrontendOnlyTestTool()});
+        manager.initTools();
+
+        assertTrue(manager.isToolAllowedForCodeGen(
+                "inspectFrontend", CodeGenTypeEnum.VUE_PROJECT));
+        assertTrue(manager.isToolAllowedForCodeGen(
+                "inspectFrontend", CodeGenTypeEnum.FULL_STACK_PROJECT));
+        assertFalse(manager.isToolAllowedForCodeGen(
+                "inspectFrontend", CodeGenTypeEnum.BACKEND_PROJECT));
     }
 
     private abstract static class TestTool extends BaseTool {
@@ -101,6 +128,14 @@ class ToolManagerRiskPolicyTest {
         }
     }
 
+    private void assertFrontendOnly(ToolManager manager, String toolName) {
+        assertFalse(manager.isToolAllowedForCodeGen(toolName, CodeGenTypeEnum.HTML));
+        assertFalse(manager.isToolAllowedForCodeGen(toolName, CodeGenTypeEnum.MULTI_FILE));
+        assertTrue(manager.isToolAllowedForCodeGen(toolName, CodeGenTypeEnum.VUE_PROJECT));
+        assertFalse(manager.isToolAllowedForCodeGen(toolName, CodeGenTypeEnum.BACKEND_PROJECT));
+        assertTrue(manager.isToolAllowedForCodeGen(toolName, CodeGenTypeEnum.FULL_STACK_PROJECT));
+    }
+
     private static final class ReadTestTool extends TestTool {
 
         private ReadTestTool() {
@@ -121,6 +156,24 @@ class ToolManagerRiskPolicyTest {
 
         @Tool("测试写入工具")
         public String write() {
+            return "ok";
+        }
+    }
+
+    private static final class FrontendOnlyTestTool extends TestTool {
+
+        private FrontendOnlyTestTool() {
+            super("inspectFrontend", ToolRiskLevel.READ_ONLY);
+        }
+
+        @Override
+        public boolean supportsCodeGeneration(CodeGenTypeEnum codeGenType) {
+            return codeGenType == CodeGenTypeEnum.VUE_PROJECT
+                    || codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT;
+        }
+
+        @Tool("测试前端工程专用工具")
+        public String inspectFrontend() {
             return "ok";
         }
     }

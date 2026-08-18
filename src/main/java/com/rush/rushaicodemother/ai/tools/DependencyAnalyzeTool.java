@@ -5,6 +5,7 @@ import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 依赖问题分析工具
@@ -20,6 +22,11 @@ import java.util.List;
 @Slf4j
 @Component
 public class DependencyAnalyzeTool extends BaseTool {
+
+    private static final Set<CodeGenTypeEnum> SUPPORTED_CODE_GENERATION_TYPES = Set.of(
+            CodeGenTypeEnum.VUE_PROJECT,
+            CodeGenTypeEnum.FULL_STACK_PROJECT
+    );
 
     private final ToolWorkspaceFileService workspaceFileService;
 
@@ -181,6 +188,11 @@ public class DependencyAnalyzeTool extends BaseTool {
     @Override
     public ToolRiskLevel getRiskLevel() {
         return ToolRiskLevel.READ_ONLY;
+    }
+
+    @Override
+    public boolean supportsCodeGeneration(CodeGenTypeEnum codeGenType) {
+        return SUPPORTED_CODE_GENERATION_TYPES.contains(codeGenType);
     }
 
     @Override

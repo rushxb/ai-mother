@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.ai.tools;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 
 /**
  * 工具基类
@@ -57,6 +58,16 @@ public abstract class BaseTool {
     /** 当前工具是否具备修改生成工作区内容的能力。 */
     public boolean canMutateWorkspace() {
         return false;
+    }
+
+    /**
+     * 声明本工具能否暴露给指定工程类型的代码生成 Agent。
+     *
+     * <p>通用读写工具默认支持所有已注册工程类型；依赖、构建或运行时专用工具
+     * 必须在自身 adapter 中收窄能力，避免 ToolManager 维护易漂移的工具名称表。</p>
+     */
+    public boolean supportsCodeGeneration(CodeGenTypeEnum codeGenType) {
+        return codeGenType != null;
     }
 
     /**

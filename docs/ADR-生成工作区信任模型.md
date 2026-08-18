@@ -34,6 +34,8 @@
 
 网络按阶段隔离：依赖安装只访问受信依赖源，构建默认无外网，运行只进入内部预览网络。预览流量经独立 gateway 暴露，生成容器不能加入宿主网络或其他容器的网络命名空间。
 
+网络权限必须由 `ManagedProcessRequest` 显式声明：安装使用 `DEPENDENCY_EGRESS`，构建与离线验证使用 `NONE`，运行使用 `RUNTIME_INTERNAL`。`RUNTIME_INTERNAL` 与 `exposedPort` 必须成对出现，容器准备入口不得根据调用方法或命令内容隐式升级网络权限。
+
 ## 验证口径
 
 - 生产与 Benchmark 对同一 artifact 复用相同的写入 policy 和 verifier implementation；

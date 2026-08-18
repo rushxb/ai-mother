@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
 import com.rush.rushaicodemother.infrastructure.process.ProcessStarter;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.GeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
 import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
 import org.junit.jupiter.api.AfterEach;
@@ -248,6 +249,8 @@ class DevServerProcessRunnerTest {
                     int hostPort
             ) {
                 assertEquals(5180, hostPort);
+                assertEquals(5180, request.exposedPort());
+                assertEquals(SandboxNetworkPolicy.RUNTIME_INTERNAL, request.networkPolicy());
                 return new SandboxProcessPlan(
                         "container-test",
                         normalizedWorkingDirectory,

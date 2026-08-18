@@ -170,9 +170,10 @@ public class ManagedProcessExecutor {
                         stopBeforeStart.errorDetail()
                 ), processPlan, request, startedAtNanos);
             }
-            log.info("执行外部进程: category={}, sandbox={}, command={}, context={}",
+            log.info("执行外部进程: category={}, sandbox={}, networkPolicy={}, command={}, context={}",
                     normalizeLogValue(request.logCategory(), "external-process"),
                     processPlan.backend(),
+                    request.networkPolicy(),
                     commandText,
                     normalizeLogValue(request.logContext(), "unknown"));
             ProcessBuilder processBuilder = new ProcessBuilder(processPlan.hostCommand());

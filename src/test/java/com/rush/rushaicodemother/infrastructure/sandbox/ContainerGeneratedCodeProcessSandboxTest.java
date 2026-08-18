@@ -54,6 +54,21 @@ class ContainerGeneratedCodeProcessSandboxTest {
     }
 
     @Test
+    void shouldRejectImplicitRuntimeNetworkGrantForExposedPort() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+
+        assertThrows(IllegalArgumentException.class, () -> sandbox.prepareDevServer(
+                ManagedProcessRequest.builder()
+                        .workingDirectory(workspace)
+                        .command(List.of("node", "server.js"))
+                        .exposedPort(5180)
+                        .build(),
+                workspace.toAbsolutePath().normalize(),
+                5180
+        ));
+    }
+
+    @Test
     void shouldGrantConfiguredNetworkOnlyForDependencyInstallationAndMapWorkspacePaths() {
         ContainerGeneratedCodeProcessSandbox sandbox = sandbox(true);
         Path lockfile = workspace.resolve("pnpm-lock.yaml").toAbsolutePath().normalize();
@@ -225,13 +240,14 @@ class ContainerGeneratedCodeProcessSandboxTest {
     }
 
     @Test
-    void shouldGrantExecutableTmpfsToOfflineGoRunWithExposedPort() {
+    void shouldGrantExecutableTmpfsToInternalGoRuntime() {
         ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
         ManagedProcessRequest request = ManagedProcessRequest.builder()
                 .workingDirectory(workspace)
                 .command(List.of("go", "run", "-mod=readonly", "./cmd/server"))
                 .environment(Map.of("SERVER_ADDR", "127.0.0.1:5181"))
-                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                .exposedPort(5181)
                 .build();
 
         SandboxProcessPlan plan = sandbox.prepareDevServer(
@@ -261,7 +277,8 @@ class ContainerGeneratedCodeProcessSandboxTest {
                 .workingDirectory(workspace)
                 .command(List.of("go", "run", "./cmd/server"))
                 .environment(Map.of("SERVER_ADDR", "0.0.0.0:9000"))
-                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                .exposedPort(5181)
                 .build();
 
         assertThrows(
@@ -314,6 +331,8 @@ class ContainerGeneratedCodeProcessSandboxTest {
                         "--strictPort",
                         "--base", "/api/app/dev-server/proxy/21/"
                 ))
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                .exposedPort(5180)
                 .build();
 
         SandboxProcessPlan plan = sandbox.prepareDevServer(

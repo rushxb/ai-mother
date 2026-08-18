@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import org.junit.jupiter.api.Test;
@@ -93,6 +94,7 @@ class ManagedGenerationBenchmarkBackendRuntimeTest {
         assertTrue(handle.healthy());
         assertEquals(port, handle.port());
         assertEquals(port, request.exposedPort());
+        assertEquals(SandboxNetworkPolicy.RUNTIME_INTERNAL, request.networkPolicy());
         assertEquals("127.0.0.1:" + port, request.environment().get("SERVER_ADDR"));
         assertTrue(request.environment().get("DATABASE_DSN").contains("mode=memory"));
         assertEquals("off", request.environment().get("GOPROXY"));

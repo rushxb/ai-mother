@@ -269,7 +269,8 @@ class ContainerGeneratedCodeSandboxIntegrationTest {
                 .workingDirectory(workspace)
                 .command(List.of("go", "run", "-mod=readonly", "."))
                 .environment(Map.of("SERVER_ADDR", "127.0.0.1:" + port))
-                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                .exposedPort(port)
                 .build();
         SandboxProcessPlan plan = sandbox.prepareDevServer(request, workspace.toRealPath(), port);
         Process process = startPlan(plan);
@@ -320,6 +321,8 @@ class ContainerGeneratedCodeSandboxIntegrationTest {
         ManagedProcessRequest request = ManagedProcessRequest.builder()
                 .workingDirectory(workspace)
                 .command(List.of("node", "-e", server))
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                .exposedPort(port)
                 .build();
         SandboxProcessPlan plan = sandbox.prepareDevServer(request, workspace.toRealPath(), port);
         Process process = startPlan(plan);

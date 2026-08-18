@@ -209,7 +209,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
                         }
                     }
                 })
-                .networkPolicy(SandboxNetworkPolicy.NONE)
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
                 .exposedPort(port)
                 .build();
     }

@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.infrastructure.process;
 
 import com.rush.rushaicodemother.config.NodeToolchainProperties;
 import com.rush.rushaicodemother.config.ProjectCommandProperties;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -219,6 +220,7 @@ class ProjectCommandExecutorTest {
         verify(processExecutor).execute(requestCaptor.capture());
         ManagedProcessRequest request = requestCaptor.getValue();
         assertEquals(clampedTimeout, request.timeout());
+        assertEquals(SandboxNetworkPolicy.NONE, request.networkPolicy());
         assertEquals(NodeProcessEnvironment.overrides(true), request.environment());
         assertEquals(NodeProcessEnvironment.variablesToRemove(), request.environmentVariablesToRemove());
         assertTrue(request.cancellationRequested().getAsBoolean());

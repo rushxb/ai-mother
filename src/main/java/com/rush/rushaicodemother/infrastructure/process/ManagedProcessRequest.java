@@ -16,7 +16,8 @@ import java.util.function.BooleanSupplier;
 /**
  * 受控外部进程执行请求。
  *
- * <p>命令必须以参数列表传入，执行器不会通过 shell 拼接或解释命令。</p>
+ * <p>命令必须以参数列表传入，执行器不会通过 shell 拼接或解释命令。
+ * 运行时内部网络与暴露端口必须成对声明，避免执行路径隐式扩大网络权限。</p>
  */
 @Builder
 public record ManagedProcessRequest(
@@ -55,5 +56,10 @@ public record ManagedProcessRequest(
         cancellationRequested = cancellationRequested == null ? () -> false : cancellationRequested;
         lifecycle = lifecycle == null ? ManagedProcessLifecycle.NO_OP : lifecycle;
         networkPolicy = networkPolicy == null ? SandboxNetworkPolicy.NONE : networkPolicy;
+        boolean exposesRuntimePort = exposedPort != null;
+        boolean grantsRuntimeNetwork = networkPolicy == SandboxNetworkPolicy.RUNTIME_INTERNAL;
+        if (exposesRuntimePort != grantsRuntimeNetwork) {
+            throw new IllegalArgumentException("运行时内部网络权限必须与暴露端口同时声明");
+        }
     }
 }

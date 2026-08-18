@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -80,6 +81,8 @@ class PnpmInstallCommandExecutorTest {
         assertFalse(capturedRequest.get().command().contains("--force"));
         assertTrue(capturedRequest.get().command().contains("--ignore-scripts"));
         assertTrue(capturedRequest.get().command().contains("--ignore-pnpmfile"));
+        assertEquals(SandboxNetworkPolicy.DEPENDENCY_EGRESS,
+                capturedRequest.get().networkPolicy());
         assertEquals(NodeProcessEnvironment.overrides(false), capturedRequest.get().environment());
         assertEquals(NodeProcessEnvironment.variablesToRemove(),
                 capturedRequest.get().environmentVariablesToRemove());

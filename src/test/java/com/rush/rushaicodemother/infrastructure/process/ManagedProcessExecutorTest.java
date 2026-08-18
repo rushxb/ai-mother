@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.rush.rushaicodemother.infrastructure.sandbox.GeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
 import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
 import com.rush.rushaicodemother.infrastructure.sandbox.HostLocalGeneratedCodeProcessSandbox;
@@ -282,6 +283,7 @@ class ManagedProcessExecutorTest {
         );
 
         ManagedProcessResult result = executor.execute(requestBuilder()
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
                 .exposedPort(5180)
                 .lifecycle(new ManagedProcessLifecycle() {
                     @Override
@@ -398,7 +400,10 @@ class ManagedProcessExecutorTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> executor.execute(requestBuilder().exposedPort(65_536).build())
+                () -> executor.execute(requestBuilder()
+                        .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                        .exposedPort(65_536)
+                        .build())
         );
         assertFalse(processStarted.get());
     }

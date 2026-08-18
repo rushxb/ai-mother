@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.infrastructure.process.ProcessStarter;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.GeneratedCodeProcessSandbox;
 import com.rush.rushaicodemother.infrastructure.sandbox.HostLocalGeneratedCodeProcessSandbox;
+import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxProcessPlan;
 import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
 import lombok.extern.slf4j.Slf4j;
@@ -225,6 +226,8 @@ public class DevServerProcessRunner {
                     .command(command)
                     .environment(processEnvironment(environmentOverrides))
                     .environmentVariablesToRemove(NodeProcessEnvironment.variablesToRemove())
+                    .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                    .exposedPort(port)
                     .build();
             processPlan = processSandbox.prepareDevServer(request, normalizedProjectDirectory, port);
             sandboxPlanListener.onPlanPrepared(appId, processPlan);
@@ -233,8 +236,8 @@ public class DevServerProcessRunner {
             processBuilder.redirectErrorStream(true);
             processBuilder.environment().putAll(processPlan.hostEnvironment());
             processPlan.hostEnvironmentVariablesToRemove().forEach(processBuilder.environment()::remove);
-            log.info("启动 Dev Server: appId={}, port={}, project={}, sandbox={}",
-                    appId, port, normalizedProjectDirectory, processPlan.backend());
+            log.info("启动 Dev Server: appId={}, port={}, project={}, sandbox={}, networkPolicy={}",
+                    appId, port, normalizedProjectDirectory, processPlan.backend(), request.networkPolicy());
 
             process = processStarter.start(processBuilder);
             outputCompletion = outputPump.start(process, "appId=" + appId, outputConsumer);

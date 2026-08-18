@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -66,6 +67,11 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         if (hostPort < 1 || hostPort > 65535) {
             throw new IllegalArgumentException("container sandbox Dev Server port is invalid");
         }
+        if (!Objects.equals(request.exposedPort(), hostPort)) {
+            throw new IllegalArgumentException(
+                    "container sandbox Dev Server port must match the process request"
+            );
+        }
         return prepareContainer(request, normalizedWorkingDirectory, hostPort);
     }
 
@@ -75,6 +81,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
             Path normalizedWorkingDirectory,
             Integer devServerPort
     ) {
+        requireMatchingNetworkPrivilege(request.networkPolicy(), devServerPort != null);
         String source = normalizedWorkingDirectory.toString();
         if (source.contains(",")) {
             throw new IllegalArgumentException("container sandbox workspace path cannot contain a comma");
@@ -84,7 +91,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         String gatewayName = devServerPort == null ? null : containerName + "-gateway";
         boolean dependencyCacheEnabled = shouldMountDependencyCache(request, devServerPort != null);
         boolean goCompilationCommand = isGoCompilationCommand(request.command())
-                && request.networkPolicy() == SandboxNetworkPolicy.NONE;
+                && request.networkPolicy() != SandboxNetworkPolicy.DEPENDENCY_EGRESS;
         List<String> command = new ArrayList<>();
         command.add(properties.getRuntime());
         command.addAll(List.of(
@@ -96,7 +103,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 "--memory", properties.getMemory(),
                 "--memory-swap", properties.getMemory(),
                 "--cpus", String.valueOf(properties.getCpus()),
-                "--network", network(request.networkPolicy(), devServerPort != null),
+                "--network", network(request.networkPolicy()),
                 "--mount", "type=bind,source=" + source + ",target=" + properties.getWorkspaceMount(),
                 "--workdir", properties.getWorkspaceMount(),
                 "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=" + properties.getTmpfsSize()
@@ -406,13 +413,22 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 && errorOutput.toLowerCase(Locale.ROOT).contains("no such container");
     }
 
-    private String network(SandboxNetworkPolicy policy, boolean devServer) {
-        if (devServer) {
-            return properties.getDevServerNetwork();
+    private String network(SandboxNetworkPolicy policy) {
+        return switch (policy) {
+            case NONE -> "none";
+            case DEPENDENCY_EGRESS -> properties.getDependencyNetwork();
+            case RUNTIME_INTERNAL -> properties.getDevServerNetwork();
+        };
+    }
+
+    /** 防止调用方通过选择不同准备入口隐式扩大网络权限。 */
+    private void requireMatchingNetworkPrivilege(SandboxNetworkPolicy policy, boolean devServer) {
+        boolean grantsRuntimeNetwork = policy == SandboxNetworkPolicy.RUNTIME_INTERNAL;
+        if (devServer != grantsRuntimeNetwork) {
+            throw new IllegalArgumentException(
+                    "container sandbox runtime network privilege does not match preparation mode"
+            );
         }
-        return policy == SandboxNetworkPolicy.DEPENDENCY_EGRESS
-                ? properties.getDependencyNetwork()
-                : "none";
     }
 
     /** 返回容器{@code Environment}。 */

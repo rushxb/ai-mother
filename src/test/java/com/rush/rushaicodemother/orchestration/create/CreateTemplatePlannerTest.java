@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CreateTemplatePlannerTest {
 
-    private final CreateTemplatePlanner planner = new CreateTemplatePlanner();
+    private final CreateTemplatePlanner planner = createPlanner();
 
     @Test
     void shouldPlanVueAdminCrudCreatePath() {
@@ -150,5 +150,15 @@ class CreateTemplatePlannerTest {
                 .flatMap(group -> group.slotIds().stream().map(slot -> group.templateId() + ":" + slot))
                 .toList();
         assertEquals(slots.size(), new HashSet<>(slots).size());
+    }
+
+    private CreateTemplatePlanner createPlanner() {
+        CreateGenerationPlanAssembler assembler = new CreateGenerationPlanAssembler();
+        VueTemplateFeaturePlanner frontendPlanner = new VueTemplateFeaturePlanner();
+        return new CreateTemplatePlanner(List.of(
+                new VueCreateTemplatePlanningAdapter(frontendPlanner, assembler),
+                new BackendCreateTemplatePlanningAdapter(assembler),
+                new FullStackCreateTemplatePlanningAdapter(frontendPlanner, assembler)
+        ));
     }
 }

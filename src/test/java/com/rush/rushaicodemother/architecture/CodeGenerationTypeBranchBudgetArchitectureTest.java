@@ -17,7 +17,7 @@ class CodeGenerationTypeBranchBudgetArchitectureTest {
 
     private static final Path PRODUCTION_SOURCE_ROOT = Path.of("src", "main", "java");
     private static final Pattern SWITCH_PATTERN = Pattern.compile("\\bswitch\\s*\\(");
-    private static final int MAX_FILES_WITH_TYPE_SWITCH = 21;
+    private static final int MAX_FILES_WITH_TYPE_SWITCH = 20;
 
     /**
      * 当前集合是待继续压缩的债务上限，不是推荐结构。
@@ -31,7 +31,6 @@ class CodeGenerationTypeBranchBudgetArchitectureTest {
             "com/rush/rushaicodemother/core/AiCodeGeneratorFacade.java",
             "com/rush/rushaicodemother/core/handler/StreamHandlerExecutor.java",
             "com/rush/rushaicodemother/orchestration/AgentGenerationOrchestrator.java",
-            "com/rush/rushaicodemother/orchestration/create/CreateTemplatePlanner.java",
             "com/rush/rushaicodemother/orchestration/edit/AgentEditPlanningService.java",
             "com/rush/rushaicodemother/orchestration/edit/BackgroundValidationService.java",
             "com/rush/rushaicodemother/orchestration/edit/EditFileLocatorService.java",

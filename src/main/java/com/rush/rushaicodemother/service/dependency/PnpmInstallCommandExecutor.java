@@ -68,7 +68,7 @@ public class PnpmInstallCommandExecutor {
         );
     }
 
-    /** 返回{@code install}。 */
+    /** 执行一次受控安装，同一真实项目路径只允许一个活动进程。 */
     DependencyInstallResult install(
             Path projectDirectory,
             boolean force,
@@ -76,7 +76,6 @@ public class PnpmInstallCommandExecutor {
             Duration commandTimeout,
             BooleanSupplier cancellationRequested
     ) {
-        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (commandTimeout == null || commandTimeout.isZero() || commandTimeout.isNegative()) {
             throw new IllegalArgumentException("命令超时时间必须大于 0");
         }
@@ -101,7 +100,7 @@ public class PnpmInstallCommandExecutor {
             );
         }
 
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        // 无论成功、超时还是取消，finally 都必须移除活动安装登记，否则后续请求会被永久误判为并发安装。
         try {
             AtomicBoolean taskCancellationObserved = new AtomicBoolean(false);
             ManagedProcessResult processResult = processExecutor.execute(

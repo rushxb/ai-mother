@@ -29,12 +29,16 @@ class ProductionSourceHygieneTest {
             Pattern.DOTALL
     );
     private static final List<Pattern> DAMAGED_JAVADOC_PATTERNS = List.of(
-            Pattern.compile("\\{@code ate}"),
+            Pattern.compile("\\{@code (?:ate|ed|are)}"),
             Pattern.compile("(?:返回|处理|校验)\\{@code"),
             Pattern.compile("创建.*实例并完成必要的依赖和初始状态设置"),
             Pattern.compile("方法执行结果"),
             Pattern.compile("获取并返回"),
             Pattern.compile("发布当前处理结果或领域事件")
+    );
+    private static final List<Pattern> LOW_VALUE_TEMPLATE_COMMENT_PATTERNS = List.of(
+            Pattern.compile("先处理前置条件和快速返回分支"),
+            Pattern.compile("将可能失败的操作收敛在统一异常边界内")
     );
 
     @Test
@@ -95,6 +99,41 @@ class ProductionSourceHygieneTest {
         );
     }
 
+    @Test
+    void generatedWorkspaceExecutionCoreMustNotContainLowValueTemplateComments()
+            throws IOException {
+        Path projectBaseDir = Path.of(System.getProperty("projectBaseDir"))
+                .toAbsolutePath()
+                .normalize();
+        Path mainSourceRoot = projectBaseDir.resolve("src/main/java");
+        List<Path> protectedRoots = List.of(
+                mainSourceRoot.resolve("com/rush/rushaicodemother/security/workspace"),
+                mainSourceRoot.resolve("com/rush/rushaicodemother/infrastructure/sandbox"),
+                mainSourceRoot.resolve("com/rush/rushaicodemother/service/dependency")
+        );
+        List<Pattern> forbiddenPatterns = new ArrayList<>(DAMAGED_JAVADOC_PATTERNS);
+        forbiddenPatterns.addAll(LOW_VALUE_TEMPLATE_COMMENT_PATTERNS);
+        List<String> violations = new ArrayList<>();
+
+        for (Path protectedRoot : protectedRoots) {
+            try (var sourceFiles = Files.walk(protectedRoot)) {
+                sourceFiles
+                        .filter(path -> path.getFileName().toString().endsWith(".java"))
+                        .forEach(path -> inspectDamagedComments(
+                                mainSourceRoot,
+                                path,
+                                forbiddenPatterns,
+                                violations));
+            }
+        }
+
+        assertTrue(
+                violations.isEmpty(),
+                () -> "生成工作区执行核心的注释必须说明约束、失败语义或设计原因：\n"
+                        + String.join("\n", violations)
+        );
+    }
+
     private void inspectSourceFile(Path sourceRoot, Path sourceFile, List<String> violations) {
         try {
             List<String> lines = Files.readAllLines(sourceFile, StandardCharsets.UTF_8);
@@ -141,11 +180,18 @@ class ProductionSourceHygieneTest {
     }
 
     private void inspectDamagedComments(Path sourceRoot, Path sourceFile, List<String> violations) {
+        inspectDamagedComments(sourceRoot, sourceFile, DAMAGED_JAVADOC_PATTERNS, violations);
+    }
+
+    private void inspectDamagedComments(Path sourceRoot,
+                                        Path sourceFile,
+                                        List<Pattern> forbiddenPatterns,
+                                        List<String> violations) {
         try {
             List<String> lines = Files.readAllLines(sourceFile, StandardCharsets.UTF_8);
             for (int index = 0; index < lines.size(); index++) {
                 String line = lines.get(index);
-                if (DAMAGED_JAVADOC_PATTERNS.stream().anyMatch(pattern -> pattern.matcher(line).find())) {
+                if (forbiddenPatterns.stream().anyMatch(pattern -> pattern.matcher(line).find())) {
                     violations.add(sourceRoot.relativize(sourceFile) + ":" + (index + 1));
                 }
             }

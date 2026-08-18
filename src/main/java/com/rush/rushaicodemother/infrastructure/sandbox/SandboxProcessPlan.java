@@ -17,16 +17,7 @@ public record SandboxProcessPlan(
         List<String> cleanupResourceIds
 ) {
 
-    /**
- * 创建{@code Sandbox}进程计划实例并完成必要的依赖和初始状态设置。
- *
- * @param backend 后端
- * @param hostWorkingDirectory {@code hostWorkingDirectory} 对应的调用参数
- * @param hostCommand 主机命令
- * @param hostEnvironment {@code hostEnvironment} 对应的调用参数
- * @param hostEnvironmentVariablesToRemove {@code hostEnvironmentVariablesToRemove} 对应的调用参数
- * @param cleanupResourceId 目标资源编号
- */
+    /** 兼容单资源计划，清理时同时将该资源纳入有序资源列表。 */
     public SandboxProcessPlan(
             String backend,
             Path hostWorkingDirectory,
@@ -49,7 +40,7 @@ public record SandboxProcessPlan(
         );
     }
 
-    /** 创建{@code Sandbox}进程计划实例并完成必要的依赖和初始状态设置。 */
+    /** 固化不可变快照，避免调用方在执行或清理期间篡改计划。 */
     public SandboxProcessPlan {
         backend = backend == null || backend.isBlank() ? "unknown" : backend.trim();
         hostCommand = hostCommand == null ? List.of() : List.copyOf(hostCommand);

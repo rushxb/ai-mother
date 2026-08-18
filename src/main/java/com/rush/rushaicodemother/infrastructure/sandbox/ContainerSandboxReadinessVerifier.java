@@ -108,7 +108,7 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
             List<String> arguments
     ) {
         Process process = null;
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        // 启动校验不允许无界等待；超时或中断都终止子进程并令生产启动失败。
         try {
             List<String> command = new ArrayList<>(arguments.size() + 1);
             command.add(properties.getRuntime());
@@ -173,7 +173,7 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
             String metricResource
     ) {
         Process process = null;
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        // 网络名称可配置，所以必须读取 Docker 真实 Internal 标记，不能仅相信命名约定。
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(
                     properties.getRuntime(),

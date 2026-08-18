@@ -31,16 +31,6 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
     private final GeneratedNodeWorkspaceValidator projectDirectoryValidator;
     private final ReentrantLock[] projectLocks;
 
-    /**
- * 创建{@code Pnpm}项目依赖{@code Installer}实例并完成必要的依赖和初始状态设置。
- *
- * @param commandExecutor 命令执行器
- * @param integrityService 处理该职责的领域服务
- * @param processTerminator {@code processTerminator} 对应的调用参数
- * @param properties 配置属性
- * @param executionContextService 执行上下文服务
- * @param projectDirectoryValidator {@code projectDirectoryValidator} 对应的调用参数
- */
     @Autowired
     public PnpmProjectDependencyInstaller(
             PnpmInstallCommandExecutor commandExecutor,
@@ -96,7 +86,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
         Path projectPath = validation.projectPath();
         ReentrantLock projectLock = lockFor(projectPath);
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        // 项目锁等待期间仍轮询任务预算与取消状态，避免锁竞争掩盖终止信号。
         try {
             acquireProjectLock(projectLock, taskId);
         } catch (InterruptedException exception) {
@@ -104,7 +94,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             return interruptedResult("");
         }
 
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        // 获取锁后重新验证工作区，关闭等待期间文件被替换的 TOCTOU 窗口。
         try {
             GeneratedNodeWorkspaceValidator.Validation trustValidation =
                     projectDirectoryValidator.validate(projectPath);
@@ -152,7 +142,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         return projectDirectory != null && commandExecutor.cancel(projectDirectory);
     }
 
-    /** 返回{@code install}并{@code Bounded}{@code Retries}。 */
+    /** 仅重试可恢复的安装或完整性失败，取消与中断立即终止。 */
     private DependencyInstallResult installWithBoundedRetries(Path projectPath,
                                                               String taskId,
                                                               DependencyInstallMode mode) {

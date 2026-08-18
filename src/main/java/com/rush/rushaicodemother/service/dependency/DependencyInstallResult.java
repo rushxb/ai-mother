@@ -5,7 +5,7 @@ import java.util.Objects;
 /** 项目依赖安装结果。 */
 public record DependencyInstallResult(Status status, String output, String errorDetail) {
 
-    /** 创建依赖{@code Install}结果实例并完成必要的依赖和初始状态设置。 */
+    /** 统一结果语义：成功不携带错误，失败必须有可展示原因。 */
     public DependencyInstallResult {
         Objects.requireNonNull(status, "安装状态不能为空");
         output = output == null ? "" : output;
@@ -20,14 +20,7 @@ public record DependencyInstallResult(Status status, String output, String error
         return new DependencyInstallResult(Status.SUCCESS, output, null);
     }
 
-    /**
- * 将{@code ed}标记为失败并记录原因。
- *
- * @param status 目标状态
- * @param output 输出
- * @param errorDetail {@code errorDetail} 对应的调用参数
- * @return {@code ed}
- */
+    /** 创建非成功结果，拒绝用 {@link Status#SUCCESS} 伪装失败。 */
     public static DependencyInstallResult failed(Status status, String output, String errorDetail) {
         if (status == Status.SUCCESS) {
             throw new IllegalArgumentException("失败结果不能使用 SUCCESS 状态");

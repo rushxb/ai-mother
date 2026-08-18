@@ -172,11 +172,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         );
     }
 
-    /**
- * 处理{@code activate}。
- *
- * @param plan 计划
- */
+    /** 按命令数量分配激活预算，用于运行容器接入预览网关网络。 */
     @Override
     public void activate(SandboxProcessPlan plan) {
         int commandCount = plan == null ? 0 : plan.activationCommands().size();
@@ -266,7 +262,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
     /** 清理资源及其关联资源。 */
     private void cleanupResource(String resourceId) {
         Process process = null;
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        // 中断或清理超时时必须强制终止 docker 子进程，避免任务终态被后台进程拖住。
         try {
             process = new ProcessBuilder(
                     properties.getRuntime(), "rm", "--force", resourceId)

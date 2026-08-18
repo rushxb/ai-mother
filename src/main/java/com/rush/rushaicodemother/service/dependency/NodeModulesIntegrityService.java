@@ -124,13 +124,6 @@ public class NodeModulesIntegrityService {
                 return FileVisitResult.CONTINUE;
             }
 
-            /**
- * 在目录访问完成后处理异常并收口遍历状态。
- *
- * @param directory 目录
- * @param exception 待转换或处理的异常
- * @return 方法执行结果
- */
             @Override
             public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
                 if (exception != null) {
@@ -142,7 +135,7 @@ public class NodeModulesIntegrityService {
         });
     }
 
-    /** 校验{@code ate}安全{@code Ancestors}是否有效。 */
+    /** 删除前逐层拒绝符号链接，防止越出已校验的 .pnpm 根目录。 */
     private void validateSafeAncestors(Path safeRoot, Path target) throws IOException {
         if (!isSafeDirectory(safeRoot)) {
             throw new IOException(".pnpm 根目录不是安全的普通目录: " + safeRoot);
@@ -172,7 +165,7 @@ public class NodeModulesIntegrityService {
                 properties.getRuntimeValidationTimeout()
         );
         BooleanSupplier cancellationRequested = () -> executionContextService.shouldStop(taskId);
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        // 完整性探测失败等价于依赖不可用，但任务取消与预算越界必须继续向上传播。
         try {
             ManagedProcessResult result = processExecutor.execute(
                     ManagedProcessRequest.builder()
@@ -207,7 +200,7 @@ public class NodeModulesIntegrityService {
         }
     }
 
-    /** 返回{@code are}{@code Native}依赖包{@code Complete}。 */
+    /** Windows 下复核已知 native 包的平台二进制，其他平台无此补充检查。 */
     private boolean areNativePackagesComplete(Path pnpmDirectory) {
         if (!windows) {
             return true;

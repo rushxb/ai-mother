@@ -60,10 +60,42 @@ class ContainerSandboxReadinessVerifierTest {
         assertTrue(exception.getMessage().contains("pnpm 缓存卷"));
     }
 
+    @Test
+    void shouldFailStartupWhenDependencyNetworkAllowsDirectInternetEgress() {
+        GeneratedCodeSandboxProperties properties = new GeneratedCodeSandboxProperties();
+        List<List<String>> commands = new ArrayList<>();
+        ContainerSandboxReadinessVerifier verifier = verifier(
+                properties,
+                commands,
+                false,
+                false
+        );
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                verifier::afterSingletonsInstantiated
+        );
+
+        assertTrue(exception.getMessage().contains("network internal policy"));
+        assertTrue(commands.stream().anyMatch(command ->
+                command.contains("--format={{.Internal}}")
+                        && command.getLast().equals(
+                        properties.getContainer().getDependencyNetwork())));
+    }
+
     private ContainerSandboxReadinessVerifier verifier(
             GeneratedCodeSandboxProperties properties,
             List<List<String>> commands,
             boolean failVolumeInspection
+    ) {
+        return verifier(properties, commands, failVolumeInspection, true);
+    }
+
+    private ContainerSandboxReadinessVerifier verifier(
+            GeneratedCodeSandboxProperties properties,
+            List<List<String>> commands,
+            boolean failVolumeInspection,
+            boolean dependencyNetworkInternal
     ) {
         return ContainerSandboxReadinessVerifier.forTesting(
                 properties,
@@ -77,7 +109,11 @@ class ContainerSandboxReadinessVerifierTest {
                     if (volumeInspection && failVolumeInspection) {
                         return new CompletedProcess(1, "");
                     }
-                    String output = networkPolicyOutput(properties, command);
+                    String output = networkPolicyOutput(
+                            properties,
+                            command,
+                            dependencyNetworkInternal
+                    );
                     return new CompletedProcess(0, output);
                 }
         );
@@ -85,14 +121,18 @@ class ContainerSandboxReadinessVerifierTest {
 
     private String networkPolicyOutput(
             GeneratedCodeSandboxProperties properties,
-            List<String> command
+            List<String> command,
+            boolean dependencyNetworkInternal
     ) {
         if (!command.contains("--format={{.Internal}}")) {
             return "";
         }
-        return command.getLast().equals(properties.getContainer().getDevServerNetwork())
-                ? "true\n"
-                : "false\n";
+        String network = command.getLast();
+        if (network.equals(properties.getContainer().getDependencyNetwork())) {
+            return dependencyNetworkInternal ? "true\n" : "false\n";
+        }
+        return network.equals(properties.getContainer().getDevServerNetwork())
+                ? "true\n" : "false\n";
     }
 
     private static final class CompletedProcess extends Process {

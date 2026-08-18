@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.config.production;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
@@ -498,6 +500,44 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
     }
 
     @Test
+    void shouldRequireExplicitTrustedDependencyRegistryInProduction() {
+        Map<String, Object> properties = validProductionProperties();
+        properties.remove("app.generated-code-sandbox.container.dependency-registry-url");
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains(
+                "app.generated-code-sandbox.container.dependency-registry-url"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "file:///tmp/npm-registry",
+            "http://127.0.0.1:4873/",
+            "http://user:secret@npm-registry:4873/",
+            "http://npm-registry:4873/?target=https://attacker.invalid"
+    })
+    void shouldRejectUntrustedDependencyRegistryAddressInProduction(String registryUrl) {
+        Map<String, Object> properties = validProductionProperties();
+        properties.put(
+                "app.generated-code-sandbox.container.dependency-registry-url",
+                registryUrl
+        );
+
+        ProductionConfigurationException exception = assertThrows(
+                ProductionConfigurationException.class,
+                () -> processor.postProcessEnvironment(productionEnvironment(properties), null)
+        );
+
+        assertTrue(exception.getMessage().contains(
+                "app.generated-code-sandbox.container.dependency-registry-url"));
+        assertFalse(exception.getMessage().contains(registryUrl));
+    }
+
+    @Test
     void shouldIgnoreProductionContractOutsideProdProfile() {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("dev");
@@ -534,6 +574,7 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
                 "spring.data.redis.host",
                 "spring.data.redis.password",
                 "app.cors.allowed-origins",
+                "app.generated-code-sandbox.container.dependency-registry-url",
                 "code.deploy-host"
         )) {
             String value = environment.getProperty(credentialProperty);
@@ -598,6 +639,10 @@ class ProductionConfigurationEnvironmentPostProcessorTest {
         properties.put(
                 "app.generated-code-sandbox.container.dependency-network",
                 "ai-code-sandbox-egress"
+        );
+        properties.put(
+                "app.generated-code-sandbox.container.dependency-registry-url",
+                "http://npm-registry:4873/"
         );
         properties.put(
                 "app.generated-code-sandbox.container.dev-server-network",

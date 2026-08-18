@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.infrastructure.sandbox;
 
 import com.rush.rushaicodemother.config.GeneratedCodeSandboxProperties;
+import com.rush.rushaicodemother.config.TrustedDependencyRegistry;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,7 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
     );
     private final GeneratedCodeSandboxProperties.Container properties;
     private final GeneratedCodeProcessEnvironmentPolicy environmentPolicy;
+    private final TrustedDependencyRegistry dependencyRegistry;
 
     public ContainerGeneratedCodeProcessSandbox(
             GeneratedCodeSandboxProperties properties,
@@ -42,6 +44,8 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
     ) {
         this.properties = properties.getContainer();
         this.environmentPolicy = Objects.requireNonNull(environmentPolicy, "environmentPolicy");
+        this.dependencyRegistry = TrustedDependencyRegistry.parse(
+                this.properties.getDependencyRegistryUrl());
     }
 
     @Override
@@ -442,6 +446,10 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         environment.put("XDG_CACHE_HOME", "/tmp/cache");
         environment.put("NPM_CONFIG_CACHE", "/tmp/npm-cache");
         environment.put("COREPACK_HOME", "/tmp/corepack");
+        if (request.networkPolicy() == SandboxNetworkPolicy.DEPENDENCY_EGRESS
+                && isPnpmInstallCommand(request.command())) {
+            environment.put("NPM_CONFIG_REGISTRY", dependencyRegistry.url());
+        }
         if (goCompilationCommand) {
             environment.put("GOCACHE", GO_BUILD_TMP_DIR + "/cache");
             environment.put("GOTMPDIR", GO_BUILD_TMP_DIR);
@@ -511,7 +519,10 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
                 || request.networkPolicy() != SandboxNetworkPolicy.DEPENDENCY_EGRESS) {
             return false;
         }
-        List<String> command = request.command();
+        return isPnpmInstallCommand(request.command());
+    }
+
+    private boolean isPnpmInstallCommand(List<String> command) {
         return command != null
                 && command.size() >= 2
                 && command.getFirst() != null

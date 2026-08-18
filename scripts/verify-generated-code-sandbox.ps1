@@ -45,7 +45,7 @@ try {
         --file docker/generated-code-sandbox/Dockerfile `
         --tag $Image `
         .
-    Ensure-Network $DependencyNetwork $false
+    Ensure-Network $DependencyNetwork $true
     Ensure-Network $DevServerNetwork $true
     Ensure-Network $PreviewGatewayNetwork $false
     Ensure-Volume $PnpmStoreVolume

@@ -46,7 +46,7 @@ docker build \
   --file docker/generated-code-sandbox/Dockerfile \
   --tag "$IMAGE" \
   .
-ensure_network "$DEPENDENCY_NETWORK" false
+ensure_network "$DEPENDENCY_NETWORK" true
 ensure_network "$DEV_SERVER_NETWORK" true
 ensure_network "$PREVIEW_GATEWAY_NETWORK" false
 ensure_volume "$PNPM_STORE_VOLUME"

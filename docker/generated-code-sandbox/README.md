@@ -25,7 +25,7 @@ Go 门禁运行时固定关闭网络，并设置 `GOENV=off`、`GOFLAGS=`、`GOP
 
 Dev Server 只连接内部 Docker 网络。独立、由平台控制且只读的预览网关同时连接内部网络和专用预览网络，并仅向宿主 `127.0.0.1` 发布分配端口。生成代码容器不会加入预览网关网络或依赖出口网络。
 
-生产环境必须使用摘要固定的最终沙箱镜像，例如 `registry.example.com/ai-code/sandbox@sha256:...`，并使用受防火墙或代理策略约束的专用依赖出口网络，禁止使用 Docker 默认 `bridge`。数据库、Redis、Docker socket 和控制面服务不得连接任何沙箱网络。工作区必须允许配置的容器 UID/GID 写入，默认是 `1000:1000`。
+生产环境必须使用摘要固定的最终沙箱镜像，例如 `registry.example.com/ai-code/sandbox@sha256:...`。依赖网络必须通过 `docker network create --internal` 预创建，且只能连接平台维护的 registry mirror；mirror 自己负责上游 allowlist、代理、证书和缓存，生成容器没有默认外网路由。通过 `APP_GENERATED_CODE_SANDBOX_CONTAINER_DEPENDENCY_REGISTRY_URL` 显式配置 mirror 地址，例如 `http://npm-registry:4873/`。该地址不能携带凭据、IP 字面量、查询参数或回环主机。数据库、Redis、Docker socket 和控制面服务不得连接任何沙箱网络。工作区必须允许配置的容器 UID/GID 写入，默认是 `1000:1000`。
 
 生产还需要预先创建节点本地 pnpm store volume。只有命令严格匹配受控 `pnpm install` 且获得依赖出口能力时，该卷才以可写方式挂载；构建、测试、工具和 Dev Server 容器均不可见。缓存包复制到项目目录而不是硬链接，并保持 pnpm store 完整性校验。该卷只能作为可丢弃缓存使用，名称应绑定沙箱镜像和 pnpm 主版本，并配置节点磁盘水位告警；清理或轮换只能在没有活动安装任务的维护窗口执行。
 

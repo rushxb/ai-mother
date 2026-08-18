@@ -46,6 +46,14 @@ class GeneratedCodeSandboxPropertiesTest {
     }
 
     @Test
+    void shouldRejectUnsafeDependencyRegistry() {
+        GeneratedCodeSandboxProperties properties = new GeneratedCodeSandboxProperties();
+        properties.getContainer().setDependencyRegistryUrl("file:///tmp/npm-registry");
+
+        assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    @Test
     void shouldRejectInvalidResourceAndIdentityValues() {
         GeneratedCodeSandboxProperties properties = new GeneratedCodeSandboxProperties();
         properties.getContainer().setMemory("unlimited");

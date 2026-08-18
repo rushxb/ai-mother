@@ -214,9 +214,11 @@ class ProfileDefaultsEnvironmentPostProcessorTest {
         secrets.put("app.generated-code-sandbox.container.image",
                 "registry.example.com/ai-code/sandbox@sha256:"
                         + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
-        // 依赖出口网络没有通用安全默认值，必须由部署方提供专用网络。
+        // 依赖源网络与 registry mirror 没有通用安全默认值，必须由部署方显式提供。
         secrets.put("app.generated-code-sandbox.container.dependency-network",
                 "ai-code-sandbox-egress");
+        secrets.put("app.generated-code-sandbox.container.dependency-registry-url",
+                "http://npm-registry:4873/");
         return secrets;
     }
 

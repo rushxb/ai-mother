@@ -86,6 +86,12 @@ class ContainerGeneratedCodeSandboxIntegrationTest {
                 "network",
                 "inspect",
                 "--format={{.Internal}}",
+                properties.getContainer().getDependencyNetwork()
+        )).trim());
+        assertEquals("true", dockerOutput(List.of(
+                "network",
+                "inspect",
+                "--format={{.Internal}}",
                 properties.getContainer().getDevServerNetwork()
         )).trim());
         assertEquals("false", dockerOutput(List.of(

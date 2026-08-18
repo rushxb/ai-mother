@@ -55,6 +55,8 @@ public class GeneratedCodeSandboxProperties {
         private String workspaceMount = WORKSPACE_MOUNT;
         private String user = "1000:1000";
         private String dependencyNetwork = "bridge";
+        /** 仅由平台配置并注入安装容器，生成项目不能覆盖。 */
+        private String dependencyRegistryUrl = "https://registry.npmjs.org/";
         private String devServerNetwork = "ai-code-sandbox-internal";
         private String previewGatewayNetwork = "ai-code-sandbox-preview-gateway";
         private boolean dependencyCacheEnabled = false;
@@ -103,6 +105,7 @@ public class GeneratedCodeSandboxProperties {
                     && !"/".equals(workspaceMount)
                     && !workspaceMount.contains("..")
                     && isSafeNetworkName(dependencyNetwork)
+                    && isSafeDependencyRegistry(dependencyRegistryUrl)
                     && isSafeNetworkName(devServerNetwork)
                     && isSafeNetworkName(previewGatewayNetwork)
                     && isSafeVolumeName(pnpmStoreVolume)
@@ -138,6 +141,15 @@ public class GeneratedCodeSandboxProperties {
             return !"host".equalsIgnoreCase(value)
                     && !"none".equalsIgnoreCase(value)
                     && !"default".equalsIgnoreCase(value);
+        }
+
+        private boolean isSafeDependencyRegistry(String value) {
+            try {
+                TrustedDependencyRegistry.parse(value);
+                return true;
+            } catch (IllegalArgumentException invalidRegistry) {
+                return false;
+            }
         }
 
         private boolean isSafeVolumeName(String value) {

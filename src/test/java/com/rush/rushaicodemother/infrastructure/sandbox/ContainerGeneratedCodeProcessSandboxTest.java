@@ -50,6 +50,8 @@ class ContainerGeneratedCodeProcessSandboxTest {
         assertTrue(optionValue(command, "--mount").endsWith(",target=/workspace"));
         assertEquals(Map.of(), plan.hostEnvironment());
         assertEquals(Set.of("NODE_OPTIONS"), plan.hostEnvironmentVariablesToRemove());
+        assertFalse(command.stream().anyMatch(value ->
+                value.startsWith("NPM_CONFIG_REGISTRY=")));
     }
 
     @Test
@@ -84,7 +86,10 @@ class ContainerGeneratedCodeProcessSandboxTest {
 
     @Test
     void shouldGrantConfiguredNetworkOnlyForDependencyInstallationAndMapWorkspacePaths() {
-        ContainerGeneratedCodeProcessSandbox sandbox = sandbox(true);
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox(
+                true,
+                "http://npm-registry:4873/repository/npm"
+        );
         Path lockfile = workspace.resolve("pnpm-lock.yaml").toAbsolutePath().normalize();
 
         SandboxProcessPlan plan = sandbox.prepare(
@@ -124,6 +129,8 @@ class ContainerGeneratedCodeProcessSandboxTest {
         assertTrue(command.contains("NPM_CONFIG_AUDIT=false"));
         assertTrue(command.contains("NPM_CONFIG_FUND=false"));
         assertTrue(command.contains("CI=true"));
+        assertTrue(command.contains(
+                "NPM_CONFIG_REGISTRY=http://npm-registry:4873/repository/npm/"));
         assertTrue(command.contains("HOME=/tmp/home"));
     }
 
@@ -484,8 +491,16 @@ class ContainerGeneratedCodeProcessSandboxTest {
     }
 
     private ContainerGeneratedCodeProcessSandbox sandbox(boolean dependencyCacheEnabled) {
+        return sandbox(dependencyCacheEnabled, "https://registry.npmjs.org/");
+    }
+
+    private ContainerGeneratedCodeProcessSandbox sandbox(
+            boolean dependencyCacheEnabled,
+            String dependencyRegistryUrl
+    ) {
         GeneratedCodeSandboxProperties properties = new GeneratedCodeSandboxProperties();
         properties.getContainer().setDependencyCacheEnabled(dependencyCacheEnabled);
+        properties.getContainer().setDependencyRegistryUrl(dependencyRegistryUrl);
         return new ContainerGeneratedCodeProcessSandbox(
                 properties,
                 new GeneratedCodeProcessEnvironmentPolicy()

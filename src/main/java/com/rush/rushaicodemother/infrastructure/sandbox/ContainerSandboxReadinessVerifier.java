@@ -85,6 +85,11 @@ public class ContainerSandboxReadinessVerifier implements SmartInitializingSingl
                 List.of("network", "inspect", properties.getPreviewGatewayNetwork())
         );
         verifyNetworkInternalPolicy(
+                properties.getDependencyNetwork(),
+                true,
+                "dependency_network_policy"
+        );
+        verifyNetworkInternalPolicy(
                 properties.getDevServerNetwork(),
                 true,
                 "dev_server_network_policy"

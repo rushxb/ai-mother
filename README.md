@@ -440,6 +440,8 @@ pnpm preview
 | `COS_ENABLED` | `false` | 是否启用腾讯云 COS |
 | `TEMPLATE_PRE_WARM_ENABLED` | 开发和生产默认开启 | 是否在启动时预热模板依赖；预热并发 `2` 与可选模板集合已固定为 `TemplatePreWarmProperties` 常量 |
 | `GO_TOOLCHAIN_GO_EXECUTABLE` | `go` | 受控 Go 构建测试使用的可执行文件名或绝对路径 |
+| `GENERATED_CODE_SANDBOX_DEPENDENCY_NETWORK` | `bridge`（生产禁止） | 依赖安装专用 Docker internal 网络；生产必须预创建且只连接可信 registry mirror，生成容器不得拥有默认外网路由 |
+| `APP_GENERATED_CODE_SANDBOX_CONTAINER_DEPENDENCY_REGISTRY_URL` | 非生产为 `https://registry.npmjs.org/` | Spring 属性 `app.generated-code-sandbox.container.dependency-registry-url` 的环境变量形式；生产必须显式配置为 internal 网络中的可信 registry mirror，禁止凭据、IP、查询参数和回环地址 |
 | `GENERATED_CODE_SANDBOX_GO_BUILD_TMPFS_SIZE` | `512m` | 容器内受控离线 `go build/install/run/test` 专用可执行 tmpfs 上限；普通 `/tmp` 仍为 `noexec` |
 | `GENERATION_BENCHMARK_BROWSER_GRADING_ENABLED` | `false` | 浏览器 Runtime/Visual 评分开关；专用发布门禁 Worker 必须开启 |
 | `GENERATION_BENCHMARK_BACKEND_GRADING_ENABLED` | `false` | 后端与全栈真实运行时评分开关；专用发布门禁 Worker 必须开启 |

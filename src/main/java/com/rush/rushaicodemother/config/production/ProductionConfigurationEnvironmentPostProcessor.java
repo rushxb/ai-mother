@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.config.production;
 
 import com.rush.rushaicodemother.config.GeneratedCodeSandboxProperties;
+import com.rush.rushaicodemother.config.TrustedDependencyRegistry;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.Ordered;
@@ -36,6 +37,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
             "app.generated-code-sandbox.mode",
             "app.generated-code-sandbox.container.image",
             "app.generated-code-sandbox.container.dependency-network",
+            "app.generated-code-sandbox.container.dependency-registry-url",
             "app.generated-code-sandbox.container.dev-server-network",
             "app.generated-code-sandbox.container.preview-gateway-network",
             "app.generated-code-sandbox.container.pnpm-store-volume",
@@ -489,6 +491,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
                     "app.generated-code-sandbox.container.image（生产环境必须使用 sha256 digest 固定镜像）"
             );
         }
+        validateDependencyRegistry(environment, unsafeProperties);
         validatePnpmStoreConfiguration(environment, unsafeProperties);
         String dependencyNetwork = normalize(readProperty(
                 environment,
@@ -505,7 +508,7 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
         if ("bridge".equals(dependencyNetwork)) {
             unsafeProperties.add(
                     "app.generated-code-sandbox.container.dependency-network"
-                            + "（生产环境必须使用专用依赖出口网络）"
+                            + "（生产环境必须使用专用 internal 依赖源网络）"
             );
         }
         if ("bridge".equals(devServerNetwork)
@@ -523,6 +526,23 @@ public class ProductionConfigurationEnvironmentPostProcessor implements Environm
                     "app.generated-code-sandbox.container.preview-gateway-network"
                             + "（必须使用独立的预览入口网络）"
             );
+        }
+    }
+
+    private void validateDependencyRegistry(
+            ConfigurableEnvironment environment,
+            List<String> unsafeProperties
+    ) {
+        String propertyName =
+                "app.generated-code-sandbox.container.dependency-registry-url";
+        String registryUrl = readProperty(environment, propertyName);
+        if (!hasTextValue(registryUrl)) {
+            return;
+        }
+        try {
+            TrustedDependencyRegistry.parse(registryUrl);
+        } catch (IllegalArgumentException invalidRegistry) {
+            unsafeProperties.add(propertyName + "（必须是无凭据、无查询参数的 HTTP(S) DNS 地址）");
         }
     }
 

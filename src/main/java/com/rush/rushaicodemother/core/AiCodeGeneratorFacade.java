@@ -265,7 +265,7 @@ public class AiCodeGeneratorFacade {
             GenerationExecutionFence executionFence) {
         Flux<GenerationStreamEvent> stream = rootModelRetryExecutor.execute(() -> {
             GenerationStageAdmissionService.ModelTurnWindow attemptWindow =
-                    reserveModelAttempt(executionContext, codeGenType);
+                    reserveModelAttempt(executionContext);
             GenerationModelCancellationScope cancellationScope =
                     new GenerationModelCancellationScope();
             AtomicBoolean firstModelActivity = new AtomicBoolean(false);
@@ -440,7 +440,7 @@ public class AiCodeGeneratorFacade {
                 executionContext.limit(GenerationBudgetKind.ROOT_MODEL_ATTEMPT) - 1
         );
         Flux<GenerationStreamEvent> stream = rootModelRetryExecutor.execute(() -> {
-            reserveModelAttempt(executionContext, codeGenType);
+            reserveModelAttempt(executionContext);
             AtomicBoolean emittedAnyEvent = new AtomicBoolean(false);
             int initialWorkspaceMutations =
                     executionContext.successfulWorkspaceMutationCount();
@@ -505,15 +505,13 @@ public class AiCodeGeneratorFacade {
 
     /** 返回{@code reserve}模型尝试。 */
     private GenerationStageAdmissionService.ModelTurnWindow reserveModelAttempt(
-            GenerationExecutionContext executionContext,
-            CodeGenTypeEnum codeGenType) {
+            GenerationExecutionContext executionContext) {
         if (executionContext == null) {
             return null;
         }
         GenerationStageAdmissionService.ModelTurnWindow window =
                 generationStageAdmissionService.requireModelAttemptWindow(
                         executionContext,
-                        codeGenType,
                         MODEL_ADMISSION_MODE
                 );
         executionContext.consume(GenerationBudgetKind.ROOT_MODEL_ATTEMPT);
@@ -728,7 +726,6 @@ public class AiCodeGeneratorFacade {
                 executionContext.limits().modelCallTimeout(),
                 () -> generationStageAdmissionService.requireModelTurn(
                         executionContext,
-                        codeGenType,
                         MODEL_ADMISSION_MODE
                 ),
                 () -> executionContext.consume(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT)

@@ -504,7 +504,6 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
         try {
             modelTurnWindow = generationStageAdmissionService.requireModelTurn(
                     executionContext,
-                    state.codeGenType(),
                     state.route()
             );
         } catch (GenerationModelTurnAdmissionException admission) {

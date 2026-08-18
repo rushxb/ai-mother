@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.edit.EditValidationPlan;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationCompletionRequirements;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationVerificationPolicyTest {
@@ -25,6 +27,10 @@ class GenerationVerificationPolicyTest {
         assertTrue(policy.requiresBuildValidation(preparation(CodeGenTypeEnum.VUE_PROJECT)));
         assertFalse(policy.requiresExpertCheck());
         assertFalse(policy.requiresRuntimeValidation());
+        assertEquals(
+                GenerationCompletionRequirements.buildOnly(),
+                policy.completionRequirements(CodeGenTypeEnum.VUE_PROJECT)
+        );
     }
 
     @Test
@@ -34,6 +40,10 @@ class GenerationVerificationPolicyTest {
 
         assertTrue(policy.requiresExpertCheck());
         assertTrue(policy.requiresRuntimeValidation());
+        assertEquals(
+                GenerationCompletionRequirements.buildAndRuntime(),
+                policy.completionRequirements(CodeGenTypeEnum.BACKEND_PROJECT)
+        );
     }
 
     @Test
@@ -43,6 +53,14 @@ class GenerationVerificationPolicyTest {
 
         assertFalse(policy.requiresBuildValidation(preparation(CodeGenTypeEnum.HTML)));
         assertTrue(policy.requiresBuildValidation(preparation(CodeGenTypeEnum.BACKEND_PROJECT)));
+        assertEquals(
+                GenerationCompletionRequirements.none(),
+                policy.completionRequirements(CodeGenTypeEnum.HTML)
+        );
+        assertEquals(
+                GenerationCompletionRequirements.buildOnly(),
+                policy.completionRequirements(CodeGenTypeEnum.BACKEND_PROJECT)
+        );
     }
 
     @Test

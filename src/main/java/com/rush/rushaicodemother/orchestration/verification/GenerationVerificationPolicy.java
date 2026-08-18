@@ -1,9 +1,11 @@
 package com.rush.rushaicodemother.orchestration.verification;
 
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.edit.EditValidationPlan;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationCompletionRequirements;
 
 import java.util.Objects;
 
@@ -87,6 +89,18 @@ public record GenerationVerificationPolicy(
     /** 旧 Heavy 任务保持运行时验证；冻结计划仅在 EXPERT 门槛下启用。 */
     public boolean requiresRuntimeValidation() {
         return !frozenPlan || requiresExpertCheck();
+    }
+
+    /** 将冻结验证图转换为模型与后续阶段共同消费的完成需求。 */
+    public GenerationCompletionRequirements completionRequirements(CodeGenTypeEnum targetType) {
+        if (!frozenPlan) {
+            return GenerationCompletionRequirements.legacy(targetType);
+        }
+        return GenerationCompletionRequirements.planned(
+                targetType,
+                requiresBuild(),
+                requiresRuntimeValidation()
+        );
     }
 
     /** 将编辑链路的动态验证结果提升到冻结计划声明的最低门槛。 */

@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.runtime.execution;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 任务启动时从配置复制的不可变任务限制。
@@ -15,6 +16,7 @@ public record GenerationExecutionLimits(
         Duration modelCallTimeout,
         Duration minimumOperationTimeout,
         Duration firstPreviewCompletionReserve,
+        GenerationCompletionRequirements completionRequirements,
         Map<GenerationBudgetKind, Integer> budgets
 ) {
 
@@ -29,7 +31,31 @@ public record GenerationExecutionLimits(
             Map<GenerationBudgetKind, Integer> budgets
     ) {
         this(taskTimeout, modelCallTimeout, minimumOperationTimeout,
-                null, budgets);
+                null, null, budgets);
+    }
+
+    /** 兼容已经显式配置首预览完成预留的调用方。 */
+    public GenerationExecutionLimits(
+            Duration taskTimeout,
+            Duration modelCallTimeout,
+            Duration minimumOperationTimeout,
+            Duration firstPreviewCompletionReserve,
+            Map<GenerationBudgetKind, Integer> budgets
+    ) {
+        this(taskTimeout, modelCallTimeout, minimumOperationTimeout,
+                firstPreviewCompletionReserve, null, budgets);
+    }
+
+    /** 为测试、恢复与任务规划显式绑定下游完成需求。 */
+    public GenerationExecutionLimits(
+            Duration taskTimeout,
+            Duration modelCallTimeout,
+            Duration minimumOperationTimeout,
+            GenerationCompletionRequirements completionRequirements,
+            Map<GenerationBudgetKind, Integer> budgets
+    ) {
+        this(taskTimeout, modelCallTimeout, minimumOperationTimeout,
+                null, completionRequirements, budgets);
     }
 
     /** 创建生成执行限制实例并完成必要的依赖和初始状态设置。 */
@@ -51,6 +77,10 @@ public record GenerationExecutionLimits(
         if (firstPreviewCompletionReserve.compareTo(availablePreviewWindow) > 0) {
             throw new IllegalArgumentException("首预览完成预留必须为可选操作保留最小执行窗口");
         }
+        // 旧检查点没有该字段时采用最保守的完成图，宁可少开一轮模型也不能挤占验证时间。
+        completionRequirements = completionRequirements == null
+                ? GenerationCompletionRequirements.buildAndRuntime()
+                : completionRequirements;
         Map<GenerationBudgetKind, Integer> sourceBudgets = budgets == null ? Map.of() : budgets;
         Integer rootAttempts = sourceBudgets.get(GenerationBudgetKind.ROOT_MODEL_ATTEMPT);
         EnumMap<GenerationBudgetKind, Integer> normalizedBudgets = new EnumMap<>(GenerationBudgetKind.class);
@@ -66,6 +96,20 @@ public record GenerationExecutionLimits(
             normalizedBudgets.put(kind, limit);
         }
         budgets = Map.copyOf(normalizedBudgets);
+    }
+
+    /** 返回仅替换冻结完成需求的新限制实例。 */
+    public GenerationExecutionLimits withCompletionRequirements(
+            GenerationCompletionRequirements requirements
+    ) {
+        return new GenerationExecutionLimits(
+                taskTimeout,
+                modelCallTimeout,
+                minimumOperationTimeout,
+                firstPreviewCompletionReserve,
+                Objects.requireNonNull(requirements, "完成需求不能为空"),
+                budgets
+        );
     }
 
     /**

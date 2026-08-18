@@ -1,7 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.execution;
 
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
@@ -39,7 +38,7 @@ public class GenerationStageAdmissionService {
                              GenerationPreparation preparation,
                              String orchestrationMode) {
         Duration required = properties.getBuildMinimum()
-                .plus(runtimeWindowIfRequired(preparation))
+                .plus(runtimeWindowIfRequired(session, preparation))
                 .plus(properties.getTerminalizationReserve());
         Decision decision = evaluate(session, "build", required);
         if (decision.admitted()) {
@@ -99,9 +98,8 @@ public class GenerationStageAdmissionService {
      * 在模型回合开始前原子消费回合预算，并返回受完成窗口约束的单回合超时。
      */
     public ModelTurnWindow requireModelTurn(GenerationExecutionContext context,
-                                            CodeGenTypeEnum targetType,
                                             String orchestrationMode) {
-        ModelTurnDecision decision = evaluateModelTurn(context, targetType);
+        ModelTurnDecision decision = evaluateModelTurn(context);
         if (!decision.admitted()) {
             recordModelTurnReservation(context, orchestrationMode, decision);
             throw decision.toException(context.taskId());
@@ -114,9 +112,8 @@ public class GenerationStageAdmissionService {
      * 为根模型尝试计算共享墙钟窗口，但不消费逻辑模型回合预算。
      */
     public ModelTurnWindow requireModelAttemptWindow(GenerationExecutionContext context,
-                                                     CodeGenTypeEnum targetType,
                                                      String orchestrationMode) {
-        ModelTurnDecision decision = evaluateModelTurn(context, targetType);
+        ModelTurnDecision decision = evaluateModelTurn(context);
         if (!decision.admitted()) {
             recordModelTurnReservation(context, orchestrationMode, decision);
             throw decision.toException(context.taskId());
@@ -147,22 +144,24 @@ public class GenerationStageAdmissionService {
     private Decision evaluateRepair(GenerationSession session, GenerationPreparation preparation) {
         Duration required = properties.getRepairModelMinimum()
                 .plus(properties.getTerminalizationReserve());
-        if (preparation != null && preparation.requiresBuildValidation()) {
+        GenerationCompletionRequirements requirements = completionRequirements(session, preparation);
+        if (requirements.buildRequired()
+                || (preparation != null && preparation.requiresBuildValidation())) {
             required = required.plus(properties.getBuildMinimum())
-                    .plus(runtimeWindowIfRequired(preparation));
+                    .plus(runtimeWindowIfRequired(requirements));
         }
         return evaluate(session, "repair", required);
     }
 
     /** 返回{@code evaluate}模型轮次。 */
-    private ModelTurnDecision evaluateModelTurn(GenerationExecutionContext context,
-                                                CodeGenTypeEnum targetType) {
+    private ModelTurnDecision evaluateModelTurn(GenerationExecutionContext context) {
         if (context == null) {
             throw new IllegalArgumentException("模型回合准入必须绑定生成任务上下文");
         }
         context.assertCanContinue();
-        Duration completionReserve = properties.modelCompletionReserve(targetType);
-        Duration minimumRequired = properties.modelTurnMinimumRequired(targetType);
+        GenerationCompletionRequirements requirements = context.limits().completionRequirements();
+        Duration completionReserve = properties.modelCompletionReserve(requirements);
+        Duration minimumRequired = properties.modelTurnMinimumRequired(requirements);
         Duration remaining = context.remainingDuration();
         Duration availableForModel = remaining.minus(completionReserve);
         if (availableForModel.isNegative()) {
@@ -196,14 +195,28 @@ public class GenerationStageAdmissionService {
         return new Decision(stage, context.hasRemainingTime(required), remaining, required);
     }
 
-    private Duration runtimeWindowIfRequired(GenerationPreparation preparation) {
-        if (preparation == null) {
-            return Duration.ZERO;
-        }
-        CodeGenTypeEnum targetType = preparation.targetType();
-        return targetType == CodeGenTypeEnum.VUE_PROJECT || targetType == CodeGenTypeEnum.FULL_STACK_PROJECT
+    private Duration runtimeWindowIfRequired(GenerationSession session,
+                                             GenerationPreparation preparation) {
+        return runtimeWindowIfRequired(completionRequirements(session, preparation));
+    }
+
+    private Duration runtimeWindowIfRequired(GenerationCompletionRequirements requirements) {
+        return requirements.runtimeValidationRequired()
                 ? properties.getRuntimeValidationMinimum()
                 : Duration.ZERO;
+    }
+
+    private GenerationCompletionRequirements completionRequirements(
+            GenerationSession session,
+            GenerationPreparation preparation
+    ) {
+        GenerationExecutionContext context = session == null ? null : session.executionContext();
+        if (context != null) {
+            return context.limits().completionRequirements();
+        }
+        return preparation == null
+                ? GenerationCompletionRequirements.buildAndRuntime()
+                : GenerationCompletionRequirements.legacy(preparation.targetType());
     }
 
     /** 记录{@code Rejection}相关指标或状态。 */

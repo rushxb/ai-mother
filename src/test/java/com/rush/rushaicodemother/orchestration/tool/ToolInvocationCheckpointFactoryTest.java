@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationCompletionRequirements;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContext;
@@ -43,7 +44,9 @@ class ToolInvocationCheckpointFactoryTest {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         GenerationExecutionContext executionContext = new GenerationExecutionContext(
                 "task-1", 11L, 7L, NOW.minusSeconds(30),
-                new GenerationRuntimeProperties().toLimits(), clock);
+                new GenerationRuntimeProperties().toLimits().withCompletionRequirements(
+                        GenerationCompletionRequirements.buildOnly()),
+                clock);
         GenerationPreparation preparation = new GenerationPreparation(
                 CodeGenTypeEnum.VUE_PROJECT,
                 CodeGenTypeEnum.VUE_PROJECT,
@@ -103,6 +106,10 @@ class ToolInvocationCheckpointFactoryTest {
         assertEquals("heavy_generation", restored.route());
         assertEquals(profile, restored.performanceProfile());
         assertEquals(preparation, restored.preparation());
+        assertEquals(
+                GenerationCompletionRequirements.buildOnly(),
+                restored.executionLimits().completionRequirements()
+        );
         assertEquals(executionContext.snapshot(), restored.execution());
         assertEquals(1L, restored.execution().agentAttemptEpoch());
         assertEquals(profile.maxToolInvocations(),

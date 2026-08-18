@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecut
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationCompletionRequirements;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
@@ -26,6 +27,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
+import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspace;
@@ -408,6 +410,7 @@ public class GenerationTaskCommandExecutionService {
                     GenerationExecutionLimits limits = command.slaEnvelope() == null
                             ? runtimeProperties.toLimits()
                             : command.slaEnvelope().toLimits();
+                    limits = limits.withCompletionRequirements(completionRequirements(command));
                     EnumMap<GenerationBudgetKind, Integer> limitSnapshot =
                             new EnumMap<>(GenerationBudgetKind.class);
                     for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
@@ -425,6 +428,16 @@ public class GenerationTaskCommandExecutionService {
                             command.preflightUsage().asBudgetUsages(), Map.copyOf(limitSnapshot)
                     ), limits);
                 });
+    }
+
+    /** 冻结计划优先；升级前没有计划的任务按目标工程恢复旧 Heavy 完成行为。 */
+    private GenerationCompletionRequirements completionRequirements(GenerationTaskCommand command) {
+        if (command.executionPlan() != null) {
+            return GenerationVerificationPolicy
+                    .planned(command.executionPlan().validationGraph())
+                    .completionRequirements(command.codeGenType());
+        }
+        return GenerationCompletionRequirements.legacy(command.codeGenType());
     }
 
     private String normalize(String value, String fallback) {

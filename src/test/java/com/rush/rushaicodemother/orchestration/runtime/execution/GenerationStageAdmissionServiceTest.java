@@ -22,6 +22,49 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GenerationStageAdmissionServiceTest {
 
     @Test
+    void buildValidationPlanMustNotReserveUnusedRuntimeWindowForVueProject() {
+        GenerationStageAdmissionService service = service(new SimpleMeterRegistry());
+        GenerationExecutionContextTest.MutableClock clock =
+                new GenerationExecutionContextTest.MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        GenerationExecutionContext context = context(
+                "build-plan-vue",
+                Duration.ofSeconds(90),
+                Duration.ofSeconds(30),
+                GenerationCompletionRequirements.buildOnly(),
+                clock
+        );
+
+        GenerationStageAdmissionService.ModelTurnWindow window = service.requireModelTurn(context, "heavy");
+
+        assertEquals(Duration.ofSeconds(57), window.completionReserve());
+        assertEquals(Duration.ofSeconds(87), window.minimumRequired());
+        assertEquals(Duration.ofSeconds(30), window.timeout());
+    }
+
+    @Test
+    void expertValidationPlanMustReserveRuntimeWindowForBackendProject() {
+        GenerationStageAdmissionService service = service(new SimpleMeterRegistry());
+        GenerationExecutionContextTest.MutableClock clock =
+                new GenerationExecutionContextTest.MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        GenerationExecutionContext context = context(
+                "expert-plan-backend",
+                Duration.ofSeconds(95),
+                Duration.ofSeconds(30),
+                GenerationCompletionRequirements.buildAndRuntime(),
+                clock
+        );
+
+        GenerationModelTurnAdmissionException exception = assertThrows(
+                GenerationModelTurnAdmissionException.class,
+                () -> service.requireModelTurn(context, "heavy")
+        );
+
+        assertEquals(Duration.ofSeconds(72), exception.completionReserve());
+        assertEquals(Duration.ofSeconds(102), exception.required());
+        assertEquals(0, context.used(GenerationBudgetKind.MODEL_TURN));
+    }
+
+    @Test
     void modelTurnMustNotConsumeBudgetWhenCompletionWindowCannotFit() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         GenerationStageAdmissionService service = service(meterRegistry);
@@ -37,7 +80,6 @@ class GenerationStageAdmissionServiceTest {
                 GenerationModelTurnAdmissionException.class,
                 () -> service.requireModelTurn(
                         context,
-                        CodeGenTypeEnum.VUE_PROJECT,
                         "heavy"
                 )
         );
@@ -67,7 +109,6 @@ class GenerationStageAdmissionServiceTest {
 
         GenerationStageAdmissionService.ModelTurnWindow window = service.requireModelTurn(
                 context,
-                CodeGenTypeEnum.VUE_PROJECT,
                 "heavy"
         );
 
@@ -158,6 +199,20 @@ class GenerationStageAdmissionServiceTest {
                                                Duration timeout,
                                                Duration modelTimeout,
                                                GenerationExecutionContextTest.MutableClock clock) {
+        return context(
+                taskId,
+                timeout,
+                modelTimeout,
+                GenerationCompletionRequirements.buildAndRuntime(),
+                clock
+        );
+    }
+
+    private GenerationExecutionContext context(String taskId,
+                                               Duration timeout,
+                                               Duration modelTimeout,
+                                               GenerationCompletionRequirements completionRequirements,
+                                               GenerationExecutionContextTest.MutableClock clock) {
         EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             budgets.put(kind, 3);
@@ -171,6 +226,7 @@ class GenerationStageAdmissionServiceTest {
                         timeout,
                         modelTimeout,
                         Duration.ofMillis(500),
+                        completionRequirements,
                         budgets
                 ),
                 clock

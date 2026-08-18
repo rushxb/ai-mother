@@ -19,6 +19,7 @@ import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionCode;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationCompletionRequirements;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
@@ -42,7 +43,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumMap;
@@ -106,7 +106,9 @@ class GenerationTaskCommandExecutionServiceTest {
         GenerationTaskResourceProvisioningService resourceProvisioningService =
                 mock(GenerationTaskResourceProvisioningService.class);
         GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
-        GenerationExecutionContextService executionContextService = mock(GenerationExecutionContextService.class);
+        GenerationRuntimeProperties runtimeProperties = new GenerationRuntimeProperties();
+        GenerationExecutionContextService executionContextService =
+                new GenerationExecutionContextService(runtimeProperties);
         GenerationSessionFactory sessionFactory = mock(GenerationSessionFactory.class);
         GenerationTaskExecutor taskExecutor = mock(GenerationTaskExecutor.class);
         GenerationPipelineExecutor pipelineExecutor = mock(GenerationPipelineExecutor.class);
@@ -137,18 +139,13 @@ class GenerationTaskCommandExecutionServiceTest {
                 root, root, Set.of(), Set.of());
         when(workspaceService.resolve(app, command.codeGenType())).thenReturn(workspace);
 
-        GenerationRuntimeProperties runtimeProperties = new GenerationRuntimeProperties();
-        GenerationExecutionContext executionContext = new GenerationExecutionContext(
-                taskId,
-                command.appId(),
-                command.userId(),
-                submittedAt,
-                runtimeProperties.toLimits(),
-                Clock.systemUTC()
-        );
-        when(executionContextService.getByTaskId(taskId)).thenReturn(Optional.of(executionContext));
-        GenerationSession session = new GenerationSession(null, executionContext);
-        when(sessionFactory.create(null, executionContext)).thenReturn(session);
+        AtomicReference<GenerationSession> sessionReference = new AtomicReference<>();
+        when(sessionFactory.create(eq(null), any(GenerationExecutionContext.class)))
+                .thenAnswer(invocation -> {
+                    GenerationSession created = new GenerationSession(null, invocation.getArgument(1));
+                    sessionReference.set(created);
+                    return created;
+                });
 
         AtomicReference<Runnable> tracedDelegate = new AtomicReference<>();
         Runnable wrappedRunnable = mock(Runnable.class);
@@ -188,10 +185,16 @@ class GenerationTaskCommandExecutionServiceTest {
                 ArgumentCaptor.forClass(GenerationTaskExecution.class);
         ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
         verify(taskExecutor).execute(executionCaptor.capture(), runnableCaptor.capture());
+        GenerationSession session = sessionReference.get();
+        assertNotNull(session);
         assertEquals(taskId, executionCaptor.getValue().taskId());
         assertEquals(fence, executionCaptor.getValue().executionFence());
         assertSame(wrappedRunnable, runnableCaptor.getValue());
         assertSame(executionPlan, session.executionPlan());
+        assertEquals(
+                GenerationCompletionRequirements.buildOnly(),
+                session.executionContext().limits().completionRequirements()
+        );
         verify(performanceMonitorService).startTask(
                 taskId,
                 command.appId(),
@@ -431,6 +434,13 @@ class GenerationTaskCommandExecutionServiceTest {
         );
 
         assertEquals(GenerationTaskDispatchResult.SCHEDULED, service.schedule(taskId, null));
+        assertEquals(
+                GenerationCompletionRequirements.buildAndRuntime(),
+                executionContextService.getByTaskId(taskId)
+                        .orElseThrow()
+                        .limits()
+                        .completionRequirements()
+        );
         assertTrue(toolContextService.getContext(command.appId()).isEmpty());
         org.mockito.InOrder resourceOrder = inOrder(
                 resourceProvisioningService, executionWorkspaceService);

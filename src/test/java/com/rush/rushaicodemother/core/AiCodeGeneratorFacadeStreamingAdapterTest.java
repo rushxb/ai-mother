@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.core;
 
 import com.rush.rushaicodemother.ai.AiCodeGeneratorService;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
+import com.rush.rushaicodemother.ai.generation.HtmlLightweightCodeGenerationAdapter;
+import com.rush.rushaicodemother.ai.generation.LightweightCodeGenerationExecutor;
+import com.rush.rushaicodemother.ai.generation.MultiFileLightweightCodeGenerationAdapter;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
@@ -402,6 +405,10 @@ class AiCodeGeneratorFacadeStreamingAdapterTest {
         }
         return new AiCodeGeneratorFacade(
                 serviceFactory,
+                new LightweightCodeGenerationExecutor(List.of(
+                        new HtmlLightweightCodeGenerationAdapter(),
+                        new MultiFileLightweightCodeGenerationAdapter()
+                )),
                 new CodeParserExecutor(List.of(new HtmlCodeParser(), new MultiFileCodeParser())),
                 saverExecutor,
                 workspaceService,

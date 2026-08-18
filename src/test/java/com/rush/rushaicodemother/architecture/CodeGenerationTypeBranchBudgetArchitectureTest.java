@@ -27,7 +27,7 @@ class CodeGenerationTypeBranchBudgetArchitectureTest {
     private static final Pattern TYPE_ACCESSOR_PATTERN = Pattern.compile(
             "\\b(?:codeGenType|targetType|currentType|getCodeGenType|getTargetType)\\s*\\("
     );
-    private static final int MAX_FILES_WITH_TYPE_SWITCH = 8;
+    private static final int MAX_FILES_WITH_TYPE_SWITCH = 7;
 
     /**
      * 当前集合是待继续压缩的债务上限，不是推荐结构。
@@ -36,7 +36,6 @@ class CodeGenerationTypeBranchBudgetArchitectureTest {
     private static final Set<String> LEGACY_TYPE_SWITCH_FILES = Set.of(
             "com/rush/rushaicodemother/ai/AiCodeGeneratorServiceFactory.java",
             "com/rush/rushaicodemother/ai/model/GenerationPerformanceProfile.java",
-            "com/rush/rushaicodemother/core/AiCodeGeneratorFacade.java",
             "com/rush/rushaicodemother/orchestration/edit/EditFileLocatorService.java",
             "com/rush/rushaicodemother/orchestration/runtime/agent/GenerationAgentTurnPolicy.java",
             "com/rush/rushaicodemother/orchestration/runtime/execution/GenerationStageAdmissionProperties.java",

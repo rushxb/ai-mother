@@ -3,9 +3,8 @@ package com.rush.rushaicodemother.core;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorService;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
+import com.rush.rushaicodemother.ai.generation.LightweightCodeGenerationExecutor;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
-import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
-import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.core.parser.CodeParserExecutor;
@@ -16,6 +15,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentExecutionRequest;
+import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentPromptBinding;
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
@@ -72,6 +72,7 @@ public class AiCodeGeneratorFacade {
     private static final String MODEL_ADMISSION_MODE = "code_generation";
 
     private final AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
+    private final LightweightCodeGenerationExecutor lightweightCodeGenerationExecutor;
     private final CodeParserExecutor codeParserExecutor;
     private final CodeFileSaverExecutor codeFileSaverExecutor;
     private final GenerationWorkspaceService generationWorkspaceService;
@@ -86,6 +87,7 @@ public class AiCodeGeneratorFacade {
      * 创建 AI 代码生成门面并注入生成、解析、保存及运行时治理依赖。
      *
      * @param aiCodeGeneratorServiceFactory AI 代码生成器服务工厂
+     * @param lightweightCodeGenerationExecutor 轻量代码生成协议执行器
      * @param codeParserExecutor 代码解析路由器
      * @param codeFileSaverExecutor 代码文件保存路由器
      * @param generationWorkspaceService 生成工作区服务
@@ -98,6 +100,7 @@ public class AiCodeGeneratorFacade {
      */
     @Autowired
     public AiCodeGeneratorFacade(AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory,
+                                 LightweightCodeGenerationExecutor lightweightCodeGenerationExecutor,
                                  CodeParserExecutor codeParserExecutor,
                                  CodeFileSaverExecutor codeFileSaverExecutor,
                                  GenerationWorkspaceService generationWorkspaceService,
@@ -108,6 +111,8 @@ public class AiCodeGeneratorFacade {
                                  GenerationModelInvocationCancellationBridge modelCancellationBridge,
                                  GenerationAgentRuntime generationAgentRuntime) {
         this.aiCodeGeneratorServiceFactory = aiCodeGeneratorServiceFactory;
+        this.lightweightCodeGenerationExecutor = Objects.requireNonNull(
+                lightweightCodeGenerationExecutor, "轻量代码生成执行器不能为空");
         this.codeParserExecutor = codeParserExecutor;
         this.codeFileSaverExecutor = codeFileSaverExecutor;
         this.generationWorkspaceService = generationWorkspaceService;
@@ -132,22 +137,11 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成类型不能为空");
         }
-        // 根据 appId 获取相应的 AI 服务实例
-        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId, codeGenTypeEnum);
-        return switch (codeGenTypeEnum) {
-            case HTML -> {
-                HtmlCodeResult result = aiCodeGeneratorService.generateHtmlCode(userMessage);
-                yield codeFileSaverExecutor.executeSaver(result, CodeGenTypeEnum.HTML, appId);
-            }
-            case MULTI_FILE -> {
-                MultiFileCodeResult result = aiCodeGeneratorService.generateMultiFileCode(userMessage);
-                yield codeFileSaverExecutor.executeSaver(result, CodeGenTypeEnum.MULTI_FILE, appId);
-            }
-            default -> {
-                String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
-            }
-        };
+        AiCodeGeneratorService aiCodeGeneratorService =
+                aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId, codeGenTypeEnum);
+        Object generatedCode = lightweightCodeGenerationExecutor.generate(
+                aiCodeGeneratorService, codeGenTypeEnum, userMessage);
+        return codeFileSaverExecutor.executeSaver(generatedCode, codeGenTypeEnum, appId);
     }
 
     /**
@@ -225,8 +219,8 @@ public class AiCodeGeneratorFacade {
         GenerationExecutionFence executionFence = executionContext == null
                 ? null
                 : executionContext.executionFence();
-        return switch (codeGenTypeEnum) {
-            case HTML -> processSimpleTokenStream(
+        if (lightweightCodeGenerationExecutor.supports(codeGenTypeEnum)) {
+            return processSimpleTokenStream(
                     cancellationScope -> requestSimpleTokenStream(
                             modelServiceSupplier(
                                     appId, codeGenTypeEnum, profile, executionContext),
@@ -238,38 +232,26 @@ public class AiCodeGeneratorFacade {
                     executionContext,
                     executionFence
             );
-            case MULTI_FILE -> processSimpleTokenStream(
-                    cancellationScope -> requestSimpleTokenStream(
-                            modelServiceSupplier(
-                                    appId, codeGenTypeEnum, profile, executionContext),
-                            codeGenTypeEnum, userMessage, cancellationScope),
-                    codeGenTypeEnum,
-                    appId,
-                    cancelChecker,
-                    handleConsumer,
-                    executionContext,
-                    executionFence
+        }
+        if (!GenerationAgentPromptBinding.supports(codeGenTypeEnum)) {
+            throw new BusinessException(
+                    ErrorCode.SYSTEM_ERROR,
+                    "不支持的生成类型：" + codeGenTypeEnum.getValue()
             );
-            case VUE_PROJECT, BACKEND_PROJECT, FULL_STACK_PROJECT -> {
-                if (executionContext == null || executionFence == null) {
-                    throw new IllegalStateException("工程项目生成必须使用受管执行上下文");
-                }
-                yield processAgentRuntimeWithRetry(
-                        userMessage,
-                        codeGenTypeEnum,
-                        appId,
-                        cancelChecker,
-                        handleConsumer,
-                        profile,
-                        executionContext,
-                        executionFence
-                );
-            }
-            default -> {
-                String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
-            }
-        };
+        }
+        if (executionContext == null || executionFence == null) {
+            throw new IllegalStateException("工程项目生成必须使用受管执行上下文");
+        }
+        return processAgentRuntimeWithRetry(
+                userMessage,
+                codeGenTypeEnum,
+                appId,
+                cancelChecker,
+                handleConsumer,
+                profile,
+                executionContext,
+                executionFence
+        );
     }
 
     /** 将轻量代码生成 TokenStream 转换为可取消、可监督的事件流。 */
@@ -764,14 +746,8 @@ public class AiCodeGeneratorFacade {
                 GenerationModelCancellationScope.INVOCATION_PARAMETER,
                 cancellationScope
         );
-        return switch (codeGenType) {
-            case HTML -> service.generateHtmlCodeStream(userMessage, parameters);
-            case MULTI_FILE -> service.generateMultiFileCodeStream(userMessage, parameters);
-            default -> throw new BusinessException(
-                    ErrorCode.PARAMS_ERROR,
-                    "轻量流式生成类型不受支持"
-            );
-        };
+        return lightweightCodeGenerationExecutor.generateStream(
+                service, codeGenType, userMessage, parameters);
     }
 
 }

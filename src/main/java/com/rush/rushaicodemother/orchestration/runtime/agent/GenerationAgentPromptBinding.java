@@ -48,6 +48,11 @@ public record GenerationAgentPromptBinding(
         return binding;
     }
 
+    /** 判断生成类型是否已注册工程智能体提示绑定。 */
+    public static boolean supports(CodeGenTypeEnum codeGenType) {
+        return codeGenType != null && BY_CODE_GEN_TYPE.containsKey(codeGenType);
+    }
+
     public static List<GenerationAgentPromptBinding> all() {
         return BINDINGS;
     }

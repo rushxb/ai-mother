@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.core;
 
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
+import com.rush.rushaicodemother.ai.generation.LightweightCodeGenerationExecutor;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.core.parser.CodeParserExecutor;
 import com.rush.rushaicodemother.core.saver.CodeFileSaverExecutor;
@@ -26,6 +27,8 @@ class AiCodeGeneratorFacadeSpringWiringTest {
                     () -> mock(AiCodeGeneratorServiceFactory.class))
             .withBean(CodeFileSaverExecutor.class,
                     () -> mock(CodeFileSaverExecutor.class))
+            .withBean(LightweightCodeGenerationExecutor.class,
+                    () -> mock(LightweightCodeGenerationExecutor.class))
             .withBean(CodeParserExecutor.class,
                     () -> mock(CodeParserExecutor.class))
             .withBean(GenerationWorkspaceService.class,

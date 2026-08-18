@@ -27,9 +27,7 @@ public record GenerationAgentExecutionRequest(
         if (userPrompt == null || userPrompt.isBlank()) {
             throw new IllegalArgumentException("智能体用户提示不能为空");
         }
-        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT
-                && codeGenType != CodeGenTypeEnum.BACKEND_PROJECT
-                && codeGenType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
+        if (!GenerationAgentPromptBinding.supports(codeGenType)) {
             throw new IllegalArgumentException("显式智能体运行时仅支持工程项目生成");
         }
         if (projectPath == null || projectPath.isBlank()) {

@@ -1,6 +1,12 @@
 package com.rush.rushaicodemother.orchestration.edit;
 
 import com.rush.rushaicodemother.config.EditLocatorProperties;
+import com.rush.rushaicodemother.orchestration.edit.fallback.EditFallbackCandidateAdapter;
+import com.rush.rushaicodemother.orchestration.edit.fallback.EditFallbackCandidateResolver;
+import com.rush.rushaicodemother.orchestration.edit.fallback.GoBackendEditFallbackCandidateAdapter;
+import com.rush.rushaicodemother.orchestration.edit.fallback.MultiFileEditFallbackCandidateAdapter;
+import com.rush.rushaicodemother.orchestration.edit.fallback.StaticWebEditFallbackCandidateAdapter;
+import com.rush.rushaicodemother.orchestration.edit.fallback.VueEditFallbackCandidateAdapter;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -19,6 +25,11 @@ class EditLocatorBeanWiringTest {
                     SelectedElementFileLocator.class,
                     DiagnosticFileLocator.class,
                     EditContextPackageBuilder.class,
+                    StaticWebEditFallbackCandidateAdapter.class,
+                    MultiFileEditFallbackCandidateAdapter.class,
+                    VueEditFallbackCandidateAdapter.class,
+                    GoBackendEditFallbackCandidateAdapter.class,
+                    EditFallbackCandidateResolver.class,
                     EditFileLocatorService.class
             );
 
@@ -29,6 +40,8 @@ class EditLocatorBeanWiringTest {
             assertThat(context).hasSingleBean(EditFileLocatorService.class);
             assertThat(context).hasSingleBean(EditContextPackageBuilder.class);
             assertThat(context).hasSingleBean(EditWorkspaceFileService.class);
+            assertThat(context).hasSingleBean(EditFallbackCandidateResolver.class);
+            assertThat(context).getBeans(EditFallbackCandidateAdapter.class).hasSize(4);
         });
     }
 }

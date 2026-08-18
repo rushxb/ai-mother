@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.config.EditLocatorProperties;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.edit.fallback.EditFallbackCandidateResolver;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class EditFileLocatorService {
     private final SelectedElementFileLocator selectedElementFileLocator;
     private final DiagnosticFileLocator diagnosticFileLocator;
     private final EditWorkspaceFileService workspaceFileService;
+    private final EditFallbackCandidateResolver fallbackCandidateResolver;
     private final EditLocatorProperties properties;
 
     /**
@@ -63,7 +65,8 @@ public class EditFileLocatorService {
         appendUnique(candidates, seenPaths, workspace, () -> diagnosticFileLocator.locate(workspace, userMessage));
         appendUnique(candidates, seenPaths, workspace, () -> getRecentModifiedFiles(workspace, userMessage));
         appendUnique(candidates, seenPaths, workspace, () -> searchBySemanticIndex(workspace, userMessage));
-        appendUnique(candidates, seenPaths, workspace, () -> getFallbackFiles(workspace, codeGenType));
+        appendUnique(candidates, seenPaths, workspace,
+                () -> fallbackCandidateResolver.resolve(workspace, codeGenType));
         return List.copyOf(candidates);
     }
 
@@ -186,27 +189,6 @@ public class EditFileLocatorService {
             }
         } catch (Exception e) {
             log.warn("Semantic edit-file lookup failed: {}", LogExceptionSanitizer.sanitizeMessage(e));
-        }
-        return candidates;
-    }
-
-    /** 获取并返回回退文件。 */
-    private List<EditFileCandidate> getFallbackFiles(GenerationWorkspace workspace, CodeGenTypeEnum codeGenType) {
-        if (codeGenType == null) {
-            return List.of();
-        }
-        List<String> fallbackPaths = switch (codeGenType) {
-            case HTML -> List.of("index.html");
-            case MULTI_FILE -> List.of("index.html", "style.css", "script.js");
-            case VUE_PROJECT -> List.of("src/App.vue", "src/main.ts", "src/main.js");
-            case BACKEND_PROJECT -> List.of("cmd/server/main.go", "go.mod");
-            case FULL_STACK_PROJECT -> List.of("frontend/src/App.vue", "frontend/src/main.ts");
-        };
-        List<EditFileCandidate> candidates = new ArrayList<>();
-        for (String relativePath : fallbackPaths) {
-            workspaceFileService.resolveEditableFile(workspace, relativePath).ifPresent(file -> candidates.add(
-                    candidate(file, "fallback_entry", 50, "Fallback project entry file", List.of())
-            ));
         }
         return candidates;
     }

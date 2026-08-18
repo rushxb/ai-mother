@@ -3,6 +3,11 @@ package com.rush.rushaicodemother.orchestration.edit;
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.config.EditLocatorProperties;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.edit.fallback.EditFallbackCandidateResolver;
+import com.rush.rushaicodemother.orchestration.edit.fallback.GoBackendEditFallbackCandidateAdapter;
+import com.rush.rushaicodemother.orchestration.edit.fallback.MultiFileEditFallbackCandidateAdapter;
+import com.rush.rushaicodemother.orchestration.edit.fallback.StaticWebEditFallbackCandidateAdapter;
+import com.rush.rushaicodemother.orchestration.edit.fallback.VueEditFallbackCandidateAdapter;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -273,14 +278,63 @@ class EditFileLocatorServiceTest {
                         && "recent_modified".equals(candidate.matchType())));
     }
 
+    @Test
+    void fullStackFallbackMustIncludeFrontendAndBackendEntryFiles() throws Exception {
+        tempDir = cleanTestRoot("full-stack-fallback");
+        Path frontendRoot = tempDir.resolve("frontend");
+        Path backendRoot = tempDir.resolve("backend");
+        Files.createDirectories(frontendRoot.resolve("src"));
+        Files.createDirectories(backendRoot.resolve("cmd/server"));
+        Files.writeString(frontendRoot.resolve("src/App.vue"), "<template><main /></template>");
+        Files.writeString(frontendRoot.resolve("src/main.ts"), "import './App.vue';");
+        Files.writeString(backendRoot.resolve("cmd/server/main.go"), "package main");
+        Files.writeString(backendRoot.resolve("go.mod"), "module example.test/app");
+        EditFileLocatorService service = createService(
+                semanticIndexReturning(List.of()), emptyEditState(), new EditLocatorProperties()
+        );
+
+        List<EditFileCandidate> candidates = service.locate(
+                fullStackWorkspace(frontendRoot, backendRoot),
+                "",
+                CodeGenTypeEnum.FULL_STACK_PROJECT
+        );
+
+        assertEquals(
+                List.of(
+                        "frontend/src/App.vue",
+                        "frontend/src/main.ts",
+                        "backend/cmd/server/main.go",
+                        "backend/go.mod"
+                ),
+                candidates.stream().map(EditFileCandidate::relativePath).toList()
+        );
+        assertTrue(candidates.stream().allMatch(candidate ->
+                "fallback_entry".equals(candidate.matchType())));
+    }
+
     private EditFileLocatorService createService(WorkspaceSemanticIndexService semanticIndexService,
                                                  EditStatePersistenceService editState,
                                                  EditLocatorProperties properties) {
         EditWorkspaceFileService fileService = new EditWorkspaceFileService(properties);
         SelectedElementFileLocator selectedLocator = new SelectedElementFileLocator(fileService, properties);
         DiagnosticFileLocator diagnosticLocator = new DiagnosticFileLocator(semanticIndexService, fileService);
+        EditFallbackCandidateResolver fallbackResolver = new EditFallbackCandidateResolver(
+                List.of(
+                        new StaticWebEditFallbackCandidateAdapter(),
+                        new MultiFileEditFallbackCandidateAdapter(),
+                        new VueEditFallbackCandidateAdapter(),
+                        new GoBackendEditFallbackCandidateAdapter()
+                ),
+                fileService
+        );
         return new EditFileLocatorService(
-                semanticIndexService, editState, selectedLocator, diagnosticLocator, fileService, properties
+                semanticIndexService,
+                editState,
+                selectedLocator,
+                diagnosticLocator,
+                fileService,
+                fallbackResolver,
+                properties
         );
     }
 
@@ -315,6 +369,21 @@ class EditFileLocatorServiceTest {
                 true,
                 root,
                 null,
+                GenerationWorkspaceService.HIDDEN_FILE_NAMES,
+                GenerationWorkspaceService.EDITABLE_EXTENSIONS
+        );
+    }
+
+    private GenerationWorkspace fullStackWorkspace(Path frontendRoot, Path backendRoot) {
+        Path root = tempDir.toAbsolutePath().normalize();
+        return new GenerationWorkspace(
+                1L,
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                root,
+                root,
+                true,
+                frontendRoot.toAbsolutePath().normalize(),
+                backendRoot.toAbsolutePath().normalize(),
                 GenerationWorkspaceService.HIDDEN_FILE_NAMES,
                 GenerationWorkspaceService.EDITABLE_EXTENSIONS
         );

@@ -2,11 +2,11 @@ package com.rush.rushaicodemother.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.rush.rushaicodemother.ai.generation.LightweightCodeGenerationExecutor;
 import com.rush.rushaicodemother.ai.guardrail.PromptSafetyInputGuardrail;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
-import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.event.AiModelConfigChangedEvent;
@@ -48,6 +48,8 @@ public class AiCodeGeneratorServiceFactory {
     private final PromptSystemMessageTransformer promptSystemMessageTransformer;
 
     private final GenerationModelInvocationCancellationBridge modelCancellationBridge;
+
+    private final LightweightCodeGenerationExecutor lightweightCodeGenerationExecutor;
 
     private static final int DEFAULT_CHAT_MEMORY_MESSAGES = 20;
 
@@ -155,27 +157,18 @@ public class AiCodeGeneratorServiceFactory {
         // 从数据库中加载对话历史到记忆中
         chatHistoryService.loadChatHistoryToMemory(
                 appId, chatMemory, maxMemoryMessages);
-        return switch (codeGenType) {
-            // HTML 和多文件生成使用无工具流式模型。
-            case HTML, MULTI_FILE -> {
-                StreamingChatModel openAiStreamingChatModel = executionModel == null
-                        ? streamingModelFactory.createChatModel()
-                        : executionModel;
-                ChatModel chatModel = streamingModelFactory.createPrimaryChatModel();
-                yield AiServices.builder(AiCodeGeneratorService.class)
-                        .chatModel(chatModel)
-                        .streamingChatModel(openAiStreamingChatModel)
-                        .systemMessageTransformer(promptSystemMessageTransformer::transform)
-                        .chatMemory(chatMemory)
-                        .registerListener(modelCancellationBridge.requestIssuedListener())
-                        .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
-                        .build();
-            }
-            default ->
-                    throw new BusinessException(
-                            ErrorCode.PARAMS_ERROR,
-                            "工程项目生成必须使用显式智能体运行时");
-        };
+        StreamingChatModel openAiStreamingChatModel = executionModel == null
+                ? streamingModelFactory.createChatModel()
+                : executionModel;
+        ChatModel chatModel = streamingModelFactory.createPrimaryChatModel();
+        return AiServices.builder(AiCodeGeneratorService.class)
+                .chatModel(chatModel)
+                .streamingChatModel(openAiStreamingChatModel)
+                .systemMessageTransformer(promptSystemMessageTransformer::transform)
+                .chatMemory(chatMemory)
+                .registerListener(modelCancellationBridge.requestIssuedListener())
+                .inputGuardrails(new PromptSafetyInputGuardrail())
+                .build();
     }
 
     /**
@@ -204,12 +197,9 @@ public class AiCodeGeneratorServiceFactory {
     private void validateRequest(long appId, CodeGenTypeEnum codeGenType) {
         ThrowUtils.throwIf(appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 必须大于 0");
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "代码生成类型不能为空");
-        ThrowUtils.throwIf(
-                codeGenType == CodeGenTypeEnum.VUE_PROJECT
-                        || codeGenType == CodeGenTypeEnum.BACKEND_PROJECT
-                        || codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT,
+        ThrowUtils.throwIf(!lightweightCodeGenerationExecutor.supports(codeGenType),
                 ErrorCode.PARAMS_ERROR,
-                "工程项目生成必须使用显式智能体运行时");
+                "当前生成类型未注册轻量代码生成协议");
     }
 
     /**

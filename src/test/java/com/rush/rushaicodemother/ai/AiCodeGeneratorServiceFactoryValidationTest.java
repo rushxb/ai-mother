@@ -1,5 +1,9 @@
 package com.rush.rushaicodemother.ai;
 
+import com.rush.rushaicodemother.ai.generation.HtmlLightweightCodeGenerationAdapter;
+import com.rush.rushaicodemother.ai.generation.LightweightCodeGenerationAdapter;
+import com.rush.rushaicodemother.ai.generation.LightweightCodeGenerationExecutor;
+import com.rush.rushaicodemother.ai.generation.MultiFileLightweightCodeGenerationAdapter;
 import com.rush.rushaicodemother.ai.model.StreamingModelFactory;
 import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
 import com.rush.rushaicodemother.exception.BusinessException;
@@ -15,6 +19,8 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -34,7 +40,11 @@ class AiCodeGeneratorServiceFactoryValidationTest {
             chatHistoryService,
             streamingModelFactory,
             promptSystemMessageTransformer,
-            new GenerationModelInvocationCancellationBridge()
+            new GenerationModelInvocationCancellationBridge(),
+            lightweightExecutor(List.of(
+                    new HtmlLightweightCodeGenerationAdapter(),
+                    new MultiFileLightweightCodeGenerationAdapter()
+            ))
     );
 
     @Test
@@ -84,8 +94,28 @@ class AiCodeGeneratorServiceFactoryValidationTest {
                     () -> serviceFactory.getAiCodeGeneratorService(1L, codeGenType));
 
             assertEquals(ErrorCode.PARAMS_ERROR.getCode(), exception.getCode());
-            assertEquals("工程项目生成必须使用显式智能体运行时", exception.getMessage());
+            assertEquals("当前生成类型未注册轻量代码生成协议", exception.getMessage());
         }
+        verifyNoFactoryDependencyInteractions();
+    }
+
+    @Test
+    void shouldRejectATypeWhenItsLightweightProtocolAdapterIsNotRegistered() {
+        AiCodeGeneratorServiceFactory htmlOnlyFactory = new AiCodeGeneratorServiceFactory(
+                chatMemoryStore,
+                chatHistoryService,
+                streamingModelFactory,
+                promptSystemMessageTransformer,
+                new GenerationModelInvocationCancellationBridge(),
+                lightweightExecutor(List.of(new HtmlLightweightCodeGenerationAdapter()))
+        );
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> htmlOnlyFactory.getAiCodeGeneratorService(
+                        1L, CodeGenTypeEnum.MULTI_FILE));
+
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), exception.getCode());
+        assertEquals("当前生成类型未注册轻量代码生成协议", exception.getMessage());
         verifyNoFactoryDependencyInteractions();
     }
 
@@ -94,5 +124,10 @@ class AiCodeGeneratorServiceFactoryValidationTest {
                 chatMemoryStore, chatHistoryService,
                 streamingModelFactory,
                 promptSystemMessageTransformer);
+    }
+
+    private LightweightCodeGenerationExecutor lightweightExecutor(
+            List<LightweightCodeGenerationAdapter<?>> adapters) {
+        return new LightweightCodeGenerationExecutor(adapters);
     }
 }

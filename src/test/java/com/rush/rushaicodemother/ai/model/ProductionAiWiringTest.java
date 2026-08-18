@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.ai.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
+import com.rush.rushaicodemother.ai.generation.HtmlLightweightCodeGenerationAdapter;
+import com.rush.rushaicodemother.ai.generation.LightweightCodeGenerationExecutor;
+import com.rush.rushaicodemother.ai.generation.MultiFileLightweightCodeGenerationAdapter;
 import com.rush.rushaicodemother.ai.prompt.PromptSystemMessageTransformer;
 import com.rush.rushaicodemother.ai.provenance.AiModelProvenanceFactory;
 import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
@@ -132,6 +135,9 @@ class ProductionAiWiringTest {
                     AiModelTimeoutMonitor.class,
                     AiStreamingCallRuntime.class,
                     StreamingModelFactory.class,
+                    HtmlLightweightCodeGenerationAdapter.class,
+                    MultiFileLightweightCodeGenerationAdapter.class,
+                    LightweightCodeGenerationExecutor.class,
                     AiCodeGeneratorServiceFactory.class,
                     GenerationStreamingModelCallSupervisor.class
             );
@@ -143,6 +149,7 @@ class ProductionAiWiringTest {
             assertThat(context).hasSingleBean(AiModelCircuitBreaker.class);
             assertThat(context).hasSingleBean(AiModelMonitorListener.class);
             assertThat(context).hasSingleBean(StreamingModelFactory.class);
+            assertThat(context).hasSingleBean(LightweightCodeGenerationExecutor.class);
             assertThat(context).hasSingleBean(AiCodeGeneratorServiceFactory.class);
             assertThat(context).hasSingleBean(CancellableAiStreamingRequestExecutor.class);
             assertThat(context).hasSingleBean(AiModelOutboundHttpClientFactory.class);

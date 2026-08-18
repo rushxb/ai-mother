@@ -28,6 +28,7 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredEx
 import com.rush.rushaicodemother.orchestration.runtime.agent.GenerationAgentRuntime;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationState;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.ChatHistoryService;
@@ -349,7 +350,7 @@ public class HeavyGenerationExecutionService {
         if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
             return;
         }
-        GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
+        GeneratedProjectWorkspaceInspection workspaceState =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(projectRoot);
         if (!workspaceState.canAutoRepair()) {
             throw new MissingGeneratedProjectException(

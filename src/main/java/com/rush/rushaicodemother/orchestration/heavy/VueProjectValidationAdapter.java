@@ -5,10 +5,12 @@ import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
+import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -35,6 +37,14 @@ public final class VueProjectValidationAdapter implements
     @Override
     public CodeGenTypeEnum codeGenType() {
         return CodeGenTypeEnum.VUE_PROJECT;
+    }
+
+    @Override
+    public GeneratedProjectWorkspaceInspection inspect(
+            GenerationWorkspace workspace
+    ) {
+        return GeneratedProjectWorkspaceInspector.inspectVueProject(
+                workspace.frontendRootPath());
     }
 
     @Override

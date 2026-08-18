@@ -13,8 +13,8 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
-import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -140,7 +140,7 @@ public class HeavyGenerationFailureRecoveryService {
     public void emitMissingProjectCode(Long appId,
                                        GenerationPreparation preparation,
                                        GenerationSession session,
-                                       GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
+                                       GeneratedProjectWorkspaceInspection workspaceState) {
         emitRollbackRestoreIfAllowed(appId, preparation, session);
         emitMissingProjectCodeError(appId, preparation, session, workspaceState);
         rollbackCodeGenTypeIfNeeded(appId, preparation);
@@ -287,7 +287,7 @@ public class HeavyGenerationFailureRecoveryService {
         return GenerationErrorClassifier.classify(errorMessage);
     }
 
-    public String buildMissingProjectCodeMessage(GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
+    public String buildMissingProjectCodeMessage(GeneratedProjectWorkspaceInspection workspaceState) {
         return workspaceState.missingProjectSummary()
                 + "。请重试生成；如果持续出现，请检查模型工具调用是否成功写入关键项目文件。";
     }
@@ -296,7 +296,7 @@ public class HeavyGenerationFailureRecoveryService {
     private void emitMissingProjectCodeError(Long appId,
                                              GenerationPreparation preparation,
                                              GenerationSession session,
-                                             GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState) {
+                                             GeneratedProjectWorkspaceInspection workspaceState) {
         String message = buildMissingProjectCodeMessage(workspaceState);
         log.warn("生成结束但未发现有效项目代码，appId: {}, projectPath: {}, fileCount: {}, meaningfulFileCount: {}, keyFiles: {}",
                 appId,

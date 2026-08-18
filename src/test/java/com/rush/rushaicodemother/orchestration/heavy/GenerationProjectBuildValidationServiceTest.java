@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import org.junit.jupiter.api.Test;
@@ -66,8 +67,36 @@ class GenerationProjectBuildValidationServiceTest {
                 Set.of()
         );
 
-        ProjectBuildValidationResult actual = service.validate(
-                workspace, CodeGenTypeEnum.HTML, "task-html");
+        ProjectBuildValidationResult actual = service.validate(workspace, "task-html");
+
+        assertSame(expected, actual);
+    }
+
+    @Test
+    void routesWorkspaceInspectionThroughRegisteredProjectAdapter() {
+        GenerationExecutionContextService contextService = mock(GenerationExecutionContextService.class);
+        GeneratedProjectWorkspaceInspection expected =
+                new GeneratedProjectWorkspaceInspection(
+                        root, true, 1, 1, Set.of("index.html"));
+        GenerationProjectBuildValidationAdapter htmlAdapter = adapter(
+                CodeGenTypeEnum.HTML,
+                null,
+                expected);
+        GenerationProjectBuildValidationService service = new GenerationProjectBuildValidationService(
+                List.of(htmlAdapter), contextService);
+        GenerationWorkspace workspace = new GenerationWorkspace(
+                1L,
+                CodeGenTypeEnum.HTML,
+                root,
+                root,
+                true,
+                root,
+                null,
+                Set.of(),
+                Set.of()
+        );
+
+        GeneratedProjectWorkspaceInspection actual = service.inspect(workspace);
 
         assertSame(expected, actual);
     }
@@ -111,8 +140,7 @@ class GenerationProjectBuildValidationServiceTest {
         GenerationProjectBuildValidationService service = service(
                 vueBuilder, goBuilder, contextService);
 
-        ProjectBuildValidationResult result = service.validate(
-                workspace, CodeGenTypeEnum.FULL_STACK_PROJECT, "task-full");
+        ProjectBuildValidationResult result = service.validate(workspace, "task-full");
 
         assertFalse(result.success());
         assertTrue(result.report().contains("后端构建测试"));
@@ -167,8 +195,7 @@ class GenerationProjectBuildValidationServiceTest {
 
         GenerationExecutionPolicyException actual = assertThrows(
                 GenerationExecutionPolicyException.class,
-                () -> service.validate(
-                        workspace, CodeGenTypeEnum.FULL_STACK_PROJECT, "task-cancel")
+            () -> service.validate(workspace, "task-cancel")
         );
 
         assertSame(backendFailure, actual);
@@ -197,8 +224,7 @@ class GenerationProjectBuildValidationServiceTest {
         GenerationProjectBuildValidationService service = service(
                 vueBuilder, goBuilder, contextService);
 
-        ProjectBuildValidationResult result = service.validate(
-                workspace, CodeGenTypeEnum.BACKEND_PROJECT, "task-backend");
+        ProjectBuildValidationResult result = service.validate(workspace, "task-backend");
 
         assertTrue(result.success());
         verify(vueBuilder, never()).buildProjectWithResult(any(), any(), any());
@@ -247,6 +273,14 @@ class GenerationProjectBuildValidationServiceTest {
             CodeGenTypeEnum codeGenType,
             ProjectBuildValidationResult validationResult
     ) {
+        return adapter(codeGenType, validationResult, null);
+    }
+
+    private GenerationProjectBuildValidationAdapter adapter(
+            CodeGenTypeEnum codeGenType,
+            ProjectBuildValidationResult validationResult,
+            GeneratedProjectWorkspaceInspection workspaceState
+    ) {
         return new GenerationProjectBuildValidationAdapter() {
             @Override
             public CodeGenTypeEnum codeGenType() {
@@ -260,6 +294,13 @@ class GenerationProjectBuildValidationServiceTest {
                     BuildExecutionBudgetReservation budgetReservation
             ) {
                 return validationResult;
+            }
+
+            @Override
+            public GeneratedProjectWorkspaceInspection inspect(
+                    GenerationWorkspace workspace
+            ) {
+                return workspaceState;
             }
         };
     }

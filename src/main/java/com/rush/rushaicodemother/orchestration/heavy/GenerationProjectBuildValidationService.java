@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.heavy;
 import com.rush.rushaicodemother.core.builder.BuildExecutionBudgetReservation;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Service;
 
@@ -35,14 +36,30 @@ public class GenerationProjectBuildValidationService {
     /** 使用注册适配器执行真实构建验证。 */
     public ProjectBuildValidationResult validate(
             GenerationWorkspace workspace,
-            CodeGenTypeEnum codeGenType,
             String taskId
     ) {
         Objects.requireNonNull(workspace, "生成工作区不能为空");
-        Objects.requireNonNull(codeGenType, "代码生成类型不能为空");
+        CodeGenTypeEnum codeGenType = Objects.requireNonNull(
+                workspace.codeGenType(), "生成工作区工程类型不能为空");
         BuildExecutionBudgetReservation budgetReservation =
                 BuildExecutionBudgetReservation.forTask(executionContextService, taskId);
         return requireAdapter(codeGenType).validate(workspace, taskId, budgetReservation);
+    }
+
+    /** 复用同一工程 adapter 检查构建前工作区，不在编排主链重复工程类型分支。 */
+    public GeneratedProjectWorkspaceInspection inspect(
+            GenerationWorkspace workspace
+    ) {
+        Objects.requireNonNull(workspace, "生成工作区不能为空");
+        CodeGenTypeEnum codeGenType = Objects.requireNonNull(
+                workspace.codeGenType(), "生成工作区工程类型不能为空");
+        GeneratedProjectWorkspaceInspection state =
+                requireAdapter(codeGenType).inspect(workspace);
+        if (state == null) {
+            throw new IllegalStateException(
+                    "工程构建验证适配器返回空工作区检查结果: " + codeGenType.getValue());
+        }
+        return state;
     }
 
     private GenerationProjectBuildValidationAdapter requireAdapter(CodeGenTypeEnum codeGenType) {

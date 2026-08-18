@@ -21,9 +21,9 @@ import com.rush.rushaicodemother.orchestration.verification.GenerationValidation
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
-import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -85,8 +85,8 @@ public class HeavyGenerationBuildValidationService {
         GenerationWorkspace workspace = resolveExecutionWorkspace(appId, preparation.targetType(), session);
         StringBuilder generatedContent = new StringBuilder();
         long[] lastSnapshotUpdateAt = {0L};
-        GeneratedProjectWorkspaceInspector.WorkspaceState workspaceState =
-                inspectWorkspace(workspace, preparation.targetType());
+        GeneratedProjectWorkspaceInspection workspaceState =
+                projectBuildValidationService.inspect(workspace);
         if (!workspaceState.canAutoRepair()) {
             heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
             return false;
@@ -144,7 +144,7 @@ public class HeavyGenerationBuildValidationService {
                         appId, preparation, session, validationFailure.publicSummary());
                 return false;
             }
-            workspaceState = inspectWorkspace(workspace, preparation.targetType());
+            workspaceState = projectBuildValidationService.inspect(workspace);
             if (!workspaceState.canAutoRepair()) {
                 heavyGenerationFailureRecoveryService.emitMissingProjectCode(appId, preparation, session, workspaceState);
                 return false;
@@ -265,7 +265,6 @@ public class HeavyGenerationBuildValidationService {
     ) {
         ProjectBuildValidationResult buildResult = projectBuildValidationService.validate(
                 workspace,
-                preparation.targetType(),
                 preparation.taskId()
         );
         if (buildResult != null) {
@@ -280,21 +279,6 @@ public class HeavyGenerationBuildValidationService {
                 "项目构建服务异常，请稍后重试",
                 contractViolation
         );
-    }
-
-    private GeneratedProjectWorkspaceInspector.WorkspaceState inspectWorkspace(
-            GenerationWorkspace workspace,
-            CodeGenTypeEnum targetType
-    ) {
-        return switch (targetType) {
-            case VUE_PROJECT -> GeneratedProjectWorkspaceInspector.inspectVueProject(
-                    workspace.frontendRootPath());
-            case BACKEND_PROJECT -> GeneratedProjectWorkspaceInspector.inspectBackendProject(
-                    workspace.backendRootPath());
-            case FULL_STACK_PROJECT -> GeneratedProjectWorkspaceInspector.inspectFullStackProject(
-                    workspace.canonicalRootPath());
-            default -> throw new IllegalArgumentException("当前项目类型不支持构建门禁: " + targetType.getValue());
-        };
     }
 
     private GenerationWorkspace resolveExecutionWorkspace(Long appId,

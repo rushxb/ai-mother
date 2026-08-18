@@ -24,6 +24,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
+import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
@@ -81,7 +82,9 @@ class HeavyGenerationDiagnosticBoundaryTest {
                             null,
                             commandResult
                     );
-            when(projectBuildValidationService.validate(any(), any(), eq(taskId)))
+            when(projectBuildValidationService.inspect(any()))
+                    .thenReturn(GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath));
+            when(projectBuildValidationService.validate(any(), eq(taskId)))
                     .thenReturn(ProjectBuildValidationResult.fromVue(vueBuildResult));
             when(devServerValidationService.validate(anyString(), anyLong(), anyLong(), any(CodeGenTypeEnum.class)))
                     .thenReturn(DevServerValidationResult.passed(taskId, appId, 5));

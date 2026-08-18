@@ -32,6 +32,7 @@ import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBac
 import com.rush.rushaicodemother.orchestration.verification.runtime.BackendRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.verification.runtime.FullStackRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -47,6 +48,7 @@ import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.devserver.DevServerError;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
+import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
 import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
@@ -388,7 +390,7 @@ class HeavyGenerationRepairBudgetTest {
         GenerationPreparation preparation = preparation(taskId, CodeGenTypeEnum.BACKEND_PROJECT);
         GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
         when(projectBuildValidationService.validate(
-                any(GenerationWorkspace.class), eq(CodeGenTypeEnum.BACKEND_PROJECT), eq(taskId)))
+                any(GenerationWorkspace.class), eq(taskId)))
                 .thenReturn(new ProjectBuildValidationResult(
                         true, "backend", "done", projectPath.toString(),
                         "backend build passed", "go test passed", ""));
@@ -443,7 +445,7 @@ class HeavyGenerationRepairBudgetTest {
         GenerationSession session = new GenerationSession(preparation, executionContext(taskId, appId, 1));
         session.consumeBudget(GenerationBudgetKind.REPAIR_ROUND);
         when(buildValidation.validate(
-                any(GenerationWorkspace.class), eq(CodeGenTypeEnum.BACKEND_PROJECT), eq(taskId)))
+                any(GenerationWorkspace.class), eq(taskId)))
                 .thenReturn(new ProjectBuildValidationResult(
                         true, "backend", "done", projectPath.toString(),
                         "backend build passed", "go test passed", ""));
@@ -499,7 +501,6 @@ class HeavyGenerationRepairBudgetTest {
         session.consumeBudget(GenerationBudgetKind.REPAIR_ROUND);
         when(buildValidation.validate(
                 any(GenerationWorkspace.class),
-                eq(CodeGenTypeEnum.FULL_STACK_PROJECT),
                 eq(taskId)
         )).thenReturn(new ProjectBuildValidationResult(
                 true,
@@ -681,10 +682,10 @@ class HeavyGenerationRepairBudgetTest {
         GenerationProjectBuildValidationService projectBuildValidationService =
                 mock(GenerationProjectBuildValidationService.class);
         when(projectBuildValidationService.validate(
-                any(GenerationWorkspace.class), any(CodeGenTypeEnum.class), anyString()))
+                any(GenerationWorkspace.class), anyString()))
                 .thenAnswer(invocation -> {
                     GenerationWorkspace workspace = invocation.getArgument(0);
-                    String taskId = invocation.getArgument(2);
+                    String taskId = invocation.getArgument(1);
                     VueBuildResult result = builder.buildProjectWithResult(
                             workspace.frontendRootPath().toString(), taskId);
                     return result == null ? null : ProjectBuildValidationResult.fromVue(result);
@@ -747,6 +748,8 @@ class HeavyGenerationRepairBudgetTest {
     ) {
         doReturn("repair prompt").when(generationService).buildAutoRepairPrompt(
                 eq(appId), any(GenerationPreparation.class), any(Exception.class), anyInt());
+        when(projectBuildValidationService.inspect(any(GenerationWorkspace.class)))
+                .thenAnswer(invocation -> inspectWorkspace(invocation.getArgument(0)));
         VueProjectValidationAdapter vueAdapter = new VueProjectValidationAdapter(
                 mock(VueProjectBuilder.class),
                 devServerValidationService);
@@ -774,6 +777,21 @@ class HeavyGenerationRepairBudgetTest {
                 stageAdmissionService(),
                 mock(GenerationPreviewMilestoneService.class)
         );
+    }
+
+    private GeneratedProjectWorkspaceInspection inspectWorkspace(
+            GenerationWorkspace workspace
+    ) {
+        return switch (workspace.codeGenType()) {
+            case VUE_PROJECT -> GeneratedProjectWorkspaceInspector.inspectVueProject(
+                    workspace.frontendRootPath());
+            case BACKEND_PROJECT -> GeneratedProjectWorkspaceInspector.inspectBackendProject(
+                    workspace.backendRootPath());
+            case FULL_STACK_PROJECT -> GeneratedProjectWorkspaceInspector.inspectFullStackProject(
+                    workspace.canonicalRootPath());
+            default -> throw new IllegalArgumentException(
+                    "测试不支持该工程类型: " + workspace.codeGenType().getValue());
+        };
     }
 
     private FullStackRuntimeValidationResult successfulFullStackRuntime() {

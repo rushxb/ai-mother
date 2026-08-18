@@ -7,7 +7,9 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.verification.runtime.BackendRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -34,6 +36,14 @@ public final class BackendProjectValidationAdapter implements
     @Override
     public CodeGenTypeEnum codeGenType() {
         return CodeGenTypeEnum.BACKEND_PROJECT;
+    }
+
+    @Override
+    public GeneratedProjectWorkspaceInspection inspect(
+            GenerationWorkspace workspace
+    ) {
+        return GeneratedProjectWorkspaceInspector.inspectBackendProject(
+                workspace.backendRootPath());
     }
 
     @Override

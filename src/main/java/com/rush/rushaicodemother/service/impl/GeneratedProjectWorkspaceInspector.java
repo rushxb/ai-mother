@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.service.impl;
 
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
+
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -53,45 +55,42 @@ public final class GeneratedProjectWorkspaceInspector {
     private GeneratedProjectWorkspaceInspector() {
     }
 
-    /**
- * 返回{@code inspect}{@code Vue}项目。
- *
- * @param projectPath 项目路径
- * @return {@code Generated}项目工作区{@code Inspector}
- */
-    public static WorkspaceState inspectVueProject(String projectPath) {
+    /** 检查 Vue 工程目录。 */
+    public static GeneratedProjectWorkspaceInspection inspectVueProject(String projectPath) {
         if (projectPath == null || projectPath.isBlank()) {
             throw new IllegalArgumentException("projectPath 不能为空");
         }
         return inspectVueProject(Path.of(projectPath));
     }
 
-    public static WorkspaceState inspectVueProject(Path projectPath) {
+    public static GeneratedProjectWorkspaceInspection inspectVueProject(Path projectPath) {
         return inspectProject(projectPath, VUE_KEY_PROJECT_FILES);
     }
 
-    public static WorkspaceState inspectBackendProject(Path projectPath) {
+    public static GeneratedProjectWorkspaceInspection inspectBackendProject(Path projectPath) {
         return inspectProject(projectPath, BACKEND_KEY_PROJECT_FILES);
     }
 
-    public static WorkspaceState inspectFullStackProject(Path projectPath) {
+    public static GeneratedProjectWorkspaceInspection inspectFullStackProject(Path projectPath) {
         return inspectProject(projectPath, FULL_STACK_KEY_PROJECT_FILES);
     }
 
-    /** 返回{@code inspect}项目。 */
-    private static WorkspaceState inspectProject(Path projectPath, Set<String> keyProjectFiles) {
-        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
+    /** 按工程类型声明的关键文件检查项目目录。 */
+    private static GeneratedProjectWorkspaceInspection inspectProject(
+            Path projectPath,
+            Set<String> keyProjectFiles
+    ) {
         if (projectPath == null) {
             throw new IllegalArgumentException("projectPath 不能为空");
         }
         Path rootPath = projectPath.toAbsolutePath().normalize();
         if (!Files.exists(rootPath) || !Files.isDirectory(rootPath)) {
-            return new WorkspaceState(rootPath, false, 0, 0, Set.of());
+            return new GeneratedProjectWorkspaceInspection(
+                    rootPath, false, 0, 0, Set.of());
         }
         long[] fileCount = {0};
         long[] meaningfulFileCount = {0};
         Set<String> detectedKeyFiles = new LinkedHashSet<>();
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
                 /**
@@ -134,10 +133,12 @@ public final class GeneratedProjectWorkspaceInspector {
                     return FileVisitResult.CONTINUE;
                 }
             });
-        } catch (IOException e) {
-            return new WorkspaceState(rootPath, true, fileCount[0], meaningfulFileCount[0], detectedKeyFiles);
+        } catch (IOException ignored) {
+            return new GeneratedProjectWorkspaceInspection(
+                    rootPath, true, fileCount[0], meaningfulFileCount[0], detectedKeyFiles);
         }
-        return new WorkspaceState(rootPath, true, fileCount[0], meaningfulFileCount[0], detectedKeyFiles);
+        return new GeneratedProjectWorkspaceInspection(
+                rootPath, true, fileCount[0], meaningfulFileCount[0], detectedKeyFiles);
     }
 
     private static boolean shouldIgnoreFile(String relativePath) {
@@ -154,34 +155,4 @@ public final class GeneratedProjectWorkspaceInspector {
         return rootPath.relativize(filePath).toString().replace("\\", "/");
     }
 
-    public record WorkspaceState(Path rootPath,
-                                 boolean directoryExists,
-                                 long fileCount,
-                                 long meaningfulFileCount,
-                                 Set<String> detectedKeyFiles) {
-
-        public boolean hasAnyGeneratedFiles() {
-            return meaningfulFileCount > 0;
-        }
-
-        public boolean canAutoRepair() {
-            return directoryExists && (hasKeyProjectFiles() || meaningfulFileCount >= 2);
-        }
-
-        public boolean hasKeyProjectFiles() {
-            return detectedKeyFiles != null && !detectedKeyFiles.isEmpty();
-        }
-
-        /**
- * 返回{@code missing}项目汇总。
- *
- * @return 处理后的工作区状态文本
- */
-        public String missingProjectSummary() {
-            if (!directoryExists) {
-                return "代码生成未产出项目目录，无法执行构建或自动修复";
-            }
-            return "代码生成未产出有效项目文件，无法执行构建或自动修复";
-        }
-    }
 }

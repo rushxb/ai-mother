@@ -102,7 +102,6 @@ class GenerationProjectBuildValidationReuseTest {
 
         ProjectBuildValidationResult first = service.validate(
                 workspace,
-                CodeGenTypeEnum.FULL_STACK_PROJECT,
                 "task-repair"
         );
         Files.writeString(
@@ -111,7 +110,6 @@ class GenerationProjectBuildValidationReuseTest {
         );
         ProjectBuildValidationResult second = service.validate(
                 workspace,
-                CodeGenTypeEnum.FULL_STACK_PROJECT,
                 "task-repair"
         );
 

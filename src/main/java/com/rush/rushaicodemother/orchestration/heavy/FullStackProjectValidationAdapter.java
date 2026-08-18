@@ -7,9 +7,11 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.verification.runtime.FullStackRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
+import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -49,6 +51,14 @@ public final class FullStackProjectValidationAdapter implements
     @Override
     public CodeGenTypeEnum codeGenType() {
         return CodeGenTypeEnum.FULL_STACK_PROJECT;
+    }
+
+    @Override
+    public GeneratedProjectWorkspaceInspection inspect(
+            GenerationWorkspace workspace
+    ) {
+        return GeneratedProjectWorkspaceInspector.inspectFullStackProject(
+                workspace.canonicalRootPath());
     }
 
     @Override

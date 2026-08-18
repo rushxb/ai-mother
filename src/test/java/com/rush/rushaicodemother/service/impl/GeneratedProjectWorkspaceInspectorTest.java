@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.service.impl;
 
+import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GeneratedProjectWorkspaceInspectorTest {
@@ -13,7 +15,7 @@ class GeneratedProjectWorkspaceInspectorTest {
     @Test
     void shouldRejectMissingProjectDirectory() throws Exception {
         Path tempDir = testDir("missing-project");
-        GeneratedProjectWorkspaceInspector.WorkspaceState state =
+        GeneratedProjectWorkspaceInspection state =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(tempDir.resolve("missing").toString());
 
         assertFalse(state.directoryExists());
@@ -24,7 +26,7 @@ class GeneratedProjectWorkspaceInspectorTest {
     @Test
     void shouldRejectEmptyProjectDirectory() throws Exception {
         Path tempDir = testDir("empty-project");
-        GeneratedProjectWorkspaceInspector.WorkspaceState state =
+        GeneratedProjectWorkspaceInspection state =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(tempDir.toString());
 
         assertTrue(state.directoryExists());
@@ -39,7 +41,7 @@ class GeneratedProjectWorkspaceInspectorTest {
         Files.writeString(tempDir.resolve("node_modules/.bin/vite"), "");
         Files.writeString(tempDir.resolve(".ai-code-install.stamp"), "abc");
 
-        GeneratedProjectWorkspaceInspector.WorkspaceState state =
+        GeneratedProjectWorkspaceInspection state =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(tempDir.toString());
 
         assertFalse(state.hasAnyGeneratedFiles());
@@ -54,7 +56,7 @@ class GeneratedProjectWorkspaceInspectorTest {
         Files.writeString(tempDir.resolve("index.html"), "<div id=\"app\"></div>");
         Files.writeString(tempDir.resolve("src/main.ts"), "import { createApp } from 'vue'");
 
-        GeneratedProjectWorkspaceInspector.WorkspaceState state =
+        GeneratedProjectWorkspaceInspection state =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(tempDir.toString());
 
         assertTrue(state.hasAnyGeneratedFiles());
@@ -69,7 +71,7 @@ class GeneratedProjectWorkspaceInspectorTest {
         Files.writeString(tempDir.resolve("src/components/Home.vue"), "<template>Home</template>");
         Files.writeString(tempDir.resolve("src/styles.css"), "body { margin: 0; }");
 
-        GeneratedProjectWorkspaceInspector.WorkspaceState state =
+        GeneratedProjectWorkspaceInspection state =
                 GeneratedProjectWorkspaceInspector.inspectVueProject(tempDir.toString());
 
         assertTrue(state.hasAnyGeneratedFiles());
@@ -85,7 +87,7 @@ class GeneratedProjectWorkspaceInspectorTest {
         Files.writeString(backend.resolve("go.sum"), "");
         Files.writeString(backend.resolve("cmd/server/main.go"), "package main");
 
-        GeneratedProjectWorkspaceInspector.WorkspaceState backendState =
+        GeneratedProjectWorkspaceInspection backendState =
                 GeneratedProjectWorkspaceInspector.inspectBackendProject(backend);
         assertTrue(backendState.hasKeyProjectFiles());
         assertTrue(backendState.canAutoRepair());
@@ -97,10 +99,22 @@ class GeneratedProjectWorkspaceInspectorTest {
         Files.writeString(fullStack.resolve("backend/go.mod"), "module example");
         Files.writeString(fullStack.resolve("backend/cmd/server/main.go"), "package main");
 
-        GeneratedProjectWorkspaceInspector.WorkspaceState fullStackState =
+        GeneratedProjectWorkspaceInspection fullStackState =
                 GeneratedProjectWorkspaceInspector.inspectFullStackProject(fullStack);
         assertTrue(fullStackState.hasKeyProjectFiles());
         assertTrue(fullStackState.canAutoRepair());
+    }
+
+    @Test
+    void inspectionResultMustNotExposeMutableDetectedKeyFiles() throws Exception {
+        Path tempDir = testDir("immutable-key-files");
+        Files.writeString(tempDir.resolve("package.json"), "{}");
+        GeneratedProjectWorkspaceInspection state =
+                GeneratedProjectWorkspaceInspector.inspectVueProject(tempDir);
+
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> state.detectedKeyFiles().add("src/main.ts"));
     }
 
     private Path testDir(String name) throws Exception {

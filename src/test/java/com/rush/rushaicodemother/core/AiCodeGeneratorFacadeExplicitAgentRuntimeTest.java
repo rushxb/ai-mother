@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.core.parser.CodeParserExecutor;
 import com.rush.rushaicodemother.core.saver.CodeFileSaverExecutor;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
@@ -194,6 +195,7 @@ class AiCodeGeneratorFacadeExplicitAgentRuntimeTest {
                 );
         AiCodeGeneratorFacade facade = new AiCodeGeneratorFacade(
                 serviceFactory,
+                mock(CodeParserExecutor.class),
                 mock(CodeFileSaverExecutor.class),
                 workspaceService,
                 performanceMonitor,

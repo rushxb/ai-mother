@@ -4,6 +4,8 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.model.HtmlCodeResult;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import org.springframework.stereotype.Component;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,17 +15,18 @@ import java.util.regex.Pattern;
  *
  * @author rush
  */
+@Component
 public class HtmlCodeParser implements CodeParser<HtmlCodeResult> {
 
     private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern COMPLETE_HTML_PATTERN = Pattern.compile("(?is)(<!DOCTYPE\\s+html[^>]*>\\s*)?<html[\\s\\S]*?</html>");
 
-    /**
- * 解析代码。
- *
- * @param codeContent 代码内容
- * @return 代码
- */
+    @Override
+    public CodeGenTypeEnum codeGenType() {
+        return CodeGenTypeEnum.HTML;
+    }
+
+    /** 解析并校验完整的 HTML 页面代码。 */
     @Override
     public HtmlCodeResult parseCode(String codeContent) {
         HtmlCodeResult result = new HtmlCodeResult();
@@ -64,7 +67,7 @@ public class HtmlCodeParser implements CodeParser<HtmlCodeResult> {
         return null;
     }
 
-    /** 判断有效{@code Html}{@code Document}是否满足约束。 */
+    /** 判断内容是否包含完整的 HTML 文档骨架。 */
     private boolean isValidHtmlDocument(String content) {
         if (StrUtil.isBlank(content)) {
             return false;

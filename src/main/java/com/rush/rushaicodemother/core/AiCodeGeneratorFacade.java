@@ -72,6 +72,7 @@ public class AiCodeGeneratorFacade {
     private static final String MODEL_ADMISSION_MODE = "code_generation";
 
     private final AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
+    private final CodeParserExecutor codeParserExecutor;
     private final CodeFileSaverExecutor codeFileSaverExecutor;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationPerformanceMonitorService performanceMonitorService;
@@ -82,19 +83,22 @@ public class AiCodeGeneratorFacade {
     private final GenerationAgentRuntime generationAgentRuntime;
 
     /**
- * 创建 AI 代码生成器{@code Facade}实例并完成必要的依赖和初始状态设置。
- *
- * @param aiCodeGeneratorServiceFactory AI 代码生成器服务工厂
- * @param codeFileSaverExecutor {@code codeFileSaverExecutor} 对应的调用参数
- * @param generationWorkspaceService 生成工作区服务
- * @param performanceMonitorService 处理该职责的领域服务
- * @param rootModelRetryExecutor 根模型重试执行器
- * @param generationStageAdmissionService 生成阶段准入服务
- * @param modelTimeoutPolicy 模型超时策略
- * @param modelCancellationBridge {@code modelCancellationBridge} 对应的调用参数
- */
+     * 创建 AI 代码生成门面并注入生成、解析、保存及运行时治理依赖。
+     *
+     * @param aiCodeGeneratorServiceFactory AI 代码生成器服务工厂
+     * @param codeParserExecutor 代码解析路由器
+     * @param codeFileSaverExecutor 代码文件保存路由器
+     * @param generationWorkspaceService 生成工作区服务
+     * @param performanceMonitorService 性能监控服务
+     * @param rootModelRetryExecutor 根模型重试执行器
+     * @param generationStageAdmissionService 生成阶段准入服务
+     * @param modelTimeoutPolicy 模型超时策略
+     * @param modelCancellationBridge 模型调用取消桥接器
+     * @param generationAgentRuntime 智能体运行时
+     */
     @Autowired
     public AiCodeGeneratorFacade(AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory,
+                                 CodeParserExecutor codeParserExecutor,
                                  CodeFileSaverExecutor codeFileSaverExecutor,
                                  GenerationWorkspaceService generationWorkspaceService,
                                  GenerationPerformanceMonitorService performanceMonitorService,
@@ -104,6 +108,7 @@ public class AiCodeGeneratorFacade {
                                  GenerationModelInvocationCancellationBridge modelCancellationBridge,
                                  GenerationAgentRuntime generationAgentRuntime) {
         this.aiCodeGeneratorServiceFactory = aiCodeGeneratorServiceFactory;
+        this.codeParserExecutor = codeParserExecutor;
         this.codeFileSaverExecutor = codeFileSaverExecutor;
         this.generationWorkspaceService = generationWorkspaceService;
         this.performanceMonitorService = performanceMonitorService;
@@ -407,7 +412,7 @@ public class AiCodeGeneratorFacade {
                                          CodeGenTypeEnum codeGenType,
                                          Long appId,
                                          GenerationExecutionFence executionFence) {
-        Object parsedResult = CodeParserExecutor.executeParser(completeCode, codeGenType);
+        Object parsedResult = codeParserExecutor.executeParser(completeCode, codeGenType);
         GenerationWorkspace workspace = resolveCallbackWorkspace(
                 executionFence, appId, codeGenType, true);
         File saveDir = codeFileSaverExecutor.executeSaver(

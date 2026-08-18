@@ -4,6 +4,8 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.model.MultiFileCodeResult;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import org.springframework.stereotype.Component;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,18 +15,19 @@ import java.util.regex.Pattern;
  *
  * @author rush
  */
+@Component
 public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
 
     private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern CSS_CODE_PATTERN = Pattern.compile("```css\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern JS_CODE_PATTERN = Pattern.compile("```(?:js|javascript)\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
-    /**
- * 解析代码。
- *
- * @param codeContent 代码内容
- * @return 代码
- */
+    @Override
+    public CodeGenTypeEnum codeGenType() {
+        return CodeGenTypeEnum.MULTI_FILE;
+    }
+
+    /** 解析 HTML、CSS、JavaScript 三类代码块。 */
     @Override
     public MultiFileCodeResult parseCode(String codeContent) {
         MultiFileCodeResult result = new MultiFileCodeResult();

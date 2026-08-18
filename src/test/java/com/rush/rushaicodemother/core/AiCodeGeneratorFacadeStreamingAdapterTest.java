@@ -5,6 +5,9 @@ import com.rush.rushaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.core.handler.GenerationCancellationHandle;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.core.parser.CodeParserExecutor;
+import com.rush.rushaicodemother.core.parser.HtmlCodeParser;
+import com.rush.rushaicodemother.core.parser.MultiFileCodeParser;
 import com.rush.rushaicodemother.core.saver.CodeFileSaverExecutor;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -399,6 +402,7 @@ class AiCodeGeneratorFacadeStreamingAdapterTest {
         }
         return new AiCodeGeneratorFacade(
                 serviceFactory,
+                new CodeParserExecutor(List.of(new HtmlCodeParser(), new MultiFileCodeParser())),
                 saverExecutor,
                 workspaceService,
                 performanceMonitorService,

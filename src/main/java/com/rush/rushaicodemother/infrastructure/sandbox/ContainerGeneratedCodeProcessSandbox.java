@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -34,15 +33,15 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
     private static final Set<String> GO_COMPILATION_COMMANDS = Set.of(
             "build", "install", "run", "test"
     );
-    private static final Set<String> FIXED_ENVIRONMENT_KEYS = Set.of(
-            "HOME", "XDG_CACHE_HOME", "NPM_CONFIG_CACHE", "COREPACK_HOME",
-            "GOCACHE", "GOMODCACHE", "GOTMPDIR"
-    );
-
     private final GeneratedCodeSandboxProperties.Container properties;
+    private final GeneratedCodeProcessEnvironmentPolicy environmentPolicy;
 
-    public ContainerGeneratedCodeProcessSandbox(GeneratedCodeSandboxProperties properties) {
+    public ContainerGeneratedCodeProcessSandbox(
+            GeneratedCodeSandboxProperties properties,
+            GeneratedCodeProcessEnvironmentPolicy environmentPolicy
+    ) {
         this.properties = properties.getContainer();
+        this.environmentPolicy = Objects.requireNonNull(environmentPolicy, "environmentPolicy");
     }
 
     @Override
@@ -447,15 +446,12 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
             environment.put("GOCACHE", GO_BUILD_TMP_DIR + "/cache");
             environment.put("GOTMPDIR", GO_BUILD_TMP_DIR);
         }
-        request.environment().entrySet().stream()
-                .filter(entry -> validEnvironmentName(entry.getKey()))
-                .filter(entry -> !FIXED_ENVIRONMENT_KEYS.contains(entry.getKey().toUpperCase(Locale.ROOT)))
-                .sorted(Comparator.comparing(Map.Entry::getKey))
-                .forEach(entry -> environment.put(
-                        entry.getKey(),
+        environmentPolicy.validate(request, workingDirectory, devServerPort)
+                .forEach((name, value) -> environment.put(
+                        name,
                         mapContainerEnvironmentValue(
-                                entry.getKey(),
-                                entry.getValue(),
+                                name,
+                                value,
                                 workingDirectory,
                                 devServerPort
                         )));
@@ -610,7 +606,4 @@ public class ContainerGeneratedCodeProcessSandbox implements GeneratedCodeProces
         return value;
     }
 
-    private boolean validEnvironmentName(String value) {
-        return value != null && value.matches("[A-Za-z_][A-Za-z0-9_]*");
-    }
 }

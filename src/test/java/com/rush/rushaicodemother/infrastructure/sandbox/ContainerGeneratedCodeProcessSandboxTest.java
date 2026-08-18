@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,6 +53,21 @@ class ContainerGeneratedCodeProcessSandboxTest {
     }
 
     @Test
+    void shouldRejectEnvironmentVariableOutsideMinimalAllowlist() {
+        ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("pnpm", "run", "build"))
+                .environment(Map.of("OPENAI_API_KEY", "platform-secret"))
+                .build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> sandbox.prepare(request, workspace.toAbsolutePath().normalize())
+        );
+    }
+
+    @Test
     void shouldRejectImplicitRuntimeNetworkGrantForExposedPort() {
         ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
 
@@ -78,9 +92,10 @@ class ContainerGeneratedCodeProcessSandboxTest {
                         .workingDirectory(workspace)
                         .command(List.of("C:\\tools\\pnpm.cmd", "install", lockfile.toString()))
                         .environment(Map.of(
-                                "LOCKFILE_PATH", lockfile.toString(),
-                                "HOME", "C:\\Users\\host-user",
-                                "INVALID-NAME", "ignored"
+                                "NO_UPDATE_NOTIFIER", "1",
+                                "NPM_CONFIG_AUDIT", "false",
+                                "NPM_CONFIG_FUND", "false",
+                                "CI", "true"
                         ))
                         .networkPolicy(SandboxNetworkPolicy.DEPENDENCY_EGRESS)
                         .build(),
@@ -105,10 +120,106 @@ class ContainerGeneratedCodeProcessSandboxTest {
                         "--verify-store-integrity"
                 ),
                 command.subList(imageIndex + 1, command.size()));
-        assertTrue(command.contains("LOCKFILE_PATH=/workspace/pnpm-lock.yaml"));
+        assertTrue(command.contains("NO_UPDATE_NOTIFIER=1"));
+        assertTrue(command.contains("NPM_CONFIG_AUDIT=false"));
+        assertTrue(command.contains("NPM_CONFIG_FUND=false"));
+        assertTrue(command.contains("CI=true"));
         assertTrue(command.contains("HOME=/tmp/home"));
-        assertFalse(command.contains("HOME=C:\\Users\\host-user"));
-        assertFalse(command.stream().anyMatch(value -> value.startsWith("INVALID-NAME=")));
+    }
+
+    @Test
+    void shouldMapControlledGitEnvironmentPathIntoWorkspaceMount() {
+        Path gitIndex = workspace.resolve(".git/temporary-index").toAbsolutePath().normalize();
+        Path gitConfig = workspace.resolve(".git/isolated-config").toAbsolutePath().normalize();
+
+        SandboxProcessPlan plan = sandbox().prepare(
+                ManagedProcessRequest.builder()
+                        .workingDirectory(workspace)
+                        .command(List.of("git", "status"))
+                        .environment(Map.ofEntries(
+                                Map.entry("GIT_AUTHOR_NAME", "ai-code-mother"),
+                                Map.entry("GIT_AUTHOR_EMAIL", "ai-code-mother@example.com"),
+                                Map.entry("GIT_COMMITTER_NAME", "ai-code-mother"),
+                                Map.entry("GIT_COMMITTER_EMAIL", "ai-code-mother@example.com"),
+                                Map.entry("GIT_TERMINAL_PROMPT", "0"),
+                                Map.entry("GCM_INTERACTIVE", "never"),
+                                Map.entry("GIT_CONFIG_NOSYSTEM", "1"),
+                                Map.entry("GIT_CONFIG_GLOBAL", gitConfig.toString()),
+                                Map.entry("XDG_CONFIG_HOME", gitConfig.getParent().toString()),
+                                Map.entry("GIT_INDEX_FILE", gitIndex.toString())
+                        ))
+                        .build(),
+                workspace.toAbsolutePath().normalize()
+        );
+
+        assertTrue(plan.hostCommand().contains("GIT_AUTHOR_NAME=ai-code-mother"));
+        assertTrue(plan.hostCommand().contains("GIT_CONFIG_GLOBAL=/workspace/.git/isolated-config"));
+        assertTrue(plan.hostCommand().contains("GIT_INDEX_FILE=/workspace/.git/temporary-index"));
+    }
+
+    @Test
+    void shouldAllowControlledFrontendRuntimeApiBase() {
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("pnpm", "run", "dev"))
+                .environment(Map.of(
+                        "VITE_API_BASE_URL", "http://127.0.0.1:19001/api"
+                ))
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                .exposedPort(5180)
+                .build();
+
+        SandboxProcessPlan plan = sandbox().prepareDevServer(
+                request,
+                workspace.toAbsolutePath().normalize(),
+                5180
+        );
+
+        assertTrue(plan.hostCommand().contains(
+                "VITE_API_BASE_URL=http://127.0.0.1:19001/api"));
+    }
+
+    @Test
+    void shouldAllowOnlyEphemeralBenchmarkDatabaseDsn() {
+        String inMemoryDsn = "file:benchmark-123e4567-e89b-12d3-a456-426614174000"
+                + "?mode=memory&cache=shared";
+        ManagedProcessRequest safeRequest = goRuntimeRequest(Map.of(
+                "DATABASE_DSN", inMemoryDsn,
+                "LOG_LEVEL", "warn"
+        ));
+
+        SandboxProcessPlan plan = sandbox().prepareDevServer(
+                safeRequest,
+                workspace.toAbsolutePath().normalize(),
+                5181
+        );
+
+        assertTrue(plan.hostCommand().contains("DATABASE_DSN=" + inMemoryDsn));
+        ManagedProcessRequest unsafeRequest = goRuntimeRequest(Map.of(
+                "DATABASE_DSN", "postgres://platform-user:platform-secret@database/internal"
+        ));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> sandbox().prepareDevServer(
+                        unsafeRequest,
+                        workspace.toAbsolutePath().normalize(),
+                        5181
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectUntrustedValueForAllowedEnvironmentVariable() {
+        ManagedProcessRequest request = ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("pnpm", "install"))
+                .environment(Map.of("NPM_CONFIG_AUDIT", "true"))
+                .build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> sandbox().prepare(request, workspace.toAbsolutePath().normalize())
+        );
     }
 
     @Test
@@ -153,13 +264,10 @@ class ContainerGeneratedCodeProcessSandboxTest {
     @Test
     void shouldGrantExecutableTmpfsOnlyToOfflineGoTests() {
         ContainerGeneratedCodeProcessSandbox sandbox = sandbox();
-        Map<String, String> goEnvironment = new LinkedHashMap<>(GoProcessEnvironment.overrides());
-        goEnvironment.put("GOCACHE", "C:\\host-cache");
-        goEnvironment.put("GOTMPDIR", "C:\\host-tmp");
         ManagedProcessRequest goTestRequest = ManagedProcessRequest.builder()
                 .workingDirectory(workspace)
                 .command(List.of("C:\\tools\\go.exe", "test", "-mod=readonly", "./..."))
-                .environment(goEnvironment)
+                .environment(GoProcessEnvironment.overrides())
                 .networkPolicy(SandboxNetworkPolicy.NONE)
                 .build();
 
@@ -178,8 +286,6 @@ class ContainerGeneratedCodeProcessSandboxTest {
         assertTrue(command.contains("GOTMPDIR=/tmp/go-build"));
         assertTrue(command.contains("GOPROXY=off"));
         assertTrue(command.contains("GOSUMDB=off"));
-        assertFalse(command.contains("GOCACHE=C:\\host-cache"));
-        assertFalse(command.contains("GOTMPDIR=C:\\host-tmp"));
         int imageIndex = command.indexOf("ai-code-mother/sandbox-node:1");
         assertEquals(
                 List.of("go", "test", "-mod=readonly", "./..."),
@@ -380,7 +486,10 @@ class ContainerGeneratedCodeProcessSandboxTest {
     private ContainerGeneratedCodeProcessSandbox sandbox(boolean dependencyCacheEnabled) {
         GeneratedCodeSandboxProperties properties = new GeneratedCodeSandboxProperties();
         properties.getContainer().setDependencyCacheEnabled(dependencyCacheEnabled);
-        return new ContainerGeneratedCodeProcessSandbox(properties);
+        return new ContainerGeneratedCodeProcessSandbox(
+                properties,
+                new GeneratedCodeProcessEnvironmentPolicy()
+        );
     }
 
     private ManagedProcessRequest request(SandboxNetworkPolicy networkPolicy) {
@@ -389,6 +498,16 @@ class ContainerGeneratedCodeProcessSandboxTest {
                 .command(List.of("pnpm.cmd", "run", "build"))
                 .environmentVariablesToRemove(Set.of("NODE_OPTIONS"))
                 .networkPolicy(networkPolicy)
+                .build();
+    }
+
+    private ManagedProcessRequest goRuntimeRequest(Map<String, String> environment) {
+        return ManagedProcessRequest.builder()
+                .workingDirectory(workspace)
+                .command(List.of("go", "run", "./cmd/server"))
+                .environment(environment)
+                .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
+                .exposedPort(5181)
                 .build();
     }
 

@@ -73,7 +73,10 @@ class ContainerGeneratedCodeSandboxIntegrationTest {
                 "generatedCodeSandboxPnpmStoreVolume",
                 "ai-code-mother-pnpm-store-v9"
         ));
-        sandbox = new ContainerGeneratedCodeProcessSandbox(properties);
+        sandbox = new ContainerGeneratedCodeProcessSandbox(
+                properties,
+                new GeneratedCodeProcessEnvironmentPolicy()
+        );
         assertDockerSuccess(List.of("image", "inspect", properties.getContainer().getImage()));
         assertDockerSuccess(List.of(
                 "volume", "inspect", properties.getContainer().getPnpmStoreVolume()));

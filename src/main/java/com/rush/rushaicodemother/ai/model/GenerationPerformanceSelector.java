@@ -2,7 +2,10 @@ package com.rush.rushaicodemother.ai.model;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.Objects;
 
 /**
  * 生成性能配置选择器。
@@ -13,6 +16,16 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class GenerationPerformanceSelector {
+
+    private final GenerationAgentBudgetPolicy agentBudgetPolicy;
+
+    @Autowired
+    public GenerationPerformanceSelector(GenerationAgentBudgetPolicy agentBudgetPolicy) {
+        this.agentBudgetPolicy = Objects.requireNonNull(
+                agentBudgetPolicy,
+                "Agent 回合预算策略不能为空"
+        );
+    }
 
     /**
      * 选择性能配置。
@@ -25,6 +38,7 @@ public class GenerationPerformanceSelector {
     public GenerationPerformanceProfile select(boolean isFirstGeneration,
                                                 boolean isComplex,
                                                 CodeGenTypeEnum codeGenType) {
+        Objects.requireNonNull(codeGenType, "代码生成类型不能为空");
         GenerationPerformanceProfile profile;
 
         if (isFirstGeneration && !isComplex) {
@@ -45,8 +59,8 @@ public class GenerationPerformanceSelector {
             profile = GenerationPerformanceProfile.balanced();
         }
 
-        // 按类型调整工具上限
-        profile = profile.withTypeAdjustment(codeGenType);
+        // profile 选择与工程工具预算是不同事实，由统一预算 module 负责合并。
+        profile = agentBudgetPolicy.resolve(codeGenType, profile).effectiveProfile();
 
         log.info("选择生成性能配置: tier={}, thinking={}, maxTools={}, type={}, first={}, complex={}, reason={}",
                 profile.modelTier(), profile.thinkingEnabled(), profile.maxToolInvocations(),

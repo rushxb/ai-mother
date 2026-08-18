@@ -107,6 +107,7 @@ class ProductionAiWiringTest {
             .withUserConfiguration(
                     AiModelCircuitBreakerProperties.class,
                     AiModelCircuitBreaker.class,
+                    GenerationAgentBudgetPolicy.class,
                     GenerationExecutionContextService.class,
                     GenerationAgentCompletionPolicy.class,
                     GenerationAgentTurnPolicy.class,
@@ -155,6 +156,7 @@ class ProductionAiWiringTest {
             assertThat(context).hasSingleBean(AiModelOutboundHttpClientFactory.class);
             assertThat(context).hasSingleBean(GenerationStreamingModelCallSupervisor.class);
             assertThat(context).hasSingleBean(GenerationAgentRuntime.class);
+            assertThat(context).hasSingleBean(GenerationAgentBudgetPolicy.class);
             assertThat(context.getBean(GenerationAgentRuntime.class))
                     .isInstanceOf(DefaultGenerationAgentRuntime.class);
         });

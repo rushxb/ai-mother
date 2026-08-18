@@ -36,6 +36,19 @@ class GenerationAgentTurnPolicyTest {
             );
 
     @Test
+    void fullStackRepairProfileMustRetainProjectToolRoundFloor() {
+        Fixture fixture = fixture();
+
+        fixture.policy.beginAttempt(
+                fixture.context,
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                GenerationPerformanceProfile.qualityFirst()
+        );
+
+        assertEquals(20, fixture.context.agentToolRoundLimit());
+    }
+
+    @Test
     void finalModelTurnMustDisableToolsAndFailClosedOnFurtherCalls() {
         Fixture fixture = fixture();
         fixture.policy.beginAttempt(11L, TYPE, PROFILE);

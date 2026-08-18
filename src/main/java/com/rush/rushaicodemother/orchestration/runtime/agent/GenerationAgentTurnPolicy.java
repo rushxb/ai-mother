@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.agent;
 
+import com.rush.rushaicodemother.ai.model.GenerationAgentBudgetPolicy;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
@@ -26,16 +27,30 @@ public class GenerationAgentTurnPolicy {
                     + "请根据已有修改立即给出简短完成说明；构建、测试和发布由工程流水线继续执行。";
 
     private final GenerationExecutionContextService executionContextService;
+    private final GenerationAgentBudgetPolicy agentBudgetPolicy;
 
     @Autowired
-    public GenerationAgentTurnPolicy(GenerationExecutionContextService executionContextService) {
+    public GenerationAgentTurnPolicy(
+            GenerationExecutionContextService executionContextService,
+            GenerationAgentBudgetPolicy agentBudgetPolicy
+    ) {
         this.executionContextService = Objects.requireNonNull(
                 executionContextService, "生成执行上下文服务不能为空");
+        this.agentBudgetPolicy = Objects.requireNonNull(
+                agentBudgetPolicy, "Agent 回合预算策略不能为空");
+    }
+
+    /** 兼容不经过 Spring 的既有调用方。 */
+    GenerationAgentTurnPolicy(GenerationExecutionContextService executionContextService) {
+        this.executionContextService = Objects.requireNonNull(
+                executionContextService, "生成执行上下文服务不能为空");
+        this.agentBudgetPolicy = new GenerationAgentBudgetPolicy();
     }
 
     /** 仅供不经过 Spring 的兼容测试构造器使用。 */
     GenerationAgentTurnPolicy() {
         this.executionContextService = null;
+        this.agentBudgetPolicy = new GenerationAgentBudgetPolicy();
     }
 
     /** 每个根模型尝试拥有独立账本，只有根重试或新修复轮次会重置。 */
@@ -156,23 +171,13 @@ public class GenerationAgentTurnPolicy {
         if (codeGenType == null) {
             throw new IllegalArgumentException("代码生成类型不能为空");
         }
-        int configured = profile == null
-                ? switch (codeGenType) {
-                    case FULL_STACK_PROJECT -> 32;
-                    case BACKEND_PROJECT -> 20;
-                    default -> 10;
-                }
-                : profile.maxToolInvocations();
-        if (configured <= 0 || configured == Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("智能体工具回合上限无效");
-        }
-        return configured;
+        return agentBudgetPolicy.resolve(codeGenType, profile).toolRoundLimit();
     }
 
     /** 模型工具协议还需要一个禁用工具后的最终响应槽位。 */
     public int maximumModelResponses(CodeGenTypeEnum codeGenType,
                                      GenerationPerformanceProfile profile) {
-        return Math.addExact(maximumToolRounds(codeGenType, profile), 1);
+        return agentBudgetPolicy.resolve(codeGenType, profile).maximumModelResponses();
     }
 
     /** 重建模型请求并禁用全部工具，强制模型在最后一个响应槽位直接收尾。 */

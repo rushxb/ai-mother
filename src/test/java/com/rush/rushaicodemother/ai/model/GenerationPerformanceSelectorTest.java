@@ -8,7 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationPerformanceSelectorTest {
 
-    private final GenerationPerformanceSelector selector = new GenerationPerformanceSelector();
+    private final GenerationPerformanceSelector selector =
+            new GenerationPerformanceSelector(new GenerationAgentBudgetPolicy());
 
     @Test
     void complexBackendCreationMustUseDeepReasoning() {

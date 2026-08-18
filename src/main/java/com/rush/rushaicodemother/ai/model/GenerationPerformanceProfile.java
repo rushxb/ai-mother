@@ -1,7 +1,5 @@
 package com.rush.rushaicodemother.ai.model;
 
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-
 /**
  * 生成性能配置。
  * <p>
@@ -78,28 +76,4 @@ public record GenerationPerformanceProfile(
         );
     }
 
-    /**
-     * 根据代码生成类型调整工具调用上限。
-     * <p>
-     * 全栈项目需要更多工具调用，因为要同时处理前后端。
-     */
-    public GenerationPerformanceProfile withTypeAdjustment(CodeGenTypeEnum codeGenType) {
-        if (codeGenType == null) {
-            return this;
-        }
-        int adjustedMax = switch (codeGenType) {
-            case FULL_STACK_PROJECT -> Math.max(this.maxToolInvocations, 20);
-            case BACKEND_PROJECT -> Math.max(this.maxToolInvocations, 15);
-            default -> this.maxToolInvocations;
-        };
-        if (adjustedMax == this.maxToolInvocations) {
-            return this;
-        }
-        return new GenerationPerformanceProfile(
-                this.modelTier,
-                this.thinkingEnabled,
-                adjustedMax,
-                this.reasoning + "（已按类型调整工具上限）"
-        );
-    }
 }

@@ -17,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CountDownLatch;
@@ -42,6 +43,48 @@ class GenerationProjectBuildValidationServiceTest {
     Path root;
 
     @Test
+    void routesNewProjectTypeThroughRegisteredBuildAdapter() {
+        GenerationExecutionContextService contextService = mock(GenerationExecutionContextService.class);
+        ProjectBuildValidationResult expected = new ProjectBuildValidationResult(
+                true, "html", "done", root.toString(), "HTML 校验通过", "ok", "");
+        GenerationProjectBuildValidationAdapter htmlAdapter = adapter(
+                CodeGenTypeEnum.HTML, expected);
+        GenerationProjectBuildValidationService service = new GenerationProjectBuildValidationService(
+                List.of(htmlAdapter), contextService);
+        GenerationWorkspace workspace = new GenerationWorkspace(
+                1L,
+                CodeGenTypeEnum.HTML,
+                root,
+                root,
+                true,
+                root,
+                null,
+                Set.of(),
+                Set.of()
+        );
+
+        ProjectBuildValidationResult actual = service.validate(
+                workspace, CodeGenTypeEnum.HTML, "task-html");
+
+        assertSame(expected, actual);
+    }
+
+    @Test
+    void duplicateProjectTypeAdaptersMustFailAtStartup() {
+        GenerationExecutionContextService contextService = mock(GenerationExecutionContextService.class);
+        GenerationProjectBuildValidationAdapter adapter = adapter(
+                CodeGenTypeEnum.VUE_PROJECT, null);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> new GenerationProjectBuildValidationService(
+                        List.of(adapter, adapter), contextService)
+        );
+
+        assertTrue(exception.getMessage().contains("重复构建验证适配器"));
+    }
+
+    @Test
     void fullStackMustValidateBothComponentsWithOneSharedBudgetReservation() throws Exception {
         GenerationWorkspace workspace = fullStackWorkspace();
         VueProjectBuilder vueBuilder = mock(VueProjectBuilder.class);
@@ -62,7 +105,7 @@ class GenerationProjectBuildValidationServiceTest {
                     reservation.reserve();
                     return successfulVue(workspace.frontendRootPath());
                 });
-        GenerationProjectBuildValidationService service = new GenerationProjectBuildValidationService(
+        GenerationProjectBuildValidationService service = service(
                 vueBuilder, goBuilder, contextService);
 
         ProjectBuildValidationResult result = service.validate(
@@ -116,7 +159,7 @@ class GenerationProjectBuildValidationServiceTest {
                         throw new GenerationExecutionPolicyException("前端构建已取消");
                     }
                 });
-        GenerationProjectBuildValidationService service = new GenerationProjectBuildValidationService(
+        GenerationProjectBuildValidationService service = service(
                 vueBuilder, goBuilder, contextService);
 
         GenerationExecutionPolicyException actual = assertThrows(
@@ -148,7 +191,7 @@ class GenerationProjectBuildValidationServiceTest {
         GenerationExecutionContextService contextService = mock(GenerationExecutionContextService.class);
         when(goBuilder.buildProjectWithResult(eq(backend.toString()), eq("task-backend"), any()))
                 .thenReturn(successfulGo(backend));
-        GenerationProjectBuildValidationService service = new GenerationProjectBuildValidationService(
+        GenerationProjectBuildValidationService service = service(
                 vueBuilder, goBuilder, contextService);
 
         ProjectBuildValidationResult result = service.validate(
@@ -173,6 +216,45 @@ class GenerationProjectBuildValidationServiceTest {
                 Set.of(),
                 Set.of()
         );
+    }
+
+    private GenerationProjectBuildValidationService service(
+            VueProjectBuilder vueBuilder,
+            GoProjectBuilder goBuilder,
+            GenerationExecutionContextService contextService
+    ) {
+        VueProjectBuildValidationAdapter frontendAdapter =
+                new VueProjectBuildValidationAdapter(vueBuilder);
+        BackendProjectBuildValidationAdapter backendAdapter =
+                new BackendProjectBuildValidationAdapter(goBuilder);
+        FullStackProjectBuildValidationAdapter fullStackAdapter =
+                new FullStackProjectBuildValidationAdapter(
+                        frontendAdapter, backendAdapter, contextService);
+        return new GenerationProjectBuildValidationService(
+                List.of(frontendAdapter, backendAdapter, fullStackAdapter),
+                contextService
+        );
+    }
+
+    private GenerationProjectBuildValidationAdapter adapter(
+            CodeGenTypeEnum codeGenType,
+            ProjectBuildValidationResult validationResult
+    ) {
+        return new GenerationProjectBuildValidationAdapter() {
+            @Override
+            public CodeGenTypeEnum codeGenType() {
+                return codeGenType;
+            }
+
+            @Override
+            public ProjectBuildValidationResult validate(
+                    GenerationWorkspace workspace,
+                    String taskId,
+                    BuildExecutionBudgetReservation budgetReservation
+            ) {
+                return validationResult;
+            }
+        };
     }
 
     private GoBuildResult successfulGo(Path path) {

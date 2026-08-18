@@ -4,11 +4,16 @@ import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.process.GoProjectCommandExecutor;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
+import com.rush.rushaicodemother.orchestration.heavy.BackendProjectBuildValidationAdapter;
+import com.rush.rushaicodemother.orchestration.heavy.FullStackProjectBuildValidationAdapter;
+import com.rush.rushaicodemother.orchestration.heavy.GenerationProjectBuildValidationAdapter;
 import com.rush.rushaicodemother.orchestration.heavy.GenerationProjectBuildValidationService;
+import com.rush.rushaicodemother.orchestration.heavy.VueProjectBuildValidationAdapter;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 
@@ -37,6 +42,9 @@ class GoProjectBuilderSpringContextTest {
                     GoBuildResultRegistry.class,
                     GoBuildCommandService.class,
                     GoProjectBuilder.class,
+                    VueProjectBuildValidationAdapter.class,
+                    BackendProjectBuildValidationAdapter.class,
+                    FullStackProjectBuildValidationAdapter.class,
                     GenerationProjectBuildValidationService.class);
 
             context.refresh();
@@ -46,6 +54,8 @@ class GoProjectBuilderSpringContextTest {
             assertNotNull(context.getBean(GoBuildResultRegistry.class));
             assertNotNull(context.getBean(GoProjectBuilder.class));
             assertNotNull(context.getBean(GenerationProjectBuildValidationService.class));
+            assertEquals(3, context.getBeansOfType(
+                    GenerationProjectBuildValidationAdapter.class).size());
         }
     }
 }

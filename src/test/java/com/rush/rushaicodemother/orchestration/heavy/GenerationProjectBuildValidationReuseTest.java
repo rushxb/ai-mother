@@ -20,6 +20,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -77,9 +78,17 @@ class GenerationProjectBuildValidationReuseTest {
                     null
             );
         });
+        VueProjectBuildValidationAdapter frontendAdapter =
+                new VueProjectBuildValidationAdapter(vueBuilder);
+        BackendProjectBuildValidationAdapter backendAdapter =
+                new BackendProjectBuildValidationAdapter(goBuilder);
         GenerationProjectBuildValidationService service = new GenerationProjectBuildValidationService(
-                vueBuilder,
-                goBuilder,
+                List.of(
+                        frontendAdapter,
+                        backendAdapter,
+                        new FullStackProjectBuildValidationAdapter(
+                                frontendAdapter, backendAdapter, contextService)
+                ),
                 contextService
         );
 

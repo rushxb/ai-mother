@@ -1,41 +1,39 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
 import com.rush.rushaicodemother.core.builder.BuildExecutionBudgetReservation;
-import com.rush.rushaicodemother.core.builder.GoBuildResult;
-import com.rush.rushaicodemother.core.builder.GoProjectBuilder;
-import com.rush.rushaicodemother.core.builder.VueBuildResult;
-import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
-import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
-/** 按项目类型编排前端、后端或全栈构建门禁。 */
+/** 通过工程类型适配器注册表执行构建验证。 */
 @Service
-@RequiredArgsConstructor
 public class GenerationProjectBuildValidationService {
 
-    private final VueProjectBuilder vueProjectBuilder;
-    private final GoProjectBuilder goProjectBuilder;
+    private final Map<CodeGenTypeEnum, GenerationProjectBuildValidationAdapter> adaptersByType;
     private final GenerationExecutionContextService executionContextService;
 
     /**
- * 校验{@code ate}是否有效。
- *
- * @param workspace 工作区
- * @param codeGenType 代码生成类型
- * @param taskId 任务编号
- * @return {@code ate}
- */
+     * 构建不可变工程类型适配器注册表，重复声明在启动阶段失败。
+     *
+     * @param adapters 工程类型构建验证适配器
+     * @param executionContextService 生成执行上下文服务
+     */
+    public GenerationProjectBuildValidationService(
+            List<GenerationProjectBuildValidationAdapter> adapters,
+            GenerationExecutionContextService executionContextService
+    ) {
+        this.adaptersByType = registerAdapters(adapters);
+        this.executionContextService = Objects.requireNonNull(
+                executionContextService, "生成执行上下文服务不能为空");
+    }
+
+    /** 使用注册适配器执行真实构建验证。 */
     public ProjectBuildValidationResult validate(
             GenerationWorkspace workspace,
             CodeGenTypeEnum codeGenType,
@@ -45,131 +43,41 @@ public class GenerationProjectBuildValidationService {
         Objects.requireNonNull(codeGenType, "代码生成类型不能为空");
         BuildExecutionBudgetReservation budgetReservation =
                 BuildExecutionBudgetReservation.forTask(executionContextService, taskId);
-        return switch (codeGenType) {
-            case VUE_PROJECT -> validateVue(workspace, taskId, budgetReservation);
-            case BACKEND_PROJECT -> validateGo(workspace, taskId, budgetReservation);
-            case FULL_STACK_PROJECT -> validateFullStack(workspace, taskId, budgetReservation);
-            default -> throw new IllegalArgumentException("当前项目类型不支持构建门禁: " + codeGenType.getValue());
-        };
+        return requireAdapter(codeGenType).validate(workspace, taskId, budgetReservation);
     }
 
-    private ProjectBuildValidationResult validateVue(
-            GenerationWorkspace workspace,
-            String taskId,
-            BuildExecutionBudgetReservation budgetReservation
-    ) {
-        VueBuildResult result = vueProjectBuilder.buildProjectWithResult(
-                workspace.frontendRootPath().toString(),
-                taskId,
-                budgetReservation
-        );
-        return ProjectBuildValidationResult.fromVue(result);
-    }
-
-    /** 校验{@code ate}{@code Go}是否有效。 */
-    private ProjectBuildValidationResult validateGo(
-            GenerationWorkspace workspace,
-            String taskId,
-            BuildExecutionBudgetReservation budgetReservation
-    ) {
-        if (workspace.backendRootPath() == null) {
-            return ProjectBuildValidationResult.fromGo(GoBuildResult.invalid(
-                    workspace.canonicalRootPath().toString(),
-                    "后端工作区不可用"
-            ));
+    private GenerationProjectBuildValidationAdapter requireAdapter(CodeGenTypeEnum codeGenType) {
+        GenerationProjectBuildValidationAdapter adapter = adaptersByType.get(codeGenType);
+        if (adapter == null) {
+            throw new IllegalArgumentException(
+                    "当前项目类型不支持构建门禁: " + codeGenType.getValue());
         }
-        GoBuildResult result = goProjectBuilder.buildProjectWithResult(
-                workspace.backendRootPath().toString(),
-                taskId,
-                budgetReservation
-        );
-        return ProjectBuildValidationResult.fromGo(result);
+        return adapter;
     }
 
-    /** 校验{@code ate}全栈是否有效。 */
-    private ProjectBuildValidationResult validateFullStack(
-            GenerationWorkspace workspace,
-            String taskId,
-            BuildExecutionBudgetReservation budgetReservation
+    private static Map<CodeGenTypeEnum, GenerationProjectBuildValidationAdapter> registerAdapters(
+            List<GenerationProjectBuildValidationAdapter> adapters
     ) {
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            ExecutorCompletionService<ComponentValidation> completionService =
-                    new ExecutorCompletionService<>(executor);
-            Future<ComponentValidation> backendFuture = null;
-            Future<ComponentValidation> frontendFuture = null;
-            try {
-                backendFuture = completionService.submit(() -> new ComponentValidation(
-                        Component.BACKEND,
-                        validateGo(workspace, taskId, budgetReservation)
-                ));
-                frontendFuture = completionService.submit(() -> new ComponentValidation(
-                        Component.FRONTEND,
-                        validateVue(workspace, taskId, budgetReservation)
-                ));
-
-                ProjectBuildValidationResult backend = null;
-                ProjectBuildValidationResult frontend = null;
-                for (int completed = 0; completed < 2; completed++) {
-                    ComponentValidation validation = completionService.take().get();
-                    if (validation.component() == Component.BACKEND) {
-                        backend = validation.result();
-                    } else {
-                        frontend = validation.result();
-                    }
-                }
-                return ProjectBuildValidationResult.fullStack(
-                        workspace.canonicalRootPath().toString(),
-                        backend,
-                        frontend
-                );
-            } catch (InterruptedException exception) {
-                cancel(backendFuture, frontendFuture);
-                Thread.currentThread().interrupt();
-                executionContextService.assertCanContinue(taskId);
-                throw new GenerationExecutionPolicyException("全栈构建验证被中断");
-            } catch (ExecutionException exception) {
-                cancel(backendFuture, frontendFuture);
-                throw propagate(exception);
-            } catch (RuntimeException | Error exception) {
-                cancel(backendFuture, frontendFuture);
-                throw exception;
+        if (adapters == null || adapters.isEmpty()) {
+            throw new IllegalStateException("至少需要注册一个工程构建验证适配器");
+        }
+        EnumMap<CodeGenTypeEnum, GenerationProjectBuildValidationAdapter> registered =
+                new EnumMap<>(CodeGenTypeEnum.class);
+        for (GenerationProjectBuildValidationAdapter adapter : adapters) {
+            if (adapter == null) {
+                throw new IllegalStateException("工程构建验证适配器必须声明工程类型");
+            }
+            CodeGenTypeEnum codeGenType = adapter.codeGenType();
+            if (codeGenType == null) {
+                throw new IllegalStateException("工程构建验证适配器必须声明工程类型");
+            }
+            GenerationProjectBuildValidationAdapter previous = registered.putIfAbsent(
+                    codeGenType, adapter);
+            if (previous != null) {
+                throw new IllegalStateException(
+                        "工程类型存在重复构建验证适配器: " + codeGenType.getValue());
             }
         }
-    }
-
-    /** 返回{@code propagate}。 */
-    private RuntimeException propagate(ExecutionException exception) {
-        Throwable cause = exception.getCause();
-        if (cause instanceof RuntimeException runtimeException) {
-            return runtimeException;
-        }
-        if (cause instanceof Error error) {
-            throw error;
-        }
-        return new IllegalStateException("全栈构建验证执行失败", cause);
-    }
-
-    /** 取消生成项目构建校验。 */
-    private void cancel(Future<?>... futures) {
-        for (Future<?> future : futures) {
-            if (future != null && !future.isDone()) {
-                future.cancel(true);
-            }
-        }
-    }
-
-    private enum Component {
-        BACKEND,
-        FRONTEND
-    }
-
-    private record ComponentValidation(
-            Component component,
-            ProjectBuildValidationResult result
-    ) {
-        private ComponentValidation {
-            Objects.requireNonNull(component, "构建组件不能为空");
-            Objects.requireNonNull(result, "构建验证结果不能为空");
-        }
+        return Map.copyOf(registered);
     }
 }

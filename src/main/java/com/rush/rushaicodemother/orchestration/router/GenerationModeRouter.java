@@ -75,7 +75,6 @@ public class GenerationModeRouter {
         IntentProfile intentProfile = Objects.requireNonNull(
                 profileRefiner.apply(analyzedProfile), "意图画像精化结果不能为空");
         GenerationRoutingSignal signal = GenerationRoutingSignal.from(
-                request,
                 codeGenType,
                 workspace,
                 telemetry,

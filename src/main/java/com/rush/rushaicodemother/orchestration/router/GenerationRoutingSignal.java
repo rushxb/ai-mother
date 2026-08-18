@@ -1,82 +1,48 @@
 package com.rush.rushaicodemother.orchestration.router;
 
-import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
-import java.util.List;
-import java.util.Locale;
+import java.util.Objects;
 
-/** 路由策略消耗的不可变信号包。 */
+/**
+ * 路由策略可消费的最小不可变信号。
+ *
+ * <p>该 interface 刻意不暴露原始请求与 Prompt，确保自然语言只在意图模块解析一次；
+ * 路由只能组合结构化画像、工程类型、工作区状态和运行遥测。</p>
+ */
 public record GenerationRoutingSignal(
-        GenerationTaskRequest request,
         CodeGenTypeEnum codeGenType,
-        GenerationWorkspace workspace,
-        String normalizedMessage,
+        boolean workspaceExists,
         GenerationRoutingTelemetrySnapshot telemetry,
         IntentProfile intentProfile
 ) {
 
     public GenerationRoutingSignal {
-        normalizedMessage = StrUtil.blankToDefault(normalizedMessage, "");
+        Objects.requireNonNull(codeGenType, "路由工程类型不能为空");
         telemetry = telemetry == null ? GenerationRoutingTelemetrySnapshot.unavailable() : telemetry;
-        intentProfile = intentProfile == null ? IntentProfile.unknown() : intentProfile;
+        intentProfile = Objects.requireNonNull(intentProfile, "路由意图画像不能为空");
     }
 
-    public static GenerationRoutingSignal from(GenerationTaskRequest request,
-                                               CodeGenTypeEnum codeGenType,
-                                               GenerationWorkspace workspace) {
-        return from(request, codeGenType, workspace, GenerationRoutingTelemetrySnapshot.unavailable());
-    }
-
-    public static GenerationRoutingSignal from(GenerationTaskRequest request,
-                                               CodeGenTypeEnum codeGenType,
-                                               GenerationWorkspace workspace,
-                                               GenerationRoutingTelemetrySnapshot telemetry) {
-        return from(request, codeGenType, workspace, telemetry, IntentProfile.unknown());
-    }
-
-    public static GenerationRoutingSignal from(GenerationTaskRequest request,
-                                               CodeGenTypeEnum codeGenType,
+    public static GenerationRoutingSignal from(CodeGenTypeEnum codeGenType,
                                                GenerationWorkspace workspace,
                                                GenerationRoutingTelemetrySnapshot telemetry,
                                                IntentProfile intentProfile) {
+        Objects.requireNonNull(workspace, "路由工作区不能为空");
         return new GenerationRoutingSignal(
-                request,
                 codeGenType,
-                workspace,
-                StrUtil.blankToDefault(request == null ? null : request.message(), "").toLowerCase(Locale.ROOT),
+                workspace.exists(),
                 telemetry,
                 intentProfile
         );
     }
 
     public boolean firstGeneration() {
-        return workspace != null && !workspace.exists();
+        return !workspaceExists;
     }
 
     public boolean existingWorkspace() {
-        return workspace != null && workspace.exists();
-    }
-
-    public boolean containsAny(List<String> keywords) {
-        if (keywords == null || keywords.isEmpty()) {
-            return false;
-        }
-        return keywords.stream().anyMatch(normalizedMessage::contains);
-    }
-
-    public boolean looksLikeSmallSingleFileEdit() {
-        if (StrUtil.isBlank(normalizedMessage) || normalizedMessage.length() > 160) {
-            return false;
-        }
-        return normalizedMessage.contains("修改")
-                || normalizedMessage.contains("调整")
-                || normalizedMessage.contains("更改")
-                || normalizedMessage.contains("替换")
-                || normalizedMessage.contains("改成")
-                || normalizedMessage.contains("换成");
+        return workspaceExists;
     }
 }

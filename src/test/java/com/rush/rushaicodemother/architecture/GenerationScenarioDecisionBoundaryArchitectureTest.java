@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.architecture;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
+import com.rush.rushaicodemother.orchestration.router.GenerationRoutingSignal;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +31,15 @@ class GenerationScenarioDecisionBoundaryArchitectureTest {
         assertTrue(commandFacts.contains(GenerationScenarioDecision.class));
         assertTrue(commandFacts.contains(GenerationPreflightUsage.class));
         assertTrue(GenerationTaskCommand.CURRENT_SCHEMA_VERSION >= 10);
+    }
+
+    @Test
+    void productionRoutingSignalMustNotExposeTheRawRequestOrPrompt() {
+        Set<Class<?>> routingFacts = recordComponentTypes(GenerationRoutingSignal.class);
+
+        assertFalse(routingFacts.stream().anyMatch(type -> type.getSimpleName()
+                .equals("GenerationTaskRequest")));
+        assertFalse(routingFacts.contains(String.class));
     }
 
     @Test

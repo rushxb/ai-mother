@@ -19,6 +19,8 @@
 
 `GenerationPipelineRequest` 只保存这一份决策；画像与路由访问器只是兼容投影。`GenerationExecutionPlanner`、资源预配、任务命令恢复与场景归因只消费该决策。
 
+`GenerationRoutingSignal` 不暴露原始请求或 Prompt，只包含工程类型、工作区是否存在、运行遥测与同一份结构化画像。遥测策略只能组合这些事实，不能根据关键词或文本长度形成第二套场景语义。
+
 `GenerationTaskCommand` schema 10 持久化决策本体与 `GenerationPreflightUsage`。旧的路由、画像与资源字段暂时保留为历史 JSON 兼容面，构造时必须与决策一致；历史 schema 缺失决策或预检用量时只允许确定性保守恢复。
 
 ## 有界 preflight

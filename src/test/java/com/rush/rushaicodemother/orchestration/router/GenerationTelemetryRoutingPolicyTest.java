@@ -1,9 +1,6 @@
 package com.rush.rushaicodemother.orchestration.router;
 
-import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
@@ -48,13 +45,28 @@ class GenerationTelemetryRoutingPolicyTest {
                         1, 0, 700_000L, 0, 0, 0,
                         0, 4, 0, 4, 32, Instant.now(), true
                 ),
-                "请综合评估现有系统的模块边界、数据流转、异常处理和可扩展性，并在不改变对外行为的前提下优化内部协作方式，补充必要的边界校验、故障恢复和回归验证策略。".repeat(3)
+                substantialEditProfile()
         );
 
         GenerationModeDecision decision = policy.decide(signal).orElseThrow();
 
         assertEquals(GenerationMode.AGENT_EDIT, decision.mode());
         assertChineseMessage(decision.reason());
+    }
+
+    @Test
+    void saturatedCapacityMustUseStructuredScenarioComplexity() {
+        GenerationRoutingTelemetryProperties properties = new GenerationRoutingTelemetryProperties();
+        GenerationTelemetryRoutingPolicy policy = new GenerationTelemetryRoutingPolicy(properties);
+        GenerationRoutingTelemetrySnapshot telemetry = new GenerationRoutingTelemetrySnapshot(
+                1, 0, 700_000L, 0, 0, 0,
+                0, 4, 0, 4, 32, Instant.now(), true
+        );
+        GenerationRoutingSignal signal = signal(telemetry, substantialEditProfile());
+
+        GenerationModeDecision decision = policy.decide(signal).orElseThrow();
+
+        assertEquals(GenerationMode.AGENT_EDIT, decision.mode());
     }
 
     @Test
@@ -90,25 +102,17 @@ class GenerationTelemetryRoutingPolicyTest {
                 0.95
         );
         GenerationRoutingSignal signal = new GenerationRoutingSignal(
-                base.request(), base.codeGenType(), base.workspace(), base.normalizedMessage(),
-                base.telemetry(), lightweight);
+                base.codeGenType(), base.workspaceExists(), base.telemetry(), lightweight);
 
         assertTrue(policy.decide(signal).isEmpty());
     }
 
     private GenerationRoutingSignal signal(GenerationRoutingTelemetrySnapshot telemetry) {
-        return signal(telemetry,
-                "Implement a cross-file user management feature with API and database changes");
+        return signal(telemetry, substantialEditProfile());
     }
 
-    private GenerationRoutingSignal signal(GenerationRoutingTelemetrySnapshot telemetry, String message) {
-        App app = App.builder().id(10L).userId(7L).codeGenType("vue_project").build();
-        User user = User.builder().id(7L).build();
-        GenerationTaskRequest request = new GenerationTaskRequest(
-                app,
-                message,
-                user
-        );
+    private GenerationRoutingSignal signal(GenerationRoutingTelemetrySnapshot telemetry,
+                                           IntentProfile profile) {
         Path root = Path.of("target/test-routing-workspace");
         GenerationWorkspace workspace = new GenerationWorkspace(
                 10L,
@@ -121,7 +125,22 @@ class GenerationTelemetryRoutingPolicyTest {
                 Set.of(),
                 Set.of()
         );
-        return GenerationRoutingSignal.from(request, CodeGenTypeEnum.VUE_PROJECT, workspace, telemetry);
+        return GenerationRoutingSignal.from(
+                CodeGenTypeEnum.VUE_PROJECT, workspace, telemetry, profile);
+    }
+
+    private IntentProfile substantialEditProfile() {
+        return new IntentProfile(
+                IntentOperationType.EDIT,
+                Set.of(IntentAffectedScope.BACKEND),
+                IntentSemanticComplexity.HIGH,
+                true,
+                false,
+                IntentDestructiveRisk.LOW,
+                6,
+                IntentValidationRisk.MEDIUM,
+                0.95
+        );
     }
 
     private void assertChineseMessage(String message) {

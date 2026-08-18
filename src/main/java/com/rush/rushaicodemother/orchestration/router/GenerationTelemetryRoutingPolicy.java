@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.orchestration.router;
 
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
+import com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -43,7 +45,7 @@ public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy
         }
         if (isSaturated(telemetry)
                 && telemetry.averageDurationMs() >= properties.getSlowAverageDuration().toMillis()
-                && signal.normalizedMessage().length() > 160) {
+                && isSubstantialWork(signal.intentProfile())) {
             return Optional.of(GenerationModeDecision.of(
                     GenerationMode.AGENT_EDIT,
                     0.72,
@@ -56,12 +58,21 @@ public class GenerationTelemetryRoutingPolicy implements GenerationRoutingPolicy
         return Optional.empty();
     }
 
+    /** 容量保护只能消费已解析的场景事实，不能因用户表述长短改变执行语义。 */
+    private boolean isSubstantialWork(IntentProfile profile) {
+        return profile != null
+                && profile.confidence() > 0.0
+                && (profile.semanticComplexity() != IntentSemanticComplexity.LOW
+                || profile.requiresBackend()
+                || profile.requiresDatabase()
+                || profile.expectedFileCount() > 2
+                || profile.validationRisk() != IntentValidationRisk.LOW);
+    }
+
     private boolean isClearlyLightweight(IntentProfile profile) {
         return profile != null
-                && profile.semanticComplexity()
-                == com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity.LOW
-                && profile.validationRisk()
-                == com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk.LOW
+                && profile.semanticComplexity() == IntentSemanticComplexity.LOW
+                && profile.validationRisk() == IntentValidationRisk.LOW
                 && !profile.requiresBackend()
                 && !profile.requiresDatabase()
                 && profile.expectedFileCount() <= 2;

@@ -83,7 +83,8 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         DependencyInstallMode effectiveMode = mode == null
                 ? DependencyInstallMode.REUSE_IF_VALID
                 : mode;
-        NodeProjectDirectoryValidator.Validation validation = projectDirectoryValidator.validate(projectDirectory);
+        NodeProjectDirectoryValidator.Validation validation =
+                projectDirectoryValidator.resolveProjectDirectory(projectDirectory);
         if (!validation.valid()) {
             return DependencyInstallResult.failed(
                     DependencyInstallResult.Status.INVALID_PROJECT,
@@ -104,6 +105,15 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
+            NodeProjectDirectoryValidator.Validation trustValidation =
+                    projectDirectoryValidator.validate(projectPath);
+            if (!trustValidation.valid()) {
+                return DependencyInstallResult.failed(
+                        DependencyInstallResult.Status.INVALID_PROJECT,
+                        "",
+                        trustValidation.errorDetail()
+                );
+            }
             if (effectiveMode.reuseIfValid() && integrityService.isComplete(projectPath, taskId)) {
                 log.info("项目依赖完整，跳过安装: project={}", projectPath);
                 return DependencyInstallResult.success(COMPLETE_MESSAGE);

@@ -3,10 +3,10 @@ package com.rush.rushaicodemother.core.saver;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
-import com.rush.rushaicodemother.orchestration.patch.GeneratedWorkspaceTrustPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceExecutionScope;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationCatalog;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 

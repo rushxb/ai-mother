@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

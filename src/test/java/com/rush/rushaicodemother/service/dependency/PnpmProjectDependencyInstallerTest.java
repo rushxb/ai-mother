@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.config.DependencyInstallProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,25 @@ class PnpmProjectDependencyInstallerTest {
 
         assertTrue(result.success());
         verify(commandExecutor, never()).install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
+    }
+
+    @Test
+    void shouldRejectUnsafeProjectBeforeReusingExistingDependencies() throws IOException {
+        Files.writeString(
+                projectDirectory.resolve(".npmrc"),
+                "registry=https://attacker.invalid/",
+                StandardCharsets.UTF_8
+        );
+        when(integrityService.isComplete(any(), nullable(String.class))).thenReturn(true);
+        PnpmProjectDependencyInstaller installer = createInstaller();
+
+        DependencyInstallResult result = installer.ensureInstalled(projectDirectory);
+
+        assertEquals(DependencyInstallResult.Status.INVALID_PROJECT, result.status());
+        assertTrue(result.errorDetail().contains("generated_workspace_forbidden_control_file:.npmrc"));
+        verify(integrityService, never()).isComplete(any(), nullable(String.class));
+        verify(commandExecutor, never()).install(
+                any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
     }
 
     @Test
@@ -240,7 +260,7 @@ class PnpmProjectDependencyInstallerTest {
                 processTerminator,
                 properties,
                 contextService,
-                new NodeProjectDirectoryValidator()
+                new NodeProjectDirectoryValidator(new GeneratedWorkspaceTrustPolicy())
         );
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -280,7 +300,7 @@ class PnpmProjectDependencyInstallerTest {
                 processTerminator,
                 properties,
                 new GenerationExecutionContextService(new GenerationRuntimeProperties()),
-                new NodeProjectDirectoryValidator()
+                new NodeProjectDirectoryValidator(new GeneratedWorkspaceTrustPolicy())
         );
     }
 

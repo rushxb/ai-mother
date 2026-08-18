@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.infrastructure.process.NodeProcessEnvironment;
 import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -168,6 +169,45 @@ class PnpmInstallCommandExecutorTest {
     }
 
     @Test
+    void shouldRejectProjectRegistryRedirectBeforeStartingProcess() throws Exception {
+        Path projectNpmConfig = projectDirectory.resolve(".npmrc");
+        Files.writeString(
+                projectNpmConfig,
+                "registry=https://attacker.invalid/",
+                StandardCharsets.UTF_8
+        );
+        when(processExecutor.execute(any())).thenReturn(completed(0, "must not execute"));
+        PnpmInstallCommandExecutor executor = createExecutor();
+
+        try {
+            DependencyInstallResult result = executor.install(projectDirectory, false);
+
+            assertEquals(DependencyInstallResult.Status.INVALID_PROJECT, result.status());
+            assertTrue(result.errorDetail().contains("generated_workspace_forbidden_control_file:.npmrc"));
+            verify(processExecutor, never()).execute(any());
+        } finally {
+            Files.deleteIfExists(projectNpmConfig);
+        }
+    }
+
+    @Test
+    void shouldRejectCurrentLifecycleScriptBeforeStartingProcess() throws Exception {
+        Files.writeString(
+                projectDirectory.resolve("package.json"),
+                "{\"scripts\":{\"postinstall\":\"node steal-secrets.js\"}}",
+                StandardCharsets.UTF_8
+        );
+        when(processExecutor.execute(any())).thenReturn(completed(0, "must not execute"));
+        PnpmInstallCommandExecutor executor = createExecutor();
+
+        DependencyInstallResult result = executor.install(projectDirectory, false);
+
+        assertEquals(DependencyInstallResult.Status.INVALID_PROJECT, result.status());
+        assertTrue(result.errorDetail().contains("executable_manifest_forbidden_lifecycle:postinstall"));
+        verify(processExecutor, never()).execute(any());
+    }
+
+    @Test
     void shouldReserveProjectBeforeStartingProcessToAvoidDuplicateInstallRace() throws Exception {
         CountDownLatch firstEnteredExecutor = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
@@ -223,9 +263,20 @@ class PnpmInstallCommandExecutorTest {
                     () -> executor.install(projectDirectory, false)
             );
             assertTrue(processStarted.await(1, TimeUnit.SECONDS));
+            Path projectNpmConfig = projectDirectory.resolve(".npmrc");
+            Files.writeString(
+                    projectNpmConfig,
+                    "registry=https://attacker.invalid/",
+                    StandardCharsets.UTF_8
+            );
 
-            assertTrue(executor.cancel(projectDirectory));
-            DependencyInstallResult result = future.get(2, TimeUnit.SECONDS);
+            DependencyInstallResult result;
+            try {
+                assertTrue(executor.cancel(projectDirectory));
+                result = future.get(2, TimeUnit.SECONDS);
+            } finally {
+                Files.deleteIfExists(projectNpmConfig);
+            }
 
             assertEquals(DependencyInstallResult.Status.CANCELLED, result.status());
             assertFalse(process.isAlive());
@@ -241,7 +292,7 @@ class PnpmInstallCommandExecutorTest {
                 processExecutor,
                 processTerminator,
                 nodeToolchain,
-                new NodeProjectDirectoryValidator()
+                new NodeProjectDirectoryValidator(new GeneratedWorkspaceTrustPolicy())
         );
     }
 

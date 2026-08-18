@@ -1,4 +1,4 @@
-package com.rush.rushaicodemother.orchestration.patch;
+package com.rush.rushaicodemother.security.workspace;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -6,28 +6,37 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * 生成工作区的最终写入信任边界。
+ * 生成工作区的统一信任内核。
  *
- * <p>该深模块位于所有 patch 写入入口共享的校验 seam：拒绝包管理器控制文件，
- * 并对允许修改的 {@code package.json} 执行 fail-closed 语义校验。工具写入、Agent patch
- * 和自动修复因此不能通过切换写入入口绕过同一策略。</p>
+ * <p>该深模块同时服务写入、离线 Benchmark 与依赖安装入口：拒绝包管理器控制文件，
+ * 并对允许修改或即将执行的 {@code package.json} 执行 fail-closed 语义校验。
+ * 工具写入、Agent patch、自动修复和磁盘残留因此共享同一套安全语义。</p>
  */
 @Component
 public class GeneratedWorkspaceTrustPolicy {
 
-    private static final Set<String> FORBIDDEN_CONTROL_FILES = Set.of(
+    private static final long MAX_PACKAGE_MANIFEST_BYTES = 256 * 1024L;
+    private static final Set<String> INSTALL_ACTIVE_CONTROL_FILES = Set.of(
             ".pnpmfile.mjs",
             ".pnpmfile.cjs",
             ".npmrc",
             "pnpm-workspace.yaml",
-            "pnpm-workspace.yml",
+            "pnpm-workspace.yml"
+    );
+    private static final Set<String> GENERATED_ONLY_CONTROL_FILES = Set.of(
             "pnpm-lock.yaml",
             "package-lock.json",
             "npm-shrinkwrap.json",
@@ -37,6 +46,7 @@ public class GeneratedWorkspaceTrustPolicy {
             "bun.lock",
             "bun.lockb"
     );
+    private static final Set<String> FORBIDDEN_CONTROL_FILES = mergeControlFiles();
     private static final Set<String> FORBIDDEN_LIFECYCLE_SCRIPTS = Set.of(
             "preinstall",
             "install",
@@ -133,6 +143,48 @@ public class GeneratedWorkspaceTrustPolicy {
         return List.copyOf(blockers);
     }
 
+    /**
+     * 在 pnpm 读取项目配置前复核工作区当前状态，关闭模板残留、人工写入和历史旁路。
+     *
+     * <p>锁文件由受信模板和明确的安装模式管理，因此这里不因锁文件存在而拒绝；
+     * 但会拒绝能够改变 registry、认证、代理、工作区范围或执行 hook 的项目级控制文件。</p>
+     *
+     * @param projectRoot 已解析为真实路径的项目根目录
+     * @return 空字符串表示允许，否则返回稳定、无敏感内容的机器可读拒绝原因
+     */
+    public String validateDependencyInstallWorkspace(Path projectRoot) {
+        if (projectRoot == null) {
+            return "generated_workspace_project_root_missing";
+        }
+        Path packageManifest = projectRoot.resolve("package.json");
+        if (Files.isSymbolicLink(packageManifest)
+                || !Files.isRegularFile(packageManifest, LinkOption.NOFOLLOW_LINKS)) {
+            return "generated_workspace_manifest_not_regular";
+        }
+
+        try {
+            if (Files.size(packageManifest) > MAX_PACKAGE_MANIFEST_BYTES) {
+                return "executable_manifest_too_large";
+            }
+            String manifestContent = Files.readString(packageManifest, StandardCharsets.UTF_8);
+            List<String> manifestBlockers = validateAll("package.json", manifestContent);
+            if (!manifestBlockers.isEmpty()) {
+                return manifestBlockers.getFirst();
+            }
+        } catch (IOException exception) {
+            return "generated_workspace_manifest_unreadable";
+        }
+
+        for (String controlFileName : INSTALL_ACTIVE_CONTROL_FILES) {
+            Path controlFile = projectRoot.resolve(controlFileName);
+            if (Files.isSymbolicLink(controlFile)
+                    || Files.exists(controlFile, LinkOption.NOFOLLOW_LINKS)) {
+                return "generated_workspace_forbidden_control_file:" + controlFileName;
+            }
+        }
+        return "";
+    }
+
     public String validateDeletion(String relativePath) {
         if (!appliesTo(relativePath)) {
             return "";
@@ -201,6 +253,12 @@ public class GeneratedWorkspaceTrustPolicy {
         mapper.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
         mapper.enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
         return mapper;
+    }
+
+    private static Set<String> mergeControlFiles() {
+        LinkedHashSet<String> controlFiles = new LinkedHashSet<>(INSTALL_ACTIVE_CONTROL_FILES);
+        controlFiles.addAll(GENERATED_ONLY_CONTROL_FILES);
+        return Set.copyOf(controlFiles);
     }
 
     private static String normalizePath(String relativePath) {

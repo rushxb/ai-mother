@@ -186,7 +186,8 @@ public class PnpmInstallCommandExecutor {
         if (projectDirectory == null) {
             return false;
         }
-        NodeProjectDirectoryValidator.Validation validation = projectDirectoryValidator.validate(projectDirectory);
+        NodeProjectDirectoryValidator.Validation validation =
+                projectDirectoryValidator.resolveProjectDirectory(projectDirectory);
         if (!validation.valid()) {
             return false;
         }

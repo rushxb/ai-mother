@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.infrastructure.sandbox.HostLocalGeneratedCodePr
 import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.tracing.Tracer;
@@ -37,6 +38,7 @@ class DependencyInstallationBeanWiringTest {
             context.register(GeneratedCodeSandboxMetricsCollector.class);
             context.register(ManagedProcessExecutor.class);
             context.register(NodeToolchain.class);
+            context.register(GeneratedWorkspaceTrustPolicy.class);
             context.register(NodeProjectDirectoryValidator.class);
             context.register(PnpmInstallCommandExecutor.class);
             context.register(NodeModulesIntegrityService.class);

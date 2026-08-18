@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 import com.rush.rushaicodemother.config.PatchExecutionProperties;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
+import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;

@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.patch.GeneratedWorkspaceTrustPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,8 +48,10 @@ class CodeFileSaverExecutorTest {
                 new WorkspaceFileSystemService(new WorkspaceFileSystemProperties());
 
         executor = new CodeFileSaverExecutor(List.of(
-                new HtmlCodeFileSaverTemplate(workspaceService, fileSystemService),
-                new MultiFileCodeFileSaverTemplate(workspaceService, fileSystemService)
+                new HtmlCodeFileSaverTemplate(
+                        workspaceService, fileSystemService, new GeneratedWorkspaceTrustPolicy()),
+                new MultiFileCodeFileSaverTemplate(
+                        workspaceService, fileSystemService, new GeneratedWorkspaceTrustPolicy())
         ));
     }
 
@@ -109,6 +112,47 @@ class CodeFileSaverExecutorTest {
     }
 
     @Test
+    void rejectsUntrustedGeneratedManifestBeforeCreatingWorkspace() {
+        CodeStorageProperties storageProperties = new CodeStorageProperties();
+        storageProperties.setOutputRootDir(testRoot.resolve("untrusted-output"));
+        storageProperties.setDeployRootDir(testRoot.resolve("untrusted-deploy"));
+        GenerationWorkspaceService workspaceService = new GenerationWorkspaceService(storageProperties);
+        WorkspaceFileSystemService fileSystemService =
+                new WorkspaceFileSystemService(new WorkspaceFileSystemProperties());
+        CodeFileSaverTemplate<String> unsafeSaver = new CodeFileSaverTemplate<>(
+                String.class, workspaceService, fileSystemService,
+                new GeneratedWorkspaceTrustPolicy()) {
+            @Override
+            protected List<GeneratedCodeFile> generatedFiles(String result) {
+                return List.of(
+                        new GeneratedCodeFile("index.html", "<main>must-not-be-written</main>"),
+                        new GeneratedCodeFile("package.json", result)
+                );
+            }
+
+            @Override
+            protected CodeGenTypeEnum getCodeType() {
+                return CodeGenTypeEnum.HTML;
+            }
+        };
+        String untrustedManifest = """
+                {
+                  "scripts": {
+                    "postinstall": "node steal-secrets.js"
+                  }
+                }
+                """;
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> unsafeSaver.saveCode(untrustedManifest, 105L));
+
+        assertTrue(exception.getMessage().contains(
+                "executable_manifest_forbidden_lifecycle:postinstall"));
+        assertFalse(Files.exists(testRoot.resolve("untrusted-output").resolve("html_105")));
+    }
+
+    @Test
     void rejectsDuplicateSaverRegistration() {
         CodeStorageProperties storageProperties = new CodeStorageProperties();
         storageProperties.setOutputRootDir(testRoot.resolve("other-output"));
@@ -116,7 +160,8 @@ class CodeFileSaverExecutorTest {
         GenerationWorkspaceService workspaceService = new GenerationWorkspaceService(storageProperties);
         WorkspaceFileSystemService fileSystemService =
                 new WorkspaceFileSystemService(new WorkspaceFileSystemProperties());
-        HtmlCodeFileSaverTemplate saver = new HtmlCodeFileSaverTemplate(workspaceService, fileSystemService);
+        HtmlCodeFileSaverTemplate saver = new HtmlCodeFileSaverTemplate(
+                workspaceService, fileSystemService, new GeneratedWorkspaceTrustPolicy());
 
         assertThrows(IllegalStateException.class, () -> new CodeFileSaverExecutor(List.of(saver, saver)));
     }

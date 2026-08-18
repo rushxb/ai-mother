@@ -6,10 +6,11 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.patch.GeneratedWorkspaceTrustPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
+import java.util.List;
 
 /** 持久化单文件 HTML 生成结果。 */
 @Component
@@ -17,9 +18,11 @@ public final class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlC
 
     public HtmlCodeFileSaverTemplate(
             GenerationWorkspaceService generationWorkspaceService,
-            WorkspaceFileSystemService workspaceFileSystemService
+            WorkspaceFileSystemService workspaceFileSystemService,
+            GeneratedWorkspaceTrustPolicy generatedWorkspaceTrustPolicy
     ) {
-        super(HtmlCodeResult.class, generationWorkspaceService, workspaceFileSystemService);
+        super(HtmlCodeResult.class, generationWorkspaceService, workspaceFileSystemService,
+                generatedWorkspaceTrustPolicy);
     }
 
     @Override
@@ -27,22 +30,13 @@ public final class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlC
         return CodeGenTypeEnum.HTML;
     }
 
-    /**
- * 保存文件。
- *
- * @param result 待处理结果
- * @param workspaceRoot 工作区根
- */
+    /** 返回单文件 HTML 模式的完整文件声明。 */
     @Override
-    protected void saveFiles(HtmlCodeResult result, Path workspaceRoot) {
-        synchronizeFile(workspaceRoot, "index.html", result.getHtmlCode());
+    protected List<GeneratedCodeFile> generatedFiles(HtmlCodeResult result) {
+        return List.of(new GeneratedCodeFile("index.html", result.getHtmlCode()));
     }
 
-    /**
- * 校验{@code ate}输入是否有效。
- *
- * @param result 待处理结果
- */
+    /** 校验 HTML 生成结果。 */
     @Override
     protected void validateInput(HtmlCodeResult result) {
         super.validateInput(result);

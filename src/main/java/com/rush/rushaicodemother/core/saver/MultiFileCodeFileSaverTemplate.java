@@ -6,10 +6,11 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.patch.GeneratedWorkspaceTrustPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
+import java.util.List;
 
 /** 持久化原生多文件生成模式产出的文件。 */
 @Component
@@ -17,9 +18,11 @@ public final class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<
 
     public MultiFileCodeFileSaverTemplate(
             GenerationWorkspaceService generationWorkspaceService,
-            WorkspaceFileSystemService workspaceFileSystemService
+            WorkspaceFileSystemService workspaceFileSystemService,
+            GeneratedWorkspaceTrustPolicy generatedWorkspaceTrustPolicy
     ) {
-        super(MultiFileCodeResult.class, generationWorkspaceService, workspaceFileSystemService);
+        super(MultiFileCodeResult.class, generationWorkspaceService, workspaceFileSystemService,
+                generatedWorkspaceTrustPolicy);
     }
 
     @Override
@@ -27,24 +30,17 @@ public final class MultiFileCodeFileSaverTemplate extends CodeFileSaverTemplate<
         return CodeGenTypeEnum.MULTI_FILE;
     }
 
-    /**
- * 保存文件。
- *
- * @param result 待处理结果
- * @param workspaceRoot 工作区根
- */
+    /** 返回原生多文件模式的完整文件声明。 */
     @Override
-    protected void saveFiles(MultiFileCodeResult result, Path workspaceRoot) {
-        synchronizeFile(workspaceRoot, "index.html", result.getHtmlCode());
-        synchronizeFile(workspaceRoot, "style.css", result.getCssCode());
-        synchronizeFile(workspaceRoot, "script.js", result.getJsCode());
+    protected List<GeneratedCodeFile> generatedFiles(MultiFileCodeResult result) {
+        return List.of(
+                new GeneratedCodeFile("index.html", result.getHtmlCode()),
+                new GeneratedCodeFile("style.css", result.getCssCode()),
+                new GeneratedCodeFile("script.js", result.getJsCode())
+        );
     }
 
-    /**
- * 校验{@code ate}输入是否有效。
- *
- * @param result 待处理结果
- */
+    /** 校验原生多文件生成结果。 */
     @Override
     protected void validateInput(MultiFileCodeResult result) {
         super.validateInput(result);

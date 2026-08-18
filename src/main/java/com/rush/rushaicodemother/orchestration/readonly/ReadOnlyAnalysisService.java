@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +42,8 @@ public class ReadOnlyAnalysisService {
                                           CodeGenTypeEnum codeGenType) {
         requireReadOnlyOperation(operationType);
         AgentEditReadResult context = contextCollector.collect(workspace, userPrompt, codeGenType);
-        List<String> allowedReferences = context == null ? List.of() : context.selectedFiles();
+        Map<String, Integer> allowedReferenceLineCounts = collectReferenceLineCounts(context);
+        List<String> allowedReferences = List.copyOf(allowedReferenceLineCounts.keySet());
         ReadOnlyAnalysisRequest request = new ReadOnlyAnalysisRequest(
                 operationType,
                 userPrompt,
@@ -52,33 +54,73 @@ public class ReadOnlyAnalysisService {
         if (rawResult == null) {
             throw new IllegalStateException("只读分析模型未返回结果");
         }
-        return rawResult.withReferences(groundReferences(rawResult.references(), allowedReferences));
+        return rawResult.withReferences(groundReferences(
+                rawResult.references(), allowedReferenceLineCounts));
     }
 
     private List<ReadOnlyAnalysisResult.FileReference> groundReferences(
             List<ReadOnlyAnalysisResult.FileReference> references,
-            List<String> allowedReferences) {
-        Set<String> allowed = new LinkedHashSet<>();
-        for (String reference : allowedReferences) {
-            String normalizedPath = normalizePath(reference);
-            if (isSafeRelativePath(normalizedPath)) {
-                allowed.add(normalizedPath);
-            }
-        }
+            Map<String, Integer> allowedReferenceLineCounts) {
         List<ReadOnlyAnalysisResult.FileReference> grounded = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
+        Set<ReferenceLocation> seen = new LinkedHashSet<>();
         for (ReadOnlyAnalysisResult.FileReference reference : references) {
             String normalizedPath = normalizePath(reference.relativePath());
-            if (allowed.contains(normalizedPath) && seen.add(normalizedPath)) {
+            Integer lineCount = allowedReferenceLineCounts.get(normalizedPath);
+            // 路径仍有事实依据时，越界行号降级为文件级引用，避免向用户发布伪造位置。
+            Integer groundedLine = lineCount == null
+                    ? null
+                    : groundedLine(reference.line(), lineCount);
+            ReferenceLocation location = new ReferenceLocation(normalizedPath, groundedLine);
+            if (lineCount != null && seen.add(location)) {
                 grounded.add(new ReadOnlyAnalysisResult.FileReference(
-                        normalizedPath, reference.line(), reference.reason()));
+                        normalizedPath,
+                        groundedLine,
+                        reference.reason()));
             }
         }
-        if (grounded.isEmpty() && !allowed.isEmpty()) {
+        if (grounded.isEmpty() && !allowedReferenceLineCounts.isEmpty()) {
             grounded.add(new ReadOnlyAnalysisResult.FileReference(
-                    allowed.iterator().next(), null, "已采集的项目上下文"));
+                    allowedReferenceLineCounts.keySet().iterator().next(),
+                    null,
+                    "已采集的项目上下文"));
         }
         return List.copyOf(grounded);
+    }
+
+    private Map<String, Integer> collectReferenceLineCounts(AgentEditReadResult context) {
+        if (context == null) {
+            return Map.of();
+        }
+        Map<String, String> normalizedContents = new LinkedHashMap<>();
+        if (context.contextPackage() != null && context.contextPackage().fileContents() != null) {
+            context.contextPackage().fileContents().forEach((path, content) -> {
+                String normalizedPath = normalizePath(path);
+                if (isSafeRelativePath(normalizedPath)) {
+                    normalizedContents.put(normalizedPath, content);
+                }
+            });
+        }
+
+        Map<String, Integer> lineCounts = new LinkedHashMap<>();
+        List<String> selectedFiles = context.selectedFiles() == null
+                ? List.of()
+                : context.selectedFiles();
+        for (String selectedFile : selectedFiles) {
+            String normalizedPath = normalizePath(selectedFile);
+            if (isSafeRelativePath(normalizedPath)) {
+                String content = normalizedContents.get(normalizedPath);
+                lineCounts.putIfAbsent(normalizedPath, content == null
+                        ? 0
+                        : Math.toIntExact(content.lines().count()));
+            }
+        }
+        return java.util.Collections.unmodifiableMap(lineCounts);
+    }
+
+    private Integer groundedLine(Integer requestedLine, int collectedLineCount) {
+        return requestedLine != null && requestedLine <= collectedLineCount
+                ? requestedLine
+                : null;
     }
 
     private String renderProjectContext(AgentEditReadResult context) {
@@ -131,5 +173,8 @@ public class ReadOnlyAnalysisService {
 
     private String textOrDefault(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private record ReferenceLocation(String relativePath, Integer line) {
     }
 }

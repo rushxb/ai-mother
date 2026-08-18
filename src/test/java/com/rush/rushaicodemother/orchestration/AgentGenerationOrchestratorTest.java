@@ -25,7 +25,6 @@ import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.TemplateServiceTestFixture;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
-import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import cn.hutool.core.io.FileUtil;
@@ -475,11 +474,7 @@ class AgentGenerationOrchestratorTest {
         Path root = Path.of("target", "test-workspaces", "template-orchestrator", caseName);
         FileUtil.del(root.toFile());
         TemplateServiceTestFixture fixture = new TemplateServiceTestFixture(root.resolve("code_output"));
-        return new TemplateAgentNode(
-                fixture.vueBootstrapService(),
-                fixture.backendBootstrapService(),
-                new FullStackPortAllocator(fixture.generationWorkspaceService)
-        );
+        return new TemplateAgentNode(fixture.templateBootstrapAdapters());
     }
 
     private void writeExistingProjectFile(String caseName,

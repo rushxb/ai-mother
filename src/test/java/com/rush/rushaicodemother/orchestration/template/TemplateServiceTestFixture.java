@@ -4,10 +4,16 @@ import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.config.TemplateMaterializationProperties;
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.orchestration.agent.template.BackendGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.agent.template.FullStackGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.agent.template.GenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.agent.template.VueGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import java.nio.file.Path;
+import java.util.List;
 
 public final class TemplateServiceTestFixture {
 
@@ -57,6 +63,21 @@ public final class TemplateServiceTestFixture {
         return new BackendProjectTemplateBootstrapService(
                 generationWorkspaceService,
                 templateBootstrapper
+        );
+    }
+
+    /** 构造与生产一致的三类模板初始化 adapter。 */
+    public List<GenerationTemplateBootstrapAdapter> templateBootstrapAdapters() {
+        VueProjectTemplateBootstrapService vueService = vueBootstrapService();
+        BackendProjectTemplateBootstrapService backendService = backendBootstrapService();
+        return List.of(
+                new VueGenerationTemplateBootstrapAdapter(vueService),
+                new BackendGenerationTemplateBootstrapAdapter(backendService),
+                new FullStackGenerationTemplateBootstrapAdapter(
+                        vueService,
+                        backendService,
+                        new FullStackPortAllocator(generationWorkspaceService)
+                )
         );
     }
 }

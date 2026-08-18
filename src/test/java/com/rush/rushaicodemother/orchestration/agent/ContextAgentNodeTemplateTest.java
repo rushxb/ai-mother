@@ -7,7 +7,6 @@ import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
-import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.template.TemplateServiceTestFixture;
 import org.junit.jupiter.api.Test;
 
@@ -29,9 +28,7 @@ class ContextAgentNodeTemplateTest {
             GenerationAgentSupport support = support(outputRoot);
             TemplateServiceTestFixture templateFixture = new TemplateServiceTestFixture(outputRoot);
             TemplateAgentNode templateAgentNode = new TemplateAgentNode(
-                    templateFixture.vueBootstrapService(),
-                    templateFixture.backendBootstrapService(),
-                    new FullStackPortAllocator(templateFixture.generationWorkspaceService)
+                    templateFixture.templateBootstrapAdapters()
             );
             ContextAgentNode contextAgentNode = new ContextAgentNode(support);
 

@@ -2,17 +2,13 @@ package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.agent.template.GenerationTemplateBootstrapAdapter;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
-import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
-import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
-import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
-import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
-import java.util.LinkedHashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -22,17 +18,26 @@ import java.util.Map;
 @Component
 public class TemplateAgentNode extends BaseGenerationAgentNode {
 
-    private final VueProjectTemplateBootstrapService vueTemplateBootstrapService;
-    private final BackendProjectTemplateBootstrapService backendTemplateBootstrapService;
-    private final FullStackPortAllocator fullStackPortAllocator;
+    private final Map<CodeGenTypeEnum, GenerationTemplateBootstrapAdapter> adaptersByType;
 
-    public TemplateAgentNode(VueProjectTemplateBootstrapService vueTemplateBootstrapService,
-                             BackendProjectTemplateBootstrapService backendTemplateBootstrapService,
-                             FullStackPortAllocator fullStackPortAllocator) {
+    /** 构建不可变的模板初始化 adapter 注册表。 */
+    public TemplateAgentNode(List<GenerationTemplateBootstrapAdapter> adapters) {
         super("template", "Template", "template", List.of("planner"));
-        this.vueTemplateBootstrapService = vueTemplateBootstrapService;
-        this.backendTemplateBootstrapService = backendTemplateBootstrapService;
-        this.fullStackPortAllocator = fullStackPortAllocator;
+        EnumMap<CodeGenTypeEnum, GenerationTemplateBootstrapAdapter> registered =
+                new EnumMap<>(CodeGenTypeEnum.class);
+        if (adapters == null || adapters.isEmpty()) {
+            throw new IllegalStateException("至少需要注册一个模板初始化 adapter");
+        }
+        for (GenerationTemplateBootstrapAdapter adapter : adapters) {
+            if (adapter == null || adapter.codeGenType() == null) {
+                throw new IllegalStateException("模板初始化 adapter 必须声明工程类型");
+            }
+            if (registered.putIfAbsent(adapter.codeGenType(), adapter) != null) {
+                throw new IllegalStateException(
+                        "工程类型存在重复模板初始化 adapter: " + adapter.codeGenType().getValue());
+            }
+        }
+        this.adaptersByType = Map.copyOf(registered);
     }
 
     /**
@@ -48,62 +53,29 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
         if (context.getRequest().hasGeneratedCode() || app == null || app.getId() == null) {
             return skipped("无需复制项目模板", targetType, "not_new_project");
         }
-        if (targetType == CodeGenTypeEnum.VUE_PROJECT) {
-            VueProjectTemplateBootstrapService.BootstrapResult result =
-                    vueTemplateBootstrapService.bootstrapIfNecessary(app.getId(), targetType, context.getRequest().userMessage());
-            return result("Vue 项目模板", result.toPayload(), result.bootstrapped()
-                    ? "已复制 Vue 项目模板：" + result.templateId()
-                    : "跳过 Vue 项目模板复制：" + result.reason());
+        if (targetType == null) {
+            return skipped("无需复制项目模板", null, "unsupported_template_type");
         }
-        if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
-            BackendProjectTemplateBootstrapService.BootstrapResult result =
-                    backendTemplateBootstrapService.bootstrapIfNecessary(app.getId(), targetType);
-            return result("后端项目模板", result.toPayload(), result.bootstrapped()
-                    ? "已复制后端项目模板：" + result.templateId()
-                    : "跳过后端项目模板复制：" + result.reason());
-        }
-        if (targetType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            return bootstrapFullStackProject(context, app);
+        GenerationTemplateBootstrapAdapter adapter = adaptersByType.get(targetType);
+        if (adapter != null) {
+            return requireValidBootstrapResult(adapter, adapter.bootstrap(context));
         }
         return skipped("无需复制项目模板", targetType, "unsupported_template_type");
     }
 
-    /** 返回{@code bootstrap}全栈项目。 */
-    private AgentNodeResult bootstrapFullStackProject(GenerationAgentContext context, App app) {
-        FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(app.getId());
-        VueProjectTemplateBootstrapService.BootstrapResult frontendResult =
-                vueTemplateBootstrapService.bootstrapIfNecessary(
-                        app.getId(),
-                        CodeGenTypeEnum.FULL_STACK_PROJECT,
-                        context.getRequest().userMessage()
-                );
-        BackendProjectTemplateBootstrapService.BootstrapResult backendResult =
-                backendTemplateBootstrapService.bootstrapIfNecessary(app.getId(), CodeGenTypeEnum.FULL_STACK_PROJECT);
-        Map<String, Object> payload = new LinkedHashMap<>(fullStackContext.toPayload());
-        payload.put("bootstrapped", frontendResult.bootstrapped() || backendResult.bootstrapped());
-        payload.put("templateId", frontendResult.templateId() + "+" + backendResult.templateId());
-        payload.put("frontendTemplateId", frontendResult.templateId());
-        payload.put("backendTemplateId", backendResult.templateId());
-        payload.put("projectPath", fullStackContext.workspaceRoot());
-        payload.put("fileCount", frontendResult.fileCount() + backendResult.fileCount());
-        payload.put("reason", frontendResult.reason().isBlank() ? backendResult.reason() : frontendResult.reason());
-        GenerationArtifact contextArtifact = GenerationArtifact.of(
-                "full_stack_context",
-                "Template",
-                "全栈上下文",
-                fullStackContext.toPayload()
-        );
-        GenerationArtifact templateArtifact = GenerationArtifact.of(
-                "template_bootstrap",
-                "Template",
-                "全栈项目模板",
-                payload
-        );
-        return AgentNodeResult.of(
-                "已准备全栈项目模板与端口上下文",
-                List.of(templateArtifact, contextArtifact),
-                payload
-        );
+    /** 拒绝无法被后续节点和检查点识别的 adapter 结果。 */
+    private AgentNodeResult requireValidBootstrapResult(
+            GenerationTemplateBootstrapAdapter adapter,
+            AgentNodeResult result
+    ) {
+        if (result == null || result.artifacts() == null
+                || result.artifacts().stream().noneMatch(artifact ->
+                artifact != null && "template_bootstrap".equals(artifact.key()))) {
+            throw new IllegalStateException(
+                    "模板初始化 adapter 未返回 template_bootstrap 制品: "
+                            + adapter.codeGenType().getValue());
+        }
+        return result;
     }
 
     /** 返回{@code skipped}。 */
@@ -124,13 +96,4 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
         return AgentNodeResult.of(summary, List.of(skipped), skipped.payload());
     }
 
-    private AgentNodeResult result(String name, Map<String, Object> payload, String summary) {
-        GenerationArtifact artifact = GenerationArtifact.of(
-                "template_bootstrap",
-                "Template",
-                name,
-                payload
-        );
-        return AgentNodeResult.of(summary, List.of(artifact), artifact.payload());
-    }
 }

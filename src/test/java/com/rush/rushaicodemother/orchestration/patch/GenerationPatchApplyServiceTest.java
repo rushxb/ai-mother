@@ -319,9 +319,15 @@ class GenerationPatchApplyServiceTest {
         assertEquals(safeManifest, Files.readString(root.resolve("package.json")));
     }
 
-    @Test
-    void shouldRejectNonRegistryDependencySource() throws Exception {
-        Path root = cleanTestRoot("non-registry-dependency-source");
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://attacker.invalid/vue.tgz",
+            "git+https://attacker.invalid/vue.git",
+            "file:../untrusted-package"
+    })
+    void shouldRejectNonRegistryDependencySource(String dependencyVersion) throws Exception {
+        Path root = cleanTestRoot(
+                "non-registry-dependency-source-" + Math.abs(dependencyVersion.hashCode()));
         Files.createDirectories(root);
         String safeManifest = "{\"dependencies\":{\"vue\":\"^3.5.0\"}}\n";
         Files.writeString(root.resolve("package.json"), safeManifest);
@@ -332,7 +338,7 @@ class GenerationPatchApplyServiceTest {
                 root,
                 List.of(PatchOperation.modify(
                         "package.json",
-                        "{\"dependencies\":{\"vue\":\"https://attacker.invalid/vue.tgz\"}}\n")),
+                        "{\"dependencies\":{\"vue\":\"" + dependencyVersion + "\"}}\n")),
                 "tool-write-file");
 
         assertEquals("rejected", result.status());

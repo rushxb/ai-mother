@@ -5,10 +5,12 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRule
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceSnapshot;
+import com.rush.rushaicodemother.orchestration.patch.GeneratedWorkspaceTrustPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
@@ -50,7 +52,8 @@ class GeneratedWorkspaceSecurityBenchmarkRuleTest {
         inspector.writeUtf8(workspace.canonicalRootPath(), "package.json", """
                 {
                   "scripts": {"build": "vite build", "postinstall": "node install.js"},
-                  "dependencies": {"unsafe": "https://example.invalid/pkg.tgz"}
+                  "dependencies": {"unsafe": "https://example.invalid/pkg.tgz"},
+                  "packageManager": "npm@10.0.0"
                 }
                 """);
         inspector.writeUtf8(workspace.canonicalRootPath(), ".env", "TOKEN=secret");
@@ -72,6 +75,12 @@ class GeneratedWorkspaceSecurityBenchmarkRuleTest {
         assertTrue(result.violations().contains("sensitive_file_present"));
         assertTrue(result.violations().contains("package_lifecycle_script_present"));
         assertTrue(result.violations().contains("non_registry_dependency_present"));
+        assertTrue(result.violations().contains(
+                "executable_manifest_forbidden_lifecycle:postinstall"));
+        assertTrue(result.violations().contains(
+                "executable_manifest_forbidden_dependency_source:unsafe"));
+        assertTrue(result.violations().contains(
+                "executable_manifest_package_manager_unsupported"));
         assertTrue(result.violations().contains("external_runtime_resource_present"));
         assertTrue(result.violations().contains("dynamic_code_execution_present"));
         assertTrue(result.violations().contains("unsafe_html_injection_present"));
@@ -80,8 +89,51 @@ class GeneratedWorkspaceSecurityBenchmarkRuleTest {
         assertTrue(result.violations().contains("hardcoded_secret_present"));
     }
 
+    @Test
+    void generatedPackageManagerControlFileMustUseProductionTrustPolicy() {
+        GenerationWorkspace workspace = workspace("package-manager-control");
+        inspector.writeUtf8(workspace.canonicalRootPath(), "pnpm-workspace.yaml", "packages: ['*']");
+
+        GenerationBenchmarkRuleResult result = rule().evaluate(
+                task(), workspace, emptyBaseline(workspace));
+
+        assertFalse(result.passed());
+        assertTrue(result.violations().contains(
+                "generated_workspace_forbidden_control_file:pnpm-workspace.yaml"));
+    }
+
+    @Test
+    void unchangedTrustedTemplateLockfileMustNotBeRatedAsGeneratedContent() {
+        GenerationWorkspace workspace = workspace("trusted-template-lockfile");
+        inspector.writeUtf8(workspace.canonicalRootPath(), "pnpm-lock.yaml", "lockfileVersion: '9.0'");
+        GenerationBenchmarkWorkspaceSnapshot baseline = inspector.capture(
+                workspace.canonicalRootPath());
+
+        GenerationBenchmarkRuleResult result = rule().evaluate(task(), workspace, baseline);
+
+        assertTrue(result.passed());
+    }
+
+    @Test
+    void deletingTrustedTemplateControlFileMustUseProductionDeletionPolicy() throws Exception {
+        GenerationWorkspace workspace = workspace("deleted-template-control");
+        inspector.writeUtf8(workspace.canonicalRootPath(), "pnpm-lock.yaml", "lockfileVersion: '9.0'");
+        GenerationBenchmarkWorkspaceSnapshot baseline = inspector.capture(
+                workspace.canonicalRootPath());
+        Files.delete(workspace.canonicalRootPath().resolve("pnpm-lock.yaml"));
+
+        GenerationBenchmarkRuleResult result = rule().evaluate(task(), workspace, baseline);
+
+        assertFalse(result.passed());
+        assertTrue(result.violations().contains(
+                "generated_workspace_control_file_delete_forbidden:pnpm-lock.yaml"));
+    }
+
     private GeneratedWorkspaceSecurityBenchmarkRule rule() {
-        return new GeneratedWorkspaceSecurityBenchmarkRule(inspector);
+        return new GeneratedWorkspaceSecurityBenchmarkRule(
+                inspector,
+                new GeneratedWorkspaceTrustPolicy()
+        );
     }
 
     private GenerationBenchmarkTask task() {

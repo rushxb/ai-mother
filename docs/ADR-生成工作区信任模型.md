@@ -38,7 +38,7 @@
 
 ## 验证口径
 
-- 生产与 Benchmark 对同一 artifact 复用相同的写入 policy 和 verifier implementation；
+- 生产写入与 Benchmark 候选增量复用同一个 `GeneratedWorkspaceTrustPolicy`；生产取首条原因 fail-closed，Benchmark 保留全部原因，可信模板基线不重复判罚；
 - 控制文件、生命周期脚本和危险依赖协议必须保留负向测试；
 - 容器集成测试验证只读根、资源限制、网络隔离、最小环境与清理语义；
 - 任何新工程类型 adapter 在声明可安装、构建或运行前，必须证明其命令仍经过上述 seam。

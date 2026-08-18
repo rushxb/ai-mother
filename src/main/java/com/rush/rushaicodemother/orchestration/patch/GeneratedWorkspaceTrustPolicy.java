@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -86,35 +87,50 @@ public class GeneratedWorkspaceTrustPolicy {
 
     /** 返回空字符串表示允许，否则返回稳定的机器可读拒绝原因。 */
     public String validate(String relativePath, String candidateContent) {
+        return validateAll(relativePath, candidateContent).stream()
+                .findFirst()
+                .orElse("");
+    }
+
+    /**
+     * 返回候选文件的全部拒绝原因。生产写入可继续取首条 fail-fast，
+     * Benchmark 等离线验证场景则能保留完整安全证据，二者共享同一解析与规则实现。
+     */
+    public List<String> validateAll(String relativePath, String candidateContent) {
         if (!appliesTo(relativePath)) {
-            return "";
+            return List.of();
         }
         String normalizedPath = normalizePath(relativePath);
         if (FORBIDDEN_CONTROL_FILES.contains(fileName(normalizedPath))) {
-            return "generated_workspace_forbidden_control_file:" + normalizedPath;
+            return List.of("generated_workspace_forbidden_control_file:" + normalizedPath);
         }
         if (candidateContent == null || candidateContent.isBlank()) {
-            return "executable_manifest_empty";
+            return List.of("executable_manifest_empty");
         }
         JsonNode manifest;
         try {
             manifest = OBJECT_MAPPER.readTree(candidateContent);
         } catch (Exception invalidJson) {
-            return "executable_manifest_invalid_json";
+            return List.of("executable_manifest_invalid_json");
         }
         if (manifest == null || !manifest.isObject()) {
-            return "executable_manifest_not_object";
+            return List.of("executable_manifest_not_object");
         }
 
+        List<String> blockers = new ArrayList<>(3);
         String scriptBlocker = validateScripts(manifest.path("scripts"));
         if (!scriptBlocker.isEmpty()) {
-            return scriptBlocker;
+            blockers.add(scriptBlocker);
         }
         String dependencyBlocker = validateDependencies(manifest);
         if (!dependencyBlocker.isEmpty()) {
-            return dependencyBlocker;
+            blockers.add(dependencyBlocker);
         }
-        return validatePackageManager(manifest.get("packageManager"));
+        String packageManagerBlocker = validatePackageManager(manifest.get("packageManager"));
+        if (!packageManagerBlocker.isEmpty()) {
+            blockers.add(packageManagerBlocker);
+        }
+        return List.copyOf(blockers);
     }
 
     public String validateDeletion(String relativePath) {

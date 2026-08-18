@@ -1,13 +1,12 @@
 package com.rush.rushaicodemother.orchestration.benchmark.rule;
 
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkQualityDimension;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuleResult;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkValidationRule;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceSnapshot;
+import com.rush.rushaicodemother.orchestration.patch.GeneratedWorkspaceTrustPolicy;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Component;
 
@@ -17,11 +16,13 @@ import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** 对每个生成的基准工作区进行确定性源和清单安全检查。 */
+/** 对每个生成的基准工作区执行共享信任策略与确定性源码安全检查。 */
 @Component
 public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchmarkValidationRule {
 
@@ -30,9 +31,6 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
     private static final long MAX_SCANNED_FILE_BYTES = 512L * 1_024L;
     private static final Set<String> SOURCE_EXTENSIONS = Set.of(
             "html", "js", "mjs", "cjs", "ts", "jsx", "tsx", "vue", "go", "java"
-    );
-    private static final Set<String> LIFECYCLE_SCRIPTS = Set.of(
-            "preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishonly"
     );
     private static final Pattern REMOTE_RUNTIME_RESOURCE = Pattern.compile(
             "(?is)<(?:script|link)\\b[^>]*(?:src|href)\\s*=\\s*['\"](?:https?:)?//"
@@ -58,9 +56,14 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
     );
 
     private final GenerationBenchmarkWorkspaceInspector inspector;
+    private final GeneratedWorkspaceTrustPolicy workspaceTrustPolicy;
 
-    public GeneratedWorkspaceSecurityBenchmarkRule(GenerationBenchmarkWorkspaceInspector inspector) {
+    public GeneratedWorkspaceSecurityBenchmarkRule(
+            GenerationBenchmarkWorkspaceInspector inspector,
+            GeneratedWorkspaceTrustPolicy workspaceTrustPolicy
+    ) {
         this.inspector = inspector;
+        this.workspaceTrustPolicy = workspaceTrustPolicy;
     }
 
     @Override
@@ -87,18 +90,24 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         GenerationBenchmarkWorkspaceSnapshot current = inspector.capture(workspace.canonicalRootPath());
         List<String> paths = current.fileDigests().keySet().stream().sorted().toList();
         LinkedHashSet<String> violations = new LinkedHashSet<>();
+        Map<String, String> baselineFiles = baseline == null
+                ? Map.of()
+                : baseline.fileDigests();
         if (paths.size() > MAX_SCANNED_FILES) {
             violations.add("security_scan_file_count_exceeded");
         }
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String relativePath : paths.stream().limit(MAX_SCANNED_FILES).toList()) {
+            inspectWorkspaceTrust(
+                    workspace.canonicalRootPath(),
+                    relativePath,
+                    current.fileDigests().get(relativePath),
+                    baselineFiles,
+                    violations
+            );
             String normalizedPath = relativePath.toLowerCase(Locale.ROOT);
             if (isSensitiveFile(normalizedPath)) {
                 violations.add("sensitive_file_present");
-                continue;
-            }
-            if (normalizedPath.endsWith("package.json")) {
-                inspectPackageManifest(workspace.canonicalRootPath(), relativePath, violations);
                 continue;
             }
             if (!SOURCE_EXTENSIONS.contains(extension(normalizedPath))) {
@@ -118,6 +127,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
             }
             inspectSource(inspector.readUtf8(workspace.canonicalRootPath(), relativePath), violations);
         }
+        inspectDeletedWorkspaceControls(current.fileDigests(), baselineFiles, violations);
         return new GenerationBenchmarkRuleResult(
                 RULE_ID,
                 dimension(),
@@ -127,44 +137,61 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
         );
     }
 
-    private void inspectPackageManifest(
+    /**
+     * Benchmark 只评估相对基线由生成链路新增或修改的文件，并复用生产写入策略。
+     * 这样既不会误判模板提供的可信 lockfile，也不会形成第二套清单解析规则。
+     */
+    private void inspectWorkspaceTrust(
             Path root,
             String relativePath,
+            String currentDigest,
+            Map<String, String> baselineFiles,
             Set<String> violations
     ) {
-        String content = inspector.readUtf8(root, relativePath);
-        if (content.length() > MAX_SCANNED_FILE_BYTES) {
-            violations.add("security_scan_file_too_large");
+        if (!workspaceTrustPolicy.appliesTo(relativePath)
+                || baselineFiles.containsKey(relativePath)
+                && Objects.equals(currentDigest, baselineFiles.get(relativePath))) {
             return;
         }
+        Path file = inspector.resolve(root, relativePath);
         try {
-            JSONObject manifest = JSONUtil.parseObj(content);
-            JSONObject scripts = manifest.getJSONObject("scripts");
-            if (scripts != null && scripts.keySet().stream()
-                    .map(value -> value.toLowerCase(Locale.ROOT))
-                    .anyMatch(LIFECYCLE_SCRIPTS::contains)) {
-                violations.add("package_lifecycle_script_present");
-            }
-            inspectDependencies(manifest.getJSONObject("dependencies"), violations);
-            inspectDependencies(manifest.getJSONObject("devDependencies"), violations);
-            inspectDependencies(manifest.getJSONObject("optionalDependencies"), violations);
-        } catch (RuntimeException failure) {
-            violations.add("package_manifest_unparseable");
-        }
-    }
-
-    private void inspectDependencies(JSONObject dependencies, Set<String> violations) {
-        if (dependencies == null) {
-            return;
-        }
-        for (String dependency : dependencies.keySet()) {
-            String version = dependencies.getStr(dependency, "").trim().toLowerCase(Locale.ROOT);
-            if (version.matches(
-                    "^(?:https?|git(?:\\+https?|\\+ssh)?|ssh|github|gitlab|bitbucket|file|link):.*"
-            ) || version.startsWith("git@")) {
-                violations.add("non_registry_dependency_present");
+            if (Files.size(file) > MAX_SCANNED_FILE_BYTES) {
+                violations.add("security_scan_file_too_large");
                 return;
             }
+        } catch (Exception failure) {
+            throw new IllegalStateException("unable to inspect benchmark trust file size", failure);
+        }
+        workspaceTrustPolicy.validateAll(relativePath, inspector.readUtf8(root, relativePath))
+                .forEach(reason -> recordWorkspaceTrustViolation(reason, violations));
+    }
+
+    private void inspectDeletedWorkspaceControls(
+            Map<String, String> currentFiles,
+            Map<String, String> baselineFiles,
+            Set<String> violations
+    ) {
+        baselineFiles.keySet().stream()
+                .filter(workspaceTrustPolicy::appliesTo)
+                .filter(relativePath -> !currentFiles.containsKey(relativePath))
+                .sorted()
+                .map(workspaceTrustPolicy::validateDeletion)
+                .forEach(reason -> recordWorkspaceTrustViolation(reason, violations));
+    }
+
+    /** 保留历史聚合维度，同时把生产策略的精确拒绝原因写入评测证据。 */
+    private void recordWorkspaceTrustViolation(String reason, Set<String> violations) {
+        if (reason == null || reason.isBlank()) {
+            return;
+        }
+        violations.add(reason);
+        if (reason.startsWith("executable_manifest_forbidden_lifecycle:")) {
+            violations.add("package_lifecycle_script_present");
+        } else if (reason.startsWith("executable_manifest_forbidden_dependency_source:")) {
+            violations.add("non_registry_dependency_present");
+        } else if (reason.equals("executable_manifest_invalid_json")
+                || reason.equals("executable_manifest_not_object")) {
+            violations.add("package_manifest_unparseable");
         }
     }
 

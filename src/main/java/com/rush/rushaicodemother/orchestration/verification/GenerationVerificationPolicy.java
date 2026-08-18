@@ -1,6 +1,5 @@
 package com.rush.rushaicodemother.orchestration.verification;
 
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.edit.EditValidationPlan;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
@@ -85,12 +84,9 @@ public record GenerationVerificationPolicy(
         return requiresBuild() || preparation.requiresBuildValidation();
     }
 
-    /** EXPERT 计划对所有工程类型执行真实运行时验证；简单静态类型不启动运行时。 */
-    public boolean requiresRuntimeValidation(CodeGenTypeEnum targetType) {
-        boolean runtimeSupported = targetType == CodeGenTypeEnum.VUE_PROJECT
-                || targetType == CodeGenTypeEnum.BACKEND_PROJECT
-                || targetType == CodeGenTypeEnum.FULL_STACK_PROJECT;
-        return runtimeSupported && (!frozenPlan || requiresExpertCheck());
+    /** 旧 Heavy 任务保持运行时验证；冻结计划仅在 EXPERT 门槛下启用。 */
+    public boolean requiresRuntimeValidation() {
+        return !frozenPlan || requiresExpertCheck();
     }
 
     /** 将编辑链路的动态验证结果提升到冻结计划声明的最低门槛。 */

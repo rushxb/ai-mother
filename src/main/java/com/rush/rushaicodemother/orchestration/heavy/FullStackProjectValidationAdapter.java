@@ -4,7 +4,12 @@ import com.rush.rushaicodemother.core.builder.BuildExecutionBudgetReservation;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.verification.runtime.FullStackRuntimeValidationResult;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -14,26 +19,31 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/** 全栈工程适配器，并发复用前端和后端适配器完成同一轮质量门禁。 */
+/** 全栈工程的并发构建与前后端联合运行时验证 adapter。 */
 @Component
-public final class FullStackProjectBuildValidationAdapter
-        implements GenerationProjectBuildValidationAdapter {
+public final class FullStackProjectValidationAdapter implements
+        GenerationProjectBuildValidationAdapter,
+        GenerationProjectRuntimeValidationAdapter {
 
-    private final VueProjectBuildValidationAdapter frontendAdapter;
-    private final BackendProjectBuildValidationAdapter backendAdapter;
+    private final VueProjectValidationAdapter frontendAdapter;
+    private final BackendProjectValidationAdapter backendAdapter;
     private final GenerationExecutionContextService executionContextService;
+    private final GeneratedFullStackRuntimeVerifier fullStackRuntimeVerifier;
 
-    public FullStackProjectBuildValidationAdapter(
-            VueProjectBuildValidationAdapter frontendAdapter,
-            BackendProjectBuildValidationAdapter backendAdapter,
-            GenerationExecutionContextService executionContextService
+    public FullStackProjectValidationAdapter(
+            VueProjectValidationAdapter frontendAdapter,
+            BackendProjectValidationAdapter backendAdapter,
+            GenerationExecutionContextService executionContextService,
+            GeneratedFullStackRuntimeVerifier fullStackRuntimeVerifier
     ) {
         this.frontendAdapter = Objects.requireNonNull(
-                frontendAdapter, "前端构建验证适配器不能为空");
+                frontendAdapter, "前端工程验证适配器不能为空");
         this.backendAdapter = Objects.requireNonNull(
-                backendAdapter, "后端构建验证适配器不能为空");
+                backendAdapter, "后端工程验证适配器不能为空");
         this.executionContextService = Objects.requireNonNull(
                 executionContextService, "生成执行上下文服务不能为空");
+        this.fullStackRuntimeVerifier = Objects.requireNonNull(
+                fullStackRuntimeVerifier, "全栈运行时验证器不能为空");
     }
 
     @Override
@@ -75,6 +85,30 @@ public final class FullStackProjectBuildValidationAdapter
                 throw exception;
             }
         }
+    }
+
+    /**
+     * 全栈前端会话只在联合验证窗口内存活，不发布后端已经关闭的半失效暂定预览。
+     */
+    @Override
+    public ProjectRuntimeValidationResult validateRuntime(
+            GenerationProjectRuntimeValidationRequest request
+    ) {
+        DevServerValidationRequest frontendRequest = DevServerValidationRequest.of(
+                request.taskId(),
+                request.appId(),
+                request.userId(),
+                codeGenType()
+        );
+        if (request.executionFence() != null) {
+            frontendRequest = frontendRequest.withExecutionFence(request.executionFence());
+        }
+        FullStackRuntimeValidationResult result = fullStackRuntimeVerifier.verify(
+                request.workspace().backendRootPath(),
+                frontendRequest,
+                BrowserRuntimeValidationPolicy.productionRuntime()
+        );
+        return ProjectRuntimeValidationResult.fromFullStack(result);
     }
 
     private ProjectBuildValidationResult collect(

@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.AiCodeGeneratorFacade;
 import com.rush.rushaicodemother.core.builder.VueBuildResult;
 import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
+import com.rush.rushaicodemother.core.builder.GoProjectBuilder;
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
@@ -36,6 +37,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceServ
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionProperties;
@@ -745,10 +747,21 @@ class HeavyGenerationRepairBudgetTest {
     ) {
         doReturn("repair prompt").when(generationService).buildAutoRepairPrompt(
                 eq(appId), any(GenerationPreparation.class), any(Exception.class), anyInt());
+        VueProjectValidationAdapter vueAdapter = new VueProjectValidationAdapter(
+                mock(VueProjectBuilder.class),
+                devServerValidationService);
+        BackendProjectValidationAdapter backendAdapter = new BackendProjectValidationAdapter(
+                mock(GoProjectBuilder.class),
+                backendRuntimeVerifier);
+        FullStackProjectValidationAdapter fullStackAdapter = new FullStackProjectValidationAdapter(
+                vueAdapter,
+                backendAdapter,
+                mock(GenerationExecutionContextService.class),
+                fullStackRuntimeVerifier);
+        GenerationProjectRuntimeValidationService runtimeValidationService =
+                new GenerationProjectRuntimeValidationService(
+                        List.of(vueAdapter, backendAdapter, fullStackAdapter));
         return new HeavyGenerationBuildValidationService(
-                devServerValidationService,
-                backendRuntimeVerifier,
-                fullStackRuntimeVerifier,
                 mock(GenerationTaskLifecycleService.class),
                 mock(GenerationOrchestrationMetricsCollector.class),
                 new GenerationPerformanceMonitorService(),
@@ -757,6 +770,7 @@ class HeavyGenerationRepairBudgetTest {
                 mock(HeavyGenerationSessionCompletionService.class),
                 new GenerationWorkspaceService(new CodeStorageProperties()),
                 projectBuildValidationService,
+                runtimeValidationService,
                 stageAdmissionService(),
                 mock(GenerationPreviewMilestoneService.class)
         );

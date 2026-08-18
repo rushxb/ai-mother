@@ -20,17 +20,9 @@ import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
-import com.rush.rushaicodemother.orchestration.verification.runtime.BackendRuntimeValidationResult;
-import com.rush.rushaicodemother.orchestration.verification.runtime.FullStackRuntimeValidationResult;
-import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
-import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
-import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
-import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
-import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
-import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,9 +41,6 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class HeavyGenerationBuildValidationService {
 
-    private final DevServerValidationService devServerValidationService;
-    private final GeneratedBackendRuntimeVerifier generatedBackendRuntimeVerifier;
-    private final GeneratedFullStackRuntimeVerifier generatedFullStackRuntimeVerifier;
     private final GenerationTaskLifecycleService generationTaskLifecycleService;
     private final GenerationOrchestrationMetricsCollector generationOrchestrationMetricsCollector;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
@@ -60,6 +49,7 @@ public class HeavyGenerationBuildValidationService {
     private final HeavyGenerationSessionCompletionService heavyGenerationSessionCompletionService;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationProjectBuildValidationService projectBuildValidationService;
+    private final GenerationProjectRuntimeValidationService projectRuntimeValidationService;
     private final GenerationStageAdmissionService generationStageAdmissionService;
     private final GenerationPreviewMilestoneService generationPreviewMilestoneService;
 
@@ -326,7 +316,7 @@ public class HeavyGenerationBuildValidationService {
                                                             GenerationWorkspace workspace,
                                                             GenerationVerificationPolicy verificationPolicy,
                                                             String stageMessage) {
-        if (!verificationPolicy.requiresRuntimeValidation(preparation.targetType())) {
+        if (!verificationPolicy.requiresRuntimeValidation()) {
             return null;
         }
         generationStageAdmissionService.requireRuntimeValidation(
@@ -339,33 +329,12 @@ public class HeavyGenerationBuildValidationService {
                 generationPerformanceMonitorService.startSpan(
                         preparation.taskId(), "project_runtime_validation", GenerationSpanCategory.VALIDATION);
         ProjectRuntimeValidationResult runtimeResult;
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            if (preparation.targetType() == CodeGenTypeEnum.BACKEND_PROJECT) {
-                BackendRuntimeValidationResult backendResult =
-                        generatedBackendRuntimeVerifier.verify(workspace.backendRootPath());
-                runtimeResult = ProjectRuntimeValidationResult.fromBackend(backendResult);
-            } else if (preparation.targetType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-                FullStackRuntimeValidationResult fullStackResult =
-                        generatedFullStackRuntimeVerifier.verify(
-                                workspace.backendRootPath(),
-                                fullStackFrontendRequest(
-                                        appId, loginUser, preparation, session),
-                                BrowserRuntimeValidationPolicy.productionRuntime()
-                        );
-                runtimeResult = ProjectRuntimeValidationResult.fromFullStack(fullStackResult);
-            } else {
-                runtimeResult = ProjectRuntimeValidationResult.fromDevServer(
-                        validateFrontendRuntime(appId, loginUser, preparation, session));
-            }
+            runtimeResult = projectRuntimeValidationService.validate(
+                    runtimeValidationRequest(appId, loginUser, preparation, session, workspace));
         } catch (RuntimeException exception) {
             span.failed(LogExceptionSanitizer.sanitizeMessage(exception));
             throw exception;
-        }
-        if (runtimeResult == null) {
-            runtimeResult = ProjectRuntimeValidationResult.fromDevServer(
-                    DevServerValidationResult.startupFailed(
-                            preparation.taskId(), appId, 0, "运行时验证服务未返回结果"));
         }
         generationOrchestrationMetricsCollector.recordRuntimeValidation(
                 orchestrationMode(preparation),
@@ -388,51 +357,23 @@ public class HeavyGenerationBuildValidationService {
         return runtimeResult;
     }
 
-    /**
-     * Full Stack 前后端只在联合验证窗口内共同存活。
-     *
-     * <p>后端 runtime 暂无任务作用域移交能力，因此此处不发布 provisional preview，
-     * 也不把前端会话移交给任务，避免向用户暴露后端已经关闭的半失效预览。</p>
-     */
-    private DevServerValidationRequest fullStackFrontendRequest(
+    private GenerationProjectRuntimeValidationRequest runtimeValidationRequest(
             Long appId,
             User loginUser,
             GenerationPreparation preparation,
-            GenerationSession session
+            GenerationSession session,
+            GenerationWorkspace workspace
     ) {
-        DevServerValidationRequest request = DevServerValidationRequest.of(
+        return new GenerationProjectRuntimeValidationRequest(
                 preparation.taskId(),
                 appId,
                 loginUser.getId(),
-                preparation.targetType()
+                workspace,
+                session.executionContext() == null
+                        ? null
+                        : session.executionContext().executionFence(),
+                () -> publishProvisionalPreviewSafely(session, preparation.targetType())
         );
-        if (session.executionContext() == null
-                || session.executionContext().executionFence() == null) {
-            return request;
-        }
-        return request.withExecutionFence(
-                session.executionContext().executionFence());
-    }
-
-    private DevServerValidationResult validateFrontendRuntime(
-            Long appId,
-            User loginUser,
-            GenerationPreparation preparation,
-            GenerationSession session
-    ) {
-        if (session.executionContext() == null || session.executionContext().executionFence() == null) {
-            return devServerValidationService.validate(
-                    preparation.taskId(), appId, loginUser.getId(), preparation.targetType());
-        }
-        // Dev Server 就绪即证明工作区可渲染，是「用户可以先看到东西」的最早诚实信号。
-        // 会话持有权交给生成任务，使暂定预览在验证返回后仍可访问；发布或终态负责精确停止。
-        return devServerValidationService.validate(
-                DevServerValidationRequest
-                        .of(preparation.taskId(), appId, loginUser.getId(), preparation.targetType())
-                        .withExecutionFence(session.executionContext().executionFence())
-                        .withReadyCallback(() ->
-                                publishProvisionalPreviewSafely(session, preparation.targetType()))
-                        .withTaskScopedOwnership());
     }
 
     /**

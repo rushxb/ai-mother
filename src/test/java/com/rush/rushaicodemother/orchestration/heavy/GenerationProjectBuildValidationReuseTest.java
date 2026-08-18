@@ -14,7 +14,10 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -78,16 +81,21 @@ class GenerationProjectBuildValidationReuseTest {
                     null
             );
         });
-        VueProjectBuildValidationAdapter frontendAdapter =
-                new VueProjectBuildValidationAdapter(vueBuilder);
-        BackendProjectBuildValidationAdapter backendAdapter =
-                new BackendProjectBuildValidationAdapter(goBuilder);
+        VueProjectValidationAdapter frontendAdapter = new VueProjectValidationAdapter(
+                vueBuilder,
+                mock(DevServerValidationService.class));
+        BackendProjectValidationAdapter backendAdapter = new BackendProjectValidationAdapter(
+                goBuilder,
+                mock(GeneratedBackendRuntimeVerifier.class));
         GenerationProjectBuildValidationService service = new GenerationProjectBuildValidationService(
                 List.of(
                         frontendAdapter,
                         backendAdapter,
-                        new FullStackProjectBuildValidationAdapter(
-                                frontendAdapter, backendAdapter, contextService)
+                        new FullStackProjectValidationAdapter(
+                                frontendAdapter,
+                                backendAdapter,
+                                contextService,
+                                mock(GeneratedFullStackRuntimeVerifier.class))
                 ),
                 contextService
         );

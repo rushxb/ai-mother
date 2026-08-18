@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Service;
 
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -28,7 +27,7 @@ public class GenerationProjectBuildValidationService {
             List<GenerationProjectBuildValidationAdapter> adapters,
             GenerationExecutionContextService executionContextService
     ) {
-        this.adaptersByType = registerAdapters(adapters);
+        this.adaptersByType = GenerationProjectAdapterRegistry.register(adapters, "构建验证");
         this.executionContextService = Objects.requireNonNull(
                 executionContextService, "生成执行上下文服务不能为空");
     }
@@ -55,29 +54,4 @@ public class GenerationProjectBuildValidationService {
         return adapter;
     }
 
-    private static Map<CodeGenTypeEnum, GenerationProjectBuildValidationAdapter> registerAdapters(
-            List<GenerationProjectBuildValidationAdapter> adapters
-    ) {
-        if (adapters == null || adapters.isEmpty()) {
-            throw new IllegalStateException("至少需要注册一个工程构建验证适配器");
-        }
-        EnumMap<CodeGenTypeEnum, GenerationProjectBuildValidationAdapter> registered =
-                new EnumMap<>(CodeGenTypeEnum.class);
-        for (GenerationProjectBuildValidationAdapter adapter : adapters) {
-            if (adapter == null) {
-                throw new IllegalStateException("工程构建验证适配器必须声明工程类型");
-            }
-            CodeGenTypeEnum codeGenType = adapter.codeGenType();
-            if (codeGenType == null) {
-                throw new IllegalStateException("工程构建验证适配器必须声明工程类型");
-            }
-            GenerationProjectBuildValidationAdapter previous = registered.putIfAbsent(
-                    codeGenType, adapter);
-            if (previous != null) {
-                throw new IllegalStateException(
-                        "工程类型存在重复构建验证适配器: " + codeGenType.getValue());
-            }
-        }
-        return Map.copyOf(registered);
-    }
 }

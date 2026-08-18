@@ -6,6 +6,8 @@ import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.core.builder.VueBuildCommandResult;
 import com.rush.rushaicodemother.core.builder.VueBuildResult;
+import com.rush.rushaicodemother.core.builder.GoProjectBuilder;
+import com.rush.rushaicodemother.core.builder.VueProjectBuilder;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
@@ -15,6 +17,7 @@ import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -82,10 +85,15 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     .thenReturn(ProjectBuildValidationResult.fromVue(vueBuildResult));
             when(devServerValidationService.validate(anyString(), anyLong(), anyLong(), any(CodeGenTypeEnum.class)))
                     .thenReturn(DevServerValidationResult.passed(taskId, appId, 5));
-            HeavyGenerationBuildValidationService service = new HeavyGenerationBuildValidationService(
+            GeneratedBackendRuntimeVerifier backendRuntimeVerifier =
+                    mock(GeneratedBackendRuntimeVerifier.class);
+            GeneratedFullStackRuntimeVerifier fullStackRuntimeVerifier =
+                    mock(GeneratedFullStackRuntimeVerifier.class);
+            GenerationProjectRuntimeValidationService runtimeValidationService = runtimeValidationService(
                     devServerValidationService,
-                    mock(GeneratedBackendRuntimeVerifier.class),
-                    mock(GeneratedFullStackRuntimeVerifier.class),
+                    backendRuntimeVerifier,
+                    fullStackRuntimeVerifier);
+            HeavyGenerationBuildValidationService service = new HeavyGenerationBuildValidationService(
                     mock(GenerationTaskLifecycleService.class),
                     mock(GenerationOrchestrationMetricsCollector.class),
                     new GenerationPerformanceMonitorService(),
@@ -94,6 +102,7 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     mock(HeavyGenerationSessionCompletionService.class),
                     new GenerationWorkspaceService(new CodeStorageProperties()),
                     projectBuildValidationService,
+                    runtimeValidationService,
                     mock(GenerationStageAdmissionService.class),
                     mock(GenerationPreviewMilestoneService.class)
             );
@@ -121,6 +130,26 @@ class HeavyGenerationDiagnosticBoundaryTest {
         } finally {
             FileUtil.del(projectPath.toFile());
         }
+    }
+
+    private GenerationProjectRuntimeValidationService runtimeValidationService(
+            DevServerValidationService devServerValidationService,
+            GeneratedBackendRuntimeVerifier backendRuntimeVerifier,
+            GeneratedFullStackRuntimeVerifier fullStackRuntimeVerifier
+    ) {
+        VueProjectValidationAdapter vueAdapter = new VueProjectValidationAdapter(
+                mock(VueProjectBuilder.class),
+                devServerValidationService);
+        BackendProjectValidationAdapter backendAdapter = new BackendProjectValidationAdapter(
+                mock(GoProjectBuilder.class),
+                backendRuntimeVerifier);
+        FullStackProjectValidationAdapter fullStackAdapter = new FullStackProjectValidationAdapter(
+                vueAdapter,
+                backendAdapter,
+                mock(GenerationExecutionContextService.class),
+                fullStackRuntimeVerifier);
+        return new GenerationProjectRuntimeValidationService(
+                List.of(vueAdapter, backendAdapter, fullStackAdapter));
     }
 
     @Test

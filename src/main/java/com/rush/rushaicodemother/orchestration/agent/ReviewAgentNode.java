@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.QualityGateArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
@@ -108,26 +109,23 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
                 ? QualityGateResult.passed(warnings, passes)
                 : QualityGateResult.failed(blockers, warnings, passes);
         context.setQualityGateResult(gateResult);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("passed", gateResult.passed());
-        payload.put("level", gateResult.level());
-        payload.put("blockers", gateResult.blockers());
-        payload.put("warnings", gateResult.warnings());
-        payload.put("passes", gateResult.passes());
-        payload.put("patchFirst", patchFirst);
-        payload.put("requiresBuild", requiresBuild);
-        payload.put("validationMode", validationMode);
-        payload.put("generationMode", generationMode);
-        payload.put("hasChangePlan", hasChangePlan);
-        payload.put("securityBlockers", securityReviewResult.blockers());
-        payload.put("securityWarnings", securityReviewResult.warnings());
-        payload.put("backendBlockers", backendReviewResult.blockers());
-        payload.put("backendWarnings", backendReviewResult.warnings());
-        GenerationArtifact artifact = GenerationArtifact.of("quality_gate", "Review", "质量门禁", payload);
+        Map<String, Object> reviewDetails = new LinkedHashMap<>();
+        reviewDetails.put("patchFirst", patchFirst);
+        reviewDetails.put("requiresBuild", requiresBuild);
+        reviewDetails.put("validationMode", validationMode);
+        reviewDetails.put("generationMode", generationMode);
+        reviewDetails.put("hasChangePlan", hasChangePlan);
+        reviewDetails.put("securityBlockers", securityReviewResult.blockers());
+        reviewDetails.put("securityWarnings", securityReviewResult.warnings());
+        reviewDetails.put("backendBlockers", backendReviewResult.blockers());
+        reviewDetails.put("backendWarnings", backendReviewResult.warnings());
+        GenerationArtifact artifact = QualityGateArtifact
+                .fromResult(gateResult, reviewDetails)
+                .toArtifact("Review", "质量门禁");
         return AgentNodeResult.of(
                 gateResult.passed() ? "质量门禁通过，允许执行代码生成" : "质量门禁未通过，阻止后续生成",
                 List.of(artifact),
-                payload
+                artifact.payload()
         );
     }
 }

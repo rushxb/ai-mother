@@ -4,13 +4,13 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.QualityGateArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndex;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -105,33 +105,9 @@ public class GenerationAgentContext {
             targetType = restored.targetType();
             upgradeRequired = restored.upgradeRequired();
         }
-        GenerationArtifact qualityGate = artifacts.get("quality_gate");
+        GenerationArtifact qualityGate = artifacts.get(QualityGateArtifact.KEY);
         if (qualityGate != null) {
-            Map<String, Object> payload = qualityGate.payload();
-            qualityGateResult = new QualityGateResult(
-                    booleanValue(payload.get("passed")),
-                    stringValue(payload.get("level")),
-                    stringList(payload.get("blockers")),
-                    stringList(payload.get("warnings")),
-                    stringList(payload.get("passes"))
-            );
+            qualityGateResult = QualityGateArtifact.fromArtifact(qualityGate).result();
         }
-    }
-
-    private String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
-
-    private boolean booleanValue(Object value) {
-        return value instanceof Boolean booleanValue
-                ? booleanValue
-                : value != null && Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private List<String> stringList(Object value) {
-        if (!(value instanceof Collection<?> collection)) {
-            return List.of();
-        }
-        return collection.stream().filter(java.util.Objects::nonNull).map(String::valueOf).toList();
     }
 }

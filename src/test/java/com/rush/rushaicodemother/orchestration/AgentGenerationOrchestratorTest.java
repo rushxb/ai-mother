@@ -1,10 +1,12 @@
 package com.rush.rushaicodemother.orchestration;
 
 import com.rush.rushaicodemother.config.CodeStorageProperties;
+import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.QualityGateArtifact;
 import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
@@ -48,6 +50,7 @@ import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestF
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.reviewAgentNode;
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -282,6 +285,44 @@ class AgentGenerationOrchestratorTest {
         verify(rollbackPointService, times(1)).prepareRollbackPoint(
                 any(GenerationOrchestrationRequest.class), any(CodeGenTypeEnum.class),
                 eq("runtime-task-completed-resume"));
+    }
+
+    @Test
+    void completedReviewCheckpointWithoutQualityGateMustFailClosed() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("runtime-task-missing-quality-gate");
+        task.setAppId(1L);
+        task.setStatus("running");
+        when(taskStore.load(1L, "runtime-task-missing-quality-gate"))
+                .thenReturn(Optional.empty(), Optional.of(task));
+        when(taskStore.create("runtime-task-missing-quality-gate", 1L, "创建一个 Vue 应用"))
+                .thenReturn(task);
+        when(taskStore.matchesRequest(task, "创建一个 Vue 应用")).thenReturn(true);
+        GenerationAgentSupport support = support(codeOutputRoot("missing-quality-gate"));
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(
+                taskStore,
+                support,
+                new GenerationRoutingSupport(support)
+        );
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                app,
+                "创建一个 Vue 应用",
+                CodeGenTypeEnum.HTML,
+                "create",
+                false,
+                ignored -> CodeGenTypeEnum.VUE_PROJECT,
+                null,
+                "runtime-task-missing-quality-gate"
+        );
+
+        orchestrator.prepare(request);
+        task.getArtifacts().remove(QualityGateArtifact.KEY);
+
+        assertThrows(BusinessException.class, () -> orchestrator.prepare(request));
     }
 
     @Test

@@ -69,7 +69,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             events.addAll(dagRunner.run(nodes, context));
-            QualityGateResult gateResult = context.getQualityGateResult();
+            QualityGateResult gateResult = requireQualityGateResult(request, context);
             recordSummaryMetrics(context, gateResult);
             if (gateResult != null && !gateResult.passed()) {
                 metricsCollector.recordRun(orchestrationMode, "quality_gate_failed");
@@ -259,6 +259,25 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
                     exception
             );
         }
+    }
+
+    /**
+     * 规划方案包含 Review 时，缺失的门禁事实必须失败关闭。
+     * NO_PLAN 是消融基线，按设计不执行 Review，因此允许没有门禁制品。
+     */
+    private QualityGateResult requireQualityGateResult(GenerationOrchestrationRequest request,
+                                                       GenerationAgentContext context) {
+        QualityGateResult gateResult = context.getQualityGateResult();
+        if (request.planningVariant() == GenerationPlanningVariant.NO_PLAN) {
+            return gateResult;
+        }
+        if (gateResult == null) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "质量门禁检查点缺失，无法安全恢复生成任务"
+            );
+        }
+        return gateResult;
     }
 
     private long sumDurations(GenerationAgentContext context) {

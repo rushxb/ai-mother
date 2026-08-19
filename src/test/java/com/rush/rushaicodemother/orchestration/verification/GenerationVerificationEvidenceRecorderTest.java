@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GenerationVerificationEvidenceRecorderTest {
 
@@ -75,6 +77,66 @@ class GenerationVerificationEvidenceRecorderTest {
                 preparation.artifact(GenerationVerificationEvidenceRecorder.ARTIFACT_KEY)
                         .payload().get("passedSteps")
         );
+    }
+
+    @Test
+    void malformedCheckpointMustNotPoisonAFreshObservedValidation() {
+        GenerationPreparation preparation = preparation();
+        preparation.putArtifact(GenerationArtifact.of(
+                GenerationVerificationEvidenceRecorder.ARTIFACT_KEY,
+                "Verification",
+                "损坏的历史验证证据",
+                Map.of(
+                        "status", "passed",
+                        "source", "legacy_validation",
+                        "targetType", CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                        "passedSteps", List.of("UNKNOWN_STEP"),
+                        "details", Map.of()
+                )
+        ));
+
+        GenerationVerificationEvidenceRecorder.recordPassed(
+                preparation,
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "fresh_fast_validation",
+                        Set.of(GenerationExecutionPlan.ValidationStep.FAST_CHECK),
+                        Map.of("fresh", true)
+                )
+        );
+
+        GenerationValidationObservation restored =
+                GenerationVerificationEvidenceRecorder.latestObservation(preparation)
+                        .orElseThrow();
+        assertEquals(Set.of(GenerationExecutionPlan.ValidationStep.FAST_CHECK),
+                restored.passedSteps());
+        assertEquals("fresh_fast_validation", restored.source());
+        assertEquals(Map.of("fresh", true), restored.details());
+        assertEquals(
+                List.of("FAST_CHECK"),
+                preparation.artifact(GenerationVerificationEvidenceRecorder.ARTIFACT_KEY)
+                        .payload().get("passedSteps")
+        );
+    }
+
+    @Test
+    void observationForAnotherProjectTypeMustBeRejectedBeforeCheckpointMutation() {
+        GenerationPreparation preparation = preparation();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> GenerationVerificationEvidenceRecorder.recordPassed(
+                        preparation,
+                        GenerationValidationObservation.passed(
+                                CodeGenTypeEnum.BACKEND_PROJECT,
+                                "wrong_target_validation",
+                                Set.of(GenerationExecutionPlan.ValidationStep.FAST_CHECK),
+                                Map.of()
+                        )
+                )
+        );
+
+        assertNull(preparation.artifact(GenerationVerificationEvidenceRecorder.ARTIFACT_KEY));
     }
 
     private GenerationPreparation preparation() {

@@ -4,11 +4,13 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** 从 Heavy 生成的结构化制品和执行上下文中提取完成证据。 */
 public final class HeavyGenerationCompletionEvidenceFactory {
@@ -44,23 +46,16 @@ public final class HeavyGenerationCompletionEvidenceFactory {
                     "heavy_workspace",
                     "已形成结构化无需修改证明"));
         }
-        addVerificationEvidence(preparation.artifact(
-                GenerationVerificationEvidenceRecorder.ARTIFACT_KEY), evidence);
+        GenerationVerificationEvidenceRecorder.latestObservation(preparation)
+                .ifPresent(observation -> addVerificationEvidence(observation, evidence));
         return new GenerationCompletionEvidenceSet(evidence);
     }
 
     private static void addVerificationEvidence(
-            GenerationArtifact artifact,
+            GenerationValidationObservation observation,
             List<GenerationCompletionEvidence> evidence
     ) {
-        if (artifact == null || artifact.payload() == null
-                || !"passed".equals(artifact.payload().get("status"))) {
-            return;
-        }
-        Object rawSteps = artifact.payload().get("passedSteps");
-        if (!(rawSteps instanceof List<?> steps)) {
-            return;
-        }
+        Set<GenerationExecutionPlan.ValidationStep> steps = observation.passedSteps();
         addIfPresent(steps, GenerationExecutionPlan.ValidationStep.FAST_CHECK,
                 GenerationCompletionEvidenceType.FAST_VALIDATION, evidence);
         addIfPresent(steps, GenerationExecutionPlan.ValidationStep.BUILD,
@@ -70,15 +65,15 @@ public final class HeavyGenerationCompletionEvidenceFactory {
     }
 
     private static void addIfPresent(
-            List<?> steps,
+            Set<GenerationExecutionPlan.ValidationStep> steps,
             GenerationExecutionPlan.ValidationStep step,
             GenerationCompletionEvidenceType evidenceType,
             List<GenerationCompletionEvidence> evidence
     ) {
-        if (steps.contains(step.name())) {
+        if (steps.contains(step)) {
             evidence.add(GenerationCompletionEvidence.of(
                     evidenceType,
-                    "verification_evidence",
+                    GenerationVerificationEvidenceRecorder.ARTIFACT_KEY,
                     "验证步骤 " + step.name() + " 已通过"));
         }
     }

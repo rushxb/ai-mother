@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
 import org.junit.jupiter.api.Test;
 
@@ -17,6 +18,7 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,17 +29,18 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
     void structuredArtifactsMustProduceCompleteExpertEvidence() {
         GenerationPreparation preparation = preparation(QualityGateResult.passed(List.of(), List.of("质量门禁通过")));
         preparation.putArtifact(artifact("requirements", Map.of("intent", "生成管理后台")));
-        preparation.putArtifact(artifact(
-                GenerationVerificationEvidenceRecorder.ARTIFACT_KEY,
-                Map.of(
-                        "status", "passed",
-                        "passedSteps", List.of(
-                                GenerationExecutionPlan.ValidationStep.FAST_CHECK.name(),
-                                GenerationExecutionPlan.ValidationStep.BUILD.name(),
-                                GenerationExecutionPlan.ValidationStep.EXPERT_CHECK.name()
-                        )
-                )
-        ));
+        GenerationVerificationEvidenceRecorder.recordPassed(
+                preparation,
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "expert_validation",
+                        Set.of(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                                GenerationExecutionPlan.ValidationStep.BUILD,
+                                GenerationExecutionPlan.ValidationStep.EXPERT_CHECK
+                        ),
+                        Map.of()
+                ));
         GenerationExecutionContext context = executionContext();
         context.recordSuccessfulWorkspaceMutations(2);
 
@@ -75,6 +78,32 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
                 preparation, new GenerationSession(preparation));
 
         assertFalse(evidence.contains(GenerationCompletionEvidenceType.FAST_VALIDATION));
+    }
+
+    @Test
+    void verificationEvidenceForAnotherProjectTypeMustNotSatisfyCompletion() {
+        GenerationPreparation preparation = preparation(null);
+        preparation.putArtifact(artifact(
+                GenerationVerificationEvidenceRecorder.ARTIFACT_KEY,
+                Map.of(
+                        "status", "passed",
+                        "source", "stale_backend_validation",
+                        "targetType", CodeGenTypeEnum.BACKEND_PROJECT.getValue(),
+                        "passedSteps", List.of(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK.name(),
+                                GenerationExecutionPlan.ValidationStep.BUILD.name(),
+                                GenerationExecutionPlan.ValidationStep.EXPERT_CHECK.name()
+                        ),
+                        "details", Map.of()
+                )
+        ));
+
+        GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
+                preparation, new GenerationSession(preparation));
+
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.FAST_VALIDATION));
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.BUILD_VALIDATION));
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.EXPERT_VALIDATION));
     }
 
     @Test

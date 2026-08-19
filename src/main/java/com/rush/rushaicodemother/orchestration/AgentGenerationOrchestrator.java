@@ -6,16 +6,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.CompactPlanningAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
-import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.NoPlanningAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
@@ -24,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationDagCheckpointRecove
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
+import com.rush.rushaicodemother.orchestration.planning.GenerationPlanningGraphRegistry;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackPointService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,13 +37,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
 
     private final GenerationDagRunner dagRunner;
     private final GenerationOrchestrationTaskStore taskStore;
-    private final PlannerAgentNode plannerAgentNode;
-    private final TemplateAgentNode templateAgentNode;
-    private final ContextAgentNode contextAgentNode;
-    private final ArchitectAgentNode architectAgentNode;
-    private final CodeAgentNode codeAgentNode;
-    private final ReviewAgentNode reviewAgentNode;
-    private final BuildFixAgentNode buildFixAgentNode;
+    private final GenerationPlanningGraphRegistry planningGraphRegistry;
     private final GenerationRoutingSupport routingSupport;
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GenerationRollbackPointService rollbackPointService;
@@ -75,7 +61,8 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         taskStore.save(task);
         metricsCollector.recordRun(orchestrationMode, "started");
         GenerationAgentContext context = new GenerationAgentContext(request, task, heavyPath);
-        List<GenerationAgentNode> nodes = selectNodes(heavyPath, request.planningVariant());
+        List<GenerationAgentNode> nodes = planningGraphRegistry.resolve(
+                request.planningVariant(), heavyPath);
         List<GenerationStreamEvent> events = new ArrayList<>();
         events.add(orchestrationStartEvent(task.getTaskId(), heavyPath));
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
@@ -167,27 +154,6 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
             return false;
         }
         throw new BusinessException(ErrorCode.OPERATION_ERROR, "任务检查点包含未知编排模式");
-    }
-
-    /** 从候选项中选择{@code Nodes}。 */
-    private List<GenerationAgentNode> selectNodes(boolean heavyPath,
-                                                  GenerationPlanningVariant planningVariant) {
-        List<GenerationAgentNode> nodes = new ArrayList<>();
-        nodes.add(plannerAgentNode);
-        nodes.add(templateAgentNode);
-        nodes.add(contextAgentNode);
-        nodes.add(architectAgentNode);
-        nodes.add(codeAgentNode);
-        nodes.add(reviewAgentNode);
-        if (heavyPath) {
-            nodes.add(buildFixAgentNode);
-        }
-        List<GenerationAgentNode> currentDag = List.copyOf(nodes);
-        return switch (planningVariant) {
-            case CURRENT_DAG -> currentDag;
-            case COMPACT_PLAN -> List.of(new CompactPlanningAgentNode(currentDag));
-            case NO_PLAN -> List.of(new NoPlanningAgentNode(templateAgentNode, contextAgentNode));
-        };
     }
 
     /** 为当前上下文附加回滚点。 */

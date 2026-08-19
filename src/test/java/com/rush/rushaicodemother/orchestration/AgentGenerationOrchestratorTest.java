@@ -7,16 +7,22 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
+import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.GenerationAgentSupport;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
+import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.AgentRuntimeState;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
+import com.rush.rushaicodemother.orchestration.planning.CompactPlanningGraphAdapter;
+import com.rush.rushaicodemother.orchestration.planning.CurrentDagPlanningGraphAdapter;
+import com.rush.rushaicodemother.orchestration.planning.GenerationPlanningGraphRegistry;
+import com.rush.rushaicodemother.orchestration.planning.NoPlanningGraphAdapter;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackPointService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
@@ -183,14 +189,10 @@ class AgentGenerationOrchestratorTest {
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
         AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
                 new GenerationDagRunner(taskStore, metricsCollector, mock(GenerationExecutionContextService.class)),
-                 taskStore,
-                 plannerNode,
-                 templateNode,
-                 contextNode,
-                 architectNode,
-                 codeNode,
-                 reviewNode,
-                new BuildFixAgentNode(),
+                taskStore,
+                planningGraphRegistry(
+                        plannerNode, templateNode, contextNode, architectNode,
+                        codeNode, reviewNode, new BuildFixAgentNode()),
                 routingSupport,
                 metricsCollector,
                 testRollbackPointService("resume")
@@ -248,13 +250,9 @@ class AgentGenerationOrchestratorTest {
         AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
                 new GenerationDagRunner(taskStore, metricsCollector, mock(GenerationExecutionContextService.class)),
                 taskStore,
-                plannerNode,
-                templateNode,
-                contextNode,
-                architectNode,
-                codeNode,
-                reviewNode,
-                new BuildFixAgentNode(),
+                planningGraphRegistry(
+                        plannerNode, templateNode, contextNode, architectNode,
+                        codeNode, reviewNode, new BuildFixAgentNode()),
                 routingSupport,
                 metricsCollector,
                 rollbackPointService
@@ -370,13 +368,14 @@ class AgentGenerationOrchestratorTest {
         AgentGenerationOrchestrator orchestrator = new AgentGenerationOrchestrator(
                 dagRunner,
                 taskStore,
-                new PlannerAgentNode(support, routingSupport),
-                testTemplateAgentNode("metrics"),
-                new ContextAgentNode(support),
-                new ArchitectAgentNode(support),
-                codeAgentNode(),
-                reviewAgentNode(),
-                new BuildFixAgentNode(),
+                planningGraphRegistry(
+                        new PlannerAgentNode(support, routingSupport),
+                        testTemplateAgentNode("metrics"),
+                        new ContextAgentNode(support),
+                        new ArchitectAgentNode(support),
+                        codeAgentNode(),
+                        reviewAgentNode(),
+                        new BuildFixAgentNode()),
                 routingSupport,
                 metricsCollector,
                 rollbackPointService
@@ -438,17 +437,36 @@ class AgentGenerationOrchestratorTest {
         return new AgentGenerationOrchestrator(
                 dagRunner,
                 taskStore,
-                new PlannerAgentNode(support, routingSupport),
-                testTemplateAgentNode("shared"),
-                new ContextAgentNode(support),
-                new ArchitectAgentNode(support),
-                codeAgentNode(),
-                reviewAgentNode(),
-                new BuildFixAgentNode(),
+                planningGraphRegistry(
+                        new PlannerAgentNode(support, routingSupport),
+                        testTemplateAgentNode("shared"),
+                        new ContextAgentNode(support),
+                        new ArchitectAgentNode(support),
+                        codeAgentNode(),
+                        reviewAgentNode(),
+                        new BuildFixAgentNode()),
                 routingSupport,
                 metricsCollector,
                 rollbackPointService
         );
+    }
+
+    private GenerationPlanningGraphRegistry planningGraphRegistry(
+            PlannerAgentNode planner,
+            TemplateAgentNode template,
+            ContextAgentNode context,
+            ArchitectAgentNode architect,
+            CodeAgentNode code,
+            ReviewAgentNode review,
+            BuildFixAgentNode buildFix
+    ) {
+        CurrentDagPlanningGraphAdapter currentDag = new CurrentDagPlanningGraphAdapter(
+                planner, template, context, architect, code, review, buildFix);
+        return new GenerationPlanningGraphRegistry(List.of(
+                currentDag,
+                new CompactPlanningGraphAdapter(currentDag),
+                new NoPlanningGraphAdapter(template, context)
+        ));
     }
 
     private GenerationRollbackPointService testRollbackPointService(String caseName) {

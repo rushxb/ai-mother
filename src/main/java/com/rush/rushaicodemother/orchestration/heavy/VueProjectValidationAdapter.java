@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeValidationPolicy;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
@@ -68,27 +69,19 @@ public final class VueProjectValidationAdapter implements
     public ProjectRuntimeValidationResult validateRuntime(
             GenerationProjectRuntimeValidationRequest request
     ) {
-        DevServerValidationResult result;
-        if (request.executionFence() == null) {
-            result = devServerValidationService.validate(
-                    request.taskId(),
-                    request.appId(),
-                    request.userId(),
-                    codeGenType()
-            );
-        } else {
-            result = devServerValidationService.validate(
-                    DevServerValidationRequest.of(
-                                    request.taskId(),
-                                    request.appId(),
-                                    request.userId(),
-                                    codeGenType()
-                            )
-                            .withExecutionFence(request.executionFence())
-                            .withReadyCallback(request.onFrontendReady())
-                            .withTaskScopedOwnership()
-            );
+        DevServerValidationRequest validationRequest = DevServerValidationRequest.of(
+                        request.taskId(),
+                        request.appId(),
+                        request.userId(),
+                        codeGenType())
+                .withBrowserValidation(BrowserRuntimeValidationPolicy.productionRuntime());
+        if (request.executionFence() != null) {
+            validationRequest = validationRequest
+                    .withExecutionFence(request.executionFence())
+                    .withReadyCallback(request.onFrontendReady())
+                    .withTaskScopedOwnership();
         }
+        DevServerValidationResult result = devServerValidationService.validate(validationRequest);
         return ProjectRuntimeValidationResult.fromDevServer(result);
     }
 }

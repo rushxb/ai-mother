@@ -1,16 +1,21 @@
 package com.rush.rushaicodemother.orchestration.benchmark.runtime;
 
 import com.rush.rushaicodemother.config.GenerationBenchmarkBrowserProperties;
+import com.rush.rushaicodemother.config.DevServerRuntimeProperties;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkQualityDimension;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuleResult;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeContext;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.service.browser.BrowserRuntimeObservation;
 import com.rush.rushaicodemother.service.browser.BrowserRuntimeProbe;
+import com.rush.rushaicodemother.service.browser.BrowserRuntimeVerifier;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
+import com.rush.rushaicodemother.service.devserver.DevServerStartOptions;
 import com.rush.rushaicodemother.service.devserver.DevServerStartResult;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,12 +47,26 @@ class BrowserGenerationBenchmarkRuntimeGraderTest {
         properties.setSettleDelay(Duration.ofMillis(10));
         devServerManager = mock(DevServerManager.class);
         browserRuntimeProbe = mock(BrowserRuntimeProbe.class);
+        DevServerRuntimeProperties runtimeProperties = new DevServerRuntimeProperties();
+        runtimeProperties.setValidationErrorCollectionWindow(Duration.ofMillis(1));
+        runtimeProperties.setValidationCriticalErrorDrainWindow(Duration.ofMillis(1));
+        runtimeProperties.setValidationPollInterval(Duration.ofMillis(1));
+        GenerationExecutionContextService executionContextService =
+                mock(GenerationExecutionContextService.class);
+        when(executionContextService.clampTimeout(any(), any(Duration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        DevServerValidationService sharedVerifier = new DevServerValidationService(
+                devServerManager,
+                runtimeProperties,
+                executionContextService,
+                new BrowserRuntimeVerifier(browserRuntimeProbe)
+        );
         grader = new BrowserGenerationBenchmarkRuntimeGrader(
                 properties,
-                devServerManager,
-                browserRuntimeProbe
+                new BrowserGenerationRuntimeEvaluator(properties, sharedVerifier)
         );
-        when(devServerManager.startDevServer(any(), eq(9L)))
+        when(devServerManager.startDevServer(
+                any(), eq(9L), any(DevServerStartOptions.class)))
                 .thenReturn(new DevServerStartResult(5_180, true));
     }
 

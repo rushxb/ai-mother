@@ -46,6 +46,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStage
 import com.rush.rushaicodemother.service.ChatHistoryService;
 import com.rush.rushaicodemother.service.GenerationMemoryContextService;
 import com.rush.rushaicodemother.service.devserver.DevServerError;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
@@ -319,7 +320,7 @@ class HeavyGenerationRepairBudgetTest {
         User user = User.builder().id(7L).build();
         when(builder.buildProjectWithResult(projectPath.toString(), taskId)).thenReturn(
                 new VueBuildResult(true, "done", projectPath.toString(), "build passed", null, null));
-        when(validationService.validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT))
+        when(validationService.validate(any(DevServerValidationRequest.class)))
                 .thenReturn(DevServerValidationResult.passed(taskId, appId, 20));
 
         try {
@@ -333,7 +334,15 @@ class HeavyGenerationRepairBudgetTest {
 
             assertTrue(buildService.runWithAutoRepair(
                     appId, user, preparation, session, verificationPolicy));
-            verify(validationService).validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT);
+            ArgumentCaptor<DevServerValidationRequest> requestCaptor =
+                    ArgumentCaptor.forClass(DevServerValidationRequest.class);
+            verify(validationService).validate(requestCaptor.capture());
+            DevServerValidationRequest runtimeRequest = requestCaptor.getValue();
+            assertEquals(taskId, runtimeRequest.taskId());
+            assertEquals(appId, runtimeRequest.appId());
+            assertEquals(7L, runtimeRequest.userId());
+            assertEquals(CodeGenTypeEnum.VUE_PROJECT, runtimeRequest.codeGenType());
+            assertFalse(runtimeRequest.browserValidationPolicy().requireVisualEvidence());
             Map<String, Object> evidence = preparation.artifact(
                     GenerationVerificationEvidenceRecorder.ARTIFACT_KEY).payload();
             assertEquals(
@@ -582,7 +591,7 @@ class HeavyGenerationRepairBudgetTest {
                 new VueBuildResult(true, "done", projectPath.toString(), "build passed after repair", null, null));
         DevServerError runtimeError = DevServerError.tryMatch(
                 "[vite] Pre-transform error: Failed to resolve import \"missing-lib\" from \"src/main.ts\"");
-        when(validationService.validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT))
+        when(validationService.validate(any(DevServerValidationRequest.class)))
                 .thenReturn(
                         DevServerValidationResult.failed(taskId, appId, List.of(runtimeError), 20),
                         DevServerValidationResult.passed(taskId, appId, 15));
@@ -627,7 +636,7 @@ class HeavyGenerationRepairBudgetTest {
         when(builder.buildProjectWithResult(projectPath.toString(), taskId)).thenReturn(
                 new VueBuildResult(true, "done", projectPath.toString(), "build passed", null, null),
                 new VueBuildResult(true, "done", projectPath.toString(), "build passed after repair", null, null));
-        when(validationService.validate(taskId, appId, 7L, CodeGenTypeEnum.VUE_PROJECT))
+        when(validationService.validate(any(DevServerValidationRequest.class)))
                 .thenReturn(
                         DevServerValidationResult.startupFailed(taskId, appId, 20, "health check failed"),
                         DevServerValidationResult.startupFailed(taskId, appId, 20, "health check still failed"));
@@ -659,7 +668,7 @@ class HeavyGenerationRepairBudgetTest {
             long appId
     ) {
         DevServerValidationService devServerValidationService = mock(DevServerValidationService.class);
-        when(devServerValidationService.validate(eq(taskId), eq(appId), eq(7L), any(CodeGenTypeEnum.class)))
+        when(devServerValidationService.validate(any(DevServerValidationRequest.class)))
                 .thenReturn(DevServerValidationResult.passed(taskId, appId, 1));
         return buildService(
                 generationService,

@@ -23,6 +23,7 @@ import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycle
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
+import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationService;
 import com.rush.rushaicodemother.service.impl.GeneratedProjectWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
@@ -43,7 +44,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -86,7 +86,7 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     .thenReturn(GeneratedProjectWorkspaceInspector.inspectVueProject(projectPath));
             when(projectBuildValidationService.validate(any(), eq(taskId)))
                     .thenReturn(ProjectBuildValidationResult.fromVue(vueBuildResult));
-            when(devServerValidationService.validate(anyString(), anyLong(), anyLong(), any(CodeGenTypeEnum.class)))
+            when(devServerValidationService.validate(any(DevServerValidationRequest.class)))
                     .thenReturn(DevServerValidationResult.passed(taskId, appId, 5));
             GeneratedBackendRuntimeVerifier backendRuntimeVerifier =
                     mock(GeneratedBackendRuntimeVerifier.class);

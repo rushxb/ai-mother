@@ -7,10 +7,6 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRule
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeContext;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuntimeGrader;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
-import com.rush.rushaicodemother.service.browser.BrowserRuntimeProbe;
-import com.rush.rushaicodemother.service.browser.BrowserRuntimeVerifier;
-import com.rush.rushaicodemother.service.devserver.DevServerManager;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -28,28 +24,12 @@ public class BrowserGenerationBenchmarkRuntimeGrader implements GenerationBenchm
     private final GenerationBenchmarkBrowserProperties properties;
     private final BrowserGenerationRuntimeEvaluator evaluator;
 
-    @Autowired
     public BrowserGenerationBenchmarkRuntimeGrader(
             GenerationBenchmarkBrowserProperties properties,
             BrowserGenerationRuntimeEvaluator evaluator
     ) {
         this.properties = properties;
         this.evaluator = evaluator;
-    }
-
-    public BrowserGenerationBenchmarkRuntimeGrader(
-            GenerationBenchmarkBrowserProperties properties,
-            DevServerManager devServerManager,
-            BrowserRuntimeProbe browserRuntimeProbe
-    ) {
-        this(
-                properties,
-                new BrowserGenerationRuntimeEvaluator(
-                        properties,
-                        devServerManager,
-                        new BrowserRuntimeVerifier(browserRuntimeProbe)
-                )
-        );
     }
 
     @Override
@@ -71,6 +51,6 @@ public class BrowserGenerationBenchmarkRuntimeGrader implements GenerationBenchm
 
     @Override
     public List<GenerationBenchmarkRuleResult> evaluate(GenerationBenchmarkRuntimeContext context) {
-        return evaluator.evaluate(context, CodeGenTypeEnum.VUE_PROJECT, null);
+        return evaluator.evaluate(context, CodeGenTypeEnum.VUE_PROJECT);
     }
 }

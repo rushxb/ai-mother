@@ -218,7 +218,7 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
     }
 
     @Test
-    void onlyStructuredNonBlankNoChangeReasonMustCountAsJustification() {
+    void unownedNoChangeArtifactMustNotReplaceHeavyWorkspaceEvidence() {
         GenerationPreparation preparation = preparation(null);
         preparation.putArtifact(artifact("no_change_justification", Map.of(
                 "reason", "现有实现已满足冻结意图，无需修改"
@@ -227,7 +227,7 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
         GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
                 preparation, new GenerationSession(preparation));
 
-        assertTrue(evidence.contains(GenerationCompletionEvidenceType.NO_CHANGE_JUSTIFICATION));
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.NO_CHANGE_JUSTIFICATION));
     }
 
     private GenerationPreparation preparation(QualityGateResult qualityGateResult) {

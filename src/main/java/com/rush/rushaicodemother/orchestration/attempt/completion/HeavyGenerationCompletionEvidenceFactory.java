@@ -37,16 +37,12 @@ public final class HeavyGenerationCompletionEvidenceFactory {
         int mutationCount = session.executionContext() == null
                 ? 0
                 : session.executionContext().successfulWorkspaceMutationCount();
+        // Heavy 是写链，当前没有可信的“无需修改”生产者；没有真实变更时必须保守拒绝完成。
         if (mutationCount > 0 || diffChanged(preparation, session)) {
             evidence.add(GenerationCompletionEvidence.of(
                     GenerationCompletionEvidenceType.WORKSPACE_CHANGE,
                     "heavy_workspace",
                     "工作区存在已确认的有效变更"));
-        } else if (hasNoChangeJustification(preparation)) {
-            evidence.add(GenerationCompletionEvidence.of(
-                    GenerationCompletionEvidenceType.NO_CHANGE_JUSTIFICATION,
-                    "heavy_workspace",
-                    "已形成结构化无需修改证明"));
         }
         GenerationVerificationEvidenceRecorder.latestObservation(preparation)
                 .ifPresent(observation -> addVerificationEvidence(observation, evidence));
@@ -99,15 +95,6 @@ public final class HeavyGenerationCompletionEvidenceFactory {
             // 损坏或串任务的检查点不具备完成证据资格，等待后续节点重新生成。
             return false;
         }
-    }
-
-    private static boolean hasNoChangeJustification(GenerationPreparation preparation) {
-        GenerationArtifact artifact = preparation.artifact("no_change_justification");
-        if (artifact == null || artifact.payload() == null) {
-            return false;
-        }
-        Object reason = artifact.payload().get("reason");
-        return reason instanceof String text && !text.isBlank();
     }
 
     private static boolean hasValidGenerationSpecification(GenerationPreparation preparation) {

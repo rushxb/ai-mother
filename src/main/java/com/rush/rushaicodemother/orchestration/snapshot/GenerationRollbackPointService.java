@@ -81,7 +81,7 @@ public class GenerationRollbackPointService {
                                                    CodeGenTypeEnum targetType,
                                                    String taskId) {
         RollbackPoint rollbackPoint = createRollbackPoint(request, targetType, taskId);
-        return GenerationArtifact.of("rollback_point", "Orchestrator", "Rollback point", rollbackPoint.toPayload());
+        return rollbackPoint.toArtifact();
     }
 
     /** 创建回滚点。 */

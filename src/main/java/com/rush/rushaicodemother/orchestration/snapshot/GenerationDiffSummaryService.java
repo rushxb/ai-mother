@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -114,36 +115,41 @@ public class GenerationDiffSummaryService {
             return DiffSummary.skipped(appId, taskId, "", "", "invalid_generation_context");
         }
         Path currentPath = workspace.canonicalRootPath();
-        if (rollbackPointArtifact == null || rollbackPointArtifact.payload() == null) {
+        if (rollbackPointArtifact == null) {
             return DiffSummary.skipped(appId, taskId, "", currentPath.toString(), "rollback_point_missing");
         }
-        Map<String, Object> rollbackPayload = rollbackPointArtifact.payload();
-        if (!"created".equals(String.valueOf(rollbackPayload.get("status")))) {
+        RollbackPoint rollbackPoint;
+        try {
+            rollbackPoint = RollbackPoint.fromArtifact(rollbackPointArtifact, appId, taskId);
+        } catch (IllegalArgumentException exception) {
+            log.warn("Rollback point artifact validation failed while summarizing diff, "
+                            + "appId: {}, taskId: {}, exceptionType: {}",
+                    appId, taskId, exception.getClass().getSimpleName());
             return DiffSummary.skipped(
                     appId,
                     taskId,
-                    String.valueOf(rollbackPayload.getOrDefault("snapshotPath", "")),
+                    "",
+                    currentPath.toString(),
+                    "rollback_artifact_invalid"
+            );
+        }
+        if (!rollbackPoint.created()) {
+            return DiffSummary.skipped(
+                    appId,
+                    taskId,
+                    rollbackPoint.snapshotPath(),
                     currentPath.toString(),
                     "rollback_point_not_created"
             );
         }
-        String snapshotPathValue = String.valueOf(rollbackPayload.getOrDefault("snapshotPath", ""));
-        if (!matchesArtifactContext(appId, taskId, rollbackPayload)) {
-            return DiffSummary.skipped(
-                    appId,
-                    taskId,
-                    snapshotPathValue,
-                    currentPath.toString(),
-                    "rollback_artifact_context_mismatch"
-            );
-        }
+        String snapshotPathValue = rollbackPoint.snapshotPath();
 
         Path basePath;
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             basePath = snapshotWorkspaceService.resolveReportedSnapshot(
                     appId,
-                    String.valueOf(rollbackPayload.get("snapshotName")),
+                    rollbackPoint.snapshotName(),
                     snapshotPathValue
             );
         } catch (RuntimeException exception) {
@@ -358,15 +364,6 @@ public class GenerationDiffSummaryService {
 
     private String pathToString(Path path) {
         return path == null ? "" : path.toAbsolutePath().normalize().toString();
-    }
-
-    private boolean matchesArtifactContext(Long appId,
-                                           String taskId,
-                                           Map<String, Object> rollbackPayload) {
-        return taskId != null
-                && !taskId.isBlank()
-                && String.valueOf(appId).equals(String.valueOf(rollbackPayload.get("appId")))
-                && String.valueOf(taskId).equals(String.valueOf(rollbackPayload.get("taskId")));
     }
 
 }

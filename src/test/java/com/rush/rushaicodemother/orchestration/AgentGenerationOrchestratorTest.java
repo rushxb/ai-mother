@@ -41,6 +41,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTe
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -321,6 +322,55 @@ class AgentGenerationOrchestratorTest {
 
         orchestrator.prepare(request);
         task.getArtifacts().remove(QualityGateArtifact.KEY);
+
+        assertThrows(BusinessException.class, () -> orchestrator.prepare(request));
+    }
+
+    @Test
+    void completedCheckpointWithForeignRollbackPointMustFailClosed() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("runtime-task-foreign-rollback-point");
+        task.setAppId(1L);
+        task.setStatus("running");
+        when(taskStore.load(1L, "runtime-task-foreign-rollback-point"))
+                .thenReturn(Optional.empty(), Optional.of(task));
+        when(taskStore.create("runtime-task-foreign-rollback-point", 1L, "创建一个 Vue 应用"))
+                .thenReturn(task);
+        when(taskStore.matchesRequest(task, "创建一个 Vue 应用")).thenReturn(true);
+        GenerationAgentSupport support = support(codeOutputRoot("foreign-rollback-point"));
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(
+                taskStore,
+                support,
+                new GenerationRoutingSupport(support)
+        );
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+                app,
+                "创建一个 Vue 应用",
+                CodeGenTypeEnum.HTML,
+                "create",
+                false,
+                ignored -> CodeGenTypeEnum.VUE_PROJECT,
+                null,
+                "runtime-task-foreign-rollback-point"
+        );
+
+        orchestrator.prepare(request);
+        GenerationArtifact rollbackPoint = task.getArtifacts().get("rollback_point");
+        Map<String, Object> foreignPayload = new LinkedHashMap<>(rollbackPoint.payload());
+        foreignPayload.put("taskId", "foreign-task");
+        task.getArtifacts().put(
+                "rollback_point",
+                GenerationArtifact.of(
+                        rollbackPoint.key(),
+                        rollbackPoint.role(),
+                        rollbackPoint.title(),
+                        foreignPayload
+                )
+        );
 
         assertThrows(BusinessException.class, () -> orchestrator.prepare(request));
     }

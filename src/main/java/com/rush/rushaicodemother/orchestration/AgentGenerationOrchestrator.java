@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagCheckpointRecoveryPolicy;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 第二阶段 DAG 多智能体编排器。
@@ -161,7 +163,21 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private void attachRollbackPoint(GenerationOrchestrationRequest request,
                                      GenerationAgentContext context,
                                      CodeGenTypeEnum targetType) {
-        if (context.getArtifact("rollback_point").isPresent()) {
+        Optional<GenerationArtifact> existingRollbackPoint = context.getArtifact(RollbackPoint.KEY);
+        if (existingRollbackPoint.isPresent()) {
+            try {
+                RollbackPoint.fromArtifact(
+                        existingRollbackPoint.get(),
+                        request.app().getId(),
+                        context.getTask().getTaskId()
+                );
+            } catch (IllegalArgumentException exception) {
+                throw new BusinessException(
+                        ErrorCode.OPERATION_ERROR,
+                        "回滚点检查点损坏，无法安全恢复生成任务",
+                        exception
+                );
+            }
             return;
         }
         GenerationArtifact artifact = rollbackPointService.prepareRollbackPoint(

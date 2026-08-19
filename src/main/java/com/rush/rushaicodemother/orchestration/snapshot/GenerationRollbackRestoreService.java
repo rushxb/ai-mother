@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
@@ -90,44 +91,45 @@ public class GenerationRollbackRestoreService {
         if (changePlan == null || !changePlan.requiresSnapshotRollback()) {
             return RollbackRestore.skipped(appId, taskId, rollbackStrategy, "", "", "rollback_strategy_not_snapshot");
         }
-        Map<String, Object> rollbackPayload = payload(rollbackPointArtifact);
-        String rollbackStatus = stringValue(rollbackPayload.get("status"));
-        String snapshotName = stringValue(rollbackPayload.get("snapshotName"));
-        String snapshotPathValue = stringValue(rollbackPayload.get("snapshotPath"));
-        String projectPathValue = stringValue(rollbackPayload.get("projectPath"));
-        if (!"created".equals(rollbackStatus)) {
+        if (rollbackPointArtifact == null) {
             return RollbackRestore.skipped(
                     appId,
                     taskId,
                     rollbackStrategy,
-                    snapshotPathValue,
-                    projectPathValue,
+                    "",
+                    "",
                     "rollback_point_not_created"
             );
         }
-        if (snapshotName.isBlank() || snapshotPathValue.isBlank() || projectPathValue.isBlank()) {
+        RollbackPoint rollbackPoint;
+        try {
+            rollbackPoint = RollbackPoint.fromArtifact(rollbackPointArtifact, appId, taskId);
+        } catch (IllegalArgumentException exception) {
+            log.warn("Rollback point artifact validation failed, appId: {}, taskId: {}, exceptionType: {}",
+                    appId, taskId, exception.getClass().getSimpleName());
             return RollbackRestore.skipped(
                     appId,
                     taskId,
                     rollbackStrategy,
-                    snapshotPathValue,
-                    projectPathValue,
-                    "rollback_point_path_missing"
+                    "",
+                    "",
+                    "rollback_artifact_invalid"
             );
         }
-
-        String sourceTypeValue = stringValue(rollbackPayload.get("sourceType"));
-        CodeGenTypeEnum sourceType = CodeGenTypeEnum.getEnumByValue(sourceTypeValue);
-        if (!matchesArtifactContext(appId, taskId, rollbackPayload, sourceType)) {
+        if (!rollbackPoint.created()) {
             return RollbackRestore.skipped(
                     appId,
                     taskId,
                     rollbackStrategy,
-                    snapshotPathValue,
-                    projectPathValue,
-                    "rollback_artifact_context_mismatch"
+                    rollbackPoint.snapshotPath(),
+                    rollbackPoint.projectPath(),
+                    "rollback_point_not_created"
             );
         }
+        String snapshotName = rollbackPoint.snapshotName();
+        String snapshotPathValue = rollbackPoint.snapshotPath();
+        String projectPathValue = rollbackPoint.projectPath();
+        CodeGenTypeEnum sourceType = CodeGenTypeEnum.getEnumByValue(rollbackPoint.sourceType());
 
         Path snapshotPath;
         Path projectPath;
@@ -223,20 +225,4 @@ public class GenerationRollbackRestoreService {
         return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
     }
 
-    private String stringValue(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private boolean matchesArtifactContext(Long appId,
-                                           String taskId,
-                                           Map<String, Object> rollbackPayload,
-                                           CodeGenTypeEnum sourceType) {
-        return appId != null
-                && appId > 0
-                && taskId != null
-                && !taskId.isBlank()
-                && String.valueOf(appId).equals(stringValue(rollbackPayload.get("appId")))
-                && taskId.equals(stringValue(rollbackPayload.get("taskId")))
-                && sourceType != null;
-    }
 }

@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchResultService;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -92,7 +93,7 @@ public class HeavyGenerationFinalizationService {
         if (session.isCancelled()) {
             return;
         }
-        GenerationArtifact rollbackPoint = preparation.artifact("rollback_point");
+        GenerationArtifact rollbackPoint = preparation.artifact(RollbackPoint.KEY);
         DiffSummary summary = session.executionWorkspace() != null
                 ? generationDiffSummaryService.summarize(
                         appId,

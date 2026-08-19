@@ -4,6 +4,7 @@ import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -33,13 +34,7 @@ class GenerationDiffSummaryServiceTest {
         Files.writeString(currentRoot.resolve("src/Added.vue"), "added\n");
         Files.createDirectories(currentRoot.resolve("node_modules/pkg"));
         Files.writeString(currentRoot.resolve("node_modules/pkg/index.js"), "ignored changed\n");
-        GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
-                "status", "created",
-                "appId", 9L,
-                "taskId", "task-9",
-                "snapshotName", snapshotRoot.getFileName().toString(),
-                "snapshotPath", snapshotRoot.toString()
-        ));
+        GenerationArtifact rollbackPoint = rollbackPoint(9L, "task-9", snapshotRoot, currentRoot);
 
         DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(codeOutputRoot, codeSnapshotRoot)
                 .summarize(9L, CodeGenTypeEnum.VUE_PROJECT, "task-9", rollbackPoint);
@@ -58,10 +53,14 @@ class GenerationDiffSummaryServiceTest {
     @Test
     void shouldSkipWhenRollbackPointWasNotCreated() {
         Path tempDir = cleanTestRoot("skipped");
-        GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
-                "status", "skipped",
-                "reason", "no_existing_generated_code"
-        ));
+        GenerationArtifact rollbackPoint = RollbackPoint.skipped(
+                10L,
+                "task-10",
+                "",
+                "vue_project",
+                "vue_project",
+                "no_existing_generated_code"
+        ).toArtifact();
 
         DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(
                 tempDir.resolve("code_output"),
@@ -74,18 +73,38 @@ class GenerationDiffSummaryServiceTest {
     }
 
     @Test
+    void corruptedRollbackPointMustNotProduceDiffEvidence() {
+        Path tempDir = cleanTestRoot("corrupted-artifact");
+        GenerationArtifact corrupted = GenerationArtifact.of(
+                RollbackPoint.KEY,
+                "test",
+                "rollback",
+                Map.of("status", "created")
+        );
+
+        DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(
+                        tempDir.resolve("code_output"),
+                        tempDir.resolve("code_snapshot")
+                )
+                .summarize(10L, CodeGenTypeEnum.VUE_PROJECT, "task-10", corrupted);
+
+        assertEquals("skipped", summary.status());
+        assertEquals("rollback_artifact_invalid", summary.reason());
+        assertEquals(0, summary.changedFileCount());
+    }
+
+    @Test
     void shouldRejectSnapshotOutsideCurrentApplicationBoundary() {
         Path tempDir = cleanTestRoot("cross-app");
         Path codeOutputRoot = tempDir.resolve("code_output");
         Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
         Path anotherApplicationSnapshot = codeSnapshotRoot.resolve("12").resolve("pre_generation_task-12");
-        GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
-                "status", "created",
-                "appId", 11L,
-                "taskId", "task-11",
-                "snapshotName", anotherApplicationSnapshot.getFileName().toString(),
-                "snapshotPath", anotherApplicationSnapshot.toString()
-        ));
+        GenerationArtifact rollbackPoint = rollbackPoint(
+                11L,
+                "task-11",
+                anotherApplicationSnapshot,
+                codeOutputRoot.resolve("vue_project_11")
+        );
 
         DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(codeOutputRoot, codeSnapshotRoot).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
 
@@ -98,13 +117,12 @@ class GenerationDiffSummaryServiceTest {
         Path tempDir = cleanTestRoot("snapshot-root");
         Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
         Path applicationSnapshotRoot = codeSnapshotRoot.resolve("11");
-        GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
-                "status", "created",
-                "appId", 11L,
-                "taskId", "task-11",
-                "snapshotName", "snapshot",
-                "snapshotPath", applicationSnapshotRoot.toString()
-        ));
+        GenerationArtifact rollbackPoint = rollbackPoint(
+                11L,
+                "task-11",
+                applicationSnapshotRoot,
+                tempDir.resolve("code_output").resolve("vue_project_11")
+        );
 
         DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(tempDir.resolve("code_output"), codeSnapshotRoot).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
 
@@ -115,5 +133,21 @@ class GenerationDiffSummaryServiceTest {
         Path root = Path.of("target", "test-workspaces", "diff-summary-service", caseName);
         FileUtil.del(root.toFile());
         return root;
+    }
+
+    private GenerationArtifact rollbackPoint(Long appId,
+                                             String taskId,
+                                             Path snapshotRoot,
+                                             Path projectRoot) {
+        return RollbackPoint.created(
+                appId,
+                taskId,
+                snapshotRoot.getFileName().toString(),
+                snapshotRoot.toString(),
+                projectRoot.toString(),
+                CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                1
+        ).toArtifact();
     }
 }

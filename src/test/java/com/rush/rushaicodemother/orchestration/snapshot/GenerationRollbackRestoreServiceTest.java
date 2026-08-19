@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import org.junit.jupiter.api.Test;
@@ -126,15 +127,41 @@ class GenerationRollbackRestoreServiceTest {
     @Test
     void shouldSkipWhenRollbackPointWasNotCreated() {
         Path tempDir = cleanTestRoot("skipped");
-        GenerationArtifact rollbackPoint = GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
-                "status", "skipped",
-                "reason", "no_existing_generated_code"
-        ));
+        GenerationArtifact rollbackPoint = RollbackPoint.skipped(
+                13L,
+                "task-13",
+                "",
+                "html",
+                "html",
+                "no_existing_generated_code"
+        ).toArtifact();
 
         GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(tempDir.resolve("code_output"), tempDir.resolve("code_snapshot")).restoreIfAllowed(13L, "task-13", snapshotChangePlan(), rollbackPoint);
 
         assertEquals("skipped", artifact.payload().get("status"));
         assertEquals("rollback_point_not_created", artifact.payload().get("reason"));
+    }
+
+    @Test
+    void corruptedRollbackPointMustBeSkippedWithoutTouchingWorkspace() {
+        Path tempDir = cleanTestRoot("corrupted-artifact");
+        GenerationArtifact corrupted = GenerationArtifact.of(
+                RollbackPoint.KEY,
+                "test",
+                "rollback",
+                Map.of("status", "created")
+        );
+
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackRestoreService(
+                        tempDir.resolve("code_output"),
+                        tempDir.resolve("code_snapshot")
+                )
+                .restoreIfAllowed(13L, "task-13", snapshotChangePlan(), corrupted);
+
+        assertEquals("skipped", artifact.payload().get("status"));
+        assertEquals("rollback_artifact_invalid", artifact.payload().get("reason"));
+        assertFalse(Files.exists(tempDir.resolve("code_output")));
+        assertFalse(Files.exists(tempDir.resolve("code_snapshot")));
     }
 
     @Test
@@ -214,15 +241,16 @@ class GenerationRollbackRestoreServiceTest {
                                              String sourceType,
                                              Path snapshotRoot,
                                              Path projectRoot) {
-        return GenerationArtifact.of("rollback_point", "test", "rollback", Map.of(
-                "status", "created",
-                "appId", appId,
-                "taskId", taskId,
-                "sourceType", sourceType,
-                "snapshotName", snapshotRoot.getFileName().toString(),
-                "snapshotPath", snapshotRoot.toString(),
-                "projectPath", projectRoot.toString()
-        ));
+        return RollbackPoint.created(
+                appId,
+                taskId,
+                snapshotRoot.getFileName().toString(),
+                snapshotRoot.toString(),
+                projectRoot.toString(),
+                sourceType,
+                sourceType,
+                1
+        ).toArtifact();
     }
 
     private Path cleanTestRoot(String caseName) {

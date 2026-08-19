@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudge
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
@@ -169,7 +170,7 @@ public class HeavyGenerationFailureRecoveryService {
                 appId,
                 preparation.taskId(),
                 preparation.artifact("change_plan"),
-                preparation.artifact("rollback_point")
+                preparation.artifact(RollbackPoint.KEY)
         );
         preparation.putArtifact(rollbackRestore);
         Object status = rollbackRestore.payload().get("status");
@@ -252,7 +253,7 @@ public class HeavyGenerationFailureRecoveryService {
         if (extraData != null) {
             data.putAll(extraData);
         }
-        putArtifactPayload(data, preparation, "rollback_point");
+        putArtifactPayload(data, preparation, RollbackPoint.KEY);
         putArtifactPayload(data, preparation, "diff_summary");
         putArtifactPayload(data, preparation, "patch_result");
         putArtifactPayload(data, preparation, "generation_commit");

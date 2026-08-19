@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.dag;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndex;
 import lombok.Getter;
@@ -97,15 +98,12 @@ public class GenerationAgentContext {
         if (task.getTimings() != null) {
             timings.putAll(task.getTimings());
         }
-        GenerationArtifact requirements = artifacts.get("requirements");
+        GenerationArtifact requirements = artifacts.get(GenerationRequirementsArtifact.KEY);
         if (requirements != null) {
-            CodeGenTypeEnum restoredType = CodeGenTypeEnum.getEnumByValue(
-                    stringValue(requirements.payload().get("targetType"))
-            );
-            if (restoredType != null) {
-                targetType = restoredType;
-            }
-            upgradeRequired = booleanValue(requirements.payload().get("upgradeRequired"));
+            GenerationRequirementsArtifact restored = GenerationRequirementsArtifact.fromArtifact(
+                    requirements, targetType);
+            targetType = restored.targetType();
+            upgradeRequired = restored.upgradeRequired();
         }
         GenerationArtifact qualityGate = artifacts.get("quality_gate");
         if (qualityGate != null) {

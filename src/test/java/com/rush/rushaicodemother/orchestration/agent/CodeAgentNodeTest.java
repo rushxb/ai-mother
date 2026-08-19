@@ -125,6 +125,26 @@ class CodeAgentNodeTest {
         assertThrows(IllegalArgumentException.class, () -> node.execute(context));
     }
 
+    @Test
+    void malformedRecoveredRequirementsMustFailBeforeBuildingGenerationPrompt() {
+        GenerationAgentContext context = newContext(false);
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("requirements", "Planner", "需求与目标", Map.of(
+                        "goals", List.of(1)
+                )),
+                GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
+                        "modules", List.of("app")
+                ))
+        ));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> node.execute(context)
+        );
+
+        assertTrue(exception.getMessage().contains("goals"));
+    }
+
     private GenerationAgentContext newContext(boolean hasGeneratedCode) {
         App app = new App();
         app.setId(1L);

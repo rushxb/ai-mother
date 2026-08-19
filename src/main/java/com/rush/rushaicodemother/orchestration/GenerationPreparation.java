@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 
@@ -94,12 +95,13 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
      * 旧检查点或不完整 artifact 不在此处猜测，由调用方选择质量优先的兼容策略。
      */
     public Optional<Boolean> plannedComplexity() {
-        GenerationArtifact requirements = artifact("requirements");
-        if (requirements == null || requirements.payload() == null) {
+        GenerationArtifact requirements = artifact(GenerationRequirementsArtifact.KEY);
+        if (requirements == null) {
             return Optional.empty();
         }
-        Object complex = requirements.payload().get("complex");
-        return complex instanceof Boolean value ? Optional.of(value) : Optional.empty();
+        return GenerationRequirementsArtifact
+                .fromArtifact(requirements, targetType)
+                .plannedComplexity();
     }
 
     public GenerationArtifact artifact(String key) {

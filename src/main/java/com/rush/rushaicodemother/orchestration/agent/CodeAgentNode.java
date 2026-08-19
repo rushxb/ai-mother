@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
@@ -41,18 +42,22 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
  */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
+        GenerationRequirementsArtifact requirements = context
+                .getArtifact(GenerationRequirementsArtifact.KEY)
+                .map(artifact -> GenerationRequirementsArtifact.fromArtifact(
+                        artifact, context.getTargetType()))
+                .orElseThrow(() -> new IllegalStateException("缺少需求制品，无法生成代码规范"));
         String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");
         ArchitecturePlan architecturePlan = context.getArtifact("architecture_plan")
                 .map(artifact -> ArchitecturePlan.fromPayload(
                         artifact.payload(), context.getTargetType()))
                 .orElseThrow(() -> new IllegalStateException("缺少架构计划，无法生成代码规范"));
         List<String> modules = architecturePlan.modules();
-        @SuppressWarnings("unchecked")
-        List<String> goals = (List<String>) context.getArtifactValue("requirements", "goals");
+        List<String> goals = requirements.goals();
         @SuppressWarnings("unchecked")
         List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
-        List<Map<String, Object>> recipes = readRecipePayloads(context);
-        List<Map<String, Object>> skills = readSkillPayloads(context);
+        List<Map<String, Object>> recipes = readRecipePayloads(context, requirements);
+        List<Map<String, Object>> skills = readSkillPayloads(context, requirements);
         TemplateBootstrapArtifact templateBootstrap = context
                 .getArtifact(TemplateBootstrapArtifact.KEY)
                 .map(artifact -> TemplateBootstrapArtifact.fromArtifact(
@@ -61,14 +66,12 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                         context.getTargetType(), "artifact_missing"));
         String templateId = templateBootstrap.templateId();
         boolean templateBootstrapped = templateBootstrap.bootstrapped();
-        boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
-        boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
-        String validationMode = artifactStringValue(context, "requirements", "validationMode",
-                requiresBuild ? "build_validation" : "review_only");
-        String generationMode = artifactStringValue(context, "requirements", "generationMode",
-                patchFirst ? "patch_first_update" : "full_generation");
+        boolean patchFirst = requirements.patchFirst();
+        boolean requiresBuild = requirements.requiresBuild();
+        String validationMode = requirements.validationMode();
+        String generationMode = requirements.generationMode();
         String prompt = buildExecutionPrompt(
-                context, projectContext, modules, goals, skills, recipes, templateBootstrap);
+                context, projectContext, modules, goals, skills, recipes, templateBootstrap, requirements);
         ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("enhancedPrompt", prompt);
@@ -106,16 +109,15 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     private String buildExecutionPrompt(GenerationAgentContext context,
                                         String projectContext,
                                         List<String> modules,
-                                        List<String> goals,
-                                        List<Map<String, Object>> skills,
-                                        List<Map<String, Object>> recipes,
-                                        TemplateBootstrapArtifact templateBootstrap) {
-        boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
-        boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
-        String validationMode = artifactStringValue(context, "requirements", "validationMode",
-                requiresBuild ? "build_validation" : "review_only");
-        String generationMode = artifactStringValue(context, "requirements", "generationMode",
-                patchFirst ? "patch_first_update" : "full_generation");
+                                         List<String> goals,
+                                         List<Map<String, Object>> skills,
+                                         List<Map<String, Object>> recipes,
+                                         TemplateBootstrapArtifact templateBootstrap,
+                                         GenerationRequirementsArtifact requirements) {
+        boolean patchFirst = requirements.patchFirst();
+        boolean requiresBuild = requirements.requiresBuild();
+        String validationMode = requirements.validationMode();
+        String generationMode = requirements.generationMode();
         List<String> lines = new ArrayList<>();
         lines.add(context.getRequest().userMessage());
         if (context.isUpgradeRequired()) {
@@ -224,30 +226,26 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
 
     /** 读取{@code Recipe}{@code Payloads}。 */
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> readRecipePayloads(GenerationAgentContext context) {
+    private List<Map<String, Object>> readRecipePayloads(
+            GenerationAgentContext context,
+            GenerationRequirementsArtifact requirements) {
         Object contextRecipes = context.getArtifactValue("context_summary", "recipes");
         if (contextRecipes instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
             return (List<Map<String, Object>>) contextRecipes;
         }
-        Object requirementRecipes = context.getArtifactValue("requirements", "recipes");
-        if (requirementRecipes instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
-            return (List<Map<String, Object>>) requirementRecipes;
-        }
-        return List.of();
+        return requirements.recipes();
     }
 
     /** 读取{@code Skill}{@code Payloads}。 */
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> readSkillPayloads(GenerationAgentContext context) {
+    private List<Map<String, Object>> readSkillPayloads(
+            GenerationAgentContext context,
+            GenerationRequirementsArtifact requirements) {
         Object contextSkills = context.getArtifactValue("context_summary", "skills");
         if (contextSkills instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
             return (List<Map<String, Object>>) contextSkills;
         }
-        Object requirementSkills = context.getArtifactValue("requirements", "skills");
-        if (requirementSkills instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
-            return (List<Map<String, Object>>) requirementSkills;
-        }
-        return List.of();
+        return requirements.skills();
     }
 
     /** 追加{@code Recipe}{@code Instructions}。 */

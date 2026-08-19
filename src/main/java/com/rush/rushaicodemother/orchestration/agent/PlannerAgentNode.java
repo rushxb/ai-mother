@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
@@ -74,24 +75,20 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
             goals.add("后端 Repository 必须使用参数化 SQL，Handler 使用统一响应，Service 承载业务规则和错误消息");
             goals.add("前后端字段必须先沉淀为 API 字段契约，再同步到 DTO/VO、表单列表、Repository scan 和 SQLite schema");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("complex", complex);
-        payload.put("targetType", context.getTargetType().getValue());
-        payload.put("upgradeRequired", context.isUpgradeRequired());
-        payload.put("patchFirst", patchFirst);
-        payload.put("requiresBuild", requiresBuild);
-        payload.put("validationMode", validationMode);
-        payload.put("generationMode", generationMode);
-        payload.put("orchestrationMode", requiresBuild ? "heavy" : "light");
-        payload.put("contextRecallSource", patchFirst ? "semantic_index" : "new_project");
-        payload.put("contextRecallQuery", userMessage);
-        payload.put("indexHits", indexHits);
-        payload.put("goals", goals);
-        payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
-        payload.put("recipes", support.buildRecipePayloads(matchedRecipes));
-        payload.put("skillIds", matchedSkills.stream().map(GenerationSkill::id).toList());
-        payload.put("skills", support.buildSkillPayloads(matchedSkills));
-        GenerationArtifact artifact = GenerationArtifact.of("requirements", "Planner", "需求与目标", payload);
+        GenerationRequirementsArtifact requirements = GenerationRequirementsArtifact.create(
+                complex,
+                context.getTargetType(),
+                context.isUpgradeRequired(),
+                patchFirst,
+                requiresBuild,
+                patchFirst ? "semantic_index" : "new_project",
+                userMessage,
+                indexHits,
+                goals,
+                support.buildRecipePayloads(matchedRecipes),
+                support.buildSkillPayloads(matchedSkills)
+        );
+        GenerationArtifact artifact = requirements.toArtifact();
         GenerationArtifact apiContractArtifact = GenerationArtifact.of(
                 "api_contract",
                 "Planner",

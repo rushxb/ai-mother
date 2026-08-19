@@ -162,6 +162,20 @@ public class GenerationBenchmarkReleaseProperties {
     private long maximumAverageCreditCost = MAXIMUM_AVERAGE_CREDIT_COST;
 
     /**
+     * 读取每次成功交付允许消耗的最大 token。
+     *
+     * <p>底层字段名为兼容既有配置键继续保留；发布门禁不再按全部尝试摊薄失败成本。</p>
+     */
+    public long maximumTokensPerSuccessfulDelivery() {
+        return maximumAverageTokens;
+    }
+
+    /** 读取每次成功交付允许扣除的最大积分，配置兼容策略同 token 阈值。 */
+    public long maximumCreditCostPerSuccessfulDelivery() {
+        return maximumAverageCreditCost;
+    }
+
+    /**
  * 校验各时长配置及其相互约束是否合法。
  *
  * @return 满足条件时返回 {@code true}，否则返回 {@code false}

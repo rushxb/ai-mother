@@ -139,6 +139,9 @@ class GenerationBenchmarkCatalogTest {
         assertEquals(2, report.repairRounds());
         assertEquals(5000, report.totalTokens());
         assertEquals(5, report.totalCreditCost());
+        assertEquals(2, report.deliveryEconomics().successfulDeliveryCount());
+        assertEquals(2500.0, report.deliveryEconomics().providerTokensPerSuccessfulDelivery());
+        assertEquals(2.5, report.deliveryEconomics().creditCostPerSuccessfulDelivery());
         assertEquals(600, report.averageFirstTokenLatencyMs());
         assertEquals(900, report.p90FirstTokenLatencyMs());
         assertEquals(900, report.p99FirstTokenLatencyMs());
@@ -156,6 +159,23 @@ class GenerationBenchmarkCatalogTest {
         assertEquals(1, report.qualityStats().get("diff_scope").evaluatedCount());
         assertEquals(1.0, report.qualityStats().get("diff_scope").passRate());
         assertEquals("", report.promptBundleId());
+    }
+
+    @Test
+    void benchmarkReportMustExposeExpectedToActualRouteConfusionMatrix() {
+        GenerationBenchmarkRunner runner = new GenerationBenchmarkRunner(catalog());
+        List<GenerationBenchmarkRunResult> results = List.of(
+                routeResult("create-correct", "CREATE", "CREATE", true),
+                routeResult("create-escalated", "AGENT_EDIT", "CREATE", false),
+                routeResult("edit-degraded", "LIGHT_EDIT", "AGENT_EDIT", false)
+        );
+
+        GenerationBenchmarkReport report = runner.summarize(results);
+
+        assertEquals(Map.of(
+                        "CREATE", Map.of("CREATE", 1, "AGENT_EDIT", 1),
+                        "AGENT_EDIT", Map.of("LIGHT_EDIT", 1)),
+                report.routeStats().confusionMatrix());
     }
 
     @Test
@@ -196,6 +216,16 @@ class GenerationBenchmarkCatalogTest {
         assertEquals(1.0, report.qualityStats().get("runtime").evaluationRate());
         assertEquals(1, report.qualityStats().get("visual").evaluatedCount());
         assertEquals(1.0, report.qualityStats().get("visual").evaluationRate());
+    }
+
+    private GenerationBenchmarkRunResult routeResult(String taskId,
+                                                      String actualRoute,
+                                                      String expectedRoute,
+                                                      boolean routeAllowed) {
+        return new GenerationBenchmarkRunResult(
+                taskId, actualRoute, true, true, 100, 1, 0,
+                false, 0, "", 100, 1, 50, 80L,
+                GenerationBenchmarkQualityEvidence.empty(), expectedRoute, routeAllowed);
     }
 
     @Test

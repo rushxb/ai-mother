@@ -113,14 +113,16 @@ public class GenerationBenchmarkReleaseGate {
             violations.add("p99_first_preview_latency_above_maximum");
         }
         assessFirstPreviewModes(report.modeStats(), violations);
-        if (report.totalTasks() > 0
-                && (double) report.totalTokens() / report.totalTasks() > properties.getMaximumAverageTokens()) {
-            violations.add("average_tokens_above_maximum");
+        GenerationBenchmarkReport.DeliveryEconomics economics = report.deliveryEconomics();
+        if (economics.providerTokensPerSuccessfulDelivery() != null
+                && economics.providerTokensPerSuccessfulDelivery()
+                > properties.maximumTokensPerSuccessfulDelivery()) {
+            violations.add("unit_success_tokens_above_maximum");
         }
-        if (report.totalTasks() > 0
-                && (double) report.totalCreditCost() / report.totalTasks()
-                > properties.getMaximumAverageCreditCost()) {
-            violations.add("average_credit_cost_above_maximum");
+        if (economics.creditCostPerSuccessfulDelivery() != null
+                && economics.creditCostPerSuccessfulDelivery()
+                > properties.maximumCreditCostPerSuccessfulDelivery()) {
+            violations.add("unit_success_credit_cost_above_maximum");
         }
         return new GenerationBenchmarkReleaseAssessment(violations.isEmpty(), violations, report);
     }

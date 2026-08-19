@@ -96,6 +96,55 @@ class GenerationBenchmarkReleaseGateTest {
                 "p99_first_token_latency_above_maximum"));
     }
 
+    @Test
+    void totalCostMustBeDividedBySuccessfulDeliveriesInsteadOfAllAttempts() {
+        GenerationBenchmarkReleaseProperties properties = new GenerationBenchmarkReleaseProperties();
+        properties.setMinimumSuccessRate(0.0);
+        properties.setMaximumAverageTokens(150_000);
+        properties.setMaximumAverageCreditCost(150);
+        GenerationBenchmarkReport source = report(Map.of());
+        GenerationBenchmarkReport costlySuccesses = new GenerationBenchmarkReport(
+                source.schemaVersion(),
+                source.totalTasks(),
+                16,
+                source.buildPassedCount(),
+                0.5,
+                source.buildPassRate(),
+                source.averageDurationMs(),
+                source.p50DurationMs(),
+                source.p90DurationMs(),
+                source.p99DurationMs(),
+                source.aiCallCount(),
+                source.toolCallCount(),
+                source.fallbackCount(),
+                source.repairRounds(),
+                3_200_000,
+                3_200,
+                source.averageFirstTokenLatencyMs(),
+                source.p90FirstTokenLatencyMs(),
+                source.p99FirstTokenLatencyMs(),
+                source.firstPreviewObservedCount(),
+                source.firstPreviewObservationRate(),
+                source.averageFirstPreviewLatencyMs(),
+                source.p90FirstPreviewLatencyMs(),
+                source.p99FirstPreviewLatencyMs(),
+                source.promptBundleId(),
+                source.modelFingerprint(),
+                source.qualityStats(),
+                source.modeStats(),
+                source.routeStats(),
+                source.results());
+
+        GenerationBenchmarkReleaseAssessment assessment =
+                new GenerationBenchmarkReleaseGate(properties).assess(costlySuccesses);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains(
+                "unit_success_tokens_above_maximum"));
+        assertTrue(assessment.violations().contains(
+                "unit_success_credit_cost_above_maximum"));
+    }
+
     private GenerationBenchmarkReleaseGate gate() {
         return new GenerationBenchmarkReleaseGate(new GenerationBenchmarkReleaseProperties());
     }

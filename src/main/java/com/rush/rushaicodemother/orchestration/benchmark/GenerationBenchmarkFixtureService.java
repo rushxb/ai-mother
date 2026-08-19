@@ -6,8 +6,8 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
-import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.security.password.PasswordHashService;
@@ -33,8 +33,7 @@ public class GenerationBenchmarkFixtureService {
     private final AppPersistenceService appPersistenceService;
     private final PasswordHashService passwordHashService;
     private final GenerationBenchmarkRequestFactory requestFactory;
-    private final VueProjectTemplateBootstrapService vueBootstrapService;
-    private final BackendProjectTemplateBootstrapService backendBootstrapService;
+    private final GenerationTemplateBootstrapRegistry templateBootstrapRegistry;
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationBenchmarkValidationEngine validationEngine;
     private final AppDeletionService appDeletionService;
@@ -44,8 +43,7 @@ public class GenerationBenchmarkFixtureService {
                                              AppPersistenceService appPersistenceService,
                                              PasswordHashService passwordHashService,
                                              GenerationBenchmarkRequestFactory requestFactory,
-                                             VueProjectTemplateBootstrapService vueBootstrapService,
-                                             BackendProjectTemplateBootstrapService backendBootstrapService,
+                                             GenerationTemplateBootstrapRegistry templateBootstrapRegistry,
                                              GenerationWorkspaceService generationWorkspaceService,
                                              GenerationBenchmarkValidationEngine validationEngine,
                                              AppDeletionService appDeletionService,
@@ -54,8 +52,7 @@ public class GenerationBenchmarkFixtureService {
         this.appPersistenceService = appPersistenceService;
         this.passwordHashService = passwordHashService;
         this.requestFactory = requestFactory;
-        this.vueBootstrapService = vueBootstrapService;
-        this.backendBootstrapService = backendBootstrapService;
+        this.templateBootstrapRegistry = templateBootstrapRegistry;
         this.generationWorkspaceService = generationWorkspaceService;
         this.validationEngine = validationEngine;
         this.appDeletionService = appDeletionService;
@@ -93,10 +90,9 @@ public class GenerationBenchmarkFixtureService {
         }
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            if (requiresExistingWorkspace(task)) {
-                bootstrapWorkspace(appId, codeGenType, task.prompt());
-            }
-            GenerationWorkspace workspace = generationWorkspaceService.resolve(appId, codeGenType);
+            GenerationWorkspace workspace = requiresExistingWorkspace(task)
+                    ? bootstrapWorkspace(appId, codeGenType, task.prompt())
+                    : generationWorkspaceService.resolve(appId, codeGenType);
             GenerationBenchmarkValidationPlan validationPlan = validationEngine.prepare(
                     task,
                     workspace,
@@ -150,13 +146,23 @@ public class GenerationBenchmarkFixtureService {
         return task.mode() != null && !"CREATE".equalsIgnoreCase(task.mode());
     }
 
-    private void bootstrapWorkspace(Long appId, CodeGenTypeEnum codeGenType, String prompt) {
-        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT || codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            vueBootstrapService.bootstrapIfNecessary(appId, codeGenType, prompt);
+    /**
+     * 复用生产链模板初始化模块，并直接采用其已校验的工作区快照。
+     * 这样新增工程类型时，Benchmark 不需要复制类型分支，也不会二次解析工作区。
+     */
+    private GenerationWorkspace bootstrapWorkspace(
+            Long appId,
+            CodeGenTypeEnum codeGenType,
+            String prompt
+    ) {
+        GenerationTemplateBootstrapResult result = templateBootstrapRegistry.bootstrap(
+                appId, codeGenType, prompt);
+        if (!result.supported()) {
+            throw new IllegalArgumentException(
+                    "benchmark code generation type has no template bootstrap adapter: "
+                            + codeGenType.getValue());
         }
-        if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT || codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            backendBootstrapService.bootstrapIfNecessary(appId, codeGenType);
-        }
+        return result.workspace();
     }
 
     private String normalizedTaskId(String taskId) {

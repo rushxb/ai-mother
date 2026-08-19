@@ -2,8 +2,9 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
-import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
-import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapResult;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.security.password.PasswordHashService;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,8 +33,7 @@ class GenerationBenchmarkFixtureServiceTest {
 
     private UserPersistenceService users;
     private AppPersistenceService apps;
-    private VueProjectTemplateBootstrapService vueBootstrap;
-    private BackendProjectTemplateBootstrapService backendBootstrap;
+    private GenerationTemplateBootstrapRegistry templateBootstrapRegistry;
     private GenerationWorkspaceService workspaceService;
     private GenerationBenchmarkValidationEngine validationEngine;
     private AppDeletionService deletionService;
@@ -43,8 +44,7 @@ class GenerationBenchmarkFixtureServiceTest {
         users = mock(UserPersistenceService.class);
         apps = mock(AppPersistenceService.class);
         PasswordHashService passwordHashService = mock(PasswordHashService.class);
-        vueBootstrap = mock(VueProjectTemplateBootstrapService.class);
-        backendBootstrap = mock(BackendProjectTemplateBootstrapService.class);
+        templateBootstrapRegistry = mock(GenerationTemplateBootstrapRegistry.class);
         workspaceService = mock(GenerationWorkspaceService.class);
         validationEngine = mock(GenerationBenchmarkValidationEngine.class);
         deletionService = mock(AppDeletionService.class);
@@ -59,8 +59,7 @@ class GenerationBenchmarkFixtureServiceTest {
                 apps,
                 passwordHashService,
                 new GenerationBenchmarkRequestFactory(),
-                vueBootstrap,
-                backendBootstrap,
+                templateBootstrapRegistry,
                 workspaceService,
                 validationEngine,
                 deletionService,
@@ -81,8 +80,7 @@ class GenerationBenchmarkFixtureServiceTest {
             assertTrue(fixture.request().loginUser().getId() > 0);
         }
 
-        verify(vueBootstrap, never()).bootstrapIfNecessary(any(), any(), any());
-        verify(backendBootstrap, never()).bootstrapIfNecessary(any(), any());
+        verify(templateBootstrapRegistry, never()).bootstrap(any(), any(), any());
         verify(validationEngine).prepare(any(), any(), eq(user.getId()));
         verify(deletionService).delete(101L);
     }
@@ -93,13 +91,19 @@ class GenerationBenchmarkFixtureServiceTest {
         when(users.findActiveByAccount(GenerationBenchmarkFixtureService.BENCHMARK_ACCOUNT)).thenReturn(user);
         when(apps.createPrepared(any())).thenReturn(102L);
         when(apps.findActiveById(102L)).thenReturn(app(102L, user.getId(), "full_stack_project"));
+        GenerationWorkspace workspace = workspace(102L, CodeGenTypeEnum.FULL_STACK_PROJECT);
+        when(templateBootstrapRegistry.bootstrap(
+                102L, CodeGenTypeEnum.FULL_STACK_PROJECT, "add category"))
+                .thenReturn(bootstrapResult(workspace));
 
         try (GenerationBenchmarkFixture ignored = service.create(new GenerationBenchmarkTask(
                 "edit_fullstack", "AGENT_EDIT", "full_stack_project", "add category", "build"))) {
-            verify(vueBootstrap).bootstrapIfNecessary(eq(102L), any(), eq("add category"));
-            verify(backendBootstrap).bootstrapIfNecessary(eq(102L), any());
+            verify(templateBootstrapRegistry).bootstrap(
+                    102L, CodeGenTypeEnum.FULL_STACK_PROJECT, "add category");
         }
 
+        verify(workspaceService, never()).resolve(anyLong(), any());
+        verify(validationEngine).prepare(any(), eq(workspace), eq(user.getId()));
         verify(deletionService).delete(102L);
     }
 
@@ -138,8 +142,26 @@ class GenerationBenchmarkFixtureServiceTest {
     }
 
     private GenerationWorkspace workspace() {
+        return workspace(101L, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    private GenerationWorkspace workspace(Long appId, CodeGenTypeEnum codeGenType) {
         Path root = Path.of("target", "benchmark-fixture-test").toAbsolutePath().normalize();
         return new GenerationWorkspace(
-                101L, null, root, root, true, root, null, Set.of(), Set.of());
+                appId, codeGenType, root, root, true, root, null, Set.of(), Set.of());
+    }
+
+    private GenerationTemplateBootstrapResult bootstrapResult(GenerationWorkspace workspace) {
+        return new GenerationTemplateBootstrapResult(
+                workspace.codeGenType(),
+                true,
+                true,
+                workspace,
+                "项目模板",
+                "项目模板已就绪",
+                Map.of("bootstrapped", true),
+                Map.of(),
+                Map.of()
+        );
     }
 }

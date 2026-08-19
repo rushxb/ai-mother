@@ -1,13 +1,15 @@
 package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.agent.template.BackendGenerationTemplateBootstrapAdapter;
-import com.rush.rushaicodemother.orchestration.agent.template.FullStackGenerationTemplateBootstrapAdapter;
-import com.rush.rushaicodemother.orchestration.agent.template.GenerationTemplateBootstrapAdapter;
-import com.rush.rushaicodemother.orchestration.agent.template.VueGenerationTemplateBootstrapAdapter;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.BackendGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.FullStackGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.VueGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -33,10 +35,14 @@ class TemplateAgentNodeSpringWiringTest {
             context.registerBean(
                     FullStackPortAllocator.class,
                     () -> mock(FullStackPortAllocator.class));
+            context.registerBean(
+                    GenerationWorkspaceService.class,
+                    () -> mock(GenerationWorkspaceService.class));
             context.register(
                     VueGenerationTemplateBootstrapAdapter.class,
                     BackendGenerationTemplateBootstrapAdapter.class,
                     FullStackGenerationTemplateBootstrapAdapter.class,
+                    GenerationTemplateBootstrapRegistry.class,
                     TemplateAgentNode.class
             );
 

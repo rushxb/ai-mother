@@ -1,24 +1,18 @@
 package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.agent.template.GenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class TemplateAgentNodeReplayPolicyTest {
 
     @Test
     void templatePublicationMustKeepADurableStartBoundary() {
-        GenerationTemplateBootstrapAdapter adapter =
-                mock(GenerationTemplateBootstrapAdapter.class);
-        when(adapter.codeGenType()).thenReturn(CodeGenTypeEnum.VUE_PROJECT);
-        TemplateAgentNode node = new TemplateAgentNode(List.of(adapter));
+        TemplateAgentNode node = new TemplateAgentNode(
+                mock(GenerationTemplateBootstrapRegistry.class));
 
         assertEquals(GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT, node.replayPolicy());
     }

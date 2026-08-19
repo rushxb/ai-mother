@@ -28,7 +28,7 @@ class ContextAgentNodeTemplateTest {
             GenerationAgentSupport support = support(outputRoot);
             TemplateServiceTestFixture templateFixture = new TemplateServiceTestFixture(outputRoot);
             TemplateAgentNode templateAgentNode = new TemplateAgentNode(
-                    templateFixture.templateBootstrapAdapters()
+                    templateFixture.templateBootstrapRegistry()
             );
             ContextAgentNode contextAgentNode = new ContextAgentNode(support);
 

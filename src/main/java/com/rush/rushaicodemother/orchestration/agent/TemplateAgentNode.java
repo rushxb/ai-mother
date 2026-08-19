@@ -2,13 +2,14 @@ package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.agent.template.GenerationTemplateBootstrapAdapter;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapResult;
 import org.springframework.stereotype.Component;
 
-import java.util.EnumMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -18,26 +19,12 @@ import java.util.Map;
 @Component
 public class TemplateAgentNode extends BaseGenerationAgentNode {
 
-    private final Map<CodeGenTypeEnum, GenerationTemplateBootstrapAdapter> adaptersByType;
+    private final GenerationTemplateBootstrapRegistry templateBootstrapRegistry;
 
-    /** 构建不可变的模板初始化 adapter 注册表。 */
-    public TemplateAgentNode(List<GenerationTemplateBootstrapAdapter> adapters) {
+    public TemplateAgentNode(GenerationTemplateBootstrapRegistry templateBootstrapRegistry) {
         super("template", "Template", "template", List.of("planner"));
-        EnumMap<CodeGenTypeEnum, GenerationTemplateBootstrapAdapter> registered =
-                new EnumMap<>(CodeGenTypeEnum.class);
-        if (adapters == null || adapters.isEmpty()) {
-            throw new IllegalStateException("至少需要注册一个模板初始化 adapter");
-        }
-        for (GenerationTemplateBootstrapAdapter adapter : adapters) {
-            if (adapter == null || adapter.codeGenType() == null) {
-                throw new IllegalStateException("模板初始化 adapter 必须声明工程类型");
-            }
-            if (registered.putIfAbsent(adapter.codeGenType(), adapter) != null) {
-                throw new IllegalStateException(
-                        "工程类型存在重复模板初始化 adapter: " + adapter.codeGenType().getValue());
-            }
-        }
-        this.adaptersByType = Map.copyOf(registered);
+        this.templateBootstrapRegistry = java.util.Objects.requireNonNull(
+                templateBootstrapRegistry, "模板初始化 registry 不能为空");
     }
 
     /**
@@ -53,29 +40,27 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
         if (context.getRequest().hasGeneratedCode() || app == null || app.getId() == null) {
             return skipped("无需复制项目模板", targetType, "not_new_project");
         }
-        if (targetType == null) {
-            return skipped("无需复制项目模板", null, "unsupported_template_type");
+        GenerationTemplateBootstrapResult result = templateBootstrapRegistry.bootstrap(
+                app.getId(), targetType, context.getRequest().userMessage());
+        if (!result.supported()) {
+            return skipped("无需复制项目模板", targetType, "unsupported_template_type");
         }
-        GenerationTemplateBootstrapAdapter adapter = adaptersByType.get(targetType);
-        if (adapter != null) {
-            return requireValidBootstrapResult(adapter, adapter.bootstrap(context));
+        List<GenerationArtifact> artifacts = new ArrayList<>();
+        artifacts.add(GenerationArtifact.of(
+                "template_bootstrap",
+                "Template",
+                result.artifactName(),
+                result.templatePayload()
+        ));
+        if (!result.contextPayload().isEmpty()) {
+            artifacts.add(GenerationArtifact.of(
+                    "full_stack_context",
+                    "Template",
+                    "全栈上下文",
+                    result.contextPayload()
+            ));
         }
-        return skipped("无需复制项目模板", targetType, "unsupported_template_type");
-    }
-
-    /** 拒绝无法被后续节点和检查点识别的 adapter 结果。 */
-    private AgentNodeResult requireValidBootstrapResult(
-            GenerationTemplateBootstrapAdapter adapter,
-            AgentNodeResult result
-    ) {
-        if (result == null || result.artifacts() == null
-                || result.artifacts().stream().noneMatch(artifact ->
-                artifact != null && "template_bootstrap".equals(artifact.key()))) {
-            throw new IllegalStateException(
-                    "模板初始化 adapter 未返回 template_bootstrap 制品: "
-                            + adapter.codeGenType().getValue());
-        }
-        return result;
+        return AgentNodeResult.of(result.summary(), artifacts, result.templatePayload());
     }
 
     /** 返回{@code skipped}。 */

@@ -474,7 +474,7 @@ class AgentGenerationOrchestratorTest {
         Path root = Path.of("target", "test-workspaces", "template-orchestrator", caseName);
         FileUtil.del(root.toFile());
         TemplateServiceTestFixture fixture = new TemplateServiceTestFixture(root.resolve("code_output"));
-        return new TemplateAgentNode(fixture.templateBootstrapAdapters());
+        return new TemplateAgentNode(fixture.templateBootstrapRegistry());
     }
 
     private void writeExistingProjectFile(String caseName,

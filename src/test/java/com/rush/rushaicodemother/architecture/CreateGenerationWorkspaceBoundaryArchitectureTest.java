@@ -20,6 +20,14 @@ class CreateGenerationWorkspaceBoundaryArchitectureTest {
             "src", "main", "java", "com", "rush", "rushaicodemother",
             "orchestration", "create", "CreateTemplateRuntime.java"
     );
+    private static final Path TEMPLATE_BOOTSTRAP_REGISTRY_SOURCE = Path.of(
+            "src", "main", "java", "com", "rush", "rushaicodemother",
+            "orchestration", "template", "bootstrap", "GenerationTemplateBootstrapRegistry.java"
+    );
+    private static final Path TEMPLATE_BOOTSTRAP_RESULT_SOURCE = Path.of(
+            "src", "main", "java", "com", "rush", "rushaicodemother",
+            "orchestration", "template", "bootstrap", "GenerationTemplateBootstrapResult.java"
+    );
     private static final List<String> FORBIDDEN_PATH_IMPLEMENTATION = List.of(
             "CODE_OUTPUT_ROOT_DIR",
             "AppConstant",
@@ -41,18 +49,23 @@ class CreateGenerationWorkspaceBoundaryArchitectureTest {
     }
 
     @Test
-    void createTemplateRuntimeMustResolveWorkspaceAndDelegateBootstrapByIdentity() throws Exception {
-        String source = Files.readString(CREATE_RUNTIME_SOURCE);
+    void templateBootstrapRegistryMustOwnWorkspaceResolutionForCreateRuntime() throws Exception {
+        String runtimeSource = Files.readString(CREATE_RUNTIME_SOURCE);
+        String registrySource = Files.readString(TEMPLATE_BOOTSTRAP_REGISTRY_SOURCE);
+        String resultSource = Files.readString(TEMPLATE_BOOTSTRAP_RESULT_SOURCE);
 
-        assertTrue(source.contains("GenerationWorkspaceService"));
-        assertTrue(source.contains("generationWorkspaceService.resolve("));
-        assertTrue(source.contains("workspace.canonicalRootPath()"));
-        assertTrue(source.contains("vueProjectTemplateBootstrapService.bootstrapIfNecessary("));
-        assertTrue(source.contains("backendProjectTemplateBootstrapService.bootstrapIfNecessary("));
-        assertTrue(source.contains("fullStackPortAllocator.allocate(workspace)"));
-        assertFalse(source.contains("workspace.frontendRootPath()"));
-        assertFalse(source.contains("workspace.backendRootPath()"));
-        assertNoGeneratedPathRebuild(source, "CreateTemplateRuntime");
+        assertTrue(registrySource.contains("GenerationWorkspaceService"));
+        assertTrue(registrySource.contains("workspaceService.resolve(appId, codeGenType)"));
+        assertTrue(registrySource.contains("completed(\n                codeGenType, workspace, output)"));
+        assertTrue(resultSource.contains("workspace.canonicalRootPath()"));
+        assertTrue(runtimeSource.contains("GenerationTemplateBootstrapRegistry"));
+        assertTrue(runtimeSource.contains("templateBootstrapRegistry.bootstrap("));
+        assertFalse(runtimeSource.contains("GenerationWorkspaceService"));
+        assertFalse(runtimeSource.contains("ProjectTemplateBootstrapService"));
+        assertFalse(runtimeSource.contains("FullStackPortAllocator"));
+        assertNoGeneratedPathRebuild(registrySource, "GenerationTemplateBootstrapRegistry");
+        assertNoGeneratedPathRebuild(resultSource, "GenerationTemplateBootstrapResult");
+        assertNoGeneratedPathRebuild(runtimeSource, "CreateTemplateRuntime");
     }
 
     private void assertNoGeneratedPathRebuild(String source, String component) {

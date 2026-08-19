@@ -3,7 +3,6 @@ package com.rush.rushaicodemother.orchestration.create;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
-import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
@@ -12,17 +11,13 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.create.recipe.RecipeRenderResult;
-import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
-import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.orchestration.patch.GenerationPatchApplyService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
-import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
-import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
-import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
-import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -48,152 +44,87 @@ public class CreateTemplateRuntime {
     private static final String BACKEND_TEMPLATE = "go-sqlite-backend-basic";
     private static final Duration SPEC_WAIT_POLL_INTERVAL = Duration.ofMillis(100);
 
-    private final BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService;
+    private final GenerationTemplateBootstrapRegistry templateBootstrapRegistry;
     private final CreatePatchMergeService createPatchMergeService;
     private final CreatePreWriteValidationService createPreWriteValidationService;
     private final CreateSpecService createSpecService;
     private final CreateSpecTaskExecutor createSpecTaskExecutor;
     private final CreateRecipeRendererService createRecipeRendererService;
-    private final FullStackPortAllocator fullStackPortAllocator;
     private final GenerationPatchApplyService generationPatchApplyService;
     private final GenerationPerformanceMonitorService generationPerformanceMonitorService;
     private final GenerationTaskFenceGuard generationTaskFenceGuard;
-    private final GenerationWorkspaceService generationWorkspaceService;
     private final LandingSlotFallbackRenderer landingSlotFallbackRenderer;
-    private final VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService;
 
-    /**
- * 创建模板运行时实例并完成必要的依赖和初始状态设置。
- *
- * @param backendProjectTemplateBootstrapService 处理该职责的领域服务
- * @param createPatchMergeService 处理该职责的领域服务
- * @param createPreWriteValidationService 处理该职责的领域服务
- * @param createSpecService 处理该职责的领域服务
- * @param createRecipeRendererService 处理该职责的领域服务
- * @param fullStackPortAllocator {@code fullStackPortAllocator} 对应的调用参数
- * @param generationPatchApplyService 处理该职责的领域服务
- * @param generationTaskFenceGuard 生成任务围栏防护
- * @param generationWorkspaceService 生成工作区服务
- * @param landingSlotFallbackRenderer {@code landingSlotFallbackRenderer} 对应的调用参数
- * @param vueProjectTemplateBootstrapService 处理该职责的领域服务
- */
-    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
+    /** 测试与轻量调用使用的构造器；监控和规格执行器采用默认实现。 */
+    public CreateTemplateRuntime(GenerationTemplateBootstrapRegistry templateBootstrapRegistry,
                                  CreatePatchMergeService createPatchMergeService,
                                  CreatePreWriteValidationService createPreWriteValidationService,
                                  CreateSpecService createSpecService,
                                  CreateRecipeRendererService createRecipeRendererService,
-                                  FullStackPortAllocator fullStackPortAllocator,
-                                  GenerationPatchApplyService generationPatchApplyService,
-                                  GenerationTaskFenceGuard generationTaskFenceGuard,
-                                 GenerationWorkspaceService generationWorkspaceService,
-                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
-                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService) {
-        this(
-                backendProjectTemplateBootstrapService,
-                createPatchMergeService,
-                createPreWriteValidationService,
-                createSpecService,
-                createRecipeRendererService,
-                fullStackPortAllocator,
-                generationPatchApplyService,
-                generationTaskFenceGuard,
-                 generationWorkspaceService,
-                 landingSlotFallbackRenderer,
-                 vueProjectTemplateBootstrapService,
-                 new GenerationPerformanceMonitorService(),
-                 new CreateSpecTaskExecutor()
-         );
-     }
-
-    /**
- * 创建模板运行时实例并完成必要的依赖和初始状态设置。
- *
- * @param backendProjectTemplateBootstrapService 处理该职责的领域服务
- * @param createPatchMergeService 处理该职责的领域服务
- * @param createPreWriteValidationService 处理该职责的领域服务
- * @param createSpecService 处理该职责的领域服务
- * @param createRecipeRendererService 处理该职责的领域服务
- * @param fullStackPortAllocator {@code fullStackPortAllocator} 对应的调用参数
- * @param generationPatchApplyService 处理该职责的领域服务
- * @param generationTaskFenceGuard 生成任务围栏防护
- * @param generationWorkspaceService 生成工作区服务
- * @param landingSlotFallbackRenderer {@code landingSlotFallbackRenderer} 对应的调用参数
- * @param vueProjectTemplateBootstrapService 处理该职责的领域服务
- * @param generationPerformanceMonitorService 处理该职责的领域服务
- */
-    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
-                                 CreatePatchMergeService createPatchMergeService,
-                                 CreatePreWriteValidationService createPreWriteValidationService,
-                                 CreateSpecService createSpecService,
-                                 CreateRecipeRendererService createRecipeRendererService,
-                                 FullStackPortAllocator fullStackPortAllocator,
                                  GenerationPatchApplyService generationPatchApplyService,
                                  GenerationTaskFenceGuard generationTaskFenceGuard,
-                                 GenerationWorkspaceService generationWorkspaceService,
-                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
-                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService,
-                                 GenerationPerformanceMonitorService generationPerformanceMonitorService) {
+                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer) {
         this(
-                backendProjectTemplateBootstrapService,
+                templateBootstrapRegistry,
                 createPatchMergeService,
                 createPreWriteValidationService,
                 createSpecService,
                 createRecipeRendererService,
-                fullStackPortAllocator,
                 generationPatchApplyService,
                 generationTaskFenceGuard,
-                generationWorkspaceService,
                 landingSlotFallbackRenderer,
-                vueProjectTemplateBootstrapService,
+                new GenerationPerformanceMonitorService(),
+                new CreateSpecTaskExecutor()
+        );
+    }
+
+    /** 允许测试注入性能监控，规格执行器仍使用独立默认实例。 */
+    public CreateTemplateRuntime(GenerationTemplateBootstrapRegistry templateBootstrapRegistry,
+                                 CreatePatchMergeService createPatchMergeService,
+                                 CreatePreWriteValidationService createPreWriteValidationService,
+                                 CreateSpecService createSpecService,
+                                 CreateRecipeRendererService createRecipeRendererService,
+                                 GenerationPatchApplyService generationPatchApplyService,
+                                 GenerationTaskFenceGuard generationTaskFenceGuard,
+                                 LandingSlotFallbackRenderer landingSlotFallbackRenderer,
+                                 GenerationPerformanceMonitorService generationPerformanceMonitorService) {
+        this(
+                templateBootstrapRegistry,
+                createPatchMergeService,
+                createPreWriteValidationService,
+                createSpecService,
+                createRecipeRendererService,
+                generationPatchApplyService,
+                generationTaskFenceGuard,
+                landingSlotFallbackRenderer,
                 generationPerformanceMonitorService,
                 new CreateSpecTaskExecutor()
         );
     }
 
-    /**
- * 创建模板运行时实例并完成必要的依赖和初始状态设置。
- *
- * @param backendProjectTemplateBootstrapService 处理该职责的领域服务
- * @param createPatchMergeService 处理该职责的领域服务
- * @param createPreWriteValidationService 处理该职责的领域服务
- * @param createSpecService 处理该职责的领域服务
- * @param createRecipeRendererService 处理该职责的领域服务
- * @param fullStackPortAllocator {@code fullStackPortAllocator} 对应的调用参数
- * @param generationPatchApplyService 处理该职责的领域服务
- * @param generationTaskFenceGuard 生成任务围栏防护
- * @param generationWorkspaceService 生成工作区服务
- * @param landingSlotFallbackRenderer {@code landingSlotFallbackRenderer} 对应的调用参数
- * @param vueProjectTemplateBootstrapService 处理该职责的领域服务
- * @param generationPerformanceMonitorService 处理该职责的领域服务
- * @param createSpecTaskExecutor {@code createSpecTaskExecutor} 对应的调用参数
- */
+    /** 生产构造器；模板类型差异只允许从共享 registry 注入。 */
     @Autowired
-    public CreateTemplateRuntime(BackendProjectTemplateBootstrapService backendProjectTemplateBootstrapService,
+    public CreateTemplateRuntime(GenerationTemplateBootstrapRegistry templateBootstrapRegistry,
                                  CreatePatchMergeService createPatchMergeService,
                                  CreatePreWriteValidationService createPreWriteValidationService,
                                  CreateSpecService createSpecService,
                                  CreateRecipeRendererService createRecipeRendererService,
-                                 FullStackPortAllocator fullStackPortAllocator,
                                  GenerationPatchApplyService generationPatchApplyService,
                                  GenerationTaskFenceGuard generationTaskFenceGuard,
-                                 GenerationWorkspaceService generationWorkspaceService,
                                  LandingSlotFallbackRenderer landingSlotFallbackRenderer,
-                                 VueProjectTemplateBootstrapService vueProjectTemplateBootstrapService,
                                  GenerationPerformanceMonitorService generationPerformanceMonitorService,
                                  CreateSpecTaskExecutor createSpecTaskExecutor) {
-        this.backendProjectTemplateBootstrapService = backendProjectTemplateBootstrapService;
+        this.templateBootstrapRegistry = Objects.requireNonNull(
+                templateBootstrapRegistry, "模板初始化 registry 不能为空");
         this.createPatchMergeService = createPatchMergeService;
         this.createPreWriteValidationService = createPreWriteValidationService;
         this.createSpecService = createSpecService;
         this.createSpecTaskExecutor = createSpecTaskExecutor;
         this.createRecipeRendererService = createRecipeRendererService;
-        this.fullStackPortAllocator = fullStackPortAllocator;
         this.generationPatchApplyService = generationPatchApplyService;
         this.generationPerformanceMonitorService = generationPerformanceMonitorService;
         this.generationTaskFenceGuard = generationTaskFenceGuard;
-        this.generationWorkspaceService = generationWorkspaceService;
         this.landingSlotFallbackRenderer = landingSlotFallbackRenderer;
-        this.vueProjectTemplateBootstrapService = vueProjectTemplateBootstrapService;
     }
 
     public SlotFillResult generate(App app, GenerationTaskRequest request, CreateGenerationPlan plan) {
@@ -675,58 +606,18 @@ public class CreateTemplateRuntime {
         return result;
     }
 
-    /** 返回{@code bootstrap}。 */
+    /** 复用共享模板初始化 module，并投影为 CREATE runtime 上下文。 */
     private BootstrapContext bootstrap(App app, GenerationTaskRequest request, CreateGenerationPlan plan) {
-        CodeGenTypeEnum codeGenType = plan.codeGenType();
-        if (codeGenType == null) {
-            return BootstrapContext.failed(Map.of("reason", "missing_code_gen_type"));
+        GenerationTemplateBootstrapResult result = templateBootstrapRegistry.bootstrap(
+                app.getId(), plan.codeGenType(), request.message());
+        if (!result.supported()) {
+            return BootstrapContext.failed(result.templatePayload());
         }
-        GenerationWorkspace workspace = generationWorkspaceService.resolve(app.getId(), codeGenType);
-        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
-            VueProjectTemplateBootstrapService.BootstrapResult result =
-                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(
-                            app.getId(),
-                            codeGenType,
-                            request.message()
-                    );
-            return BootstrapContext.single(
-                    result.bootstrapped(),
-                    workspace.canonicalRootPath(),
-                    Map.of("frontend", result.toPayload())
-            );
-        }
-        if (codeGenType == CodeGenTypeEnum.BACKEND_PROJECT) {
-            BackendProjectTemplateBootstrapService.BootstrapResult result =
-                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), codeGenType);
-            return BootstrapContext.single(
-                    result.bootstrapped(),
-                    workspace.canonicalRootPath(),
-                    Map.of("backend", result.toPayload())
-            );
-        }
-        if (codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            FullStackGenerationContext fullStackContext = fullStackPortAllocator.allocate(workspace);
-            VueProjectTemplateBootstrapService.BootstrapResult frontendResult =
-                    vueProjectTemplateBootstrapService.bootstrapIfNecessary(
-                            app.getId(),
-                            codeGenType,
-                            request.message()
-                    );
-            BackendProjectTemplateBootstrapService.BootstrapResult backendResult =
-                    backendProjectTemplateBootstrapService.bootstrapIfNecessary(app.getId(), codeGenType);
-            Map<String, Object> payload = new LinkedHashMap<>(fullStackContext.toPayload());
-            payload.put("frontend", frontendResult.toPayload());
-            payload.put("backend", backendResult.toPayload());
-            return BootstrapContext.fullStack(
-                    frontendResult.bootstrapped() && backendResult.bootstrapped(),
-                    workspace.canonicalRootPath(),
-                    payload
-            );
-        }
-        return BootstrapContext.single(
-                false,
-                workspace.canonicalRootPath(),
-                Map.of("reason", "unsupported_code_gen_type")
+        return new BootstrapContext(
+                result.successful(),
+                result.projectRoot(),
+                !result.contextPayload().isEmpty(),
+                result.runtimePayload()
         );
     }
 
@@ -866,14 +757,6 @@ public class CreateTemplateRuntime {
             boolean fullStack,
             Map<String, Object> payload
     ) {
-        private static BootstrapContext single(boolean success, Path projectRoot, Map<String, Object> payload) {
-            return new BootstrapContext(success, projectRoot, false, payload == null ? Map.of() : payload);
-        }
-
-        private static BootstrapContext fullStack(boolean success, Path projectRoot, Map<String, Object> payload) {
-            return new BootstrapContext(success, projectRoot, true, payload == null ? Map.of() : payload);
-        }
-
         private static BootstrapContext failed(Map<String, Object> payload) {
             return new BootstrapContext(false, null, false, payload == null ? Map.of() : payload);
         }

@@ -22,6 +22,11 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecut
 import com.rush.rushaicodemother.orchestration.template.BackendProjectTemplateBootstrapService;
 import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.template.VueProjectTemplateBootstrapService;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.BackendGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.FullStackGenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapAdapter;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
+import com.rush.rushaicodemother.orchestration.template.bootstrap.VueGenerationTemplateBootstrapAdapter;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
@@ -31,6 +36,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -86,7 +92,7 @@ class CreateTemplateRuntimeTest {
                 .thenReturn(PatchApplyResult.applied(
                         1L, "create-parallel-task", projectRoot.toString(), 1,
                         List.of("src/data/landingData.ts")));
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(
@@ -152,7 +158,7 @@ class CreateTemplateRuntimeTest {
         when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
                 .thenReturn(PatchApplyResult.applied(
                         1L, "task", projectRoot.toString(), 1, List.of("src/data/landingData.ts")));
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(
@@ -222,7 +228,7 @@ class CreateTemplateRuntimeTest {
                     return VueProjectTemplateBootstrapService.BootstrapResult.created(
                             "vue-web-landing", projectRoot.toString(), 1);
                 });
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(
@@ -301,7 +307,7 @@ class CreateTemplateRuntimeTest {
                 .thenReturn(PatchApplyResult.applied(
                         1L, "create-preview-cutoff-task", projectRoot.toString(), 1,
                         List.of("src/data/landingData.ts")));
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(
@@ -362,7 +368,7 @@ class CreateTemplateRuntimeTest {
         GenerationSession session = mock(GenerationSession.class);
         when(session.taskId()).thenReturn("create-task");
 
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
@@ -427,7 +433,7 @@ class CreateTemplateRuntimeTest {
         when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
                 .thenReturn(PatchApplyResult.applied(1L, "task", projectRoot.toString(), 4, List.of("src/data/adminData.ts")));
 
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
@@ -463,7 +469,7 @@ class CreateTemplateRuntimeTest {
                         projectRoot.toString(),
                         1
                 ));
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
@@ -503,7 +509,7 @@ class CreateTemplateRuntimeTest {
                         projectRoot.toString(),
                         1
                 ));
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
@@ -564,7 +570,7 @@ class CreateTemplateRuntimeTest {
                 .thenReturn(PatchApplyResult.applied(1L, "task", workspaceRoot.toString(), 10,
                         List.of("frontend/src/data/adminData.ts", "backend/internal/modules/course/model.go")));
 
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 backendBootstrapService,
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
@@ -612,7 +618,7 @@ class CreateTemplateRuntimeTest {
                         projectRoot.toString(),
                         1
                 ));
-        CreateTemplateRuntime runtime = new CreateTemplateRuntime(
+        CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
                 new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
@@ -637,6 +643,120 @@ class CreateTemplateRuntimeTest {
         assertEquals(true, telemetry.get("degraded"));
         assertEquals(1, telemetry.get("aiCallCount"));
         verify(patchApplyService, times(1)).applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString());
+    }
+
+    private CreateTemplateRuntime runtime(
+            BackendProjectTemplateBootstrapService backendBootstrapService,
+            CreatePatchMergeService patchMergeService,
+            CreatePreWriteValidationService preWriteValidationService,
+            CreateSpecService specService,
+            CreateRecipeRendererService recipeRendererService,
+            FullStackPortAllocator portAllocator,
+            GenerationPatchApplyService patchApplyService,
+            GenerationTaskFenceGuard fenceGuard,
+            GenerationWorkspaceService workspaceService,
+            LandingSlotFallbackRenderer fallbackRenderer,
+            VueProjectTemplateBootstrapService vueBootstrapService
+    ) {
+        return runtime(
+                backendBootstrapService,
+                patchMergeService,
+                preWriteValidationService,
+                specService,
+                recipeRendererService,
+                portAllocator,
+                patchApplyService,
+                fenceGuard,
+                workspaceService,
+                fallbackRenderer,
+                vueBootstrapService,
+                new GenerationPerformanceMonitorService(),
+                new CreateSpecTaskExecutor()
+        );
+    }
+
+    private CreateTemplateRuntime runtime(
+            BackendProjectTemplateBootstrapService backendBootstrapService,
+            CreatePatchMergeService patchMergeService,
+            CreatePreWriteValidationService preWriteValidationService,
+            CreateSpecService specService,
+            CreateRecipeRendererService recipeRendererService,
+            FullStackPortAllocator portAllocator,
+            GenerationPatchApplyService patchApplyService,
+            GenerationTaskFenceGuard fenceGuard,
+            GenerationWorkspaceService workspaceService,
+            LandingSlotFallbackRenderer fallbackRenderer,
+            VueProjectTemplateBootstrapService vueBootstrapService,
+            GenerationPerformanceMonitorService performanceMonitorService
+    ) {
+        return runtime(
+                backendBootstrapService,
+                patchMergeService,
+                preWriteValidationService,
+                specService,
+                recipeRendererService,
+                portAllocator,
+                patchApplyService,
+                fenceGuard,
+                workspaceService,
+                fallbackRenderer,
+                vueBootstrapService,
+                performanceMonitorService,
+                new CreateSpecTaskExecutor()
+        );
+    }
+
+    private CreateTemplateRuntime runtime(
+            BackendProjectTemplateBootstrapService backendBootstrapService,
+            CreatePatchMergeService patchMergeService,
+            CreatePreWriteValidationService preWriteValidationService,
+            CreateSpecService specService,
+            CreateRecipeRendererService recipeRendererService,
+            FullStackPortAllocator portAllocator,
+            GenerationPatchApplyService patchApplyService,
+            GenerationTaskFenceGuard fenceGuard,
+            GenerationWorkspaceService workspaceService,
+            LandingSlotFallbackRenderer fallbackRenderer,
+            VueProjectTemplateBootstrapService vueBootstrapService,
+            GenerationPerformanceMonitorService performanceMonitorService,
+            CreateSpecTaskExecutor specTaskExecutor
+    ) {
+        return new CreateTemplateRuntime(
+                templateBootstrapRegistry(
+                        workspaceService,
+                        vueBootstrapService,
+                        backendBootstrapService,
+                        portAllocator
+                ),
+                patchMergeService,
+                preWriteValidationService,
+                specService,
+                recipeRendererService,
+                patchApplyService,
+                fenceGuard,
+                fallbackRenderer,
+                performanceMonitorService,
+                specTaskExecutor
+        );
+    }
+
+    private GenerationTemplateBootstrapRegistry templateBootstrapRegistry(
+            GenerationWorkspaceService workspaceService,
+            VueProjectTemplateBootstrapService vueBootstrapService,
+            BackendProjectTemplateBootstrapService backendBootstrapService,
+            FullStackPortAllocator portAllocator
+    ) {
+        List<GenerationTemplateBootstrapAdapter> adapters = new ArrayList<>();
+        adapters.add(new VueGenerationTemplateBootstrapAdapter(vueBootstrapService));
+        adapters.add(new BackendGenerationTemplateBootstrapAdapter(backendBootstrapService));
+        if (portAllocator != null) {
+            adapters.add(new FullStackGenerationTemplateBootstrapAdapter(
+                    vueBootstrapService,
+                    backendBootstrapService,
+                    portAllocator
+            ));
+        }
+        return new GenerationTemplateBootstrapRegistry(workspaceService, adapters);
     }
 
     private GenerationWorkspaceService workspaceService(Path root, CodeGenTypeEnum codeGenType) {

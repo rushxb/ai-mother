@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.learning;
 
 import com.rush.rushaicodemother.config.GenerationBenchmarkReleaseProperties;
+import com.rush.rushaicodemother.orchestration.economics.GenerationDeliveryEconomics;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -97,13 +98,17 @@ public class GenerationStrategyPromotionGate {
         if (quality.firstBuildPassRate() < releaseProperties.getMinimumBuildPassRate()) {
             violations.add("candidate_first_build_pass_rate_below_minimum");
         }
-        double averageTokens = candidate.cost().averageProviderTokens(quality.taskCount());
-        if (averageTokens > releaseProperties.getMaximumAverageTokens()) {
-            violations.add("candidate_average_provider_tokens_above_budget");
+        GenerationDeliveryEconomics economics = candidate.deliveryEconomics();
+        if (!economics.isAvailable()) {
+            violations.add("candidate_unit_success_cost_unavailable");
+        } else if (exceeds(economics.providerTokensPerSuccessfulDelivery(),
+                releaseProperties.maximumTokensPerSuccessfulDelivery())) {
+            violations.add("candidate_provider_tokens_per_success_above_budget");
         }
-        double averageCredit = candidate.cost().averageCreditCost(quality.taskCount());
-        if (averageCredit > releaseProperties.getMaximumAverageCreditCost()) {
-            violations.add("candidate_average_credit_cost_above_budget");
+        if (economics.isAvailable()
+                && exceeds(economics.creditCostPerSuccessfulDelivery(),
+                releaseProperties.maximumCreditCostPerSuccessfulDelivery())) {
+            violations.add("candidate_credit_cost_per_success_above_budget");
         }
     }
 
@@ -150,15 +155,15 @@ public class GenerationStrategyPromotionGate {
     private void assessRelativeCost(GenerationScenarioBucketSummary baseline,
                                     GenerationScenarioBucketSummary candidate,
                                     List<String> violations) {
-        double baseTokens = baseline.cost().averageProviderTokens(baseline.quality().taskCount());
-        double nextTokens = candidate.cost().averageProviderTokens(candidate.quality().taskCount());
-        if (nextTokens > baseTokens) {
-            violations.add("average_provider_tokens_regressed");
+        GenerationDeliveryEconomics baseEconomics = baseline.deliveryEconomics();
+        GenerationDeliveryEconomics nextEconomics = candidate.deliveryEconomics();
+        if (greaterThan(nextEconomics.providerTokensPerSuccessfulDelivery(),
+                baseEconomics.providerTokensPerSuccessfulDelivery())) {
+            violations.add("provider_tokens_per_success_regressed");
         }
-        double baseCredit = baseline.cost().averageCreditCost(baseline.quality().taskCount());
-        double nextCredit = candidate.cost().averageCreditCost(candidate.quality().taskCount());
-        if (nextCredit > baseCredit) {
-            violations.add("average_credit_cost_regressed");
+        if (greaterThan(nextEconomics.creditCostPerSuccessfulDelivery(),
+                baseEconomics.creditCostPerSuccessfulDelivery())) {
+            violations.add("credit_cost_per_success_regressed");
         }
     }
 
@@ -166,6 +171,8 @@ public class GenerationStrategyPromotionGate {
                                            GenerationScenarioBucketSummary candidate) {
         GenerationScenarioQualityMetrics baseQuality = baseline.quality();
         GenerationScenarioQualityMetrics nextQuality = candidate.quality();
+        GenerationDeliveryEconomics baseEconomics = baseline.deliveryEconomics();
+        GenerationDeliveryEconomics nextEconomics = candidate.deliveryEconomics();
         return nextQuality.successRate() > baseQuality.successRate()
                 || nextQuality.firstBuildPassRate() > baseQuality.firstBuildPassRate()
                 || greaterThan(nextQuality.averageRating(), baseQuality.averageRating())
@@ -173,10 +180,10 @@ public class GenerationStrategyPromotionGate {
                 || nextQuality.averageRepairRounds() < baseQuality.averageRepairRounds()
                 || lessThan(candidate.latency().p95FirstUsefulMs(), baseline.latency().p95FirstUsefulMs())
                 || lessThan(candidate.latency().p95DeliveredMs(), baseline.latency().p95DeliveredMs())
-                || candidate.cost().averageProviderTokens(nextQuality.taskCount())
-                < baseline.cost().averageProviderTokens(baseQuality.taskCount())
-                || candidate.cost().averageCreditCost(nextQuality.taskCount())
-                < baseline.cost().averageCreditCost(baseQuality.taskCount());
+                || lessThan(nextEconomics.providerTokensPerSuccessfulDelivery(),
+                baseEconomics.providerTokensPerSuccessfulDelivery())
+                || lessThan(nextEconomics.creditCostPerSuccessfulDelivery(),
+                baseEconomics.creditCostPerSuccessfulDelivery());
     }
 
     private boolean greaterThan(Double candidate, Double baseline) {
@@ -185,6 +192,14 @@ public class GenerationStrategyPromotionGate {
 
     private boolean lessThan(Long candidate, Long baseline) {
         return candidate != null && baseline != null && candidate < baseline;
+    }
+
+    private boolean lessThan(Double candidate, Double baseline) {
+        return candidate != null && baseline != null && candidate < baseline;
+    }
+
+    private boolean exceeds(Double actual, long maximum) {
+        return actual != null && actual > maximum;
     }
 
     private boolean hasP95(Long value) {

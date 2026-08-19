@@ -58,6 +58,8 @@ class GenerationStrategyPromotionControllerTest {
         assertEquals(40, response.getData().baseline().quality().taskCount());
         assertEquals(12_000L, response.getData().baseline().latency().p95DeliveredMs());
         assertEquals(9_750.0, response.getData().candidate().cost().averageProviderTokens());
+        assertEquals(10_000.0,
+                response.getData().candidate().cost().providerTokensPerSuccessfulDelivery());
     }
 
     @Test

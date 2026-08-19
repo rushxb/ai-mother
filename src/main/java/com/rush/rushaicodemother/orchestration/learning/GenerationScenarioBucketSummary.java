@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.learning;
 
+import com.rush.rushaicodemother.orchestration.economics.GenerationDeliveryEconomics;
+
 import java.util.Objects;
 
 /** 按真实策略身份聚合的质量、尾延迟与成本证据。 */
@@ -21,5 +23,10 @@ public record GenerationScenarioBucketSummary(
                 || cost.creditCostObservedCount() > quality.taskCount()) {
             throw new IllegalArgumentException("观测数不能超过任务数");
         }
+    }
+
+    /** 将质量成功事实与成本汇总组合成统一的单位成功交付经济性。 */
+    public GenerationDeliveryEconomics deliveryEconomics() {
+        return cost.deliveryEconomics(quality.successCount());
     }
 }

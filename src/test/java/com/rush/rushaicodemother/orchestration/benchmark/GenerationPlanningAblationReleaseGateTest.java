@@ -101,6 +101,26 @@ class GenerationPlanningAblationReleaseGateTest {
         assertTrue(efficiencyAssessment.violations().contains("planning_efficiency_regressed"));
     }
 
+    @Test
+    void moreSuccessfulDeliveriesMustNotBePenalizedWhenUnitDeliveryCostImproves() {
+        GenerationBenchmarkReport baseline = withDeliveryEconomics(
+                source(GenerationPlanningVariant.CURRENT_DAG, 100, 1_000, 300_000, 300),
+                30, 300_000, 300);
+        GenerationBenchmarkReport candidate = withDeliveryEconomics(
+                source(GenerationPlanningVariant.COMPACT_PLAN, 90, 900, 310_000, 310),
+                32, 310_000, 310);
+
+        GenerationPlanningAblationAssessment assessment = gate().assessPlanningCandidate(
+                ablation(
+                        source(GenerationPlanningVariant.NO_PLAN, 80, 800, 280_000, 280),
+                        candidate,
+                        baseline),
+                GenerationPlanningVariant.COMPACT_PLAN,
+                GenerationPlanningVariant.CURRENT_DAG);
+
+        assertTrue(assessment.passed());
+    }
+
     private GenerationBenchmarkReleaseGate gate() {
         return new GenerationBenchmarkReleaseGate(new GenerationBenchmarkReleaseProperties());
     }
@@ -169,6 +189,24 @@ class GenerationPlanningAblationReleaseGateTest {
                 source.p50DurationMs(), source.p90DurationMs(), source.p99DurationMs(),
                 source.aiCallCount(), source.toolCallCount(), source.fallbackCount(),
                 source.repairRounds(), source.totalTokens(), source.totalCreditCost(),
+                source.averageFirstTokenLatencyMs(), source.p90FirstTokenLatencyMs(),
+                source.p99FirstTokenLatencyMs(), source.firstPreviewObservedCount(),
+                source.firstPreviewObservationRate(), source.averageFirstPreviewLatencyMs(),
+                source.p90FirstPreviewLatencyMs(), source.p99FirstPreviewLatencyMs(),
+                source.promptBundleId(), source.modelFingerprint(), source.qualityStats(),
+                source.modeStats(), source.results());
+    }
+
+    private GenerationBenchmarkReport withDeliveryEconomics(GenerationBenchmarkReport source,
+                                                              int successCount,
+                                                              long totalTokens,
+                                                              long totalCreditCost) {
+        return new GenerationBenchmarkReport(
+                source.schemaVersion(), source.totalTasks(), successCount, source.buildPassedCount(),
+                (double) successCount / source.totalTasks(), source.buildPassRate(),
+                source.averageDurationMs(), source.p50DurationMs(), source.p90DurationMs(),
+                source.p99DurationMs(), source.aiCallCount(), source.toolCallCount(),
+                source.fallbackCount(), source.repairRounds(), totalTokens, totalCreditCost,
                 source.averageFirstTokenLatencyMs(), source.p90FirstTokenLatencyMs(),
                 source.p99FirstTokenLatencyMs(), source.firstPreviewObservedCount(),
                 source.firstPreviewObservationRate(), source.averageFirstPreviewLatencyMs(),

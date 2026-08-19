@@ -69,8 +69,8 @@ class GenerationStrategyPromotionGateTest {
         assertTrue(assessment.violations().contains("average_rating_regressed"));
         assertTrue(assessment.violations().contains("low_rating_rate_regressed"));
         assertTrue(assessment.violations().contains("repair_rounds_regressed"));
-        assertTrue(assessment.violations().contains("average_provider_tokens_regressed"));
-        assertTrue(assessment.violations().contains("average_credit_cost_regressed"));
+        assertTrue(assessment.violations().contains("provider_tokens_per_success_regressed"));
+        assertTrue(assessment.violations().contains("credit_cost_per_success_regressed"));
     }
 
     @Test
@@ -88,6 +88,82 @@ class GenerationStrategyPromotionGateTest {
         assertTrue(assessment.violations().isEmpty());
         assertEquals(BASELINE_RELEASE, assessment.rollbackReleaseIdentity());
         assertEquals(CANDIDATE_RELEASE, assessment.candidateReleaseIdentity());
+    }
+
+    @Test
+    void failedAttemptsMustNotDiluteCandidateProviderCostBudget() {
+        GenerationBenchmarkReleaseProperties properties = new GenerationBenchmarkReleaseProperties();
+        properties.setMinimumSuccessRate(0.0);
+        properties.setMaximumAverageTokens(15_000);
+        GenerationScenarioBucketSummary baseline = summary(
+                BASELINE_RELEASE, 40, 20, 36, 2, 4.4, 4,
+                4_000L, 12_000L, 500_000L, 200L);
+        GenerationScenarioBucketSummary candidate = summary(
+                CANDIDATE_RELEASE, 40, 20, 36, 2, 4.4, 4,
+                3_500L, 11_000L, 400_000L, 190L);
+
+        GenerationStrategyPromotionAssessment assessment =
+                new GenerationStrategyPromotionGate(properties).assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains(
+                "candidate_provider_tokens_per_success_above_budget"));
+    }
+
+    @Test
+    void lowerTotalCostMustNotHidePerSuccessfulDeliveryRegression() {
+        GenerationScenarioBucketSummary baseline = summary(
+                BASELINE_RELEASE, 40, 40, 36, 2, 4.4, 4,
+                4_000L, 12_000L, 400_000L, 200L);
+        GenerationScenarioBucketSummary candidate = summary(
+                CANDIDATE_RELEASE, 40, 20, 36, 2, 4.4, 4,
+                3_500L, 11_000L, 300_000L, 190L);
+
+        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains("success_rate_regressed"));
+        assertTrue(assessment.violations().contains(
+                "provider_tokens_per_success_regressed"));
+    }
+
+    @Test
+    void failedAttemptsMustNotDiluteCandidateCreditCostBudget() {
+        GenerationBenchmarkReleaseProperties properties = new GenerationBenchmarkReleaseProperties();
+        properties.setMinimumSuccessRate(0.0);
+        properties.setMaximumAverageCreditCost(8);
+        GenerationScenarioBucketSummary baseline = summary(
+                BASELINE_RELEASE, 40, 20, 36, 2, 4.4, 4,
+                4_000L, 12_000L, 500_000L, 220L);
+        GenerationScenarioBucketSummary candidate = summary(
+                CANDIDATE_RELEASE, 40, 20, 36, 2, 4.4, 4,
+                3_500L, 11_000L, 400_000L, 190L);
+
+        GenerationStrategyPromotionAssessment assessment =
+                new GenerationStrategyPromotionGate(properties).assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains(
+                "candidate_credit_cost_per_success_above_budget"));
+    }
+
+    @Test
+    void candidateWithoutSuccessfulDeliveryMustFailCostGateClosed() {
+        GenerationBenchmarkReleaseProperties properties = new GenerationBenchmarkReleaseProperties();
+        properties.setMinimumSuccessRate(0.0);
+        GenerationScenarioBucketSummary baseline = summary(
+                BASELINE_RELEASE, 40, 20, 36, 2, 4.4, 4,
+                4_000L, 12_000L, 400_000L, 200L);
+        GenerationScenarioBucketSummary candidate = summary(
+                CANDIDATE_RELEASE, 40, 0, 36, 2, 4.4, 4,
+                3_500L, 11_000L, 300_000L, 190L);
+
+        GenerationStrategyPromotionAssessment assessment =
+                new GenerationStrategyPromotionGate(properties).assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains(
+                "candidate_unit_success_cost_unavailable"));
     }
 
     private GenerationStrategyPromotionGate gate() {

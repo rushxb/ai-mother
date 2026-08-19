@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+import com.rush.rushaicodemother.orchestration.economics.GenerationDeliveryEconomics;
+
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,7 +40,7 @@ public record GenerationBenchmarkReport(
         String modelFingerprint,
         Map<String, QualityStats> qualityStats,
         Map<String, ModeStats> modeStats,
-        DeliveryEconomics deliveryEconomics,
+        GenerationDeliveryEconomics deliveryEconomics,
         RouteStats routeStats,
         List<GenerationBenchmarkRunResult> results
 ) {
@@ -49,7 +51,7 @@ public record GenerationBenchmarkReport(
         modelFingerprint = modelFingerprint == null ? "" : modelFingerprint;
         qualityStats = qualityStats == null ? Map.of() : Map.copyOf(qualityStats);
         modeStats = modeStats == null ? Map.of() : Map.copyOf(modeStats);
-        DeliveryEconomics expectedEconomics = DeliveryEconomics.from(
+        GenerationDeliveryEconomics expectedEconomics = GenerationDeliveryEconomics.fromTotals(
                 successCount, totalTokens, totalCreditCost);
         if (deliveryEconomics == null) {
             deliveryEconomics = expectedEconomics;
@@ -98,7 +100,7 @@ public record GenerationBenchmarkReport(
                 firstPreviewObservedCount, firstPreviewObservationRate, averageFirstPreviewLatencyMs,
                 p90FirstPreviewLatencyMs, p99FirstPreviewLatencyMs, promptBundleId, modelFingerprint,
                 qualityStats, modeStats,
-                DeliveryEconomics.from(successCount, totalTokens, totalCreditCost),
+                GenerationDeliveryEconomics.fromTotals(successCount, totalTokens, totalCreditCost),
                 routeStats, results);
     }
 
@@ -139,7 +141,7 @@ public record GenerationBenchmarkReport(
                 firstPreviewObservedCount, firstPreviewObservationRate, averageFirstPreviewLatencyMs,
                 p90FirstPreviewLatencyMs, p99FirstPreviewLatencyMs, promptBundleId, modelFingerprint,
                 qualityStats, modeStats,
-                DeliveryEconomics.from(successCount, totalTokens, totalCreditCost),
+                GenerationDeliveryEconomics.fromTotals(successCount, totalTokens, totalCreditCost),
                 routeStatsFrom(results), results);
     }
 
@@ -172,48 +174,6 @@ public record GenerationBenchmarkReport(
             double evaluationRate,
             double passRate
     ) {
-    }
-
-    /**
-     * 全部尝试的成本除以成功交付数，防止失败增多时“每任务平均成本”反而虚假下降。
-     */
-    public record DeliveryEconomics(
-            int successfulDeliveryCount,
-            Double providerTokensPerSuccessfulDelivery,
-            Double creditCostPerSuccessfulDelivery
-    ) {
-
-        public DeliveryEconomics {
-            if (successfulDeliveryCount < 0) {
-                throw new IllegalArgumentException("成功交付数不能为负数");
-            }
-            if (successfulDeliveryCount == 0
-                    && (providerTokensPerSuccessfulDelivery != null
-                    || creditCostPerSuccessfulDelivery != null)) {
-                throw new IllegalArgumentException("没有成功交付时单位成本必须为空");
-            }
-            if (successfulDeliveryCount > 0
-                    && (!validCost(providerTokensPerSuccessfulDelivery)
-                    || !validCost(creditCostPerSuccessfulDelivery))) {
-                throw new IllegalArgumentException("单位成功交付成本必须是非负有限数");
-            }
-        }
-
-        private static DeliveryEconomics from(int successCount,
-                                              long totalTokens,
-                                              long totalCreditCost) {
-            if (successCount <= 0) {
-                return new DeliveryEconomics(0, null, null);
-            }
-            return new DeliveryEconomics(
-                    successCount,
-                    (double) totalTokens / successCount,
-                    (double) totalCreditCost / successCount);
-        }
-
-        private static boolean validCost(Double value) {
-            return value != null && Double.isFinite(value) && value >= 0.0;
-        }
     }
 
     /** 路由选择质量统计，用于发布门禁识别错误升级和错误降级。 */

@@ -46,6 +46,7 @@ public record GenerationStrategyPromotionAssessmentVO(
         private static StrategyEvidenceVO from(GenerationScenarioBucketSummary summary) {
             var identity = summary.identity();
             var quality = summary.quality();
+            var economics = summary.deliveryEconomics();
             long taskCount = quality.taskCount();
             return new StrategyEvidenceVO(
                     identity.intentSignature(),
@@ -81,10 +82,12 @@ public record GenerationStrategyPromotionAssessmentVO(
                             observationRate(summary.cost().providerCostObservedCount(), taskCount),
                             summary.cost().totalProviderTokens(),
                             summary.cost().averageProviderTokens(taskCount),
+                            economics.providerTokensPerSuccessfulDelivery(),
                             summary.cost().creditCostObservedCount(),
                             observationRate(summary.cost().creditCostObservedCount(), taskCount),
                             summary.cost().totalCreditCost(),
-                            summary.cost().averageCreditCost(taskCount)));
+                            summary.cost().averageCreditCost(taskCount),
+                            economics.creditCostPerSuccessfulDelivery()));
         }
     }
 
@@ -117,15 +120,21 @@ public record GenerationStrategyPromotionAssessmentVO(
     ) {
     }
 
+    /**
+     * 成本证据同时保留每次尝试平均值以兼容既有管理端，并显式暴露晋级门禁使用的
+     * 单位成功交付成本。
+     */
     public record CostEvidenceVO(
             long providerCostObservedCount,
             double providerCostObservationRate,
             long totalProviderTokens,
             double averageProviderTokens,
+            Double providerTokensPerSuccessfulDelivery,
             long creditCostObservedCount,
             double creditCostObservationRate,
             long totalCreditCost,
-            double averageCreditCost
+            double averageCreditCost,
+            Double creditCostPerSuccessfulDelivery
     ) {
     }
 

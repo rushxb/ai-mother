@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.config.GenerationBenchmarkReleaseProperties;
+import com.rush.rushaicodemother.orchestration.economics.GenerationDeliveryEconomics;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import org.springframework.stereotype.Component;
@@ -113,13 +114,16 @@ public class GenerationBenchmarkReleaseGate {
             violations.add("p99_first_preview_latency_above_maximum");
         }
         assessFirstPreviewModes(report.modeStats(), violations);
-        GenerationBenchmarkReport.DeliveryEconomics economics = report.deliveryEconomics();
-        if (economics.providerTokensPerSuccessfulDelivery() != null
+        GenerationDeliveryEconomics economics = report.deliveryEconomics();
+        if (!economics.isAvailable()) {
+            violations.add("unit_success_cost_unavailable");
+        } else if (economics.providerTokensPerSuccessfulDelivery() != null
                 && economics.providerTokensPerSuccessfulDelivery()
                 > properties.maximumTokensPerSuccessfulDelivery()) {
             violations.add("unit_success_tokens_above_maximum");
         }
-        if (economics.creditCostPerSuccessfulDelivery() != null
+        if (economics.isAvailable()
+                && economics.creditCostPerSuccessfulDelivery() != null
                 && economics.creditCostPerSuccessfulDelivery()
                 > properties.maximumCreditCostPerSuccessfulDelivery()) {
             violations.add("unit_success_credit_cost_above_maximum");
@@ -172,19 +176,25 @@ public class GenerationBenchmarkReleaseGate {
                 || baselineStats.preparationObservationRate() < 1.0) {
             violations.add("planning_preparation_observation_incomplete");
         }
+        GenerationDeliveryEconomics candidateEconomics = candidateReport.deliveryEconomics();
+        GenerationDeliveryEconomics baselineEconomics = baselineReport.deliveryEconomics();
         boolean regressed = candidateStats.p90PreparationDurationMs()
                 > baselineStats.p90PreparationDurationMs()
                 || candidateStats.p90DurationMs() > baselineStats.p90DurationMs()
-                || candidateStats.totalTokens() > baselineStats.totalTokens()
-                || candidateStats.totalCreditCost() > baselineStats.totalCreditCost();
+                || greaterThan(candidateEconomics.providerTokensPerSuccessfulDelivery(),
+                baselineEconomics.providerTokensPerSuccessfulDelivery())
+                || greaterThan(candidateEconomics.creditCostPerSuccessfulDelivery(),
+                baselineEconomics.creditCostPerSuccessfulDelivery());
         if (regressed) {
             violations.add("planning_efficiency_regressed");
         }
         boolean improved = candidateStats.p90PreparationDurationMs()
                 < baselineStats.p90PreparationDurationMs()
                 || candidateStats.p90DurationMs() < baselineStats.p90DurationMs()
-                || candidateStats.totalTokens() < baselineStats.totalTokens()
-                || candidateStats.totalCreditCost() < baselineStats.totalCreditCost();
+                || lessThan(candidateEconomics.providerTokensPerSuccessfulDelivery(),
+                baselineEconomics.providerTokensPerSuccessfulDelivery())
+                || lessThan(candidateEconomics.creditCostPerSuccessfulDelivery(),
+                baselineEconomics.creditCostPerSuccessfulDelivery());
         if (!improved && !regressed) {
             violations.add("planning_efficiency_not_improved");
         }
@@ -197,6 +207,14 @@ public class GenerationBenchmarkReleaseGate {
                 .map(GenerationBenchmarkRunResult::taskId)
                 .sorted()
                 .toList();
+    }
+
+    private boolean greaterThan(Double candidate, Double baseline) {
+        return candidate != null && baseline != null && candidate > baseline;
+    }
+
+    private boolean lessThan(Double candidate, Double baseline) {
+        return candidate != null && baseline != null && candidate < baseline;
     }
 
     private void assessPlanningQuality(GenerationBenchmarkReport candidate,

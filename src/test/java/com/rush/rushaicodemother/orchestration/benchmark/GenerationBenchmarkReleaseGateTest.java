@@ -103,37 +103,8 @@ class GenerationBenchmarkReleaseGateTest {
         properties.setMaximumAverageTokens(150_000);
         properties.setMaximumAverageCreditCost(150);
         GenerationBenchmarkReport source = report(Map.of());
-        GenerationBenchmarkReport costlySuccesses = new GenerationBenchmarkReport(
-                source.schemaVersion(),
-                source.totalTasks(),
-                16,
-                source.buildPassedCount(),
-                0.5,
-                source.buildPassRate(),
-                source.averageDurationMs(),
-                source.p50DurationMs(),
-                source.p90DurationMs(),
-                source.p99DurationMs(),
-                source.aiCallCount(),
-                source.toolCallCount(),
-                source.fallbackCount(),
-                source.repairRounds(),
-                3_200_000,
-                3_200,
-                source.averageFirstTokenLatencyMs(),
-                source.p90FirstTokenLatencyMs(),
-                source.p99FirstTokenLatencyMs(),
-                source.firstPreviewObservedCount(),
-                source.firstPreviewObservationRate(),
-                source.averageFirstPreviewLatencyMs(),
-                source.p90FirstPreviewLatencyMs(),
-                source.p99FirstPreviewLatencyMs(),
-                source.promptBundleId(),
-                source.modelFingerprint(),
-                source.qualityStats(),
-                source.modeStats(),
-                source.routeStats(),
-                source.results());
+        GenerationBenchmarkReport costlySuccesses = withDeliveryCosts(
+                source, 16, 3_200_000, 3_200);
 
         GenerationBenchmarkReleaseAssessment assessment =
                 new GenerationBenchmarkReleaseGate(properties).assess(costlySuccesses);
@@ -143,6 +114,39 @@ class GenerationBenchmarkReleaseGateTest {
                 "unit_success_tokens_above_maximum"));
         assertTrue(assessment.violations().contains(
                 "unit_success_credit_cost_above_maximum"));
+    }
+
+    @Test
+    void missingSuccessfulDeliveryMustFailCostGateClosed() {
+        GenerationBenchmarkReleaseProperties properties = new GenerationBenchmarkReleaseProperties();
+        properties.setMinimumSuccessRate(0.0);
+        GenerationBenchmarkReport noSuccessfulDelivery = withDeliveryCosts(
+                report(Map.of()), 0, 320_000, 32);
+
+        GenerationBenchmarkReleaseAssessment assessment =
+                new GenerationBenchmarkReleaseGate(properties).assess(noSuccessfulDelivery);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains("unit_success_cost_unavailable"));
+    }
+
+    private GenerationBenchmarkReport withDeliveryCosts(GenerationBenchmarkReport source,
+                                                         int successCount,
+                                                         long totalTokens,
+                                                         long totalCreditCost) {
+        return new GenerationBenchmarkReport(
+                source.schemaVersion(), source.totalTasks(), successCount,
+                source.buildPassedCount(), (double) successCount / source.totalTasks(),
+                source.buildPassRate(), source.averageDurationMs(), source.p50DurationMs(),
+                source.p90DurationMs(), source.p99DurationMs(), source.aiCallCount(),
+                source.toolCallCount(), source.fallbackCount(), source.repairRounds(),
+                totalTokens, totalCreditCost, source.averageFirstTokenLatencyMs(),
+                source.p90FirstTokenLatencyMs(), source.p99FirstTokenLatencyMs(),
+                source.firstPreviewObservedCount(), source.firstPreviewObservationRate(),
+                source.averageFirstPreviewLatencyMs(), source.p90FirstPreviewLatencyMs(),
+                source.p99FirstPreviewLatencyMs(), source.promptBundleId(),
+                source.modelFingerprint(), source.qualityStats(), source.modeStats(),
+                source.routeStats(), source.results());
     }
 
     private GenerationBenchmarkReleaseGate gate() {

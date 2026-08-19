@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
@@ -30,12 +31,14 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
  */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        boolean requiresBuild = artifactBooleanValue(context, "generation_spec", "requiresBuild");
-        boolean patchFirst = artifactBooleanValue(context, "generation_spec", "patchFirst");
-        String validationMode = artifactStringValue(context, "generation_spec", "validationMode",
-                requiresBuild ? "build_validation" : "review_only");
-        String generationMode = artifactStringValue(context, "generation_spec", "generationMode",
-                patchFirst ? "patch_first_update" : "full_generation");
+        GenerationSpecificationArtifact specification = context
+                .getArtifact(GenerationSpecificationArtifact.KEY)
+                .map(GenerationSpecificationArtifact::fromArtifact)
+                .orElseThrow(() -> new IllegalArgumentException("缺少生成规范制品"));
+        boolean requiresBuild = specification.requiresBuild();
+        boolean patchFirst = specification.patchFirst();
+        String validationMode = specification.validationMode();
+        String generationMode = specification.generationMode();
         ChangePlan changePlan = context.getArtifact("change_plan")
                 .map(GenerationArtifact::payload)
                 .map(ChangePlan::fromPayload)

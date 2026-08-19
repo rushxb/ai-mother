@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationBuildValidationService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
@@ -128,12 +129,12 @@ public class CreatePostGenerationValidationService {
                                                           String taskId,
                                                           SlotFillResult result) {
         Map<String, GenerationArtifact> artifacts = new LinkedHashMap<>();
-        artifacts.put("generation_spec", GenerationArtifact.of(
-                "generation_spec",
-                "CREATE",
-                "CREATE 模板生成后验证规范",
-                Map.of("requiresBuild", true)
-        ));
+        artifacts.put(
+                GenerationSpecificationArtifact.KEY,
+                GenerationSpecificationArtifact
+                        .postGenerationValidation(true)
+                        .toArtifact("CREATE", "CREATE 模板生成后验证规范")
+        );
         artifacts.put("change_plan", GenerationArtifact.of(
                 "change_plan",
                 "CREATE",

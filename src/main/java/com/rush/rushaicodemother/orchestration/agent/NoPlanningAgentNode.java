@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
@@ -53,21 +54,19 @@ public class NoPlanningAgentNode extends BaseGenerationAgentNode {
                         ? "rollback_to_last_stable_snapshot_or_manual_retry"
                         : "manual_retry_without_snapshot"
         );
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("enhancedPrompt", context.getRequest().userMessage());
-        payload.put("modulePlan", List.of());
-        payload.put("parallelModuleCount", 0);
-        payload.put("executionMode", "unplanned_generation");
-        payload.put("patchFirst", patchFirst);
-        payload.put("requiresBuild", context.isHeavyPath());
-        payload.put("validationMode", validationMode);
-        payload.put("generationMode", patchFirst ? "patch_first_update" : "full_generation");
-        payload.put("artifactMode", patchFirst ? "patch_plan" : "generation_plan");
-        payload.put("changePlan", changePlan.toPayload());
+        Map<String, Object> specificationDetails = new LinkedHashMap<>();
+        specificationDetails.put("modulePlan", List.of());
+        specificationDetails.put("parallelModuleCount", 0);
+        specificationDetails.put("executionMode", "unplanned_generation");
+        specificationDetails.put("changePlan", changePlan.toPayload());
         GenerationArtifact changePlanArtifact = GenerationArtifact.of(
                 "change_plan", "NoPlan", "最小变更边界", changePlan.toPayload());
-        GenerationArtifact generationSpec = GenerationArtifact.of(
-                "generation_spec", "NoPlan", "无规划生成规范", payload);
+        GenerationArtifact generationSpec = GenerationSpecificationArtifact.execution(
+                context.getRequest().userMessage(),
+                patchFirst,
+                context.isHeavyPath(),
+                specificationDetails
+        ).toArtifact("NoPlan", "无规划生成规范");
         artifacts.add(changePlanArtifact);
         artifacts.add(generationSpec);
         return AgentNodeResult.of(

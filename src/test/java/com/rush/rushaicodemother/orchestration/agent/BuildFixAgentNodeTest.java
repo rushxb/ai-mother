@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BuildFixAgentNodeTest {
@@ -68,6 +69,21 @@ class BuildFixAgentNodeTest {
         assertEquals(Boolean.FALSE, result.data().get("rollbackOnFailure"));
         assertEquals(0, result.data().get("fileChangeCount"));
         assertTrue(((List<?>) result.data().get("impactedModules")).isEmpty());
+    }
+
+    @Test
+    void malformedGenerationSpecMustNotDisableBuildGate() {
+        GenerationAgentContext context = newContext();
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("generation_spec", "Code", "生成规范", Map.of(
+                        "patchFirst", false,
+                        "requiresBuild", "true",
+                        "validationMode", "build_validation",
+                        "generationMode", "full_generation"
+                ))
+        ));
+
+        assertThrows(IllegalArgumentException.class, () -> node.execute(context));
     }
 
     private GenerationAgentContext newContext() {

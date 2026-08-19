@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
@@ -53,6 +54,35 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
         assertTrue(evidence.contains(GenerationCompletionEvidenceType.FAST_VALIDATION));
         assertTrue(evidence.contains(GenerationCompletionEvidenceType.BUILD_VALIDATION));
         assertTrue(evidence.contains(GenerationCompletionEvidenceType.EXPERT_VALIDATION));
+    }
+
+    @Test
+    void malformedGenerationSpecMustNotProveIntentCoverage() {
+        GenerationPreparation preparation = preparation(null);
+        preparation.putArtifact(artifact("generation_spec", Map.of(
+                "patchFirst", false,
+                "requiresBuild", "true",
+                "validationMode", "build_validation",
+                "generationMode", "full_generation"
+        )));
+
+        GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
+                preparation, new GenerationSession(preparation));
+
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.INTENT_COVERAGE));
+    }
+
+    @Test
+    void postGenerationValidationSpecMustNotProveIntentCoverage() {
+        GenerationPreparation preparation = preparation(null);
+        preparation.putArtifact(GenerationSpecificationArtifact
+                .postGenerationValidation(true)
+                .toArtifact("CREATE", "CREATE 模板生成后验证规范"));
+
+        GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
+                preparation, new GenerationSession(preparation));
+
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.INTENT_COVERAGE));
     }
 
     @Test

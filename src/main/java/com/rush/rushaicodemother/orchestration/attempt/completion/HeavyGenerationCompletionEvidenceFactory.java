@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
@@ -26,7 +27,7 @@ public final class HeavyGenerationCompletionEvidenceFactory {
             return GenerationCompletionEvidenceSet.empty();
         }
         List<GenerationCompletionEvidence> evidence = new ArrayList<>();
-        if (hasArtifact(preparation, "requirements") || hasArtifact(preparation, "generation_spec")) {
+        if (hasArtifact(preparation, "requirements") || hasValidGenerationSpecification(preparation)) {
             evidence.add(GenerationCompletionEvidence.of(
                     GenerationCompletionEvidenceType.INTENT_COVERAGE,
                     "heavy_preparation",
@@ -106,6 +107,21 @@ public final class HeavyGenerationCompletionEvidenceFactory {
         }
         Object reason = artifact.payload().get("reason");
         return reason instanceof String text && !text.isBlank();
+    }
+
+    private static boolean hasValidGenerationSpecification(GenerationPreparation preparation) {
+        GenerationArtifact artifact = preparation.artifact(GenerationSpecificationArtifact.KEY);
+        if (artifact == null) {
+            return false;
+        }
+        try {
+            return GenerationSpecificationArtifact
+                    .fromArtifact(artifact)
+                    .provesIntentCoverage();
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            // 损坏的检查点不具备完成证据资格，必须由规划链重新产生。
+            return false;
+        }
     }
 
     private static boolean hasArtifact(GenerationPreparation preparation, String key) {

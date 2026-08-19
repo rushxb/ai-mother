@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
@@ -175,15 +176,11 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
 
     /** 从输入中提取{@code Enhanced}提示词。 */
     private String extractEnhancedPrompt(Map<String, GenerationArtifact> artifacts) {
-        GenerationArtifact generationSpec = artifacts.get("generation_spec");
-        if (generationSpec == null) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "缺少代码生成规范");
-        }
-        Object prompt = generationSpec.payload().get("enhancedPrompt");
-        if (prompt == null || StrUtil.isBlank(String.valueOf(prompt))) {
+        GenerationSpecificationArtifact specification = requireGenerationSpecification(artifacts);
+        if (!specification.hasExecutionPrompt()) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "代码生成规范为空");
         }
-        return String.valueOf(prompt);
+        return specification.enhancedPrompt();
     }
 
     /** 返回编排开始事件。 */
@@ -221,7 +218,7 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     /** 记录汇总{@code Metrics}相关指标或状态。 */
     private void recordSummaryMetrics(GenerationAgentContext context, QualityGateResult gateResult) {
         String orchestrationMode = context.getOrchestrationMode();
-        boolean patchFirst = artifactBoolean(context, "generation_spec", "patchFirst");
+        boolean patchFirst = requireGenerationSpecification(context.getArtifacts()).patchFirst();
         boolean buildFixEnabled = artifactBoolean(context, "buildfix_plan", "enabled");
         String rollbackStrategy = artifactString(context, "change_plan", "rollbackStrategy");
         String contextMode = artifactString(context, "context_summary", "contextMode");
@@ -244,6 +241,23 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         );
         if (gateResult != null) {
             metricsCollector.recordQualityGate(orchestrationMode, gateResult.passed(), gateResult.level());
+        }
+    }
+
+    private GenerationSpecificationArtifact requireGenerationSpecification(
+            Map<String, GenerationArtifact> artifacts) {
+        GenerationArtifact generationSpec = artifacts.get(GenerationSpecificationArtifact.KEY);
+        if (generationSpec == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "缺少代码生成规范");
+        }
+        try {
+            return GenerationSpecificationArtifact.fromArtifact(generationSpec);
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "代码生成规范已损坏，无法继续执行",
+                    exception
+            );
         }
     }
 

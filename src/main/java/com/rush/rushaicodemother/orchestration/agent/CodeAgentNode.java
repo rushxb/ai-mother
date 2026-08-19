@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
@@ -73,24 +74,25 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         String prompt = buildExecutionPrompt(
                 context, projectContext, modules, goals, skills, recipes, templateBootstrap, requirements);
         ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("enhancedPrompt", prompt);
-        payload.put("modulePlan", modules == null ? List.of() : modules);
-        payload.put("parallelModuleCount", modules == null ? 0 : modules.size());
-        payload.put("executionMode", modules != null && modules.size() > 1 ? "parallel_module_generation" : "single_path_generation");
-        payload.put("patchFirst", patchFirst);
-        payload.put("requiresBuild", requiresBuild);
-        payload.put("validationMode", validationMode);
-        payload.put("generationMode", generationMode);
-        payload.put("templateId", templateId);
-        payload.put("templateBootstrapped", templateBootstrapped);
-        payload.put("artifactMode", patchFirst ? "patch_plan" : "generation_plan");
-        payload.put("changePlan", changePlan.toPayload());
-        payload.put("skillIds", readSkillIds(skills));
-        payload.put("skills", skills);
-        payload.put("recipes", recipes);
+        Map<String, Object> specificationDetails = new LinkedHashMap<>();
+        specificationDetails.put("modulePlan", modules == null ? List.of() : modules);
+        specificationDetails.put("parallelModuleCount", modules == null ? 0 : modules.size());
+        specificationDetails.put("executionMode", modules != null && modules.size() > 1
+                ? "parallel_module_generation"
+                : "single_path_generation");
+        specificationDetails.put("templateId", templateId);
+        specificationDetails.put("templateBootstrapped", templateBootstrapped);
+        specificationDetails.put("changePlan", changePlan.toPayload());
+        specificationDetails.put("skillIds", readSkillIds(skills));
+        specificationDetails.put("skills", skills);
+        specificationDetails.put("recipes", recipes);
         GenerationArtifact changePlanArtifact = GenerationArtifact.of("change_plan", "Code", "变更计划", changePlan.toPayload());
-        GenerationArtifact artifact = GenerationArtifact.of("generation_spec", "Code", "生成规范", payload);
+        GenerationArtifact artifact = GenerationSpecificationArtifact.execution(
+                prompt,
+                patchFirst,
+                requiresBuild,
+                specificationDetails
+        ).toArtifact("Code", "生成规范");
         return AgentNodeResult.of(
                 modules != null && modules.size() > 1 ? "已生成模块级执行规范，代码生成器可按模块并行思维执行" : "已生成统一执行规范",
                 List.of(changePlanArtifact, artifact),

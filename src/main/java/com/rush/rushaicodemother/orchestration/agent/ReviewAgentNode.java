@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
@@ -55,14 +56,15 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         List<String> blockers = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         List<String> passes = new ArrayList<>();
-        Object promptObj = context.getArtifactValue("generation_spec", "enhancedPrompt");
-        String prompt = promptObj == null ? "" : String.valueOf(promptObj);
-        boolean patchFirst = artifactBooleanValue(context, "generation_spec", "patchFirst");
-        boolean requiresBuild = artifactBooleanValue(context, "generation_spec", "requiresBuild");
-        String validationMode = artifactStringValue(context, "generation_spec", "validationMode",
-                requiresBuild ? "build_validation" : "review_only");
-        String generationMode = artifactStringValue(context, "generation_spec", "generationMode",
-                patchFirst ? "patch_first_update" : "full_generation");
+        GenerationSpecificationArtifact specification = context
+                .getArtifact(GenerationSpecificationArtifact.KEY)
+                .map(GenerationSpecificationArtifact::fromArtifact)
+                .orElseThrow(() -> new IllegalArgumentException("缺少生成规范制品"));
+        String prompt = specification.enhancedPrompt();
+        boolean patchFirst = specification.patchFirst();
+        boolean requiresBuild = specification.requiresBuild();
+        String validationMode = specification.validationMode();
+        String generationMode = specification.generationMode();
         ChangePlan changePlan = context.getArtifact("change_plan")
                 .map(GenerationArtifact::payload)
                 .map(ChangePlan::fromPayload)

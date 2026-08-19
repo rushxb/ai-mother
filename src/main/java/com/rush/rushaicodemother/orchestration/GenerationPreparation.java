@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 
@@ -24,7 +25,6 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
                                     String taskId) {
 
     private static final String VALIDATION_POLICY_ARTIFACT = "validation_policy";
-    private static final String GENERATION_SPEC_ARTIFACT = "generation_spec";
     private static final String REQUIRES_BUILD_FIELD = "requiresBuild";
 
     public String qualityGateLevel() {
@@ -52,12 +52,10 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
                 && Boolean.TRUE.equals(validationPolicy.payload().get(REQUIRES_BUILD_FIELD))) {
             return true;
         }
-        GenerationArtifact generationSpec = artifact(GENERATION_SPEC_ARTIFACT);
-        if (generationSpec == null || generationSpec.payload() == null) {
-            return true;
-        }
-        Object requiresBuild = generationSpec.payload().get(REQUIRES_BUILD_FIELD);
-        return !(requiresBuild instanceof Boolean buildRequired) || buildRequired;
+        return GenerationSpecificationArtifact.requiresBuildOrDefault(
+                artifact(GenerationSpecificationArtifact.KEY),
+                true
+        );
     }
 
     /** 将路由层声明的最低校验级别固化到可恢复的生成准备中。 */

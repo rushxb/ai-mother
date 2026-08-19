@@ -105,12 +105,7 @@ public class HeavyGenerationFinalizationService {
                         preparation.targetType(),
                         preparation.taskId(),
                         rollbackPoint);
-        GenerationArtifact diffSummary = GenerationArtifact.of(
-                "diff_summary",
-                "Orchestrator",
-                "生成后差异摘要",
-                summary.toPayload()
-        );
+        GenerationArtifact diffSummary = summary.toArtifact();
         preparation.putArtifact(diffSummary);
         session.emit(GenerationStreamEvent.agentEvent(
                 generationDiffSummaryService.renderText(summary),
@@ -135,7 +130,7 @@ public class HeavyGenerationFinalizationService {
         GenerationCommitResult commitResult = generationCommitService.commit(
                 appId,
                 preparation.taskId(),
-                preparation.artifact("diff_summary")
+                preparation.artifact(DiffSummary.KEY)
         );
         GenerationArtifact commitArtifact = GenerationArtifact.of(
                 "generation_commit",
@@ -164,14 +159,20 @@ public class HeavyGenerationFinalizationService {
  */
     public Map<String, Object> buildDiffSummaryEventData(GenerationPreparation preparation,
                                                          GenerationArtifact diffSummary) {
+        DiffSummary summary = DiffSummary.fromArtifact(
+                diffSummary,
+                null,
+                preparation.taskId()
+        );
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agent", "Orchestrator");
         data.put("stage", "diff");
-        data.put("status", diffSummary.payload().get("status"));
-        data.put("summary", "created".equals(String.valueOf(diffSummary.payload().get("status")))
+        data.put("status", summary.status());
+        data.put("summary", summary.created()
                 ? "生成后差异摘要已生成"
                 : "生成后差异摘要已跳过");
         data.put("taskId", preparation.taskId());
+        // 校验与状态解释走强类型模型，事件仍透传原制品载荷，保持生命周期对象身份稳定。
         data.put("artifact", diffSummary.payload());
         return data;
     }

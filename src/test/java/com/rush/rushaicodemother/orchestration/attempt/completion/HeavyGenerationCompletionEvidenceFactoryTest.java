@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.attempt.completion;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
@@ -57,16 +58,49 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
     @Test
     void diffSummaryWithPositiveCountMustCountAsWorkspaceChange() {
         GenerationPreparation preparation = preparation(null);
-        preparation.putArtifact(artifact("diff_summary", Map.of(
-                "addedCount", 0,
-                "modifiedCount", 1,
-                "deletedCount", 0
-        )));
+        preparation.putArtifact(artifact(DiffSummary.KEY, DiffSummary.created(
+                1L,
+                "heavy-completion-test",
+                "D:/workspace/base",
+                "D:/workspace/current",
+                List.of(),
+                List.of("src/App.vue"),
+                List.of(),
+                List.of("src/App.vue | 内容已变更")
+        ).toPayload()));
 
         GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
                 preparation, new GenerationSession(preparation));
 
         assertTrue(evidence.contains(GenerationCompletionEvidenceType.WORKSPACE_CHANGE));
+    }
+
+    @Test
+    void skippedDiffWithStalePositiveCountMustNotCountAsWorkspaceChange() {
+        GenerationPreparation preparation = preparation(null);
+        Map<String, Object> skippedPayload = new LinkedHashMap<>();
+        skippedPayload.put("schemaVersion", "v1");
+        skippedPayload.put("provider", "local_snapshot");
+        skippedPayload.put("status", "skipped");
+        skippedPayload.put("appId", 1L);
+        skippedPayload.put("taskId", "heavy-completion-test");
+        skippedPayload.put("basePath", "D:/workspace/base");
+        skippedPayload.put("currentPath", "D:/workspace/current");
+        skippedPayload.put("addedCount", 1);
+        skippedPayload.put("modifiedCount", 0);
+        skippedPayload.put("deletedCount", 0);
+        skippedPayload.put("addedFiles", List.of("src/App.vue"));
+        skippedPayload.put("modifiedFiles", List.of());
+        skippedPayload.put("deletedFiles", List.of());
+        skippedPayload.put("modifiedDetails", List.of());
+        skippedPayload.put("reason", "snapshot_unavailable");
+        skippedPayload.put("createdAt", "2026-08-19T00:00:00");
+        preparation.putArtifact(artifact("diff_summary", skippedPayload));
+
+        GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
+                preparation, new GenerationSession(preparation));
+
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.WORKSPACE_CHANGE));
     }
 
     @Test
@@ -109,11 +143,16 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
     @Test
     void zeroDiffMustNotCountAsWorkspaceChange() {
         GenerationPreparation preparation = preparation(null);
-        preparation.putArtifact(artifact("diff_summary", Map.of(
-                "addedCount", 0,
-                "modifiedCount", 0,
-                "deletedCount", 0
-        )));
+        preparation.putArtifact(artifact(DiffSummary.KEY, DiffSummary.created(
+                1L,
+                "heavy-completion-test",
+                "D:/workspace/base",
+                "D:/workspace/current",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        ).toPayload()));
 
         GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
                 preparation, new GenerationSession(preparation));

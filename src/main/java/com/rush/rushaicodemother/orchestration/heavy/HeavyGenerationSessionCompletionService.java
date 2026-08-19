@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
@@ -64,8 +65,8 @@ public class HeavyGenerationSessionCompletionService {
             throw new IllegalArgumentException("generation terminal outcome must not be null");
         }
         String status = outcome.status();
-        String memorySummary = buildMemorySummary(preparation, status);
-        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(preparation, session, outcome);
+        String memorySummary = buildMemorySummary(appId, preparation, status);
+        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(appId, preparation, session, outcome);
         GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
                 preparation.taskId(),
                 appId,
@@ -89,8 +90,8 @@ public class HeavyGenerationSessionCompletionService {
                 session.executionContext() == null ? null : session.executionContext().executionFence(),
                 com.rush.rushaicodemother.model.enums.GenerationTaskStatus.SUCCESS,
                 null,
-                buildMemorySummary(preparation, GenerationTerminalOutcome.SUCCESS.status()),
-                resolveOutcomeQuality(preparation, session, GenerationTerminalOutcome.SUCCESS));
+                buildMemorySummary(appId, preparation, GenerationTerminalOutcome.SUCCESS.status()),
+                resolveOutcomeQuality(appId, preparation, session, GenerationTerminalOutcome.SUCCESS));
         return command;
     }
 
@@ -118,10 +119,11 @@ public class HeavyGenerationSessionCompletionService {
      * <p>指标全部来自已沉淀的制品与执行上下文，采集不到即保持 {@code null}（未采集），
      * 不影响交付。</p>
      */
-    private GenerationOutcomeQuality resolveOutcomeQuality(GenerationPreparation preparation,
-                                                          GenerationSession session,
-                                                          GenerationTerminalOutcome outcome) {
-        Integer changedFileCount = resolveChangedFileCount(preparation);
+    private GenerationOutcomeQuality resolveOutcomeQuality(Long appId,
+                                                           GenerationPreparation preparation,
+                                                           GenerationSession session,
+                                                           GenerationTerminalOutcome outcome) {
+        Integer changedFileCount = resolveChangedFileCount(appId, preparation);
         Integer repairRounds = resolveRepairRounds(preparation);
         Long firstPreviewMillis = resolveFirstPreviewMillis(preparation, session);
         if (outcome != GenerationTerminalOutcome.SUCCESS) {
@@ -140,20 +142,22 @@ public class HeavyGenerationSessionCompletionService {
     }
 
     /** 从 diff 摘要制品统计有效变更文件数。 */
-    private Integer resolveChangedFileCount(GenerationPreparation preparation) {
-        GenerationArtifact diffSummary = preparation.artifact("diff_summary");
-        if (diffSummary == null || diffSummary.payload() == null) {
+    private Integer resolveChangedFileCount(Long appId, GenerationPreparation preparation) {
+        GenerationArtifact artifact = preparation.artifact(DiffSummary.KEY);
+        if (artifact == null) {
             return null;
         }
-        Integer added = intValue(diffSummary.payload().get("addedCount"));
-        Integer modified = intValue(diffSummary.payload().get("modifiedCount"));
-        Integer deleted = intValue(diffSummary.payload().get("deletedCount"));
-        if (added == null && modified == null && deleted == null) {
+        try {
+            DiffSummary summary = DiffSummary.fromArtifact(
+                    artifact,
+                    appId,
+                    preparation.taskId()
+            );
+            return summary.created() ? summary.changedFileCount() : null;
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            // 不把损坏或串任务的制品写入质量指标，避免错误数据掩盖真实生成结果。
             return null;
         }
-        return (added == null ? 0 : added)
-                + (modified == null ? 0 : modified)
-                + (deleted == null ? 0 : deleted);
     }
 
     /**
@@ -190,22 +194,10 @@ public class HeavyGenerationSessionCompletionService {
         return elapsed < 0 ? null : elapsed;
     }
 
-    private Integer intValue(Object value) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value instanceof String text && !text.isBlank()) {
-            try {
-                return Integer.valueOf(text.trim());
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
-    }
-
     /** 构建并返回记忆汇总。 */
-    private String buildMemorySummary(GenerationPreparation preparation, String status) {
+    private String buildMemorySummary(Long appId,
+                                      GenerationPreparation preparation,
+                                      String status) {
         if (preparation == null) {
             return "";
         }
@@ -218,10 +210,7 @@ public class HeavyGenerationSessionCompletionService {
         if (changePlan != null) {
             lines.add("变更计划：" + compactMemoryText(String.valueOf(changePlan.payload()), 900));
         }
-        GenerationArtifact diffSummary = preparation.artifact("diff_summary");
-        if (diffSummary != null) {
-            lines.add("实际变更：" + compactMemoryText(String.valueOf(diffSummary.payload()), 900));
-        }
+        appendDiffSummaryMemory(lines, appId, preparation);
         GenerationArtifact patchResult = preparation.artifact("patch_result");
         if (patchResult != null) {
             lines.add("Patch 结果：" + compactMemoryText(String.valueOf(patchResult.payload()), 700));
@@ -231,6 +220,36 @@ public class HeavyGenerationSessionCompletionService {
                     + ", blockers=" + compactMemoryText(String.valueOf(preparation.qualityGateResult().blockers()), 500));
         }
         return compactMemoryText(String.join("\n", lines), 5000);
+    }
+
+    /** 仅把校验通过且属于当前任务的差异事实写入长期记忆。 */
+    private void appendDiffSummaryMemory(List<String> lines,
+                                         Long appId,
+                                         GenerationPreparation preparation) {
+        GenerationArtifact artifact = preparation.artifact(DiffSummary.KEY);
+        if (artifact == null) {
+            return;
+        }
+        try {
+            DiffSummary summary = DiffSummary.fromArtifact(
+                    artifact,
+                    appId,
+                    preparation.taskId()
+            );
+            if (!summary.created()) {
+                lines.add("差异摘要：已跳过，原因=" + compactMemoryText(summary.reason(), 300));
+                return;
+            }
+            String changeFacts = "新增=" + summary.addedCount()
+                    + summary.addedFiles()
+                    + "，修改=" + summary.modifiedCount()
+                    + summary.modifiedFiles()
+                    + "，删除=" + summary.deletedCount()
+                    + summary.deletedFiles();
+            lines.add("实际变更：" + compactMemoryText(changeFacts, 900));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            lines.add("差异摘要：制品无效，未纳入结果记忆");
+        }
     }
 
     private String compactMemoryText(String value, int maxLength) {

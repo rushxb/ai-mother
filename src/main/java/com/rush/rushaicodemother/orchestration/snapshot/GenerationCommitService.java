@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManage
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager.GitTransactionResourceException;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager.GitTransactionResources;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
@@ -24,7 +25,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -138,25 +138,28 @@ public class GenerationCommitService {
         if (StrUtil.isBlank(taskId)) {
             return GenerationCommitResult.skipped(appId, taskId, "", "", "", "task_id_missing");
         }
-        if (diffSummaryArtifact != null && !"diff_summary".equals(diffSummaryArtifact.key())) {
-            return GenerationCommitResult.skipped(appId, taskId, "", "", "", "diff_summary_artifact_invalid");
-        }
-        Map<String, Object> diffPayload = payload(diffSummaryArtifact);
-        String currentPathValue = stringValue(diffPayload.get("currentPath"));
-        if (diffPayload.isEmpty()) {
+        if (diffSummaryArtifact == null) {
             return GenerationCommitResult.skipped(appId, taskId, "", "", "", "diff_summary_missing");
         }
-        if (!artifactContextMatches(appId, taskId, diffPayload)) {
+        DiffSummary diffSummary;
+        try {
+            diffSummary = DiffSummary.fromArtifact(diffSummaryArtifact);
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            return GenerationCommitResult.skipped(
+                    appId, taskId, "", "", "", "diff_summary_artifact_invalid");
+        }
+        String currentPathValue = diffSummary.currentPath();
+        if (!diffSummary.matchesContext(appId, taskId)) {
             return GenerationCommitResult.skipped(
                     appId, taskId, "", "", "", "diff_summary_context_mismatch"
             );
         }
-        if (!"created".equals(stringValue(diffPayload.get("status")))) {
+        if (!diffSummary.created()) {
             return GenerationCommitResult.skipped(
                     appId, taskId, currentPathValue, "", "", "diff_summary_not_created"
             );
         }
-        ChangedFileSelection changedFileSelection = changedFiles(diffPayload);
+        ChangedFileSelection changedFileSelection = changedFiles(diffSummary);
         if (changedFileSelection.limitExceeded()) {
             return GenerationCommitResult.skipped(
                     appId, taskId, "", "", "", "changed_file_limit_exceeded"
@@ -596,27 +599,19 @@ public class GenerationCommitService {
     }
 
     /** 返回变更文件。 */
-    private ChangedFileSelection changedFiles(Map<String, Object> diffPayload) {
+    private ChangedFileSelection changedFiles(DiffSummary diffSummary) {
         LinkedHashSet<String> files = new LinkedHashSet<>();
-        for (String payloadKey : List.of("addedFiles", "modifiedFiles", "deletedFiles")) {
-            if (addNormalizedFiles(files, diffPayload.get(payloadKey))) {
-                return new ChangedFileSelection(List.of(), true);
+        for (List<String> changedFiles : List.of(
+                diffSummary.addedFiles(),
+                diffSummary.modifiedFiles(),
+                diffSummary.deletedFiles())) {
+            for (String changedFile : changedFiles) {
+                if (addNormalizedFile(files, changedFile)) {
+                    return new ChangedFileSelection(List.of(), true);
+                }
             }
         }
         return new ChangedFileSelection(List.copyOf(files), false);
-    }
-
-    /** 添加{@code Normalized}文件。 */
-    private boolean addNormalizedFiles(LinkedHashSet<String> files, Object value) {
-        if (value instanceof Collection<?> collection) {
-            for (Object item : collection) {
-                if (addNormalizedFile(files, item)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        return addNormalizedFile(files, value);
     }
 
     private boolean addNormalizedFile(LinkedHashSet<String> files, Object value) {
@@ -751,30 +746,6 @@ public class GenerationCommitService {
             case UNSAFE_WORKSPACE -> "project_path_unsafe";
             case WORKSPACE_UNAVAILABLE -> "project_path_unavailable";
         };
-    }
-
-    private Map<String, Object> payload(GenerationArtifact artifact) {
-        return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
-    }
-
-    private boolean artifactContextMatches(Long appId, String taskId, Map<String, Object> diffPayload) {
-        return Objects.equals(appId, longValue(diffPayload.get("appId")))
-                && taskId.equals(stringValue(diffPayload.get("taskId")));
-    }
-
-    /** 返回{@code long}值。 */
-    private Long longValue(Object value) {
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Long.valueOf(String.valueOf(value));
-        } catch (NumberFormatException exception) {
-            return null;
-        }
     }
 
     private String mapTransactionResourceFailure(GitTransactionResourceException exception) {

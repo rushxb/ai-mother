@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.attempt.completion;
 
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
@@ -9,7 +10,6 @@ import com.rush.rushaicodemother.orchestration.verification.GenerationVerificati
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /** 从 Heavy 生成的结构化制品和执行上下文中提取完成证据。 */
@@ -35,7 +35,7 @@ public final class HeavyGenerationCompletionEvidenceFactory {
         int mutationCount = session.executionContext() == null
                 ? 0
                 : session.executionContext().successfulWorkspaceMutationCount();
-        if (mutationCount > 0 || diffChanged(preparation.artifact("diff_summary"))) {
+        if (mutationCount > 0 || diffChanged(preparation, session)) {
             evidence.add(GenerationCompletionEvidence.of(
                     GenerationCompletionEvidenceType.WORKSPACE_CHANGE,
                     "heavy_workspace",
@@ -78,18 +78,25 @@ public final class HeavyGenerationCompletionEvidenceFactory {
         }
     }
 
-    private static boolean diffChanged(GenerationArtifact diffSummary) {
-        if (diffSummary == null || diffSummary.payload() == null) {
+    private static boolean diffChanged(GenerationPreparation preparation,
+                                       GenerationSession session) {
+        GenerationArtifact artifact = preparation.artifact(DiffSummary.KEY);
+        if (artifact == null) {
             return false;
         }
-        Map<String, Object> payload = diffSummary.payload();
-        return positive(payload.get("addedCount"))
-                || positive(payload.get("modifiedCount"))
-                || positive(payload.get("deletedCount"));
-    }
-
-    private static boolean positive(Object value) {
-        return value instanceof Number number && number.intValue() > 0;
+        Long expectedAppId = session.executionContext() == null
+                ? null
+                : session.executionContext().appId();
+        try {
+            return DiffSummary.fromArtifact(
+                    artifact,
+                    expectedAppId,
+                    preparation.taskId()
+            ).hasChanges();
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            // 损坏或串任务的检查点不具备完成证据资格，等待后续节点重新生成。
+            return false;
+        }
     }
 
     private static boolean hasNoChangeJustification(GenerationPreparation preparation) {

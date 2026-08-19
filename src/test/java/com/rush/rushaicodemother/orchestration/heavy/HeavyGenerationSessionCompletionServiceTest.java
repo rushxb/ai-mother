@@ -12,9 +12,12 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -95,6 +98,35 @@ class HeavyGenerationSessionCompletionServiceTest {
         verify(outcomeMemoryService).remember(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void skippedDiffWithStaleCountMustNotPolluteOutcomeQuality() {
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
+        GenerationOutcomeMemoryService outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
+        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
+                finalizer, outcomeMemoryService);
+        GenerationPreparation preparation = preparation();
+        Map<String, Object> stalePayload = new LinkedHashMap<>(DiffSummary.skipped(
+                1L,
+                "task-1",
+                "D:/workspace/base",
+                "D:/workspace/current",
+                "snapshot_unavailable"
+        ).toPayload());
+        stalePayload.put("addedCount", 1);
+        stalePayload.put("addedFiles", List.of("src/App.vue"));
+        preparation.putArtifact(GenerationArtifact.of(
+                DiffSummary.KEY, "test", "损坏的差异摘要", stalePayload));
+        GenerationSession session = new GenerationSession(preparation);
+        session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
+
+        service.completeClaimed(1L, session, preparation, GenerationTerminalOutcome.SUCCESS);
+
+        verify(finalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.outcomeQuality() != null
+                        && command.outcomeQuality().changedFileCount() == null
+                        && !command.memorySummary().contains("src/App.vue")));
+    }
+
     private GenerationPreparation preparation() {
         return new GenerationPreparation(
                 CodeGenTypeEnum.HTML,
@@ -103,7 +135,7 @@ class HeavyGenerationSessionCompletionServiceTest {
                 "agent",
                 "创建订单管理页面",
                 List.of(),
-                Map.of(),
+                new LinkedHashMap<>(),
                 null,
                 Map.of(),
                 "task-1"

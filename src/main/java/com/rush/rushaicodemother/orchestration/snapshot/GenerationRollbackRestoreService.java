@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -181,6 +182,8 @@ public class GenerationRollbackRestoreService {
                 workspaceFileSystemService.copyDirectory(projectPath, backupPath);
                 backupPathValue = backupPath.toString();
             }
+            // 备份复制可能耗时，租约可在此期间被新 worker 接管；覆盖项目之前必须再次失败关闭。
+            generationTaskFenceGuard.assertCurrent(taskId);
             WorkspaceCopyResult restoreResult = projectExists
                     ? workspaceFileSystemService.replaceDirectory(snapshotPath, projectPath)
                     : workspaceFileSystemService.copyDirectory(snapshotPath, projectPath);
@@ -193,6 +196,9 @@ public class GenerationRollbackRestoreService {
                     backupPathValue,
                     restoreResult.fileCount()
             );
+        } catch (GenerationExecutionPolicyException staleExecution) {
+            // stale worker 属于执行所有权冲突，必须交给上层终止，不能伪装成普通恢复失败后继续收尾。
+            throw staleExecution;
         } catch (Exception exception) {
             log.warn("Failed to restore rollback snapshot, appId: {}, taskId: {}, exceptionType: {}",
                     appId, taskId, exception.getClass().getSimpleName());

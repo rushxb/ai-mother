@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import org.junit.jupiter.api.Test;
 
@@ -11,8 +12,13 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 class GenerationRollbackRestoreServiceTest {
@@ -51,7 +57,45 @@ class GenerationRollbackRestoreServiceTest {
         assertTrue(Files.exists(backupPath.resolve("src/App.vue")));
         assertTrue(Files.exists(backupPath.resolve("src/New.vue")));
         assertFalse(Files.exists(backupPath.resolve("node_modules/pkg/index.js")));
-        verify(fenceGuard).assertCurrent("task-11");
+        verify(fenceGuard, times(2)).assertCurrent("task-11");
+    }
+
+    @Test
+    void leaseLostWhileCreatingBackupMustAbortBeforeProjectReplacement() throws Exception {
+        Path tempDir = cleanTestRoot("lease-lost-during-backup");
+        Path codeOutputRoot = tempDir.resolve("code_output");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        Path projectRoot = codeOutputRoot.resolve("vue_project_21");
+        Path snapshotRoot = codeSnapshotRoot.resolve("21").resolve("pre_generation_task-21");
+        Files.createDirectories(projectRoot.resolve("src"));
+        Files.writeString(projectRoot.resolve("src/App.vue"), "new-owner-version");
+        Files.createDirectories(snapshotRoot.resolve("src"));
+        Files.writeString(snapshotRoot.resolve("src/App.vue"), "stale-snapshot");
+        GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
+        GenerationExecutionPolicyException leaseLost =
+                new GenerationExecutionPolicyException("generation task execution fence is no longer current");
+        doNothing()
+                .doThrow(leaseLost)
+                .when(fenceGuard).assertCurrent("task-21");
+        GenerationRollbackRestoreService service = SnapshotServiceTestFixture.rollbackRestoreService(
+                codeOutputRoot,
+                codeSnapshotRoot,
+                fenceGuard
+        );
+
+        GenerationExecutionPolicyException thrown = assertThrows(
+                GenerationExecutionPolicyException.class,
+                () -> service.restoreIfAllowed(
+                        21L,
+                        "task-21",
+                        snapshotChangePlan(),
+                        rollbackPoint(21L, "task-21", "vue_project", snapshotRoot, projectRoot)
+                )
+        );
+
+        assertSame(leaseLost, thrown);
+        assertEquals("new-owner-version", Files.readString(projectRoot.resolve("src/App.vue")));
+        verify(fenceGuard, times(2)).assertCurrent("task-21");
     }
 
     @Test

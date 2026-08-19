@@ -16,6 +16,7 @@ import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestF
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CodeAgentNodeTest {
@@ -95,6 +96,33 @@ class CodeAgentNodeTest {
         assertFalse(String.valueOf(specArtifact.payload().get("enhancedPrompt")).contains("null"));
         assertEquals("cross_module_patch", result.data().get("changeScope"));
         assertNotNull(context.getArtifact("requirements").orElse(null));
+    }
+
+    @Test
+    void malformedRecoveredTemplateArtifactMustFailBeforeBuildingGenerationPrompt() {
+        GenerationAgentContext context = newContext(false);
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("requirements", "Planner", "需求与目标", Map.of(
+                        "patchFirst", false,
+                        "requiresBuild", true,
+                        "validationMode", "build_validation",
+                        "generationMode", "full_generation",
+                        "goals", List.of("生成完整工程")
+                )),
+                GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
+                        "modules", List.of("app")
+                )),
+                GenerationArtifact.of("template_bootstrap", "Template", "项目模板", Map.of(
+                        "bootstrapped", true,
+                        "templateId", "vue-web-basic",
+                        "projectPath", "target/workspaces/1",
+                        "fileCount", "many",
+                        "targetType", CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                        "reason", ""
+                ))
+        ));
+
+        assertThrows(IllegalArgumentException.class, () -> node.execute(context));
     }
 
     private GenerationAgentContext newContext(boolean hasGeneratedCode) {

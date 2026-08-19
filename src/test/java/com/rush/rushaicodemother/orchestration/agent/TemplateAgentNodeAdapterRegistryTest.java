@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
@@ -30,14 +31,31 @@ class TemplateAgentNodeAdapterRegistryTest {
     void registeredAdapterMustExtendTemplateBootstrapWithoutChangingDagNode() {
         GenerationTemplateBootstrapAdapter htmlAdapter = adapter(
                 CodeGenTypeEnum.HTML,
-                Map.of("bootstrapped", true, "templateId", "html-test")
+                stablePayload(CodeGenTypeEnum.HTML, "html-test")
         );
         TemplateAgentNode node = new TemplateAgentNode(registry(htmlAdapter));
 
         AgentNodeResult result = node.execute(context(CodeGenTypeEnum.HTML));
 
         assertEquals("完成", result.summary());
-        assertEquals("html-test", result.artifacts().getFirst().payload().get("templateId"));
+        assertEquals(
+                "html-test",
+                TemplateBootstrapArtifact.fromArtifact(result.artifacts().getFirst()).templateId()
+        );
+    }
+
+    @Test
+    void malformedStableTemplateFactMustFailBeforePublishingToTheDag() {
+        Map<String, Object> malformed = new java.util.LinkedHashMap<>(
+                stablePayload(CodeGenTypeEnum.HTML, "html-test"));
+        malformed.put("fileCount", "many");
+        TemplateAgentNode node = new TemplateAgentNode(registry(
+                adapter(CodeGenTypeEnum.HTML, malformed)));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> node.execute(context(CodeGenTypeEnum.HTML))
+        );
     }
 
     @Test
@@ -104,6 +122,17 @@ class TemplateAgentNodeAdapterRegistryTest {
                 );
             }
         };
+    }
+
+    private Map<String, Object> stablePayload(CodeGenTypeEnum codeGenType, String templateId) {
+        return Map.of(
+                "bootstrapped", true,
+                "templateId", templateId,
+                "projectPath", "target/test-workspaces/template-agent/" + codeGenType.getValue(),
+                "fileCount", 1,
+                "targetType", codeGenType.getValue(),
+                "reason", ""
+        );
     }
 
     private GenerationTemplateBootstrapRegistry registry(

@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
@@ -11,7 +12,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 模板智能体节点。
@@ -46,12 +46,10 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
             return skipped("无需复制项目模板", targetType, "unsupported_template_type");
         }
         List<GenerationArtifact> artifacts = new ArrayList<>();
-        artifacts.add(GenerationArtifact.of(
-                "template_bootstrap",
-                "Template",
-                result.artifactName(),
-                result.templatePayload()
-        ));
+        GenerationArtifact templateArtifact = TemplateBootstrapArtifact
+                .fromPayload(result.templatePayload(), result.codeGenType())
+                .toArtifact(result.artifactName());
+        artifacts.add(templateArtifact);
         if (!result.contextPayload().isEmpty()) {
             artifacts.add(GenerationArtifact.of(
                     "full_stack_context",
@@ -60,24 +58,14 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
                     result.contextPayload()
             ));
         }
-        return AgentNodeResult.of(result.summary(), artifacts, result.templatePayload());
+        return AgentNodeResult.of(result.summary(), artifacts, templateArtifact.payload());
     }
 
     /** 返回{@code skipped}。 */
     private AgentNodeResult skipped(String summary, CodeGenTypeEnum targetType, String reason) {
-        GenerationArtifact skipped = GenerationArtifact.of(
-                "template_bootstrap",
-                "Template",
-                "项目模板",
-                Map.of(
-                        "bootstrapped", false,
-                        "templateId", "",
-                        "projectPath", "",
-                        "fileCount", 0,
-                        "targetType", targetType == null ? "" : targetType.getValue(),
-                        "reason", reason
-                )
-        );
+        GenerationArtifact skipped = TemplateBootstrapArtifact
+                .skipped(targetType, reason)
+                .toArtifact("项目模板");
         return AgentNodeResult.of(summary, List.of(skipped), skipped.payload());
     }
 

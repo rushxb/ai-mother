@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
@@ -52,15 +53,22 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
         List<Map<String, Object>> recipes = readRecipePayloads(context);
         List<Map<String, Object>> skills = readSkillPayloads(context);
-        String templateId = artifactStringValue(context, "template_bootstrap", "templateId", "");
-        boolean templateBootstrapped = artifactBooleanValue(context, "template_bootstrap", "bootstrapped");
+        TemplateBootstrapArtifact templateBootstrap = context
+                .getArtifact(TemplateBootstrapArtifact.KEY)
+                .map(artifact -> TemplateBootstrapArtifact.fromArtifact(
+                        artifact, context.getTargetType()))
+                .orElseGet(() -> TemplateBootstrapArtifact.skipped(
+                        context.getTargetType(), "artifact_missing"));
+        String templateId = templateBootstrap.templateId();
+        boolean templateBootstrapped = templateBootstrap.bootstrapped();
         boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
         boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
         String validationMode = artifactStringValue(context, "requirements", "validationMode",
                 requiresBuild ? "build_validation" : "review_only");
         String generationMode = artifactStringValue(context, "requirements", "generationMode",
                 patchFirst ? "patch_first_update" : "full_generation");
-        String prompt = buildExecutionPrompt(context, projectContext, modules, goals, skills, recipes);
+        String prompt = buildExecutionPrompt(
+                context, projectContext, modules, goals, skills, recipes, templateBootstrap);
         ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("enhancedPrompt", prompt);
@@ -100,7 +108,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                                         List<String> modules,
                                         List<String> goals,
                                         List<Map<String, Object>> skills,
-                                        List<Map<String, Object>> recipes) {
+                                        List<Map<String, Object>> recipes,
+                                        TemplateBootstrapArtifact templateBootstrap) {
         boolean patchFirst = artifactBooleanValue(context, "requirements", "patchFirst");
         boolean requiresBuild = artifactBooleanValue(context, "requirements", "requiresBuild");
         String validationMode = artifactStringValue(context, "requirements", "validationMode",
@@ -128,7 +137,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
             lines.add("");
             lines.add(projectContext);
         }
-        String templateId = artifactStringValue(context, "template_bootstrap", "templateId", "");
+        String templateId = templateBootstrap.templateId();
         if (context.getTargetType() == com.rush.rushaicodemother.model.enums.CodeGenTypeEnum.FULL_STACK_PROJECT) {
             appendFullStackContext(lines, context);
         }

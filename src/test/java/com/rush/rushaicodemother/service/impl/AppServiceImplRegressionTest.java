@@ -110,8 +110,8 @@ class AppServiceImplRegressionTest {
 
         assertEventPayload(finalizationService, preparation, "buildDiffSummaryEventData",
                 lifecycleArtifacts().get("diff_summary"), "diff", "created", "生成后差异摘要已生成");
-        assertEventPayload(finalizationService, preparation, "buildPatchResultEventData",
-                lifecycleArtifacts().get("patch_result"), "patch", "applied", "Patch 实际落盘结果已对齐");
+        assertPatchEventPayload(finalizationService, preparation,
+                lifecycleArtifacts().get("patch_result"), "applied", "Patch 实际落盘结果已对齐");
         assertEventPayload(finalizationService, preparation, "buildCommitResultEventData",
                 lifecycleArtifacts().get("generation_commit"), "commit", "committed", "生成结果已提交到本地 Git");
         assertEventPayload(failureRecoveryService, preparation, "buildRollbackRestoreEventData",
@@ -214,6 +214,29 @@ class AppServiceImplRegressionTest {
 
         assertEquals("Orchestrator", data.get("agent"));
         assertEquals(stage, data.get("stage"));
+        assertEquals(status, data.get("status"));
+        assertEquals(summary, data.get("summary"));
+        assertEquals("task-1", data.get("taskId"));
+        assertSame(artifact.payload(), data.get("artifact"));
+    }
+
+    private void assertPatchEventPayload(HeavyGenerationFinalizationService target,
+                                         GenerationPreparation preparation,
+                                         GenerationArtifact artifact,
+                                         String status,
+                                         String summary) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) invoke(
+                target,
+                "buildPatchResultEventData",
+                new Class<?>[]{Long.class, GenerationPreparation.class, GenerationArtifact.class},
+                1L,
+                preparation,
+                artifact
+        );
+
+        assertEquals("Orchestrator", data.get("agent"));
+        assertEquals("patch", data.get("stage"));
         assertEquals(status, data.get("status"));
         assertEquals(summary, data.get("summary"));
         assertEquals("task-1", data.get("taskId"));

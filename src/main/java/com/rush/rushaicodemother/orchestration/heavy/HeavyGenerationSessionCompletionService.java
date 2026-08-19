@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
@@ -211,10 +212,7 @@ public class HeavyGenerationSessionCompletionService {
             lines.add("变更计划：" + compactMemoryText(String.valueOf(changePlan.payload()), 900));
         }
         appendDiffSummaryMemory(lines, appId, preparation);
-        GenerationArtifact patchResult = preparation.artifact("patch_result");
-        if (patchResult != null) {
-            lines.add("Patch 结果：" + compactMemoryText(String.valueOf(patchResult.payload()), 700));
-        }
+        appendPatchResultMemory(lines, appId, preparation);
         if (preparation.qualityGateResult() != null) {
             lines.add("质量门禁：passed=" + preparation.qualityGateResult().passed()
                     + ", blockers=" + compactMemoryText(String.valueOf(preparation.qualityGateResult().blockers()), 500));
@@ -249,6 +247,38 @@ public class HeavyGenerationSessionCompletionService {
             lines.add("实际变更：" + compactMemoryText(changeFacts, 900));
         } catch (IllegalArgumentException | NullPointerException exception) {
             lines.add("差异摘要：制品无效，未纳入结果记忆");
+        }
+    }
+
+    /** 仅把校验通过且属于当前任务的补丁落盘事实写入长期记忆。 */
+    private void appendPatchResultMemory(List<String> lines,
+                                         Long appId,
+                                         GenerationPreparation preparation) {
+        GenerationArtifact artifact = preparation.artifact(PatchResult.KEY);
+        if (artifact == null) {
+            return;
+        }
+        try {
+            PatchResult result = PatchResult.fromArtifact(
+                    artifact,
+                    appId,
+                    preparation.taskId()
+            );
+            if (result.applied()) {
+                lines.add("Patch 结果：已对齐，匹配文件=" + result.matchedFileCount());
+                return;
+            }
+            if (result.drifted()) {
+                String driftFacts = "计划外=" + result.unplannedFileCount()
+                        + result.unplannedFiles()
+                        + "，计划内未落盘=" + result.missingPlannedFileCount()
+                        + result.missingPlannedFiles();
+                lines.add("Patch 结果：存在偏差，" + compactMemoryText(driftFacts, 700));
+                return;
+            }
+            lines.add("Patch 结果：已跳过，原因=" + compactMemoryText(result.reason(), 300));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            lines.add("Patch 结果：制品无效，未纳入结果记忆");
         }
     }
 

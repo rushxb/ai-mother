@@ -21,6 +21,8 @@ class DiffSummaryArtifactArchitectureTest {
                 "heavy", "HeavyGenerationSessionCompletionService.java"));
         assertTypedConsumer(Path.of(
                 "snapshot", "GenerationCommitService.java"));
+        assertTypedConsumer(Path.of(
+                "patch", "GenerationPatchResultService.java"));
     }
 
     @Test

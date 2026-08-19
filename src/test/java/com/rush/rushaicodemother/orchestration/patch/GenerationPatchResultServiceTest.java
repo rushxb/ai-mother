@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.patch;
 
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import org.junit.jupiter.api.Test;
@@ -20,7 +21,7 @@ class GenerationPatchResultServiceTest {
                 1L,
                 "task-1",
                 changePlan(List.of("src/New.vue"), List.of("src/App.vue"), List.of("src/Old.vue")),
-                diffSummary(List.of("src/New.vue"), List.of("src/App.vue"), List.of("src/Old.vue"))
+                diffSummary(1L, "task-1", List.of("src/New.vue"), List.of("src/App.vue"), List.of("src/Old.vue"))
         );
 
         assertEquals("applied", result.status());
@@ -35,7 +36,7 @@ class GenerationPatchResultServiceTest {
                 2L,
                 "task-2",
                 changePlan(List.of(), List.of("src/App.vue"), List.of()),
-                diffSummary(List.of("src/New.vue"), List.of("src/App.vue"), List.of())
+                diffSummary(2L, "task-2", List.of("src/New.vue"), List.of("src/App.vue"), List.of())
         );
 
         assertEquals("drifted", result.status());
@@ -50,7 +51,7 @@ class GenerationPatchResultServiceTest {
                 3L,
                 "task-3",
                 changePlan(List.of(), List.of("src/App.vue", "src/Form.vue"), List.of()),
-                diffSummary(List.of(), List.of("src/App.vue"), List.of())
+                diffSummary(3L, "task-3", List.of(), List.of("src/App.vue"), List.of())
         );
 
         assertEquals("drifted", result.status());
@@ -63,11 +64,39 @@ class GenerationPatchResultServiceTest {
                 4L,
                 "task-4",
                 changePlan(List.of(), List.of("src/App.vue"), List.of()),
-                GenerationArtifact.of("diff_summary", "test", "diff", Map.of("status", "skipped"))
+                DiffSummary.skipped(
+                        4L,
+                        "task-4",
+                        "D:/workspace/base",
+                        "D:/workspace/current",
+                        "snapshot_unavailable"
+                ).toArtifact()
         );
 
         assertEquals("skipped", result.status());
         assertEquals("diff_summary_not_created", result.reason());
+    }
+
+    @Test
+    void shouldRejectDiffSummaryFromAnotherGenerationContext() {
+        PatchResult result = service.evaluate(
+                4L,
+                "task-4",
+                changePlan(List.of(), List.of("src/App.vue"), List.of()),
+                DiffSummary.created(
+                        99L,
+                        "foreign-task",
+                        "D:/workspace/base",
+                        "D:/workspace/current",
+                        List.of(),
+                        List.of("src/App.vue"),
+                        List.of(),
+                        List.of()
+                ).toArtifact()
+        );
+
+        assertEquals("skipped", result.status());
+        assertEquals("diff_summary_invalid", result.reason());
     }
 
     private GenerationArtifact changePlan(List<String> addFiles, List<String> modifyFiles, List<String> deleteFiles) {
@@ -83,12 +112,20 @@ class GenerationPatchResultServiceTest {
         ));
     }
 
-    private GenerationArtifact diffSummary(List<String> addedFiles, List<String> modifiedFiles, List<String> deletedFiles) {
-        return GenerationArtifact.of("diff_summary", "test", "diff", Map.of(
-                "status", "created",
-                "addedFiles", addedFiles,
-                "modifiedFiles", modifiedFiles,
-                "deletedFiles", deletedFiles
-        ));
+    private GenerationArtifact diffSummary(Long appId,
+                                           String taskId,
+                                           List<String> addedFiles,
+                                           List<String> modifiedFiles,
+                                           List<String> deletedFiles) {
+        return DiffSummary.created(
+                appId,
+                taskId,
+                "D:/workspace/base",
+                "D:/workspace/current",
+                addedFiles,
+                modifiedFiles,
+                deletedFiles,
+                List.of()
+        ).toArtifact();
     }
 }

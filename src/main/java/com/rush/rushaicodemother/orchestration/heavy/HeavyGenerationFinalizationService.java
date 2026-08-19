@@ -180,17 +180,24 @@ public class HeavyGenerationFinalizationService {
     /**
  * 构建并返回补丁结果事件{@code Data}。
  *
+ * @param appId 应用编号
  * @param preparation {@code preparation} 对应的调用参数
  * @param patchResult 补丁结果
  * @return 补丁结果事件{@code Data}集合
  */
-    public Map<String, Object> buildPatchResultEventData(GenerationPreparation preparation,
+    public Map<String, Object> buildPatchResultEventData(Long appId,
+                                                         GenerationPreparation preparation,
                                                          GenerationArtifact patchResult) {
+        PatchResult result = PatchResult.fromArtifact(
+                patchResult,
+                appId,
+                preparation.taskId()
+        );
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agent", "Orchestrator");
         data.put("stage", "patch");
-        data.put("status", patchResult.payload().get("status"));
-        data.put("summary", "applied".equals(String.valueOf(patchResult.payload().get("status")))
+        data.put("status", result.status());
+        data.put("summary", result.applied()
                 ? "Patch 实际落盘结果已对齐"
                 : "Patch 实际落盘结果存在偏差或已跳过");
         data.put("taskId", preparation.taskId());
@@ -252,12 +259,7 @@ public class HeavyGenerationFinalizationService {
                 preparation.artifact("change_plan"),
                 diffSummary
         );
-        GenerationArtifact patchResultArtifact = GenerationArtifact.of(
-                "patch_result",
-                "Orchestrator",
-                "Patch 实际落盘结果",
-                patchResult.toPayload()
-        );
+        GenerationArtifact patchResultArtifact = patchResult.toArtifact();
         preparation.putArtifact(patchResultArtifact);
         generationOrchestrationMetricsCollector.recordPatchResult(
                 "agent",
@@ -266,7 +268,7 @@ public class HeavyGenerationFinalizationService {
         );
         session.emit(GenerationStreamEvent.agentEvent(
                 generationPatchResultService.renderText(patchResult),
-                buildPatchResultEventData(preparation, patchResultArtifact)
+                buildPatchResultEventData(appId, preparation, patchResultArtifact)
         ));
         emitOrphanFileReviewIfAvailable(appId, preparation, session);
     }

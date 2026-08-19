@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import org.junit.jupiter.api.Test;
 
@@ -125,6 +126,42 @@ class HeavyGenerationSessionCompletionServiceTest {
                 command.outcomeQuality() != null
                         && command.outcomeQuality().changedFileCount() == null
                         && !command.memorySummary().contains("src/App.vue")));
+    }
+
+    @Test
+    void foreignPatchResultMustNotPolluteOutcomeMemory() {
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
+        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
+                finalizer, mock(GenerationOutcomeMemoryService.class));
+        GenerationPreparation preparation = preparation();
+        preparation.putArtifact(new PatchResult(
+                "v1",
+                "local_diff",
+                "applied",
+                99L,
+                "foreign-task",
+                List.of("src/Foreign.vue"),
+                List.of(),
+                List.of(),
+                List.of("src/Foreign.vue"),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                1,
+                0,
+                0,
+                "",
+                null
+        ).toArtifact());
+        GenerationSession session = new GenerationSession(preparation);
+        session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
+
+        service.completeClaimed(1L, session, preparation, GenerationTerminalOutcome.SUCCESS);
+
+        verify(finalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.memorySummary().contains("Patch 结果：制品无效，未纳入结果记忆")
+                        && !command.memorySummary().contains("src/Foreign.vue")));
     }
 
     private GenerationPreparation preparation() {

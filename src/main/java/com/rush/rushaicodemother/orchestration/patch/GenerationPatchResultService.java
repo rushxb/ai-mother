@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import org.springframework.stereotype.Component;
@@ -39,16 +40,22 @@ public class GenerationPatchResultService {
         if ("project_bootstrap".equals(changePlan.changeScope())) {
             return PatchResult.skipped(appId, taskId, "project_bootstrap_not_patch_first");
         }
-        Map<String, Object> diffPayload = payload(diffSummaryArtifact);
-        if (diffPayload.isEmpty()) {
+        if (diffSummaryArtifact == null) {
             return PatchResult.skipped(appId, taskId, "diff_summary_missing");
         }
-        if (!"created".equals(String.valueOf(diffPayload.get("status")))) {
+        DiffSummary diffSummary;
+        try {
+            diffSummary = DiffSummary.fromArtifact(diffSummaryArtifact, appId, taskId);
+        } catch (IllegalArgumentException | NullPointerException invalidArtifact) {
+            // Patch 结果属于用户可见的落盘事实，损坏或串任务的差异制品必须失败关闭。
+            return PatchResult.skipped(appId, taskId, "diff_summary_invalid");
+        }
+        if (!diffSummary.created()) {
             return PatchResult.skipped(appId, taskId, "diff_summary_not_created");
         }
-        List<String> actualAddedFiles = normalizeFiles(diffPayload.get("addedFiles"));
-        List<String> actualModifiedFiles = normalizeFiles(diffPayload.get("modifiedFiles"));
-        List<String> actualDeletedFiles = normalizeFiles(diffPayload.get("deletedFiles"));
+        List<String> actualAddedFiles = normalizeFiles(diffSummary.addedFiles());
+        List<String> actualModifiedFiles = normalizeFiles(diffSummary.modifiedFiles());
+        List<String> actualDeletedFiles = normalizeFiles(diffSummary.deletedFiles());
         List<String> unplannedFiles = new ArrayList<>();
         unplannedFiles.addAll(outsidePlan("add", actualAddedFiles, changePlan.addFiles()));
         unplannedFiles.addAll(outsidePlan("modify", actualModifiedFiles, changePlan.modifyFiles()));
@@ -79,10 +86,10 @@ public class GenerationPatchResultService {
         if (result == null) {
             return "Patch 应用结果不可用";
         }
-        if ("applied".equals(result.status())) {
+        if (result.applied()) {
             return "Patch 应用结果已对齐 ChangePlan。";
         }
-        if ("drifted".equals(result.status())) {
+        if (result.drifted()) {
             return "Patch 应用结果偏离 ChangePlan：计划外 "
                     + result.unplannedFileCount()
                     + " 个，计划内未落盘 "

@@ -6,6 +6,8 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.workspace.layout.GenerationWorkspaceLayout;
+import com.rush.rushaicodemother.orchestration.workspace.layout.GenerationWorkspaceLayoutRegistry;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.FileAlreadyExistsException;
@@ -14,6 +16,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -40,29 +43,49 @@ public class GenerationWorkspaceService {
     private final GenerationWorkspaceExecutionScope executionScope;
     private final GenerationWorkspacePublicationCatalog publicationCatalog;
 
+    private final GenerationWorkspaceLayoutRegistry layoutRegistry;
+
     /** 非 Spring 调用者和重点单元测试的兼容性构造函数。 */
     public GenerationWorkspaceService(CodeStorageProperties storageProperties) {
         this(storageProperties, new GenerationWorkspaceExecutionScope(),
-                new GenerationWorkspacePublicationCatalog(storageProperties));
+                new GenerationWorkspacePublicationCatalog(storageProperties),
+                GenerationWorkspaceLayoutRegistry.defaults());
     }
 
     public GenerationWorkspaceService(CodeStorageProperties storageProperties,
                                       GenerationWorkspaceExecutionScope executionScope) {
         this(storageProperties, executionScope,
-                new GenerationWorkspacePublicationCatalog(storageProperties));
+                new GenerationWorkspacePublicationCatalog(storageProperties),
+                GenerationWorkspaceLayoutRegistry.defaults());
     }
 
-    /**
- * 创建生成工作区服务实例并完成必要的依赖和初始状态设置。
- *
- * @param storageProperties 存储属性
- * @param executionScope 执行作用域
- * @param publicationCatalog 发布目录
- */
-    @org.springframework.beans.factory.annotation.Autowired
+    /** 非 Spring 调用者的兼容构造函数，使用与生产一致的默认布局注册表。 */
     public GenerationWorkspaceService(CodeStorageProperties storageProperties,
                                       GenerationWorkspaceExecutionScope executionScope,
                                       GenerationWorkspacePublicationCatalog publicationCatalog) {
+        this(storageProperties, executionScope, publicationCatalog,
+                GenerationWorkspaceLayoutRegistry.defaults());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GenerationWorkspaceService(CodeStorageProperties storageProperties,
+                                      GenerationWorkspaceExecutionScope executionScope,
+                                      GenerationWorkspacePublicationCatalog publicationCatalog,
+                                      Optional<GenerationWorkspaceLayoutRegistry> layoutRegistry) {
+        this(storageProperties, executionScope, publicationCatalog,
+                layoutRegistry.orElseGet(GenerationWorkspaceLayoutRegistry::defaults));
+    }
+
+    /**
+     * 创建工作区服务；显式注入 registry 的调用方可替换或扩展工程布局。
+     *
+     * <p>Spring 最小测试上下文可能只注册本服务而不扫描 adapter，此时上方构造函数
+     * 使用同一套默认 adapter；完整应用则使用容器组装的 registry。</p>
+     */
+    public GenerationWorkspaceService(CodeStorageProperties storageProperties,
+                                      GenerationWorkspaceExecutionScope executionScope,
+                                      GenerationWorkspacePublicationCatalog publicationCatalog,
+                                      GenerationWorkspaceLayoutRegistry layoutRegistry) {
         this.storageProperties = Objects.requireNonNull(
                 storageProperties,
                 "storageProperties must not be null"
@@ -74,6 +97,10 @@ public class GenerationWorkspaceService {
         this.publicationCatalog = Objects.requireNonNull(
                 publicationCatalog,
                 "publicationCatalog must not be null"
+        );
+        this.layoutRegistry = Objects.requireNonNull(
+                layoutRegistry,
+                "layoutRegistry must not be null"
         );
     }
 
@@ -364,14 +391,7 @@ public class GenerationWorkspaceService {
             Boolean logicalExists
     ) {
         Path canonicalRootPath = location.canonicalRootPath();
-        Path frontendRootPath = codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT
-                ? canonicalRootPath.resolve("frontend")
-                : canonicalRootPath;
-        Path backendRootPath = switch (codeGenType) {
-            case FULL_STACK_PROJECT -> canonicalRootPath.resolve("backend");
-            case BACKEND_PROJECT -> canonicalRootPath;
-            default -> null;
-        };
+        GenerationWorkspaceLayout layout = layoutRegistry.resolve(codeGenType, canonicalRootPath);
         return new GenerationWorkspace(
                 appId,
                 codeGenType,
@@ -380,8 +400,8 @@ public class GenerationWorkspaceService {
                 logicalExists == null
                         ? Files.isDirectory(canonicalRootPath, LinkOption.NOFOLLOW_LINKS)
                         : logicalExists,
-                frontendRootPath.normalize(),
-                backendRootPath == null ? null : backendRootPath.normalize(),
+                layout.frontendRootPath(),
+                layout.backendRootPath(),
                 HIDDEN_FILE_NAMES,
                 EDITABLE_EXTENSIONS
         );

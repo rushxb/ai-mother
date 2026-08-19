@@ -59,6 +59,14 @@ class GenerationWorkspaceServiceTest {
     }
 
     @Test
+    void shouldExposeOnlyBackendRoleForBackendProjects() {
+        GenerationWorkspace workspace = service.resolve(457L, CodeGenTypeEnum.BACKEND_PROJECT);
+
+        assertNull(workspace.frontendRootPath());
+        assertEquals(workspace.canonicalRootPath(), workspace.backendRootPath());
+    }
+
+    @Test
     void shouldResolveWorkspaceByTaskIdentityWithoutPersistenceEntity() {
         GenerationWorkspace workspace = service.resolve(789L, CodeGenTypeEnum.FULL_STACK_PROJECT);
 

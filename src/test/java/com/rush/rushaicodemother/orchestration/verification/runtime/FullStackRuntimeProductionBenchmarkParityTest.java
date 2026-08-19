@@ -52,7 +52,7 @@ class FullStackRuntimeProductionBenchmarkParityTest {
                 ProjectRuntimeValidationResult.fromFullStack(sharedObservation);
         GeneratedFullStackRuntimeVerifier sharedVerifier =
                 mock(GeneratedFullStackRuntimeVerifier.class);
-        when(sharedVerifier.verify(any(), any(), any())).thenReturn(sharedObservation);
+        when(sharedVerifier.verify(any(Path.class), any(), any())).thenReturn(sharedObservation);
         FullStackGenerationBenchmarkRuntimeGrader benchmark =
                 new FullStackGenerationBenchmarkRuntimeGrader(
                         new GenerationBenchmarkBackendProperties(),

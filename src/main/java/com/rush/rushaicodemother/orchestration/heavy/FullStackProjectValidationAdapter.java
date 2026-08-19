@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.verification.runtime.FullStackRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedFullStackRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeRequest;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -114,7 +115,10 @@ public final class FullStackProjectValidationAdapter implements
             frontendRequest = frontendRequest.withExecutionFence(request.executionFence());
         }
         FullStackRuntimeValidationResult result = fullStackRuntimeVerifier.verify(
-                request.workspace().backendRootPath(),
+                new GeneratedBackendRuntimeRequest(
+                        request.workspace().backendRootPath(),
+                        request.maximumDuration(),
+                        request.cancellationRequested()),
                 frontendRequest,
                 BrowserRuntimeValidationPolicy.productionRuntime()
         );

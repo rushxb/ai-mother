@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.orchestration.benchmark.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.config.GenerationBenchmarkBackendProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -18,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /** 通过回环地址执行有界后端健康探测并校验响应契约。 */
 @Component
@@ -61,12 +64,27 @@ public class GenerationBenchmarkBackendHttpProbe {
  * @return {@code Healthy}
  */
     public GeneratedBackendRuntimeObservation awaitHealthy(Process process, int port) {
+        return awaitHealthy(process, port, properties.getStartupTimeout(), () -> false);
+    }
+
+    /** 等待健康契约成立，并在任务取消后立即停止探测。 */
+    public GeneratedBackendRuntimeObservation awaitHealthy(
+            Process process,
+            int port,
+            Duration maximumDuration,
+            BooleanSupplier cancellationRequested
+    ) {
         if (process == null || port < 1 || port > 65_535) {
             return GeneratedBackendRuntimeObservation.failed("backend_process_missing");
         }
+        BooleanSupplier effectiveCancellation = cancellationRequested == null
+                ? () -> false
+                : cancellationRequested;
+        Duration effectiveTimeout = clampTimeout(maximumDuration);
         long startedAt = System.nanoTime();
-        long timeoutNanos = properties.getStartupTimeout().toNanos();
+        long timeoutNanos = effectiveTimeout.toNanos();
         while (true) {
+            throwIfCancellationRequested(effectiveCancellation);
             if (Thread.currentThread().isInterrupted()) {
                 throw new IllegalStateException("后端运行时探测被中断");
             }
@@ -81,7 +99,7 @@ public class GenerationBenchmarkBackendHttpProbe {
             try {
                 return inspect(port, Duration.ofNanos(remainingNanos));
             } catch (IOException exception) {
-                sleepUntilNextAttempt(remainingNanos);
+                sleepUntilNextAttempt(remainingNanos, effectiveCancellation);
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("后端运行时探测被中断", exception);
@@ -180,13 +198,38 @@ public class GenerationBenchmarkBackendHttpProbe {
         }
     }
 
-    private void sleepUntilNextAttempt(long remainingNanos) {
+    private void sleepUntilNextAttempt(
+            long remainingNanos,
+            BooleanSupplier cancellationRequested
+    ) {
+        throwIfCancellationRequested(cancellationRequested);
         long sleepNanos = Math.min(properties.getPollInterval().toNanos(), remainingNanos);
         try {
             TimeUnit.NANOSECONDS.sleep(Math.max(1, sleepNanos));
+            throwIfCancellationRequested(cancellationRequested);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("后端运行时探测被中断", exception);
         }
+    }
+
+    private void throwIfCancellationRequested(BooleanSupplier cancellationRequested) {
+        if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
+            throw new GenerationExecutionCancelledException("后端运行时健康探测已取消");
+        }
+    }
+
+    private Duration clampTimeout(Duration maximumDuration) {
+        Duration configuredTimeout = properties.getStartupTimeout();
+        if (maximumDuration == null) {
+            return configuredTimeout;
+        }
+        if (maximumDuration.isZero() || maximumDuration.isNegative()) {
+            throw new GenerationExecutionPolicyException(
+                    "后端运行时健康探测没有剩余执行时间");
+        }
+        return configuredTimeout.compareTo(maximumDuration) <= 0
+                ? configuredTimeout
+                : maximumDuration;
     }
 }

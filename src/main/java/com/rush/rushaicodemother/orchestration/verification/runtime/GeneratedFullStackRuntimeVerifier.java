@@ -34,8 +34,20 @@ public class GeneratedFullStackRuntimeVerifier {
             DevServerValidationRequest frontendRequest,
             BrowserRuntimeValidationPolicy browserPolicy
     ) {
+        return verify(
+                GeneratedBackendRuntimeRequest.unmanaged(backendProjectDirectory),
+                frontendRequest,
+                browserPolicy);
+    }
+
+    /** 执行任务范围的全栈联合验证，后端启动与前端验证共享同一取消状态。 */
+    public FullStackRuntimeValidationResult verify(
+            GeneratedBackendRuntimeRequest backendRequest,
+            DevServerValidationRequest frontendRequest,
+            BrowserRuntimeValidationPolicy browserPolicy
+    ) {
         long startedAt = System.nanoTime();
-        if (backendProjectDirectory == null) {
+        if (backendRequest == null || backendRequest.projectDirectory() == null) {
             return failed(startedAt, "backend_project_directory_missing");
         }
         if (frontendRequest == null) {
@@ -44,8 +56,7 @@ public class GeneratedFullStackRuntimeVerifier {
         BrowserRuntimeValidationPolicy resolvedPolicy = browserPolicy == null
                 ? BrowserRuntimeValidationPolicy.productionRuntime()
                 : browserPolicy;
-        try (GeneratedBackendRuntimeHandle handle = backendRuntime.start(
-                backendProjectDirectory)) {
+        try (GeneratedBackendRuntimeHandle handle = backendRuntime.start(backendRequest)) {
             BackendRuntimeValidationResult initialBackend =
                     BackendRuntimeValidationResult.observe(handle, elapsedSince(startedAt));
             if (!initialBackend.passed()) {

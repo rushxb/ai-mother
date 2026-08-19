@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.core.builder.GoProjectBuilder;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.verification.runtime.BackendRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeVerifier;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeRequest;
 import com.rush.rushaicodemother.orchestration.verification.runtime.ProjectRuntimeValidationResult;
 import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
@@ -71,7 +72,10 @@ public final class BackendProjectValidationAdapter implements
             GenerationProjectRuntimeValidationRequest request
     ) {
         BackendRuntimeValidationResult result = backendRuntimeVerifier.verify(
-                request.workspace().backendRootPath());
+                new GeneratedBackendRuntimeRequest(
+                        request.workspace().backendRootPath(),
+                        request.maximumDuration(),
+                        request.cancellationRequested()));
         return ProjectRuntimeValidationResult.fromBackend(result);
     }
 }

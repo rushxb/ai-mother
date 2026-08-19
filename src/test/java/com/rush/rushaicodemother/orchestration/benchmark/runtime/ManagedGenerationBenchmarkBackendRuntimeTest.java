@@ -9,8 +9,10 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,7 +29,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -57,7 +62,9 @@ class ManagedGenerationBenchmarkBackendRuntimeTest {
         FakeProcess process = new FakeProcess();
         AtomicReference<ManagedProcessRequest> capturedRequest = new AtomicReference<>();
         when(goToolchain.goExecutable()).thenReturn("go.exe");
-        when(probe.awaitHealthy(process, port)).thenReturn(GeneratedBackendRuntimeObservation.passed());
+        when(probe.awaitHealthy(
+                eq(process), eq(port), any(Duration.class), any()))
+                .thenReturn(GeneratedBackendRuntimeObservation.passed());
         when(processExecutor.execute(any(ManagedProcessRequest.class))).thenAnswer(invocation -> {
             ManagedProcessRequest request = invocation.getArgument(0);
             capturedRequest.set(request);
@@ -128,7 +135,8 @@ class ManagedGenerationBenchmarkBackendRuntimeTest {
         FakeProcess process = new FakeProcess();
         AtomicReference<ManagedProcessRequest> capturedRequest = new AtomicReference<>();
         when(goToolchain.goExecutable()).thenReturn("go.exe");
-        when(probe.awaitHealthy(process, port)).thenAnswer(invocation -> {
+        when(probe.awaitHealthy(
+                eq(process), eq(port), any(Duration.class), any())).thenAnswer(invocation -> {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("后端运行时探测被中断");
         });
@@ -173,6 +181,78 @@ class ManagedGenerationBenchmarkBackendRuntimeTest {
         assertEquals("后端运行时探测被中断", failure.getMessage());
         assertFalse(process.isAlive());
         Path stagedProject = capturedRequest.get().workingDirectory();
+        awaitDeletion(stagedProject);
+        assertFalse(Files.exists(stagedProject));
+        try (GenerationBenchmarkBackendPortAllocator.PortLease reused = allocator.reserve()) {
+            assertEquals(port, reused.port());
+        }
+    }
+
+    @Test
+    void taskCancellationMustStopProcessAndReleaseStagedWorkspaceAndPort() throws Exception {
+        Path source = createBackendProject();
+        int port = findAvailablePort();
+        GenerationBenchmarkBackendProperties properties = properties(port);
+        GenerationBenchmarkBackendPortAllocator allocator =
+                new GenerationBenchmarkBackendPortAllocator(properties);
+        GenerationBenchmarkBackendHttpProbe probe = mock(GenerationBenchmarkBackendHttpProbe.class);
+        ManagedProcessExecutor processExecutor = mock(ManagedProcessExecutor.class);
+        ProjectProcessTerminator processTerminator = mock(ProjectProcessTerminator.class);
+        GoToolchain goToolchain = mock(GoToolchain.class);
+        FakeProcess process = new FakeProcess();
+        AtomicBoolean taskCancellationRequested = new AtomicBoolean();
+        AtomicReference<ManagedProcessRequest> capturedRequest = new AtomicReference<>();
+        when(goToolchain.goExecutable()).thenReturn("go.exe");
+        when(probe.awaitHealthy(
+                eq(process), eq(port), any(Duration.class), any())).thenAnswer(invocation -> {
+            BooleanSupplier cancellationRequested = invocation.getArgument(3);
+            taskCancellationRequested.set(true);
+            assertTrue(cancellationRequested.getAsBoolean());
+            throw new GenerationExecutionCancelledException("user_requested");
+        });
+        when(processExecutor.execute(any(ManagedProcessRequest.class))).thenAnswer(invocation -> {
+            ManagedProcessRequest request = invocation.getArgument(0);
+            capturedRequest.set(request);
+            request.lifecycle().onStarted(process);
+            process.waitFor();
+            request.lifecycle().onFinished(process);
+            return new ManagedProcessResult(
+                    ManagedProcessResult.Status.COMPLETED,
+                    "go run -mod=readonly ./cmd/server",
+                    0,
+                    "",
+                    "",
+                    null
+            );
+        });
+        when(processTerminator.terminate(process)).thenAnswer(invocation -> {
+            process.destroy();
+            return true;
+        });
+        ManagedGenerationBenchmarkBackendRuntime runtime =
+                new ManagedGenerationBenchmarkBackendRuntime(
+                        properties,
+                        allocator,
+                        probe,
+                        processExecutor,
+                        processTerminator,
+                        new WorkspaceFileSystemService(new WorkspaceFileSystemProperties()),
+                        goToolchain
+                );
+
+        assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> runtime.start(new GeneratedBackendRuntimeRequest(
+                        source,
+                        Duration.ofSeconds(2),
+                        taskCancellationRequested::get
+                ))
+        );
+
+        ManagedProcessRequest managedRequest = capturedRequest.get();
+        assertTrue(managedRequest.cancellationRequested().getAsBoolean());
+        assertFalse(process.isAlive());
+        Path stagedProject = managedRequest.workingDirectory();
         awaitDeletion(stagedProject);
         assertFalse(Files.exists(stagedProject));
         try (GenerationBenchmarkBackendPortAllocator.PortLease reused = allocator.reserve()) {

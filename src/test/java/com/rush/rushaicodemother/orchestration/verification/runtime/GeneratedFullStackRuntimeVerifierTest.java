@@ -22,6 +22,10 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class GeneratedFullStackRuntimeVerifierTest {
@@ -67,7 +72,8 @@ class GeneratedFullStackRuntimeVerifierTest {
                 .toAbsolutePath().normalize();
         AtomicBoolean backendAlive = new AtomicBoolean(true);
         AtomicBoolean backendClosed = new AtomicBoolean(false);
-        when(backendRuntime.start(backendPath)).thenReturn(new GeneratedBackendRuntimeHandle(
+        when(backendRuntime.start(any(GeneratedBackendRuntimeRequest.class)))
+                .thenReturn(new GeneratedBackendRuntimeHandle(
                 19_101,
                 GeneratedBackendRuntimeObservation.passed(),
                 backendAlive::get,
@@ -107,7 +113,8 @@ class GeneratedFullStackRuntimeVerifierTest {
         Path backendPath = Path.of("target", "fullstack-cancel", "backend")
                 .toAbsolutePath().normalize();
         AtomicBoolean backendClosed = new AtomicBoolean(false);
-        when(backendRuntime.start(backendPath)).thenReturn(new GeneratedBackendRuntimeHandle(
+        when(backendRuntime.start(any(GeneratedBackendRuntimeRequest.class)))
+                .thenReturn(new GeneratedBackendRuntimeHandle(
                 19_101,
                 GeneratedBackendRuntimeObservation.passed(),
                 () -> true,
@@ -129,6 +136,51 @@ class GeneratedFullStackRuntimeVerifierTest {
         ));
 
         assertTrue(backendClosed.get());
+    }
+
+    @Test
+    void cancellationDuringBackendStartupMustAbortBeforeFrontendValidation() throws Exception {
+        String taskId = "cancel-during-backend-startup";
+        Path backendPath = Path.of("target", "fullstack-startup-cancel", "backend")
+                .toAbsolutePath().normalize();
+        CountDownLatch backendStartupEntered = new CountDownLatch(1);
+        executionContextService.start(taskId, 103L, 7L);
+        when(backendRuntime.start(any(GeneratedBackendRuntimeRequest.class)))
+                .thenAnswer(invocation -> {
+                    GeneratedBackendRuntimeRequest request = invocation.getArgument(0);
+                    backendStartupEntered.countDown();
+                    while (!request.isCancellationRequested()) {
+                        Thread.sleep(5);
+                    }
+                    throw new GenerationExecutionCancelledException("user_requested");
+                });
+        CompletableFuture<FullStackRuntimeValidationResult> validation =
+                CompletableFuture.supplyAsync(() -> verifier.verify(
+                        new GeneratedBackendRuntimeRequest(
+                                backendPath,
+                                Duration.ofSeconds(5),
+                                () -> executionContextService.shouldStop(taskId)),
+                        DevServerValidationRequest.of(
+                                taskId,
+                                103L,
+                                7L,
+                                CodeGenTypeEnum.FULL_STACK_PROJECT),
+                        new BrowserRuntimeValidationPolicy(Duration.ZERO, false)));
+
+        try {
+            assertTrue(backendStartupEntered.await(1, TimeUnit.SECONDS));
+            executionContextService.cancelByTaskId(taskId, "user_requested");
+
+            ExecutionException failure = assertThrows(
+                    ExecutionException.class,
+                    () -> validation.get(500, TimeUnit.MILLISECONDS));
+
+            assertTrue(failure.getCause() instanceof GenerationExecutionCancelledException);
+            verifyNoInteractions(devServerManager);
+        } finally {
+            executionContextService.cancelByTaskId(taskId, "test_cleanup");
+            validation.cancel(true);
+        }
     }
 
     private BrowserRuntimeObservation healthyObservation(URI target) {

@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark.runtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.config.GenerationBenchmarkBackendProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -18,8 +19,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationBenchmarkBackendHttpProbeTest {
@@ -90,6 +93,18 @@ class GenerationBenchmarkBackendHttpProbeTest {
         );
 
         assertTrue(observation.violations().contains("backend_process_exited"));
+    }
+
+    @Test
+    void taskCancellationMustAbortHealthProbeWithoutWaitingForStartupTimeout() {
+        AtomicBoolean cancelled = new AtomicBoolean(true);
+
+        assertThrows(GenerationExecutionCancelledException.class, () ->
+                probe().awaitHealthy(
+                        FakeProcess.running(),
+                        19_001,
+                        Duration.ofSeconds(5),
+                        cancelled::get));
     }
 
     private GenerationBenchmarkBackendHttpProbe probe() {

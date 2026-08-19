@@ -60,7 +60,8 @@ class VueRuntimeProductionBenchmarkParityTest {
                 mock(VueProjectBuilder.class), sharedVerifier);
         ProjectRuntimeValidationResult productionResult = production.validateRuntime(
                 new GenerationProjectRuntimeValidationRequest(
-                        "vue-runtime", 41L, 9L, workspace(), null, () -> { }
+                        "vue-runtime", 41L, 9L, workspace(), null, null,
+                        () -> false, () -> { }
                 ));
 
         GenerationBenchmarkBrowserProperties properties = new GenerationBenchmarkBrowserProperties();

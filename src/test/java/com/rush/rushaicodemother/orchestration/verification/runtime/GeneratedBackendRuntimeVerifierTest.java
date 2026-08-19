@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 class GeneratedBackendRuntimeVerifierTest {
@@ -20,7 +21,8 @@ class GeneratedBackendRuntimeVerifierTest {
     void healthyBackendMustReturnObservedRuntimeEvidenceAndReleaseHandle() {
         GeneratedBackendRuntime runtime = mock(GeneratedBackendRuntime.class);
         AtomicBoolean closed = new AtomicBoolean(false);
-        when(runtime.start(backendProject)).thenReturn(new GeneratedBackendRuntimeHandle(
+        when(runtime.start(any(GeneratedBackendRuntimeRequest.class)))
+                .thenReturn(new GeneratedBackendRuntimeHandle(
                 19_201,
                 GeneratedBackendRuntimeObservation.passed(),
                 () -> true,

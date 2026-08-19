@@ -17,6 +17,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 class BackendRuntimeProductionBenchmarkParityTest {
@@ -30,8 +31,9 @@ class BackendRuntimeProductionBenchmarkParityTest {
                 mock(GeneratedBackendRuntime.class);
         GeneratedBackendRuntimeObservation observation =
                 GeneratedBackendRuntimeObservation.failed("backend_health_json_invalid");
+        when(sharedRuntime.start(any(GeneratedBackendRuntimeRequest.class))).thenReturn(
+                GeneratedBackendRuntimeHandle.failed(observation));
         when(sharedRuntime.start(backendProject)).thenReturn(
-                GeneratedBackendRuntimeHandle.failed(observation),
                 GeneratedBackendRuntimeHandle.failed(observation));
         GeneratedBackendRuntimeVerifier productionVerifier =
                 new GeneratedBackendRuntimeVerifier(sharedRuntime);

@@ -12,14 +12,18 @@ import com.rush.rushaicodemother.infrastructure.process.ManagedProcessRequest;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessResult;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.SandboxNetworkPolicy;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeHandle;
 import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeObservation;
-import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntime;
+import com.rush.rushaicodemother.orchestration.verification.runtime.GeneratedBackendRuntimeRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 /** 使用统一进程边界在一次性工作区副本中运行生成的 Go 后端。 */
 @Slf4j
@@ -67,46 +72,70 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
     /**
  * 启动{@code Managed}生成基准测试后端运行时。
  *
- * @param backendProjectDirectory 后端项目目录
+ * @param request 后端运行时请求
  * @return {@code Managed}生成基准测试后端运行时
  */
     @Override
-    public GeneratedBackendRuntimeHandle start(Path backendProjectDirectory) {
+    public GeneratedBackendRuntimeHandle start(GeneratedBackendRuntimeRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("后端运行时请求不能为空");
+        }
         Path stagedProject = null;
         GenerationBenchmarkBackendPortAllocator.PortLease portLease = null;
         RuntimeCleanup cleanup = null;
+        Duration executionWindow = request.clamp(properties.getStartupTimeout());
+        long deadlineNanos = deadlineAfter(executionWindow);
+        BooleanSupplier taskCancellationRequested = request.cancellationRequested();
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            stagedProject = stageProject(backendProjectDirectory);
+            throwIfCancellationRequested(taskCancellationRequested);
+            ensureTimeRemaining(deadlineNanos);
+            stagedProject = stageProject(request.projectDirectory());
+            throwIfCancellationRequested(taskCancellationRequested);
+            ensureTimeRemaining(deadlineNanos);
             portLease = portAllocator.reserve();
-            AtomicBoolean cancellationRequested = new AtomicBoolean(false);
+            AtomicBoolean cleanupCancellationRequested = new AtomicBoolean(false);
+            BooleanSupplier stopRequested = () -> cleanupCancellationRequested.get()
+                    || taskCancellationRequested.getAsBoolean();
             AtomicReference<Process> processReference = new AtomicReference<>();
             CompletableFuture<Process> processStarted = new CompletableFuture<>();
             CompletableFuture<ManagedProcessResult> processCompletion = new CompletableFuture<>();
             cleanup = new RuntimeCleanup(
                     stagedProject,
                     portLease,
-                    cancellationRequested,
+                    cleanupCancellationRequested,
                     processReference,
                     processCompletion
             );
 
-            ManagedProcessRequest request = buildRequest(
+            ManagedProcessRequest managedRequest = buildRequest(
                     stagedProject,
                     portLease.port(),
-                    cancellationRequested,
+                    clampToRemaining(properties.getProcessTimeout(), deadlineNanos),
+                    stopRequested,
                     processReference,
                     processStarted
             );
             portLease.releaseBindingForProcessStart();
-            startProcess(request, processCompletion);
-            Process process = awaitProcessStart(processStarted, processCompletion);
+            startProcess(managedRequest, processCompletion);
+            Process process = awaitProcessStart(
+                    processStarted,
+                    processCompletion,
+                    remainingDuration(deadlineNanos));
+            throwIfCancellationRequested(taskCancellationRequested);
             if (process == null) {
+                // 等待窗口耗尽属于任务策略边界，不能降级成普通运行时失败后继续修复。
+                ensureTimeRemaining(deadlineNanos);
                 GeneratedBackendRuntimeObservation observation = launchFailure(processCompletion);
                 cleanup.close();
                 return GeneratedBackendRuntimeHandle.failed(observation);
             }
-            GeneratedBackendRuntimeObservation observation = httpProbe.awaitHealthy(process, portLease.port());
+            GeneratedBackendRuntimeObservation observation = httpProbe.awaitHealthy(
+                    process,
+                    portLease.port(),
+                    remainingDuration(deadlineNanos),
+                    stopRequested);
+            throwIfCancellationRequested(taskCancellationRequested);
             if (!observation.passedValidation()) {
                 cleanup.close();
                 return GeneratedBackendRuntimeHandle.failed(observation);
@@ -119,6 +148,9 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
                     process::isAlive,
                     ownedCleanup::close
             );
+        } catch (GenerationExecutionPolicyException exception) {
+            closePartial(cleanup, stagedProject, portLease);
+            throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             closePartial(cleanup, stagedProject, portLease);
@@ -163,7 +195,8 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
     private ManagedProcessRequest buildRequest(
             Path stagedProject,
             int port,
-            AtomicBoolean cancellationRequested,
+            Duration processTimeout,
+            BooleanSupplier cancellationRequested,
             AtomicReference<Process> processReference,
             CompletableFuture<Process> processStarted
     ) {
@@ -185,7 +218,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
                 .displayCommand(DISPLAY_COMMAND)
                 .environment(Map.copyOf(environment))
                 .environmentVariablesToRemove(GoProcessEnvironment.variablesToRemove())
-                .timeout(properties.getProcessTimeout())
+                .timeout(processTimeout)
                 .heartbeatInterval(properties.getHeartbeatInterval())
                 .outputDrainTimeout(properties.getOutputDrainTimeout())
                 .maxOutputLength(properties.getMaxOutputLength())
@@ -193,7 +226,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
                 .outputLogPolicy(ManagedProcessOutputLogPolicy.SUMMARY)
                 .logCategory("benchmark-backend-runtime")
                 .logContext("port=" + port)
-                .cancellationRequested(cancellationRequested::get)
+                .cancellationRequested(cancellationRequested)
                 .lifecycle(new ManagedProcessLifecycle() {
                     /**
  * 响应已启动事件。
@@ -204,7 +237,7 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
                     public void onStarted(Process process) {
                         processReference.set(process);
                         processStarted.complete(process);
-                        if (cancellationRequested.get()) {
+                        if (cancellationRequested.getAsBoolean()) {
                             processTerminator.terminate(process);
                         }
                     }
@@ -212,6 +245,38 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
                 .networkPolicy(SandboxNetworkPolicy.RUNTIME_INTERNAL)
                 .exposedPort(port)
                 .build();
+    }
+
+    private void throwIfCancellationRequested(BooleanSupplier cancellationRequested) {
+        if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
+            throw new GenerationExecutionCancelledException("后端运行时验证已取消");
+        }
+    }
+
+    private long deadlineAfter(Duration duration) {
+        if (duration == null || duration.isZero() || duration.isNegative()) {
+            throw new GenerationExecutionPolicyException("后端运行时验证没有剩余执行时间");
+        }
+        return System.nanoTime() + duration.toNanos();
+    }
+
+    private void ensureTimeRemaining(long deadlineNanos) {
+        if (deadlineNanos - System.nanoTime() <= 0) {
+            throw new GenerationExecutionPolicyException("后端运行时验证已耗尽执行时间");
+        }
+    }
+
+    private Duration remainingDuration(long deadlineNanos) {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+            throw new GenerationExecutionPolicyException("后端运行时验证已耗尽执行时间");
+        }
+        return Duration.ofNanos(remainingNanos);
+    }
+
+    private Duration clampToRemaining(Duration configuredDuration, long deadlineNanos) {
+        Duration remaining = remainingDuration(deadlineNanos);
+        return configuredDuration.compareTo(remaining) <= 0 ? configuredDuration : remaining;
     }
 
     /** 启动进程。 */
@@ -233,11 +298,12 @@ public class ManagedGenerationBenchmarkBackendRuntime implements GeneratedBacken
     /** 等待进程开始完成。 */
     private Process awaitProcessStart(
             CompletableFuture<Process> processStarted,
-            CompletableFuture<ManagedProcessResult> processCompletion
+            CompletableFuture<ManagedProcessResult> processCompletion,
+            Duration maximumDuration
     ) throws InterruptedException {
         try {
             CompletableFuture.anyOf(processStarted, processCompletion)
-                    .get(properties.getStartupTimeout().toNanos(), TimeUnit.NANOSECONDS);
+                    .get(maximumDuration.toNanos(), TimeUnit.NANOSECONDS);
             return processStarted.getNow(null);
         } catch (TimeoutException exception) {
             return null;

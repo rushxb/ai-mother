@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.verification.runtime;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -24,11 +25,16 @@ public class GeneratedBackendRuntimeVerifier {
     }
 
     public BackendRuntimeValidationResult verify(Path backendProjectDirectory) {
+        return verify(GeneratedBackendRuntimeRequest.unmanaged(backendProjectDirectory));
+    }
+
+    /** 执行任务范围的后端运行时验证，并保留取消异常语义。 */
+    public BackendRuntimeValidationResult verify(GeneratedBackendRuntimeRequest request) {
         long startedAt = System.nanoTime();
-        if (backendProjectDirectory == null) {
+        if (request == null || request.projectDirectory() == null) {
             return BackendRuntimeValidationResult.failed(0, "backend_project_directory_missing");
         }
-        try (GeneratedBackendRuntimeHandle handle = backendRuntime.start(backendProjectDirectory)) {
+        try (GeneratedBackendRuntimeHandle handle = backendRuntime.start(request)) {
             if (handle == null) {
                 return BackendRuntimeValidationResult.failed(
                         elapsedSince(startedAt), "backend_runtime_handle_missing");
@@ -37,6 +43,8 @@ public class GeneratedBackendRuntimeVerifier {
                     handle,
                     elapsedSince(startedAt)
             );
+        } catch (GenerationExecutionPolicyException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             if (Thread.currentThread().isInterrupted()) {
                 throw exception;

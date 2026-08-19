@@ -127,6 +127,8 @@ class GenerationProjectRuntimeValidationServiceTest {
                 2L,
                 workspace,
                 null,
+                null,
+                () -> false,
                 () -> { }
         );
     }

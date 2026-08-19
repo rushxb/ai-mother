@@ -356,6 +356,10 @@ public class HeavyGenerationBuildValidationService {
                 session.executionContext() == null
                         ? null
                         : session.executionContext().executionFence(),
+                session.executionContext() == null
+                        ? null
+                        : session.executionContext().remainingDuration(),
+                session::isCancelled,
                 () -> publishProvisionalPreviewSafely(session, preparation.targetType())
         );
     }

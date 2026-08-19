@@ -15,9 +15,21 @@ import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
+import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,9 +41,55 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class HeavyGenerationSessionCompletionServiceTest {
+
+    @Test
+    void publishedSuccessWithoutPreparedTerminalIntentMustFailClosed() {
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
+        DurableGenerationTaskRepository repository = mock(DurableGenerationTaskRepository.class);
+        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
+                finalizer,
+                mock(GenerationOutcomeMemoryService.class),
+                new GenerationTerminalIntentService(repository));
+        GenerationPreparation preparation = preparation();
+        GenerationSession session = managedSession(preparation);
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> service.completeClaimed(
+                        1L, session, preparation, GenerationTerminalOutcome.SUCCESS));
+
+        assertEquals("已发布任务缺少可恢复终态意图", failure.getMessage());
+        verify(finalizer, never()).finalizeManaged(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void publishedSuccessMustFinalizeTheFrozenTerminalIntent() {
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
+        GenerationTerminalIntentService terminalIntentService = mock(GenerationTerminalIntentService.class);
+        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
+                finalizer, mock(GenerationOutcomeMemoryService.class), terminalIntentService);
+        GenerationPreparation preparation = preparation();
+        GenerationSession session = managedSession(preparation);
+        GenerationFinalizationCommand frozenIntent = GenerationFinalizationCommand.of(
+                preparation.taskId(),
+                1L,
+                session.executionContext().executionFence(),
+                GenerationTaskStatus.SUCCESS,
+                null,
+                "发布前冻结的完整记忆",
+                null);
+        when(terminalIntentService.requirePrepared(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(frozenIntent);
+
+        service.completeClaimed(1L, session, preparation, GenerationTerminalOutcome.SUCCESS);
+
+        verify(finalizer).finalizeManaged(frozenIntent);
+    }
 
     @Test
     void completedTaskMustNotBypassTheEnabledDurableOutbox() {
@@ -43,8 +101,7 @@ class HeavyGenerationSessionCompletionServiceTest {
         outboxProperties.setEnabled(true);
         GenerationOutcomeMemoryService outcomeMemoryService = new GenerationOutcomeMemoryService(
                 semanticMemoryService, longTermProperties, outboxProperties);
-        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
-                finalizer, outcomeMemoryService);
+        HeavyGenerationSessionCompletionService service = service(finalizer, outcomeMemoryService);
         GenerationPreparation preparation = preparation();
         GenerationSession session = new GenerationSession(preparation);
         session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
@@ -64,8 +121,9 @@ class HeavyGenerationSessionCompletionServiceTest {
     void failedTaskMustPersistOutcomeWithoutCharging() {
         GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
         GenerationOutcomeMemoryService outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
+        GenerationTerminalIntentService terminalIntentService = mock(GenerationTerminalIntentService.class);
         HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
-                finalizer, outcomeMemoryService);
+                finalizer, outcomeMemoryService, terminalIntentService);
         GenerationPreparation preparation = preparation();
         GenerationSession session = new GenerationSession(preparation);
         session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
@@ -78,14 +136,14 @@ class HeavyGenerationSessionCompletionServiceTest {
                         && command.status() == GenerationTaskStatus.FAILED
                         && command.reason().equals("failed")
                         && command.memorySummary() != null));
+        verifyNoInteractions(terminalIntentService);
     }
 
     @Test
     void memoryFailureMustNotTurnCommittedTerminalStateIntoFailure() {
         GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
         GenerationOutcomeMemoryService outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
-        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
-                finalizer, outcomeMemoryService);
+        HeavyGenerationSessionCompletionService service = service(finalizer, outcomeMemoryService);
         GenerationPreparation preparation = preparation();
         GenerationSession session = new GenerationSession(preparation);
         session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
@@ -103,8 +161,7 @@ class HeavyGenerationSessionCompletionServiceTest {
     void skippedDiffWithStaleCountMustNotPolluteOutcomeQuality() {
         GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
         GenerationOutcomeMemoryService outcomeMemoryService = mock(GenerationOutcomeMemoryService.class);
-        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
-                finalizer, outcomeMemoryService);
+        HeavyGenerationSessionCompletionService service = service(finalizer, outcomeMemoryService);
         GenerationPreparation preparation = preparation();
         Map<String, Object> stalePayload = new LinkedHashMap<>(DiffSummary.skipped(
                 1L,
@@ -131,7 +188,7 @@ class HeavyGenerationSessionCompletionServiceTest {
     @Test
     void foreignPatchResultMustNotPolluteOutcomeMemory() {
         GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
-        HeavyGenerationSessionCompletionService service = new HeavyGenerationSessionCompletionService(
+        HeavyGenerationSessionCompletionService service = service(
                 finalizer, mock(GenerationOutcomeMemoryService.class));
         GenerationPreparation preparation = preparation();
         preparation.putArtifact(new PatchResult(
@@ -177,6 +234,37 @@ class HeavyGenerationSessionCompletionServiceTest {
                 Map.of(),
                 "task-1"
         );
+    }
+
+    private HeavyGenerationSessionCompletionService service(
+            GenerationTaskFinalizer finalizer,
+            GenerationOutcomeMemoryService outcomeMemoryService) {
+        GenerationTerminalIntentService terminalIntentService = mock(GenerationTerminalIntentService.class);
+        when(terminalIntentService.requirePrepared(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        return new HeavyGenerationSessionCompletionService(
+                finalizer, outcomeMemoryService, terminalIntentService);
+    }
+
+    private GenerationSession managedSession(GenerationPreparation preparation) {
+        EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
+        for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
+            budgets.put(kind, 2);
+        }
+        Instant startedAt = Instant.parse("2026-08-19T00:00:00Z");
+        GenerationExecutionContext context = new GenerationExecutionContext(
+                preparation.taskId(),
+                1L,
+                2L,
+                startedAt,
+                new GenerationExecutionLimits(
+                        Duration.ofMinutes(10), Duration.ofMinutes(2), Duration.ofMillis(500), budgets),
+                Clock.fixed(startedAt.plusSeconds(30), ZoneOffset.UTC));
+        context.bindExecutionFence(new GenerationExecutionFence(
+                preparation.taskId(), "worker-1", 1L));
+        GenerationSession session = new GenerationSession(preparation, context);
+        session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
+        return session;
     }
 
     private App app() {

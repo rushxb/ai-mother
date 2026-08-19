@@ -26,6 +26,7 @@ import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFailureRecoveryService;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationFinalizationService;
 import com.rush.rushaicodemother.orchestration.heavy.HeavyGenerationSessionCompletionService;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
@@ -121,10 +122,14 @@ class AppServiceImplRegressionTest {
     @Test
     void shouldPersistTerminalLifecycleOnceWhenSessionCompletionIsClaimedOnce() {
         GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
+        GenerationTerminalIntentService terminalIntentService = mock(GenerationTerminalIntentService.class);
+        when(terminalIntentService.requirePrepared(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         HeavyGenerationSessionCompletionService completionService =
                 new HeavyGenerationSessionCompletionService(
                         finalizer,
-                        mock(GenerationOutcomeMemoryService.class));
+                        mock(GenerationOutcomeMemoryService.class),
+                        terminalIntentService);
         GenerationPreparation preparation = newPreparation(
                 lifecycleArtifacts(),
                 List.of(GenerationStreamEvent.agentEvent("route", Map.of("orchestrationMode", "light"))),

@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.util.Objects;
 
 /** 在用户可见发布前冻结可恢复的完整终态命令。 */
 @Service
@@ -30,12 +31,26 @@ public class GenerationTerminalIntentService {
         repository.prepareFinalizationIntent(command, clock.instant());
     }
 
-    public GenerationFinalizationCommand preparedOr(GenerationFinalizationCommand fallback) {
-        if (fallback == null || fallback.executionFence() == null) {
-            return fallback;
+    /**
+     * 读取发布前已经冻结的终态命令；缺失或串执行轮次时必须失败关闭。
+     *
+     * <p>文件系统发布与数据库终态无法组成同一事务。工作区一旦发布，后续正常收口和宕机恢复
+     * 都必须重放同一份持久命令，不能临时拼装一份“看起来相同”的成功终态，否则会丢失发布前
+     * 冻结的记忆、质量证据或执行所有权。</p>
+     */
+    public GenerationFinalizationCommand requirePrepared(GenerationFinalizationCommand expected) {
+        if (expected == null || expected.executionFence() == null) {
+            throw new IllegalArgumentException("已发布任务必须提供终态意图执行围栏");
         }
-        return repository.findFinalizationIntent(
-                        fallback.taskId(), fallback.executionFence().executionEpoch())
-                .orElse(fallback);
+        GenerationFinalizationCommand prepared = repository.findFinalizationIntent(
+                        expected.taskId(), expected.executionFence().executionEpoch())
+                .orElseThrow(() -> new IllegalStateException("已发布任务缺少可恢复终态意图"));
+        if (!Objects.equals(prepared.taskId(), expected.taskId())
+                || !Objects.equals(prepared.appId(), expected.appId())
+                || !Objects.equals(prepared.executionFence(), expected.executionFence())
+                || prepared.status() != expected.status()) {
+            throw new IllegalStateException("已发布任务终态意图与当前执行上下文不一致");
+        }
+        return prepared;
     }
 }

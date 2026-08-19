@@ -10,12 +10,12 @@ import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryRequest;
 import com.rush.rushaicodemother.memory.GenerationOutcomeMemoryService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,25 +29,16 @@ public class HeavyGenerationSessionCompletionService {
 
     private final GenerationTaskFinalizer generationTaskFinalizer;
     private final GenerationOutcomeMemoryService outcomeMemoryService;
-    private final com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService
-            terminalIntentService;
+    private final GenerationTerminalIntentService terminalIntentService;
 
     @Autowired
     public HeavyGenerationSessionCompletionService(
             GenerationTaskFinalizer generationTaskFinalizer,
             GenerationOutcomeMemoryService outcomeMemoryService,
-            com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService
-                    terminalIntentService) {
+            GenerationTerminalIntentService terminalIntentService) {
         this.generationTaskFinalizer = generationTaskFinalizer;
         this.outcomeMemoryService = outcomeMemoryService;
         this.terminalIntentService = terminalIntentService;
-    }
-
-    /** 遗留单测兼容构造入口。 */
-    public HeavyGenerationSessionCompletionService(
-            GenerationTaskFinalizer generationTaskFinalizer,
-            GenerationOutcomeMemoryService outcomeMemoryService) {
-        this(generationTaskFinalizer, outcomeMemoryService, null);
     }
 
     /**
@@ -77,8 +68,12 @@ public class HeavyGenerationSessionCompletionService {
                 memorySummary,
                 outcomeQuality
         );
-        generationTaskFinalizer.finalizeManaged(
-                terminalIntentService == null ? command : terminalIntentService.preparedOr(command));
+        GenerationFinalizationCommand finalizationCommand = command;
+        if (outcome == GenerationTerminalOutcome.SUCCESS) {
+            // 成功意味着工作区已经发布，必须重放发布前冻结的同一份终态命令。
+            finalizationCommand = terminalIntentService.requirePrepared(command);
+        }
+        generationTaskFinalizer.finalizeManaged(finalizationCommand);
         rememberOutcomeSafely(appId, session, preparation, outcome, memorySummary);
     }
 

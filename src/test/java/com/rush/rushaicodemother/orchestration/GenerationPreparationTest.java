@@ -64,4 +64,27 @@ class GenerationPreparationTest {
         assertTrue(enforced.requiresBuildValidation());
         assertTrue(enforced.artifact("validation_policy").payload().containsValue("EXPERT"));
     }
+
+    @Test
+    void malformedRequiresBuildFlagMustFailClosedForBuildCapableProject() {
+        GenerationPreparation preparation = new GenerationPreparation(
+                CodeGenTypeEnum.VUE_PROJECT,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false,
+                AppConstant.GENERATING_STAGE_CREATE,
+                "创建前端应用",
+                List.of(),
+                Map.of("generation_spec", GenerationArtifact.of(
+                        "generation_spec",
+                        "Planner",
+                        "生成规范",
+                        Map.of("requiresBuild", "false")
+                )),
+                QualityGateResult.passed(List.of(), List.of()),
+                Map.of(),
+                "task-vue-malformed-build-gate"
+        );
+
+        assertTrue(preparation.requiresBuildValidation());
+    }
 }

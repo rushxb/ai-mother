@@ -24,16 +24,21 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
                                     String taskId) {
 
     private static final String VALIDATION_POLICY_ARTIFACT = "validation_policy";
+    private static final String GENERATION_SPEC_ARTIFACT = "generation_spec";
+    private static final String REQUIRES_BUILD_FIELD = "requiresBuild";
 
     public String qualityGateLevel() {
         return qualityGateResult == null ? "unknown" : qualityGateResult.level();
     }
 
     /**
- * 校验并返回有效的{@code s}构建校验。
- *
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
+     * 返回当前生成准备是否必须执行构建校验。
+     *
+     * <p>Vue 与全栈工程只有在生成规范显式给出布尔值 {@code false} 时才允许跳过。
+     * 旧检查点缺失、载荷损坏或字段类型错误时采用 fail-closed 语义，避免静默降低质量门禁。</p>
+     *
+     * @return 必须执行构建校验时返回 {@code true}
+     */
     public boolean requiresBuildValidation() {
         if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
             return true;
@@ -44,15 +49,15 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
         GenerationArtifact validationPolicy = artifact(VALIDATION_POLICY_ARTIFACT);
         if (validationPolicy != null
                 && validationPolicy.payload() != null
-                && Boolean.TRUE.equals(validationPolicy.payload().get("requiresBuild"))) {
+                && Boolean.TRUE.equals(validationPolicy.payload().get(REQUIRES_BUILD_FIELD))) {
             return true;
         }
-        GenerationArtifact generationSpec = artifacts == null ? null : artifacts.get("generation_spec");
+        GenerationArtifact generationSpec = artifact(GENERATION_SPEC_ARTIFACT);
         if (generationSpec == null || generationSpec.payload() == null) {
             return true;
         }
-        Object requiresBuild = generationSpec.payload().get("requiresBuild");
-        return requiresBuild == null || Boolean.TRUE.equals(requiresBuild);
+        Object requiresBuild = generationSpec.payload().get(REQUIRES_BUILD_FIELD);
+        return !(requiresBuild instanceof Boolean buildRequired) || buildRequired;
     }
 
     /** 将路由层声明的最低校验级别固化到可恢复的生成准备中。 */

@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
@@ -27,7 +28,7 @@ public final class HeavyGenerationCompletionEvidenceFactory {
             return GenerationCompletionEvidenceSet.empty();
         }
         List<GenerationCompletionEvidence> evidence = new ArrayList<>();
-        if (hasArtifact(preparation, "requirements") || hasValidGenerationSpecification(preparation)) {
+        if (hasValidGenerationRequirements(preparation) || hasValidGenerationSpecification(preparation)) {
             evidence.add(GenerationCompletionEvidence.of(
                     GenerationCompletionEvidenceType.INTENT_COVERAGE,
                     "heavy_preparation",
@@ -124,8 +125,18 @@ public final class HeavyGenerationCompletionEvidenceFactory {
         }
     }
 
-    private static boolean hasArtifact(GenerationPreparation preparation, String key) {
-        GenerationArtifact artifact = preparation.artifact(key);
-        return artifact != null && artifact.payload() != null && !artifact.payload().isEmpty();
+    private static boolean hasValidGenerationRequirements(GenerationPreparation preparation) {
+        GenerationArtifact artifact = preparation.artifact(GenerationRequirementsArtifact.KEY);
+        if (artifact == null) {
+            return false;
+        }
+        try {
+            return GenerationRequirementsArtifact
+                    .fromArtifact(artifact, preparation.targetType())
+                    .provesIntentCoverage(preparation.targetType());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            // 旧检查点仍可恢复，但损坏或不完整的需求事实不能越过任务完成门禁。
+            return false;
+        }
     }
 }

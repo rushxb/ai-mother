@@ -20,6 +20,8 @@ class GenerationRequirementsArtifactArchitectureTest {
                 ORCHESTRATION_SOURCE_ROOT.resolve(Path.of("agent", "PlannerAgentNode.java")),
                 ORCHESTRATION_SOURCE_ROOT.resolve(Path.of("agent", "CodeAgentNode.java")),
                 ORCHESTRATION_SOURCE_ROOT.resolve(Path.of("dag", "GenerationAgentContext.java")),
+                ORCHESTRATION_SOURCE_ROOT.resolve(Path.of(
+                        "attempt", "completion", "HeavyGenerationCompletionEvidenceFactory.java")),
                 ORCHESTRATION_SOURCE_ROOT.resolve("GenerationPreparation.java")
         );
 
@@ -29,5 +31,18 @@ class GenerationRequirementsArtifactArchitectureTest {
                     .contains("GenerationRequirementsArtifact")
                     .doesNotContain("\"requirements\"");
         }
+    }
+
+    @Test
+    void completionEvidenceMustUseTheRequirementsDomainInvariant() throws Exception {
+        Path completionEvidenceFactory = ORCHESTRATION_SOURCE_ROOT.resolve(Path.of(
+                "attempt", "completion", "HeavyGenerationCompletionEvidenceFactory.java"));
+
+        assertThat(Files.readString(completionEvidenceFactory))
+                .contains(
+                        "GenerationRequirementsArtifact",
+                        ".fromArtifact",
+                        "provesIntentCoverage")
+                .doesNotContain("artifact.payload().isEmpty()");
     }
 }

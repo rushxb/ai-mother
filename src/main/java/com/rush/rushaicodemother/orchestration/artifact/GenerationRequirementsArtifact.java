@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Planner 需求制品的强类型事实模型。
@@ -21,9 +22,20 @@ public final class GenerationRequirementsArtifact {
 
     private static final String ROLE = "Planner";
     private static final String TITLE = "需求与目标";
+    private static final Set<String> INTENT_COVERAGE_FIELDS = Set.of(
+            "complex",
+            "targetType",
+            "upgradeRequired",
+            "patchFirst",
+            "requiresBuild",
+            "contextRecallSource",
+            "contextRecallQuery",
+            "goals"
+    );
 
     private final boolean complex;
     private final boolean complexityDeclared;
+    private final boolean intentCoverageFieldsDeclared;
     private final CodeGenTypeEnum targetType;
     private final boolean upgradeRequired;
     private final boolean patchFirst;
@@ -37,6 +49,7 @@ public final class GenerationRequirementsArtifact {
 
     private GenerationRequirementsArtifact(boolean complex,
                                            boolean complexityDeclared,
+                                           boolean intentCoverageFieldsDeclared,
                                            CodeGenTypeEnum targetType,
                                            boolean upgradeRequired,
                                            boolean patchFirst,
@@ -49,6 +62,7 @@ public final class GenerationRequirementsArtifact {
                                            List<Map<String, Object>> skills) {
         this.complex = complex;
         this.complexityDeclared = complexityDeclared;
+        this.intentCoverageFieldsDeclared = intentCoverageFieldsDeclared;
         this.targetType = Objects.requireNonNull(targetType, "需求制品目标类型不能为空");
         this.upgradeRequired = upgradeRequired;
         this.patchFirst = patchFirst;
@@ -76,6 +90,7 @@ public final class GenerationRequirementsArtifact {
             List<Map<String, Object>> skills) {
         return new GenerationRequirementsArtifact(
                 complex,
+                true,
                 true,
                 targetType,
                 upgradeRequired,
@@ -111,6 +126,7 @@ public final class GenerationRequirementsArtifact {
         GenerationRequirementsArtifact restored = new GenerationRequirementsArtifact(
                 optionalBoolean(payload, "complex", false),
                 payload.containsKey("complex"),
+                payload.keySet().containsAll(INTENT_COVERAGE_FIELDS),
                 targetType,
                 optionalBoolean(payload, "upgradeRequired", false),
                 optionalBoolean(payload, "patchFirst", false),
@@ -212,6 +228,22 @@ public final class GenerationRequirementsArtifact {
 
     public List<Map<String, Object>> skills() {
         return skills;
+    }
+
+    /**
+     * 判断当前需求事实能否作为任务完成时的意图覆盖证据。
+     *
+     * <p>兼容恢复允许旧检查点缺少部分字段，但完成证据必须更严格：关键规划事实需显式存在，
+     * 原始诉求与目标列表不能为空，并且制品目标类型必须与本次执行一致。</p>
+     */
+    public boolean provesIntentCoverage(CodeGenTypeEnum expectedTargetType) {
+        return intentCoverageFieldsDeclared
+                && complexityDeclared
+                && expectedTargetType != null
+                && targetType == expectedTargetType
+                && !"legacy_checkpoint".equals(contextRecallSource)
+                && !contextRecallQuery.isBlank()
+                && goals.stream().anyMatch(goal -> goal != null && !goal.isBlank());
     }
 
     private static List<String> idsOf(List<Map<String, Object>> payloads) {

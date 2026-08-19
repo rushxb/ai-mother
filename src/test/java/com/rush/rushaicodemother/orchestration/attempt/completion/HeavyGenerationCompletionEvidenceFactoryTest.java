@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
@@ -30,7 +31,19 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
     @Test
     void structuredArtifactsMustProduceCompleteExpertEvidence() {
         GenerationPreparation preparation = preparation(QualityGateResult.passed(List.of(), List.of("质量门禁通过")));
-        preparation.putArtifact(artifact("requirements", Map.of("intent", "生成管理后台")));
+        preparation.putArtifact(GenerationRequirementsArtifact.create(
+                true,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false,
+                true,
+                true,
+                "semantic_index",
+                "生成管理后台",
+                List.of(),
+                List.of("保留现有能力并生成管理后台"),
+                List.of(),
+                List.of()
+        ).toArtifact());
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
                 GenerationValidationObservation.passed(
@@ -64,6 +77,19 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
                 "requiresBuild", "true",
                 "validationMode", "build_validation",
                 "generationMode", "full_generation"
+        )));
+
+        GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
+                preparation, new GenerationSession(preparation));
+
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.INTENT_COVERAGE));
+    }
+
+    @Test
+    void malformedRequirementsMustNotProveIntentCoverage() {
+        GenerationPreparation preparation = preparation(null);
+        preparation.putArtifact(artifact("requirements", Map.of(
+                "intent", "生成管理后台"
         )));
 
         GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(

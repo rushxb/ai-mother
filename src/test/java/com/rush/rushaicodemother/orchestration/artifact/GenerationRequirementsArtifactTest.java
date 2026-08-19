@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,6 +45,8 @@ class GenerationRequirementsArtifactTest {
         assertEquals(List.of("保留已有能力", "同步前后端字段契约"), restored.goals());
         assertEquals(List.of("crud-form-flow"), persisted.payload().get("recipeIds"));
         assertEquals(List.of("frontend-design"), persisted.payload().get("skillIds"));
+        assertTrue(restored.provesIntentCoverage(CodeGenTypeEnum.FULL_STACK_PROJECT));
+        assertFalse(restored.provesIntentCoverage(CodeGenTypeEnum.BACKEND_PROJECT));
     }
 
     @Test
@@ -69,6 +72,7 @@ class GenerationRequirementsArtifactTest {
         assertEquals(List.of(), restored.goals());
         assertEquals(List.of(), restored.recipes());
         assertEquals(List.of(), restored.skills());
+        assertFalse(restored.provesIntentCoverage(CodeGenTypeEnum.VUE_PROJECT));
     }
 
     @Test
@@ -102,5 +106,24 @@ class GenerationRequirementsArtifactTest {
         );
 
         assertTrue(exception.getMessage().contains("validationMode"));
+    }
+
+    @Test
+    void legacyRecoveryDefaultsMustNotBecomeIntentCoverageEvidence() {
+        GenerationRequirementsArtifact legacyShaped = GenerationRequirementsArtifact.create(
+                false,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false,
+                false,
+                false,
+                "legacy_checkpoint",
+                "创建官网",
+                List.of(),
+                List.of("生成首页"),
+                List.of(),
+                List.of()
+        );
+
+        assertFalse(legacyShaped.provesIntentCoverage(CodeGenTypeEnum.VUE_PROJECT));
     }
 }

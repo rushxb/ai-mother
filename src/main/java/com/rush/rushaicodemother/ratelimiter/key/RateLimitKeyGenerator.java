@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.ratelimiter.annotation.RateLimit;
 import com.rush.rushaicodemother.ratelimiter.config.RateLimiterProperties;
+import com.rush.rushaicodemother.ratelimiter.enums.RateLimitType;
 import com.rush.rushaicodemother.ratelimiter.ip.ClientIpResolver;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -48,6 +49,10 @@ public class RateLimitKeyGenerator {
         StringBuilder key = new StringBuilder(properties.getKeyPrefix()).append(':');
         if (rateLimit.key() != null && !rateLimit.key().isBlank()) {
             key.append("scope:").append(rateLimit.key().trim()).append(':');
+        } else if (rateLimit.limitType() != RateLimitType.API) {
+            // USER/IP 维度只表示“谁”，不表示“哪个入口”。未显式命名的策略
+            // 必须自动加入方法范围，避免不同限流配置共用并反复改写同一 Redis limiter。
+            key.append("endpoint:").append(methodSignature(method)).append(':');
         }
 
         return switch (rateLimit.limitType()) {

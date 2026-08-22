@@ -36,6 +36,10 @@ import reactor.core.publisher.Flux;
 @RequestMapping("/app")
 public class AppGenerationController {
 
+    private static final String PROMPT_OPTIMIZATION_RATE_LIMIT_KEY = "prompt:optimize";
+    private static final int PROMPT_OPTIMIZATION_RATE_LIMIT = 30;
+    private static final int PROMPT_OPTIMIZATION_RATE_INTERVAL_SECONDS = 3600;
+
     private final AppService appService;
     private final UserService userService;
     private final GenerationSseEventMapper generationSseEventMapper;
@@ -48,8 +52,13 @@ public class AppGenerationController {
  * @return 统一封装的接口响应
  */
     @PostMapping("/optimize/prompt")
-    @RateLimit(limitType = RateLimitType.USER, rate = 10, rateInterval = 60,
-            message = "提示词优化请求过于频繁，请稍后再试")
+    @RateLimit(
+            key = PROMPT_OPTIMIZATION_RATE_LIMIT_KEY,
+            limitType = RateLimitType.USER,
+            rate = PROMPT_OPTIMIZATION_RATE_LIMIT,
+            rateInterval = PROMPT_OPTIMIZATION_RATE_INTERVAL_SECONDS,
+            message = "提示词优化请求过于频繁，请稍后再试"
+    )
     public BaseResponse<String> optimizePrompt(@Valid @RequestBody PromptOptimizeRequest request,
                                                HttpServletRequest servletRequest) {
         User loginUser = userService.getLoginUser(servletRequest);

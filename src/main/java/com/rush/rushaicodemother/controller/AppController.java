@@ -16,6 +16,8 @@ import com.rush.rushaicodemother.model.dto.app.AppUpdateRequest;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.OwnerAppVO;
 import com.rush.rushaicodemother.model.vo.PublicAppVO;
+import com.rush.rushaicodemother.ratelimiter.annotation.RateLimit;
+import com.rush.rushaicodemother.ratelimiter.enums.RateLimitType;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -41,12 +43,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/app")
 public class AppController {
 
+    private static final String APP_CREATION_RATE_LIMIT_KEY = "app:create";
+    private static final int APP_CREATION_RATE_LIMIT = 10;
+    private static final int APP_CREATION_RATE_INTERVAL_SECONDS = 3600;
+
     private final AppManagementApplicationService appManagementApplicationService;
     private final AppQueryApplicationService appQueryApplicationService;
     private final UserService userService;
 
     /** 创建应用。 */
     @PostMapping("/add")
+    @RateLimit(
+            key = APP_CREATION_RATE_LIMIT_KEY,
+            limitType = RateLimitType.USER,
+            rate = APP_CREATION_RATE_LIMIT,
+            rateInterval = APP_CREATION_RATE_INTERVAL_SECONDS,
+            message = "应用创建过于频繁，请稍后再试"
+    )
     public BaseResponse<Long> addApp(@Valid @RequestBody AppAddRequest requestBody,
                                      HttpServletRequest servletRequest) {
         User loginUser = userService.getLoginUser(servletRequest);

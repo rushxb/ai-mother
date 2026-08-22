@@ -17,6 +17,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -58,7 +59,31 @@ class RateLimitKeyGeneratorTest {
 
         String key = keyGenerator.generate(method, method.getAnnotation(RateLimit.class));
 
-        assertEquals("rate_limit:user:42", key);
+        assertEquals(
+                "rate_limit:endpoint:"
+                        + LimitedMethods.class.getName()
+                        + "#userMethod():user:42",
+                key
+        );
+    }
+
+    @Test
+    void unnamedUserPoliciesMustBeIsolatedByControllerMethod() throws Exception {
+        MockHttpServletRequest request = bindRequest();
+        when(userService.getLoginUser(request)).thenReturn(User.builder().id(42L).build());
+        Method firstMethod = LimitedMethods.class.getDeclaredMethod("userMethod");
+        Method secondMethod = LimitedMethods.class.getDeclaredMethod("anotherUserMethod");
+
+        String firstKey = keyGenerator.generate(
+                firstMethod,
+                firstMethod.getAnnotation(RateLimit.class)
+        );
+        String secondKey = keyGenerator.generate(
+                secondMethod,
+                secondMethod.getAnnotation(RateLimit.class)
+        );
+
+        assertNotEquals(firstKey, secondKey);
     }
 
     @Test
@@ -70,7 +95,12 @@ class RateLimitKeyGeneratorTest {
 
         String key = keyGenerator.generate(method, method.getAnnotation(RateLimit.class));
 
-        assertEquals("rate_limit:ip:203.0.113.7", key);
+        assertEquals(
+                "rate_limit:endpoint:"
+                        + LimitedMethods.class.getName()
+                        + "#userMethod():ip:203.0.113.7",
+                key
+        );
     }
 
     @Test
@@ -115,6 +145,10 @@ class RateLimitKeyGeneratorTest {
 
         @RateLimit(limitType = RateLimitType.USER)
         void userMethod() {
+        }
+
+        @RateLimit(limitType = RateLimitType.USER)
+        void anotherUserMethod() {
         }
 
         @RateLimit(limitType = RateLimitType.IP)

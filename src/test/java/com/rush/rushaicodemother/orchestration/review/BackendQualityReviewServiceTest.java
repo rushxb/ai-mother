@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.review;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
@@ -36,6 +37,31 @@ class BackendQualityReviewServiceTest {
         assertFalse(result.passed());
         assertTrue(result.blockers().stream()
                 .anyMatch(message -> message.contains("API 字段契约")));
+    }
+
+    @Test
+    void safetyRequirementMentioningForbiddenSqlMustNotBeTreatedAsExecutableSql() {
+        GenerationAgentContext context = backendContext();
+        context.putArtifacts(List.of(ApiContractArtifact.create(
+                false,
+                "生成商品管理后端",
+                new ApiContractArtifact.ApiDomain(
+                        "product",
+                        "Product",
+                        "products",
+                        List.of(
+                                new ApiContractArtifact.ApiField("id", "int64", "integer", "主键"),
+                                new ApiContractArtifact.ApiField("name", "string", "text", "名称")
+                        )
+                )
+        ).toArtifact()));
+
+        BackendQualityReviewService.BackendReviewResult result = service.review(
+                context,
+                "SQLite Repository 参数化 SQL internal/modules internal/domain，禁止执行 DROP TABLE"
+        );
+
+        assertTrue(result.passed());
     }
 
     private GenerationAgentContext backendContext() {

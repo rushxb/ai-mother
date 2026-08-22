@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchApplyServiceTestFactory;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.template.TemplateServiceTestFixture;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -88,7 +89,10 @@ class CreateRecipeRendererServiceTest {
                         && operation.newContent().contains("create table if not exists courses")));
 
         CreatePreWriteValidationService validationService =
-                new CreatePreWriteValidationService(new StructuredSyntaxValidationService());
+                new CreatePreWriteValidationService(
+                        new StructuredSyntaxValidationService(),
+                        new GeneratedSqlSafetyPolicy()
+                );
         CreatePreWriteValidationService.ValidationResult validationResult =
                 validationService.validate(result.patchOperations());
         assertTrue(validationResult.valid(), validationResult.errors().toString());

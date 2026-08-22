@@ -31,21 +31,6 @@ public class PatchStructuredContentService {
         };
     }
 
-    /**
- * 返回{@code contains}{@code Dangerous}{@code Sql}。
- *
- * @param sql {@code sql} 对应的调用参数
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    public boolean containsDangerousSql(String sql) {
-        String normalized = StrUtil.blankToDefault(sql, "").toLowerCase();
-        return normalized.contains("drop table")
-                || normalized.contains("drop database")
-                || normalized.contains("truncate table")
-                || normalized.contains("delete from users")
-                || normalized.contains("pragma writable_schema");
-    }
-
     /** 将输入转换为{@code Go}导入。 */
     private String transformGoImport(String content, String importPath) throws PatchWorkspaceException {
         String normalizedImport = StrUtil.blankToDefault(importPath, "").trim();

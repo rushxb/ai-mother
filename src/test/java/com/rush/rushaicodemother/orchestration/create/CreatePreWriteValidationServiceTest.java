@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.create;
 
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -11,7 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CreatePreWriteValidationServiceTest {
 
-    private final CreatePreWriteValidationService service = new CreatePreWriteValidationService(new StructuredSyntaxValidationService());
+    private final CreatePreWriteValidationService service = new CreatePreWriteValidationService(
+            new StructuredSyntaxValidationService(),
+            new GeneratedSqlSafetyPolicy()
+    );
 
     @Test
     void shouldAcceptValidVueAndGoStructuredPatches() {
@@ -60,5 +64,46 @@ class CreatePreWriteValidationServiceTest {
         assertTrue(result.errors().stream().anyMatch(error -> error.contains("invalid_json")));
         assertTrue(result.errors().stream().anyMatch(error -> error.contains("secret_or_private_address_detected")));
         assertTrue(result.errors().stream().anyMatch(error -> error.contains("dangerous_sql")));
+    }
+
+    @Test
+    void sqliteWritableSchemaPragmaMustBeRejectedBeforeWrite() {
+        CreatePreWriteValidationService.ValidationResult result = service.validate(List.of(
+                PatchOperation.appendSqlMigration(
+                        "sql/schema.sql",
+                        "PRAGMA writable_schema = ON;"
+                )
+        ));
+
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(error -> error.contains("dangerous_sql")));
+    }
+
+    @Test
+    void sqlCommentsAndStringLiteralsMustNotBeTreatedAsExecutableStatements() {
+        CreatePreWriteValidationService.ValidationResult result = service.validate(List.of(
+                PatchOperation.appendSqlMigration(
+                        "sql/001_audit_log.sql",
+                        """
+                                -- 安全规范：禁止 DROP TABLE
+                                INSERT INTO audit_logs(message) VALUES ('DROP TABLE is prohibited');
+                                """
+                )
+        ));
+
+        assertTrue(result.valid(), result.errors().toString());
+    }
+
+    @Test
+    void unterminatedSqlLiteralMustFailClosedBeforeWrite() {
+        CreatePreWriteValidationService.ValidationResult result = service.validate(List.of(
+                PatchOperation.appendSqlMigration(
+                        "sql/002_invalid.sql",
+                        "INSERT INTO audit_logs(message) VALUES ('unterminated);"
+                )
+        ));
+
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(error -> error.contains("invalid_sql")));
     }
 }

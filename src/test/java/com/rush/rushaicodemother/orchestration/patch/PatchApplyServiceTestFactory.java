@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 import com.rush.rushaicodemother.config.PatchExecutionProperties;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -36,7 +37,8 @@ public final class PatchApplyServiceTestFactory {
                 workspaceFileService,
                 structuredContentService,
                 frontendImportPolicy,
-                new GeneratedWorkspaceTrustPolicy()
+                new GeneratedWorkspaceTrustPolicy(),
+                new GeneratedSqlSafetyPolicy()
         );
         PatchOperationExecutor operationExecutor = new PatchOperationExecutor(
                 workspaceFileService,

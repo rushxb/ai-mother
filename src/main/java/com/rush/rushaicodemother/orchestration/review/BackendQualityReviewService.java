@@ -52,10 +52,6 @@ public class BackendQualityReviewService {
         } else {
             passes.add("已锁定动态模块目录结构");
         }
-        if (containsDangerousSql(normalizedPrompt)) {
-            blockers.add("生成规范包含危险 SQL 操作");
-        }
-
         GenerationArtifact apiContract = context.getArtifact(ApiContractArtifact.KEY).orElse(null);
         if (apiContract == null) {
             blockers.add("缺少 API 字段契约 artifact");
@@ -84,13 +80,6 @@ public class BackendQualityReviewService {
 
     private boolean requiresBackendReview(CodeGenTypeEnum targetType) {
         return targetType == CodeGenTypeEnum.BACKEND_PROJECT || targetType == CodeGenTypeEnum.FULL_STACK_PROJECT;
-    }
-
-    private boolean containsDangerousSql(String text) {
-        return text.contains("drop table")
-                || text.contains("drop database")
-                || text.contains("truncate table")
-                || text.contains("pragma writable_schema");
     }
 
     public record BackendReviewResult(

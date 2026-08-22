@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceFileService;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceTarget;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class AgentEditBackendValidationService {
     private final PatchWorkspaceFileService workspaceFileService;
     private final PatchExecutionProperties patchExecutionProperties;
     private final GoProjectBuilder goProjectBuilder;
+    private final GeneratedSqlSafetyPolicy sqlSafetyPolicy;
 
     /**
  * 校验{@code ate}是否有效。
@@ -169,11 +171,7 @@ public class AgentEditBackendValidationService {
     }
 
     private void validateSql(String relativePath, String content, List<String> errors) {
-        String lower = StrUtil.blankToDefault(content, "").toLowerCase();
-        if (lower.contains("drop database")
-                || lower.contains("drop table")
-                || lower.contains("truncate table")
-                || lower.contains("pragma writable_schema")) {
+        if (!sqlSafetyPolicy.validateAll(content).isEmpty()) {
             errors.add(relativePath + ":包含危险 SQL");
         }
     }

@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchWorkspaceFileService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
@@ -61,6 +62,21 @@ class AgentEditBackendValidationServiceTest {
         );
 
         assertEquals("success", result.status());
+    }
+
+    @Test
+    void sqlKeywordsSeparatedByCommentsMustStillBeRejected() throws Exception {
+        Path root = workspaceRoot("obfuscated-sql");
+        Files.writeString(root.resolve("schema.sql"), "DROP /* generated */ TABLE users;");
+
+        BackgroundValidationService.ValidationResult result = service(new PatchExecutionProperties()).validate(
+                "task-obfuscated-sql",
+                workspace(root, CodeGenTypeEnum.BACKEND_PROJECT),
+                List.of(PatchOperation.modify("schema.sql", "ignored"))
+        );
+
+        assertEquals("failed", result.status());
+        assertTrue(result.message().contains("schema.sql:包含危险 SQL"));
     }
 
     @Test
@@ -258,7 +274,8 @@ class AgentEditBackendValidationServiceTest {
         return new AgentEditBackendValidationService(
                 new PatchWorkspaceFileService(properties),
                 properties,
-                goProjectBuilder
+                goProjectBuilder,
+                new GeneratedSqlSafetyPolicy()
         );
     }
 

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.config.PatchExecutionProperties;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -522,6 +523,30 @@ class GenerationPatchApplyServiceTest {
     }
 
     @Test
+    void structuredSqlPatchMustRejectCommentObfuscatedDestructiveStatement() throws Exception {
+        Path root = cleanTestRoot("obfuscated-sql-migration");
+        Files.createDirectories(root.resolve("sql"));
+        Path schema = root.resolve("sql/schema.sql");
+        Files.writeString(schema, "CREATE TABLE IF NOT EXISTS users(id INTEGER);\n");
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                15L,
+                "task-15",
+                root,
+                List.of(PatchOperation.appendSqlMigration(
+                        "sql/schema.sql",
+                        "DROP /* generated */ TABLE users;"
+                )),
+                "sql_safety_test"
+        );
+
+        assertEquals("rejected", result.status());
+        assertTrue(result.rejectedOperations().stream()
+                .anyMatch(reason -> reason.contains("dangerous_sql_migration")));
+        assertEquals("CREATE TABLE IF NOT EXISTS users(id INTEGER);\n", Files.readString(schema));
+    }
+
+    @Test
     void shouldRejectBatchWhenRollbackSnapshotBudgetIsExceeded() throws Exception {
         Path root = cleanTestRoot("rollback-snapshot-limit");
         Files.createDirectories(root);
@@ -564,7 +589,8 @@ class GenerationPatchApplyServiceTest {
                         workspaceFileService,
                         structuredContentService,
                         new FrontendPatchImportPolicy(workspaceFileService),
-                        new GeneratedWorkspaceTrustPolicy()
+                        new GeneratedWorkspaceTrustPolicy(),
+                        new GeneratedSqlSafetyPolicy()
                 ),
                 new PatchOperationExecutor(
                         workspaceFileService,

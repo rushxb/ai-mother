@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationStoppedException;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService;
 import com.rush.rushaicodemother.orchestration.create.recipe.CreateRecipeRendererTestFactory;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
 import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
@@ -29,6 +30,7 @@ import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemp
 import com.rush.rushaicodemother.orchestration.template.bootstrap.VueGenerationTemplateBootstrapAdapter;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -95,8 +97,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(
-                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 null,
@@ -161,8 +162,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(
-                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 null,
@@ -231,8 +231,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(
-                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 null,
@@ -310,8 +309,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(
-                        new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 null,
@@ -371,7 +369,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 recipeRendererService,
                 null,
@@ -436,7 +434,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 recipeRendererService,
                 null,
@@ -472,7 +470,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 null,
@@ -512,7 +510,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 null,
@@ -573,7 +571,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 backendBootstrapService,
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 portAllocator,
@@ -621,7 +619,7 @@ class CreateTemplateRuntimeTest {
         CreateTemplateRuntime runtime = runtime(
                 mock(BackendProjectTemplateBootstrapService.class),
                 new CreatePatchMergeService(),
-                new CreatePreWriteValidationService(new com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService()),
+                preWriteValidationService(),
                 createSpecService,
                 CreateRecipeRendererTestFactory.create(),
                 null,
@@ -897,6 +895,13 @@ class CreateTemplateRuntimeTest {
                 "test",
                 "test",
                 ""
+        );
+    }
+
+    private CreatePreWriteValidationService preWriteValidationService() {
+        return new CreatePreWriteValidationService(
+                new StructuredSyntaxValidationService(),
+                new GeneratedSqlSafetyPolicy()
         );
     }
 

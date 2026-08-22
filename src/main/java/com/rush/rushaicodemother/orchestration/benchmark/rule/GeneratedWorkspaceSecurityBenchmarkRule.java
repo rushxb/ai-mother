@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkVali
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceSnapshot;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.springframework.stereotype.Component;
 
@@ -57,13 +58,16 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
 
     private final GenerationBenchmarkWorkspaceInspector inspector;
     private final GeneratedWorkspaceTrustPolicy workspaceTrustPolicy;
+    private final GeneratedSqlSafetyPolicy sqlSafetyPolicy;
 
     public GeneratedWorkspaceSecurityBenchmarkRule(
             GenerationBenchmarkWorkspaceInspector inspector,
-            GeneratedWorkspaceTrustPolicy workspaceTrustPolicy
+            GeneratedWorkspaceTrustPolicy workspaceTrustPolicy,
+            GeneratedSqlSafetyPolicy sqlSafetyPolicy
     ) {
         this.inspector = inspector;
         this.workspaceTrustPolicy = workspaceTrustPolicy;
+        this.sqlSafetyPolicy = sqlSafetyPolicy;
     }
 
     @Override
@@ -110,7 +114,10 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
                 violations.add("sensitive_file_present");
                 continue;
             }
-            if (!SOURCE_EXTENSIONS.contains(extension(normalizedPath))) {
+            String fileExtension = extension(normalizedPath);
+            boolean sourceFile = SOURCE_EXTENSIONS.contains(fileExtension);
+            boolean sqlFile = "sql".equals(fileExtension);
+            if (!sourceFile && !sqlFile) {
                 continue;
             }
             Path file = inspector.resolve(workspace.canonicalRootPath(), relativePath);
@@ -125,7 +132,12 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
             } catch (Exception failure) {
                 throw new IllegalStateException("unable to inspect benchmark security file size", failure);
             }
-            inspectSource(inspector.readUtf8(workspace.canonicalRootPath(), relativePath), violations);
+            String content = inspector.readUtf8(workspace.canonicalRootPath(), relativePath);
+            if (sqlFile) {
+                violations.addAll(sqlSafetyPolicy.validateAll(content));
+            } else {
+                inspectSource(content, violations);
+            }
         }
         inspectDeletedWorkspaceControls(current.fileDigests(), baselineFiles, violations);
         return new GenerationBenchmarkRuleResult(

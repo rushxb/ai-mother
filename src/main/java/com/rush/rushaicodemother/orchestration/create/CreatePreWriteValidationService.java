@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.orchestration.codegraph.StructuredSyntaxValidationService;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -37,9 +38,12 @@ public class CreatePreWriteValidationService {
     );
 
     private final StructuredSyntaxValidationService syntaxValidationService;
+    private final GeneratedSqlSafetyPolicy sqlSafetyPolicy;
 
-    public CreatePreWriteValidationService(StructuredSyntaxValidationService syntaxValidationService) {
+    public CreatePreWriteValidationService(StructuredSyntaxValidationService syntaxValidationService,
+                                           GeneratedSqlSafetyPolicy sqlSafetyPolicy) {
         this.syntaxValidationService = syntaxValidationService;
+        this.sqlSafetyPolicy = sqlSafetyPolicy;
     }
 
     /**
@@ -175,8 +179,12 @@ public class CreatePreWriteValidationService {
     /** 校验{@code ate}{@code Sql}是否有效。 */
     private void validateSql(String relativePath, String content, List<String> errors) {
         String lower = StrUtil.blankToDefault(content, "").toLowerCase(Locale.ROOT);
-        if (lower.contains("drop table") || lower.contains("drop database") || lower.contains("truncate table")) {
+        List<String> safetyViolations = sqlSafetyPolicy.validateAll(content);
+        if (safetyViolations.stream().anyMatch(reason -> reason.startsWith("generated_sql_forbidden_statement:"))) {
             errors.add(relativePath + ":dangerous_sql");
+        }
+        if (safetyViolations.stream().anyMatch(reason -> reason.startsWith("generated_sql_malformed:"))) {
+            errors.add(relativePath + ":invalid_sql");
         }
         if (lower.contains("create table") && !lower.contains("if not exists")) {
             errors.add(relativePath + ":create_table_without_if_not_exists");

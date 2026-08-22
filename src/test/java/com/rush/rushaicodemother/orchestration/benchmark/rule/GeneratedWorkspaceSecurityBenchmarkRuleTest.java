@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceSnapshot;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -103,6 +104,23 @@ class GeneratedWorkspaceSecurityBenchmarkRuleTest {
     }
 
     @Test
+    void generatedSqlFileMustUseProductionSqlSafetyPolicy() {
+        GenerationWorkspace workspace = workspace("unsafe-sql");
+        inspector.writeUtf8(
+                workspace.canonicalRootPath(),
+                "sql/schema.sql",
+                "PRAGMA writable_schema = ON;"
+        );
+
+        GenerationBenchmarkRuleResult result = rule().evaluate(
+                task(), workspace, emptyBaseline(workspace));
+
+        assertFalse(result.passed());
+        assertTrue(result.violations().contains(
+                "generated_sql_forbidden_statement:pragma_writable_schema"));
+    }
+
+    @Test
     void unchangedTrustedTemplateLockfileMustNotBeRatedAsGeneratedContent() {
         GenerationWorkspace workspace = workspace("trusted-template-lockfile");
         inspector.writeUtf8(workspace.canonicalRootPath(), "pnpm-lock.yaml", "lockfileVersion: '9.0'");
@@ -132,7 +150,8 @@ class GeneratedWorkspaceSecurityBenchmarkRuleTest {
     private GeneratedWorkspaceSecurityBenchmarkRule rule() {
         return new GeneratedWorkspaceSecurityBenchmarkRule(
                 inspector,
-                new GeneratedWorkspaceTrustPolicy()
+                new GeneratedWorkspaceTrustPolicy(),
+                new GeneratedSqlSafetyPolicy()
         );
     }
 

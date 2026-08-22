@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.patch;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.security.workspace.GeneratedSqlSafetyPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,7 @@ public class PatchOperationValidator {
     private final PatchStructuredContentService structuredContentService;
     private final FrontendPatchImportPolicy frontendImportPolicy;
     private final GeneratedWorkspaceTrustPolicy generatedWorkspaceTrustPolicy;
+    private final GeneratedSqlSafetyPolicy sqlSafetyPolicy;
 
     /**
  * 校验{@code ate}是否有效。
@@ -194,7 +196,7 @@ public class PatchOperationValidator {
             return validateStructuredOperation(action, operation, target, ".go", "go_structured_target_missing");
         }
         if (PatchOperation.ACTION_APPEND_SQL_MIGRATION.equals(action)) {
-            if (structuredContentService.containsDangerousSql(operation.newContent())) {
+            if (!sqlSafetyPolicy.validateAll(operation.newContent()).isEmpty()) {
                 return "dangerous_sql_migration";
             }
             return validateStructuredOperation(action, operation, target, ".sql", "sql_migration_content_missing");
